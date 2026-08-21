@@ -6,7 +6,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -725,11 +724,9 @@ public sealed class PlaylistWorkspaceViewModelTests
             (_, _) => fetchGate.Task);
 
         Assert.IsFalse(loadTask.IsCompleted);
-        Assert.IsTrue(IsExternalTableListLoading(workspace));
         fetchGate.SetResult([table]);
         await loadTask.ConfigureAwait(false);
 
-        Assert.IsFalse(IsExternalTableListLoading(workspace));
         Assert.IsNotNull(workspace.BMSExternalTableListExt);
         Assert.AreEqual("Deferred", workspace.BMSExternalTableListExt.Children[0].name);
         Assert.AreEqual("Loaded", workspace.BMSExternalTableListExt.Children[0].Children[0].name);
@@ -766,7 +763,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         await cancellationObserved.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
         await loadTask.ConfigureAwait(false);
 
-        Assert.IsFalse(IsExternalTableListLoading(workspace));
         Assert.IsNull(workspace.BMSExternalTableListExt);
     }
 
@@ -809,16 +805,7 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         Assert.AreEqual("Current", workspace.BMSExternalTableListExt.Children[0].name);
         Assert.AreEqual("Second", workspace.BMSExternalTableListExt.Children[0].Children[0].name);
-        Assert.IsFalse(IsExternalTableListLoading(workspace));
-    }
-
-    private static bool IsExternalTableListLoading(PlaylistWorkspaceViewModel workspace)
-    {
-        FieldInfo field = typeof(PlaylistWorkspaceViewModel).GetField(
-            "isLoadingExternalTableList",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(field);
-        return (bool)field.GetValue(workspace);
+        Assert.IsNotNull(workspace.BMSExternalTableListExt);
     }
 
     [TestMethod]
@@ -991,10 +978,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
-            BMSLibrary library = new TestBmsLibrary(songDbPath);
-            typeof(BMSLibrary)
-                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(library, 123);
+            BMSLibrary library = CreateLibraryWithLr2Id(songDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
@@ -1087,10 +1071,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSLibrary library = new TestBmsLibrary(songDbPath);
-            typeof(BMSLibrary)
-                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(library, 123);
+            BMSLibrary library = CreateLibraryWithLr2Id(songDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistLibraryProvider: () => library);
@@ -2115,10 +2096,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
-            BMSLibrary library = new TestBmsLibrary(databasePath);
-            typeof(BMSLibrary)
-                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(library, 123);
+            BMSLibrary library = CreateLibraryWithLr2Id(databasePath);
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
@@ -2158,11 +2136,16 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            BMSLibrary library = new TestBmsLibrary(databasePath);
-            typeof(BMSLibrary)
-                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(library, 123);
-            var playlist = new TestBmsPlaylist(databasePath)
+            BMSLibrary library = CreateLibraryWithLr2Id(databasePath);
+            string lr2RootPath = Path.Combine(Path.GetDirectoryName(databasePath)!, "lr2");
+            string configPath = Path.Combine(lr2RootPath, "LR2files", "Config", "config.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
+            File.WriteAllText(
+                configPath,
+                "<config><system><customfolder>0</customfolder><titleflash>24</titleflash></system><jukebox /></config>",
+                Encoding.UTF8);
+            LR2Config config = new(configPath);
+            var playlist = new TestBmsPlaylist(databasePath, () => config)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -2181,27 +2164,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
             Assert.IsFalse(await workspace.EnqueueRecommendedPlaylistImportAsync(
                 "bmseeker:table.recommended?mode=update"));
-            IDisposable? initializationGuard = null;
-            dialogs.ConfirmationFactory = _ =>
-            {
-                object initializationLock = typeof(BMSPlaylist)
-                    .GetField("rwlockBMSTablesInitializeMin", BindingFlags.Instance | BindingFlags.NonPublic)!
-                    .GetValue(playlist)!;
-                initializationGuard = (IDisposable)initializationLock
-                    .GetType()
-                    .GetMethod("GetWriterGuard", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
-                    .Invoke(initializationLock, null)!;
-                return UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
-            };
-            try
-            {
-                Assert.IsFalse(await workspace.EnqueueRecommendedPlaylistImportAsync(
-                    "bmseeker:table.recommended?mode=update"));
-            }
-            finally
-            {
-                initializationGuard?.Dispose();
-            }
             Assert.IsNotNull(dialogs.LastConfirmationRequest);
             StringAssert.Contains(
                 dialogs.LastConfirmationRequest.MessageBoxText,
@@ -2219,6 +2181,122 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public async Task PlaylistWorkspaceRecommendedImportRechecksInitializationLockAfterConfirmation()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        Exception? primaryFailure = null;
+        try
+        {
+            BMSLibrary library = CreateLibraryWithLr2Id(databasePath);
+            string lr2RootPath = Path.Combine(Path.GetDirectoryName(databasePath)!, "lr2");
+            string configPath = Path.Combine(lr2RootPath, "LR2files", "Config", "config.xml");
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
+            File.WriteAllText(
+                configPath,
+                "<config><system><customfolder>0</customfolder><titleflash>24</titleflash></system><jukebox /></config>",
+                Encoding.UTF8);
+            LR2Config config = new(configPath);
+            var playlist = new TestBmsPlaylist(databasePath, () => config)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([
+                    new BMSTable { playlist_id = 8201, name = "initialization barrier" }])
+            };
+            var dialogs = new BlockingConfirmationDialogService();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                playlistWorkspaceDialogService: dialogs);
+            workspace.RefreshPlaylistTreeTables(playlist);
+
+            var initializationEntered = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseInitialization = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            playlist.PropertyChanged += (_, eventArgs) =>
+            {
+                if (eventArgs.PropertyName == nameof(BMSPlaylist.IsWriteLockHeldBMSTablesInitializeMin)
+                    && playlist.IsWriteLockHeldBMSTablesInitializeMin
+                    && initializationEntered.TrySetResult(true))
+                {
+                    releaseInitialization.Task
+                        .WaitAsync(TimeSpan.FromSeconds(5))
+                        .GetAwaiter()
+                        .GetResult();
+                }
+            };
+
+            Task<bool>? importTask = null;
+            Task? initializationTask = null;
+            try
+            {
+                importTask = workspace.EnqueueRecommendedPlaylistImportAsync(
+                    "bmseeker:table.recommended?mode=update");
+                initializationTask = Task.Run(() => playlist.Initialize(
+                    reloadExtPlaylist: false,
+                    queueBeatorajaBmtExportAfterHydration: false));
+
+                await Task.WhenAll(
+                        dialogs.ConfirmationShown.Task,
+                        initializationEntered.Task)
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsTrue(initializationEntered.Task.IsCompletedSuccessfully);
+                Assert.IsTrue(playlist.IsWriteLockHeldBMSTablesInitializeMin);
+                Assert.IsFalse(importTask.IsCompleted, "The import must remain in confirmation while initialization is active.");
+
+                dialogs.ReleaseConfirmation();
+                Assert.IsFalse(await importTask, "The second lock check must reject enqueueing after initialization begins.");
+                Assert.IsFalse(initializationTask.IsCompleted, "The scheduler barrier must keep initialization active until released.");
+
+                releaseInitialization.TrySetResult(true);
+                await Task.WhenAll(importTask, initializationTask)
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsFalse(playlist.IsWriteLockHeldBMSTablesInitializeMin);
+            }
+            catch (Exception failure)
+            {
+                primaryFailure = failure;
+                throw;
+            }
+            finally
+            {
+                dialogs.ReleaseConfirmation();
+                releaseInitialization.TrySetResult(true);
+                Task[] pendingTasks = [
+                    .. new[] { importTask, initializationTask }
+                        .Where(task => task != null)
+                        .Cast<Task>()];
+                if (pendingTasks.Length > 0)
+                {
+                    try
+                    {
+                        await Task.WhenAll(pendingTasks).WaitAsync(TimeSpan.FromSeconds(5));
+                    }
+                    catch when (primaryFailure != null)
+                    {
+                    }
+                }
+            }
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+            }
+            catch when (primaryFailure != null)
+            {
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task PlaylistWorkspaceRecommendedImportPropagatesUnavailableConfirmation()
     {
         string databasePath = Path.Combine(
@@ -2230,10 +2308,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         File.WriteAllBytes(databasePath, []);
         try
         {
-            BMSLibrary library = new TestBmsLibrary(databasePath);
-            typeof(BMSLibrary)
-                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(library, 123);
+            BMSLibrary library = CreateLibraryWithLr2Id(databasePath);
             var playlist = new TestBmsPlaylist(databasePath)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
@@ -3551,7 +3626,100 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.IsTrue(completed[0].WasSkipped);
             Assert.IsFalse(completed[0].Succeeded);
             Assert.IsFalse(completed[0].PublishesReferenceReceipt);
-            Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
+             Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
+         }
+         finally
+         {
+             if (Directory.Exists(tempDirectory))
+             {
+                 Directory.Delete(tempDirectory, recursive: true);
+             }
+         }
+     }
+
+    [TestMethod]
+    public async Task PlaylistExternalSyncReceiptSubscription_FollowsTypedPlaylistStoreReplacement()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string firstDirectory = Path.Combine(tempDirectory, "first");
+            string secondDirectory = Path.Combine(tempDirectory, "second");
+            Directory.CreateDirectory(firstDirectory);
+            Directory.CreateDirectory(secondDirectory);
+            string firstSongDbPath = Path.Combine(firstDirectory, "song.db");
+            string secondSongDbPath = Path.Combine(secondDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(firstSongDbPath))
+            using (var __ = new LR2SongDBExtended(secondSongDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(firstSongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(secondSongDbPath);
+
+            string firstHeaderPath = Path.Combine(firstDirectory, "table.json");
+            string secondHeaderPath = Path.Combine(secondDirectory, "table.json");
+            string firstScorePath = Path.Combine(firstDirectory, "score.json");
+            string secondScorePath = Path.Combine(secondDirectory, "score.json");
+            File.WriteAllText(firstScorePath, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"first\",\"level\":\"1\"}]", Encoding.UTF8);
+            File.WriteAllText(secondScorePath, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"second\",\"level\":\"1\"}]", Encoding.UTF8);
+            File.WriteAllText(firstHeaderPath, "{\"name\":\"first\",\"symbol\":\"F\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
+            File.WriteAllText(secondHeaderPath, "{\"name\":\"second\",\"symbol\":\"S\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
+
+            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath);
+            BMSTable firstTable = await firstPlaylist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(firstHeaderPath));
+            firstTable.playlist_id = 8101;
+            firstPlaylist.BMSTables = new ObservableCollection<BMSTable>([firstTable]);
+            PersistPlaylistAggregate(firstSongDbPath, firstTable);
+
+            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath);
+            BMSTable secondTable = await secondPlaylist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(secondHeaderPath));
+            secondTable.playlist_id = 8102;
+            secondPlaylist.BMSTables = new ObservableCollection<BMSTable>([secondTable]);
+            PersistPlaylistAggregate(secondSongDbPath, secondTable);
+
+            BMSPlaylist currentPlaylist = firstPlaylist;
+            BMSLibrary currentLibrary = new TestBmsLibrary(firstSongDbPath);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => firstPlaylist,
+                playlistLibraryProvider: () => currentLibrary);
+            int sortInvalidationCount = 0;
+            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => sortInvalidationCount++;
+            workspace.RefreshPlaylistTreeTables(firstPlaylist, currentLibrary);
+
+            File.WriteAllText(firstHeaderPath, "{\"name\":\"first-updated\",\"symbol\":\"F2\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
+            firstTable.header_sha256 = null;
+
+            currentPlaylist = secondPlaylist;
+            currentLibrary = new TestBmsLibrary(secondSongDbPath);
+            workspace.RefreshPlaylistTreeTables(secondPlaylist, currentLibrary);
+
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> oldResults =
+                await firstPlaylist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                    [firstTable],
+                    reason: "typed_old_store_receipt",
+                    publishReferenceReceipts: true);
+
+            Assert.IsTrue(oldResults.Single().Succeeded);
+            Assert.AreEqual(0, sortInvalidationCount, "Receipts from the retired store must be ignored.");
+            Assert.AreEqual("second", workspace.PlaylistTreeTables.Single().name);
+
+            File.WriteAllText(secondScorePath, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"second-updated\",\"level\":\"1\"}]", Encoding.UTF8);
+            secondTable.header_sha256 = null;
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> currentResults =
+                await secondPlaylist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                    [secondTable],
+                    reason: "typed_current_store_receipt",
+                    publishReferenceReceipts: true);
+
+            Assert.IsTrue(currentResults.Single().Succeeded);
+            Assert.AreEqual(1, sortInvalidationCount, "The active store receipt must reach the workspace.");
+            TestUiDispatcherHost.Drain();
+            Assert.AreEqual("second-updated", secondPlaylist.BMSTables.Single().entries.Single().title);
         }
         finally
         {
@@ -3563,13 +3731,19 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void PlaylistExternalSyncReceiptSubscription_FollowsPlaylistStoreReplacement()
+    public async Task PlaylistTreeStoreReplacement_WaitsForCurrentHydrationApplyThroughTypedReceipt()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
             nameof(PlaylistWorkspaceViewModelTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        Task? apply = null;
+        Task? replacement = null;
+        Task? hydration = null;
+        Exception? primaryFailure = null;
+        var releaseApply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseReplacementNotification = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             string firstDirectory = Path.Combine(tempDirectory, "first");
@@ -3586,137 +3760,176 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistPersistenceRepository.EnsureSchema(secondSongDbPath);
             var firstPlaylist = new TestBmsPlaylist(firstSongDbPath)
             {
-                BMSTables = new ObservableCollection<BMSTable>([new BMSTable { name = "first" }])
+                BMSTables = new ObservableCollection<BMSTable>([
+                    new BMSTable { playlist_id = 8301, name = "first" }])
             };
-            var secondTable = new BMSTable { name = "second" };
             var secondPlaylist = new TestBmsPlaylist(secondSongDbPath)
             {
-                BMSTables = new ObservableCollection<BMSTable>([secondTable])
+                BMSTables = new ObservableCollection<BMSTable>([
+                    new BMSTable { playlist_id = 8302, name = "second" }])
             };
-            BMSPlaylist currentPlaylist = firstPlaylist;
-            BMSLibrary currentLibrary = new TestBmsLibrary(firstSongDbPath);
+            firstPlaylist.BMSTables[0].MarkEntriesNotLoaded();
+            var applyEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var replacementStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Func<Task>? scheduledHydration = null;
+            PlaylistHydrationCompletionReceipt? requestReceipt = null;
+            ObservableCollection<BMSTable>? requestTables = null;
+            long requestGeneration = 0L;
+            int requestedVersion = 0;
+            firstPlaylist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                scheduledHydration = work;
+                return true;
+            };
+            var firstLibrary = new TestBmsLibrary(firstSongDbPath);
             var secondLibrary = new TestBmsLibrary(secondSongDbPath);
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => currentPlaylist,
-                playlistLibraryProvider: () => currentLibrary);
-            int sortInvalidationCount = 0;
-            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => sortInvalidationCount++;
-
-            workspace.RefreshPlaylistTreeTables(firstPlaylist, currentLibrary);
-            currentPlaylist = secondPlaylist;
-            currentLibrary = secondLibrary;
-            workspace.RefreshPlaylistTreeTables(secondPlaylist, currentLibrary);
-
-            PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt receipt = new(
-                new BMSTable { name = "old" },
-                secondTable,
-                updated: true,
-                referenceEntriesChanged: false,
-                oldEntriesSnapshot: null,
-                newEntriesSnapshot: null,
-                uri: null,
-                reason: "test");
-            FieldInfo eventField = typeof(PlaylistExternalSyncOwner).GetField(
-                "PlaylistTableUpdateReceiptPublished",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(eventField);
-            MulticastDelegate? oldOwnerHandlers = eventField.GetValue(firstPlaylist.ExternalSyncOwner) as MulticastDelegate;
-            oldOwnerHandlers?.DynamicInvoke(
-                firstPlaylist.ExternalSyncOwner,
-                new PlaylistExternalSyncOwner.PlaylistTableUpdateReceiptPublishedEventArgs(receipt));
-            Assert.AreEqual(0, sortInvalidationCount);
-
-            MulticastDelegate? currentOwnerHandlers = eventField.GetValue(secondPlaylist.ExternalSyncOwner) as MulticastDelegate;
-            Assert.IsNotNull(currentOwnerHandlers);
-            currentOwnerHandlers!.DynamicInvoke(
-                secondPlaylist.ExternalSyncOwner,
-                new PlaylistExternalSyncOwner.PlaylistTableUpdateReceiptPublishedEventArgs(receipt));
-            Assert.AreEqual(1, sortInvalidationCount);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
+            BMSLibrary currentLibrary = firstLibrary;
+            int replacementRouteExpected = 0;
+            var replacementCallStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var replacementRouteEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(
+                () => firstPlaylist,
+                () =>
+                {
+                    // Resolving the library only proves that the public route
+                    // was scheduled. The replacement completion assertion below
+                    // uses the typed catalog-notification port, which is reached
+                    // after AttachPlaylistTreeStore has invalidated the receipt.
+                    if (Volatile.Read(ref replacementRouteExpected) == 1)
+                    {
+                        replacementCallStarted.TrySetResult(true);
+                    }
+                    return currentLibrary;
+                });
+            workspace.ConfigureCatalogNotificationQueue(action =>
             {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
+                if (Volatile.Read(ref replacementRouteExpected) == 1)
+                {
+                    // PublishPlaylistCatalogChanged is invoked only after the
+                    // store replacement and receipt invalidation have completed.
+                    // Hold this owner-scoped typed port so the replacement task
+                    // cannot complete before the test observes that boundary.
+                    replacementRouteEntered.TrySetResult(true);
+                    releaseReplacementNotification.Task
+                        .WaitAsync(TimeSpan.FromSeconds(5))
+                        .GetAwaiter()
+                        .GetResult();
+                }
 
-    [TestMethod]
-    public void PlaylistTreeStoreReplacement_WaitsForCurrentHydrationApplyBeforeChangingSource()
-    {
-        string tempDirectory = Path.Combine(
-            Path.GetTempPath(),
-            nameof(PlaylistWorkspaceViewModelTests),
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string firstDirectory = Path.Combine(tempDirectory, "first");
-            string secondDirectory = Path.Combine(tempDirectory, "second");
-            Directory.CreateDirectory(firstDirectory);
-            Directory.CreateDirectory(secondDirectory);
-            string firstSongDbPath = Path.Combine(firstDirectory, "song.db");
-            string secondSongDbPath = Path.Combine(secondDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(firstSongDbPath))
-            using (var __ = new LR2SongDBExtended(secondSongDbPath))
+                action();
+            });
+            workspace.PlaylistEntriesHydrationRequested += (_, request) =>
             {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(firstSongDbPath);
-            PlaylistPersistenceRepository.EnsureSchema(secondSongDbPath);
-            var firstTables = new ObservableCollection<BMSTable>(
-                [new BMSTable { name = "first" }]);
-            var secondTables = new ObservableCollection<BMSTable>(
-                [new BMSTable { name = "second" }]);
-            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath) { BMSTables = firstTables };
-            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath) { BMSTables = secondTables };
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => firstPlaylist);
-            workspace.RefreshPlaylistTreeTables(firstPlaylist);
-
-            var receipt = new PlaylistHydrationCompletionReceipt(requestAlreadyPublished: true);
-            Assert.IsTrue(receipt.TryBegin());
-            FieldInfo receiptField = typeof(PlaylistWorkspaceViewModel).GetField(
-                "playlistHydrationCompletionReceipt",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            FieldInfo generationField = typeof(PlaylistWorkspaceViewModel).GetField(
-                "playlistTreeNotificationGeneration",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            Assert.IsNotNull(receiptField);
-            Assert.IsNotNull(generationField);
-            receiptField!.SetValue(workspace, receipt);
-            long generation = (long)generationField!.GetValue(workspace)!;
-
-            using var applyEntered = new ManualResetEventSlim();
-            using var releaseApply = new ManualResetEventSlim();
-            Task apply = Task.Run(() =>
+                requestReceipt = request.CompletionReceipt;
+                requestTables = request.SourceTables;
+                requestGeneration = request.Generation;
+                requestedVersion = request.Version;
+                if (!workspace.TryBeginPlaylistHydrationNotification(
+                    request.SourceStore,
+                    request.SourceTables,
+                    request.Generation,
+                    request.CompletionReceipt))
+                {
+                    return;
+                }
                 workspace.ExecuteCurrentPlaylistHydrationNotification(
+                    request.SourceStore,
+                    request.SourceTables,
+                    request.Generation,
+                    request.CompletionReceipt,
+                    () => { });
+            };
+            workspace.PlaylistPresentationRefreshRequested += (_, request) =>
+            {
+                if (request.Kind == PlaylistPresentationRefreshKind.Tree)
+                {
+                    workspace.ApplyPlaylistTreePresentationRefresh(request.Reason, deferred: false);
+                }
+            };
+            workspace.RefreshPlaylistTreeTables(firstPlaylist);
+            firstPlaylist.QueueDeferredPlaylistEntriesHydration("typed_replacement_barrier");
+            Assert.IsNotNull(scheduledHydration);
+            Assert.IsTrue(requestedVersion > 0);
+            Assert.IsNotNull(requestReceipt);
+            Assert.IsTrue(requestReceipt!.IsRequestPublished);
+            Assert.IsNotNull(requestTables);
+
+            workspace.PlaylistEntriesHydrationCompleted += (_, _) => { };
+            apply = Task.Run(() =>
+            {
+                Assert.IsTrue(workspace.TryBeginPlaylistHydrationNotification(
                     firstPlaylist,
-                    firstTables,
-                    generation,
-                    receipt,
+                    requestTables!,
+                    requestGeneration,
+                    requestReceipt));
+                Assert.IsTrue(workspace.PublishPlaylistEntriesHydrationCompleted(
+                    requestedVersion,
+                    firstPlaylist,
+                    requestTables,
+                    requestGeneration,
+                    requestReceipt));
+                Assert.IsTrue(workspace.ExecuteCurrentPlaylistHydrationNotification(
+                    firstPlaylist,
+                    requestTables,
+                    requestGeneration,
+                    requestReceipt,
                     () =>
                     {
-                        applyEntered.Set();
-                        releaseApply.Wait();
+                        applyEntered.TrySetResult(true);
+                        releaseApply.Task.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
                     }));
-            Assert.IsTrue(applyEntered.Wait(TimeSpan.FromSeconds(5)));
+                workspace.ApplyPlaylistEntriesHydrationCompleted(
+                    requestedVersion,
+                    deferred: false,
+                    firstPlaylist,
+                    requestTables,
+                    requestGeneration,
+                    requestReceipt);
+            });
+            await applyEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-            Task replacement = Task.Run(() =>
-                workspace.RefreshPlaylistTreeTables(secondPlaylist));
-            Assert.IsFalse(
-                replacement.Wait(TimeSpan.FromMilliseconds(100)),
-                "Store replacement must wait for the current terminal hydration apply.");
-            Assert.AreSame(firstTables, workspace.PlaylistTreeTables);
+            currentLibrary = secondLibrary;
+            Volatile.Write(ref replacementRouteExpected, 1);
+            replacement = Task.Run(() => workspace.RefreshPlaylistTreeTables(secondPlaylist));
+            await replacementCallStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsFalse(replacementRouteEntered.Task.IsCompleted);
+            Assert.AreSame(firstPlaylist.BMSTables, workspace.PlaylistTreeTables);
 
-            releaseApply.Set();
-            Task.WhenAll(apply, replacement).WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
-            Assert.AreSame(secondTables, workspace.PlaylistTreeTables);
+            releaseApply.TrySetResult(true);
+            await replacementRouteEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsFalse(replacement.IsCompleted, "Store replacement must wait for the active terminal hydration apply.");
+            Assert.AreSame(secondPlaylist.BMSTables, workspace.PlaylistTreeTables);
+            releaseReplacementNotification.TrySetResult(true);
+            hydration = Task.Run(scheduledHydration!);
+            await Task.WhenAll(apply, replacement, hydration).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreSame(secondPlaylist.BMSTables, workspace.PlaylistTreeTables);
+            Assert.AreEqual(
+                firstPlaylist.PlaylistEntriesHydrationRequestedVersion,
+                firstPlaylist.PlaylistEntriesHydrationCompletedVersion);
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
         }
         finally
         {
+            releaseApply.TrySetResult(true);
+            releaseReplacementNotification.TrySetResult(true);
+            Task[] pendingTasks = [
+                .. new[] { apply, replacement, hydration }
+                    .Where(task => task != null)
+                    .Cast<Task>()];
+            if (pendingTasks.Length > 0)
+            {
+                try
+                {
+                    await Task.WhenAll(pendingTasks).WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch when (primaryFailure != null)
+                {
+                }
+            }
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -4190,6 +4403,54 @@ public sealed class PlaylistWorkspaceViewModelTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
+    }
+
+    private static PlaylistWorkspaceViewModel CreateBareHydrationWorkspace(
+        Func<BMSPlaylist> playlistStoreProvider,
+        Func<BMSLibrary> playlistLibraryProvider)
+    {
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            playlistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            playlistLibraryProvider,
+            () => null!,
+            _ => { },
+            new ObservableCollection<BMSTable>(),
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { },
+            (_, _) => { },
+            (_, _) => false,
+            (_, _) => false,
+            PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler,
+            PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck,
+            null);
+        workspace.ConfigureCatalogNotificationQueue(action => action());
+        return workspace;
     }
 
     private static PlaylistWorkspaceViewModel CreateDetailWorkspace(
@@ -7084,6 +7345,89 @@ public sealed class PlaylistWorkspaceViewModelTests
         await workspace.RenameFolderAsync(table, specialFolder, "Renamed");
         await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, specialFolder);
         await workspace.AddRowsToFolderAsync([], table, specialFolder);
+    }
+
+    private static BMSLibrary CreateLibraryWithLr2Id(string songDbPath, int lr2Id = 123)
+    {
+        string scoreDbPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "score.db");
+        using (var db = new LR2ScoreDBExtended(scoreDbPath))
+        {
+            db.CreateTable<LR2ScoreDB.score>();
+            db.CreateTable<LR2ScoreDB.player>();
+            db.Insert(new LR2ScoreDB.player { id = "test-player", irid = lr2Id });
+            db.Insert(new LR2ScoreDB.score { hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+        }
+
+        var library = new TestBmsLibrary(songDbPath, null, scoreDbPath);
+        library.InitializeScoresOnly(null);
+        Assert.AreEqual(lr2Id, library.LR2ID);
+        return library;
+    }
+
+    private static void PersistPlaylistAggregate(string songDbPath, BMSTable table)
+    {
+        using var db = new LR2SongDBExtended(songDbPath);
+        db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+        foreach (BMSTableEntry entry in table.entries ?? [])
+        {
+            entry.playlist_id = table.playlist_id;
+            db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+        }
+    }
+
+    private sealed class BlockingConfirmationDialogService : IUiDialogService
+    {
+        internal TaskCompletionSource<UiConfirmationRequest> ConfirmationShown { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private TaskCompletionSource<bool> ConfirmationReleased { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal void ReleaseConfirmation()
+        {
+            ConfirmationReleased.TrySetResult(true);
+        }
+
+        public Task<UiDialogResult> ShowMessageAsync(
+            UiMessageRequest request,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<UiDialogResult> ConfirmAsync(
+            UiConfirmationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ConfirmationShown.TrySetResult(request);
+            return WaitForConfirmationAsync(cancellationToken);
+        }
+
+        private async Task<UiDialogResult> WaitForConfirmationAsync(CancellationToken cancellationToken)
+        {
+            await ConfirmationReleased.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(
+            UiFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(
+            UiFolderPickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(
+            UiSaveFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private static string[] CreateSongTableRow(string? md5, string path)
