@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -65,8 +64,12 @@ public sealed class MainWindowViewHostTests
 
                 Task<ShellShutdownWorkflowCompletionReceipt> closeRequest =
                     viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                AwaitOnDispatcher(closeRequest, window.Dispatcher);
-                AwaitOnDispatcher(applicationLifetime.ShutdownRequested.Task, window.Dispatcher);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    closeRequest,
+                    "MainWindowViewHostTests.MainWindowShutdownCapturePrecedesShellCompletion.window-close");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    applicationLifetime.ShutdownRequested.Task,
+                    "MainWindowViewHostTests.MainWindowShutdownCapturePrecedesShellCompletion.application-shutdown");
 
                 Assert.AreEqual(capturedTreeViewWidth, settingsSession.TreeViewWidthAtSave);
                 Assert.AreEqual(1, settingsSession.SaveCount);
@@ -153,8 +156,12 @@ public sealed class MainWindowViewHostTests
                 window.Close();
                 Task<ShellShutdownWorkflowCompletionReceipt> closeRequest =
                     viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                AwaitOnDispatcher(closeRequest, window.Dispatcher);
-                AwaitOnDispatcher(applicationLifetime.ShutdownRequested.Task, window.Dispatcher);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    closeRequest,
+                    "MainWindowViewHostTests.MainWindowViewSettingsBindAndCaptureThroughHostStore.window-close");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    applicationLifetime.ShutdownRequested.Task,
+                    "MainWindowViewHostTests.MainWindowViewSettingsBindAndCaptureThroughHostStore.application-shutdown");
 
                 Assert.AreEqual(capturedTreeViewWidth, settingsSession.TreeViewWidthAtSave);
                 Assert.AreEqual(capturedTreeViewWidth, settings.TreeViewWidth);
@@ -249,7 +256,9 @@ public sealed class MainWindowViewHostTests
                 window.Close();
                 Task<ShellShutdownWorkflowCompletionReceipt> closeRequest =
                     viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                AwaitOnDispatcher(closeRequest, window.Dispatcher);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    closeRequest,
+                    "MainWindowViewHostTests.MainWindowConstructorOnlyPresentsInitialSetupThroughCompiledOverlay.window-close");
                 window.Close();
                 windowClosed = true;
 
@@ -328,26 +337,6 @@ public sealed class MainWindowViewHostTests
                 yield return descendant;
             }
         }
-    }
-
-    private static void AwaitOnDispatcher(Task task, Dispatcher dispatcher)
-    {
-        if (task.IsCompleted)
-        {
-            task.GetAwaiter().GetResult();
-            return;
-        }
-
-        var frame = new DispatcherFrame();
-        task.ContinueWith(
-            _ => dispatcher.BeginInvoke(
-                DispatcherPriority.ApplicationIdle,
-                new Action(() => frame.Continue = false)),
-            CancellationToken.None,
-            TaskContinuationOptions.None,
-            TaskScheduler.Default);
-        Dispatcher.PushFrame(frame);
-        task.GetAwaiter().GetResult();
     }
 
     private static void RestoreViewModelResource(bool hadPreviousResource, object? previousResource)

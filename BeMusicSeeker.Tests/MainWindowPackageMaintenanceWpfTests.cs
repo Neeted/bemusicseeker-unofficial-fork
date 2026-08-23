@@ -881,7 +881,9 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     if (window != null && viewModel != null && !windowClosed)
                     {
                         Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                        AwaitOnDispatcher(closeRequest, window.Dispatcher);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            closeRequest,
+                            "MainWindowPackageMaintenanceWpfTests.window-close");
                         window.Close();
                         windowClosed = true;
                     }
@@ -908,21 +910,4 @@ internal static class MainWindowPackageMaintenanceTestHarness
         });
     }
 
-    private static void AwaitOnDispatcher(Task task, System.Windows.Threading.Dispatcher dispatcher)
-    {
-        if (task.IsCompleted)
-        {
-            task.GetAwaiter().GetResult();
-            return;
-        }
-
-        var frame = new System.Windows.Threading.DispatcherFrame();
-        task.ContinueWith(
-            _ => dispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.ApplicationIdle,
-                new Action(() => frame.Continue = false)),
-            TaskScheduler.Default);
-        System.Windows.Threading.Dispatcher.PushFrame(frame);
-        task.GetAwaiter().GetResult();
-    }
 }

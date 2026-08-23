@@ -460,7 +460,9 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     if (window != null && viewModel != null)
                     {
                         Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                        AwaitOnDispatcher(closeRequest, window.Dispatcher);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            closeRequest,
+                            "MainWindowProgressStatusBarWpfTests.window-close");
                         window.Close();
                     }
                 }
@@ -635,24 +637,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
         window.Arrange(new Rect(0d, 0d, 1000d, 700d));
         window.UpdateLayout();
         return source;
-    }
-
-    private static void AwaitOnDispatcher(Task task, System.Windows.Threading.Dispatcher dispatcher)
-    {
-        if (task.IsCompleted)
-        {
-            task.GetAwaiter().GetResult();
-            return;
-        }
-
-        var frame = new System.Windows.Threading.DispatcherFrame();
-        task.ContinueWith(
-            _ => dispatcher.BeginInvoke(
-                System.Windows.Threading.DispatcherPriority.ApplicationIdle,
-                new Action(() => frame.Continue = false)),
-            TaskScheduler.Default);
-        System.Windows.Threading.Dispatcher.PushFrame(frame);
-        task.GetAwaiter().GetResult();
     }
 
     private sealed class AcceptedStatusBarTestDialogService : IUiDialogService

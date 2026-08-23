@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -413,7 +412,9 @@ internal static class MainWindowPresentationTestHarness
                     if (window != null && viewModel != null && !windowClosed)
                     {
                         Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                        AwaitOnDispatcher(closeRequest, window.Dispatcher);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            closeRequest,
+                            "MainWindowTreePresentationWpfTests.window-close");
                         window.Close();
                         windowClosed = true;
                     }
@@ -440,23 +441,4 @@ internal static class MainWindowPresentationTestHarness
         });
     }
 
-    private static void AwaitOnDispatcher(Task task, Dispatcher dispatcher)
-    {
-        if (task.IsCompleted)
-        {
-            task.GetAwaiter().GetResult();
-            return;
-        }
-
-        var frame = new DispatcherFrame();
-        task.ContinueWith(
-            _ => dispatcher.BeginInvoke(
-                DispatcherPriority.ApplicationIdle,
-                new Action(() => frame.Continue = false)),
-            CancellationToken.None,
-            TaskContinuationOptions.None,
-            TaskScheduler.Default);
-        Dispatcher.PushFrame(frame);
-        task.GetAwaiter().GetResult();
-    }
 }
