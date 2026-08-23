@@ -226,51 +226,123 @@ public sealed class MainWindowPlayHistoryWpfTests
     [TestMethod]
     public void PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics()
     {
-        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
-            (viewModel, window) =>
+        PlayHistoryWorkflowOwner? startupPlayHistory = null;
+        PropertyChangedEventHandler? startupDeactivateHandler = null;
+        var startupDeactivated = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    using var visualHost = CreateVisualHost(window, "MainWindowPlayHistorySummary");
+                    Border summaryBar = (Border)window.FindName("playHistorySummaryBar");
+
+                    VisibilityObservation startupCollapsed = ObserveVisibility(
+                        summaryBar,
+                        Visibility.Collapsed);
+                    try
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            startupDeactivated.Task,
+                            "play-history startup deactivation");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            startupCollapsed.Completion,
+                            "play-history summary bar collapsed after startup deactivation");
+
+                        Assert.IsFalse(viewModel.PlayHistory.IsViewActive);
+                        Assert.AreEqual(Visibility.Collapsed, summaryBar.Visibility);
+                    }
+                    finally
+                    {
+                        startupCollapsed.Dispose();
+                    }
+
+                    viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(false);
+                    VisibilityObservation activatedVisible = ObserveVisibility(
+                        summaryBar,
+                        Visibility.Visible);
+                    try
+                    {
+                        viewModel.PlayHistory.BeginRequest(
+                            PlayHistoryPeriodRequest.All(),
+                            string.Empty,
+                            viewModel.PlayHistory.SelectedDisplayTargetIdentity,
+                            viewModel.PlayHistory.DisplayTargetRevision);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            activatedVisible.Completion,
+                            "play-history summary bar visible after activation");
+                        TestUiDispatcherHost.Drain();
+
+                        ItemsControl cards = FindVisualChildren<ItemsControl>(summaryBar).Single();
+                        TextBlock diagnostic = FindVisualChildren<TextBlock>(summaryBar)
+                            .Single(textBlock => textBlock.Text == "diagnostic");
+
+                        Assert.AreEqual(Visibility.Visible, summaryBar.Visibility);
+                        Assert.AreEqual(2, cards.Items.Count);
+                        Assert.AreEqual("diagnostic", diagnostic.Text);
+                        Assert.AreEqual(Visibility.Visible, diagnostic.Visibility);
+
+                        Button filterButton = FindVisualChildren<Button>(cards)
+                            .Single(button => (button.DataContext as PlayHistorySummaryCard)?.FilterKey == "clear");
+                        Assert.IsNotNull(filterButton.Command);
+                        Assert.IsTrue(filterButton.Command.CanExecute(filterButton.CommandParameter));
+                        filterButton.Command.Execute(filterButton.CommandParameter);
+                        TestUiDispatcherHost.Drain();
+
+                        Assert.IsTrue(viewModel.PlayHistory.SummaryCards.Single(card => card.FilterKey == "clear").IsSelected);
+                    }
+                    finally
+                    {
+                        activatedVisible.Dispose();
+                    }
+                },
+                prepareViewModel: viewModel =>
+                {
+                    viewModel.PlayHistory.PresentationState.SetSummaryCards(
+                    [
+                        new PlayHistorySummaryCard("All", "2"),
+                        new PlayHistorySummaryCard("Clear", "1", filterKey: "clear", filterText: "clear")
+                    ]);
+                    viewModel.PlayHistory.PresentationState.SetDiagnosticText("diagnostic");
+
+                    PlayHistoryWorkflowOwner playHistory = viewModel.PlayHistory;
+                    startupPlayHistory = playHistory;
+                    bool wasViewActive = playHistory.IsViewActive;
+                    PropertyChangedEventHandler startupHandler = (_, args) =>
+                    {
+                        if (!string.Equals(
+                                args.PropertyName,
+                                nameof(PlayHistoryWorkflowOwner.IsViewActive),
+                                StringComparison.Ordinal))
+                        {
+                            return;
+                        }
+
+                        bool isViewActive = playHistory.IsViewActive;
+                        if (wasViewActive && !isViewActive)
+                        {
+                            startupDeactivated.TrySetResult(true);
+                        }
+                        wasViewActive = isViewActive;
+                    };
+                    startupDeactivateHandler = startupHandler;
+                    playHistory.PropertyChanged += startupHandler;
+                    playHistory.BeginRequest(
+                        PlayHistoryPeriodRequest.All(),
+                        string.Empty,
+                        playHistory.SelectedDisplayTargetIdentity,
+                        playHistory.DisplayTargetRevision);
+                });
+        }
+        finally
+        {
+            if (startupPlayHistory != null && startupDeactivateHandler != null)
             {
-                viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(false);
-                viewModel.PlayHistory.BeginRequest(
-                    PlayHistoryPeriodRequest.All(),
-                    string.Empty,
-                    viewModel.PlayHistory.SelectedDisplayTargetIdentity,
-                    viewModel.PlayHistory.DisplayTargetRevision);
-                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistorySummary");
-                TestUiDispatcherHost.Drain();
-                Border summaryBar = (Border)window.FindName("playHistorySummaryBar");
-                ItemsControl cards = FindVisualChildren<ItemsControl>(summaryBar).Single();
-                TextBlock diagnostic = FindVisualChildren<TextBlock>(summaryBar)
-                    .Single(textBlock => textBlock.Text == "diagnostic");
-
-                Assert.AreEqual(Visibility.Visible, summaryBar.Visibility);
-                Assert.AreEqual(2, cards.Items.Count);
-                Assert.AreEqual("diagnostic", diagnostic.Text);
-                Assert.AreEqual(Visibility.Visible, diagnostic.Visibility);
-
-                Button filterButton = FindVisualChildren<Button>(cards)
-                    .Single(button => (button.DataContext as PlayHistorySummaryCard)?.FilterKey == "clear");
-                Assert.IsNotNull(filterButton.Command);
-                Assert.IsTrue(filterButton.Command.CanExecute(filterButton.CommandParameter));
-                filterButton.Command.Execute(filterButton.CommandParameter);
-                TestUiDispatcherHost.Drain();
-
-                Assert.IsTrue(viewModel.PlayHistory.SummaryCards.Single(card => card.FilterKey == "clear").IsSelected);
-            },
-            prepareViewModel: viewModel =>
-            {
-                viewModel.PlayHistory.PresentationState.SetSummaryCards(
-                [
-                    new PlayHistorySummaryCard("All", "2"),
-                    new PlayHistorySummaryCard("Clear", "1", filterKey: "clear", filterText: "clear")
-                ]);
-                viewModel.PlayHistory.PresentationState.SetDiagnosticText("diagnostic");
-                viewModel.PlayHistory.BeginRequest(
-                    PlayHistoryPeriodRequest.All(),
-                    string.Empty,
-                    viewModel.PlayHistory.SelectedDisplayTargetIdentity,
-                    viewModel.PlayHistory.DisplayTargetRevision);
-            });
+                startupPlayHistory.PropertyChanged -= startupDeactivateHandler;
+            }
+        }
     }
 
     [TestMethod]
