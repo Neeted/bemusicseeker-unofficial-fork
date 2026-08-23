@@ -1,6 +1,6 @@
 # テスト整理後 Blocking Findings 修正計画
 
-Status: Final static review pending
+Status: Final verification after review remediation
 
 Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
@@ -293,8 +293,8 @@ Replan triggers:
 | Unit 0: Baseline freeze and clarification | Complete | HEAD `9dc805563bc9098531d7a0a06dff029b3b5e7c7d`, clean worktree. Review base から対象 files に差分なし。追加の observable-semantics question なし。Unit 1 / 2 は逐次実行。 |
 | Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
-| Unit 1R: Replanned lifecycle closure | Complete | `c3403326e7be9d521adcb109afdb84a4fafc5782`。root-only O(1) fanoutをlineage回収より先に完了し、通常成功を含む単一cleanup遷移、deadline後operation禁止、exact identity ledger cleanupをproduction seamと9件のcontract testで閉じた。 |
-| Unit 3: Integration and final review | Final verification complete; fresh review pending | final verification snapshot `965dc8a098287f1d77ee90cd9548b89e128ca64a`。focused、WPF 30回、Functional 3回、Full 1回を変更後snapshotで再実行し、全件成功。 |
+| Unit 1R: Replanned lifecycle closure | Complete after review remediation | `16d256519b5f24cf63cf78c4d169a90b61448bfe`。deadline直前gate、post-lifecycle filesystem reread退役、primitive observer、late fault、nonempty exact residual PID coverageを追加。focused 10/10。 |
+| Unit 3: Integration and final review | Final stability gate reset and in progress | snapshot `965dc8a098287f1d77ee90cd9548b89e128ca64a` の旧gateはfresh review findingsにより無効。`16d25651` 後のsnapshotでWPF 30回、Functional 3回、Full 1回を最初から再実行する。 |
 
 ## Verification log
 
@@ -342,3 +342,5 @@ Replan triggers:
 | same | final Functional 2/3 | Pass | 160.7s command | `tests-functional-20260824-022549`; within 180s; fingerprint unchanged; residual test process 0 |
 | same | final Functional 3/3 | Pass | 161.8s command | `tests-functional-20260824-022829`; within 180s; fingerprint unchanged; residual test process 0 |
 | same | final Full | Pass | canonical Functional 159.3s / 180s | `tests-full-20260824-023118`; current/baseline publish, existing-data, update, ProcessIntegration 39 pass + 2 intentional skip, ReleaseAcceptance 2/2, format, analyzer passed; 0 diagnostics; fingerprint unchanged |
+| `b6d76206a6f58d52bbd8c964d2e34b945c0c6a51` | Unit 1R fresh static review | Blocking | n/a | 3 P1: descendant second scan/open after deadline, later-entry `New-Item` after shared deadline, unbounded post-lifecycle diagnostic filesystem reads that can replace primary failure. 1 acceptance-direct P2: order/deadline tests observe reported metadata instead of actual primitive boundaries; late fault and nonempty exact residual PID cases missing. |
+| `16d256519b5f24cf63cf78c4d169a90b61448bfe` | review remediation parse / `git diff --check` / lifecycle focused Quick | Pass (10/10) | 49.6s focused test | `tests-quick-20260824-031735/functional`; actual primitive observer, deterministic late fault, nonempty residual PID and exact-ledger cleanup included; no replan trigger |
