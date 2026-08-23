@@ -595,6 +595,10 @@ function Invoke-MonitoredCommand {
         [Parameter(Mandatory)]
         [int]$TimeoutSeconds,
 
+        [DateTime]$ProcessDeadlineUtc,
+
+        [DateTime]$PhaseDeadlineUtc,
+
         [DateTime]$CleanupDeadlineUtc,
 
         [switch]$IsTestCommand
@@ -625,12 +629,25 @@ function Invoke-MonitoredCommand {
         $standardErrorTask = $process.StandardError.ReadToEndAsync()
         $commandIdentity = "$CommandPath $($Arguments -join ' ')"
         $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity $commandIdentity
-        $processDeadlineUtc = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-        $maximumCleanupDeadlineUtc = $processDeadlineUtc.AddSeconds($monitoredCommandCleanupSeconds)
-        $cleanupDeadlineUtc = $maximumCleanupDeadlineUtc
+        $processDeadline = if ($PSBoundParameters.ContainsKey('ProcessDeadlineUtc')) {
+            $ProcessDeadlineUtc
+        }
+        else {
+            [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        }
+        $phaseDeadline = if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc')) {
+            $PhaseDeadlineUtc
+        }
+        elseif ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc')) {
+            $CleanupDeadlineUtc
+        }
+        else {
+            $processDeadline.AddSeconds($monitoredCommandCleanupSeconds)
+        }
+        $cleanupDeadline = $phaseDeadline
         if ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc') -and
-            $CleanupDeadlineUtc -lt $cleanupDeadlineUtc) {
-            $cleanupDeadlineUtc = $CleanupDeadlineUtc
+            $CleanupDeadlineUtc -lt $cleanupDeadline) {
+            $cleanupDeadline = $CleanupDeadlineUtc
         }
         $lifecycleResult = Invoke-BoundedProcessLifecycle `
             -Process $process `
@@ -640,8 +657,9 @@ function Invoke-MonitoredCommand {
             -RootProcessIdentity ("$($identity.StartTimeUtcTicks)|$($identity.ProcessId)") `
             -CommandIdentity $commandIdentity `
             -DiagnosticsDirectory $DiagnosticsDirectory `
-            -ProcessDeadlineUtc $processDeadlineUtc `
-            -CleanupDeadlineUtc $cleanupDeadlineUtc
+            -ProcessDeadlineUtc $processDeadline `
+            -CleanupDeadlineUtc $cleanupDeadline `
+            -CleanupBudgetSeconds $monitoredCommandCleanupSeconds
     }
     catch {
         $stageStopwatch.Stop()
@@ -769,6 +787,14 @@ function Invoke-FullPhaseCommand {
     if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
         $WorkingDirectory = $repoRoot
     }
+    # The descriptor's remaining time is the absolute phase budget.  Reserve the
+    # ordinary monitored-command cleanup cap inside that budget rather than adding it
+    # after the phase has expired.
+    $phaseDeadlineUtc = [DateTime]::UtcNow.AddSeconds($remainingSeconds)
+    $processDeadlineUtc = $phaseDeadlineUtc.AddSeconds(-$monitoredCommandCleanupSeconds)
+    if ($processDeadlineUtc -lt [DateTime]::UtcNow) {
+        $processDeadlineUtc = [DateTime]::UtcNow
+    }
     Invoke-MonitoredCommand `
         -Label $Label `
         -CommandPath $CommandPath `
@@ -776,6 +802,8 @@ function Invoke-FullPhaseCommand {
         -WorkingDirectory $WorkingDirectory `
         -DiagnosticsDirectory $DiagnosticsDirectory `
         -TimeoutSeconds $remainingSeconds `
+        -ProcessDeadlineUtc $processDeadlineUtc `
+        -PhaseDeadlineUtc $phaseDeadlineUtc `
         -IsTestCommand:$IsTestCommand
 }
 
@@ -998,7 +1026,13 @@ function Invoke-TestLane {
 
         [string]$RunSettingsPath,
 
+        [DateTime]$ProcessDeadlineUtc,
+
+        [DateTime]$PhaseDeadlineUtc,
+
         [DateTime]$CleanupDeadlineUtc,
+
+        [switch]$ReserveCleanupInsideTimeout,
 
         [switch]$NoBuild
     )
@@ -1020,6 +1054,21 @@ function Invoke-TestLane {
     }
     if ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc')) {
         $invokeParameters.CleanupDeadlineUtc = $CleanupDeadlineUtc
+    }
+    if ($PSBoundParameters.ContainsKey('ProcessDeadlineUtc')) {
+        $invokeParameters.ProcessDeadlineUtc = $ProcessDeadlineUtc
+    }
+    if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc')) {
+        $invokeParameters.PhaseDeadlineUtc = $PhaseDeadlineUtc
+    }
+    if ($ReserveCleanupInsideTimeout) {
+        $phaseDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        $processDeadline = $phaseDeadline.AddSeconds(-$monitoredCommandCleanupSeconds)
+        if ($processDeadline -lt [DateTime]::UtcNow) {
+            $processDeadline = [DateTime]::UtcNow
+        }
+        $invokeParameters.ProcessDeadlineUtc = $processDeadline
+        $invokeParameters.PhaseDeadlineUtc = $phaseDeadline
     }
     Invoke-MonitoredCommand @invokeParameters
 }
@@ -1483,6 +1532,30 @@ function Invoke-ParallelFunctionalTestShards {
         $forceCleanup = $timedOut -or
             $null -ne $failedShardName -or
             $null -ne $launchFailure
+
+        if ($forceCleanup) {
+            # Request termination for every owned root/lineage before collecting any
+            # one shard.  The request phase has no per-entry wait window; all entries
+            # share the one absolute Functional cleanup deadline.
+            foreach ($entry in $entries) {
+                if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
+                    $cleanupFailures.Add(
+                        "$($entry.Name): owned-process termination request skipped because the shared cleanup deadline expired")
+                    continue
+                }
+                $requestDiagnostics = [System.Collections.Generic.List[string]]::new()
+                [void](Request-VerificationOwnedProcessTreeStop `
+                        -RootProcess $entry.Process `
+                        -RootProcessId $entry.ProcessId `
+                        -CommandIdentity $entry.CommandIdentity `
+                        -CleanupDeadlineUtc $CleanupDeadlineUtc `
+                        -CleanupDiagnostics $requestDiagnostics)
+                foreach ($diagnostic in @($requestDiagnostics)) {
+                    $cleanupFailures.Add("$($entry.Name): $diagnostic")
+                }
+            }
+        }
+
         foreach ($entry in $entries) {
             try {
                 $lifecycleResult = Invoke-BoundedProcessLifecycle `
@@ -1495,6 +1568,7 @@ function Invoke-ParallelFunctionalTestShards {
                     -DiagnosticsDirectory $entry.Directory `
                     -ProcessDeadlineUtc ([DateTime]::UtcNow) `
                     -CleanupDeadlineUtc $CleanupDeadlineUtc `
+                    -CleanupBudgetSeconds $functionalCleanupReserveSeconds `
                     -TerminateProcessTree:$forceCleanup
                 if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
                     foreach ($diagnostic in @($lifecycleResult.SecondaryDiagnostics)) {
@@ -2196,6 +2270,7 @@ try {
                 -Filter 'TestCategory=ProcessIntegration' `
                 -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
                 -TimeoutSeconds $timeout `
+                -ReserveCleanupInsideTimeout `
                 -NoBuild
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
@@ -2219,6 +2294,7 @@ try {
                 -Filter 'TestCategory=ReleaseAcceptance' `
                 -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
                 -TimeoutSeconds $timeout `
+                -ReserveCleanupInsideTimeout `
                 -NoBuild
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `

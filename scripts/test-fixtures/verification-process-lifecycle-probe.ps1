@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('normal', 'nonzero', 'descendant-root', 'nonzero-descendant')]
+    [ValidateSet('normal', 'nonzero', 'descendant-root', 'nonzero-descendant', 'stream-timeout')]
     [string]$Scenario,
 
     [Parameter(Mandatory)]
@@ -16,7 +16,40 @@ $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $repositoryRoot 'scripts\verification-process-lifecycle.ps1')
 $childScript = Join-Path $PSScriptRoot 'verification-process-lifecycle-child.ps1'
 
-$rootScenario = if ($Scenario -ceq 'nonzero-descendant') { 'descendant-root' } else { $Scenario }
+if (-not ('VerificationLifecycleProbeTasks' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+public static class VerificationLifecycleProbeTasks
+{
+    public static Task<string> HoldCompletion(Task<string> source)
+    {
+        var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = source.ContinueWith(
+            completed =>
+            {
+                if (completed.IsFaulted)
+                {
+                    _ = completed.Exception;
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        return gate.Task;
+    }
+}
+'@
+}
+
+$rootScenario = if ($Scenario -ceq 'nonzero-descendant' -or $Scenario -ceq 'stream-timeout') {
+    'descendant-root'
+}
+else {
+    $Scenario
+}
 $rootInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $rootInfo.FileName = 'pwsh'
 $rootInfo.WorkingDirectory = $repositoryRoot
@@ -44,6 +77,14 @@ if (-not $root.Start()) {
 }
 $standardOutputTask = $root.StandardOutput.ReadToEndAsync()
 $standardErrorTask = $root.StandardError.ReadToEndAsync()
+if ($Scenario -ceq 'stream-timeout') {
+    # Keep the real redirected-handle reads active, but expose an intentionally
+    # incomplete completion gate to the production seam.  The source tasks still drain
+    # the inherited handles and observe any late faults; the gate makes the bounded
+    # stream-timeout path deterministic without a fixed sleep.
+    $standardOutputTask = [VerificationLifecycleProbeTasks]::HoldCompletion($standardOutputTask)
+    $standardErrorTask = [VerificationLifecycleProbeTasks]::HoldCompletion($standardErrorTask)
+}
 $commandIdentity = "pwsh -File $childScript -Scenario $rootScenario"
 $identity = Get-VerificationProcessIdentity -Process $root -CommandIdentity $commandIdentity
 $processBudgetSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero') { 10 } else { 2 }

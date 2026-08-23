@@ -245,7 +245,7 @@ Reviewer へ渡す重点:
 | Unit 0: Baseline freeze and clarification | Complete | HEAD `9dc805563bc9098531d7a0a06dff029b3b5e7c7d`, clean worktree. Review base から対象 files に差分なし。追加の observable-semantics question なし。Unit 1 / 2 は逐次実行。 |
 | Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
-| Unit 3: Integration and final review | Final verification complete; fresh review pending | 初回static reviewの2 P1 / 2 acceptance-direct P2を修正。変更後snapshot `24e119069a0be27d7b23161286f1c849ea2d10a7` で全stability gateを再実行済み。 |
+| Unit 3: Integration and final review | Second review fix applied; final verification pending | 2回目reviewの1 P1 / 3 acceptance-direct P2を修正。変更後snapshotでstability gateと2回目fix reviewをやり直す。 |
 
 ## Verification log
 
@@ -273,3 +273,5 @@ Reviewer へ渡す重点:
 | same | final Functional 2/3 | Pass | 156.1s command / 140.9s phase | `tests-functional-20260823-235509`; within 180s; fingerprint unchanged; no cleanup diagnostic |
 | same | final Functional 3/3 | Pass | 157.4s command / 142.3s phase | `tests-functional-20260823-235745`; within 180s; fingerprint unchanged; no cleanup diagnostic |
 | same | final Full | Pass | about 517.3s total; canonical Functional 153.9s / 180s | `tests-full-20260824-000034`; publish, existing-data, update, ProcessIntegration, ReleaseAcceptance, format, analyzer passed; fingerprint unchanged; residual `testhost` / `vstest.console` count 0 |
+| `69050a8f01c6f63dab76e4778a9654fa1ef00874` | first fix fresh static review | Blocking | n/a | 1 P1: cleanup deadline逐次消費前の全shard停止fanout不足。3 acceptance-direct P2: monitored cleanup起点、diagnostic assertion、bounded output/dispose。 |
+| second-review-fix worktree | lifecycle Quick after fanout / transition deadline / bounded persistence / deterministic stream-timeout fixes | Pass (7/7) | 13.6s test / 22.2s runner | `tests-quick-20260824-004624`; stream-timeout contextual diagnostics 2件、direct probe全routeのowned PID residual 0。直前stability runは変更前snapshotのため最終gateには数えない。 |

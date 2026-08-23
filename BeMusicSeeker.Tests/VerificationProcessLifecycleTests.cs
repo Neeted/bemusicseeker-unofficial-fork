@@ -63,6 +63,23 @@ public sealed class VerificationProcessLifecycleTests
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
     }
 
+    [TestMethod]
+    public void StreamDrainTimeoutDiagnosticIncludesContextAndOwnedCleanupCompletes()
+    {
+        using JsonDocument result = RunProbe("stream-timeout");
+        Assert.AreEqual(0, result.RootElement.GetProperty("exitCode").GetInt32());
+        Assert.IsFalse(result.RootElement.GetProperty("processTimedOut").GetBoolean());
+        string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
+        Assert.IsTrue(
+            AssertStreamTimeoutDiagnosticsIncludeContext(
+                diagnostics,
+                result.RootElement.GetProperty("rootProcessId").GetInt32()) > 0,
+            "The deterministic inherited-handle probe must exercise the bounded stream-drain timeout path.");
+        CollectionAssert.AreEqual(
+            Array.Empty<int>(),
+            ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
+    }
+
     private static JsonDocument RunProbe(string scenario)
     {
         string repositoryRoot = FindRepositoryRoot();
@@ -179,16 +196,19 @@ public sealed class VerificationProcessLifecycleTests
         return false;
     }
 
-    private static void AssertStreamTimeoutDiagnosticsIncludeContext(
+    private static int AssertStreamTimeoutDiagnosticsIncludeContext(
         IEnumerable<string> diagnostics,
         int rootProcessId)
     {
+        int matchedDiagnostics = 0;
         foreach (string diagnostic in diagnostics)
         {
             if (!diagnostic.Contains("stream-drain-timeout", StringComparison.Ordinal))
             {
                 continue;
             }
+
+            matchedDiagnostics++;
 
             Assert.IsTrue(
                 diagnostic.Contains($"root PID {rootProcessId};", StringComparison.Ordinal),
@@ -199,6 +219,7 @@ public sealed class VerificationProcessLifecycleTests
                     @"^stream-drain-timeout: (stdout|stderr); root PID \d+; elapsed \d+ms;"),
                 $"Stream timeout diagnostic did not include stream and elapsed context: {diagnostic}");
         }
+        return matchedDiagnostics;
     }
 
     private static void TryDeleteDirectory(string directory)
