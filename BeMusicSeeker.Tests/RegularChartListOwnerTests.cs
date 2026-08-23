@@ -28,6 +28,77 @@ namespace BeMusicSeeker.Tests;
 public sealed class RegularChartListOwnerTests
 {
     [TestMethod]
+    public async Task InstlDstCellEdit_UsesPendingOwnerWithExactChartTargetAndText()
+    {
+        var table = new MainChartListViewModel(action => action());
+        PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner(table);
+        var store = new PendingPackageWorkflowOwnerTests.RecordingStore([]);
+        BMSLibrary library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var pendingOwner = new PendingPackageWorkflowOwner(
+            () => library,
+            new ChartFileOperationSynchronizer(),
+            new ChartMutationActivityOwner(),
+            new NoOpPendingPackageMutationPlaybackPort(),
+            new TestUiDialogService(),
+            () => new InstallDestinationWorkflowSettingsSnapshot(
+                showManualInstallConfirmation: false,
+                deletePendingPackageSourceAfterInstall: false),
+            ExternalShellGatewayPolicy.Current,
+            store);
+        var workflowCompletion = new TaskCompletionSource<PendingPackageMutationAppliedEventArgs>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        pendingOwner.WorkflowChanged += (_, change) =>
+        {
+            if (change is PendingPackageMutationAppliedEventArgs mutation)
+            {
+                workflowCompletion.TrySetResult(mutation);
+            }
+        };
+
+        using RegularChartListOwner owner = CreateOwner(
+            table,
+            workspace,
+            action => action(),
+            pendingPackageWorkflow: pendingOwner);
+        MainChartListCellEditContext? beginning = null;
+        table.CellEditBeginningRequested += (_, request) =>
+        {
+            beginning = request.Context;
+            request.Accepted = owner.CanBeginCellEdit(request.Context);
+        };
+        table.CellEditEndedRequested += (_, request) => owner.CompleteCellEdit(request);
+
+        var file = new BMSFile
+        {
+            path = @"C:\wave6e-owner-chain\pending.bms",
+            hash = "ffffffffffffffffffffffffffffffff",
+            title = "Owner chain chart"
+        };
+        PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+        store.SetResult = entry.Chart;
+        LibraryChartRow row = LibraryChartRow.FromPackageChartEntry(entry);
+        const string destination = @"C:\wave6e-owner-chain\destination";
+
+        table.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+        Assert.IsTrue(table.TryBeginCellEdit(row, "instl_dst"));
+        Assert.IsNotNull(beginning);
+        Assert.AreSame(row, beginning.Row);
+        Assert.AreEqual(MainViewOperationSection.InstallPending, beginning.OperationSection);
+        Assert.AreEqual(ChartOperationSourceScope.PendingPackage, beginning.SourceScope);
+
+        table.NotifyCellEditStarted(row, "instl_dst");
+        table.RequestCellEditEnded(row, "instl_dst", destination, commit: true);
+        PendingPackageMutationAppliedEventArgs applied = await workflowCompletion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsNotNull(store.LastPendingRequest);
+        Assert.AreSame(entry, store.LastPendingRequest!.PackageEntry);
+        Assert.AreSame(entry, store.LastPendingRequest.GetOrCreateChartEntry());
+        Assert.AreEqual(destination, store.LastDestinationDirectory);
+        Assert.AreEqual(1, applied.ChangedCharts.Count);
+        Assert.AreSame(file, applied.ChangedCharts[0].GetBmsStorageOwner());
+    }
+
+    [TestMethod]
     public void NewOwner_DerivedCachesAreInvalidUntilFirstCommit()
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
@@ -362,13 +433,13 @@ public sealed class RegularChartListOwnerTests
                 Assert.IsTrue(releaseApply.Wait(TimeSpan.FromSeconds(10)));
             };
 
-            Task mutationTask = Task.Run(() =>
+            Task mutationTask = StartLongRunning(() =>
             {
                 library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\in-flight.bms")];
             });
             Assert.IsTrue(applyEntered.Wait(TimeSpan.FromSeconds(10)));
 
-            Task stopTask = Task.Run(async delegate
+            Task stopTask = StartLongRunningAsync(async delegate
             {
                 stopStarted.Set();
                 await owner.StopAsync();
@@ -437,7 +508,7 @@ public sealed class RegularChartListOwnerTests
             Assert.IsTrue(suppressionEntered.Wait(TimeSpan.FromSeconds(10)));
 
             using var stopStarted = new ManualResetEventSlim();
-            Task stopTask = Task.Run(async delegate
+            Task stopTask = StartLongRunningAsync(async delegate
             {
                 stopStarted.Set();
                 await owner.StopAsync();
@@ -691,7 +762,7 @@ public sealed class RegularChartListOwnerTests
             bool uiReachedCatalogReader;
             using (catalogWriteGate.GetWriterGuard())
             {
-                producer = Task.Run(() =>
+                producer = StartLongRunning(() =>
                 {
                     PublishNormalLibraryRefreshResetNotification(
                         library,
@@ -962,7 +1033,11 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void ApplyMainLibraryView_DelegatesMainLibraryRouteToRegularPipeline()
     {
-        var table = new MainChartListViewModel();
+        var seededRows = new List<object>
+        {
+            LibraryChartRow.FromChartFile(CreateSourceRow("Seed", "seed.bms").Chart)
+        };
+        var table = new MainChartListViewModel { Rows = seededRows };
         PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
         using RegularChartListOwner owner = CreateOwner(table, workspace);
         var route = new ChartListRefreshRoute(
@@ -977,6 +1052,28 @@ public sealed class RegularChartListOwnerTests
         table.UpdateSummaryText(9, 3);
         workspace.SetPlaylistSummaryMode(enabled: true);
         workspace.RequestPlaylistSummaryMode(enabled: false);
+        RegularChartListRequestLease staleLease = owner.BeginRequest();
+        RegularChartListBuildResult staleBuild = Build(
+            owner,
+            staleLease,
+            [LibraryChartRow.FromChartFile(CreateSourceRow("Stale", "stale.bms").Chart)]);
+        int rowsPropertyNotificationCount = 0;
+        table.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(MainChartListViewModel.Rows))
+            {
+                rowsPropertyNotificationCount++;
+            }
+        };
+
+        owner.PrepareForMainViewRefresh();
+
+        RegularChartListTerminalResult staleCommit = owner.TryCommit(
+            staleLease,
+            CreateTerminalInput(staleBuild));
+
+        Assert.IsFalse(staleCommit.WasCommitted);
+        Assert.AreSame(seededRows, table.Rows);
 
         RegularChartListEntryResult result = owner.ApplyMainLibraryView(
             route,
@@ -987,6 +1084,11 @@ public sealed class RegularChartListOwnerTests
             Stopwatch.StartNew());
 
         Assert.IsTrue(result.WasCommitted);
+        Assert.AreEqual(RegularChartListEntryRoute.DefaultVirtual, result.Route);
+        Assert.IsFalse(result.SortWasReset);
+        Assert.AreEqual(1, rowsPropertyNotificationCount);
+        Assert.AreNotSame(seededRows, table.Rows);
+        Assert.AreEqual(0, table.Rows.Count);
         Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, table.LastAppliedColumnMode);
         Assert.AreEqual(expectedSummary, table.SummaryText);
     }
@@ -2440,7 +2542,7 @@ public sealed class RegularChartListOwnerTests
         table.RowsReplacementCanceled += (_, _) =>
         {
             canceled++;
-            Task lockProbe = Task.Run(owner.InvalidatePendingRequest);
+            Task lockProbe = StartLongRunning(owner.InvalidatePendingRequest);
             Assert.IsTrue(lockProbe.Wait(TimeSpan.FromSeconds(5)), "RowsReplacementCanceled must run after the regular owner lock is released.");
         };
 
@@ -3547,7 +3649,12 @@ public sealed class RegularChartListOwnerTests
         Assert.IsTrue(owner.IsVirtualOrderPrewarmRunning);
         Assert.IsFalse(owner.TryBeginVirtualOrderPrewarm(null, out _));
 
-        first.Dispose();
+        using var staleCancellation = new CancellationTokenSource();
+        using var staleLease = new RegularChartListPrewarmLease(-1, staleCancellation.Token, null);
+        Assert.IsFalse(owner.CancelVirtualOrderPrewarm(staleLease));
+        Assert.IsFalse(first.Token.IsCancellationRequested);
+        Assert.IsTrue(owner.CancelVirtualOrderPrewarm(first));
+        Assert.IsTrue(first.Token.IsCancellationRequested);
 
         Assert.IsFalse(owner.IsVirtualOrderPrewarmRunning);
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease second));
@@ -4078,7 +4185,8 @@ public sealed class RegularChartListOwnerTests
         PlaylistWorkspaceViewModel workspace,
         Action<Action> dispatchToUi,
         IUiScheduler? normalLibraryRefreshUiScheduler = null,
-        Action<string>? log = null)
+        Action<string>? log = null,
+        PendingPackageWorkflowOwner? pendingPackageWorkflow = null)
     {
         return new RegularChartListOwner(
             table,
@@ -4086,7 +4194,7 @@ public sealed class RegularChartListOwnerTests
             log ?? (_ => { }),
             dispatchToUi,
             _ => { },
-            CreatePendingPackageWorkflowOwner(),
+            pendingPackageWorkflow ?? CreatePendingPackageWorkflowOwner(),
             new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new NoOpFolderAutoRenamePlaybackPort(),
@@ -4414,6 +4522,25 @@ public sealed class RegularChartListOwnerTests
                 new PlaylistSummaryColumnSettings()),
             MainViewUpdateMode.FolderFilterSelected,
             stopwatch);
+    }
+
+    private static Task StartLongRunning(Action action)
+    {
+        return Task.Factory.StartNew(
+            action,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+    }
+
+    private static Task StartLongRunningAsync(Func<Task> action)
+    {
+        return Task.Factory.StartNew(
+                action,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default)
+            .Unwrap();
     }
 
     private sealed class ActionQueueUiScheduler : IUiScheduler

@@ -59,9 +59,9 @@ public partial class GeneralSettingsPage : UserControl
         await GetSettingsWindow().HandleInstallOrRepairLr2PlayHistorySchemaAsync();
     }
 
-    private void buttonAddBmsSearchRootPathsClicked(object sender, RoutedEventArgs e)
+    private async void buttonAddBmsSearchRootPathsClicked(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleAddBmsSearchRootPaths();
+        await GetSettingsWindow().HandleAddBmsSearchRootPathsAsync();
     }
 
     private void browseLr2RootPathButtonClick(object sender, RoutedEventArgs e)

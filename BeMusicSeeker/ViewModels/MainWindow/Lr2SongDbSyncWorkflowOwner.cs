@@ -12,6 +12,62 @@ using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
+/// <summary>
+/// Describes the outcome of a typed LR2 song DB synchronization queue request.
+/// </summary>
+internal enum Lr2SongDbSyncQueueStatus
+{
+    /// <summary>
+    /// The synchronization request was accepted by the LR2 runtime.
+    /// </summary>
+    Queued,
+
+    /// <summary>
+    /// The normal no-op path was selected because LR2 mode or the library was unavailable.
+    /// </summary>
+    SkippedUnavailable
+}
+
+/// <summary>
+/// Immutable result for one LR2 queue handoff after a file-diff reload.
+/// </summary>
+internal sealed class Lr2SongDbSyncQueueResult
+{
+    /// <summary>
+    /// Initializes a queue result with the exact file-diff request and disposition.
+    /// </summary>
+    /// <param name="request">The request whose reason and operation token were queued.</param>
+    /// <param name="status">The queue disposition.</param>
+    internal Lr2SongDbSyncQueueResult(
+        FileDiffReloadRequest request,
+        Lr2SongDbSyncQueueStatus status)
+    {
+        Request = request ?? throw new ArgumentNullException(nameof(request));
+        Status = status;
+    }
+
+    /// <summary>
+    /// Gets the exact file-diff request associated with this result.
+    /// </summary>
+    internal FileDiffReloadRequest Request { get; }
+
+    /// <summary>
+    /// Gets the queue disposition.
+    /// </summary>
+    internal Lr2SongDbSyncQueueStatus Status { get; }
+
+    /// <summary>
+    /// Gets whether the request was submitted to the LR2 runtime.
+    /// </summary>
+    internal bool WasQueued => Status == Lr2SongDbSyncQueueStatus.Queued;
+
+    /// <summary>
+    /// Gets whether the request was explicitly skipped because its runtime was unavailable.
+    /// </summary>
+    internal bool WasSkippedUnavailable =>
+        Status == Lr2SongDbSyncQueueStatus.SkippedUnavailable;
+}
+
 internal interface ILr2SongDbSyncWorkflowRuntime
 {
     bool IsLr2ModeEnabled { get; }
@@ -128,6 +184,21 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
 
     private readonly Action<Task, string> taskLogger;
 
+    /// <summary>
+    /// Reports that the LR2 sync owner received a status-bar retry request.
+    /// </summary>
+    internal event Action StatusBarRetryRequested;
+
+    /// <summary>
+    /// Reports that the LR2 sync owner received a status-bar cancellation request.
+    /// </summary>
+    internal event Action StatusBarCancellationRequested;
+
+    /// <summary>
+    /// Reports that the LR2 sync owner received a startup-blocker cleanup request.
+    /// </summary>
+    internal event Action StartupScanBlockerCleanupRequested;
+
     internal Lr2SongDbSyncWorkflowOwner(
         ILr2SongDbSyncWorkflowRuntime runtime,
         IUiDialogService dialogs,
@@ -142,6 +213,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
 
     internal void RequestStatusBarRetry()
     {
+        NotifyStatusBarActionReceived(StatusBarRetryRequested, "Lr2StatusBarRetryRequestNotification");
         if (!CanRun())
         {
             return;
@@ -163,14 +235,30 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         await Task.Run(() => QueueCore(reason, force: true)).ConfigureAwait(false);
     }
 
-    internal void QueueAfterReloadFileDiff(string reason)
+    /// <summary>
+    /// Queues the LR2 synchronization associated with a completed file-diff reload.
+    /// Unavailable LR2 mode is an explicit no-op result; runtime exceptions remain failures.
+    /// </summary>
+    /// <param name="request">The immutable file-diff request to propagate.</param>
+    /// <returns>The exact request and queue disposition.</returns>
+    internal Lr2SongDbSyncQueueResult QueueAfterReloadFileDiff(FileDiffReloadRequest request)
     {
-        if (!CanRun())
+        if (request == null)
         {
-            return;
+            throw new ArgumentNullException(nameof(request));
         }
 
-        QueueCore(reason, force: false);
+        if (!CanRun())
+        {
+            return new Lr2SongDbSyncQueueResult(
+                request,
+                Lr2SongDbSyncQueueStatus.SkippedUnavailable);
+        }
+
+        QueueCore(request.Reason, force: false);
+        return new Lr2SongDbSyncQueueResult(
+            request,
+            Lr2SongDbSyncQueueStatus.Queued);
     }
 
     internal void SchedulePostStartupSync(
@@ -241,6 +329,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
 
     internal void CancelStatusBarSync()
     {
+        NotifyStatusBarActionReceived(StatusBarCancellationRequested, "Lr2StatusBarCancelRequestNotification");
         if (!CanRun())
         {
             return;
@@ -251,6 +340,9 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
 
     internal void CleanupStartupScanBlockersAndRetry()
     {
+        NotifyStatusBarActionReceived(
+            StartupScanBlockerCleanupRequested,
+            "Lr2StatusBarStartupBlockerCleanupRequestNotification");
         if (!CanRun())
         {
             return;
@@ -300,6 +392,24 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
     {
         Task task = (scheduler ?? backgroundScheduler)(work);
         taskLogger(task, routeName);
+    }
+
+    private void NotifyStatusBarActionReceived(Action notification, string routeName)
+    {
+        try
+        {
+            notification?.Invoke();
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                taskLogger(Task.FromException(exception), routeName);
+            }
+            catch
+            {
+            }
+        }
     }
 
     private void ShowCleanupFailure(Exception exception)

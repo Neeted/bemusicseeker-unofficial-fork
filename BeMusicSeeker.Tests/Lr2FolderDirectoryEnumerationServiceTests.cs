@@ -46,6 +46,122 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
         Assert.IsTrue(entries.ContainsKey(target));
     }
 
+    [TestMethod]
+    public void CreateEntriesFromGroupedResult_CompletesMissingExistingTargetWithinAllowedRoots()
+    {
+        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        string root = Path.Combine(scope.DirectoryPath, "BMS");
+        string target = Path.Combine(root, "#minbp", "InsaneTable");
+        Directory.CreateDirectory(target);
+        DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+        Directory.SetLastWriteTimeUtc(target, timestamp);
+        timestamp = Directory.GetLastWriteTimeUtc(target);
+
+        var result = new RootFileEnumerationResult
+        {
+            Success = true,
+            BackendName = "deterministic-test"
+        };
+        result.InitializeGroup(RootFileEnumerationService.DirectoriesGroupName);
+        result.AddEntry(
+            RootFileEnumerationService.DirectoriesGroupName,
+            new RootFileEnumerationEntry(root, timestamp.AddMinutes(-1)));
+
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
+            Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedResult(
+                result,
+                [root + Path.DirectorySeparatorChar],
+                [root, target + Path.DirectorySeparatorChar, target],
+                RootFileEnumerationEntry.FromDirectoryInfo);
+
+        string normalizedRoot = Lr2FolderPath.NormalizeDirectoryPath(root);
+        string normalizedTarget = Lr2FolderPath.NormalizeDirectoryPath(target);
+        Assert.AreEqual(2, entries.Count);
+        Assert.IsTrue(entries.ContainsKey(normalizedRoot));
+        Assert.IsTrue(entries.TryGetValue(normalizedTarget, out RootFileEnumerationEntry targetEntry));
+        Assert.AreEqual(timestamp, targetEntry.LastWriteTimeUtc);
+    }
+
+    [TestMethod]
+    public void CompleteMissingEntriesFromDirectoryMetadata_LeavesOutsideMissingAndUnreadableTargetsAbsent()
+    {
+        using TestDirectoryScope scope = TestDirectoryScope.Create();
+        string root = Path.Combine(scope.DirectoryPath, "BMS");
+        string inside = Path.Combine(root, "Inside");
+        string outside = Path.Combine(scope.DirectoryPath, "Outside");
+        string missing = Path.Combine(root, "Missing");
+        string inaccessible = Path.Combine(root, "Inaccessible");
+        Directory.CreateDirectory(inside);
+        Directory.CreateDirectory(outside);
+        DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+        var readPaths = new List<string>();
+
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
+            Lr2FolderDirectoryEnumerationService.CompleteMissingEntriesFromDirectoryMetadata(
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                [root],
+                [inside, outside, missing, inaccessible],
+                path =>
+                {
+                    readPaths.Add(path);
+                    return string.Equals(path, Lr2FolderPath.NormalizeDirectoryPath(inside), StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(path, Lr2FolderPath.NormalizeDirectoryPath(outside), StringComparison.OrdinalIgnoreCase)
+                        ? new RootFileEnumerationEntry(path, timestamp)
+                        : null;
+                });
+
+        Assert.AreEqual(1, entries.Count);
+        Assert.IsTrue(entries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(inside)));
+        Assert.IsFalse(entries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(outside)));
+        Assert.IsFalse(entries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(missing)));
+        Assert.IsFalse(entries.ContainsKey(Lr2FolderPath.NormalizeDirectoryPath(inaccessible)));
+        CollectionAssert.DoesNotContain(readPaths, Lr2FolderPath.NormalizeDirectoryPath(outside));
+    }
+
+    [TestMethod]
+    public void CreateEntriesFromGroupedResult_PropagatesBridgeContractFailure()
+    {
+        var result = new RootFileEnumerationResult
+        {
+            Success = false,
+            ErrorReason = "bridge_contract_mismatch:test"
+        };
+
+        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
+            Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedResult(
+                result,
+                [],
+                [],
+                _ => throw new AssertFailedException("filesystem reader must not run after bridge failure")));
+
+        StringAssert.Contains(exception.Message, "bridge_contract_mismatch:test");
+    }
+
+    [TestMethod]
+    public void CreateEntriesFromGroupedResult_DoesNotReadFilesystemAfterNonBridgeFailure()
+    {
+        var result = new RootFileEnumerationResult
+        {
+            Success = false,
+            ErrorReason = "enumeration_failed:test"
+        };
+        bool readerCalled = false;
+
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
+            Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedResult(
+                result,
+                [Path.GetTempPath()],
+                [Path.GetTempPath()],
+                _ =>
+                {
+                    readerCalled = true;
+                    return null;
+                });
+
+        Assert.AreEqual(0, entries.Count);
+        Assert.IsFalse(readerCalled);
+    }
+
     private sealed class TestDirectoryScope : IDisposable
     {
         private TestDirectoryScope(string directoryPath)

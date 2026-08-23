@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$AppPublishRoot,
+    [string]$ArtifactManifestPath,
     [string]$FixtureRoot,
     [string]$OutputDirectory,
     [string]$SqliteAssemblyRoot,
@@ -11,6 +12,20 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $repoRoot 'scripts\distribution-artifact.ps1')
+
+$artifactManifestMode = -not [string]::IsNullOrWhiteSpace($ArtifactManifestPath)
+$artifactManifest = $null
+if ($artifactManifestMode) {
+    $artifactManifest = Read-DistributionArtifactManifest -ManifestPath $ArtifactManifestPath
+    Assert-DistributionArtifactManifest -ArtifactManifest $artifactManifest | Out-Null
+    $manifestAppPublishRoot = [IO.Path]::GetFullPath([string]$artifactManifest.Current.appRoot)
+    if (-not [string]::IsNullOrWhiteSpace($AppPublishRoot) -and
+        [IO.Path]::GetFullPath($AppPublishRoot) -cne $manifestAppPublishRoot) {
+        throw "Explicit artifact manifest app root does not match AppPublishRoot: expected=$manifestAppPublishRoot actual=$AppPublishRoot"
+    }
+    $AppPublishRoot = $manifestAppPublishRoot
+}
 
 Add-Type -TypeDefinition @'
 using System;
@@ -23,10 +38,10 @@ public static class BeMusicSeekerAcceptanceWindowMessage
 }
 '@
 
-if ([string]::IsNullOrWhiteSpace($AppPublishRoot)) {
+if (-not $artifactManifestMode -and [string]::IsNullOrWhiteSpace($AppPublishRoot)) {
     $AppPublishRoot = $env:BMS_SCD_APP_PUBLISH_ROOT
 }
-if ([string]::IsNullOrWhiteSpace($AppPublishRoot)) {
+if (-not $artifactManifestMode -and [string]::IsNullOrWhiteSpace($AppPublishRoot)) {
     $AppPublishRoot = Join-Path $repoRoot 'artifacts\publish\app'
 }
 if ([string]::IsNullOrWhiteSpace($FixtureRoot)) {
@@ -646,7 +661,12 @@ if ([string]::IsNullOrWhiteSpace([string]$script:manifest.provenance.sourceCommi
     throw 'Existing-data fixture provenance must identify its source commit.'
 }
 
-$appPublishTreeHash = Get-TreeSha256 -Root $AppPublishRoot
+$appPublishTreeHash = if ($artifactManifestMode) {
+    Get-DistributionTreeSha256 -Root $AppPublishRoot
+}
+else {
+    Get-TreeSha256 -Root $AppPublishRoot
+}
 $manifestHash = Get-Sha256 -Path (Join-Path $FixtureRoot 'fixture-manifest.json')
 $fixtureDatabasePath = Join-Path $FixtureRoot ([string]$script:manifest.database.fixtureFile)
 $fixtureDatabaseHash = Get-Sha256 -Path $fixtureDatabasePath
@@ -780,6 +800,10 @@ try {
         })
     }
 
+    if ($artifactManifestMode) {
+        Assert-DistributionArtifactManifest -ArtifactManifest $artifactManifest | Out-Null
+    }
+
     $receipt = [ordered]@{
         schemaVersion = 1
         status = 'passed'
@@ -789,6 +813,10 @@ try {
         processArchitecture = [Environment]::Is64BitProcess ? 'x64' : 'x86'
         appPublishRoot = $AppPublishRoot
         appPublishTreeSha256 = $appPublishTreeHash
+        artifactManifestPath = if ($artifactManifestMode) { $artifactManifest.ManifestPath } else { $null }
+        artifactId = if ($artifactManifestMode) { $artifactManifest.ArtifactId } else { $null }
+        artifactRunId = if ($artifactManifestMode) { $artifactManifest.RunId } else { $null }
+        artifactManifestSha256 = if ($artifactManifestMode) { $artifactManifest.ManifestSha256 } else { $null }
         fixtureManifestSha256 = $manifestHash
         fixtureDatabaseSha256 = $fixtureDatabaseHash
         profiles = $profileReceipts
@@ -805,6 +833,10 @@ catch {
         generatedUtc = [DateTime]::UtcNow.ToString('o')
         appPublishRoot = $AppPublishRoot
         appPublishTreeSha256 = $appPublishTreeHash
+        artifactManifestPath = if ($artifactManifestMode) { $artifactManifest.ManifestPath } else { $null }
+        artifactId = if ($artifactManifestMode) { $artifactManifest.ArtifactId } else { $null }
+        artifactRunId = if ($artifactManifestMode) { $artifactManifest.RunId } else { $null }
+        artifactManifestSha256 = if ($artifactManifestMode) { $artifactManifest.ManifestSha256 } else { $null }
         fixtureManifestSha256 = $manifestHash
         fixtureDatabaseSha256 = $fixtureDatabaseHash
         error = $_.Exception.ToString()

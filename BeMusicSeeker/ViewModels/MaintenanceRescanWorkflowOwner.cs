@@ -135,6 +135,11 @@ internal sealed class MaintenanceRescanWorkflowOwner
 
     internal event Action<MaintenanceRescanFailure> FailurePublished;
 
+    /// <summary>
+    /// Reports that the maintenance-rescan owner received a cancellation request.
+    /// </summary>
+    internal event Action CancellationRequested;
+
     internal bool IsActive
     {
         get
@@ -272,6 +277,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
 
     internal void Cancel()
     {
+        InvokeObserverSafely(() => CancellationRequested?.Invoke());
         RunContext run;
         MaintenanceWorkflowProgress progress;
         long progressStatusVersion;

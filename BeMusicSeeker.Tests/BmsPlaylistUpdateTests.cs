@@ -1954,6 +1954,19 @@ public sealed class BmsPlaylistUpdateTests
                     parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputDirA)
                 }, typeof(LR2SongDB.folder));
             }
+            synchronization.PhysicalSurfaceFactory = () =>
+            {
+                RootFileEnumerationEntry[] physicalEntries = Directory.Exists(outputBaseDir)
+                    ? Directory.EnumerateFiles(outputBaseDir, "*.lr2folder", SearchOption.AllDirectories)
+                        .Select(path => new FileInfo(path))
+                        .Select(file => new RootFileEnumerationEntry(
+                            file.FullName,
+                            file.LastWriteTimeUtc,
+                            file.Length))
+                        .ToArray()
+                    : [];
+                return CustomFolderOutputPhysicalSurface.FromEntries(physicalEntries, discoveryComplete: true);
+            };
             PlaylistPersistenceRepository statusRepository = new(songDbPath);
             Dictionary<int, CustomFolderOutputStatusRow> seededStatusRows =
                 statusRepository.ReadCustomFolderOutputStatusRows();

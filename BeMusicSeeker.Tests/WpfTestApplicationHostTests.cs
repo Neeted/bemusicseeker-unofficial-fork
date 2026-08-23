@@ -5,10 +5,15 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Views.Settings;
+using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Parago.Windows;
 
 namespace BeMusicSeeker.Tests;
 
@@ -64,6 +69,72 @@ public sealed class WpfTestApplicationHostTests
             Assert.IsInstanceOfType<SolidColorBrush>(theme["App.BackgroundBrush"]);
             Assert.IsInstanceOfType<SolidColorBrush>(theme["App.TextBrush"]);
             Assert.AreEqual(AppThemeService.Light, BeMusicSeeker.Properties.Settings.Default.AppearanceTheme);
+        });
+    }
+
+    [TestMethod]
+    public void CompiledDialogSurfaces_ResolveSemanticBrushesOnConstructorOnlyControls()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var settingsWindow = new SettingsWindow();
+            Grid settingsOperationRoot = (Grid)settingsWindow.FindName("settingDialogOperationGrid");
+            AssertBrush(settingsOperationRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
+            Grid settingsSurface = settingsOperationRoot.Children.OfType<Grid>().Single();
+            AssertBrush(settingsSurface.Background, "App.DialogBackgroundBrush");
+            var warningField = new SettingsField
+            {
+                Header = "header",
+                ValidationMessage = "warning",
+                Content = new TextBox(),
+                Style = (Style)settingsWindow.FindResource(typeof(SettingsField))
+            };
+            warningField.ApplyTemplate();
+            TextBlock warningText = FindVisualDescendantsInVisualTree<TextBlock>(warningField)
+                .Single(textBlock => textBlock.Text == "warning");
+            AssertBrush(warningText.Foreground, "App.WarningTextBrush");
+
+            var initialSetupDialog = new InitialSetupLanguageDialog();
+            Grid initialSetupRoot = FindVisualDescendants<Grid>(initialSetupDialog).Single();
+            Rectangle overlay = FindVisualDescendants<Rectangle>(initialSetupDialog).Single();
+            Border initialSetupSurface = FindVisualDescendants<Border>(initialSetupDialog).Single();
+            AssertBrush(initialSetupRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
+            AssertBrush(overlay.Fill, "App.DialogOverlayBrush");
+            AssertBrush(initialSetupSurface.Background, "App.DialogBackgroundBrush");
+            AssertBrush(initialSetupSurface.BorderBrush, "App.DialogBorderBrush");
+
+            var playlistPropertyDialog = new PlaylistPropertyDialog();
+            Grid playlistPropertyRoot = FindVisualDescendants<Grid>(playlistPropertyDialog).First();
+            AssertBrush(playlistPropertyRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
+            AssertBrush(
+                FindVisualDescendants<Border>(playlistPropertyDialog)
+                    .Single(border => border.CornerRadius == new CornerRadius(8))
+                    .Background,
+                "App.DialogBackgroundBrush");
+
+            var loadPlaylistDialog = new LoadPlaylistURIDialog();
+            Grid loadPlaylistRoot = FindVisualDescendants<Grid>(loadPlaylistDialog).Single();
+            AssertBrush(loadPlaylistRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
+            AssertBrush(FindVisualDescendants<Rectangle>(loadPlaylistDialog).Single().Fill, "App.DialogOverlayBrush");
+            AssertBrush(
+                FindVisualDescendants<Border>(loadPlaylistDialog)
+                    .First(border => border.CornerRadius == new CornerRadius(10))
+                    .Background,
+                "App.DialogBackgroundBrush");
+
+            var pendingDeleteDialog = new PendingDeleteConfirmDialog();
+            AssertBrush(pendingDeleteDialog.Background, "App.DialogBackgroundBrush");
+            AssertBrush(pendingDeleteDialog.Foreground, "App.TextBrush");
+            AssertBrush(
+                FindVisualDescendants<Border>(pendingDeleteDialog).Single().Background,
+                "App.DialogBackgroundBrush");
+
+            var progressDialog = new ProgressDialog(new ProgressDialogSettings());
+            AssertBrush(progressDialog.Background, "App.DialogBackgroundBrush");
+            AssertBrush(progressDialog.Foreground, "App.TextBrush");
+            AssertBrush(
+                FindVisualDescendants<DockPanel>(progressDialog).Single().Background,
+                "App.DialogBackgroundBrush");
         });
     }
 
@@ -211,5 +282,54 @@ public sealed class WpfTestApplicationHostTests
 
         Assert.IsNotNull(cleanupOnlyFailure);
         Assert.AreSame(expectedCleanup, cleanupOnlyFailure);
+    }
+
+    private static void AssertBrush(object value, string resourceKey)
+    {
+        Assert.IsInstanceOfType(value, typeof(SolidColorBrush), resourceKey + " must resolve to a SolidColorBrush.");
+        Assert.AreSame(
+            Application.Current.Resources[resourceKey],
+            value,
+            resourceKey + " must resolve through the application semantic resource.");
+    }
+
+    private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        foreach (object childValue in LogicalTreeHelper.GetChildren(root))
+        {
+            if (childValue is not DependencyObject child)
+            {
+                continue;
+            }
+
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (T descendant in FindVisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+    private static IEnumerable<T> FindVisualDescendantsInVisualTree<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (T descendant in FindVisualDescendantsInVisualTree<T>(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 }

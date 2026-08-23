@@ -8,6 +8,33 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
+/// Immutable queue input for one deferred playlist-reference apply operation.
+/// </summary>
+internal sealed class PlaylistReferenceApplyQueueRequest
+{
+    /// <summary>
+    /// Initializes a queue request with the reason and shell operation token to preserve.
+    /// </summary>
+    /// <param name="reason">The stable operation reason.</param>
+    /// <param name="operationToken">The shell startup-progress operation token.</param>
+    internal PlaylistReferenceApplyQueueRequest(string reason, long operationToken)
+    {
+        Reason = reason ?? string.Empty;
+        OperationToken = operationToken;
+    }
+
+    /// <summary>
+    /// Gets the stable operation reason.
+    /// </summary>
+    internal string Reason { get; }
+
+    /// <summary>
+    /// Gets the shell startup-progress operation token.
+    /// </summary>
+    internal long OperationToken { get; }
+}
+
+/// <summary>
 /// Owns deferred playlist-reference hydration, snapshotting, and live-index application.
 /// </summary>
 internal sealed class PlaylistReferenceApplyWorkflowOwner
@@ -231,6 +258,20 @@ internal sealed class PlaylistReferenceApplyWorkflowOwner
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Queues a deferred playlist-reference apply from one immutable typed request.
+    /// </summary>
+    /// <param name="request">The reason and operation token to preserve.</param>
+    internal void Queue(PlaylistReferenceApplyQueueRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        Queue(request.Reason, request.OperationToken);
     }
 
     internal void ApplyHydrationReceipt(

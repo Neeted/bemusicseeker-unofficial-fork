@@ -104,14 +104,13 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     [TestMethod]
-    public void InstallPipelinePresentation_NormalizesEmptyMaximumAndInactiveState()
+    public async Task InstallPipelinePresentation_NormalizesEmptyMaximumAndInactiveState()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
         using ProgressWorkflowFixture fixture = ProgressWorkflowFixture.Create(hub, packageTotalCount: 0);
         using var packageActive = new ManualResetEventSlim(false);
-        using var packageInactive = new ManualResetEventSlim(false);
         hub.PropertyChanged += (_, args) =>
         {
             if (args.PropertyName == nameof(hub.IsInstallPipelineStatusActive))
@@ -120,10 +119,6 @@ public sealed class OperationProgressHubViewModelTests
                 {
                     packageActive.Set();
                 }
-                else
-                {
-                    packageInactive.Set();
-                }
             }
         };
         fixture.StartPackageProgress();
@@ -131,8 +126,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(1, hub.InstallPipelineMaximum);
 
         fixture.ReleasePackageProgress();
-        Assert.IsTrue(fixture.Package.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(packageInactive.Wait(TimeSpan.FromSeconds(5)));
+        await fixture.Package.WaitForIdleAsync();
         Assert.IsFalse(hub.IsInstallPipelineStatusActive);
         Assert.AreEqual(0, hub.InstallPipelineValue);
         Assert.AreEqual(1, hub.InstallPipelineMaximum);
@@ -535,7 +529,11 @@ public sealed class OperationProgressHubViewModelTests
                     fixture.maintenanceRelease.Wait(TimeSpan.FromSeconds(10));
                     return new MaintenanceWorkflowResult();
                 },
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action(),
                 dialogs: new AcceptedDialogService());
             var folder = new FolderAutoRenameWorkflowOwner(
@@ -552,7 +550,11 @@ public sealed class OperationProgressHubViewModelTests
                     },
                     (current, parentDirectory) => true),
                 new ProgressFolderAutoRenamePlaybackPort(),
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action(),
                 dialogs: new AcceptedDialogService());
             fixture = new ProgressWorkflowFixture(

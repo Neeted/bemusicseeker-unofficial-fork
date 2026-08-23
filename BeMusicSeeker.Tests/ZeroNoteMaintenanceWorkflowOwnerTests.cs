@@ -41,32 +41,33 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
                 Assert.AreSame(library, actualLibrary);
                 Interlocked.Increment(ref recheckCount);
             });
-        using var gateHeld = new ManualResetEventSlim();
-        using var releaseGate = new ManualResetEventSlim();
-        Task gateHolder = Task.Run(() =>
+        var gateHeld = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task gateHolder = Task.Factory.StartNew(
+            () =>
         {
             using (synchronizer.Enter())
             {
-                gateHeld.Set();
-                Assert.IsTrue(releaseGate.Wait(TimeSpan.FromSeconds(5)));
+                gateHeld.TrySetResult(true);
+                releaseGate.Task.GetAwaiter().GetResult();
             }
-        });
-        Assert.IsTrue(gateHeld.Wait(TimeSpan.FromSeconds(5)));
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
         try
         {
+            await gateHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Task<bool> recheckTask = owner.RecheckAsync();
-            Assert.IsFalse(recheckTask.Wait(0));
+            Assert.IsFalse(recheckTask.IsCompleted);
             Assert.AreEqual(0, Volatile.Read(ref recheckCount));
 
-            releaseGate.Set();
+            releaseGate.TrySetResult(true);
             Assert.IsTrue(await recheckTask);
             await gateHolder;
             Assert.AreEqual(1, Volatile.Read(ref recheckCount));
         }
         finally
         {
-            releaseGate.Set();
+            releaseGate.TrySetResult(true);
             await gateHolder;
         }
     }

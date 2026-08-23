@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -26,36 +27,146 @@ public sealed class Lr2SynchronizationArchitectureTests
     }
 
     [TestMethod]
-    public void LibraryFileOperationOwnerUsesDirectCapabilityComposition()
+    public void FolderMoveWriteScope_UsesTypedMutationBoundaryAndCanonicalLocks()
     {
-        Type ownerType = typeof(LibraryFileOperationOwner);
-        Assert.IsNull(typeof(BMSLibrary).GetNestedType(
-            nameof(LibraryFileOperationOwner),
-            BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
-        ConstructorInfo constructor = ownerType.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
-            .SingleOrDefault(candidate => candidate.GetParameters()
-                .Any(parameter => parameter.ParameterType == typeof(LibraryFileOperationSynchronization)));
-        Assert.IsNotNull(constructor);
-        Assert.IsFalse(ownerType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
-            .Any(field => field.FieldType == typeof(BMSLibrary)));
+        List<string> events = [];
+        var boundary = new RecordingMutationBoundary(events);
+        ReaderWriterLockSlimWrapper initializedAll = CreateObservedLock("initialized-all", events);
+        ReaderWriterLockSlimWrapper initializedMin = CreateObservedLock("initialized-min", events);
+        ReaderWriterLockSlimWrapper pendingInstall = CreateObservedLock("pending-install", events);
+        ReaderWriterLockSlimWrapper bmsFiles = CreateObservedLock("bms-files", events);
+        ReaderWriterLockSlimWrapper songDbInstall = CreateObservedLock("song-db", events);
+        IDisposable? scope = null;
 
-        string ownerSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "Models",
-            "BMSLibrary.LibraryFileOperationOwner.cs");
-        Assert.IsFalse(ownerSource.Contains("private readonly BMSLibrary owner"));
-        Assert.IsFalse(ownerSource.Contains("ILibraryFileOperationPort"));
-        StringAssert.Contains(ownerSource, "LibraryFileOperationSynchronization");
-        StringAssert.Contains(ownerSource, "BmsLibraryLibraryFileOperationsService");
-        StringAssert.Contains(ownerSource, "PackageLifecycleOwner");
+        try
+        {
+            var synchronization = new LibraryFileOperationSynchronization(
+                boundary,
+                initializedAll,
+                initializedMin,
+                pendingInstall,
+                bmsFiles,
+                songDbInstall);
 
-        string mutationBoundarySource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "Models",
-            "BmsLibraryInternal",
-            "LibraryFileOperationMutationBoundary.cs");
-        Assert.IsFalse(mutationBoundarySource.Contains("private readonly BMSLibrary library"));
-        Assert.IsFalse(mutationBoundarySource.Contains("ILibraryFileOperationPort"));
+            scope = synchronization.EnterFolderMoveWriteScope();
+
+            Assert.IsNotNull(scope);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "mutation-sequence.enter",
+                    "mutation-reservation.enter:library_folder_move:True",
+                    "collection-scope.enter",
+                    "initialized-min.read.enter",
+                    "pending-install.write.enter",
+                    "bms-files.write.enter"
+                },
+                events);
+            Assert.AreEqual(1u, initializedMin.LockingReadCount);
+            Assert.AreEqual(1u, pendingInstall.LockingWriteCount);
+            Assert.AreEqual(1u, bmsFiles.LockingWriteCount);
+            Assert.AreEqual(0u, initializedAll.LockingReadCount);
+            Assert.AreEqual(0u, initializedAll.LockingWriteCount);
+            Assert.AreEqual(0u, songDbInstall.LockingReadCount);
+            Assert.AreEqual(0u, songDbInstall.LockingWriteCount);
+
+            scope.Dispose();
+            scope = null;
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "mutation-sequence.enter",
+                    "mutation-reservation.enter:library_folder_move:True",
+                    "collection-scope.enter",
+                    "initialized-min.read.enter",
+                    "pending-install.write.enter",
+                    "bms-files.write.enter",
+                    "bms-files.write.exit",
+                    "pending-install.write.exit",
+                    "initialized-min.read.exit",
+                    "collection-scope.dispose",
+                    "mutation-reservation.dispose",
+                    "mutation-sequence.dispose"
+                },
+                events);
+            Assert.AreEqual(1, boundary.Sequence.DisposeCount);
+            Assert.AreEqual(1, boundary.Reservation!.DisposeCount);
+            Assert.AreEqual(1, boundary.CollectionScope!.DisposeCount);
+            Assert.AreEqual(0u, initializedMin.LockingReadCount);
+            Assert.AreEqual(0u, pendingInstall.LockingWriteCount);
+            Assert.AreEqual(0u, bmsFiles.LockingWriteCount);
+        }
+        finally
+        {
+            scope?.Dispose();
+            initializedAll.Dispose();
+            initializedMin.Dispose();
+            pendingInstall.Dispose();
+            bmsFiles.Dispose();
+            songDbInstall.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public void FolderMoveWriteScope_RejectedReservationReleasesSequenceWithoutAcquiringLocks()
+    {
+        List<string> events = [];
+        var boundary = new RecordingMutationBoundary(events)
+        {
+            RejectReservation = true
+        };
+        ReaderWriterLockSlimWrapper initializedAll = CreateObservedLock("initialized-all", events);
+        ReaderWriterLockSlimWrapper initializedMin = CreateObservedLock("initialized-min", events);
+        ReaderWriterLockSlimWrapper pendingInstall = CreateObservedLock("pending-install", events);
+        ReaderWriterLockSlimWrapper bmsFiles = CreateObservedLock("bms-files", events);
+        ReaderWriterLockSlimWrapper songDbInstall = CreateObservedLock("song-db", events);
+
+        try
+        {
+            var synchronization = new LibraryFileOperationSynchronization(
+                boundary,
+                initializedAll,
+                initializedMin,
+                pendingInstall,
+                bmsFiles,
+                songDbInstall);
+
+            IDisposable? scope = synchronization.EnterFolderMoveWriteScope();
+
+            Assert.IsNull(scope);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "mutation-sequence.enter",
+                    "mutation-reservation.enter:library_folder_move:True",
+                    "mutation-sequence.dispose"
+                },
+                events);
+            Assert.AreEqual(1, boundary.Sequence.DisposeCount);
+            Assert.IsNull(boundary.Reservation);
+            Assert.IsNull(boundary.CollectionScope);
+            Assert.AreEqual(0u, initializedAll.LockingReadCount);
+            Assert.AreEqual(0u, initializedAll.LockingWriteCount);
+            Assert.AreEqual(0u, initializedMin.LockingReadCount);
+            Assert.AreEqual(0u, initializedMin.LockingWriteCount);
+            Assert.AreEqual(0u, pendingInstall.LockingReadCount);
+            Assert.AreEqual(0u, pendingInstall.LockingWriteCount);
+            Assert.AreEqual(0u, bmsFiles.LockingReadCount);
+            Assert.AreEqual(0u, bmsFiles.LockingWriteCount);
+            Assert.AreEqual(0u, songDbInstall.LockingReadCount);
+            Assert.AreEqual(0u, songDbInstall.LockingWriteCount);
+
+            scope = null;
+        }
+        finally
+        {
+            initializedAll.Dispose();
+            initializedMin.Dispose();
+            pendingInstall.Dispose();
+            bmsFiles.Dispose();
+            songDbInstall.Dispose();
+        }
     }
 
     [TestMethod]
@@ -303,6 +414,88 @@ public sealed class Lr2SynchronizationArchitectureTests
         }
         return candidate.IsGenericType
             && candidate.GetGenericArguments().Any(argument => ContainsType(argument, expected));
+    }
+
+    private static ReaderWriterLockSlimWrapper CreateObservedLock(
+        string name,
+        List<string> events)
+    {
+        var gate = new ReaderWriterLockSlimWrapper();
+        gate.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(ReaderWriterLockSlimWrapper.LockingReadCount))
+            {
+                events.Add($"{name}.read.{(gate.LockingReadCount > 0 ? "enter" : "exit")}");
+            }
+            else if (args.PropertyName == nameof(ReaderWriterLockSlimWrapper.LockingWriteCount))
+            {
+                events.Add($"{name}.write.{(gate.LockingWriteCount > 0 ? "enter" : "exit")}");
+            }
+        };
+        return gate;
+    }
+
+    private sealed class RecordingMutationBoundary : ILibraryFileOperationMutationBoundary
+    {
+        private readonly List<string> events;
+
+        internal RecordingMutationBoundary(List<string> events)
+        {
+            this.events = events;
+            Sequence = new RecordingDisposable("mutation-sequence.dispose", events);
+        }
+
+        internal bool RejectReservation { get; init; }
+
+        internal RecordingDisposable Sequence { get; }
+
+        internal RecordingDisposable? Reservation { get; private set; }
+
+        internal RecordingDisposable? CollectionScope { get; private set; }
+
+        public IDisposable EnterMutationSequence()
+        {
+            events.Add("mutation-sequence.enter");
+            return Sequence;
+        }
+
+        public IDisposable TryBeginMutation(string operation, bool showMessage)
+        {
+            events.Add($"mutation-reservation.enter:{operation}:{showMessage}");
+            if (RejectReservation)
+            {
+                return null!;
+            }
+
+            Reservation = new RecordingDisposable("mutation-reservation.dispose", events);
+            return Reservation;
+        }
+
+        public bool TryBlockMutation(string operation, bool showMessage)
+        {
+            events.Add($"mutation-block:{operation}:{showMessage}");
+            return false;
+        }
+
+        public IDisposable BeginCollectionMutationScope()
+        {
+            events.Add("collection-scope.enter");
+            CollectionScope = new RecordingDisposable("collection-scope.dispose", events);
+            return CollectionScope;
+        }
+    }
+
+    private sealed class RecordingDisposable(
+        string disposalEvent,
+        List<string> events) : IDisposable
+    {
+        internal int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            DisposeCount++;
+            events.Add(disposalEvent);
+        }
     }
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService

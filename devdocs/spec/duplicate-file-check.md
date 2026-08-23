@@ -83,6 +83,8 @@ merge flow:
 6. destination directory を scan し、reverse lookup と DB / owned collection / maintenance を更新する。
 7. UI suppression を解除し、duplicate refresh 後に auto-select を試みる。
 
+merge の resource-health maintenance は `ResourceHealthIndexUpdateMode.DeferOnUpdates` を使う。内部 route は `DuplicateMergeMaintenanceReceipt` として、merge 成否、maintenance の更新有無、intermediate defer、delta/full rebuild の dispatch facts を返す。merge 中は resource-health の delta 適用と full rebuild を行わず、次の canonical `GetResourceHealthIndexSnapshotForView()` read が current owned target snapshot を一度だけ full rebuildし、続く read は同じ snapshot reference/version を再利用する。公開 `BMSLibrary.MergeChartDirectory(string, string)` は従来どおり `void` で receipt を破棄し、filesystem・DB・lock・exception の契約は変えない。
+
 source chart を除外した owned installed primary MD5 lookup に同一 MD5 が既にある場合、その source chart file は移動対象から外す。これは destination folder に限らず、library 内に同一 MD5 の current owned chart が残る場合も含む。chart ファイル名だけが衝突する場合は別名へずらす。component resource の衝突は smart overwrite 設定に従う。
 
 source folder は、空になった場合、または残っている file がすべて supported chart かつ既所持/current package hash と判断できる場合だけ削除する。非譜面、parse できない譜面、hash 不明、未所持 hash の chart が残る場合は削除しない。

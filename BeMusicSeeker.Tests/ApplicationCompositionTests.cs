@@ -7,11 +7,13 @@ using System.Runtime.ExceptionServices;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -34,6 +36,90 @@ public sealed class ApplicationCompositionTests
             settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
         Assert.AreSame(snapshot, composition.BmsLibraryOptionsProvider());
+    }
+
+    [TestMethod]
+    public void CompositionCreatesPlaylistWithTypedLibraryBindings()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(CompositionCreatesPlaylistWithTypedLibraryBindings),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string songDbPath = Path.Combine(tempDirectory, "song.db");
+        using (var initialize = new LR2SongDBExtended(songDbPath))
+        {
+        }
+
+        try
+        {
+            var composition = new ApplicationComposition(
+                bmsLibraryOptionsProvider: () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+                settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            var profile = new LibraryProfile(
+                operationModeLR2DB: false,
+                songDbPath: songDbPath,
+                searchRoots: [tempDirectory],
+                lr2ConfigProvider: () => null!,
+                lr2ScoreDbPath: null,
+                canWriteLr2Config: false,
+                canOutputLr2Folders: false,
+                canUseLr2Backup: false,
+                canUseLr2IrScore: false,
+                startupRequiredFileScanReason: "typed-playlist-binding-test");
+
+            BMSLibrary library = composition.CreateBmsLibrary(profile);
+            BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
+            BmsPlaylistLibraryBindings bindings = playlist.LibraryBindings;
+
+            Assert.AreSame(library, bindings.SourceLibrary);
+            Assert.AreSame(
+                library.Lr2PlaylistFolderSynchronization,
+                bindings.Lr2PlaylistFolderSynchronization);
+            CollectionAssert.AreEqual(library.GetBMSScores(), bindings.GetBmsScores());
+
+            var request = new BmtSongHashResolveRequest
+            {
+                Md5 = "missing-md5",
+                Sha256 = "missing-sha256",
+                Title = "missing-title"
+            };
+            Tuple<string, string> directResolution = library.CreateBeatorajaBmtSongHashResolver()(request);
+            Tuple<string, string> boundResolution = bindings.CreateBeatorajaBmtSongHashResolver()(request);
+            Assert.AreEqual(directResolution?.Item1, boundResolution?.Item1);
+            Assert.AreEqual(directResolution?.Item2, boundResolution?.Item2);
+
+            Assert.ThrowsException<ArgumentNullException>(
+                () => new BmsPlaylistLibraryBindings(null!));
+            Assert.ThrowsException<ArgumentNullException>(
+                () => composition.CreateBmsPlaylist(null!, library));
+            Assert.ThrowsException<ArgumentNullException>(
+                () => composition.CreateBmsPlaylist(profile, null!));
+
+            var missingProfile = new LibraryProfile(
+                operationModeLR2DB: false,
+                songDbPath: Path.Combine(tempDirectory, "missing", "song.db"),
+                searchRoots: [tempDirectory],
+                lr2ConfigProvider: () => null!,
+                lr2ScoreDbPath: null,
+                canWriteLr2Config: false,
+                canOutputLr2Folders: false,
+                canUseLr2Backup: false,
+                canUseLr2IrScore: false,
+                startupRequiredFileScanReason: "typed-playlist-binding-failure-test");
+            Assert.ThrowsException<ArgumentException>(
+                () => composition.CreateBmsPlaylist(missingProfile, library));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
@@ -248,6 +334,7 @@ public sealed class ApplicationCompositionTests
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var settings = new StartupSettingsSnapshot
             {
+                OperationModeLR2DB = false,
                 UsePlayerLR2body = true,
                 LR2bodyPath = executablePath
             };
@@ -260,6 +347,93 @@ public sealed class ApplicationCompositionTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void CompositionCreatesConfiguredLr2PlayerWhenLibraryOperationModeIsStandalone()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
+        string executablePath = Path.Combine(root, "LR2body.exe");
+        string configPath = Path.Combine(root, "LR2files", "Config", "config.xml");
+        Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
+        File.WriteAllBytes(executablePath, []);
+        File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
+        var values = new BeMusicSeeker.Properties.Settings
+        {
+            OperationModeLR2DB = false,
+            UsePlayerLR2body = true,
+            LR2RootPath = root,
+            LR2ConfigXmlPath = configPath
+        };
+        int defaultFactoryCalls = 0;
+        try
+        {
+            var composition = new ApplicationComposition(
+                settingsEditSession: new FakeSettingsEditSession { Values = values },
+                defaultBmsPlayerFactory: () =>
+                {
+                    defaultFactoryCalls++;
+                    throw new InvalidOperationException("standalone LR2body must not use the default player");
+                },
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+
+            IBMSPlayer player = composition.CreateBmsPlayerForSettings(StartupSettingsSnapshot.CreateCurrent(values));
+
+            Assert.IsInstanceOfType(player, typeof(LR2body));
+            Assert.AreEqual(executablePath, player.ExePath);
+            Assert.AreEqual(0, defaultFactoryCalls);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CompositionPropagatesConfiguredLr2PlayerConfigFailureWithoutDefaultFallback()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
+        string executablePath = Path.Combine(root, "LR2body.exe");
+        Directory.CreateDirectory(root);
+        File.WriteAllBytes(executablePath, []);
+        string missingConfigPath = Path.Combine(root, "missing-config.xml");
+        var values = new BeMusicSeeker.Properties.Settings
+        {
+            OperationModeLR2DB = false,
+            UsePlayerLR2body = true,
+            LR2RootPath = root,
+            LR2ConfigXmlPath = missingConfigPath
+        };
+        int defaultFactoryCalls = 0;
+        try
+        {
+            var composition = new ApplicationComposition(
+                settingsEditSession: new FakeSettingsEditSession { Values = values },
+                defaultBmsPlayerFactory: () =>
+                {
+                    defaultFactoryCalls++;
+                    throw new InvalidOperationException("configured LR2 failure must not fall back");
+                },
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+
+            Assert.ThrowsException<FileNotFoundException>(
+                () => composition.CreateBmsPlayerForSettings(StartupSettingsSnapshot.CreateCurrent(values)));
+            Assert.AreEqual(0, defaultFactoryCalls);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 
@@ -563,6 +737,55 @@ public sealed class ApplicationCompositionTests
         finally
         {
             childComposition.RegularChartListOwner.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task CompositionScoreViewerWorkflowUsesInjectedDialogService()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string chartPath = Path.Combine(tempDirectory, "composition-score-viewer.bms");
+        File.WriteAllText(chartPath, "#PLAYER 1\n");
+        try
+        {
+            var values = new BeMusicSeeker.Properties.Settings
+            {
+                OperationModeLR2DB = false,
+                ShowScoreViewerRegisterConfirmMsg = true
+            };
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
+            };
+            var gateway = new CompositionScoreViewerGateway();
+            var composition = new ApplicationComposition(
+                settingsEditSession: new FakeSettingsEditSession { Values = values },
+                playlistWorkspaceDialogService: dialogs,
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                scoreViewerRegistrationGateway: gateway);
+
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            ScoreViewerRegistrationResult result = await viewModel.ScoreViewerRegistration.RunAsync(
+                [new ScoreViewerTarget("composition-hash", chartPath, "Composition chart")],
+                openSingleViewerOnSuccess: false,
+                logName: "composition-test");
+
+            Assert.IsNotNull(result);
+            Assert.AreEqual(1, result.UploadedCount);
+            CollectionAssert.AreEqual(new[] { "composition-hash" }, gateway.StatusHashes.ToArray());
+            CollectionAssert.AreEqual(new[] { chartPath }, gateway.UploadPaths.ToArray());
+            Assert.IsNotNull(dialogs.LastConfirmationRequest);
+            Assert.IsNotNull(dialogs.LastMessageRequest);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
         }
     }
 
@@ -1551,6 +1774,25 @@ public sealed class ApplicationCompositionTests
                     throw new InvalidOperationException("Unknown playlist presentation refresh request kind.");
             }
         };
+    }
+
+    private sealed class CompositionScoreViewerGateway : IScoreViewerRegistrationGateway
+    {
+        internal List<string> StatusHashes { get; } = [];
+
+        internal List<string> UploadPaths { get; } = [];
+
+        public bool IsRegistered(string hash)
+        {
+            StatusHashes.Add(hash);
+            return false;
+        }
+
+        public ScoreViewerUploadResponse Upload(string path)
+        {
+            UploadPaths.Add(path);
+            return ScoreViewerUploadResponse.Success("composition-hash");
+        }
     }
 
     private sealed class FakeSettingsEditSession : ISettingsEditSession

@@ -646,6 +646,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(0, executeScanCount);
             Assert.IsTrue(result.PrefetchedScanUsed);
             Assert.IsTrue(result.HasDbDiff);
+            Assert.AreEqual(1, result.FileDiffParserDegree);
+            Assert.AreEqual(1, result.FileDiffPostParseWorkerDegree);
             CollectionAssert.Contains(result.DeletedPaths, deletedFile.path);
             Assert.AreEqual(1, result.AddedFiles.Count);
             Assert.AreEqual(2, result.NextFiles.Count);

@@ -9,7 +9,7 @@
       <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" Background="{DynamicResource App.DialogBackgroundBrush}">
         <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
           <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,2,0,0">
-            <Button Content="Open" MinWidth="50" Margin="5,3" Click="OpenLocalFile" />
+            <Button x:Name="openLocalFileButton" Content="Open" MinWidth="50" Margin="5,3" Click="OpenLocalFile" />
             <Button Content="OK" MinWidth="50" Margin="5,3" Click="SaveAndClose" />
             <Button Content="Cancel" MinWidth="50" Margin="5,3" Click="CancelAndClose" />
           </StackPanel>

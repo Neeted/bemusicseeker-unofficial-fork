@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Text;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.Models.Utils;
@@ -45,6 +48,69 @@ internal interface IApplicationRestartGateway
 internal static class ApplicationRestartGatewayPolicy
 {
     internal static IApplicationRestartGateway Current { get; } = new WindowsApplicationRestartGateway();
+}
+
+/// <summary>
+/// Builds the Windows command-line representation used when restarting the application.
+/// </summary>
+internal static class ApplicationRestartArgumentsPolicy
+{
+    /// <summary>
+    /// Excludes the executable element from a process argument array and quotes each remaining
+    /// argument according to the Windows C runtime command-line rules.
+    /// </summary>
+    /// <param name="processArguments">The process argument array, including its executable element.</param>
+    /// <returns>The canonical argument string for a new process.</returns>
+    internal static string BuildCommandLineArguments(IEnumerable<string> processArguments)
+    {
+        if (processArguments == null)
+        {
+            throw new ArgumentNullException(nameof(processArguments));
+        }
+
+        return string.Join(
+            " ",
+            processArguments
+                .Skip(1)
+                .Select(QuoteCommandLineArgument));
+    }
+
+    private static string QuoteCommandLineArgument(string argument)
+    {
+        if (string.IsNullOrEmpty(argument))
+        {
+            return "\"\"";
+        }
+        if (!argument.Any(char.IsWhiteSpace) && !argument.Contains('"'))
+        {
+            return argument;
+        }
+
+        var builder = new StringBuilder();
+        builder.Append('"');
+        int backslashCount = 0;
+        foreach (char c in argument)
+        {
+            if (c == '\\')
+            {
+                backslashCount++;
+                continue;
+            }
+            if (c == '"')
+            {
+                builder.Append('\\', backslashCount * 2 + 1);
+                builder.Append('"');
+                backslashCount = 0;
+                continue;
+            }
+            builder.Append('\\', backslashCount);
+            backslashCount = 0;
+            builder.Append(c);
+        }
+        builder.Append('\\', backslashCount * 2);
+        builder.Append('"');
+        return builder.ToString();
+    }
 }
 
 internal sealed class WindowsApplicationRestartGateway : IApplicationRestartGateway

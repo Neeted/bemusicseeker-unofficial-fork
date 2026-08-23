@@ -3,11 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
-using System.Linq;
 using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -152,31 +150,26 @@ public partial class App : System.Windows.Application
             message => NLogWrapper.FileLogger?.Info(message),
             (path, ex) => NLogWrapper.FileLogger?.Warn(ex, "temp_startup_cleanup_failed path=" + path));
 
-        await CreateAndShowMainWindowAsync().ConfigureAwait(true);
+        await new ApplicationStartupCompositionOwner(
+            createViewModel: () =>
+            {
+                ApplicationComposition composition = new ApplicationComposition(
+                    uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
+                    applicationLifetime: new AppApplicationLifetime(this),
+                    cultureCatalog: new AppCultureCatalog(this),
+                    applicationPathSnapshot: applicationPathSnapshot);
+                return composition.CreateMainWindowViewModel();
+            },
+            assignViewModelResource: viewModel => Resources["vm"] = viewModel,
+            createMainWindow: viewModel => new MainWindow(viewModel),
+            assignApplicationMainWindow: mainWindow => MainWindow = mainWindow,
+            showMainWindow: mainWindow => mainWindow.Show(),
+            handleFailure: HandleStartupFailureAsync)
+            .StartAsync()
+            .ConfigureAwait(true);
     }
 
-    private async Task CreateAndShowMainWindowAsync()
-    {
-        try
-        {
-            ApplicationComposition composition = new ApplicationComposition(
-                uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
-                applicationLifetime: new AppApplicationLifetime(this),
-                cultureCatalog: new AppCultureCatalog(this),
-                applicationPathSnapshot: applicationPathSnapshot);
-            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-            Resources["vm"] = viewModel;
-            MainWindow mainWindow = new(viewModel);
-            MainWindow = mainWindow;
-            mainWindow.Show();
-        }
-        catch (Exception exception)
-        {
-            await HandleStartupCompositionFailureAsync(exception).ConfigureAwait(true);
-        }
-    }
-
-    private async Task HandleStartupCompositionFailureAsync(Exception exception)
+    private async Task HandleStartupFailureAsync(Exception exception)
     {
         MarkCoordinatedShutdownStarted("startup_composition_failed");
         try
@@ -240,7 +233,8 @@ public partial class App : System.Windows.Application
             new ApplicationRestartCoordinator(
                 applicationPathSnapshot,
                 applicationRestartGateway,
-                () => BuildCommandLineArguments(Environment.GetCommandLineArgs().Skip(1)),
+                () => ApplicationRestartArgumentsPolicy.BuildCommandLineArguments(
+                    Environment.GetCommandLineArgs()),
                 ReleaseSingleInstanceMutex,
                 Shutdown).Restart();
         }
@@ -297,48 +291,6 @@ public partial class App : System.Windows.Application
             _mutex.Dispose();
             _mutex = null;
         }
-    }
-
-    private static string BuildCommandLineArguments(IEnumerable<string> args)
-    {
-        return string.Join(" ", args.Select(QuoteCommandLineArgument));
-    }
-
-    private static string QuoteCommandLineArgument(string argument)
-    {
-        if (string.IsNullOrEmpty(argument))
-        {
-            return "\"\"";
-        }
-        if (!argument.Any(char.IsWhiteSpace) && !argument.Contains("\""))
-        {
-            return argument;
-        }
-
-        var builder = new StringBuilder();
-        builder.Append('"');
-        int backslashCount = 0;
-        foreach (char c in argument)
-        {
-            if (c == '\\')
-            {
-                backslashCount++;
-                continue;
-            }
-            if (c == '"')
-            {
-                builder.Append('\\', backslashCount * 2 + 1);
-                builder.Append('"');
-                backslashCount = 0;
-                continue;
-            }
-            builder.Append('\\', backslashCount);
-            backslashCount = 0;
-            builder.Append(c);
-        }
-        builder.Append('\\', backslashCount * 2);
-        builder.Append('"');
-        return builder.ToString();
     }
 
     private void Application_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

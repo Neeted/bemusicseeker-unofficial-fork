@@ -49,6 +49,7 @@ public sealed class UpdaterProcessGatewayTests
             Assert.AreEqual(request.ExecutablePath, captured.FileName);
             Assert.AreEqual(request.WorkingDirectory, captured.WorkingDirectory);
             Assert.IsFalse(captured.UseShellExecute);
+            Assert.IsTrue(captured.CreateNoWindow);
             int processId = Process.GetCurrentProcess().Id;
             Assert.AreEqual(
                 "\"--app-dir\" \"" + applicationDirectory + "\" "

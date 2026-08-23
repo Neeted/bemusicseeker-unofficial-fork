@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Windows;
 using BeMusicSeeker.Models;
@@ -431,8 +430,23 @@ public sealed class BmsLibraryDuplicateServiceTests
                 {
                     songDb.InsertOrReplace(sourceSong, typeof(LR2SongDBExtended.bmson_song));
                 }
-                InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-                library.MergeChartDirectory(srcDir, dstDir);
+                ResourceHealthIndexSnapshot beforeSnapshot = library.GetResourceHealthIndexSnapshotForView("duplicate_merge_before");
+                Assert.AreEqual(1, beforeSnapshot.TargetCount);
+
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
+
+                Assert.IsTrue(receipt.MergeApplied);
+                Assert.AreEqual(ResourceHealthIndexUpdateMode.DeferOnUpdates, receipt.IntermediateMode);
+                Assert.IsTrue(receipt.MaintenanceHadUpdates);
+                Assert.IsTrue(receipt.MaintenanceResult.HasUpdates);
+                Assert.IsTrue(receipt.IntermediateDeferred);
+                Assert.IsTrue(receipt.ResourceHealthIndexDeferred);
+                Assert.IsTrue(receipt.MaintenanceResult.ResourceHealthIndexDeferred);
+                Assert.IsFalse(receipt.ResourceHealthIndexDeltaApplied);
+                Assert.IsFalse(receipt.MaintenanceResult.ResourceHealthIndexDeltaApplied);
+                Assert.IsFalse(receipt.ResourceHealthIndexFullRebuilt);
+                Assert.IsFalse(receipt.MaintenanceResult.ResourceHealthIndexFullRebuilt);
+                Assert.AreSame(ResourceHealthIndexSnapshot.Empty, library.TryGetCurrentResourceHealthIndexSnapshotForView());
 
                 string dstChartPath = Path.Combine(dstDir, "chart.bmson");
                 Assert.IsFalse(File.Exists(srcChartPath));
@@ -447,9 +461,11 @@ public sealed class BmsLibraryDuplicateServiceTests
                     Assert.IsNotNull(songDb.Find<LR2SongDBExtended.bmson_song>(dstChartPath));
                     Assert.IsTrue(songDb.Table<BMSFileMaintenanceInfo>().Any(info => info.path == dstChartPath));
                 }
-                List<ChartFile> ownedSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-                Assert.AreEqual(1, ownedSnapshot.Count);
-                Assert.AreSame(library.BmsonSongs[0], ownedSnapshot[0].GetBmsonStorageOwner());
+                ResourceHealthIndexSnapshot rebuiltSnapshot = library.GetResourceHealthIndexSnapshotForView("duplicate_merge_after");
+                Assert.AreNotSame(beforeSnapshot, rebuiltSnapshot);
+                Assert.AreNotEqual(beforeSnapshot.Version, rebuiltSnapshot.Version);
+                ResourceHealthIndexSnapshot cachedSnapshot = library.GetResourceHealthIndexSnapshotForView("duplicate_merge_cached");
+                Assert.AreSame(rebuiltSnapshot, cachedSnapshot);
             }
             finally
             {
@@ -667,13 +683,6 @@ public sealed class BmsLibraryDuplicateServiceTests
         {
             return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
         }
-    }
-
-    private static List<ChartFile> InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(BMSLibrary library)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateOwnedChartInfoFullBackfillTargetSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (List<ChartFile>)methodInfo.Invoke(library, []);
     }
 
     private sealed class TestFileMutationService : IFileMutationService

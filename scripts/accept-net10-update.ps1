@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$BaselineCommit = 'ab9d97ed3f53dab80fb2894f20f44abdfb6fed32',
+    [string]$ArtifactManifestPath,
     [string]$FixtureRoot,
     [string]$OutputDirectory,
     [string]$SqliteAssemblyRoot,
@@ -20,6 +21,14 @@ if ([string]::IsNullOrWhiteSpace($SqliteAssemblyRoot)) {
 }
 
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
+. (Join-Path $repoRoot 'scripts\distribution-artifact.ps1')
+
+$artifactManifestMode = -not [string]::IsNullOrWhiteSpace($ArtifactManifestPath)
+$artifactManifest = $null
+if ($artifactManifestMode) {
+    $artifactManifest = Read-DistributionArtifactManifest -ManifestPath $ArtifactManifestPath
+    Assert-DistributionArtifactManifest -ArtifactManifest $artifactManifest | Out-Null
+}
 
 Add-Type -TypeDefinition @'
 using System;
@@ -642,8 +651,26 @@ $script:failed = $false
 try {
     $baselineRoot = Join-Path $script:sandboxRoot 'baseline'
     New-Item -ItemType Directory -Path $baselineRoot -Force | Out-Null
-    $baseline = Export-BaselinePackage -Root $baselineRoot
-    $current = Export-CurrentPackage
+    if ($artifactManifestMode) {
+        $baseline = [pscustomobject]@{
+            Commit = [string]$artifactManifest.Baseline.commit
+            Version = [string]$artifactManifest.Baseline.version
+            PackagePath = [string]$artifactManifest.Baseline.packagePath
+            PackageSha256 = [string]$artifactManifest.Baseline.packageSha256
+        }
+        $current = [pscustomobject]@{
+            Commit = [string]$artifactManifest.Current.commit
+            Version = [string]$artifactManifest.Current.version
+            PackagePath = [string]$artifactManifest.Current.packagePath
+            PackageSha256 = [string]$artifactManifest.Current.packageSha256
+            AppPublishRoot = [string]$artifactManifest.Current.appRoot
+            UpdaterPublishRoot = [string]$artifactManifest.Current.updaterRoot
+        }
+    }
+    else {
+        $baseline = Export-BaselinePackage -Root $baselineRoot
+        $current = Export-CurrentPackage
+    }
     $script:currentAppPublishRoot = Resolve-FullPath $current.AppPublishRoot
     Assert-Directory $script:currentAppPublishRoot
 
@@ -715,13 +742,24 @@ try {
         if (Test-Path -LiteralPath (Join-Path $rollbackApp $residual)) { throw "Rollback left transaction residue: $residual" }
     }
 
+    if ($artifactManifestMode) {
+        Assert-DistributionArtifactManifest -ArtifactManifest $artifactManifest | Out-Null
+    }
+
     $receipt = [ordered]@{
         schemaVersion = 1
         status = 'passed'
         baselineCommit = $baseline.Commit
+        baselineVersion = $baseline.Version
         baselinePackageSha256 = $baseline.PackageSha256
+        currentCommit = $current.Commit
+        currentVersion = $current.Version
         currentPackageSha256 = $current.PackageSha256
-        currentAppPublishTreeSha256 = Get-TreeSha256 -Root $current.AppPublishRoot
+        currentAppPublishTreeSha256 = if ($artifactManifestMode) { Get-DistributionTreeSha256 -Root $current.AppPublishRoot } else { Get-TreeSha256 -Root $current.AppPublishRoot }
+        artifactManifestPath = if ($artifactManifestMode) { $artifactManifest.ManifestPath } else { $null }
+        artifactId = if ($artifactManifestMode) { $artifactManifest.ArtifactId } else { $null }
+        artifactRunId = if ($artifactManifestMode) { $artifactManifest.RunId } else { $null }
+        artifactManifestSha256 = if ($artifactManifestMode) { $artifactManifest.ManifestSha256 } else { $null }
         fixtureManifestSha256 = $script:manifestHash
         success = [ordered]@{ updaterExitCode = $successExitCode; appTreeSha256 = $successManaged; semanticDataPreserved = $true }
         rollback = [ordered]@{ updaterExitCode = $rollbackExitCode; failureReceiptFileName = [IO.Path]::GetFileName($failureReceiptPath); failureReceiptSha256 = $failureReceiptHash; restoredExecutableSha256 = $rollbackOldExeHash; semanticDataPreserved = $true }
@@ -735,6 +773,10 @@ catch {
         schemaVersion = 1
         status = 'failed'
         baselineCommit = $BaselineCommit
+        artifactManifestPath = if ($artifactManifestMode) { $artifactManifest.ManifestPath } else { $null }
+        artifactId = if ($artifactManifestMode) { $artifactManifest.ArtifactId } else { $null }
+        artifactRunId = if ($artifactManifestMode) { $artifactManifest.RunId } else { $null }
+        artifactManifestSha256 = if ($artifactManifestMode) { $artifactManifest.ManifestSha256 } else { $null }
         fixtureManifestSha256 = $script:manifestHash
         sandboxRoot = $script:sandboxRoot
         error = $_.Exception.ToString()

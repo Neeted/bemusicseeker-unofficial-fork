@@ -330,6 +330,8 @@ background hydration 完了時の通常ライブラリ一覧更新は、起動�
 
 `LR2IRのスコアをDLしIR未送信を検出する` が false の場合、player score XML fetch、`ir_score` DB 更新、`ir_score` 由来の未送信検出を使わない。`起動時にLR2IRランキングキャッシュを更新する` が false の場合、起動時 deferred refresh では local ranking cache XML の scan / reload / `ir_data` upsert を行わない。両方 false の場合、起動時の `ranking_refresh_deferred` 自体を queue しない。
 
+queue 条件は、現在の initialization が score update を要求し、active score source が LR2、LR2 score DB path が null ではなく、上記2系統の少なくとも一方が有効であることの論理積である。`OperationModeLR2DB`、`LR2ID`、`EstimateOfflineScoreRanking` は queue gate ではない。queue 判定ではその時点の options snapshot を使い、deferred worker の実行時に最新 snapshot から2系統の work plan を再評価する。したがって queue 後・実行前の設定変更は実行する branch に反映される。`LR2ID=0` は worker 実行時の no-op 条件として扱い、queue の有無は変えない。
+
 `ir_score_prefetch` は LR2ID 確定直後に player score XML fetch、XML parse、normalized score digest 計算までを先行する。`ranking_refresh_deferred` は current な prefetch result を consume し、metadata read、既存 `ir_score` read、replace / metadata upsert、memory merge を行う。LR2IR player score XML の `lastupdate` は譜面 hash 側の LR2IR 更新時刻として変わる可能性があるため、normalized digest では無視する。
 
 ranking cache / `ir_data` は、LR2IR の local cache XML を hash 単位で読み、対象 `LR2ID` 用の ranking summary を `ir_data` に保持する。

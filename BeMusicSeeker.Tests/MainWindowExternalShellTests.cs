@@ -129,6 +129,114 @@ public sealed class MainWindowExternalShellTests
         });
     }
 
+    [TestMethod]
+    public void ChartPackageMutationActivity_BlocksContextMenuOpenAndMutationCommands()
+    {
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindow? window = null;
+            MainWindowViewModel? viewModel = null;
+            try
+            {
+                var composition = new ApplicationComposition(
+                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    externalShellGateway: new RecordingExternalShellGateway());
+                viewModel = composition.CreateMainWindowViewModel();
+                object previousVmResource = Application.Current.Resources["vm"];
+                Application.Current.Resources["vm"] = viewModel;
+                try
+                {
+                    window = new MainWindow(viewModel);
+                    var operationNotifications = new List<string>();
+                    viewModel.PropertyChanged += (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(MainWindowViewModel.IsLibraryOperationInProgress))
+                        {
+                            operationNotifications.Add(args.PropertyName);
+                        }
+                    };
+
+                    Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
+                    Assert.IsTrue(viewModel.FolderAutoRenameWorkflow.IsIdle);
+                    using (viewModel.ChartMutationActivity.Enter())
+                    {
+                        Assert.IsTrue(viewModel.ChartMutationActivity.IsActive);
+                        Assert.IsTrue(viewModel.IsLibraryOperationInProgress);
+                        Assert.AreEqual(1, operationNotifications.Count);
+
+                        ContextMenu tableContextMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                        MenuItem autoRenameMenuItem = tableContextMenu.Items
+                            .OfType<MenuItem>()
+                            .Single(item => item.Name == "tableContextMenuItemAutoRenameFolder");
+
+                        var openedArgs = new RoutedEventArgs(ContextMenu.OpenedEvent, tableContextMenu);
+                        tableContextMenu.RaiseEvent(openedArgs);
+                        Assert.IsTrue(openedArgs.Handled);
+
+                        var clickArgs = new RoutedEventArgs(MenuItem.ClickEvent, autoRenameMenuItem);
+                        autoRenameMenuItem.RaiseEvent(clickArgs);
+                        Assert.IsTrue(clickArgs.Handled);
+                        Assert.IsTrue(viewModel.FolderAutoRenameWorkflow.IsIdle);
+                        Assert.IsFalse(viewModel.FolderAutoRenameWorkflow.IsActive);
+                    }
+
+                    Assert.IsFalse(viewModel.ChartMutationActivity.IsActive);
+                    Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
+                    Assert.AreEqual(2, operationNotifications.Count);
+                }
+                finally
+                {
+                    if (previousVmResource == null)
+                    {
+                        Application.Current.Resources.Remove("vm");
+                    }
+                    else
+                    {
+                        Application.Current.Resources["vm"] = previousVmResource;
+                    }
+                }
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                if (window != null && viewModel != null)
+                {
+                    try
+                    {
+                        CloseWindowThroughShutdownWorkflow(window, viewModel);
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
+            }
+
+            if (bodyFailure != null)
+            {
+                if (cleanupFailure != null)
+                {
+                    throw new AggregateException(
+                        "The shell assertion failed and cleanup also failed.",
+                        bodyFailure.SourceException,
+                        cleanupFailure);
+                }
+                bodyFailure.Throw();
+            }
+            if (cleanupFailure != null)
+            {
+                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+            }
+        });
+    }
+
     private static void CloseWindowThroughShutdownWorkflow(MainWindow window, MainWindowViewModel viewModel)
     {
         Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();

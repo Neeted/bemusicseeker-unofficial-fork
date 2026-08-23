@@ -43,7 +43,6 @@ internal interface INativeWindowTitleBarThemeSource
     /// <summary>
     /// Reads all native caption inputs from the active semantic palette.
     /// </summary>
-    /// <param name="appearance">The complete appearance when all required brushes are available.</param>
     /// <returns>The complete native caption appearance.</returns>
     NativeWindowTitleBarAppearance GetAppearance();
 }

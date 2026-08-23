@@ -446,7 +446,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 },
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(first);
@@ -504,7 +508,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                     (current, parentDirectory) => false),
                 new NoopFolderAutoRenamePlaybackPort(),
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action(),
                 new AcceptedFolderDialogService());
             owner.AttachLibrary(first);
@@ -555,7 +563,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 },
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action =>
                 {
                     lock (notifications)
@@ -610,7 +622,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 },
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);

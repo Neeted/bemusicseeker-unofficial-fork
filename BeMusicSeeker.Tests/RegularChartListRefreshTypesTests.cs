@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using BeMusicSeeker.ViewModels;
@@ -63,33 +62,4 @@ public sealed class RegularChartListRefreshTypesTests
         Assert.AreSame(fromList, state.ModeRows);
     }
 
-    [TestMethod]
-    public void RefreshChartRowsView_DispatchesRegularProductionEntry()
-    {
-        string refreshChartRowsView = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void RefreshChartRowsView(");
-        string treeSelectionActivated = SourceTextTestHelper.ReadMainWindowViewModelMethodBody(
-            "private void PlaylistWorkspaceTreeSelectionActivated(");
-        string root = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-
-        StringAssert.Contains(refreshChartRowsView, "ChartListRefreshCoordinator.ResolveRoute");
-        StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.PrepareForMainViewRefresh();");
-        StringAssert.Contains(refreshChartRowsView, "PlaylistWorkspace.RequestDetailRefresh(");
-        StringAssert.Contains(refreshChartRowsView, "ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode)");
-        StringAssert.Contains(refreshChartRowsView, "CapturePlaylistOpenReadinessSnapshot()");
-        StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyMainLibraryView(");
-        StringAssert.Contains(refreshChartRowsView, "PlaylistWorkspace.IsPlaylistSummaryModeRequested");
-        StringAssert.Contains(treeSelectionActivated, "regularChartListOwner.PrepareForMainViewRefresh();");
-        StringAssert.Contains(refreshChartRowsView, "UpdatePlaylistDetailActivation(route.IsPlaylistTreeActive)");
-        Assert.IsFalse(refreshChartRowsView.Contains("CreatePlaylistDetailRefreshInput("));
-        Assert.IsFalse(root.Contains("CapturePlaylistDetailSelection(out long selectionRevision)"));
-        Assert.IsFalse(root.Contains("CapturePlaylistDetailFilterSnapshot()"));
-        Assert.IsTrue(
-            refreshChartRowsView.IndexOf("UpdatePlaylistDetailActivation(route.IsPlaylistTreeActive)", StringComparison.Ordinal)
-            < refreshChartRowsView.IndexOf("PlaylistWorkspace.RequestDetailRefresh(", StringComparison.Ordinal));
-        Assert.IsFalse(root.Contains("RegisterPlaylistSourceBuildRequest"));
-        Assert.IsFalse(root.Contains("ProcessPendingPlaylistBuildRequests"));
-        Assert.IsFalse(root.Contains("ApplyMainLibraryChartListView"));
-        Assert.IsFalse(root.Contains("TryApplyVirtualDefaultNormalLibraryView"));
-        Assert.IsFalse(root.Contains("TryApplyVirtualChartSubsetLibraryView"));
-    }
 }

@@ -17,7 +17,7 @@ namespace BeMusicSeeker.Models;
 
 internal sealed partial class LibraryFileOperationOwner
 {
-    internal void MergeChartDirectory(string sourceDirectory, string destinationDirectory, long operationId)
+    internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string sourceDirectory, string destinationDirectory, long operationId)
     {
         if (sourceDirectory == null)
         {
@@ -29,14 +29,14 @@ internal sealed partial class LibraryFileOperationOwner
         }
         if (TryBlockMutation(nameof(BMSLibrary.MergeChartDirectory), showMessage: true))
         {
-            return;
+            return DuplicateMergeMaintenanceReceipt.NotApplied;
         }
 
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         LogInstallPerformance("duplicate_merge_model start op=" + operationId + " src=" + sourceDirectory + " dst=" + destinationDirectory);
         try
         {
-            RunWithMergeDirectoryWriteLocks(operationId, () =>
+            return RunWithMergeDirectoryWriteLocks(operationId, () =>
             {
                 List<ChartFile> sourceChartSnapshots = CreateOwnedRealPathChartSnapshotsUnsafe(sourceDirectory);
                 InstallDestinationOverlayChartRefSnapshot overlayChartRefs = CreateInstallDestinationOverlayChartRefSnapshot();
@@ -53,7 +53,7 @@ internal sealed partial class LibraryFileOperationOwner
                 if (!mergePrepared)
                 {
                     LogInstallPerformance("duplicate_merge_model skipped op=" + operationId + " reason=no_source_charts totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                    return;
+                    return DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
 
                 List<BMSFile> sourceBmsFiles = [.. preparedSourceCharts
@@ -83,7 +83,7 @@ internal sealed partial class LibraryFileOperationOwner
                 {
                     this.invalidateInstalledDirectoryIndex();
                     ShowFolderMergeFailed(sourceDirectory, destinationDirectory);
-                    return;
+                    return DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
 
                 ChartScanResult mergedDirectoryScan = null;
@@ -147,11 +147,12 @@ internal sealed partial class LibraryFileOperationOwner
                 LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
 
                 List<ChartFile> destinationMaintenanceChartSnapshots = CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);
-                ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
+                MaintenanceWorkflowResult maintenanceResult = ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
                 LogInstallPerformance("duplicate_merge_model done op=" + operationId
                     + " movedBms=" + movedTargets.BmsFiles.Count
                     + " movedBmson=" + movedTargets.BmsonSongs.Count
                     + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                return CreateMergeMaintenanceReceipt(maintenanceResult);
             });
         }
         catch (Exception ex)
@@ -315,14 +316,16 @@ internal sealed partial class LibraryFileOperationOwner
         internal IReadOnlyDictionary<LR2SongDBExtended.bmson_song, LR2SongDBExtended.bmson_song> CanonicalBmsonByDetached { get; }
     }
 
-    private void RunWithMergeDirectoryWriteLocks(long operationId, Action action)
+    private DuplicateMergeMaintenanceReceipt RunWithMergeDirectoryWriteLocks(
+        long operationId,
+        Func<DuplicateMergeMaintenanceReceipt> action)
     {
         using IDisposable mutationScope = EnterMergeWriteScope(operationId);
         if (mutationScope == null)
         {
-            return;
+            return DuplicateMergeMaintenanceReceipt.NotApplied;
         }
-        action();
+        return action();
     }
 
     private bool MoveChartPackageFilesForMerge(
@@ -338,13 +341,28 @@ internal sealed partial class LibraryFileOperationOwner
             existingHashes: existingHashes);
     }
 
-    private void ApplyMergeFolderMaintenance(IEnumerable<ChartFile> charts)
+    private MaintenanceWorkflowResult ApplyMergeFolderMaintenance(IEnumerable<ChartFile> charts)
     {
-        ApplyCatalogMaintenance(
+        return ApplyCatalogMaintenance(
             charts,
             forceUpdate: true,
             resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
             resourceHealthMutationReason: "merge_folder");
+    }
+
+    private static DuplicateMergeMaintenanceReceipt CreateMergeMaintenanceReceipt(
+        MaintenanceWorkflowResult maintenanceResult)
+    {
+        maintenanceResult ??= new MaintenanceWorkflowResult();
+        return new DuplicateMergeMaintenanceReceipt(
+            mergeApplied: true,
+            intermediateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
+            maintenanceResult: MaintenanceWorkflowResultFacts.From(maintenanceResult),
+            intermediateDeferred: maintenanceResult.ResourceHealthIndexDeferred,
+            maintenanceHadUpdates: maintenanceResult.HasUpdates,
+            resourceHealthIndexDeferred: maintenanceResult.ResourceHealthIndexDeferred,
+            resourceHealthIndexDeltaApplied: maintenanceResult.ResourceHealthIndexDeltaApplied,
+            resourceHealthIndexFullRebuilt: maintenanceResult.ResourceHealthIndexFullRebuilt);
     }
 
     private void ShowFolderMergeFailed(string sourceDirectory, string destinationDirectory)

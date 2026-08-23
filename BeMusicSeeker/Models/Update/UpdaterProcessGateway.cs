@@ -132,6 +132,7 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         ProcessStartInfo startInfo = new(request.ExecutablePath)
         {
             UseShellExecute = false,
+            CreateNoWindow = true,
             WorkingDirectory = request.WorkingDirectory,
             Arguments = JoinArguments(
                 "--app-dir", request.ApplicationDirectory,
@@ -201,6 +202,7 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         ProcessStartInfo startInfo = new(executablePath)
         {
             UseShellExecute = false,
+            CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(executablePath) ?? applicationDirectory,
             Arguments = JoinArguments("--recover", "--app-dir", applicationDirectory)
         };

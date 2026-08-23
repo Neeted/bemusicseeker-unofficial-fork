@@ -14,38 +14,461 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     [TestMethod]
     public async Task QueueBeforeStartWaitsUntilSchedulerStarts()
     {
-        var entered = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         Assert.IsTrue(owner.Queue("playlist_library_index_prewarm", "startup", null, async () =>
         {
-            entered.Set();
+            entered.TrySetResult(true);
             await release.Task.ConfigureAwait(false);
         }));
-        Assert.IsFalse(entered.IsSet);
+        Assert.IsFalse(entered.Task.IsCompleted);
 
         owner.Start();
-        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         release.SetResult(true);
         await WaitForFullyIdleAsync(owner);
     }
 
     [TestMethod]
+    public async Task CancelQueued_DiscardsOnlyTheReservedRequestExactlyOnce()
+    {
+        int runs = 0;
+        int discards = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        StartupBackgroundTaskReservation reservation = Reserve(owner, "playlist_virtual_order_prewarm");
+        Assert.IsNotNull(reservation);
+        Assert.IsTrue(owner.QueueReserved(
+            reservation,
+            "startup",
+            () =>
+            {
+                Interlocked.Increment(ref runs);
+                return Task.CompletedTask;
+            },
+            _ => Interlocked.Increment(ref discards)));
+
+        Assert.IsTrue(owner.CancelQueued(reservation, "startup_reset"));
+        Assert.IsFalse(owner.CancelQueued(reservation, "duplicate_reset"));
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+
+        Assert.AreEqual(0, runs);
+        Assert.AreEqual(1, discards);
+    }
+
+    [TestMethod]
+    public async Task CancelQueued_DiagnosticFailureStillDiscardsAndNotifies()
+    {
+        int discardCount = 0;
+        int shutdownProbeCount = 0;
+        var idleNotified = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner(
+            isShutdownRequested: () =>
+            {
+                Interlocked.Increment(ref shutdownProbeCount);
+                return false;
+            },
+            schedulerIdleChanged: (_, _) => idleNotified.TrySetResult(true),
+            logInfo: message =>
+            {
+                if (message.Contains(" cancelled ", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("cancel log failure");
+                }
+            },
+            logWarning: _ => throw new InvalidOperationException("warning log failure"));
+        StartupBackgroundTaskReservation reservation = Reserve(owner, "library_folder_tree_refresh");
+
+        Assert.IsTrue(owner.QueueReserved(
+            reservation,
+            "diagnostic_failure",
+            "missing_dependency",
+            () => Task.CompletedTask,
+            _ =>
+            {
+                Interlocked.Increment(ref discardCount);
+                throw new InvalidOperationException("discard callback failure");
+            }));
+        owner.Start();
+        int probeBeforeCancel = Volatile.Read(ref shutdownProbeCount);
+
+        Assert.IsTrue(owner.CancelQueued(reservation, "diagnostic_cancel"));
+        await idleNotified.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(Volatile.Read(ref shutdownProbeCount) > probeBeforeCancel);
+        Assert.AreEqual(1, Volatile.Read(ref discardCount));
+        Assert.IsTrue(owner.IsFullyIdle);
+    }
+
+    [TestMethod]
+    public async Task NewReservationInvalidatesOldPreSubmitAndOnlyCurrentWorkRuns()
+    {
+        int oldRuns = 0;
+        int newRuns = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        StartupBackgroundTaskReservation oldReservation = Reserve(owner, "playlist_virtual_order_prewarm");
+        StartupBackgroundTaskReservation newReservation = Reserve(owner, "playlist_virtual_order_prewarm");
+
+        Assert.IsFalse(owner.QueueReserved(
+            oldReservation,
+            "old",
+            () =>
+            {
+                Interlocked.Increment(ref oldRuns);
+                return Task.CompletedTask;
+            }));
+        Assert.IsTrue(owner.QueueReserved(
+            newReservation,
+            "new",
+            () =>
+            {
+                Interlocked.Increment(ref newRuns);
+                return Task.CompletedTask;
+            }));
+
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+
+        Assert.AreEqual(0, oldRuns);
+        Assert.AreEqual(1, newRuns);
+    }
+
+    [TestMethod]
+    public async Task SameGenerationLowerOrEqualOwnerSequenceCannotReplaceCurrentReservation()
+    {
+        int runs = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        long generation = owner.CurrentGeneration;
+        StartupBackgroundTaskReservation first = owner.Reserve(
+            "playlist_virtual_order_prewarm",
+            generation,
+            ownerSequence: 100L);
+
+        Assert.IsNotNull(first);
+        Assert.IsNull(owner.Reserve("playlist_virtual_order_prewarm", generation, ownerSequence: 99L));
+        Assert.IsNull(owner.Reserve("playlist_virtual_order_prewarm", generation, ownerSequence: 100L));
+        Assert.IsTrue(owner.QueueReserved(
+            first,
+            "first",
+            () =>
+            {
+                Interlocked.Increment(ref runs);
+                return Task.CompletedTask;
+            }));
+
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+        Assert.AreEqual(1, Volatile.Read(ref runs));
+    }
+
+    [TestMethod]
+    public async Task HigherOwnerSequenceReplacesLowerAndOldCancelCannotAffectIt()
+    {
+        int oldRuns = 0;
+        int newRuns = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        long generation = owner.CurrentGeneration;
+        StartupBackgroundTaskReservation oldReservation = owner.Reserve(
+            "playlist_virtual_order_prewarm",
+            generation,
+            ownerSequence: 200L);
+        StartupBackgroundTaskReservation newReservation = owner.Reserve(
+            "playlist_virtual_order_prewarm",
+            generation,
+            ownerSequence: 201L);
+
+        Assert.IsNotNull(oldReservation);
+        Assert.IsNotNull(newReservation);
+        Assert.IsFalse(owner.QueueReserved(
+            oldReservation,
+            "old",
+            () =>
+            {
+                Interlocked.Increment(ref oldRuns);
+                return Task.CompletedTask;
+            }));
+        Assert.IsTrue(owner.QueueReserved(
+            newReservation,
+            "new",
+            () =>
+            {
+                Interlocked.Increment(ref newRuns);
+                return Task.CompletedTask;
+            }));
+        Assert.IsFalse(owner.CancelQueued(oldReservation, "old_cancel"));
+
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+        Assert.AreEqual(0, Volatile.Read(ref oldRuns));
+        Assert.AreEqual(1, Volatile.Read(ref newRuns));
+    }
+
+    [TestMethod]
+    public async Task ResetIsolatesOwnerSequenceOrderingByGeneration()
+    {
+        int runs = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        long oldGeneration = owner.CurrentGeneration;
+        StartupBackgroundTaskReservation oldReservation = owner.Reserve(
+            "playlist_virtual_order_prewarm",
+            oldGeneration,
+            ownerSequence: 500L);
+
+        owner.Reset(startImmediately: false);
+        long newGeneration = owner.CurrentGeneration;
+        StartupBackgroundTaskReservation newReservation = owner.Reserve(
+            "playlist_virtual_order_prewarm",
+            newGeneration,
+            ownerSequence: 1L);
+
+        Assert.IsNotNull(newReservation);
+        Assert.IsFalse(owner.QueueReserved(
+            oldReservation,
+            "old_generation",
+            () =>
+            {
+                Interlocked.Increment(ref runs);
+                return Task.CompletedTask;
+            }));
+        Assert.IsTrue(owner.QueueReserved(
+            newReservation,
+            "new_generation",
+            () =>
+            {
+                Interlocked.Increment(ref runs);
+                return Task.CompletedTask;
+            }));
+
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+        Assert.AreEqual(1, Volatile.Read(ref runs));
+    }
+
+    [TestMethod]
+    public async Task OldLateSubmitCannotReplaceNewSameNameQueue()
+    {
+        int oldRuns = 0;
+        int newRuns = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        StartupBackgroundTaskReservation oldReservation = Reserve(owner, "playlist_virtual_order_prewarm");
+        StartupBackgroundTaskReservation newReservation = Reserve(owner, "playlist_virtual_order_prewarm");
+
+        Assert.IsTrue(owner.QueueReserved(
+            newReservation,
+            "new",
+            () =>
+            {
+                Interlocked.Increment(ref newRuns);
+                return Task.CompletedTask;
+            }));
+        Assert.IsFalse(owner.QueueReserved(
+            oldReservation,
+            "old_late",
+            () =>
+            {
+                Interlocked.Increment(ref oldRuns);
+                return Task.CompletedTask;
+            }));
+
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+
+        Assert.AreEqual(0, oldRuns);
+        Assert.AreEqual(1, newRuns);
+    }
+
+    [TestMethod]
+    public async Task OldReservationCancelCannotRemoveNewSameNameQueue()
+    {
+        int newRuns = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        StartupBackgroundTaskReservation oldReservation = Reserve(owner, "playlist_virtual_order_prewarm");
+        StartupBackgroundTaskReservation newReservation = Reserve(owner, "playlist_virtual_order_prewarm");
+
+        Assert.IsTrue(owner.QueueReserved(
+            newReservation,
+            "new",
+            () =>
+            {
+                Interlocked.Increment(ref newRuns);
+                return Task.CompletedTask;
+            }));
+        Assert.IsFalse(owner.CancelQueued(oldReservation, "old_reset"));
+
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+
+        Assert.AreEqual(1, newRuns);
+    }
+
+    [TestMethod]
+    public async Task SameReservationReplayBeforeStartIsRejectedAndFirstDiscardIsRetained()
+    {
+        int firstRuns = 0;
+        int firstDiscards = 0;
+        int replayDiscards = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        StartupBackgroundTaskReservation reservation = Reserve(owner, "playlist_virtual_order_prewarm");
+
+        Assert.IsTrue(owner.QueueReserved(
+            reservation,
+            "first_reason",
+            "first_dependency",
+            () =>
+            {
+                Interlocked.Increment(ref firstRuns);
+                return Task.CompletedTask;
+            },
+            _ => Interlocked.Increment(ref firstDiscards)));
+        Assert.IsFalse(owner.QueueReserved(
+            reservation,
+            "replay_reason",
+            "replay_dependency",
+            () =>
+            {
+                Interlocked.Increment(ref firstRuns);
+                return Task.CompletedTask;
+            },
+            _ => Interlocked.Increment(ref replayDiscards)));
+
+        Assert.IsTrue(owner.CancelQueued(reservation, "test_cancel"));
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+
+        Assert.AreEqual(0, Volatile.Read(ref firstRuns));
+        Assert.AreEqual(1, Volatile.Read(ref firstDiscards));
+        Assert.AreEqual(0, Volatile.Read(ref replayDiscards));
+        StringAssert.Contains(owner.BuildSummaryLog(0L), "playlist_virtual_order_prewarm{queued=1,");
+    }
+
+    [TestMethod]
+    public async Task ResetRetainsQueuedReservationButRejectsOldUnsubmittedReservation()
+    {
+        int retainedRuns = 0;
+        int retainedDiscards = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        StartupBackgroundTaskReservation retainedReservation = Reserve(owner, "playlist_virtual_order_prewarm");
+        StartupBackgroundTaskReservation preSubmitReservation = Reserve(owner, "library_folder_tree_refresh");
+
+        Assert.IsTrue(owner.QueueReserved(
+            retainedReservation,
+            "retained",
+            () =>
+            {
+                Interlocked.Increment(ref retainedRuns);
+                return Task.CompletedTask;
+            },
+            _ => Interlocked.Increment(ref retainedDiscards)));
+        long staleGeneration = owner.CurrentGeneration;
+        owner.Reset(startImmediately: false);
+
+        Assert.IsTrue(owner.CancelQueued(retainedReservation, "reset_cancel"));
+        Assert.IsFalse(owner.CancelQueued(retainedReservation, "duplicate_cancel"));
+        Assert.IsNull(Reserve(owner, "stale_generation", staleGeneration));
+        Assert.IsFalse(owner.QueueReserved(
+            preSubmitReservation,
+            "stale",
+            () =>
+            {
+                Interlocked.Increment(ref retainedRuns);
+                return Task.CompletedTask;
+            }));
+
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+        Assert.AreEqual(0, retainedRuns);
+        Assert.AreEqual(1, retainedDiscards);
+    }
+
+    [TestMethod]
+    public async Task DequeuedReservationCannotBeSubmittedAgainAfterRunningStarts()
+    {
+        int runs = 0;
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        StartupBackgroundTaskReservation reservation = Reserve(owner, "playlist_virtual_order_prewarm");
+
+        Assert.IsTrue(owner.QueueReserved(
+            reservation,
+            "first",
+            async () =>
+            {
+                Interlocked.Increment(ref runs);
+                entered.TrySetResult(true);
+                await release.Task.ConfigureAwait(false);
+            }));
+
+        owner.Start();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(owner.QueueReserved(
+            reservation,
+            "same_receipt_after_dequeue",
+            () =>
+            {
+                Interlocked.Increment(ref runs);
+                return Task.CompletedTask;
+            }));
+
+        release.SetResult(true);
+        await WaitForFullyIdleAsync(owner);
+        Assert.AreEqual(1, Volatile.Read(ref runs));
+    }
+
+    [TestMethod]
+    public async Task DequeueKeepsNewerPreSubmitReservationCurrent()
+    {
+        int oldRuns = 0;
+        int newRuns = 0;
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        StartupBackgroundTaskReservation oldReservation = Reserve(owner, "playlist_virtual_order_prewarm");
+
+        Assert.IsTrue(owner.QueueReserved(
+            oldReservation,
+            "old",
+            async () =>
+            {
+                Interlocked.Increment(ref oldRuns);
+                entered.TrySetResult(true);
+                await release.Task.ConfigureAwait(false);
+            }));
+        StartupBackgroundTaskReservation newReservation = Reserve(owner, "playlist_virtual_order_prewarm");
+
+        owner.Start();
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(owner.QueueReserved(
+            newReservation,
+            "new",
+            () =>
+            {
+                Interlocked.Increment(ref newRuns);
+                return Task.CompletedTask;
+            }));
+
+        release.SetResult(true);
+        await WaitForFullyIdleAsync(owner);
+        Assert.AreEqual(1, Volatile.Read(ref oldRuns));
+        Assert.AreEqual(1, Volatile.Read(ref newRuns));
+    }
+
+    [TestMethod]
     public async Task LibraryFolderTreeRefreshUsesPostInitializationOwnerLane()
     {
-        var entered = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         Assert.IsTrue(owner.Queue("library_folder_tree_refresh", "deferred", null, async () =>
         {
-            entered.Set();
+            entered.TrySetResult(true);
             await release.Task.ConfigureAwait(false);
         }));
         owner.Start();
 
-        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)), owner.DescribeWaitState());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.IsTrue(owner.IsIdle);
         Assert.IsFalse(owner.IsFullyIdle);
         release.SetResult(true);
@@ -62,28 +485,28 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     [TestMethod]
     public async Task PostInitializationWorkDoesNotBlockRequiredIdleOrRequiredWorker()
     {
-        var postEntered = new ManualResetEventSlim();
+        var postEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var postRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var requiredEntered = new ManualResetEventSlim();
+        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         owner.Queue("playlist_library_index_prewarm", "post", null, async () =>
         {
-            postEntered.Set();
+            postEntered.TrySetResult(true);
             await postRelease.Task.ConfigureAwait(false);
         });
         owner.Start();
 
-        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
+        await postEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.IsTrue(owner.IsIdle);
         Assert.IsFalse(owner.IsFullyIdle);
 
         owner.Queue("lr2_song_db_sync", "required", null, () =>
         {
-            requiredEntered.Set();
+            requiredEntered.TrySetResult(true);
             return Task.CompletedTask;
         });
-        Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)));
+        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitUntilAsync(owner, () => owner.IsIdle);
         Assert.IsFalse(owner.IsFullyIdle);
 
@@ -94,77 +517,77 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     [TestMethod]
     public async Task PostInitializationGarbageCollectionWaitsForRequiredWorkToBecomeIdle()
     {
-        var requiredEntered = new ManualResetEventSlim();
+        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var postEntered = new ManualResetEventSlim();
+        var postEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         owner.Queue("chart_info_hydration", "required", null, async () =>
         {
-            requiredEntered.Set();
+            requiredEntered.TrySetResult(true);
             await requiredRelease.Task.ConfigureAwait(false);
         });
         owner.Queue("post_initialize_gc", "post", null, () =>
         {
-            postEntered.Set();
+            postEntered.TrySetResult(true);
             return Task.CompletedTask;
         });
         owner.MarkRequiredInitializationSchedulingComplete();
         owner.MarkPostInitializationSchedulingComplete();
         owner.Start();
 
-        Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsFalse(postEntered.IsSet);
+        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(postEntered.Task.IsCompleted);
         Assert.IsFalse(owner.IsIdle);
 
         requiredRelease.SetResult(true);
-        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
+        await postEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForFullyIdleAsync(owner);
     }
 
     [TestMethod]
     public async Task PostInitializationGarbageCollectionWaitsForRequiredSchedulingClosure()
     {
-        var requiredEntered = new ManualResetEventSlim();
+        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var postEntered = new ManualResetEventSlim();
+        var postEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         owner.Queue("post_initialize_gc", "post", null, () =>
         {
-            postEntered.Set();
+            postEntered.TrySetResult(true);
             return Task.CompletedTask;
         });
         owner.Start();
         owner.MarkPostInitializationSchedulingComplete();
 
-        Assert.IsFalse(postEntered.IsSet);
+        Assert.IsFalse(postEntered.Task.IsCompleted);
 
         owner.Queue("lr2_song_db_sync", "required", null, async () =>
         {
-            requiredEntered.Set();
+            requiredEntered.TrySetResult(true);
             await requiredRelease.Task.ConfigureAwait(false);
         });
-        Assert.IsFalse(postEntered.IsSet);
+        Assert.IsFalse(postEntered.Task.IsCompleted);
 
         owner.MarkRequiredInitializationSchedulingComplete();
-        Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsFalse(postEntered.IsSet);
+        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(postEntered.Task.IsCompleted);
 
         requiredRelease.SetResult(true);
-        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
+        await postEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForFullyIdleAsync(owner);
     }
 
     [TestMethod]
     public async Task StaleRequiredSchedulingClosureCannotReleaseNewGenerationGarbageCollection()
     {
-        var postEntered = new ManualResetEventSlim();
+        var postEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         owner.Queue("post_initialize_gc", "post", null, () =>
         {
-            postEntered.Set();
+            postEntered.TrySetResult(true);
             return Task.CompletedTask;
         });
         long staleGeneration = owner.CurrentGeneration;
@@ -172,36 +595,36 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.MarkPostInitializationSchedulingComplete();
 
         Assert.IsFalse(owner.MarkRequiredInitializationSchedulingComplete(staleGeneration));
-        Assert.IsFalse(postEntered.IsSet);
+        Assert.IsFalse(postEntered.Task.IsCompleted);
 
         Assert.IsTrue(owner.MarkRequiredInitializationSchedulingComplete(owner.CurrentGeneration));
-        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
+        await postEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForFullyIdleAsync(owner);
     }
 
     [TestMethod]
     public async Task RunningGarbageCollectionBlocksRequiredWorkAfterGenerationReset()
     {
-        var garbageCollectionEntered = new ManualResetEventSlim();
+        var garbageCollectionEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var garbageCollectionRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var requiredEntered = new ManualResetEventSlim();
+        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         owner.Queue("post_initialize_gc", "post", null, async () =>
         {
-            garbageCollectionEntered.Set();
+            garbageCollectionEntered.TrySetResult(true);
             await garbageCollectionRelease.Task.ConfigureAwait(false);
         });
         owner.MarkRequiredInitializationSchedulingComplete();
         owner.MarkPostInitializationSchedulingComplete();
         owner.Start();
 
-        Assert.IsTrue(garbageCollectionEntered.Wait(TimeSpan.FromSeconds(5)));
+        await garbageCollectionEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         owner.Reset(startImmediately: true);
         owner.Queue("chart_info_hydration", "required", null, () =>
         {
-            requiredEntered.Set();
+            requiredEntered.TrySetResult(true);
             return Task.CompletedTask;
         });
         owner.MarkRequiredInitializationSchedulingComplete();
@@ -209,10 +632,10 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
         // This negative watchdog deliberately holds the old generation's GC gate long enough to prove
         // that new required work cannot enter while the contention condition remains active.
-        Assert.IsFalse(requiredEntered.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+        Assert.IsFalse(requiredEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
 
         garbageCollectionRelease.SetResult(true);
-        Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)), owner.DescribeWaitState());
+        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -221,8 +644,17 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     {
         var postRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         int idleNotifications = 0;
+        int finalIdleNotificationArmed = 0;
+        var finalIdleNotification = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner(
-            schedulerIdleChanged: (_, _) => Interlocked.Increment(ref idleNotifications));
+            schedulerIdleChanged: (_, _) =>
+            {
+                Interlocked.Increment(ref idleNotifications);
+                if (Volatile.Read(ref finalIdleNotificationArmed) != 0)
+                {
+                    finalIdleNotification.TrySetResult(true);
+                }
+            });
 
         owner.Queue("playlist_library_index_prewarm", "post", null, async () =>
         {
@@ -234,21 +666,25 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsTrue(owner.IsPostInitializationSchedulingComplete);
         Assert.IsFalse(owner.IsFullyIdle);
 
+        int notificationsBeforeFinalRelease = Volatile.Read(ref idleNotifications);
+        Volatile.Write(ref finalIdleNotificationArmed, 1);
         postRelease.SetResult(true);
-        await WaitForFullyIdleAsync(owner);
-        Assert.IsTrue(Volatile.Read(ref idleNotifications) > 0);
+        await Task.WhenAll(
+            WaitForFullyIdleAsync(owner),
+            finalIdleNotification.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(Volatile.Read(ref idleNotifications) > notificationsBeforeFinalRelease);
     }
 
     [TestMethod]
     public async Task CaptureWorkSnapshot_ReportsQueuedRunningAndIdleBacklog()
     {
-        var entered = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         Assert.IsTrue(owner.Queue("playlist_library_index_prewarm", "startup", null, async () =>
         {
-            entered.Set();
+            entered.TrySetResult(true);
             await release.Task.ConfigureAwait(false);
         }));
 
@@ -258,7 +694,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, queued.BacklogCount);
 
         owner.Start();
-        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         StartupBackgroundWorkSnapshot running = owner.CaptureWorkSnapshot();
         Assert.AreEqual(0, running.QueuedCount);
         Assert.AreEqual(1, running.RunningCount);
@@ -304,7 +740,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     public async Task HigherPriorityRequestStartsBeforeEarlierLowerPriorityRequestInSameLane()
     {
         var order = new ConcurrentQueue<string>();
-        var highPriorityEntered = new ManualResetEventSlim();
+        var highPriorityEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var highPriorityRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
@@ -321,12 +757,12 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.Queue("playlist_url_completion", "high", null, async () =>
         {
             order.Enqueue("high");
-            highPriorityEntered.Set();
+            highPriorityEntered.TrySetResult(true);
             await highPriorityRelease.Task.ConfigureAwait(false);
         });
 
         owner.Start();
-        Assert.IsTrue(highPriorityEntered.Wait(TimeSpan.FromSeconds(5)));
+        await highPriorityEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         CollectionAssert.AreEqual(new[] { "high" }, order.ToArray());
 
         highPriorityRelease.SetResult(true);
@@ -339,36 +775,36 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     {
         var firstRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var latestRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var firstEntered = new ManualResetEventSlim();
-        var latestEntered = new ManualResetEventSlim();
-        var dependentEntered = new ManualResetEventSlim();
+        var firstEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var latestEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dependentEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         owner.Queue("playlist_ref_apply", "first", null, async () =>
         {
-            firstEntered.Set();
+            firstEntered.TrySetResult(true);
             await firstRelease.Task.ConfigureAwait(false);
         });
         owner.Start();
-        Assert.IsTrue(firstEntered.Wait(TimeSpan.FromSeconds(5)));
+        await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         owner.Queue("playlist_ref_apply", "latest", null, async () =>
         {
-            latestEntered.Set();
+            latestEntered.TrySetResult(true);
             await latestRelease.Task.ConfigureAwait(false);
         });
         owner.Queue("default_after_ref", "dependent", "playlist_ref_apply", () =>
         {
-            dependentEntered.Set();
+            dependentEntered.TrySetResult(true);
             return Task.CompletedTask;
         });
 
         firstRelease.SetResult(true);
-        Assert.IsTrue(latestEntered.Wait(TimeSpan.FromSeconds(5)), owner.DescribeWaitState());
-        Assert.IsFalse(dependentEntered.IsSet);
+        await latestEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(dependentEntered.Task.IsCompleted);
 
         latestRelease.SetResult(true);
-        Assert.IsTrue(dependentEntered.Wait(TimeSpan.FromSeconds(5)));
+        await dependentEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -377,46 +813,46 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     {
         var firstRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var latestRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var firstEntered = new ManualResetEventSlim();
-        var latestEntered = new ManualResetEventSlim();
-        var dependentAfterLatestEntered = new ManualResetEventSlim();
-        var dependentAfterOlderEntered = new ManualResetEventSlim();
+        var firstEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var latestEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dependentAfterLatestEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dependentAfterOlderEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         try
         {
             owner.Queue("playlist_entries_hydration", "first", null, async () =>
             {
-                firstEntered.Set();
+                firstEntered.TrySetResult(true);
                 await firstRelease.Task.ConfigureAwait(false);
             });
             owner.Start();
-            Assert.IsTrue(firstEntered.Wait(TimeSpan.FromSeconds(5)));
+            await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             owner.Queue("playlist_entries_hydration", "latest", null, async () =>
             {
-                latestEntered.Set();
+                latestEntered.TrySetResult(true);
                 await latestRelease.Task.ConfigureAwait(false);
             });
-            Assert.IsTrue(latestEntered.Wait(TimeSpan.FromSeconds(5)));
+            await latestEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             owner.Queue("default_after_latest", "dependent", "playlist_entries_hydration", () =>
             {
-                dependentAfterLatestEntered.Set();
+                dependentAfterLatestEntered.TrySetResult(true);
                 return Task.CompletedTask;
             });
 
             latestRelease.SetResult(true);
-            Assert.IsTrue(dependentAfterLatestEntered.Wait(TimeSpan.FromSeconds(5)));
+            await dependentAfterLatestEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
             firstRelease.SetResult(true);
             await WaitForFullyIdleAsync(owner);
 
             owner.Queue("default_after_older", "dependent", "playlist_entries_hydration", () =>
             {
-                dependentAfterOlderEntered.Set();
+                dependentAfterOlderEntered.TrySetResult(true);
                 return Task.CompletedTask;
             });
-            Assert.IsTrue(dependentAfterOlderEntered.Wait(TimeSpan.FromSeconds(5)));
+            await dependentAfterOlderEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await WaitForFullyIdleAsync(owner);
         }
         finally
@@ -547,7 +983,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     {
         var oldRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var newRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var oldEntered = new ManualResetEventSlim();
+        var oldEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var counters = new ConcurrencyCounters();
         int queuedRuns = 0;
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
@@ -556,12 +992,12 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         {
             int currentActive = Interlocked.Increment(ref counters.Active);
             UpdateMaximum(ref counters.MaximumActive, currentActive);
-            oldEntered.Set();
+            oldEntered.TrySetResult(true);
             await oldRelease.Task.ConfigureAwait(false);
             Interlocked.Decrement(ref counters.Active);
         });
         owner.Start();
-        Assert.IsTrue(oldEntered.Wait(TimeSpan.FromSeconds(5)));
+        await oldEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         owner.Queue("default_b", "retained", null, () =>
         {
@@ -591,8 +1027,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     public async Task ResetPreservesCompletedDependencyForRetainedQueuedWork()
     {
         var followupRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var dependencyCompleted = new ManualResetEventSlim();
-        var followupEntered = new ManualResetEventSlim();
+        var dependencyCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var followupEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         owner.Queue("playlist_url_completion", "lane_blocker", null, async () =>
@@ -601,44 +1037,47 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
         owner.Queue("playlist_entries_hydration", "dependency", null, () =>
         {
-            dependencyCompleted.Set();
+            dependencyCompleted.TrySetResult(true);
             return Task.CompletedTask;
         });
         owner.Queue("external_playlist_sync", "retained", "playlist_entries_hydration", async () =>
         {
-            followupEntered.Set();
+            followupEntered.TrySetResult(true);
             await Task.CompletedTask.ConfigureAwait(false);
         });
 
         owner.Start();
-        Assert.IsTrue(dependencyCompleted.Wait(TimeSpan.FromSeconds(5)));
+        await dependencyCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitUntilAsync(owner, () =>
         {
             string summary = owner.BuildSummaryLog(0L);
             return summary.Contains("playlist_entries_hydration{") && summary.Contains("completed=1");
         });
-        Assert.IsFalse(followupEntered.IsSet);
+        Assert.IsFalse(followupEntered.Task.IsCompleted);
 
         owner.Reset(startImmediately: true);
-        Assert.IsFalse(followupEntered.IsSet);
+        Assert.IsFalse(followupEntered.Task.IsCompleted);
         followupRelease.SetResult(true);
-        Assert.IsTrue(followupEntered.Wait(TimeSpan.FromSeconds(5)));
+        await followupEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForFullyIdleAsync(owner);
     }
 
     [TestMethod]
     public async Task FailureCompletesDependencyAndRecordsSummary()
     {
-        var dependentRan = new ManualResetEventSlim();
+        var dependentRan = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
         owner.Queue("maintenance_hydration", "test", null, () =>
             Task.FromException(new InvalidOperationException("expected failure")));
         owner.Queue("installable_maintenance", "test", "maintenance_hydration", () =>
-            Task.Run(() => dependentRan.Set()));
+        {
+            dependentRan.TrySetResult(true);
+            return Task.CompletedTask;
+        });
 
         owner.Start();
-        Assert.IsTrue(dependentRan.Wait(TimeSpan.FromSeconds(5)));
+        await dependentRan.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForFullyIdleAsync(owner);
 
         string summary = owner.BuildSummaryLog(12L);
@@ -650,29 +1089,29 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     public async Task ShutdownDrainsRequiredWorkAndDiscardsOtherWorkOutsideLock()
     {
         bool shutdownRequested = false;
-        var requiredEntered = new ManualResetEventSlim();
+        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var discarded = new ManualResetEventSlim();
+        var discarded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         bool discardedProbeSucceeded = false;
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner(() => shutdownRequested);
 
         owner.Queue("chart_info_hydration", "shutdown", null, async () =>
         {
-            requiredEntered.Set();
+            requiredEntered.TrySetResult(true);
             await requiredRelease.Task.ConfigureAwait(false);
         });
         owner.Queue("external_playlist_sync", "shutdown", "chart_info_hydration", () => Task.CompletedTask, reason =>
         {
             // The discard callback is synchronous, so keep it active until the probe acquires the owner locks.
             discardedProbeSucceeded = ProbeOwnerFromAnotherThreadAsync(owner).GetAwaiter().GetResult();
-            discarded.Set();
+            discarded.TrySetResult(true);
         });
         owner.Start();
-        Assert.IsTrue(requiredEntered.Wait(TimeSpan.FromSeconds(5)));
+        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         shutdownRequested = true;
         owner.RequestShutdown("window_close");
-        Assert.IsTrue(discarded.Wait(TimeSpan.FromSeconds(5)));
+        await discarded.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.IsTrue(discardedProbeSucceeded);
         Assert.IsFalse(owner.Queue("post_shutdown", "shutdown", null, () => Task.CompletedTask));
 
@@ -686,32 +1125,32 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     {
         bool shutdownRequested = false;
         var firstRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var firstEntered = new ManualResetEventSlim();
-        var discarded = new ManualResetEventSlim();
-        var dependentEntered = new ManualResetEventSlim();
+        var firstEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var discarded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dependentEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner(() => shutdownRequested);
 
         owner.Queue("default_a", "first", null, async () =>
         {
-            firstEntered.Set();
+            firstEntered.TrySetResult(true);
             await firstRelease.Task.ConfigureAwait(false);
         });
         owner.Start();
-        Assert.IsTrue(firstEntered.Wait(TimeSpan.FromSeconds(5)));
-        owner.Queue("default_a", "latest", null, () => Task.CompletedTask, reason => discarded.Set());
+        await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        owner.Queue("default_a", "latest", null, () => Task.CompletedTask, reason => discarded.TrySetResult(true));
 
         shutdownRequested = true;
         owner.RequestShutdown("window_close");
-        Assert.IsTrue(discarded.Wait(TimeSpan.FromSeconds(5)));
+        await discarded.Task.WaitAsync(TimeSpan.FromSeconds(5));
         shutdownRequested = false;
         owner.Reset(startImmediately: true);
         owner.Queue("default_after_discard", "dependent", "default_a", () =>
         {
-            dependentEntered.Set();
+            dependentEntered.TrySetResult(true);
             return Task.CompletedTask;
         });
         firstRelease.SetResult(true);
-        Assert.IsTrue(dependentEntered.Wait(TimeSpan.FromSeconds(5)));
+        await dependentEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -719,7 +1158,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     public async Task IdleNotificationRunsAfterAccountingOutsideOwnerLock()
     {
         StartupBackgroundTaskSchedulerOwner owner = null!;
-        var notified = new ManualResetEventSlim();
+        var notified = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         bool observedIdle = false;
         bool idleProbeSucceeded = false;
         owner = CreateOwner(schedulerIdleChanged: (_, _) =>
@@ -727,13 +1166,13 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             observedIdle = owner.IsIdle;
             // The notification callback is synchronous, so keep it active until the probe acquires the owner locks.
             idleProbeSucceeded = ProbeOwnerFromAnotherThreadAsync(owner).GetAwaiter().GetResult();
-            notified.Set();
+            notified.TrySetResult(true);
         });
 
         owner.Queue("playlist_library_index_prewarm", "test", null, () => Task.CompletedTask);
         owner.Start();
 
-        Assert.IsTrue(notified.Wait(TimeSpan.FromSeconds(5)));
+        await notified.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.IsTrue(observedIdle);
         Assert.IsTrue(idleProbeSucceeded);
         await WaitForFullyIdleAsync(owner);
@@ -785,15 +1224,40 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    private static long nextOwnerReservationSequence;
+
+    private static StartupBackgroundTaskReservation Reserve(
+        StartupBackgroundTaskSchedulerOwner owner,
+        string name)
+    {
+        return owner.Reserve(
+            name,
+            owner.CurrentGeneration,
+            Interlocked.Increment(ref nextOwnerReservationSequence));
+    }
+
+    private static StartupBackgroundTaskReservation Reserve(
+        StartupBackgroundTaskSchedulerOwner owner,
+        string name,
+        long expectedGeneration)
+    {
+        return owner.Reserve(
+            name,
+            expectedGeneration,
+            Interlocked.Increment(ref nextOwnerReservationSequence));
+    }
+
     private static StartupBackgroundTaskSchedulerOwner CreateOwner(
         Func<bool>? isShutdownRequested = null,
-        Action<long, long>? schedulerIdleChanged = null)
+        Action<long, long>? schedulerIdleChanged = null,
+        Action<string>? logInfo = null,
+        Action<string>? logWarning = null)
     {
         var notificationProbe = new SchedulerNotificationProbe();
         return new StartupBackgroundTaskSchedulerOwner(
             isShutdownRequested ?? (() => false),
-            _ => { },
-            _ => { },
+            logInfo ?? (_ => { }),
+            logWarning ?? (_ => { }),
             _ => { },
             value => value ?? string.Empty,
             (generation, revision) =>

@@ -1,0 +1,450 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
+using System.Windows.Media;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
+using BeMusicSeeker.Views.Settings;
+using BeMusicSeeker.Views.Settings.Pages;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace BeMusicSeeker.Tests;
+
+/// <summary>
+/// Verifies settings-page behavior through the compiled WPF tree without showing a modal window.
+/// </summary>
+[TestClass]
+[DoNotParallelize]
+public sealed class SettingsWindowCompiledBehaviorTests
+{
+    [TestMethod]
+    public void EverySettingsNavigationPageMaterializesWithoutCreatingPendingChanges()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            {
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true,
+                UseBeatorajaScoreDb = false,
+                EnableBeatorajaBmtOutput = false,
+                UsePlayeruBMplay = false,
+                UsePlayerLR2body = false,
+                UsePlayerBMIIDXView = false
+            });
+            var window = new SettingsWindow
+            {
+                DataContext = owner.SettingDialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                Materialize(window);
+                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
+
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                Type[] pageTypes =
+                {
+                    typeof(GeneralSettingsPage),
+                    typeof(AppearanceSettingsPage),
+                    typeof(PlaybackSettingsPage),
+                    typeof(AudioSettingsPage),
+                    typeof(RecordingSettingsPage),
+                    typeof(PlaylistSettingsPage),
+                    typeof(InstallSettingsPage),
+                    typeof(BackupSettingsPage),
+                    typeof(AdvancedSettingsPage),
+                    typeof(AboutSettingsPage)
+                };
+                Assert.AreEqual(pageTypes.Length, navigation.Items.Count);
+                for (int index = 0; index < pageTypes.Length; index++)
+                {
+                    navigation.SelectedIndex = index;
+                    Materialize(window);
+                    Assert.IsNotNull(content.Content);
+                    Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
+                    Assert.AreEqual(pageTypes[index], content.Content.GetType(),
+                        $"Unexpected page materialized for navigation index {index}: {content.Content.GetType().Name}.");
+                    Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges(),
+                        $"Materializing page index {index} changed the settings draft.");
+                }
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void BeatorajaScoreDbControlsUseLocalizedResourcesAndValidation()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            string previousCulture = Resources.Culture?.Name ?? "ja-JP";
+            MainWindowViewModel? owner = null;
+            SettingsWindow? window = null;
+            try
+            {
+                ResourceService.Current.ChangeCulture("en-US");
+                owner = MainWindowViewModelTestFactory.Create(new Settings
+                {
+                    OperationModeLR2DB = false,
+                    BMSRootPath = Path.GetTempPath(),
+                    StandaloneBmsRootPaths = Path.GetTempPath(),
+                    BMSInstallDir = Path.GetTempPath(),
+                    ScanBmsFilesOnStartup = false,
+                    SkipInitPlaylistLoad = true,
+                    UseBeatorajaScoreDb = false,
+                    EnableBeatorajaBmtOutput = false
+                });
+                window = new SettingsWindow
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaybackPanel = owner.PlaybackPanel
+                };
+                Materialize(window);
+
+                FrameworkElement generalPage = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                CheckBox scoreDb = (CheckBox)generalPage.FindName("useBeatorajaScoreDbCheckBox");
+                ComboBox hashMode = (ComboBox)generalPage.FindName("beatorajaHashOutputModeComboBox");
+                SettingsField hashModeField = (SettingsField)generalPage.FindName("beatorajaHashOutputModeField");
+
+                scoreDb.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
+                hashMode.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.UpdateTarget();
+                hashModeField.GetBindingExpression(HeaderedContentControl.HeaderProperty)?.UpdateTarget();
+
+                Assert.AreEqual(Resources.Use_beatoraja_scoreDB, scoreDb.Content);
+                Assert.AreEqual(Resources.Beatoraja_bmt_hash_output_mode, hashModeField.Header);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption.DisplayName), hashMode.DisplayMemberPath);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption.Key), hashMode.SelectedValuePath);
+                CollectionAssert.AreEquivalent(
+                    owner.SettingDialog.BeatorajaBmtHashOutputModeOptions.ToArray(),
+                    hashMode.Items.Cast<SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption>().ToArray());
+                SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption[] englishOptions =
+                    hashMode.Items.Cast<SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption>().ToArray();
+                AssertHashOptionDisplayNames(englishOptions);
+                var displayNameNotifications = new HashSet<SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption>();
+                foreach (SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption option in englishOptions)
+                {
+                    option.PropertyChanged += (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption.DisplayName))
+                        {
+                            displayNameNotifications.Add(option);
+                        }
+                    };
+                }
+
+                scoreDb.IsChecked = true;
+                Materialize(window);
+                Assert.IsFalse(owner.SettingDialog.CheckValidation(out string englishValidationError));
+                StringAssert.Contains(englishValidationError, Resources.Error_InvalidBeatorajaRootPath);
+
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Materialize(window);
+                scoreDb.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
+                hashModeField.GetBindingExpression(HeaderedContentControl.HeaderProperty)?.UpdateTarget();
+                CollectionAssert.AreEquivalent(englishOptions, displayNameNotifications.ToArray());
+                Assert.AreEqual(Resources.Use_beatoraja_scoreDB, scoreDb.Content);
+                Assert.AreEqual(Resources.Beatoraja_bmt_hash_output_mode, hashModeField.Header);
+                SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption[] japaneseOptions =
+                    hashMode.Items.Cast<SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption>().ToArray();
+                Assert.AreEqual(englishOptions.Length, japaneseOptions.Length);
+                for (int index = 0; index < englishOptions.Length; index++)
+                {
+                    Assert.AreSame(englishOptions[index], japaneseOptions[index]);
+                }
+                AssertHashOptionDisplayNames(japaneseOptions);
+
+                Materialize(window);
+                Assert.IsFalse(owner.SettingDialog.CheckValidation(out string japaneseValidationError));
+                StringAssert.Contains(japaneseValidationError, Resources.Error_InvalidBeatorajaRootPath);
+            }
+            finally
+            {
+                window?.CloseForOwnerShutdown();
+                owner?.SettingDialog.Dispose();
+                ResourceService.Current.ChangeCulture(previousCulture);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void GeneralAndPlaylistPagesExposeDistinctCompiledBindings()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            {
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true
+            });
+            var window = new SettingsWindow
+            {
+                DataContext = owner.SettingDialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                Materialize(window);
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                Assert.IsInstanceOfType<GeneralSettingsPage>(content.Content);
+                Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
+                ComboBox language = (ComboBox)((FrameworkElement)content.Content).FindName("languageComboBox");
+                Assert.AreEqual(nameof(SettingsDialogViewModel.Languages),
+                    GetBindingPath(language, ItemsControl.ItemsSourceProperty));
+
+                navigation.SelectedItem = window.FindName("navigationPlaylist");
+                Materialize(window);
+                Assert.IsInstanceOfType<PlaylistSettingsPage>(content.Content);
+                Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
+                TextBox tableListUrl = (TextBox)((FrameworkElement)content.Content).FindName("tableListUrlTextBox");
+                CheckBox urlCompletion = (CheckBox)((FrameworkElement)content.Content).FindName("enablePlaylistUrlCompletionCheckBox");
+                Binding? tableListUrlBinding = BindingOperations.GetBinding(tableListUrl, TextBox.TextProperty);
+                Binding? urlCompletionBinding = BindingOperations.GetBinding(urlCompletion, ToggleButton.IsCheckedProperty);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.TableListURL), tableListUrlBinding?.Path?.Path);
+                Assert.AreEqual(UpdateSourceTrigger.LostFocus, tableListUrlBinding?.UpdateSourceTrigger);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.EnablePlaylistUrlCompletion), urlCompletionBinding?.Path?.Path);
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void StandaloneBmsRootsUseLocalizedListAddAndRemoveBindings()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            string previousCulture = Resources.Culture?.Name ?? "ja-JP";
+            string scope = Path.Combine(Path.GetTempPath(), "bemusicseeker-settings-roots-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(scope);
+            string firstRoot = Path.Combine(scope, "first");
+            string secondRoot = Path.Combine(scope, "second");
+            string addedRoot = Path.Combine(scope, "added");
+            Directory.CreateDirectory(firstRoot);
+            Directory.CreateDirectory(secondRoot);
+            Directory.CreateDirectory(addedRoot);
+            MainWindowViewModel? owner = null;
+            try
+            {
+                ResourceService.Current.ChangeCulture("en-US");
+                owner = MainWindowViewModelTestFactory.Create(new Settings
+                {
+                    OperationModeLR2DB = false,
+                    BMSRootPath = firstRoot,
+                    StandaloneBmsRootPaths = string.Join(Environment.NewLine, firstRoot, secondRoot),
+                    BMSInstallDir = firstRoot,
+                    ScanBmsFilesOnStartup = false,
+                    SkipInitPlaylistLoad = true
+                });
+                var window = new SettingsWindow
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaybackPanel = owner.PlaybackPanel
+                };
+                Materialize(window);
+                FrameworkElement page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                ListBox roots = (ListBox)page.FindName("bmsSearchRootPathListBox");
+                Assert.AreEqual(2, roots.Items.Count);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.AvailableBMSDirectories),
+                    roots.GetBindingExpression(ItemsControl.ItemsSourceProperty)?.ParentBinding.Path?.Path);
+                Button add = (Button)page.FindName("addBmsSearchRootButton");
+                Button remove = (Button)page.FindName("removeBmsSearchRootButton");
+                add.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
+                remove.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
+                Assert.AreEqual(Resources.Add_BMSDirectory, add.Content);
+                Assert.AreEqual(Resources.Remove_BMSDirectory, remove.Content);
+
+                owner.SettingDialog.AddBmsSearchRootPathFromPicker(nameof(SettingsDialogViewModel.BMSRootPath), addedRoot);
+                Materialize(window);
+                Assert.AreEqual(3, roots.Items.Count);
+                Assert.IsTrue(roots.Items.Cast<string>().Any(path => string.Equals(path, addedRoot, StringComparison.OrdinalIgnoreCase)));
+
+                roots.SelectedItem = secondRoot;
+                Materialize(window);
+                roots.GetBindingExpression(Selector.SelectedItemProperty)?.UpdateSource();
+                remove.GetBindingExpression(ButtonBase.CommandParameterProperty)?.UpdateTarget();
+                Assert.IsTrue(remove.Command.CanExecute(remove.CommandParameter));
+                remove.Command.Execute(remove.CommandParameter);
+                Materialize(window);
+                Assert.IsFalse(roots.Items.Cast<string>().Any(path => string.Equals(path, secondRoot, StringComparison.OrdinalIgnoreCase)));
+
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Materialize(window);
+                add.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
+                remove.GetBindingExpression(ContentControl.ContentProperty)?.UpdateTarget();
+                Assert.AreEqual(Resources.Add_BMSDirectory, add.Content);
+                Assert.AreEqual(Resources.Remove_BMSDirectory, remove.Content);
+            }
+            finally
+            {
+                owner?.SettingDialog.Dispose();
+                ResourceService.Current.ChangeCulture(previousCulture);
+                Directory.Delete(scope, recursive: true);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void BackupAdvancedAndAboutPagesExposeCompiledActionContracts()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel? owner = null;
+            SettingsWindow? window = null;
+            var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No)
+            };
+            dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.CancelledByUser));
+
+            try
+            {
+                owner = MainWindowViewModelTestFactory.Create();
+                window = new SettingsWindow(dialogs)
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaybackPanel = owner.PlaybackPanel,
+                    PlaylistWorkspace = owner.PlaylistWorkspace
+                };
+                Materialize(window);
+
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+
+                navigation.SelectedIndex = 7;
+                Materialize(window);
+                var backupPage = (BackupSettingsPage)content.Content;
+                List<Button> backupButtons = FindLogicalDescendants<Button>(backupPage).ToList();
+                Assert.AreEqual(2, backupButtons.Count);
+                Button backupButton = backupButtons[0];
+                Button restoreButton = backupButtons[1];
+                backupButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, backupButton));
+                restoreButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, restoreButton));
+                TestUiDispatcherHost.Drain();
+
+                Assert.AreEqual(1, dialogs.SaveFilePickerRequests.Count);
+                UiSaveFilePickerRequest saveRequest = dialogs.SaveFilePickerRequests.Single();
+                Assert.AreSame(window, saveRequest.Owner);
+                Assert.AreEqual("BeMusicSeeker_backup.sql", saveRequest.FileName);
+                Assert.AreEqual(".sql", saveRequest.DefaultExtension);
+                Assert.AreEqual("sqlファイル(*.sql)|*.sql", saveRequest.Filter);
+                Assert.IsTrue(saveRequest.AddExtension);
+                Assert.AreSame(window, dialogs.LastConfirmationRequest.Owner);
+
+                var dangerButtons = new List<Button>();
+                var advancedDangerButtons = new List<Button>();
+                for (int index = 0; index < navigation.Items.Count; index++)
+                {
+                    navigation.SelectedIndex = index;
+                    Materialize(window);
+                    FrameworkElement page = (FrameworkElement)content.Content;
+                    Style pageDangerButtonStyle = (Style)page.FindResource("SettingsDangerButtonStyle");
+                    List<Button> pageButtons = FindLogicalDescendants<Button>(page).ToList();
+                    List<Button> pageDangerButtons = pageButtons
+                        .Where(button => ReferenceEquals(button.Style, pageDangerButtonStyle))
+                        .ToList();
+                    dangerButtons.AddRange(pageDangerButtons);
+                    if (index == 8)
+                    {
+                        advancedDangerButtons.AddRange(pageDangerButtons);
+                    }
+                }
+
+                Assert.AreEqual(2, dangerButtons.Count);
+                Assert.AreEqual(2, advancedDangerButtons.Count);
+
+                navigation.SelectedIndex = 9;
+                Materialize(window);
+                var aboutPage = (AboutSettingsPage)content.Content;
+                Button projectButton = FindLogicalDescendants<Button>(aboutPage)
+                    .Single(button => Equals(
+                        button.Tag,
+                        "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases"));
+                Assert.AreEqual(
+                    "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases",
+                    projectButton.Tag);
+                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
+            }
+            finally
+            {
+                if (window?.IsVisible == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                owner?.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    private static void Materialize(SettingsWindow window)
+    {
+        window.Measure(new Size(820, 760));
+        window.Arrange(new Rect(0, 0, 820, 760));
+        window.UpdateLayout();
+        TestUiDispatcherHost.Drain();
+    }
+
+    private static string? GetBindingPath(DependencyObject target, DependencyProperty property)
+    {
+        return BindingOperations.GetBinding(target, property)?.Path?.Path
+            ?? BindingOperations.GetBindingExpression(target, property)?.ParentBinding.Path?.Path;
+    }
+
+    private static void AssertHashOptionDisplayNames(
+        IReadOnlyList<SettingsDialogViewModel.BeatorajaBmtHashOutputModeOption> options)
+    {
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                Resources.Beatoraja_bmt_hash_output_original,
+                Resources.Beatoraja_bmt_hash_output_fill_missing,
+                Resources.Beatoraja_bmt_hash_output_prefer_sha256_only
+            },
+            options.Select(option => option.DisplayName).ToArray());
+    }
+
+    private static IEnumerable<T> FindLogicalDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        if (root is T match)
+        {
+            yield return match;
+        }
+
+        foreach (object? child in LogicalTreeHelper.GetChildren(root))
+        {
+            if (child is not DependencyObject dependencyObject)
+            {
+                continue;
+            }
+
+            foreach (T descendant in FindLogicalDescendants<T>(dependencyObject))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+}

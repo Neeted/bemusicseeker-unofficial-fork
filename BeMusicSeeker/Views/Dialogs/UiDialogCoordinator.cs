@@ -14,13 +14,20 @@ namespace BeMusicSeeker.Views.Dialogs;
 /// </summary>
 internal sealed class UiDialogCoordinator : IUiDialogService
 {
+    private static readonly Func<Window, UiMessageRequest, ThemedMessageBoxResponse> defaultMessagePresenter =
+        PresentThemedMessageBox;
+
     private readonly UiDialogOwnerResolver ownerResolver;
+
+    private readonly Func<Window, IDisposable> modalScopeFactory;
+
+    private readonly Func<Window, UiMessageRequest, ThemedMessageBoxResponse> messagePresenter;
 
     /// <summary>
     /// 既定の owner resolver を使う coordinator を初期化します。
     /// </summary>
     internal UiDialogCoordinator()
-        : this(new UiDialogOwnerResolver())
+        : this(new UiDialogOwnerResolver(), UiDialogOwnerResolver.PushActiveModal, defaultMessagePresenter)
     {
     }
 
@@ -30,8 +37,39 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     /// <param name="ownerResolver">dialog owner を解決する resolver。</param>
     /// <exception cref="ArgumentNullException">ownerResolver が null の場合。</exception>
     internal UiDialogCoordinator(UiDialogOwnerResolver ownerResolver)
+        : this(ownerResolver, UiDialogOwnerResolver.PushActiveModal, defaultMessagePresenter)
+    {
+    }
+
+    /// <summary>
+    /// 指定した owner resolver と modal scope 境界を使う coordinator を初期化します。
+    /// </summary>
+    /// <param name="ownerResolver">dialog owner を解決する resolver。</param>
+    /// <param name="modalScopeFactory">表示中の modal window を active owner として登録する境界。</param>
+    /// <exception cref="ArgumentNullException">いずれかの引数が null の場合。</exception>
+    internal UiDialogCoordinator(
+        UiDialogOwnerResolver ownerResolver,
+        Func<Window, IDisposable> modalScopeFactory)
+        : this(ownerResolver, modalScopeFactory, defaultMessagePresenter)
+    {
+    }
+
+    /// <summary>
+    /// owner resolver、modal scope、message presenter を指定して coordinator を初期化します。
+    /// presenter は通常の message / confirmation 表示だけを差し替え、owner 解決と dispatcher 境界は coordinator に残します。
+    /// </summary>
+    /// <param name="ownerResolver">dialog owner を解決する resolver。</param>
+    /// <param name="modalScopeFactory">表示中の modal window を active owner として登録する境界。</param>
+    /// <param name="messagePresenter">解決済み owner と元の表示 request を受けて message box 結果を返す presenter。既定経路は <see cref="ThemedMessageBox"/> を使います。</param>
+    /// <exception cref="ArgumentNullException">いずれかの引数が null の場合。</exception>
+    internal UiDialogCoordinator(
+        UiDialogOwnerResolver ownerResolver,
+        Func<Window, IDisposable> modalScopeFactory,
+        Func<Window, UiMessageRequest, ThemedMessageBoxResponse> messagePresenter)
     {
         this.ownerResolver = ownerResolver ?? throw new ArgumentNullException(nameof(ownerResolver));
+        this.modalScopeFactory = modalScopeFactory ?? throw new ArgumentNullException(nameof(modalScopeFactory));
+        this.messagePresenter = messagePresenter ?? throw new ArgumentNullException(nameof(messagePresenter));
     }
 
     /// <summary>
@@ -288,7 +326,7 @@ internal sealed class UiDialogCoordinator : IUiDialogService
                 window.Owner = owner;
             }
 
-            using (UiDialogOwnerResolver.PushActiveModal(window))
+            using (modalScopeFactory(window))
             {
                 bool? dialogResult = window.ShowDialog();
                 UiDialogStatus status = dialogResult == true
@@ -388,8 +426,19 @@ internal sealed class UiDialogCoordinator : IUiDialogService
         }
     }
 
-    private static OpenFileDialog CreateOpenFileDialog(UiFilePickerRequest request)
+    /// <summary>
+    /// file picker request を OS の open-file dialog options へ変換します。
+    /// </summary>
+    /// <param name="request">file picker 表示要求。</param>
+    /// <returns>表示前の open-file dialog。</returns>
+    /// <exception cref="ArgumentNullException">request が null の場合。</exception>
+    internal static OpenFileDialog CreateOpenFileDialog(UiFilePickerRequest request)
     {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
         var dialog = new OpenFileDialog
         {
             Title = request.Title,
@@ -413,8 +462,19 @@ internal sealed class UiDialogCoordinator : IUiDialogService
         return dialog;
     }
 
-    private static OpenFolderDialog CreateOpenFolderDialog(UiFolderPickerRequest request)
+    /// <summary>
+    /// folder picker request を OS の open-folder dialog options へ変換します。
+    /// </summary>
+    /// <param name="request">folder picker 表示要求。</param>
+    /// <returns>表示前の open-folder dialog。</returns>
+    /// <exception cref="ArgumentNullException">request が null の場合。</exception>
+    internal static OpenFolderDialog CreateOpenFolderDialog(UiFolderPickerRequest request)
     {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
         return new OpenFolderDialog
         {
             Title = request.Title,
@@ -433,14 +493,7 @@ internal sealed class UiDialogCoordinator : IUiDialogService
 
         try
         {
-            var dialog = new SaveFileDialog
-            {
-                Title = request.Title,
-                FileName = request.FileName,
-                DefaultExt = request.DefaultExtension,
-                AddExtension = request.AddExtension,
-                Filter = request.Filter
-            };
+            SaveFileDialog dialog = CreateSaveFileDialog(request);
             return dialog.ShowDialog(owner) == true
                 ? new UiSaveFilePickerResult(UiDialogStatus.Accepted, dialog.FileName)
                 : new UiSaveFilePickerResult(UiDialogStatus.CancelledByUser);
@@ -449,6 +502,29 @@ internal sealed class UiDialogCoordinator : IUiDialogService
         {
             return new UiSaveFilePickerResult(UiDialogStatus.Failed, error: ex);
         }
+    }
+
+    /// <summary>
+    /// save-file picker request を OS の save-file dialog options へ変換します。
+    /// </summary>
+    /// <param name="request">save-file picker 表示要求。</param>
+    /// <returns>表示前の save-file dialog。</returns>
+    /// <exception cref="ArgumentNullException">request が null の場合。</exception>
+    internal static SaveFileDialog CreateSaveFileDialog(UiSaveFilePickerRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        return new SaveFileDialog
+        {
+            Title = request.Title,
+            FileName = request.FileName,
+            DefaultExt = request.DefaultExtension,
+            AddExtension = request.AddExtension,
+            Filter = request.Filter
+        };
     }
 
     /// <summary>
@@ -551,7 +627,7 @@ internal sealed class UiDialogCoordinator : IUiDialogService
                 request.Label,
                 context => operation(new UiProgressContext(context)).GetAwaiter().GetResult(),
                 request.Settings,
-                UiDialogOwnerResolver.PushActiveModal);
+                modalScopeFactory);
             if (result == null)
             {
                 return new UiProgressResult(UiDialogStatus.Failed, error: new InvalidOperationException("Progress dialog route returned no result."));
@@ -664,20 +740,13 @@ internal sealed class UiDialogCoordinator : IUiDialogService
 
         try
         {
-            ThemedMessageBoxResponse response = ThemedMessageBox.ShowWithStatus(
-                owner,
-                request.MessageBoxText,
-                request.Caption,
-                request.Button,
-                request.Icon,
-                request.DefaultResult,
-                request.Options,
-                request.WarningMessageBoxText);
+            ThemedMessageBoxResponse response = messagePresenter(owner, request);
             return response.ClosedWithoutSelection
                 ? UiDialogResult.ClosedByUser(response.MessageBoxResult)
                 : UiDialogResult.FromMessageBoxResult(response.MessageBoxResult);
         }
-        catch (InvalidOperationException) when (Application.Current?.Dispatcher?.HasShutdownStarted == true || Application.Current?.Dispatcher?.HasShutdownFinished == true)
+        catch (InvalidOperationException) when (ReferenceEquals(messagePresenter, defaultMessagePresenter)
+            && (Application.Current?.Dispatcher?.HasShutdownStarted == true || Application.Current?.Dispatcher?.HasShutdownFinished == true))
         {
             return UiDialogResult.NotShown(UiDialogStatus.AppClosing);
         }
@@ -685,5 +754,18 @@ internal sealed class UiDialogCoordinator : IUiDialogService
         {
             return UiDialogResult.Failed(ex);
         }
+    }
+
+    private static ThemedMessageBoxResponse PresentThemedMessageBox(Window owner, UiMessageRequest request)
+    {
+        return ThemedMessageBox.ShowWithStatus(
+            owner,
+            request.MessageBoxText,
+            request.Caption,
+            request.Button,
+            request.Icon,
+            request.DefaultResult,
+            request.Options,
+            request.WarningMessageBoxText);
     }
 }

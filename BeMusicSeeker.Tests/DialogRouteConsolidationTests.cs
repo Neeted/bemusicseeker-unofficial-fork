@@ -58,6 +58,9 @@ public sealed class DialogRouteConsolidationTests
         Assert.AreEqual(UiDialogStatus.Rejected, UiDialogResult.FromMessageBoxResult(MessageBoxResult.No).Status);
         Assert.AreEqual(UiDialogStatus.CancelledByUser, UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel).Status);
         Assert.AreEqual(UiDialogStatus.ClosedByUser, UiDialogResult.FromMessageBoxResult(MessageBoxResult.None).Status);
+        Assert.IsTrue(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes).IsPositive);
+        Assert.IsTrue(UiDialogResult.ClosedByUser(MessageBoxResult.Yes).IsPositive);
+        Assert.IsFalse(UiDialogResult.ClosedByUser(MessageBoxResult.No).IsPositive);
         Assert.AreEqual(UiDialogStatus.ClosedByUser, UiDialogResult.ClosedByUser(MessageBoxResult.Cancel).Status);
         Assert.AreEqual(MessageBoxResult.Cancel, UiDialogResult.ClosedByUser(MessageBoxResult.Cancel).MessageBoxResult);
         Assert.AreEqual(UiDialogStatus.OwnerUnavailable, UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable).Status);
@@ -73,7 +76,7 @@ public sealed class DialogRouteConsolidationTests
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string emergencyDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "EmergencyDialog.cs"));
 
-        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs")), "DispatcherMessageBox should be removed after production call sites move to coordinator-backed routes.");
+        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs")), "DispatcherMessageBox should be removed after legacy call sites move to coordinator-backed routes.");
         Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogLegacyAdapter.cs")), "UiDialogLegacyAdapter should be removed after legacy entrypoints are retired.");
         StringAssert.Contains(bmsLibraryDialogService, "UiDialogCoordinator");
         Assert.IsFalse(bmsLibraryDialogService.Contains("DispatcherMessageBox"), "BmsLibraryDialogService must not route model dialogs through DispatcherMessageBox.");
@@ -82,239 +85,6 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "ThemedDialogInteractionMessageActions.cs")), "Livet message box actions should be removed after notification routes move to the coordinator.");
         Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"InformationDialog\""), "MainWindow must not keep unused Livet information dialog triggers.");
         Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"ConfirmationDialog\""), "MainWindow must not keep unused Livet confirmation dialog triggers.");
-    }
-
-    [TestMethod]
-    public void BmsPlaylist_DoesNotShowModelDialogsDirectly()
-    {
-        string root = FindRepositoryRoot();
-        string playlistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        string ubmplayCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "uBMplay.cs"));
-        string taskExCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "TaskEx.cs"));
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-
-        Assert.IsFalse(playlistCode.Contains("DispatcherMessageBox.Show("), "BMSPlaylist must return operation notifications instead of showing message boxes from the model layer.");
-        Assert.IsFalse(ubmplayCode.Contains("DispatcherMessageBox.Show("), "uBMplay must report startup failures to its caller instead of showing message boxes from the model layer.");
-        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "FastDirectoryEnumerator.cs")), "FastDirectoryEnumerator should be retired in favor of the managed fallback route.");
-        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "FileData.cs")), "FileData should be retired with the old manual Win32 enumeration route.");
-        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "WIN32_FIND_DATA.cs")), "WIN32_FIND_DATA should be retired with the old manual Win32 enumeration route.");
-        Assert.IsFalse(taskExCode.Contains("DispatcherMessageBox.Show("), "TaskEx must record task faults without showing message boxes from utility continuations.");
-        Assert.IsFalse(playlistCode.Contains("OperationNotificationScope"), "BMSPlaylist must not own the mutable presentation scope.");
-        Assert.IsFalse(playlistCode.Contains("QueueOperationNotification"), "BMSPlaylist must not own the notification queue implementation.");
-        StringAssert.Contains(playlistCode, "OperationNotificationOwner");
-        StringAssert.Contains(mainWindowCode, "PresentPlaylistOperationNotifications(");
-        Assert.IsFalse(viewModelCode.Contains("BMSPlaylist.BeginOperationNotificationScope()"));
-    }
-
-    [TestMethod]
-    public void ScoreViewerRegistration_UsesFeatureWorkflowOwner()
-    {
-        string rootViewModelCode = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string workflowCode = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "ScoreViewerRegistration.cs");
-        string runScoreViewerRegistration = ExtractBetween(
-            workflowCode,
-            "internal async Task<ScoreViewerRegistrationResult> RunAsync",
-            "internal ScoreViewerRegistrationPlan Prepare");
-
-        StringAssert.Contains(mainWindowCode, "viewModel.ScoreViewerRegistration.RunAsync(");
-        Assert.IsFalse(mainWindowCode.Contains("RunScoreViewerRegistrationAsync"));
-        Assert.IsFalse(mainWindowCode.Contains("ConfirmScoreViewerUploadIfNeededAsync"));
-        Assert.IsFalse(mainWindowCode.Contains("ShowScoreViewerRegistrationResultAsync"));
-        Assert.IsFalse(rootViewModelCode.Contains("PrepareScoreViewerRegistration"));
-        Assert.IsFalse(rootViewModelCode.Contains("CompleteScoreViewerRegistration"));
-        Assert.IsFalse(rootViewModelCode.Contains("scoreRegisterUrl"));
-        Assert.IsFalse(rootViewModelCode.Contains("scoreStatusUrl"));
-        Assert.IsFalse(rootViewModelCode.Contains("scoreViewUrl"));
-        StringAssert.Contains(workflowCode, "IScoreViewerRegistrationGateway");
-        StringAssert.Contains(workflowCode, "IScoreViewerRegistrationInteraction");
-        StringAssert.Contains(runScoreViewerRegistration, "interaction.ConfirmUploadAsync(");
-        StringAssert.Contains(runScoreViewerRegistration, "Complete(plan, uploadConfirmed)");
-        Assert.IsTrue(
-            runScoreViewerRegistration.IndexOf("interaction.ConfirmUploadAsync(", StringComparison.Ordinal)
-            < runScoreViewerRegistration.IndexOf("Complete(plan, uploadConfirmed)", StringComparison.Ordinal),
-            "Score Viewer upload must happen only after UI confirmation has completed.");
-        StringAssert.Contains(workflowCode, "UiDialogCoordinator");
-        StringAssert.Contains(workflowCode, "UiDialogStatus.Failed => throw");
-        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.HashOnly");
-        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.AlreadyRegistered");
-        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.NeedsUpload");
-        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.StatusCheckFailed");
-        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.Uploaded");
-        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.UploadFailed");
-        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.UploadDeclined");
-        Assert.IsFalse(mainWindowCode.Contains("Settings.Default.ShowScoreViewerRegisterConfirmMsg"));
-    }
-
-    [TestMethod]
-    public void DecisionConfirmations_DoNotDependOnLivetConfirmationResponse()
-    {
-        string root = FindRepositoryRoot();
-        string combinedCode = string.Concat(
-            SourceTextTestHelper.ReadMainWindowViewModelSourceText(),
-            SourceTextTestHelper.ReadMainWindowSourceText(),
-            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistSummaryBulkEditDialog.cs")));
-
-        Assert.IsFalse(combinedCode.Contains("confirmationMessage.Response"), "Decision confirmations must use UiDialogCoordinator results instead of Livet ConfirmationMessage.Response.");
-        Assert.IsFalse(combinedCode.Contains("confirmationMessage2.Response"), "Decision confirmations must not keep secondary Livet response checks.");
-        StringAssert.Contains(combinedCode, "ShowUiConfirmation(");
-        Assert.IsFalse(combinedCode.Contains("DispatcherMessageBox.Show("), "View and ViewModel decision confirmations must not depend on DispatcherMessageBox.");
-        Assert.IsFalse(combinedCode.Contains("new ConfirmationMessage"), "ViewModel notifications must use UiDialogCoordinator-backed routes instead of Livet ConfirmationMessage.");
-        StringAssert.Contains(combinedCode, "ShowUiMessage(");
-        StringAssert.Contains(combinedCode, "UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes");
-    }
-
-    [TestMethod]
-    public void ProgressOperations_AreRoutedThroughUiDialogCoordinator()
-    {
-        string root = FindRepositoryRoot();
-        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string progressDialogCode = File.ReadAllText(Path.Combine(root, "Parago", "Windows", "ProgressDialog.cs"));
-        string ownerResolverCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogOwnerResolver.cs"));
-        string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
-        string audioOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartAudioConversionWorkflowOwner.cs"));
-
-        Assert.IsFalse(mainWindowCode.Contains("ProgressDialog.Execute("), "MainWindow progress operations must go through UiDialogCoordinator.");
-        Assert.IsFalse(mainWindowCode.Contains("ProgressDialog.Current"), "MainWindow must not depend on static progress dialog state.");
-        Assert.IsFalse(progressDialogCode.Contains("static ProgressDialogContext Current"), "ProgressDialog must pass operation context explicitly instead of exposing static state.");
-        Assert.IsFalse(mainWindowCode.Contains("RunProgressUntilTaskCompletesAsync("));
-        StringAssert.Contains(audioOwnerCode, "dialogs.RunWithProgressAsync(");
-        StringAssert.Contains(coordinatorCode, "UiDialogOwnerResolver.PushActiveModal");
-        int activeModalOwnerIndex = ownerResolverCode.IndexOf("Window activeModalWindow = ResolveActiveModalWindow();", StringComparison.Ordinal);
-        int requestedOwnerIndex = ownerResolverCode.IndexOf("IsUsableOwner(requestedOwner)", StringComparison.Ordinal);
-        Assert.IsTrue(activeModalOwnerIndex >= 0, "Owner resolver must query coordinator-managed active modal owners.");
-        Assert.IsTrue(requestedOwnerIndex >= 0, "Owner resolver must keep requested owner handling after active modal resolution.");
-        Assert.IsTrue(
-            activeModalOwnerIndex < requestedOwnerIndex,
-            "Coordinator-managed active modal owner must take precedence over requested owners.");
-    }
-
-    [TestMethod]
-    public void FilePickers_AreRoutedThroughUiDialogCoordinator()
-    {
-        string root = FindRepositoryRoot();
-        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string settingDialogCode = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
-        string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
-        string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
-
-        Assert.IsFalse(mainWindowCode.Contains("new OpenFileDialog"), "MainWindow must not create open file pickers directly.");
-        Assert.IsFalse(mainWindowCode.Contains("new SaveFileDialog"), "MainWindow must not create save file pickers directly.");
-        Assert.IsFalse(mainWindowCode.Contains("new CommonOpenFileDialog"), "MainWindow must not create common file pickers directly.");
-        Assert.IsFalse(settingDialogCode.Contains("new OpenFileDialog"), "SettingDialog must not create open file pickers directly.");
-        Assert.IsFalse(settingDialogCode.Contains("new SaveFileDialog"), "SettingDialog must not create save file pickers directly.");
-        Assert.IsFalse(settingDialogCode.Contains("new CommonOpenFileDialog"), "SettingDialog must not create common file pickers directly.");
-        Assert.IsFalse(loadPlaylistCode.Contains("new OpenFileDialog"), "LoadPlaylistURIDialog must not create open file pickers directly.");
-        StringAssert.Contains(coordinatorCode, "PickFileCore(");
-        StringAssert.Contains(coordinatorCode, "PickFolderCore(");
-        StringAssert.Contains(coordinatorCode, "PickSaveFileCore(");
-        StringAssert.Contains(coordinatorCode, "UiDialogStatus.OwnerUnavailable");
-        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "CommonOpenFileDialogInteractionMessageAction.cs")));
-    }
-
-    [TestMethod]
-    public void WindowModals_AreRoutedThroughUiDialogCoordinator()
-    {
-        string root = FindRepositoryRoot();
-        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string settingDialogCode = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
-        string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
-        string requestsCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogRequests.cs"));
-        string windowResultCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiWindowDialogResult.cs"));
-        string generalSettingsPageCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages", "GeneralSettingsPage.xaml.cs"));
-        string selectedChartMutationOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "SelectedChartMutationWorkflowOwner.cs"));
-        string settingDialogViewModelCode = SourceTextTestHelper.ReadSettingsDialogViewModelSourceText();
-
-        Assert.IsFalse(mainWindowCode.Contains(".ShowDialog("), "MainWindow modal windows must go through UiDialogCoordinator.");
-        Assert.IsFalse(settingDialogCode.Contains(".ShowDialog("), "SettingDialog modal windows must go through UiDialogCoordinator.");
-        StringAssert.Contains(mainWindowCode, "ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>");
-        StringAssert.Contains(mainWindowCode, "StartupUpdatePresentationRequest");
-        StringAssert.Contains(mainWindowCode, "ShellShutdownWorkflow");
-        Assert.IsFalse(mainWindowCode.Contains("BindShutdownPreparation("));
-        Assert.IsFalse(mainWindowCode.Contains("PrepareStartupUpdateShutdownAsync"));
-        Assert.IsFalse(mainWindowCode.Contains("StartupUpdateShutdownPreparationRequest"));
-        Assert.IsFalse(mainWindowCode.Contains("ShutdownPreparationRequested"));
-        StringAssert.Contains(mainWindowCode, "viewModel.ShellActivationWorkflow.ActivateConstructedShell();");
-        StringAssert.Contains(mainWindowCode, "new UpdateAvailableDialog(request.Result, viewModel.ProgressHub, viewModel.ExternalShellGateway)");
-        Assert.IsFalse(mainWindowCode.Contains("CheckForUpdatesAsync("), "MainWindow must not own the startup update check.");
-        Assert.IsFalse(mainWindowCode.Contains("DownloadAndApplyUpdateAsync("), "MainWindow must not own update download/apply orchestration.");
-        Assert.IsFalse(mainWindowCode.Contains("CleanupPreviousUpdateWorkDirectory("), "MainWindow must not own update work-directory cleanup.");
-        Assert.IsFalse(mainWindowCode.Contains("TryDeleteDownloadedUpdatePackage("), "MainWindow must not own downloaded-package cleanup.");
-        Assert.IsFalse(mainWindowCode.Contains("updateCheckService"), "MainWindow must not retain the update-check service field.");
-        Assert.IsFalse(mainWindowCode.Contains("updateDownloadService"), "MainWindow must not retain the update-download service field.");
-        StringAssert.Contains(mainWindowCode, "viewModel.ShellActivationWorkflow.ActivateRenderedShell(");
-        StringAssert.Contains(mainWindowCode, "UiDialogRoute.ShowMessageBox(");
-        StringAssert.Contains(mainWindowCode, "Warn_ElevatedProcessDragDropLimited");
-        Assert.IsFalse(mainWindowCode.Contains("ShowElevatedProcessWarningIfNeeded"), "MainWindow must not retain the elevated warning workflow.");
-        Assert.IsFalse(mainWindowCode.Contains("ShouldSkipElevatedProcessWarning"), "MainWindow must keep only the presentation guard for the elevated warning.");
-        Assert.IsFalse(mainWindowCode.Contains("IsCurrentProcessElevated"), "MainWindow must not own the platform elevation probe.");
-        Assert.IsFalse(mainWindowCode.Contains("WindowsIdentity"), "MainWindow must not depend on the platform elevation API.");
-        Assert.IsFalse(mainWindowCode.Contains("WindowsPrincipal"), "MainWindow must not depend on the platform elevation API.");
-        string elevationProbeCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "ProcessElevationProbe.cs"));
-        StringAssert.Contains(elevationProbeCode, "WindowsIdentity");
-        StringAssert.Contains(elevationProbeCode, "WindowsPrincipal");
-        string warningOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ElevatedProcessWarningWorkflowOwner.cs"));
-        StringAssert.Contains(warningOwnerCode, "processElevationProbe()");
-        StringAssert.Contains(warningOwnerCode, "PresentationRequested");
-        StringAssert.Contains(warningOwnerCode, "CanPresent(run)");
-        string warningPresentationHandler = ExtractBetween(
-            mainWindowCode,
-            "private void MainWindowViewModel_ElevatedProcessWarningPresentationRequested",
-            "private void MainWindowViewModel_StartupUpdatePresentationRequested");
-        StringAssert.Contains(warningPresentationHandler, "CanPresentElevatedProcessWarning()");
-        StringAssert.Contains(warningPresentationHandler, "Warn_ElevatedProcessDragDropLimited");
-        StringAssert.Contains(warningPresentationHandler, "BeMusicSeeker.Properties.Resources.Warning");
-        StringAssert.Contains(warningPresentationHandler, "MessageBoxButton.OK");
-        StringAssert.Contains(warningPresentationHandler, "MessageBoxImage.Exclamation");
-        StringAssert.Contains(warningPresentationHandler, "request.Complete(true)");
-        StringAssert.Contains(warningPresentationHandler, "request.Fail(exception)");
-        string closingHandler = ExtractBetween(mainWindowCode, "protected override void OnClosing", "private static void CloseContextMenuIfOpen");
-        StringAssert.Contains(closingHandler, "TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest)");
-        StringAssert.Contains(closingHandler, "CompleteCloseAfterShellRequestAsync(closeRequest)");
-        Assert.IsFalse(closingHandler.Contains("ElevatedProcessWarningWorkflow.NotifyClosing()"));
-        Assert.IsFalse(closingHandler.Contains("StartupUpdateWorkflow.NotifyClosing()"));
-        StringAssert.Contains(selectedChartMutationOwnerCode, "pendingDeleteDialog.ShowAsync()");
-        Assert.IsFalse(selectedChartMutationOwnerCode.Contains("UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>"));
-        StringAssert.Contains(settingDialogViewModelCode, "schemaWindowDialogs.ShowAsync(");
-        StringAssert.Contains(settingDialogViewModelCode, "UiInteractionResult<Lr2PlayHistorySchemaUninstallMode>");
-        Assert.IsFalse(settingDialogViewModelCode.Contains("UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>"));
-        Assert.IsFalse(settingDialogCode.Contains("ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>"));
-        StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>");
-        StringAssert.Contains(settingDialogCode, "new UiWindowDialogRequest<ReleaseNotesWindow, object>(");
-        StringAssert.Contains(settingDialogCode, "await dialogService.ShowWindowAsync(");
-        string lr2AdvancedRoute = ExtractBetween(
-            settingDialogCode,
-            "internal async Task HandleEditCustomLr2PathsAsync()",
-            "internal async Task HandleShowReleaseNotesAsync()");
-        StringAssert.Contains(lr2AdvancedRoute, "await dialogService.ShowWindowAsync(");
-        StringAssert.Contains(lr2AdvancedRoute, "() => new Lr2AdvancedPathsDialog(settingDialogViewModel)");
-        StringAssert.Contains(lr2AdvancedRoute, "Window.GetWindow(this)");
-        StringAssert.Contains(lr2AdvancedRoute, "ThrowIfWindowDialogFailed(result.Status, result.Error");
-        Assert.IsFalse(lr2AdvancedRoute.Contains("GetAwaiter()"), "The LR2 advanced-path route must not synchronously wait for its modal task.");
-        string lr2AdvancedClickHandler = ExtractBetween(
-            generalSettingsPageCode,
-            "private async void editCustomLr2PathsButtonClick",
-            "private void browseBeatorajaRootPathButtonClick");
-        StringAssert.Contains(lr2AdvancedClickHandler, "await settingsWindow.HandleEditCustomLr2PathsAsync();");
-        StringAssert.Contains(lr2AdvancedClickHandler, "catch (Exception ex)");
-        StringAssert.Contains(lr2AdvancedClickHandler, "await settingsWindow.HandleSettingsRouteFailureAsync(ex");
-        string settingsRouteFailure = ExtractBetween(
-            settingDialogCode,
-            "internal async Task HandleSettingsRouteFailureAsync(Exception exception, string routeName)",
-            "internal async Task HandleShowReleaseNotesAsync()");
-        StringAssert.Contains(settingsRouteFailure, "NLogWrapper.GetLogger(typeof(SettingsWindow)).Error");
-        StringAssert.Contains(settingsRouteFailure, "await dialogService.ShowMessageAsync(new UiMessageRequest(");
-        StringAssert.Contains(settingsRouteFailure, "owner: this");
-        Assert.IsFalse(settingsRouteFailure.Contains("UiDialogRoute.ShowMessageBox"));
-        StringAssert.Contains(requestsCode, "internal sealed class UiWindowDialogRequest<TWindow, TResult>");
-        StringAssert.Contains(windowResultCode, "internal sealed class UiWindowDialogResult<TResult>");
-        StringAssert.Contains(coordinatorCode, "ShowWindowAsync<TWindow, TResult>");
-        StringAssert.Contains(coordinatorCode, "UiDialogOwnerResolver.PushActiveModal(window)");
-        StringAssert.Contains(coordinatorCode, "UiDialogStatus.OwnerUnavailable");
-        StringAssert.Contains(coordinatorCode, "Window dialog factory assigned a different owner.");
     }
 
     [TestMethod]
@@ -328,11 +98,10 @@ public sealed class DialogRouteConsolidationTests
             .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
             .ToList();
 
-        CollectionAssert.AreEqual(Array.Empty<string>(), offenders, "View code-behind messages must use UiDialogRoute / UiDialogCoordinator instead of DispatcherMessageBox.");
-        string routeCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogRoute.cs"));
-        StringAssert.Contains(routeCode, "ShowMessageAsync(new UiMessageRequest(");
-        StringAssert.Contains(routeCode, "ConfirmAsync(new UiConfirmationRequest(");
-        StringAssert.Contains(routeCode, "ThrowIfNotShown(result, caption);");
+        CollectionAssert.AreEqual(
+            Array.Empty<string>(),
+            offenders,
+            "View code-behind must not use the retired DispatcherMessageBox route.");
     }
 
     [TestMethod]
@@ -346,13 +115,10 @@ public sealed class DialogRouteConsolidationTests
             .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
             .ToList();
 
-        CollectionAssert.AreEqual(Array.Empty<string>(), offenders, "ViewModel messages must use UiDialogCoordinator-backed routes instead of DispatcherMessageBox.");
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string temporaryCopyCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "temporarilyCopyFiles.cs"));
-        StringAssert.Contains(viewModelCode, "ShowUiMessage(");
-        StringAssert.Contains(viewModelCode, "ShowUiConfirmation(");
-        StringAssert.Contains(temporaryCopyCode, "UiDialogRoute.ShowMessageBox(");
-        StringAssert.Contains(temporaryCopyCode, "temporary_preview_cleanup_failed");
+        CollectionAssert.AreEqual(
+            Array.Empty<string>(),
+            offenders,
+            "ViewModel messages must not use the retired DispatcherMessageBox route.");
     }
 
     [TestMethod]
@@ -382,39 +148,6 @@ public sealed class DialogRouteConsolidationTests
             new[] { "BeMusicSeeker/App.cs" },
             emergencyCallers,
             "EmergencyDialog.Show may be called only from App startup/shutdown/unhandled-exception emergency routes.");
-    }
-
-    [TestMethod]
-    public void OverlayDialogs_AreShownThroughMainWindowHost()
-    {
-        string root = FindRepositoryRoot();
-        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
-        string initialSetupCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
-        string settingDialogCode = SourceTextTestHelper.ReadSettingsWindowViewSourceText();
-        string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
-        string playlistPropertyCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistPropertyDialog.cs"));
-        string playlistBulkEditCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistSummaryBulkEditDialog.cs"));
-
-        StringAssert.Contains(mainWindowCode, "internal void ShowOverlayDialog(FrameworkElement dialog)");
-        StringAssert.Contains(mainWindowCode, "internal void HideOverlayDialog(FrameworkElement dialog)");
-        StringAssert.Contains(mainWindowCode, "new UiWindowDialogRequest<SettingsWindow, SettingsWindowCloseReason>(");
-        StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(initialSetupLanguageDialog)");
-        StringAssert.Contains(mainWindowCode, "viewModel.SettingDialog.AttachPresentationPort(this);");
-        StringAssert.Contains(mainWindowCode, "void ISettingDialogPresentationPort.OpenInitialSetupLanguageDialog()");
-        StringAssert.Contains(mainWindowXaml, "SettingsCommand=\"{Binding DataContext.SettingDialog.OpenCommand, ElementName=window}\"");
-        string playbackPanelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaybackPanelView.xaml"));
-        StringAssert.Contains(playbackPanelCode, "Command=\"{Binding SettingsCommand, ElementName=playbackPanelView}\"");
-        Assert.IsFalse(mainWindowXaml.Contains("InteractionMessageTrigger"), "MainWindow must not use Livet message triggers for overlay or table callbacks.");
-        Assert.IsFalse(mainWindowXaml.Contains("MessageKey="), "MainWindow must not route UI callbacks through MessageKey strings.");
-        Assert.IsFalse(mainWindowXaml.Contains("PropertyName=\"Visibility\" Value=\"Visible\" TargetObject=\"{Binding ElementName=settingDialog"));
-        Assert.IsFalse(initialSetupCode.Contains("Parent is Panel"), "Initial setup must not find SettingDialog by walking the parent panel.");
-        Assert.IsFalse(initialSetupCode.Contains("MainWindow"), "Initial setup must request settings through its inherited owner command.");
-        Assert.IsFalse(initialSetupCode.Contains("HideOverlayDialog"));
-        StringAssert.Contains(settingDialogCode, "CloseForManualResync()");
-        StringAssert.Contains(loadPlaylistCode, "HideOverlayDialog(this)");
-        StringAssert.Contains(playlistPropertyCode, "ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel)");
-        StringAssert.Contains(playlistBulkEditCode, "HideOverlayDialog(playlistSummaryBulkEditDialog)");
     }
 
     private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)

@@ -3533,6 +3533,48 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public async Task RequestDetailRefresh_UsesAttachedResolveIndexAndPreservesStorageOwnerIdentity()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var ownedChart = new BMSFile
+        {
+            path = @"C:\owned\chart.bms",
+            hash = md5,
+            title = "Owned chart"
+        };
+        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+            [LibraryChartRef.FromBmsFile(ownedChart)]);
+
+        var entry = new TestablePlaylistEntry(md5, "playlist entry");
+        var table = new BMSTable { entries = [entry] };
+        workspace.RequestDetailSelection(table);
+        workspace.InitializePlaylistDetailFilter(ChartListFilterSnapshot.Default);
+        workspace.InitializePlaylistDetailSort(new ChartListSortParameters
+        {
+            ColumnsName = "TITLE",
+            Direction = System.ComponentModel.ListSortDirection.Ascending
+        });
+
+        int requestVersion = workspace.RequestDetailRefresh(
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            useCoalescingWindow: false,
+            openReadiness: default);
+
+        await workspace.WaitForDetailRequestCompletionAsync(requestVersion)
+            .WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+
+        Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
+        Assert.AreEqual(1, workspace.DetailViewState.Source.Rows.Count);
+        PlaylistDetailSourceRow row = workspace.DetailViewState.Source.Rows[0];
+        Assert.AreSame(entry, row.Entry);
+        Assert.IsTrue(row.IsOwned);
+        Assert.AreSame(ownedChart, row.BmsPlayerFile);
+    }
+
+    [TestMethod]
     public async Task PlaylistLibraryIndexPrewarm_UsesWorkspaceSchedulerAndRuntimeCache()
     {
         var queuedWork = new List<Func<Task>>();
@@ -3626,16 +3668,16 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.IsTrue(completed[0].WasSkipped);
             Assert.IsFalse(completed[0].Succeeded);
             Assert.IsFalse(completed[0].PublishesReferenceReceipt);
-             Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
-         }
-         finally
-         {
-             if (Directory.Exists(tempDirectory))
-             {
-                 Directory.Delete(tempDirectory, recursive: true);
-             }
-         }
-     }
+            Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
 
     [TestMethod]
     public async Task PlaylistExternalSyncReceiptSubscription_FollowsTypedPlaylistStoreReplacement()
@@ -4650,6 +4692,8 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         internal int ResolveIndexCallCount { get; private set; }
 
+        internal PlaylistLibraryResolveIndexSnapshot ResolveIndexSnapshot { get; set; } = PlaylistLibraryResolveIndexSnapshot.Empty;
+
         internal BMSLibrary.PlaylistLibraryResolveIndexRuntimeState RuntimeState { get; set; } = new();
 
         internal LR2SongDBExtended.chart_info ChartInfo { get; set; } = null!;
@@ -4681,7 +4725,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             ResolveIndexCallCount++;
             cacheHit = true;
             staleRetryCount = 0;
-            return PlaylistLibraryResolveIndexSnapshot.Empty;
+            return ResolveIndexSnapshot;
         }
 
         public BMSLibrary.PlaylistLibraryResolveIndexRuntimeState GetResolveIndexRuntimeState()
@@ -6338,8 +6382,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.IsTrue(dialogs.SaveFilePickerRequests[0].AddExtension);
             Assert.AreEqual(BeMusicSeeker.Properties.Resources.Save_data_file, dialogs.SaveFilePickerRequests[1].Title);
             Assert.AreEqual("data.json", dialogs.SaveFilePickerRequests[1].FileName);
+            Assert.AreEqual(".json", dialogs.SaveFilePickerRequests[1].DefaultExtension);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.SaveFilePickerRequests[1].Filter);
+            Assert.IsTrue(dialogs.SaveFilePickerRequests[1].AddExtension);
 
+            Uri persistedHeaderUrl = new Uri("https://example.test/export-header.json");
             Uri persistedDataUrl = new Uri("https://example.test/export-data.json");
+            table.Header_url = persistedHeaderUrl;
             table.Data_url = persistedDataUrl;
             string persistedHeaderPath = Path.Combine(tempDirectory, "persisted-header.json");
             string persistedDataPath = Path.Combine(tempDirectory, "persisted-data.json");
@@ -6354,7 +6403,14 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.AreEqual(expectedData, File.ReadAllText(persistedDataPath));
             Assert.AreEqual(2, notifications.Count);
             Assert.IsTrue(notifications[1].Receipt.IsEmpty);
+            Assert.AreEqual("export-header.json", dialogs.SaveFilePickerRequests[2].FileName);
+            Assert.AreEqual(".json", dialogs.SaveFilePickerRequests[2].DefaultExtension);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.SaveFilePickerRequests[2].Filter);
+            Assert.IsTrue(dialogs.SaveFilePickerRequests[2].AddExtension);
             Assert.AreEqual("export-data.json", dialogs.SaveFilePickerRequests[3].FileName);
+            Assert.AreEqual(".json", dialogs.SaveFilePickerRequests[3].DefaultExtension);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.SaveFilePickerRequests[3].Filter);
+            Assert.IsTrue(dialogs.SaveFilePickerRequests[3].AddExtension);
         }
         finally
         {

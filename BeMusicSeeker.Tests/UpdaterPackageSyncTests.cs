@@ -344,6 +344,7 @@ public sealed class UpdaterPackageSyncTests
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                CreateNoWindow = true,
                 WorkingDirectory = appDirectoryPath
             }) ?? throw new InvalidOperationException("The live application fixture was not started.");
             try
@@ -1280,6 +1281,7 @@ public sealed class UpdaterPackageSyncTests
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(FindUpdaterExecutable()) ?? Environment.CurrentDirectory
         }) ?? throw new InvalidOperationException("Updater recovery process was not started.");
     }
@@ -1301,6 +1303,7 @@ public sealed class UpdaterPackageSyncTests
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? Environment.CurrentDirectory
         }) ?? throw new InvalidOperationException("Updater watchdog process was not started.");
         if (!process.WaitForExit(30000))
@@ -1422,6 +1425,7 @@ public sealed class UpdaterPackageSyncTests
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(updaterPath) ?? Environment.CurrentDirectory
         };
     }

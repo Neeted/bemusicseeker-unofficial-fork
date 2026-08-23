@@ -112,6 +112,8 @@ internal sealed class RegularChartListOwner : IDisposable
     private int virtualSummaryCacheVersion;
     private int virtualSummaryRunId;
     private CancellationTokenSource virtualOrderPrewarmCancellation;
+
+    private RegularChartListPrewarmLease virtualOrderPrewarmLease;
     private Task virtualOrderPrewarmCompletion = Task.CompletedTask;
     private Task shutdownCompletion = Task.CompletedTask;
     private Task folderRenameTail = Task.CompletedTask;
@@ -1589,7 +1591,9 @@ internal sealed class RegularChartListOwner : IDisposable
                 virtualOrderPrewarmCancellation = new CancellationTokenSource();
                 lease = new RegularChartListPrewarmLease(
                     ++virtualOrderPrewarmRunId,
-                    virtualOrderPrewarmCancellation.Token);
+                    virtualOrderPrewarmCancellation.Token,
+                    library);
+                virtualOrderPrewarmLease = lease;
                 virtualOrderPrewarmCompletion = lease.Completion;
                 started = true;
             }
@@ -1598,6 +1602,34 @@ internal sealed class RegularChartListOwner : IDisposable
         Cancel(activePrewarmToCancel);
         CancelAndDispose(completedPrewarmToDispose);
         return started;
+    }
+
+    /// <summary>
+    /// Cancels and completes the exact active virtual-order prewarm lease.
+    /// Stale leases cannot cancel a newer run.
+    /// </summary>
+    /// <param name="lease">The active lease issued by this owner.</param>
+    /// <returns><see langword="true"/> when the active lease was cancelled.</returns>
+    internal bool CancelVirtualOrderPrewarm(RegularChartListPrewarmLease lease)
+    {
+        if (lease == null)
+        {
+            return false;
+        }
+
+        CancellationTokenSource cancellation = null;
+        lock (syncRoot)
+        {
+            if (!ReferenceEquals(virtualOrderPrewarmLease, lease))
+            {
+                return false;
+            }
+            cancellation = virtualOrderPrewarmCancellation;
+            virtualOrderPrewarmLease = null;
+        }
+        Cancel(cancellation);
+        lease.Dispose();
+        return true;
     }
 
     internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualOrderPrewarmDescriptors()
@@ -4452,15 +4484,20 @@ internal sealed class RegularChartListPrewarmLease : IDisposable
     private readonly TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int completed;
 
-    internal RegularChartListPrewarmLease(int runId, CancellationToken token)
+    /// <summary>Initializes an immutable lease for one library-bound prewarm run.</summary>
+    internal RegularChartListPrewarmLease(int runId, CancellationToken token, BMSLibrary library)
     {
         RunId = runId;
         Token = token;
+        Library = library;
     }
 
     internal int RunId { get; }
 
     internal CancellationToken Token { get; }
+
+    /// <summary>Gets the exact library reserved when the lease was issued, or null for a no-library test boundary.</summary>
+    internal BMSLibrary Library { get; }
 
     internal Task Completion => completion.Task;
 

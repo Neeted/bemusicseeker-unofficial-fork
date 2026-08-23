@@ -671,9 +671,9 @@ public partial class BMSLibrary : ObservableObject
     // and applying the corresponding package result.
     private readonly object pendingInstallEstimateCurrentnessGate = new();
 
-    // Tests use this lock-free checkpoint to deterministically mutate an input
-    // after evaluation but before validation; production leaves it unset.
-    private Action<int, PendingInstallEstimateCurrentnessStamp> pendingInstallEstimateAttemptEvaluatedObserver;
+    // Production leaves this optional diagnostic boundary unset. Tests can use
+    // it to observe execution without exposing a public callback surface.
+    private readonly IInstallEstimationExecutionObserver installEstimationExecutionObserver;
 
     private long ownedDigestMutationGeneration;
 
@@ -2600,6 +2600,11 @@ public partial class BMSLibrary : ObservableObject
     {
     }
 
+    /// <summary>
+    /// Creates the library facade and optionally attaches a typed install-estimation
+    /// execution observer for internal behavior verification.
+    /// </summary>
+    /// <param name="installEstimationExecutionObserver">Optional diagnostic observer; production callers leave it null.</param>
     internal BMSLibrary(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
@@ -2609,7 +2614,8 @@ public partial class BMSLibrary : ObservableObject
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         IUiScheduler uiScheduler,
-        ApplicationPathSnapshot applicationPathSnapshot)
+        ApplicationPathSnapshot applicationPathSnapshot,
+        IInstallEstimationExecutionObserver installEstimationExecutionObserver = null)
     {
         if (_lr2SongDB == null)
         {
@@ -2634,6 +2640,7 @@ public partial class BMSLibrary : ObservableObject
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.applicationPathSnapshot = applicationPathSnapshot
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
+        this.installEstimationExecutionObserver = installEstimationExecutionObserver;
         everythingNative = new EverythingNative(this.applicationPathSnapshot);
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
@@ -2773,7 +2780,7 @@ public partial class BMSLibrary : ObservableObject
             GetDuplicateInstallRepairPaths,
             ApplyLibraryMutationDeltaCore,
             (charts, forceUpdate, resourceHealthIndexUpdateMode, resourceHealthMutationReason)
-                => _ = ApplyCatalogMaintenance(
+                => ApplyCatalogMaintenance(
                     charts,
                     forceUpdate,
                     resourceHealthIndexUpdateMode: resourceHealthIndexUpdateMode,
@@ -3053,11 +3060,29 @@ public partial class BMSLibrary : ObservableObject
     private void SetInstallEstimationProgress(InstallEstimationProgressSource source, int totalWorkCount, int completedWorkCount, string currentDisplayName)
     {
         packageLifecycleOwner.SetInstallEstimationProgress(source, totalWorkCount, completedWorkCount, currentDisplayName);
+        if (installEstimationExecutionObserver != null)
+        {
+            installEstimationExecutionObserver.ObserveProgress(new InstallEstimationProgressObservation(
+                totalWorkCount > 0,
+                source,
+                Math.Max(totalWorkCount, 0),
+                Math.Max(0, Math.Min(completedWorkCount, Math.Max(totalWorkCount, 0))),
+                currentDisplayName ?? string.Empty));
+        }
     }
 
     private void ClearInstallEstimationProgress()
     {
         packageLifecycleOwner.ClearInstallEstimationProgress();
+        if (installEstimationExecutionObserver != null)
+        {
+            installEstimationExecutionObserver.ObserveProgress(new InstallEstimationProgressObservation(
+                IsActive: false,
+                Source: InstallEstimationProgressSource.None,
+                TotalWorkCount: 0,
+                CompletedWorkCount: 0,
+                CurrentDisplayName: string.Empty));
+        }
     }
 
     private static int GetPendingEstimateQueuedBatchCount(PendingInstallEstimateQueueStatusSnapshot snapshot)
@@ -3404,7 +3429,14 @@ public partial class BMSLibrary : ObservableObject
                     PendingInstallEstimateEvaluationRequest dispatchRequest = evaluationRequests[nextDispatchIndex];
                     SetPendingInstallEstimateSearchingState(dispatchRequest, isSearching: true);
                     searchingRequests.Add(dispatchRequest);
-                    Task<PendingInstallEstimateEvaluationResult> evaluateTask = Task.Run(() => EvaluatePendingInstallEstimateRequest(dispatchRequest, evaluationContext, executionPolicy, token), token);
+                    Task<PendingInstallEstimateEvaluationResult> evaluateTask = Task.Run(
+                        () => EvaluatePendingInstallEstimateRequest(
+                            request.Source,
+                            dispatchRequest,
+                            evaluationContext,
+                            executionPolicy,
+                            token),
+                        token);
                     inFlight.Add((dispatchRequest, evaluateTask));
                     nextDispatchIndex++;
                 }
@@ -3460,7 +3492,29 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private PendingInstallEstimateEvaluationResult EvaluatePendingInstallEstimateRequest(PendingInstallEstimateEvaluationRequest request, PendingInstallEstimateEvaluationContext evaluationContext, InstallEstimationExecutionPolicy executionPolicy, CancellationToken token)
+    private PendingInstallEstimateEvaluationResult EvaluatePendingInstallEstimateRequest(
+        PendingInstallEstimateBatchSource source,
+        PendingInstallEstimateEvaluationRequest request,
+        PendingInstallEstimateEvaluationContext evaluationContext,
+        InstallEstimationExecutionPolicy executionPolicy,
+        CancellationToken token)
+    {
+        if (installEstimationExecutionObserver == null)
+        {
+            return EvaluatePendingInstallEstimateRequestCore(request, evaluationContext, executionPolicy, token);
+        }
+
+        using IDisposable workItemScope = installEstimationExecutionObserver.BeginWorkItem(
+            new InstallEstimationWorkItemObservation(
+                source,
+                request?.OrderIndex ?? -1,
+                request?.DisplayName ?? string.Empty,
+                executionPolicy?.WorkItemDegree ?? 1,
+                executionPolicy?.CandidateEvaluationDegree ?? 1));
+        return EvaluatePendingInstallEstimateRequestCore(request, evaluationContext, executionPolicy, token);
+    }
+
+    private PendingInstallEstimateEvaluationResult EvaluatePendingInstallEstimateRequestCore(PendingInstallEstimateEvaluationRequest request, PendingInstallEstimateEvaluationContext evaluationContext, InstallEstimationExecutionPolicy executionPolicy, CancellationToken token)
     {
         var result = new PendingInstallEstimateEvaluationResult
         {
@@ -3587,9 +3641,16 @@ public partial class BMSLibrary : ObservableObject
         {
             for (int attempt = 0; attempt < 2; attempt++)
             {
-                pendingInstallEstimateAttemptEvaluatedObserver?.Invoke(
-                    attempt,
-                    evaluationResult?.CurrentnessStamp ?? default);
+                if (installEstimationExecutionObserver != null)
+                {
+                    installEstimationExecutionObserver.ObserveAttemptEvaluated(
+                        new InstallEstimationAttemptEvaluatedObservation(
+                            batchRequest.Source,
+                            request?.OrderIndex ?? dispatchedRequest?.OrderIndex ?? -1,
+                            currentDisplayName,
+                            attempt,
+                            evaluationResult?.CurrentnessStamp ?? default));
+                }
                 bool stale;
                 using (rwlockBMSFilesInitializedAll.GetReaderGuard())
                 {
@@ -3629,6 +3690,7 @@ public partial class BMSLibrary : ObservableObject
                 PendingInstallEstimateRetryCapture retryCapture =
                     CapturePendingInstallEstimateRetry(evaluationResult.Request);
                 evaluationResult = EvaluatePendingInstallEstimateRequest(
+                    batchRequest.Source,
                     retryCapture.Request,
                     retryCapture.Context,
                     executionPolicy,
@@ -5386,10 +5448,12 @@ public partial class BMSLibrary : ObservableObject
         {
             QueueDeferredScoreHydration("initialize_update_ir_score");
         }
-        if (updateIrScore
-            && activeScoreSource == ActiveScoreSource.Lr2
-            && lr2ScoreDBPath != null
-            && (options.EnableDownloadLr2IrScoreAndDetectUnsent || options.UpdateLr2IrRankingCacheOnStartup))
+        StartupRankingRefreshWorkPlan startupRankingRefreshPlan = StartupRankingRefreshPolicy.CreateWorkPlan(options);
+        if (StartupRankingRefreshPolicy.ShouldQueue(
+            updateIrScore,
+            activeScoreSource,
+            lr2ScoreDBPath != null,
+            startupRankingRefreshPlan))
         {
             QueueDeferredRankingRefresh("initialize_update_ir_score");
         }
@@ -6820,7 +6884,8 @@ public partial class BMSLibrary : ObservableObject
         RankingDownloadContext rankingContext = CaptureRankingDownloadContext();
         var irScoreStopwatch = Stopwatch.StartNew();
         BmsLibraryOptionsSnapshot optionsSnapshot = CurrentOptionsSnapshot;
-        if (optionsSnapshot.EnableDownloadLr2IrScoreAndDetectUnsent)
+        StartupRankingRefreshWorkPlan workPlan = StartupRankingRefreshPolicy.CreateWorkPlan(optionsSnapshot);
+        if (workPlan.RefreshIrScore)
         {
             IrScorePrefetchResult prefetchedScore = TryConsumeIrScorePrefetch(requestVersion, optionsSnapshot, out long prefetchWaitMs, out string prefetchStatus);
             IrScoreTableUpdateResult irScoreUpdateResult =
@@ -6868,7 +6933,7 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new OperationCanceledException();
         }
-        if (optionsSnapshot.UpdateLr2IrRankingCacheOnStartup)
+        if (workPlan.RefreshRankingCache)
         {
             var cacheStopwatch = Stopwatch.StartNew();
             setRankingScore(rankingContext);
@@ -10746,6 +10811,9 @@ public partial class BMSLibrary : ObservableObject
         bool resourceHealthIndexDeferred,
         bool resourceHealthIndexFullRebuilt)
     {
+        workflowResult.ResourceHealthIndexDeltaApplied = resourceHealthDeltaApplied;
+        workflowResult.ResourceHealthIndexDeferred = resourceHealthIndexDeferred;
+        workflowResult.ResourceHealthIndexFullRebuilt = resourceHealthIndexFullRebuilt;
         if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0 || workflowResult.BmsonResourceReferenceReusedCount > 0 || resourceHealthSnapshot.TargetCount > 0)
         {
             LogInstallPerformance("maintenance_update checked=" + workflowResult.CheckedFileCount
@@ -11880,12 +11948,19 @@ public partial class BMSLibrary : ObservableObject
     /// </summary>
     public void MergeChartDirectory(string src, string dst)
     {
-        MergeChartDirectory(src, dst, operationId: 0);
+        _ = MergeChartDirectory(src, dst, operationId: 0);
     }
 
-    internal void MergeChartDirectory(string src, string dst, long operationId)
+    /// <summary>
+    /// Executes the internal duplicate-folder merge route and returns immutable maintenance facts.
+    /// </summary>
+    /// <param name="src">Source directory.</param>
+    /// <param name="dst">Destination directory.</param>
+    /// <param name="operationId">Operation identifier used by the merge lock boundary.</param>
+    /// <returns>Merge and intermediate resource-health dispatch facts.</returns>
+    internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string src, string dst, long operationId)
     {
-        libraryFileOperationOwner.MergeChartDirectory(src, dst, operationId);
+        return libraryFileOperationOwner.MergeChartDirectory(src, dst, operationId);
     }
 
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)

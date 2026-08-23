@@ -141,6 +141,11 @@ internal sealed class PackageInstallWorkflowOwner
 
     internal event EventHandler<PackageInstallRefreshSuppressionChangedEventArgs> RefreshSuppressionChanged;
 
+    /// <summary>
+    /// Reports that the package-install owner received a cancellation request.
+    /// </summary>
+    internal event Action CancelAllRequested;
+
     internal bool IsActive
     {
         get
@@ -285,12 +290,25 @@ internal sealed class PackageInstallWorkflowOwner
 
     internal void CancelAll()
     {
+        NotifyCancelAllRequested();
         QueueProcessorContext queue;
         lock (syncRoot)
         {
             queue = queueProcessors[queueProcessors.Count - 1];
         }
         queue.Processor.CancelAll();
+    }
+
+    private void NotifyCancelAllRequested()
+    {
+        try
+        {
+            CancelAllRequested?.Invoke();
+        }
+        catch (Exception exception)
+        {
+            ReportNotificationFailure(exception);
+        }
     }
 
     internal void RequestShutdown()

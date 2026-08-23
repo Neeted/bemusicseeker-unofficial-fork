@@ -174,17 +174,28 @@ public sealed class PendingInstallEstimateQueueProcessorTests
             [CreatePackage(@"C:\pending\startup\a")],
             "startup");
 
-        Task enqueueTask = Task.Run(() => processor.Enqueue(request, () =>
-        {
-            acceptanceEntered.Set();
-            releaseAcceptance.Wait();
-        }));
+        Task enqueueTask = Task.Factory.StartNew(
+            () => processor.Enqueue(request, () =>
+            {
+                acceptanceEntered.Set();
+                releaseAcceptance.Wait();
+            }),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
-        Assert.IsTrue(acceptanceEntered.Wait(3000));
-        Assert.IsFalse(workerEntered.IsSet);
-        releaseAcceptance.Set();
-        Assert.IsTrue(enqueueTask.Wait(3000));
-        Assert.IsTrue(workerEntered.Wait(3000));
+        try
+        {
+            Assert.IsTrue(acceptanceEntered.Wait(3000));
+            Assert.IsFalse(workerEntered.IsSet);
+            releaseAcceptance.Set();
+            Assert.IsTrue(enqueueTask.Wait(3000));
+            Assert.IsTrue(workerEntered.Wait(3000));
+        }
+        finally
+        {
+            releaseAcceptance.Set();
+        }
     }
 
     private static ChartPackage CreatePackage(string path)

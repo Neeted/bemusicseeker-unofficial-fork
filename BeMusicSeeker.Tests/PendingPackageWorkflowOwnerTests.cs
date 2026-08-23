@@ -1358,34 +1358,34 @@ public sealed class PendingPackageWorkflowOwnerTests
             AcceptedDialogs(),
             playback: new NoOpPendingPackageMutationPlaybackPort(),
             chartFileOperations: synchronizer);
-        using var gateHeld = new ManualResetEventSlim();
-        using var releaseGate = new ManualResetEventSlim();
-        Task gateHolder = Task.Run(() =>
+        var gateHeld = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task gateHolder = Task.Factory.StartNew(
+            () =>
         {
             using (synchronizer.Enter())
             {
-                gateHeld.Set();
-                Assert.IsTrue(releaseGate.Wait(TimeSpan.FromSeconds(5)));
+                gateHeld.TrySetResult(true);
+                releaseGate.Task.GetAwaiter().GetResult();
             }
-        });
-        Assert.IsTrue(gateHeld.Wait(TimeSpan.FromSeconds(5)));
-
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         try
         {
+            await gateHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Task search = owner.SearchPackagesAsync(
                 PendingInstallDestinationSearchKind.InstallDestination,
                 [new ChartPackage()]);
-            Assert.IsFalse(search.Wait(0));
+            Assert.IsFalse(search.IsCompleted);
             Assert.AreEqual(0, store.SearchPackagesCount);
 
-            releaseGate.Set();
+            releaseGate.TrySetResult(true);
             await search;
             await gateHolder;
             Assert.AreEqual(1, store.SearchPackagesCount);
         }
         finally
         {
-            releaseGate.Set();
+            releaseGate.TrySetResult(true);
             await gateHolder;
         }
     }
@@ -1603,7 +1603,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         }
     }
 
-    private sealed class RecordingStore : IPendingPackageStore
+    internal sealed class RecordingStore : IPendingPackageStore
     {
         private readonly List<string> events;
 
@@ -1623,6 +1623,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         internal IReadOnlyList<ChartFile> ChangedCharts { get; set; } = [];
 
         internal ChartFile? SetResult { get; set; }
+
+        internal PendingInstallDestinationEditRequest? LastPendingRequest { get; private set; }
 
         internal string? LastDestinationDirectory { get; private set; }
 
@@ -1717,6 +1719,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             string destinationDirectory)
         {
             events.Add("store-set");
+            LastPendingRequest = request;
             LastDestinationDirectory = destinationDirectory;
             ThrowIfConfigured();
             return SetResult!;

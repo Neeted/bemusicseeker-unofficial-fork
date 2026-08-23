@@ -103,21 +103,31 @@ internal sealed class PackageCatalogWorkflowOwner
     private readonly ChartFileOperationSynchronizer chartFileOperations;
     private readonly ChartMutationActivityOwner chartMutationActivity;
     private readonly IUiDialogService dialogs;
+    private readonly Func<Func<PackageCatalogMutationResult>, Task<PackageCatalogMutationResult>> backgroundMutationRunner;
     private readonly IPackageCatalogStore store;
 
     internal event EventHandler<PackageCatalogMutationPhaseEventArgs> MutationPhasePublished;
 
+    /// <summary>
+    /// Creates a package catalog workflow owner with an explicit background mutation runner.
+    /// </summary>
+    /// <param name="backgroundMutationRunner">
+    /// Schedules a mutation and returns its result task while preserving mutation exceptions.
+    /// </param>
     internal PackageCatalogWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
         IUiDialogService dialogs,
+        Func<Func<PackageCatalogMutationResult>, Task<PackageCatalogMutationResult>> backgroundMutationRunner,
         IPackageCatalogStore store = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
+        this.backgroundMutationRunner = backgroundMutationRunner
+            ?? throw new ArgumentNullException(nameof(backgroundMutationRunner));
         this.store = store ?? new BmsLibraryPackageCatalogStore();
     }
 
@@ -133,7 +143,7 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             return Task.FromResult(confirmation);
         }
-        return Task.Run(() => Execute(section, library => store.RemoveAll(library, section)));
+        return backgroundMutationRunner(() => Execute(section, library => store.RemoveAll(library, section)));
     }
 
     internal Task<PackageCatalogMutationResult> RemovePackageAsync(
@@ -158,7 +168,7 @@ internal sealed class PackageCatalogWorkflowOwner
                 return Task.FromResult(confirmation);
             }
         }
-        return Task.Run(() => Execute(section, library => store.RemovePackages(library, section, [package])));
+        return backgroundMutationRunner(() => Execute(section, library => store.RemovePackages(library, section, [package])));
     }
 
     internal Task<PackageCatalogMutationResult> RemoveSelectionAsync(PackageCatalogRemovalRequest request)
@@ -176,7 +186,7 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             return Task.FromResult(confirmation);
         }
-        return Task.Run(() => Execute(request.Section, library =>
+        return backgroundMutationRunner(() => Execute(request.Section, library =>
         {
             IReadOnlyList<ChartPackage> packages = store.ResolvePackages(
                 library,

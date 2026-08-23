@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -94,8 +95,23 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     public void PendingInstallEstimate_InstalledCollectionChangesDuringAttempt_RebuildsPartitionAndReleasesSearchingState()
     {
         TestResourceInitializer.EnsureJapaneseResources();
+        List<int> attempts = [];
+        bool installedCollectionMutated = false;
+        BMSLibrary observedLibrary = null;
+        string observedInstalledPath = null;
+        var observer = new RecordingInstallEstimationExecutionObserver(
+            attemptObserver: observation =>
+            {
+                attempts.Add(observation.Attempt);
+                if (observation.Attempt == 0 && !installedCollectionMutated)
+                {
+                    observedLibrary.BMSFiles = [BMSFile.CreateBMSFileFromFile(observedInstalledPath)];
+                    installedCollectionMutated = true;
+                }
+            });
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
+            observedLibrary = library;
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "InstalledCollectionStale");
             string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "InstalledCollectionStale");
             string pendingInstalledPath = CreateBmsFileWithContents(
@@ -110,6 +126,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 candidateDirectoryPath,
                 "installed.bms",
                 "#PLAYER 1\r\n#TITLE Already Installed\r\n#ARTIST Test\r\n");
+            observedInstalledPath = installedPath;
             File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");
             BMSFile pendingInstalled = BMSFile.CreateBMSFileFromFile(pendingInstalledPath);
             BMSFile pendingMissing = BMSFile.CreateBMSFileFromFile(pendingMissingPath);
@@ -124,19 +141,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SetLibraryResourceIndex(
                 library,
                 BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
-            List<int> attempts = [];
-            bool installedCollectionMutated = false;
-            SetPendingInstallEstimateAttemptObserver(
-                library,
-                delegate (int attempt, PendingInstallEstimateCurrentnessStamp _)
-                {
-                    attempts.Add(attempt);
-                    if (attempt == 0 && !installedCollectionMutated)
-                    {
-                        library.BMSFiles = [BMSFile.CreateBMSFileFromFile(installedPath)];
-                        installedCollectionMutated = true;
-                    }
-                });
 
             // The public package-batch overload is the deterministic entry point for the retry pipeline;
             // keep the second package empty so it only enables that batch shape.
@@ -154,7 +158,92 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsFalse(missingEntry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
             Assert.IsFalse(library.GetPendingEstimateQueueStatusSnapshot().IsActive);
             Assert.IsFalse(library.GetInstallEstimationProgressSnapshot().IsActive);
-        });
+        }, observer);
+    }
+
+    [TestMethod]
+    public void SearchEstimatedInstallationDirectory_MultiPackageBatchReportsExecutionPolicyAndProgress()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        const int packageCount = 2;
+        int expectedWorkItemDegree = BMSLibrary.ResolveInstallEstimationDefaultDegree();
+        int expectedMaxActive = Math.Min(packageCount, expectedWorkItemDegree);
+        var observer = new RecordingInstallEstimationExecutionObserver(expectedMaxActive);
+
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string firstSourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "ObserverFirst");
+            string secondSourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "ObserverSecond");
+            string firstPendingPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "Observer First");
+            string secondPendingPath = CreateBmsFile(secondSourceDirectoryPath, "second.bms", "Observer Second");
+            ChartPackage firstPackage = CreatePendingSingleFilePackage(firstPendingPath);
+            ChartPackage secondPackage = CreatePendingSingleFilePackage(secondPendingPath);
+
+            // Both packages contain one supported missing chart, so the public
+            // route must prepare and dispatch two evaluation requests.
+            library.BMSFiles = [];
+            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+
+            library.SearchEstimatedInstallationDirectory([firstPackage, secondPackage]);
+        }, observer);
+
+        Assert.AreEqual(packageCount, observer.WorkItems.Count);
+        Assert.AreEqual(expectedMaxActive, observer.MaxActive);
+        CollectionAssert.AreEqual(
+            Enumerable.Range(0, packageCount).ToArray(),
+            observer.WorkItems.Select(item => item.OrderIndex).OrderBy(order => order).ToArray());
+        Assert.IsTrue(observer.WorkItems.All(item => item.Source == PendingInstallEstimateBatchSource.ManualReestimate));
+        Assert.IsTrue(observer.WorkItems.All(item => item.WorkItemDegree == expectedWorkItemDegree));
+        Assert.IsTrue(observer.WorkItems.All(item => item.CandidateEvaluationDegree == 1));
+        CollectionAssert.AreEquivalent(
+            new[] { "first.bms", "second.bms" },
+            observer.WorkItems.Select(item => item.DisplayName).ToArray());
+
+        List<InstallEstimationProgressObservation> activeProgress =
+            [.. observer.Progress.Where(progress => progress.IsActive)];
+        Assert.IsTrue(activeProgress.Count > 0);
+        Assert.IsTrue(activeProgress.All(progress =>
+            progress.Source == InstallEstimationProgressSource.ManualReestimate
+            && progress.TotalWorkCount == packageCount
+            && progress.CompletedWorkCount >= 0
+            && progress.CompletedWorkCount <= packageCount));
+        CollectionAssert.AreEqual(
+            Enumerable.Range(0, packageCount + 1).ToArray(),
+            activeProgress.Select(progress => progress.CompletedWorkCount).Distinct().ToArray());
+        InstallEstimationProgressObservation inactiveProgress = observer.Progress.Last();
+        Assert.IsFalse(inactiveProgress.IsActive);
+        Assert.AreEqual(InstallEstimationProgressSource.None, inactiveProgress.Source);
+        Assert.AreEqual(0, inactiveProgress.TotalWorkCount);
+        Assert.AreEqual(0, inactiveProgress.CompletedWorkCount);
+
+        Assert.AreEqual(packageCount, observer.Attempts.Count);
+        Assert.IsTrue(observer.Attempts.All(attempt =>
+            attempt.Source == PendingInstallEstimateBatchSource.ManualReestimate
+            && attempt.Attempt == 0
+            && !string.IsNullOrWhiteSpace(attempt.DisplayName)
+            && attempt.CurrentnessStamp.ResourceIndexGeneration >= 0));
+        CollectionAssert.AreEqual(
+            Enumerable.Range(0, packageCount).ToArray(),
+            observer.Attempts.Select(attempt => attempt.OrderIndex).OrderBy(order => order).ToArray());
+    }
+
+    [TestMethod]
+    public void SearchEstimatedInstallationDirectory_ObserverFailureIsPropagated()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var observer = new ThrowingInstallEstimationExecutionObserver();
+        Assert.ThrowsException<InvalidOperationException>(() =>
+            WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+            {
+                ChartPackage firstPackage = CreatePendingSingleFilePackage(
+                    CreateBmsFile(Path.Combine(tempRootPath, "Pending", "FailureFirst"), "first.bms", "Failure First"));
+                ChartPackage secondPackage = CreatePendingSingleFilePackage(
+                    CreateBmsFile(Path.Combine(tempRootPath, "Pending", "FailureSecond"), "second.bms", "Failure Second"));
+                library.BMSFiles = [];
+                SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+
+                library.SearchEstimatedInstallationDirectory([firstPackage, secondPackage]);
+            }, observer));
     }
 
     [TestMethod]
@@ -1807,16 +1896,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         regroupMethod.Invoke(library, [sourceDirectoryPaths]);
     }
 
-    private static void SetPendingInstallEstimateAttemptObserver(
-        BMSLibrary library,
-        Action<int, PendingInstallEstimateCurrentnessStamp> observer)
-    {
-        FieldInfo field = typeof(BMSLibrary).GetField(
-            "pendingInstallEstimateAttemptEvaluatedObserver",
-            BindingFlags.Instance | BindingFlags.NonPublic)!;
-        field.SetValue(library, observer);
-    }
-
     private static ChartPackage AssertRegroupedPendingPackage(BMSLibrary library, string expectedPackagePath, string expectedDestinationDirectory, int expectedFileCount)
     {
         ChartPackage regroupedPackage = AssertRegroupedPendingPackage(library, expectedPackagePath, expectedFileCount);
@@ -2000,7 +2079,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         return new ObservableCollection<ChartPackage>([.. (packages ?? [])]);
     }
 
-    private static void WithTemporaryLibrary(Action<string, string, BMSLibrary> testAction)
+    private static void WithTemporaryLibrary(
+        Action<string, string, BMSLibrary> testAction,
+        IInstallEstimationExecutionObserver installEstimationExecutionObserver = null)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PendingRegroupTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
@@ -2008,7 +2089,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            var library = new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService());
+            TestBmsLibrary library = installEstimationExecutionObserver == null
+                ? new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService())
+                : new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService(), installEstimationExecutionObserver);
             testAction(tempRootPath, songDbPath, library);
         }
         finally
@@ -2031,6 +2114,107 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         finally
         {
             BeMusicSeeker.Properties.Settings.Default.AutoApplyAmbiguousInstallDestination = original;
+        }
+    }
+
+    private sealed class RecordingInstallEstimationExecutionObserver : IInstallEstimationExecutionObserver
+    {
+        private readonly object gate = new();
+        private readonly Barrier workItemBarrier;
+        private readonly Action<InstallEstimationAttemptEvaluatedObservation> attemptObserver;
+        private int activeWorkItems;
+        private int maxActive;
+
+        internal RecordingInstallEstimationExecutionObserver(
+            int expectedMaxActive = 0,
+            Action<InstallEstimationAttemptEvaluatedObservation> attemptObserver = null)
+        {
+            this.attemptObserver = attemptObserver;
+            if (expectedMaxActive > 1)
+            {
+                workItemBarrier = new Barrier(expectedMaxActive);
+            }
+        }
+
+        internal List<InstallEstimationWorkItemObservation> WorkItems { get; } = [];
+
+        internal List<InstallEstimationProgressObservation> Progress { get; } = [];
+
+        internal List<InstallEstimationAttemptEvaluatedObservation> Attempts { get; } = [];
+
+        internal int MaxActive => Volatile.Read(ref maxActive);
+
+        public IDisposable BeginWorkItem(InstallEstimationWorkItemObservation observation)
+        {
+            lock (gate)
+            {
+                WorkItems.Add(observation);
+            }
+            int currentActive = Interlocked.Increment(ref activeWorkItems);
+            UpdateMaxActive(currentActive);
+            workItemBarrier?.SignalAndWait();
+            return new WorkItemScope(this);
+        }
+
+        public void ObserveProgress(InstallEstimationProgressObservation observation)
+        {
+            lock (gate)
+            {
+                Progress.Add(observation);
+            }
+        }
+
+        public void ObserveAttemptEvaluated(InstallEstimationAttemptEvaluatedObservation observation)
+        {
+            lock (gate)
+            {
+                Attempts.Add(observation);
+            }
+            attemptObserver?.Invoke(observation);
+        }
+
+        private void UpdateMaxActive(int currentActive)
+        {
+            while (true)
+            {
+                int previousMax = Volatile.Read(ref maxActive);
+                if (currentActive <= previousMax
+                    || Interlocked.CompareExchange(ref maxActive, currentActive, previousMax) == previousMax)
+                {
+                    return;
+                }
+            }
+        }
+
+        private void EndWorkItem()
+        {
+            Interlocked.Decrement(ref activeWorkItems);
+        }
+
+        private sealed class WorkItemScope(RecordingInstallEstimationExecutionObserver owner) : IDisposable
+        {
+            private RecordingInstallEstimationExecutionObserver owner = owner;
+
+            public void Dispose()
+            {
+                Interlocked.Exchange(ref owner, null)?.EndWorkItem();
+            }
+        }
+    }
+
+    private sealed class ThrowingInstallEstimationExecutionObserver : IInstallEstimationExecutionObserver
+    {
+        public IDisposable BeginWorkItem(InstallEstimationWorkItemObservation observation)
+        {
+            throw new InvalidOperationException("install-estimation observer failed");
+        }
+
+        public void ObserveProgress(InstallEstimationProgressObservation observation)
+        {
+        }
+
+        public void ObserveAttemptEvaluated(InstallEstimationAttemptEvaluatedObservation observation)
+        {
         }
     }
 

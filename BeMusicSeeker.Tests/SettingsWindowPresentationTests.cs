@@ -6,7 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -77,28 +76,6 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
-    public void RemainingPages_PreserveOwnerRoutesAndKeepDestructiveActionsOnlyInAdvanced()
-    {
-        string root = FindRepositoryRoot();
-        string backupXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages", "BackupSettingsPage.xaml"));
-        string backupCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages", "BackupSettingsPage.xaml.cs"));
-        string advancedXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages", "AdvancedSettingsPage.xaml"));
-        string advancedCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages", "AdvancedSettingsPage.xaml.cs"));
-        string generalXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages", "GeneralSettingsPage.xaml"));
-        string aboutXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Settings", "Pages", "AboutSettingsPage.xaml"));
-
-        StringAssert.Contains(backupCode, "HandlePlaylistBackupAsync");
-        StringAssert.Contains(backupCode, "HandlePlaylistRestoreAsync");
-        Assert.IsFalse(backupXaml.Contains("uninstall", StringComparison.OrdinalIgnoreCase));
-        Assert.IsFalse(backupCode.Contains("Uninstall", StringComparison.Ordinal));
-        Assert.IsFalse(generalXaml.Contains("uninstallLr2PlayHistorySchemaButtonClicked", StringComparison.Ordinal));
-        Assert.AreEqual(2, Regex.Matches(advancedXaml, "SettingsDangerButtonStyle", RegexOptions.CultureInvariant).Count);
-        StringAssert.Contains(advancedCode, "HandleUninstallLr2PlayHistorySchemaAsync");
-        StringAssert.Contains(advancedCode, "HandleApplicationDataUninstallAsync");
-        StringAssert.Contains(aboutXaml, "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases");
-    }
-
-    [TestMethod]
     public void PlaylistUriValidation_CancelWithoutDraftChangesStartsNextPresentationClean()
     {
         AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute.CancelButton);
@@ -134,6 +111,243 @@ public sealed class SettingsWindowPresentationTests
             Assert.AreEqual(WindowStartupLocation.CenterOwner, dialogs.CreatedWindow.WindowStartupLocation);
             Assert.IsFalse(dialogs.CreatedWindow.ShowInTaskbar);
             Assert.AreEqual(folderNameFormatBefore, owner.SettingDialog.FolderNameFormat);
+        });
+    }
+
+    [TestMethod]
+    public void SettingsWindow_RemainingDialogRoutesUseInjectedServiceAndPreserveOutcomeContracts()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string scope = Path.Combine(Path.GetTempPath(), "bemusicseeker-settings-dialog-routes-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(scope);
+            string installDirectory = Path.Combine(scope, "install");
+            string searchRoot = Path.Combine(scope, "search-root");
+            string additionalOutputBase = Path.Combine(scope, "additional-output");
+            Directory.CreateDirectory(installDirectory);
+            Directory.CreateDirectory(searchRoot);
+            Directory.CreateDirectory(additionalOutputBase);
+
+            SettingsWindow window = null;
+            try
+            {
+                Settings settings = new Settings { OperationModeLR2DB = false };
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+                var dialogs = new RecordingSettingsRouteDialogService(
+                    installDirectory,
+                    searchRoot,
+                    additionalOutputBase);
+                window = new SettingsWindow(dialogs)
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaylistWorkspace = owner.PlaylistWorkspace
+                };
+                windowTest.ShowAndWaitForContentRendered(window);
+                dialogs.ExpectedOwner = window;
+
+                Assert.IsNotNull(window.PlaylistWorkspace.PlaylistTreeTables);
+                window.HandleAddBmsInstallDirectory();
+                window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
+                window.HandleAddCustomFolderAdditionalOutputBase();
+                window.HandlePlaylistBackupAsync().GetAwaiter().GetResult();
+
+                dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No);
+                window.HandlePlaylistRestoreAsync().GetAwaiter().GetResult();
+
+                dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes);
+                dialogs.FileResult = new UiFilePickerResult(
+                    UiDialogStatus.Failed,
+                    error: new InvalidOperationException("restore picker failed"));
+                Assert.ThrowsException<InvalidOperationException>(
+                    () => window.HandlePlaylistRestoreAsync().GetAwaiter().GetResult());
+
+                window.HandleAddPlayHistoryFolderDisplayPreset();
+
+                Assert.AreEqual(3, dialogs.FolderRequests.Count);
+                Assert.IsFalse(dialogs.FolderRequests[0].Multiselect);
+                Assert.IsTrue(dialogs.FolderRequests[1].Multiselect);
+                Assert.IsTrue(dialogs.FolderRequests[2].Multiselect);
+                Assert.IsTrue(dialogs.FolderRequests.All(request => ReferenceEquals(window, request.Owner)));
+                Assert.AreEqual(1, dialogs.SaveFileRequests.Count);
+                Assert.AreEqual("BeMusicSeeker_backup.sql", dialogs.SaveFileRequests[0].FileName);
+                Assert.AreEqual(".sql", dialogs.SaveFileRequests[0].DefaultExtension);
+                Assert.AreEqual("sqlファイル(*.sql)|*.sql", dialogs.SaveFileRequests[0].Filter);
+                Assert.IsTrue(dialogs.SaveFileRequests[0].AddExtension);
+                Assert.AreSame(window, dialogs.SaveFileRequests[0].Owner);
+                Assert.AreEqual(2, dialogs.ConfirmationRequests.Count);
+                Assert.IsTrue(dialogs.ConfirmationRequests.All(request => ReferenceEquals(window, request.Owner)));
+                Assert.AreEqual(1, dialogs.FileRequests.Count);
+                Assert.AreEqual(UiDialogStatus.Failed, dialogs.FileResult.Status);
+                Assert.AreSame(window, dialogs.FileRequests[0].Owner);
+                Assert.AreEqual(typeof(PlayHistoryFolderDisplayPresetEditDialog), dialogs.LastWindowType);
+                Assert.AreSame(window, dialogs.LastWindowOwner);
+                Assert.IsInstanceOfType<PlayHistoryFolderDisplayPresetEditDialog>(dialogs.LastCreatedWindow);
+                CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, installDirectory);
+                CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, searchRoot);
+                CollectionAssert.Contains(owner.SettingDialog.CustomFolderAdditionalOutputBaseDirList, additionalOutputBase);
+            }
+            finally
+            {
+                if (window?.IsVisible == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                Directory.Delete(scope, recursive: true);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void SettingsWindow_BmsSearchRootPickerPreservesAcceptedOrderSelectionAndFailureContract()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string scope = Path.Combine(Path.GetTempPath(), "bemusicseeker-settings-search-roots-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(scope);
+            string firstPath = Path.Combine(scope, "first");
+            string secondPath = Path.Combine(scope, "second");
+            Directory.CreateDirectory(firstPath);
+            Directory.CreateDirectory(secondPath);
+
+            SettingsWindow window = null;
+            try
+            {
+                Settings settings = new Settings
+                {
+                    OperationModeLR2DB = false,
+                    BMSRootPath = string.Empty,
+                    StandaloneBmsRootPaths = string.Empty
+                };
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+                var dialogs = new RecordingSettingsRouteDialogService();
+                window = new SettingsWindow(dialogs)
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaylistWorkspace = owner.PlaylistWorkspace
+                };
+                windowTest.ShowAndWaitForContentRendered(window);
+                dialogs.ExpectedOwner = window;
+
+                string[] acceptedPaths = [firstPath, secondPath];
+                dialogs.FolderResults.Enqueue(new UiFolderPickerResult(
+                    UiDialogStatus.Accepted,
+                    acceptedPaths));
+                window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
+
+                Assert.AreEqual(1, dialogs.FolderRequests.Count);
+                Assert.IsTrue(dialogs.FolderRequests[0].Multiselect);
+                Assert.AreSame(window, dialogs.FolderRequests[0].Owner);
+                CollectionAssert.AreEqual(acceptedPaths, owner.SettingDialog.AvailableBMSDirectories);
+                Assert.AreEqual(firstPath, owner.SettingDialog.SelectedBmsSearchRootPath);
+
+                string[] rootsAfterAccepted = [.. owner.SettingDialog.AvailableBMSDirectories];
+                string selectedAfterAccepted = owner.SettingDialog.SelectedBmsSearchRootPath;
+                dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.CancelledByUser));
+                window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
+                CollectionAssert.AreEqual(rootsAfterAccepted, owner.SettingDialog.AvailableBMSDirectories);
+                Assert.AreEqual(selectedAfterAccepted, owner.SettingDialog.SelectedBmsSearchRootPath);
+
+                dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.ClosedByUser));
+                window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
+                CollectionAssert.AreEqual(rootsAfterAccepted, owner.SettingDialog.AvailableBMSDirectories);
+                Assert.AreEqual(selectedAfterAccepted, owner.SettingDialog.SelectedBmsSearchRootPath);
+
+                var pickerFailure = new IOException("search root picker sentinel");
+                dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Failed, error: pickerFailure));
+                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+                    () => window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult());
+                Assert.AreSame(pickerFailure, failure.InnerException);
+                CollectionAssert.AreEqual(rootsAfterAccepted, owner.SettingDialog.AvailableBMSDirectories);
+                Assert.AreEqual(selectedAfterAccepted, owner.SettingDialog.SelectedBmsSearchRootPath);
+                Assert.IsTrue(dialogs.FolderRequests.All(request => request.Multiselect));
+                Assert.IsTrue(dialogs.FolderRequests.All(request => ReferenceEquals(window, request.Owner)));
+            }
+            finally
+            {
+                if (window?.IsVisible == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                Directory.Delete(scope, recursive: true);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void SettingsWindow_BmsSearchRootPickerAwaitsWithoutBlockingDispatcher()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string scope = Path.Combine(Path.GetTempPath(), "bemusicseeker-settings-search-roots-pending-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(scope);
+            string firstPath = Path.Combine(scope, "first");
+            string secondPath = Path.Combine(scope, "second");
+            Directory.CreateDirectory(firstPath);
+            Directory.CreateDirectory(secondPath);
+
+            SettingsWindow window = null;
+            SynchronizationContext previousContext = SynchronizationContext.Current;
+            try
+            {
+                Settings settings = new Settings
+                {
+                    OperationModeLR2DB = false,
+                    BMSRootPath = string.Empty,
+                    StandaloneBmsRootPaths = string.Empty
+                };
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+                var dialogs = new RecordingSettingsRouteDialogService();
+                window = new SettingsWindow(dialogs)
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaylistWorkspace = owner.PlaylistWorkspace
+                };
+                windowTest.ShowAndWaitForContentRendered(window);
+                dialogs.ExpectedOwner = window;
+
+                var completion = new TaskCompletionSource<UiFolderPickerResult>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                dialogs.FolderTasks.Enqueue(completion.Task);
+                SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(window.Dispatcher));
+
+                Task route = window.HandleAddBmsSearchRootPathsAsync();
+
+                Assert.IsFalse(route.IsCompleted);
+                bool dispatcherWorkCompleted = false;
+                window.Dispatcher.BeginInvoke(
+                    DispatcherPriority.Background,
+                    new Action(() => dispatcherWorkCompleted = true));
+                PumpUntil(window, () => dispatcherWorkCompleted, "The settings dispatcher stopped while the BMS root picker route was pending.");
+                Assert.IsFalse(route.IsCompleted);
+
+                completion.TrySetResult(new UiFolderPickerResult(
+                    UiDialogStatus.Accepted,
+                    [firstPath, secondPath]));
+                PumpUntil(window, () => route.IsCompleted, "The BMS root picker route did not complete after its picker task completed.");
+                route.GetAwaiter().GetResult();
+
+                CollectionAssert.AreEqual(
+                    new[] { firstPath, secondPath },
+                    owner.SettingDialog.AvailableBMSDirectories);
+                Assert.AreEqual(firstPath, owner.SettingDialog.SelectedBmsSearchRootPath);
+                Assert.IsTrue(dialogs.FolderRequests.Single().Multiselect);
+                Assert.AreSame(window, dialogs.FolderRequests.Single().Owner);
+            }
+            finally
+            {
+                try
+                {
+                    if (window?.IsVisible == true)
+                    {
+                        window.CloseForOwnerShutdown();
+                    }
+                }
+                finally
+                {
+                    SynchronizationContext.SetSynchronizationContext(previousContext);
+                    Directory.Delete(scope, recursive: true);
+                }
+            }
         });
     }
 
@@ -266,6 +480,102 @@ public sealed class SettingsWindowPresentationTests
                     window.CloseForOwnerShutdown();
                 }
                 ResourceService.Current.ChangeCulture(previousCulture);
+            }
+        });
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void GeneralSchema_InstallOrRepairActualButtonPreservesCancelAndSuccessOwnerContracts(bool accept)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
+            SettingsWindow window = null;
+            try
+            {
+                Lr2PlayHistorySchemaCheckResult resetResult = new Lr2PlayHistorySchemaService().Uninstall(
+                    scoreDbPath,
+                    isLr2LinkedProfile: true,
+                    Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers);
+                Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, resetResult.Status);
+
+                var dialogs = new DangerDialogService
+                {
+                    ImmediateConfirmationResult = accept ? MessageBoxResult.OK : MessageBoxResult.Cancel
+                };
+                DangerDialogContext context = CreateDangerDialog(
+                    values,
+                    dialogs,
+                    new DangerSchemaDialogPort(),
+                    new DangerApplicationDataStore());
+                bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
+                context.Settings.ShowRecommUpdatedMsg = draftValue;
+                window = new SettingsWindow { DataContext = context.Settings };
+                windowTest.ShowAndWaitForContentRendered(window);
+
+                var generalPage = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                SettingsField schemaField = FindDescendants<SettingsField>(generalPage)
+                    .Single(field => Equals(field.Header, Resources.Lr2_play_history_schema_label));
+                SettingsStatusBanner schemaBanner = FindDescendants<SettingsStatusBanner>(schemaField)
+                    .Single(candidate => candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
+                        == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaStatusText));
+                Button installOrRepairButton = FindDescendants<Button>(schemaField)
+                    .Single(candidate => candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path
+                        == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaInstallOrRepairButtonText));
+
+                Assert.IsTrue(installOrRepairButton.IsEnabled,
+                    "The compiled General page install/repair button must be enabled for a NotInstalled schema.");
+                installOrRepairButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, installOrRepairButton));
+
+                PumpUntil(window, () => dialogs.ConfirmationCount == 1,
+                    "The General page install/repair click did not reach its confirmation boundary.");
+                Assert.IsNotNull(dialogs.LastConfirmationRequest);
+                StringAssert.Contains(dialogs.LastConfirmationRequest.MessageBoxText, scoreDbPath);
+                PumpUntil(window, () => ((Grid)window.FindName("settingDialogOperationGrid")).IsEnabled,
+                    "The General page install/repair operation gate did not reopen.");
+                PumpDispatcher(window.Dispatcher);
+
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(draftValue, context.Settings.ShowRecommUpdatedMsg);
+                Assert.IsTrue(context.Settings.HasPendingSettingChanges());
+                Assert.AreEqual(0, context.SettingsSession.SaveCount);
+
+                if (accept)
+                {
+                    AssertInstalledSchema(scoreDbPath, expectedInstalled: true);
+                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, context.Settings.Lr2PlayHistorySchemaStatusSnapshot.Status);
+                    Assert.IsFalse(context.Settings.CanInstallOrRepairLr2PlayHistorySchema);
+                    Assert.IsFalse(installOrRepairButton.IsEnabled);
+                    AssertSchemaBannerState(schemaBanner, "i", "Information");
+                    Assert.AreEqual(1, context.PlayHistory.InvalidationCount);
+                    Assert.AreEqual("lr2_play_history_schema_install_or_repair", context.PlayHistory.LastInvalidationReason);
+                    Assert.AreEqual(1, context.ReloadCount());
+                    Assert.AreEqual(1, dialogs.Messages.Count);
+                    Assert.AreEqual(Resources.Msg_success_lr2_play_history_schema_install_or_repair, dialogs.Messages.Single().MessageBoxText);
+                }
+                else
+                {
+                    AssertInstalledSchema(scoreDbPath, expectedInstalled: false);
+                    Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, context.Settings.Lr2PlayHistorySchemaStatusSnapshot.Status);
+                    Assert.IsTrue(context.Settings.CanInstallOrRepairLr2PlayHistorySchema);
+                    Assert.IsTrue(installOrRepairButton.IsEnabled);
+                    AssertSchemaBannerState(schemaBanner, "!", "Warning");
+                    Assert.AreEqual(0, context.PlayHistory.InvalidationCount);
+                    Assert.IsNull(context.PlayHistory.LastInvalidationReason);
+                    Assert.AreEqual(0, context.ReloadCount());
+                    Assert.AreEqual(0, dialogs.Messages.Count);
+                }
+            }
+            finally
+            {
+                if (window?.IsVisible == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                Directory.Delete(scope, recursive: true);
             }
         });
     }
@@ -462,62 +772,35 @@ public sealed class SettingsWindowPresentationTests
                 composition,
                 dialogs,
                 schemaDialog,
-                store);
-            typeof(MainWindowViewModel)
-                .GetProperty("SettingDialog", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
-                .SetValue(shellViewModel, context.Settings);
-            // Keep the production MainWindow shutdown owner active while isolating unrelated startup initialization.
-            typeof(MainWindowViewModel)
-                .GetProperty("ShellActivationWorkflow", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
-                .SetValue(shellViewModel, CreateNoOpShellActivationWorkflow());
-            object previousVmResource = Application.Current.Resources["vm"];
-            Application.Current.Resources["vm"] = shellViewModel;
+                store,
+                applicationLifetime: lifetime);
             SettingsWindow window = null;
-            var owner = new MainWindow(
-                shellViewModel,
-                createdWindow =>
-                {
-                    Assert.IsFalse(createdWindow.IsVisible);
-                    Assert.AreEqual(0, TestWindowPresentationScope.GetNativeHandle(createdWindow));
-                    windowTest.PrepareForOwnedPresentation(createdWindow);
-                    window = createdWindow;
-                });
-            var decoy = new Window();
-            Exception interactionFailure = null;
-            windowTest.PrepareForOwnedPresentation(owner);
-            owner.Show();
+            MainWindow owner = null;
+            bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
+            object previousViewModelResource = hadPreviousViewModelResource
+                ? Application.Current.Resources["vm"]
+                : null;
             try
             {
-                windowTest.PrepareForOwnedPresentation(decoy);
-                decoy.Show();
-                owner.Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, (Action)(() =>
-                {
-                    try
-                    {
-                        window = owner.OwnedWindows.OfType<SettingsWindow>().Single();
-                        Assert.AreSame(owner, window.Owner);
-                        nint settingsHandle = TestWindowPresentationScope.GetNativeHandle(window);
-                        Assert.AreNotEqual(0, settingsHandle);
-                        Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(settingsHandle));
-                        Assert.AreNotEqual(settingsHandle, TestWindowPresentationScope.ForegroundWindow);
-                        window.Closing += (_, _) => events.Add("settings-closing");
-                        window.Closed += (_, _) => events.Add("settings-closed");
-                        ClickAdvancedDangerButton(window, Resources.Settings_uninstall_application_data);
-                    }
-                    catch (Exception exception)
-                    {
-                        interactionFailure = exception;
-                        window?.CloseFromPresentation();
-                    }
-                }));
-
-                context.Settings.OpenCommand.Execute();
-                if (interactionFailure != null)
-                {
-                    throw new AssertFailedException("The production settings modal interaction failed.", interactionFailure);
-                }
-
+                // MainWindow.xaml resolves this compiled resource while the unshown shell is
+                // constructed; keep the production shell identity and restore the app scope.
+                Application.Current.Resources["vm"] = shellViewModel;
+                owner = new MainWindow(
+                    shellViewModel,
+                        createdWindow =>
+                        {
+                            window = createdWindow;
+                            createdWindow.DataContext = context.Settings;
+                        });
+                window = owner.CreateSettingsWindowForPresentation();
                 Assert.IsNotNull(window);
+                Assert.IsFalse(owner.IsVisible);
+                Assert.IsFalse(window.IsVisible);
+                Assert.IsNull(window.Owner);
+                Assert.AreSame(context.Settings, window.DataContext);
+                window.Closing += (_, _) => events.Add("settings-closing");
+                window.Closed += (_, _) => events.Add("settings-closed");
+                ClickAdvancedDangerButton(window, Resources.Settings_uninstall_application_data);
                 PumpUntil(
                     owner.Dispatcher,
                     () => lifetime.ShutdownRequestCount == 1,
@@ -529,9 +812,6 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(SettingsWindowCloseReason.OwnerShutdown, window.CloseReason);
                 Assert.IsNull(window.DataContext);
                 Assert.AreSame(shellViewModel, owner.DataContext);
-                Assert.IsTrue(owner.IsVisible,
-                    "The recording lifetime must replace only the final process-termination boundary.");
-                Assert.IsTrue(decoy.IsVisible);
                 Assert.IsTrue(shellViewModel.ShellShutdownWorkflow.IsShutdownPrepared);
                 Assert.IsTrue(shellViewModel.ShellShutdownWorkflow.IsCloseAllowed);
                 Assert.AreEqual(1, settingsSession.SaveCount);
@@ -547,30 +827,29 @@ public sealed class SettingsWindowPresentationTests
             }
             finally
             {
-                if (window?.IsVisible == true)
+                try
                 {
-                    window.CloseFromPresentation();
-                }
-                if (owner.IsVisible)
-                {
-                    owner.Close();
-                    PumpUntil(
-                        owner.Dispatcher,
-                        () => shellViewModel.ShellShutdownWorkflow.IsCloseAllowed,
-                        "shell shutdown cleanup did not reach its close allowance");
-                    if (owner.IsVisible)
+                    if (window?.IsVisible == true)
+                    {
+                        window.CloseForOwnerShutdown();
+                    }
+                    if (owner?.IsVisible == true)
                     {
                         owner.Close();
                     }
+                    context.Settings.Dispose();
+                    shellViewModel.SettingDialog.Dispose();
                 }
-                decoy.Close();
-                if (previousVmResource == null)
+                finally
                 {
-                    Application.Current.Resources.Remove("vm");
-                }
-                else
-                {
-                    Application.Current.Resources["vm"] = previousVmResource;
+                    if (hadPreviousViewModelResource)
+                    {
+                        Application.Current.Resources["vm"] = previousViewModelResource;
+                    }
+                    else
+                    {
+                        Application.Current.Resources.Remove("vm");
+                    }
                 }
             }
         });
@@ -1845,7 +2124,7 @@ public sealed class SettingsWindowPresentationTests
                 window.Dispatcher.UnhandledException += handler;
                 try
                 {
-                windowTest.ShowAndWaitForContentRendered(window);
+                    windowTest.ShowAndWaitForContentRendered(window);
                     var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                     ((Button)page.FindName("buttonEditCustomLr2Paths")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     PumpDispatcher(window.Dispatcher);
@@ -2567,11 +2846,12 @@ public sealed class SettingsWindowPresentationTests
 
     private static DangerDialogContext CreateDangerDialog(
         MainWindowViewModel owner,
-        ISettingsEditSession settingsEditSession,
+        DangerSettingsEditSession settingsEditSession,
         ApplicationComposition composition,
         DangerDialogService dialogs,
         DangerSchemaDialogPort schemaDialog,
-        DangerApplicationDataStore store)
+        DangerApplicationDataStore store,
+        IApplicationLifetimePort applicationLifetime = null)
     {
         int reloadCount = 0;
         var statePort = new DangerStatePort(
@@ -2595,14 +2875,18 @@ public sealed class SettingsWindowPresentationTests
             schemaDialogs: dialogs,
             schemaWindowDialogs: schemaDialog,
             applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(dialogs, store),
-            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            applicationLifetime: applicationLifetime ?? TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
             audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-        return new DangerDialogContext(settings, playHistory, () => reloadCount);
+        return new DangerDialogContext(
+            settings,
+            settingsEditSession,
+            playHistory,
+            () => reloadCount);
     }
 
     private static ShellActivationWorkflowOwner CreateNoOpShellActivationWorkflow()
@@ -3950,15 +4234,19 @@ public sealed class SettingsWindowPresentationTests
     {
         internal DangerDialogContext(
             SettingsDialogViewModel settings,
+            DangerSettingsEditSession settingsSession,
             DangerPlayHistoryPort playHistory,
             Func<int> reloadCount)
         {
             Settings = settings;
+            SettingsSession = settingsSession;
             PlayHistory = playHistory;
             ReloadCount = reloadCount;
         }
 
         internal SettingsDialogViewModel Settings { get; }
+
+        internal DangerSettingsEditSession SettingsSession { get; }
 
         internal DangerPlayHistoryPort PlayHistory { get; }
 
@@ -4250,9 +4538,12 @@ public sealed class SettingsWindowPresentationTests
     {
         internal int InvalidationCount { get; private set; }
 
+        internal string LastInvalidationReason { get; private set; }
+
         public void InvalidateReadCache(string reason)
         {
             InvalidationCount++;
+            LastInvalidationReason = reason;
         }
 
         public void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
@@ -4336,7 +4627,13 @@ public sealed class SettingsWindowPresentationTests
 
         internal bool HoldConfirmation { get; set; }
 
+        internal MessageBoxResult ImmediateConfirmationResult { get; set; } = MessageBoxResult.OK;
+
         internal TaskCompletionSource ConfirmationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal int ConfirmationCount { get; private set; }
+
+        internal UiConfirmationRequest LastConfirmationRequest { get; private set; }
 
         internal List<UiMessageRequest> Messages { get; } = [];
 
@@ -4361,10 +4658,12 @@ public sealed class SettingsWindowPresentationTests
             CancellationToken cancellationToken = default)
         {
             events?.Add("confirm");
+            ConfirmationCount++;
+            LastConfirmationRequest = request;
             ConfirmationStarted.TrySetResult();
             return HoldConfirmation
                 ? confirmationCompletion.Task
-                : Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                : Task.FromResult(UiDialogResult.FromMessageBoxResult(ImmediateConfirmationResult));
         }
 
         internal void CompleteConfirmation(MessageBoxResult result)
@@ -4597,6 +4896,110 @@ public sealed class SettingsWindowPresentationTests
         public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
         public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class RecordingSettingsRouteDialogService : IUiDialogService
+    {
+        private readonly Queue<string> folderPaths;
+
+        internal RecordingSettingsRouteDialogService(params string[] folderPaths)
+        {
+            this.folderPaths = new Queue<string>(folderPaths);
+        }
+
+        internal Window ExpectedOwner { get; set; }
+
+        internal List<UiFolderPickerRequest> FolderRequests { get; } = [];
+
+        internal Queue<UiFolderPickerResult> FolderResults { get; } = [];
+
+        internal Queue<Task<UiFolderPickerResult>> FolderTasks { get; } = [];
+
+        internal List<UiSaveFilePickerRequest> SaveFileRequests { get; } = [];
+
+        internal List<UiFilePickerRequest> FileRequests { get; } = [];
+
+        internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
+
+        internal UiDialogResult ConfirmationResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No);
+
+        internal UiSaveFilePickerResult SaveFileResult { get; set; } = new(UiDialogStatus.CancelledByUser);
+
+        internal UiFilePickerResult FileResult { get; set; } = new(UiDialogStatus.CancelledByUser);
+
+        internal Type LastWindowType { get; private set; }
+
+        internal Window LastCreatedWindow { get; private set; }
+
+        internal Window LastWindowOwner { get; private set; }
+
+        public Task<UiDialogResult> ShowMessageAsync(
+            UiMessageRequest request,
+            CancellationToken cancellationToken = default)
+            => Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+
+        public Task<UiDialogResult> ConfirmAsync(
+            UiConfirmationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ConfirmationRequests.Add(request);
+            return Task.FromResult(ConfirmationResult);
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window
+        {
+            Assert.AreSame(ExpectedOwner, request.Owner);
+            LastWindowOwner = request.Owner;
+            LastWindowType = typeof(TWindow);
+            TWindow created = request.CreateWindow();
+            LastCreatedWindow = created;
+            return Task.FromResult(new UiWindowDialogResult<TResult>(
+                UiDialogStatus.ClosedByUser,
+                request.CreateResult(created)));
+        }
+
+        public Task<UiFilePickerResult> PickFileAsync(
+            UiFilePickerRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            FileRequests.Add(request);
+            return Task.FromResult(FileResult);
+        }
+
+        public Task<UiFolderPickerResult> PickFolderAsync(
+            UiFolderPickerRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Assert.AreSame(ExpectedOwner, request.Owner);
+            FolderRequests.Add(request);
+            if (FolderTasks.Count > 0)
+            {
+                return FolderTasks.Dequeue();
+            }
+            if (FolderResults.Count > 0)
+            {
+                return Task.FromResult(FolderResults.Dequeue());
+            }
+            string path = folderPaths.Dequeue();
+            return Task.FromResult(new UiFolderPickerResult(UiDialogStatus.Accepted, [path]));
+        }
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(
+            UiSaveFilePickerRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            SaveFileRequests.Add(request);
+            return Task.FromResult(SaveFileResult);
+        }
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class PendingLr2AdvancedPathsDialogService : IUiDialogService

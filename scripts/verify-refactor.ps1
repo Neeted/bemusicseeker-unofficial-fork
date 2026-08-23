@@ -20,14 +20,43 @@ $toolExecutables = @(
     (Join-Path $repoRoot 'tools\chart-info-compare\bin\x64\Release\net10.0\ChartInfoCompare.exe'),
     (Join-Path $repoRoot 'tools\chart-info-export\bin\x64\Release\net10.0\ChartInfoExport.exe'))
 $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
-$scdPublishRoot = Join-Path $repoRoot 'artifacts\publish'
-$scdAppPublishOutput = Join-Path $scdPublishRoot 'app'
-$scdUpdaterPublishOutput = Join-Path $scdPublishRoot 'updater'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
 $testHangTimeoutSeconds = 120
 $functionalCleanupReserveSeconds = 10
 $functionalProcessCleanupSeconds = 7
+. (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
+. (Join-Path $PSScriptRoot 'distribution-artifact.ps1')
+$verificationRunnerContract = Get-VerificationRunnerContract
+Assert-VerificationRunnerContract -Contract $verificationRunnerContract
+
+function Get-RepositoryFormatArguments {
+    param(
+        [Parameter(Mandatory)]
+        [string]$WorkspaceRoot
+    )
+
+    $formatContract = $verificationRunnerContract.Full.RepositoryFormat
+    if ($formatContract.WorkspaceKind -cne 'folder' -or
+        $formatContract.ProjectEvaluation -cne 'none' -or
+        -not [bool]$formatContract.VerifiesAllGenuineWorkspaceFiles) {
+        throw 'Repository format contract must use folder mode for the genuine workspace only.'
+    }
+
+    $arguments = @(
+        'format'
+        'whitespace'
+        $WorkspaceRoot
+        '--folder'
+        '--verify-no-changes'
+        '--verbosity'
+        'minimal')
+    foreach ($excludedRoot in @($formatContract.GeneratedRootExclusions)) {
+        $arguments += @('--exclude', $excludedRoot)
+    }
+    return $arguments
+}
+
 $functionalFilter = @(
     'TestCategory!=Net10Performance',
     'TestCategory!=Performance',
@@ -75,6 +104,19 @@ $functionalFeatureProcessGlobalStateClasses = @(
     'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
     'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
     'BeMusicSeeker.Tests.PlaylistUrlCompletionTests')
+$functionalCompiledWpfClasswideClasses = @(
+    'BeMusicSeeker.Tests.LoadPlaylistURIDialogTests',
+    'BeMusicSeeker.Tests.MainWindowChartPresentationWpfTests',
+    'BeMusicSeeker.Tests.MainWindowPackageMaintenanceWpfTests',
+    'BeMusicSeeker.Tests.MainWindowPlaybackWpfTests',
+    'BeMusicSeeker.Tests.MainWindowPlayHistoryWpfTests',
+    'BeMusicSeeker.Tests.MainWindowPlaylistWorkspaceWpfTests',
+    'BeMusicSeeker.Tests.MainWindowProgressStatusBarWpfTests',
+    'BeMusicSeeker.Tests.MainWindowSelectedChartContextMenuWpfTests',
+    'BeMusicSeeker.Tests.MainWindowTreePresentationWpfTests',
+    'BeMusicSeeker.Tests.MainWindowViewHostTests',
+    'BeMusicSeeker.Tests.SettingsWindowCompiledBehaviorTests',
+    'BeMusicSeeker.Tests.UiDialogCoordinatorWpfTests')
 $functionalMethodLevelPreWaveClasses = @(
     # These I/O-heavy fixtures own a distinct temporary database and directory
     # per test. Keep them in the dedicated MethodLevel pre-wave to avoid
@@ -97,13 +139,16 @@ $functionalTestClassShards = @(
             $functionalBassCollectibleLoadContextClass)
     },
     [pscustomobject]@{
-        # Dedicated fixture groups consume one active worker per testhost.
-        # Keep each short-lived external host at one worker while the remaining
-        # host uses every logical processor. This bounded overlap was faster and
-        # stable in repeated Functional runs; subtracting these workers would
-        # leave the remaining host under-provisioned after the external hosts exit.
+        # Dedicated fixture groups have explicit worker contracts. Keep the
+        # library/chart classes in one ClassLevel testhost while using two
+        # workers; other single-worker hosts stay at one while the explicit
+        # owned database/file contract remains three. The remaining host uses
+        # every logical processor. This bounded overlap was faster and stable
+        # in repeated Functional runs; subtracting these workers would leave
+        # the remaining host under-provisioned after the external hosts exit.
         Name = 'library-chart-classwide'
-        Workers = 1
+        Workers = 2
+        Scope = 'ClassLevel'
         Classes = @(
             'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests',
             'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests',
@@ -112,6 +157,7 @@ $functionalTestClassShards = @(
     [pscustomobject]@{
         Name = 'lr2-songdb-sync'
         Workers = 1
+        Scope = 'ClassLevel'
         Classes = @(
             'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests')
     },
@@ -156,6 +202,15 @@ $functionalTestClassShards = @(
         Classes = $functionalSettingsPresentationClasswideClasses
     },
     [pscustomobject]@{
+        # These constructor-only compiled WPF fixtures share process-scoped
+        # WPF resources, cursor state, and self-completing modal test seams.
+        # Keep them class-serial in their own host without starting the app.
+        Name = 'compiled-wpf-classwide'
+        Workers = 1
+        Scope = 'ClassLevel'
+        Classes = $functionalCompiledWpfClasswideClasses
+    },
+    [pscustomobject]@{
         # These fixtures mutate process-global native or logging lifecycle
         # state and therefore require a single serial host.
         Name = 'process-global-lifecycle'
@@ -194,6 +249,28 @@ function Assert-FunctionalShardConfiguration {
     if (@($workers | Where-Object { $_ -isnot [int] -or $_ -lt 1 }).Count -gt 0) {
         throw 'Functional test shard workers must be positive integers.'
     }
+    $libraryChartClasswideShards = @($functionalTestClassShards |
+        Where-Object { $_.Name -ceq 'library-chart-classwide' })
+    if ($libraryChartClasswideShards.Count -ne 1) {
+        throw 'Functional library/chart tests must have exactly one dedicated shard.'
+    }
+    $requiredLibraryChartClasswideClasses = @(
+        'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests',
+        'BeMusicSeeker.Tests.ChartInfoMetadataTests',
+        'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests')
+    $libraryChartClasswideShard = $libraryChartClasswideShards[0]
+    $libraryChartClasswideClasses = @($libraryChartClasswideShard.Classes)
+    if ($libraryChartClasswideClasses.Count -ne $requiredLibraryChartClasswideClasses.Count -or
+        @(Compare-Object `
+            -ReferenceObject $requiredLibraryChartClasswideClasses `
+            -DifferenceObject $libraryChartClasswideClasses `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional library/chart shard must contain exactly the approved three test classes.'
+    }
+    if ($libraryChartClasswideShard.Workers -ne 2 -or
+        $libraryChartClasswideShard.Scope -cne 'ClassLevel') {
+        throw 'Functional library/chart shard must use two workers with ClassLevel scope.'
+    }
     $ownedDbFileShards = @($functionalTestClassShards |
         Where-Object { $_.Name -ceq 'owned-db-file-class-level' })
     if ($ownedDbFileShards.Count -ne 1) {
@@ -215,11 +292,39 @@ function Assert-FunctionalShardConfiguration {
     if ($ownedDbFileShard.Workers -ne 3 -or $ownedDbFileShard.Scope -cne 'ClassLevel') {
         throw 'Functional owned database/file shard must use three workers with ClassLevel scope.'
     }
+    $lr2SongDbShards = @($functionalTestClassShards |
+        Where-Object { $_.Name -ceq 'lr2-songdb-sync' })
+    if ($lr2SongDbShards.Count -ne 1) {
+        throw 'Functional LR2 song database tests must have exactly one dedicated shard.'
+    }
+    $lr2SongDbShard = $lr2SongDbShards[0]
+    $requiredLr2SongDbClasses = @(
+        'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests')
+    $lr2SongDbClasses = @($lr2SongDbShard.Classes)
+    if ($lr2SongDbClasses.Count -ne $requiredLr2SongDbClasses.Count -or
+        @(Compare-Object `
+            -ReferenceObject $requiredLr2SongDbClasses `
+            -DifferenceObject $lr2SongDbClasses `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional LR2 song database shard must contain exactly its approved test class.'
+    }
+    if ($lr2SongDbShard.Workers -ne 1 -or $lr2SongDbShard.Scope -cne 'ClassLevel') {
+        throw 'Functional LR2 song database shard must use one worker with ClassLevel scope.'
+    }
+    $allowedMultiWorkerShards = @(
+        'library-chart-classwide',
+        'owned-db-file-class-level')
     if (@($functionalTestClassShards |
         Where-Object {
-            $_.Name -cne 'owned-db-file-class-level' -and
-            $_.Workers -ne 1 }).Count -gt 0) {
-        throw 'All other Functional external test shards must use exactly one worker.'
+            $scope = if ($_.PSObject.Properties.Name -contains 'Scope') {
+                $_.Scope
+            }
+            else {
+                'ClassLevel'
+            }
+            $allowedMultiWorkerShards -cnotcontains $_.Name -and
+            ($_.Workers -ne 1 -or $scope -cne 'ClassLevel') }).Count -gt 0) {
+        throw 'All Functional external test shards except the approved library/chart and owned database/file contracts must use one worker with ClassLevel scope.'
     }
     if ($functionalRemainingShardWorkers -ne
         [Math]::Max(1, [Environment]::ProcessorCount)) {
@@ -283,6 +388,24 @@ function Assert-FunctionalShardConfiguration {
                 'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
                 'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
                 'BeMusicSeeker.Tests.PlaylistUrlCompletionTests')
+        },
+        [pscustomobject]@{
+            # Keep this literal contract independent from the route declaration
+            # so drift cannot silently return compiled WPF fixtures to remaining.
+            Name = 'compiled-wpf-classwide'
+            Classes = @(
+                'BeMusicSeeker.Tests.LoadPlaylistURIDialogTests',
+                'BeMusicSeeker.Tests.MainWindowChartPresentationWpfTests',
+                'BeMusicSeeker.Tests.MainWindowPackageMaintenanceWpfTests',
+                'BeMusicSeeker.Tests.MainWindowPlaybackWpfTests',
+                'BeMusicSeeker.Tests.MainWindowPlayHistoryWpfTests',
+                'BeMusicSeeker.Tests.MainWindowPlaylistWorkspaceWpfTests',
+                'BeMusicSeeker.Tests.MainWindowProgressStatusBarWpfTests',
+                'BeMusicSeeker.Tests.MainWindowSelectedChartContextMenuWpfTests',
+                'BeMusicSeeker.Tests.MainWindowTreePresentationWpfTests',
+                'BeMusicSeeker.Tests.MainWindowViewHostTests',
+                'BeMusicSeeker.Tests.SettingsWindowCompiledBehaviorTests',
+                'BeMusicSeeker.Tests.UiDialogCoordinatorWpfTests')
         })
     foreach ($requiredShard in $exactSingleWorkerClassLevelShards) {
         $matchingShards = @($functionalTestClassShards |
@@ -354,13 +477,16 @@ function Assert-FunctionalShardConfiguration {
         throw 'Functional exclusive test classes must be unique.'
     }
 
-    $allClasses = @($shardClasses) +
+    $assignedClasses = @($shardClasses) +
         @($functionalExclusiveTestClasses) +
         @($functionalMethodLevelPreWaveClasses)
-    for ($leftIndex = 0; $leftIndex -lt $allClasses.Count; $leftIndex++) {
-        for ($rightIndex = $leftIndex + 1; $rightIndex -lt $allClasses.Count; $rightIndex++) {
-            $left = $allClasses[$leftIndex]
-            $right = $allClasses[$rightIndex]
+    if (($assignedClasses | Sort-Object -Unique).Count -ne $assignedClasses.Count) {
+        throw 'Functional assigned test classes must be excluded from remaining and belong to exactly one route.'
+    }
+    for ($leftIndex = 0; $leftIndex -lt $assignedClasses.Count; $leftIndex++) {
+        for ($rightIndex = $leftIndex + 1; $rightIndex -lt $assignedClasses.Count; $rightIndex++) {
+            $left = $assignedClasses[$leftIndex]
+            $right = $assignedClasses[$rightIndex]
             if ($left.Contains($right, [StringComparison]::Ordinal) -or
                 $right.Contains($left, [StringComparison]::Ordinal)) {
                 throw "Functional test class selectors overlap: '$left' and '$right'."
@@ -561,6 +687,173 @@ function Invoke-MonitoredCommand {
     }
 }
 
+function Get-FullPhaseDescriptor {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name
+    )
+
+    $descriptor = @($verificationRunnerContract.Full.PhaseDescriptors |
+        Where-Object { $_.Name -ceq $Name })
+    if ($descriptor.Count -ne 1) {
+        throw "Full runner phase descriptor is missing or duplicated: $Name"
+    }
+    return $descriptor[0]
+}
+
+function Get-FullPhaseRemainingSeconds {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [Parameter(Mandatory)]
+        [int]$BudgetSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$PhaseName
+    )
+
+    $remaining = $BudgetSeconds - $Stopwatch.Elapsed.TotalSeconds
+    if ($remaining -le 0) {
+        throw "Full phase '$PhaseName' exhausted its ${BudgetSeconds}-second budget."
+    }
+    return [Math]::Max(1, [int][Math]::Floor($remaining))
+}
+
+function Invoke-FullPhaseCommand {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [Parameter(Mandatory)]
+        [int]$BudgetSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$PhaseName,
+
+        [Parameter(Mandatory)]
+        [string]$Label,
+
+        [Parameter(Mandatory)]
+        [string]$CommandPath,
+
+        [Parameter(Mandatory)]
+        [string[]]$Arguments,
+
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory,
+
+        [string]$WorkingDirectory,
+
+        [switch]$IsTestCommand
+    )
+
+    $remainingSeconds = Get-FullPhaseRemainingSeconds `
+        -Stopwatch $Stopwatch `
+        -BudgetSeconds $BudgetSeconds `
+        -PhaseName $PhaseName
+    if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+        $WorkingDirectory = $repoRoot
+    }
+    Invoke-MonitoredCommand `
+        -Label $Label `
+        -CommandPath $CommandPath `
+        -Arguments $Arguments `
+        -WorkingDirectory $WorkingDirectory `
+        -DiagnosticsDirectory $DiagnosticsDirectory `
+        -TimeoutSeconds $remainingSeconds `
+        -IsTestCommand:$IsTestCommand
+}
+
+function Write-FullPhaseResult {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory,
+
+        [Parameter(Mandatory)]
+        [System.Collections.IDictionary]$Result
+    )
+
+    try {
+        [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
+        [IO.File]::WriteAllText(
+            (Join-Path $DiagnosticsDirectory 'phase-result.json'),
+            ($Result | ConvertTo-Json -Depth 12),
+            [Text.UTF8Encoding]::new($false))
+    }
+    catch {
+        Write-Warning "Unable to write Full phase result '$DiagnosticsDirectory': $($_.Exception.Message)"
+    }
+}
+
+function Invoke-MonitoredFullPhase {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Name,
+
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsRoot,
+
+        [Parameter(Mandatory)]
+        [scriptblock]$Action,
+
+        [scriptblock]$Cleanup
+    )
+
+    $descriptor = Get-FullPhaseDescriptor -Name $Name
+    $phaseDirectory = Join-Path $DiagnosticsRoot $descriptor.DiagnosticsSegment
+    [void](New-Item -ItemType Directory -Path $phaseDirectory -Force)
+    $phaseStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $primaryFailure = $null
+    $cleanupFailure = $null
+    $actionOutput = @()
+    try {
+        try {
+            $actionOutput = @(& $Action $phaseStopwatch $phaseDirectory)
+        }
+        catch {
+            $primaryFailure = $_.Exception
+        }
+    }
+    finally {
+        if ($null -ne $Cleanup) {
+            try {
+                & $Cleanup
+            }
+            catch {
+                $cleanupFailure = $_.Exception
+            }
+        }
+        $phaseStopwatch.Stop()
+        if ($null -eq $primaryFailure -and
+            $phaseStopwatch.Elapsed.TotalSeconds -gt [int]$descriptor.BudgetSeconds) {
+            $primaryFailure = [TimeoutException]::new(
+                "Full phase '$Name' exceeded the $($descriptor.BudgetSeconds)-second budget.")
+        }
+        $result = [ordered]@{
+            schemaVersion = 1
+            phase = $Name
+            budgetSeconds = [int]$descriptor.BudgetSeconds
+            elapsedSeconds = [Math]::Round($phaseStopwatch.Elapsed.TotalSeconds, 3)
+            status = if ($null -eq $primaryFailure -and $null -eq $cleanupFailure) { 'passed' } elseif ($null -ne $primaryFailure) { 'failed' } else { 'cleanup-failed' }
+            primaryFailure = if ($null -ne $primaryFailure) { $primaryFailure.ToString() } else { $null }
+            cleanupFailure = if ($null -ne $cleanupFailure) { $cleanupFailure.ToString() } else { $null }
+        }
+        Write-FullPhaseResult -DiagnosticsDirectory $phaseDirectory -Result $result
+    }
+
+    if ($null -ne $primaryFailure) {
+        if ($null -ne $cleanupFailure) {
+            Write-Warning "Full phase '$Name' cleanup also failed after the primary failure: $($cleanupFailure.Message)"
+        }
+        throw $primaryFailure
+    }
+    if ($null -ne $cleanupFailure) {
+        throw $cleanupFailure
+    }
+    return $actionOutput
+}
+
 function Invoke-BudgetedCommand {
     param(
         [Parameter(Mandatory)]
@@ -710,6 +1003,270 @@ function Invoke-TestLane {
         -IsTestCommand
 }
 
+function Get-FunctionalPhaseRemainingSeconds {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [Parameter(Mandatory)]
+        [int]$DeadlineSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$PhaseName
+    )
+
+    $remaining = $DeadlineSeconds - $Stopwatch.Elapsed.TotalSeconds
+    if ($remaining -le 0) {
+        throw "Functional test phase exhausted its ${DeadlineSeconds}-second timeout before $PhaseName."
+    }
+
+    return [Math]::Max(1, [int][Math]::Floor($remaining))
+}
+
+function Assert-FunctionalOrchestrationConfiguration {
+    param(
+        [Parameter(Mandatory)]
+        [object[]]$Shards,
+
+        [Parameter(Mandatory)]
+        [object[]]$FanoutShards
+    )
+
+    $shardEntries = @()
+    if ($null -ne $Shards) {
+        $shardEntries = @($Shards)
+    }
+    $fanoutEntries = @()
+    if ($null -ne $FanoutShards) {
+        $fanoutEntries = @($FanoutShards)
+    }
+    $shardNames = @($shardEntries | ForEach-Object { $_.Name })
+    if (@($shardNames | Sort-Object -Unique).Count -ne $shardNames.Count) {
+        throw 'Functional orchestration shards must have unique names.'
+    }
+    $expectedShardEntryCount = @($functionalTestClassShards).Count + 1
+    if ($shardEntries.Count -ne $expectedShardEntryCount) {
+        throw "Functional orchestration must preserve $expectedShardEntryCount total shard process entries."
+    }
+
+    $lr2Shards = @($shardEntries |
+        Where-Object { $_.Name -ceq 'lr2-songdb-sync' })
+    if ($lr2Shards.Count -ne 1) {
+        throw 'Functional orchestration must contain exactly one lr2-songdb-sync entry.'
+    }
+
+    $expectedFanoutNames = @($shardEntries |
+        Where-Object { $_.Name -cne 'lr2-songdb-sync' } |
+        ForEach-Object { $_.Name })
+    $actualFanoutNames = @($fanoutEntries | ForEach-Object { $_.Name })
+    if (@($actualFanoutNames | Where-Object { $_ -ceq 'lr2-songdb-sync' }).Count -ne 0) {
+        throw 'Functional fanout must exclude the already-started lr2-songdb-sync entry.'
+    }
+    if ($actualFanoutNames.Count -ne $expectedFanoutNames.Count -or
+        @(Compare-Object `
+            -ReferenceObject $expectedFanoutNames `
+            -DifferenceObject $actualFanoutNames `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional fanout must contain each non-LR2 shard exactly once.'
+    }
+}
+
+function Assert-FunctionalOrchestrationPhaseOrder {
+    param(
+        [AllowNull()]
+        [AllowEmptyCollection()]
+        [object]$PhaseTrace,
+
+        [switch]$AllowPrefix
+    )
+
+    $phaseEntries = @()
+    if ($null -ne $PhaseTrace) {
+        $phaseEntries = @($PhaseTrace)
+    }
+    $expectedPhases = @(
+        'exclusive-portable-settings',
+        'lr2-songdb-sync',
+        'method-level-pre-wave',
+        'remaining-and-non-lr2-shards')
+    if ($phaseEntries.Count -gt $expectedPhases.Count) {
+        throw 'Functional orchestration contains an unexpected phase.'
+    }
+    if (@($phaseEntries | Sort-Object -Unique).Count -ne $phaseEntries.Count) {
+        throw 'Functional orchestration phases must not be repeated.'
+    }
+    for ($phaseIndex = 0; $phaseIndex -lt $phaseEntries.Count; $phaseIndex++) {
+        if ($phaseEntries[$phaseIndex] -cne $expectedPhases[$phaseIndex]) {
+            throw "Functional orchestration phase '$($phaseEntries[$phaseIndex])' is out of order."
+        }
+    }
+    if (-not $AllowPrefix -and $phaseEntries.Count -ne $expectedPhases.Count) {
+        throw 'Functional orchestration must complete exclusive -> LR2 -> pre-wave -> fanout order.'
+    }
+}
+
+function Get-FunctionalLr2EntryState {
+    param(
+        [AllowNull()]
+        [object]$Entry
+    )
+
+    if ($null -eq $Entry -or $null -eq $Entry.Process) {
+        return [pscustomobject]@{
+            State = 'Invalid'
+            Detail = 'The LR2 process entry or process handle is missing.'
+        }
+    }
+
+    try {
+        if ($Entry.PSObject.Properties.Name -contains 'Canceled' -and
+            [bool]$Entry.Canceled) {
+            return [pscustomobject]@{
+                State = 'Canceled'
+                Detail = 'The LR2 process entry was canceled before fanout.'
+            }
+        }
+        $hasExited = $Entry.Process.HasExited
+        if ($hasExited -isnot [bool]) {
+            return [pscustomobject]@{
+                State = 'Invalid'
+                Detail = "The LR2 process reported an invalid HasExited state '$hasExited'."
+            }
+        }
+        if (-not $hasExited) {
+            return [pscustomobject]@{
+                State = 'Running'
+                Detail = 'The LR2 process is still running and remains in the common result set.'
+            }
+        }
+
+        $exitCode = $Entry.Process.ExitCode
+        if ($exitCode -isnot [int]) {
+            return [pscustomobject]@{
+                State = 'Invalid'
+                Detail = "The LR2 process reported an invalid exit code '$exitCode'."
+            }
+        }
+        if ($exitCode -eq 0) {
+            return [pscustomobject]@{
+                State = 'Succeeded'
+                Detail = 'The LR2 process exited successfully and remains accounted once.'
+            }
+        }
+        return [pscustomobject]@{
+            State = 'Failed'
+            Detail = "The LR2 process exited with code $exitCode (failure or cancellation)."
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            State = 'Invalid'
+            Detail = "The LR2 process state could not be inspected: $($_.Exception.Message)"
+        }
+    }
+}
+
+function Assert-FunctionalLr2CanProceedToFanout {
+    param(
+        [Parameter(Mandatory)]
+        [object]$Entry
+    )
+
+    $state = Get-FunctionalLr2EntryState -Entry $Entry
+    if ($state.State -in @('Failed', 'Canceled', 'Invalid')) {
+        throw "Functional LR2 shard cannot enter fanout ($($state.State)): $($state.Detail)"
+    }
+    return $state
+}
+
+function Start-FunctionalShardProcess {
+    param(
+        [Parameter(Mandatory)]
+        [pscustomobject]$Shard,
+
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory,
+
+        [Parameter(Mandatory)]
+        [int]$TimeoutSeconds
+    )
+
+    [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
+    $runSettingsPath = Join-Path $DiagnosticsDirectory 'parallel.runsettings'
+    Write-MSTestParallelRunSettings `
+        -Path $runSettingsPath `
+        -Workers $Shard.Workers `
+        -Scope $Shard.Scope
+    $arguments = Get-TestArguments `
+        -Filter $Shard.Filter `
+        -DiagnosticsDirectory $DiagnosticsDirectory `
+        -TimeoutSeconds $TimeoutSeconds `
+        -RunSettingsPath $runSettingsPath `
+        -NoBuild
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = 'dotnet'
+    $startInfo.WorkingDirectory = $repoRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $arguments) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $started = $false
+    try {
+        if (-not $process.Start()) {
+            throw "Unable to start functional test shard '$($Shard.Name)'."
+        }
+        $started = $true
+        return [pscustomobject]@{
+            Name = $Shard.Name
+            Directory = $DiagnosticsDirectory
+            Process = $process
+            ProcessId = $process.Id
+            StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
+            StandardErrorTask = $process.StandardError.ReadToEndAsync()
+        }
+    }
+    catch {
+        if ($started -and -not $process.HasExited) {
+            try {
+                $process.Kill($true)
+            }
+            catch {
+                Write-Warning "$($Shard.Name): failed to stop a process whose entry could not be recorded: $($_.Exception.Message)"
+            }
+        }
+        $process.Dispose()
+        throw
+    }
+}
+
+function Write-FunctionalShardFailureDiagnostic {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory,
+
+        [Parameter(Mandatory)]
+        [System.Management.Automation.ErrorRecord]$Failure,
+
+        [string]$FileName = 'failure.log'
+    )
+
+    try {
+        [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
+        [System.IO.File]::WriteAllText(
+            (Join-Path $DiagnosticsDirectory $FileName),
+            $Failure.ToString(),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    catch {
+        Write-Warning "Unable to write shard failure diagnostics to '$DiagnosticsDirectory': $($_.Exception.Message)"
+    }
+}
+
 function Invoke-ParallelFunctionalTestShards {
     param(
         [Parameter(Mandatory)]
@@ -750,10 +1307,21 @@ function Invoke-ParallelFunctionalTestShards {
                 Scope = $scope
             }
         })
+    $lr2Shard = @($shards | Where-Object { $_.Name -ceq 'lr2-songdb-sync' })[0]
+    $fanoutShards = @($shards | Where-Object { $_.Name -cne 'lr2-songdb-sync' })
+    Assert-FunctionalOrchestrationConfiguration `
+        -Shards $shards `
+        -FanoutShards $fanoutShards
 
     [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
+    $lr2DiagnosticsDirectory = Join-Path $DiagnosticsDirectory 'lr2-songdb-sync'
+    [void](New-Item -ItemType Directory -Path $lr2DiagnosticsDirectory -Force)
     $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $entries = @()
+    $phaseTrace = [System.Collections.Generic.List[string]]::new()
+    $lr2Entry = $null
+    $lr2LaunchFailure = $null
+    $lr2DiagnosticsCaptured = $false
     $timedOut = $false
     $timedOutShardNames = @()
     $launchFailure = $null
@@ -766,15 +1334,37 @@ function Invoke-ParallelFunctionalTestShards {
         $exclusiveDirectory = Join-Path $DiagnosticsDirectory 'exclusive-portable-settings'
         $exclusiveClassFilter = ($functionalExclusiveTestClasses |
             ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-        $exclusiveTimeoutSeconds = [Math]::Max(
-            1,
-            [int][Math]::Floor($TimeoutSeconds - $stageStopwatch.Elapsed.TotalSeconds))
+        $exclusiveTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
+            -Stopwatch $stageStopwatch `
+            -DeadlineSeconds $TimeoutSeconds `
+            -PhaseName 'exclusive portable settings'
         Invoke-TestLane `
             -Name 'Functional exclusive portable settings' `
             -Filter "($functionalFilter)&($exclusiveClassFilter)" `
             -DiagnosticsDirectory $exclusiveDirectory `
             -TimeoutSeconds $exclusiveTimeoutSeconds `
             -NoBuild
+
+        [void]$phaseTrace.Add('exclusive-portable-settings')
+        Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
+
+        [void]$phaseTrace.Add('lr2-songdb-sync')
+        Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
+        try {
+            $lr2TimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
+                -Stopwatch $stageStopwatch `
+                -DeadlineSeconds $TimeoutSeconds `
+                -PhaseName 'lr2-songdb-sync'
+            $lr2Entry = Start-FunctionalShardProcess `
+                -Shard $lr2Shard `
+                -DiagnosticsDirectory $lr2DiagnosticsDirectory `
+                -TimeoutSeconds $lr2TimeoutSeconds
+            $entries += $lr2Entry
+        }
+        catch {
+            $lr2LaunchFailure = $_
+            throw
+        }
 
         $preWaveDirectory = Join-Path $DiagnosticsDirectory 'method-level-pre-wave'
         [void](New-Item -ItemType Directory -Path $preWaveDirectory -Force)
@@ -785,11 +1375,12 @@ function Invoke-ParallelFunctionalTestShards {
             -Scope 'MethodLevel'
         $preWaveClassFilter = ($functionalMethodLevelPreWaveClasses |
             ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-        $preWaveTimeoutSeconds = [int][Math]::Floor(
-            $TimeoutSeconds - $stageStopwatch.Elapsed.TotalSeconds)
-        if ($preWaveTimeoutSeconds -le 0) {
-            throw "Functional test phase exhausted its ${TimeoutSeconds}-second timeout before the method-level pre-wave."
-        }
+        $preWaveTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
+            -Stopwatch $stageStopwatch `
+            -DeadlineSeconds $TimeoutSeconds `
+            -PhaseName 'method-level pre-wave'
+        [void]$phaseTrace.Add('method-level-pre-wave')
+        Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
         Invoke-TestLane `
             -Name 'Functional method-level pre-wave' `
             -Filter "($functionalFilter)&($preWaveClassFilter)" `
@@ -798,43 +1389,23 @@ function Invoke-ParallelFunctionalTestShards {
             -RunSettingsPath $preWaveRunSettingsPath `
             -NoBuild
 
-        foreach ($shard in $shards) {
+        $lr2PreFanoutState = Assert-FunctionalLr2CanProceedToFanout -Entry $lr2Entry
+        if (@($entries | Where-Object { $_.Name -ceq 'lr2-songdb-sync' }).Count -ne 1) {
+            throw 'Functional LR2 result accounting must retain exactly one existing entry before fanout.'
+        }
+        Write-Host "Functional LR2 state before fanout: $($lr2PreFanoutState.State); $($lr2PreFanoutState.Detail)"
+        [void]$phaseTrace.Add('remaining-and-non-lr2-shards')
+        Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray())
+        foreach ($shard in $fanoutShards) {
             $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
-            [void](New-Item -ItemType Directory -Path $shardDirectory -Force)
-            $runSettingsPath = Join-Path $shardDirectory 'parallel.runsettings'
-            Write-MSTestParallelRunSettings `
-                -Path $runSettingsPath `
-                -Workers $shard.Workers `
-                -Scope $shard.Scope
-            $arguments = Get-TestArguments `
-                -Filter $shard.Filter `
+            $shardTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
+                -Stopwatch $stageStopwatch `
+                -DeadlineSeconds $TimeoutSeconds `
+                -PhaseName $shard.Name
+            $entries += Start-FunctionalShardProcess `
+                -Shard $shard `
                 -DiagnosticsDirectory $shardDirectory `
-                -TimeoutSeconds $TimeoutSeconds `
-                -RunSettingsPath $runSettingsPath `
-                -NoBuild
-            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-            $startInfo.FileName = 'dotnet'
-            $startInfo.WorkingDirectory = $repoRoot
-            $startInfo.UseShellExecute = $false
-            $startInfo.CreateNoWindow = $true
-            $startInfo.RedirectStandardOutput = $true
-            $startInfo.RedirectStandardError = $true
-            foreach ($argument in $arguments) {
-                [void]$startInfo.ArgumentList.Add($argument)
-            }
-            $process = [System.Diagnostics.Process]::new()
-            $process.StartInfo = $startInfo
-            if (-not $process.Start()) {
-                throw "Unable to start functional test shard '$($shard.Name)'."
-            }
-            $entries += [pscustomobject]@{
-                Name = $shard.Name
-                Directory = $shardDirectory
-                Process = $process
-                ProcessId = $process.Id
-                StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
-                StandardErrorTask = $process.StandardError.ReadToEndAsync()
-            }
+                -TimeoutSeconds $shardTimeoutSeconds
         }
 
         $shardSummary = ($shards | ForEach-Object {
@@ -864,6 +1435,16 @@ function Invoke-ParallelFunctionalTestShards {
     }
     catch {
         $launchFailure = $_
+        $failureFileName = if ($null -ne $lr2LaunchFailure) {
+            'launch-failure.log'
+        }
+        else {
+            'orchestration-failure.log'
+        }
+        Write-FunctionalShardFailureDiagnostic `
+            -DiagnosticsDirectory $lr2DiagnosticsDirectory `
+            -Failure $launchFailure `
+            -FileName $failureFileName
     }
     finally {
         $fallbackProcesses = @()
@@ -970,6 +1551,9 @@ function Invoke-ParallelFunctionalTestShards {
             }
         }
 
+        $failureObserved = $timedOut -or
+            $null -ne $failedShardName -or
+            $null -ne $launchFailure
         foreach ($entry in $entries) {
             try {
                 if (-not $entry.Process.HasExited) {
@@ -1002,10 +1586,19 @@ function Invoke-ParallelFunctionalTestShards {
                     }
                 }
 
-                if (($timedOutShardNames -contains $entry.Name) -or $entry.Process.ExitCode -ne 0) {
+                $captureDiagnostics =
+                    ($timedOutShardNames -contains $entry.Name) -or
+                    $entry.Process.ExitCode -ne 0
+                if ($entry.Name -ceq 'lr2-songdb-sync' -and $failureObserved) {
+                    $captureDiagnostics = $true
+                }
+                if ($captureDiagnostics) {
                     Write-TestDiagnosticSummary `
                         -DiagnosticsDirectory $entry.Directory `
                         -StandardOutputPath $standardOutputPath
+                    if ($entry.Name -ceq 'lr2-songdb-sync') {
+                        $lr2DiagnosticsCaptured = $true
+                    }
                 }
             }
             catch {
@@ -1015,6 +1608,12 @@ function Invoke-ParallelFunctionalTestShards {
             finally {
                 $entry.Process.Dispose()
             }
+        }
+        if ($failureObserved -and -not $lr2DiagnosticsCaptured) {
+            Write-TestDiagnosticSummary `
+                -DiagnosticsDirectory $lr2DiagnosticsDirectory `
+                -StandardOutputPath (Join-Path $lr2DiagnosticsDirectory 'stdout.log')
+            $lr2DiagnosticsCaptured = $true
         }
         $stageStopwatch.Stop()
     }
@@ -1083,76 +1682,264 @@ function Assert-ReleaseOutputLayout {
     }
 }
 
-function Invoke-SelfContainedPublishVerification {
-    if (Test-Path -LiteralPath $scdPublishRoot) {
-        Remove-Item -LiteralPath $scdPublishRoot -Recurse -Force
-    }
-    New-Item -ItemType Directory -Path $scdAppPublishOutput, $scdUpdaterPublishOutput -Force | Out-Null
-
-    Invoke-CheckedCommand dotnet publish (Join-Path $repoRoot 'BeMusicSeeker.csproj') '/p:Configuration=Release' '/p:Platform=x64' '-r' 'win-x64' '--self-contained' 'true' '--no-restore' '-p:PublishProfile=WinX64SelfContained' "-p:PublishDir=$scdAppPublishOutput"
-    Invoke-CheckedCommand dotnet publish (Join-Path $repoRoot 'BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj') '/p:Configuration=Release' '/p:Platform=x64' '-r' 'win-x64' '--self-contained' 'true' '--no-restore' '-p:PublishProfile=WinX64SelfContainedSingleFile' "-p:PublishDir=$scdUpdaterPublishOutput"
-
-    foreach ($requiredPath in Get-PortableMainAppRequiredFiles) {
-        if (-not (Test-Path -LiteralPath (Join-Path $scdAppPublishOutput $requiredPath) -PathType Leaf)) {
-            throw "Self-contained app publish output is missing: $requiredPath"
-        }
-    }
-
-    foreach ($forbiddenPath in @(
-        'BeMusicSeeker.dll',
-        'BeMusicSeeker.deps.json',
-        'BeMusicSeeker.runtimeconfig.json')) {
-        if (Test-Path -LiteralPath (Join-Path $scdAppPublishOutput $forbiddenPath) -PathType Leaf) {
-            throw "Single-file app publish output contains a companion file: $forbiddenPath"
-        }
-    }
-    $requiredSdkNativeRootFiles = [System.Collections.Generic.HashSet[string]]::new(
-        [string[]](Get-PortableRequiredSdkNativeRootFiles),
-        [System.StringComparer]::OrdinalIgnoreCase)
-    $unexpectedRootDlls = @(
-        Get-ChildItem -LiteralPath $scdAppPublishOutput -File -Filter '*.dll' |
-            Where-Object { -not $requiredSdkNativeRootFiles.Contains($_.Name) }
+function Get-AssemblyInformationalVersion {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Root
     )
-    if ($unexpectedRootDlls.Count -gt 0) {
-        throw "Self-contained app publish output contains an unknown root DLL: $($unexpectedRootDlls.Name -join ', ')"
-    }
 
-    $updaterExecutable = Join-Path $scdUpdaterPublishOutput 'BeMusicSeeker.Updater.exe'
-    if (-not (Test-Path -LiteralPath $updaterExecutable -PathType Leaf)) {
-        throw "Self-contained updater publish output is missing: $updaterExecutable"
+    $assemblyInfoPath = Join-Path $Root 'Properties\AssemblyInfo.cs'
+    if (-not (Test-Path -LiteralPath $assemblyInfoPath -PathType Leaf)) {
+        throw "AssemblyInfo.cs is missing: $assemblyInfoPath"
     }
-    foreach ($companion in @(
-        'BeMusicSeeker.Updater.dll',
-        'BeMusicSeeker.Updater.deps.json',
-        'BeMusicSeeker.Updater.runtimeconfig.json')) {
-        if (Test-Path -LiteralPath (Join-Path $scdUpdaterPublishOutput $companion)) {
-            throw "Single-file updater publish output contains a companion file: $companion"
+    $content = Get-Content -LiteralPath $assemblyInfoPath -Raw
+    if ($content -notmatch 'AssemblyInformationalVersion\("([^"]+)"\)') {
+        throw "AssemblyInformationalVersion is missing: $assemblyInfoPath"
+    }
+    return $Matches[1]
+}
+
+function Get-RepositoryHeadCommit {
+    $commit = (& git -C $repoRoot rev-parse HEAD 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commit)) {
+        throw "Unable to resolve the current repository commit: $commit"
+    }
+    return $commit
+}
+
+function Get-ExactReleasePackage {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DistributionDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$Version,
+
+        [Parameter(Mandatory)]
+        [string]$Description
+    )
+
+    $packagePath = Join-Path $DistributionDirectory "bemusicseeker-unofficial-fork-v$Version.zip"
+    if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
+        throw "$Description exact release package is missing: $packagePath"
+    }
+    return (Resolve-Path -LiteralPath $packagePath).Path
+}
+
+function Invoke-CurrentDistributionPublish {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [Parameter(Mandatory)]
+        [int]$BudgetSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$PhaseDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$ArtifactRoot
+    )
+
+    $publishScript = Join-Path $repoRoot 'scripts\publish.ps1'
+    if (-not (Test-Path -LiteralPath $publishScript -PathType Leaf)) {
+        throw "Distribution publish script is missing: $publishScript"
+    }
+    [void](New-Item -ItemType Directory -Path $ArtifactRoot -Force)
+    Invoke-FullPhaseCommand `
+        -Stopwatch $Stopwatch `
+        -BudgetSeconds $BudgetSeconds `
+        -PhaseName 'current-distribution-publish' `
+        -Label 'Current distribution publish' `
+        -CommandPath 'pwsh' `
+        -Arguments @('-NoProfile', '-File', $publishScript, '-PackageOnly', '-SkipDocHtml', '-ArtifactRoot', $ArtifactRoot) `
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'publish')
+
+    $version = Get-AssemblyInformationalVersion -Root $repoRoot
+    $appRoot = Join-Path $ArtifactRoot 'app'
+    $updaterRoot = Join-Path $ArtifactRoot 'updater'
+    $packagePath = Get-ExactReleasePackage -DistributionDirectory (Join-Path $ArtifactRoot 'dist') -Version $version -Description 'Current'
+    foreach ($requiredRoot in @($appRoot, $updaterRoot)) {
+        if (-not (Test-Path -LiteralPath $requiredRoot -PathType Container)) {
+            throw "Current distribution publish root is missing: $requiredRoot"
         }
     }
+    return [pscustomobject]@{
+        Version = $version
+        Commit = Get-RepositoryHeadCommit
+        AppRoot = $appRoot
+        UpdaterRoot = $updaterRoot
+        PackagePath = $packagePath
+    }
+}
 
-    $versionProcess = Start-Process -FilePath $updaterExecutable -WorkingDirectory $scdUpdaterPublishOutput -ArgumentList '--version' -PassThru -Wait -NoNewWindow
-    if ($versionProcess.ExitCode -ne 0) {
-        throw "Self-contained updater --version failed with exit code $($versionProcess.ExitCode)."
+function Invoke-BaselinePreparation {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [Parameter(Mandatory)]
+        [int]$BudgetSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$PhaseDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$ArtifactRoot,
+
+        [Parameter(Mandatory)]
+        [string]$BaselineCommit,
+
+        [Parameter(Mandatory)]
+        [object]$Current,
+
+        [Parameter(Mandatory)]
+        [string]$RunId,
+
+        [Parameter(Mandatory)]
+        [string]$ArtifactId
+    )
+
+    $baselineWorkRoot = Join-Path ([IO.Path]::GetTempPath()) (
+        'BeMusicSeeker-baseline-' + $RunId + '-' + [Guid]::NewGuid().ToString('N'))
+    $repositoryRootWithSeparator = ([IO.Path]::GetFullPath($repoRoot)).TrimEnd('\') + '\'
+    if ([IO.Path]::GetFullPath($baselineWorkRoot).StartsWith(
+            $repositoryRootWithSeparator,
+            [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Baseline preparation work root must be outside the repository: $baselineWorkRoot"
+    }
+
+    $archivePath = Join-Path $PhaseDirectory 'baseline-source.zip'
+    $sourceRoot = Join-Path $baselineWorkRoot 'source'
+    $primaryError = $null
+    try {
+        [void](New-Item -ItemType Directory -Path $sourceRoot -Force)
+        Invoke-FullPhaseCommand `
+        -Stopwatch $Stopwatch `
+        -BudgetSeconds $BudgetSeconds `
+        -PhaseName 'baseline-preparation' `
+        -Label 'Baseline source archive' `
+        -CommandPath 'git' `
+        -Arguments @('-C', $repoRoot, 'archive', '--format=zip', "--output=$archivePath", $BaselineCommit) `
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'archive')
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $sourceRoot -Force
+
+    $baselinePublishScript = Join-Path $sourceRoot 'scripts\publish.ps1'
+    if (-not (Test-Path -LiteralPath $baselinePublishScript -PathType Leaf)) {
+        throw "Baseline publish script is missing from checkout: $baselinePublishScript"
+    }
+    Invoke-FullPhaseCommand `
+        -Stopwatch $Stopwatch `
+        -BudgetSeconds $BudgetSeconds `
+        -PhaseName 'baseline-preparation' `
+        -Label 'Baseline distribution publish' `
+        -CommandPath 'pwsh' `
+        -Arguments @('-NoProfile', '-File', $baselinePublishScript, '-PackageOnly', '-SkipDocHtml') `
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'publish')
+
+    $baselineVersion = Get-AssemblyInformationalVersion -Root $sourceRoot
+    $sourcePackagePath = Get-ExactReleasePackage `
+        -DistributionDirectory (Join-Path $sourceRoot 'dist') `
+        -Version $baselineVersion `
+        -Description 'Baseline'
+    $baselinePackageDirectory = Join-Path $ArtifactRoot 'baseline\package'
+    [void](New-Item -ItemType Directory -Path $baselinePackageDirectory -Force)
+    $baselinePackagePath = Join-Path $baselinePackageDirectory ([IO.Path]::GetFileName($sourcePackagePath))
+    Copy-Item -LiteralPath $sourcePackagePath -Destination $baselinePackagePath -Force
+
+    $manifest = New-DistributionArtifactManifest `
+        -ArtifactRoot $ArtifactRoot `
+        -RunId $RunId `
+        -ArtifactId $ArtifactId `
+        -CurrentAppRoot $Current.AppRoot `
+        -CurrentUpdaterRoot $Current.UpdaterRoot `
+        -CurrentPackagePath $Current.PackagePath `
+        -CurrentVersion $Current.Version `
+        -CurrentCommit $Current.Commit `
+        -BaselinePackagePath $baselinePackagePath `
+        -BaselineVersion $baselineVersion `
+        -BaselineCommit $BaselineCommit
+    Assert-DistributionArtifactManifest `
+        -ArtifactManifest $manifest `
+        -ExpectedRunId $RunId `
+        -ExpectedArtifactId $ArtifactId | Out-Null
+    return $manifest
+    }
+    catch {
+        $primaryError = $_
+        throw
+    }
+    finally {
+        if (Test-Path -LiteralPath $baselineWorkRoot) {
+            try {
+                Remove-Item -LiteralPath $baselineWorkRoot -Recurse -Force -ErrorAction Stop
+            }
+            catch {
+                if ($null -eq $primaryError) {
+                    throw
+                }
+                Write-Warning "Baseline preparation cleanup failed after a primary failure: $baselineWorkRoot. $($_.Exception.Message)"
+            }
+        }
     }
 }
 
 function Invoke-ExistingDataAcceptance {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [Parameter(Mandatory)]
+        [int]$BudgetSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$PhaseDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$ArtifactManifestPath
+    )
+
     if (-not (Test-Path -LiteralPath $existingDataAcceptanceScript -PathType Leaf)) {
         throw "Existing-data acceptance runner is missing: $existingDataAcceptanceScript"
     }
-    $acceptanceOutputDirectory = Join-Path $verificationArtifactsDirectory 'net10-existing-data'
-    Invoke-CheckedCommand pwsh '-NoProfile' '-File' $existingDataAcceptanceScript `
-        '-AppPublishRoot' $scdAppPublishOutput `
-        '-OutputDirectory' $acceptanceOutputDirectory
+    $outputDirectory = Join-Path $PhaseDirectory 'acceptance'
+    Invoke-FullPhaseCommand `
+        -Stopwatch $Stopwatch `
+        -BudgetSeconds $BudgetSeconds `
+        -PhaseName 'existing-data' `
+        -Label 'Existing-data acceptance' `
+        -CommandPath 'pwsh' `
+        -Arguments @('-NoProfile', '-File', $existingDataAcceptanceScript, '-ArtifactManifestPath', $ArtifactManifestPath, '-OutputDirectory', $outputDirectory) `
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'command')
 }
 
 function Invoke-UpdateAcceptance {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [Parameter(Mandatory)]
+        [int]$BudgetSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$PhaseDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$ArtifactManifestPath
+    )
+
     if (-not (Test-Path -LiteralPath $updateAcceptanceScript -PathType Leaf)) {
         throw "Update acceptance runner is missing: $updateAcceptanceScript"
     }
-    $acceptanceOutputDirectory = Join-Path $verificationArtifactsDirectory 'net10-update'
-    Invoke-CheckedCommand pwsh '-NoProfile' '-File' $updateAcceptanceScript `
-        '-OutputDirectory' $acceptanceOutputDirectory
+    $outputDirectory = Join-Path $PhaseDirectory 'acceptance'
+    Invoke-FullPhaseCommand `
+        -Stopwatch $Stopwatch `
+        -BudgetSeconds $BudgetSeconds `
+        -PhaseName 'update' `
+        -Label 'Update acceptance' `
+        -CommandPath 'pwsh' `
+        -Arguments @('-NoProfile', '-File', $updateAcceptanceScript, '-ArtifactManifestPath', $ArtifactManifestPath, '-OutputDirectory', $outputDirectory) `
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'command')
 }
 
 function Assert-RepositoryWhitespace {
@@ -1193,7 +1980,53 @@ function Assert-BuiltOutputs {
     Assert-ReleaseOutputLayout -ExecutablePath (Resolve-Path -LiteralPath $uiExecutable).Path
 }
 
-function Invoke-StandaloneTestVerification {
+function Invoke-CanonicalFunctionalVerification {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsRoot,
+
+        [Parameter(Mandatory)]
+        [ValidateRange(1, 180)]
+        [int]$TimeoutSeconds
+    )
+
+    [void](New-Item -ItemType Directory -Path $DiagnosticsRoot -Force)
+    $functionalStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        Invoke-BudgetedCommand `
+            -Stopwatch $functionalStopwatch `
+            -BudgetSeconds $TimeoutSeconds `
+            -Label 'Locked restore' `
+            -CommandPath 'dotnet' `
+            -Arguments @('restore', $solution, '-r', 'win-x64', '--locked-mode', '-p:PublishReadyToRun=true') `
+            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
+        Invoke-BudgetedCommand `
+            -Stopwatch $functionalStopwatch `
+            -BudgetSeconds $TimeoutSeconds `
+            -Label 'Functional build' `
+            -CommandPath 'dotnet' `
+            -Arguments @('build', $solution, '/p:Configuration=Release', '/p:Platform=x64', '--no-restore') `
+            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'build')
+        Assert-BuiltOutputs
+        $remaining = Get-RemainingBudgetSeconds `
+            -Stopwatch $functionalStopwatch `
+            -BudgetSeconds $TimeoutSeconds
+        Invoke-ParallelFunctionalTestShards `
+            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'functional') `
+            -TimeoutSeconds $remaining
+        Assert-RepositoryWhitespace
+    }
+    finally {
+        $functionalStopwatch.Stop()
+        Write-Host "Canonical Functional elapsed: $([Math]::Round($functionalStopwatch.Elapsed.TotalSeconds, 1))s / ${TimeoutSeconds}s; diagnostics: $DiagnosticsRoot"
+    }
+
+    if ($functionalStopwatch.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
+        throw "Canonical Functional verification exceeded the $TimeoutSeconds-second command budget after repository checks."
+    }
+}
+
+function Invoke-FilteredQuickVerification {
     param(
         [Parameter(Mandatory)]
         [string]$Filter,
@@ -1201,57 +2034,49 @@ function Invoke-StandaloneTestVerification {
         [Parameter(Mandatory)]
         [string]$DiagnosticsRoot,
 
-        [switch]$UseFunctionalShards
+        [Parameter(Mandatory)]
+        [ValidateRange(1, 180)]
+        [int]$TimeoutSeconds
     )
 
-    $budget = $FunctionalTimeoutSeconds
-    Invoke-BudgetedCommand `
-        -Stopwatch $commandStopwatch `
-        -BudgetSeconds $budget `
-        -Label 'Locked restore' `
-        -CommandPath 'dotnet' `
-        -Arguments @('restore', $solution, '-r', 'win-x64', '--locked-mode', '-p:PublishReadyToRun=true') `
-        -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
-
-    $testDirectory = Join-Path $DiagnosticsRoot 'functional'
-    if ($UseFunctionalShards) {
+    [void](New-Item -ItemType Directory -Path $DiagnosticsRoot -Force)
+    $filteredQuickStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
         Invoke-BudgetedCommand `
-            -Stopwatch $commandStopwatch `
-            -BudgetSeconds $budget `
-            -Label 'Functional build' `
+            -Stopwatch $filteredQuickStopwatch `
+            -BudgetSeconds $TimeoutSeconds `
+            -Label 'Locked restore' `
             -CommandPath 'dotnet' `
-            -Arguments @('build', $solution, '/p:Configuration=Release', '/p:Platform=x64', '--no-restore') `
-            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'build')
-        Assert-BuiltOutputs
-        $remaining = Get-RemainingBudgetSeconds -Stopwatch $commandStopwatch -BudgetSeconds $budget
-        Invoke-ParallelFunctionalTestShards `
-            -DiagnosticsDirectory $testDirectory `
-            -TimeoutSeconds $remaining
-    }
-    else {
+            -Arguments @('restore', $solution, '-r', 'win-x64', '--locked-mode', '-p:PublishReadyToRun=true') `
+            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
+
+        $testDirectory = Join-Path $DiagnosticsRoot 'functional'
         [void](New-Item -ItemType Directory -Path $testDirectory -Force)
-        $remaining = Get-RemainingBudgetSeconds -Stopwatch $commandStopwatch -BudgetSeconds $budget
+        $remaining = Get-RemainingBudgetSeconds `
+            -Stopwatch $filteredQuickStopwatch `
+            -BudgetSeconds $TimeoutSeconds
         $testArguments = Get-TestArguments `
             -Filter $Filter `
             -DiagnosticsDirectory $testDirectory `
             -TimeoutSeconds $remaining
         Invoke-BudgetedCommand `
-            -Stopwatch $commandStopwatch `
-            -BudgetSeconds $budget `
+            -Stopwatch $filteredQuickStopwatch `
+            -BudgetSeconds $TimeoutSeconds `
             -Label 'Filtered build and test' `
             -CommandPath 'dotnet' `
             -Arguments $testArguments `
             -DiagnosticsDirectory $testDirectory `
             -IsTestCommand
         Assert-BuiltOutputs
+        Assert-RepositoryWhitespace
+    }
+    finally {
+        $filteredQuickStopwatch.Stop()
     }
 
-    Assert-RepositoryWhitespace
-
-    if ($commandStopwatch.Elapsed.TotalSeconds -gt $budget) {
-        throw "Functional verification exceeded the $budget-second command budget after repository checks."
+    if ($filteredQuickStopwatch.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
+        throw "Filtered Quick verification exceeded the $TimeoutSeconds-second command budget after repository checks."
     }
-    Write-Host "Functional command elapsed: $([Math]::Round($commandStopwatch.Elapsed.TotalSeconds, 1))s / ${budget}s"
 }
 
 if ($Mode -eq 'Functional' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
@@ -1263,80 +2088,271 @@ if ($Mode -eq 'Full' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
 
 $trackedStateBefore = Get-TrackedWorkingTreeFingerprint
 $verificationFailure = $null
+$baselineCommit = 'ab9d97ed3f53dab80fb2894f20f44abdfb6fed32'
 $testDiagnosticsDirectory = Join-Path $verificationArtifactsDirectory (
     'tests-' + $Mode.ToLowerInvariant() + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 [void](New-Item -ItemType Directory -Path $testDiagnosticsDirectory -Force)
+$canonicalFunctionalRequested =
+    $Mode -eq 'Functional' -or
+    $Mode -eq 'Full' -or
+    ($Mode -eq 'Quick' -and [string]::IsNullOrWhiteSpace($TestFilter))
+$previousAppPublishRoot = [Environment]::GetEnvironmentVariable('BMS_SCD_APP_PUBLISH_ROOT', 'Process')
+$previousUpdaterPublishRoot = [Environment]::GetEnvironmentVariable('BMS_SCD_UPDATER_PUBLISH_ROOT', 'Process')
 
 Push-Location $repoRoot
 try {
     if ($Mode -eq 'Full') {
-        Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode' '-p:PublishReadyToRun=true'
-        Invoke-CheckedCommand dotnet tool restore
-        Invoke-CheckedCommand dotnet build $solution '/p:Configuration=Release' '/p:Platform=x64' '--no-restore'
+        [void](Invoke-MonitoredFullPhase -Name 'tool-restore' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'tool-restore'
+            Invoke-FullPhaseCommand `
+                -Stopwatch $phaseStopwatch `
+                -BudgetSeconds $descriptor.BudgetSeconds `
+                -PhaseName 'tool-restore' `
+                -Label 'Tool restore' `
+                -CommandPath 'dotnet' `
+                -Arguments @('tool', 'restore') `
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command')
+        })
+    }
 
-        foreach ($toolExecutable in $toolExecutables) {
-            if (-not (Test-Path -LiteralPath $toolExecutable -PathType Leaf)) {
-                throw "Release tool executable was not produced: $toolExecutable"
+    if ($canonicalFunctionalRequested) {
+        Invoke-CanonicalFunctionalVerification `
+            -DiagnosticsRoot $testDiagnosticsDirectory `
+            -TimeoutSeconds $FunctionalTimeoutSeconds
+    }
+
+    if ($Mode -eq 'Full') {
+        [void](Invoke-MonitoredFullPhase -Name 'tool-smoke' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'tool-smoke'
+            foreach ($toolExecutable in $toolExecutables) {
+                if (-not (Test-Path -LiteralPath $toolExecutable -PathType Leaf)) {
+                    throw "Release tool executable was not produced: $toolExecutable"
+                }
+                $toolName = [IO.Path]::GetFileNameWithoutExtension($toolExecutable)
+                Invoke-FullPhaseCommand `
+                    -Stopwatch $phaseStopwatch `
+                    -BudgetSeconds $descriptor.BudgetSeconds `
+                    -PhaseName 'tool-smoke' `
+                    -Label "Tool smoke $toolName" `
+                    -CommandPath $toolExecutable `
+                    -Arguments @('--help') `
+                    -DiagnosticsDirectory (Join-Path $phaseDirectory $toolName)
             }
-            Invoke-CheckedCommand $toolExecutable '--help'
-        }
+        })
 
-        Assert-BuiltOutputs
-        Invoke-ParallelFunctionalTestShards `
-            -DiagnosticsDirectory (Join-Path $testDiagnosticsDirectory 'functional') `
-            -TimeoutSeconds 180
+        $fullDistributionRoot = Join-Path $testDiagnosticsDirectory 'distribution'
+        $currentDistributionRoot = Join-Path $fullDistributionRoot 'current'
+        $fullRunId = Split-Path -Leaf $testDiagnosticsDirectory
+        $fullArtifactId = $fullRunId + '-distribution'
+        $current = @(Invoke-MonitoredFullPhase -Name 'current-distribution-publish' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'current-distribution-publish'
+            Invoke-CurrentDistributionPublish `
+                -Stopwatch $phaseStopwatch `
+                -BudgetSeconds $descriptor.BudgetSeconds `
+                -PhaseDirectory $phaseDirectory `
+                -ArtifactRoot $currentDistributionRoot
+        })[-1]
 
-        Write-Host "Self-contained publish verification output: $scdPublishRoot"
-        Invoke-SelfContainedPublishVerification
-        Invoke-ExistingDataAcceptance
-        Invoke-UpdateAcceptance
-        $env:BMS_SCD_APP_PUBLISH_ROOT = $scdAppPublishOutput
-        $env:BMS_SCD_UPDATER_PUBLISH_ROOT = $scdUpdaterPublishOutput
+        $artifactManifest = @(Invoke-MonitoredFullPhase -Name 'baseline-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'baseline-preparation'
+            Invoke-BaselinePreparation `
+                -Stopwatch $phaseStopwatch `
+                -BudgetSeconds $descriptor.BudgetSeconds `
+                -PhaseDirectory $phaseDirectory `
+                -ArtifactRoot $fullDistributionRoot `
+                -BaselineCommit $baselineCommit `
+                -Current $current `
+                -RunId $fullRunId `
+                -ArtifactId $fullArtifactId
+        })[-1]
+        $artifactManifestPath = $artifactManifest.ManifestPath
+        $expectedFullRunId = $fullRunId
+        $expectedFullArtifactId = $fullArtifactId
+        $expectedFullManifestSha256 = [string]$artifactManifest.ManifestSha256
+        $expectedFullManifestSeal = (Get-Content -LiteralPath $artifactManifest.ManifestHashPath -Raw).Trim().ToLowerInvariant()
+        Assert-DistributionArtifactIdentity `
+            -ArtifactManifest $artifactManifest `
+            -ExpectedRunId $expectedFullRunId `
+            -ExpectedArtifactId $expectedFullArtifactId `
+            -ExpectedManifestSha256 $expectedFullManifestSha256 `
+            -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+        [Environment]::SetEnvironmentVariable('BMS_SCD_APP_PUBLISH_ROOT', [string]$artifactManifest.Current.appRoot, 'Process')
+        [Environment]::SetEnvironmentVariable('BMS_SCD_UPDATER_PUBLISH_ROOT', [string]$artifactManifest.Current.updaterRoot, 'Process')
 
-        Invoke-TestLane `
-            -Name 'Process integration' `
-            -Filter 'TestCategory=ProcessIntegration' `
-            -DiagnosticsDirectory (Join-Path $testDiagnosticsDirectory 'process-integration') `
-            -NoBuild
-        Invoke-TestLane `
-            -Name 'Release acceptance' `
-            -Filter 'TestCategory=ReleaseAcceptance' `
-            -DiagnosticsDirectory (Join-Path $testDiagnosticsDirectory 'release-acceptance') `
-            -NoBuild
+        [void](Invoke-MonitoredFullPhase -Name 'existing-data' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'existing-data'
+            Assert-DistributionArtifactIdentity `
+                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
+                -ExpectedRunId $expectedFullRunId `
+                -ExpectedArtifactId $expectedFullArtifactId `
+                -ExpectedManifestSha256 $expectedFullManifestSha256 `
+                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+            Invoke-ExistingDataAcceptance `
+                -Stopwatch $phaseStopwatch `
+                -BudgetSeconds $descriptor.BudgetSeconds `
+                -PhaseDirectory $phaseDirectory `
+                -ArtifactManifestPath $artifactManifestPath
+            Assert-DistributionArtifactIdentity `
+                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
+                -ExpectedRunId $expectedFullRunId `
+                -ExpectedArtifactId $expectedFullArtifactId `
+                -ExpectedManifestSha256 $expectedFullManifestSha256 `
+                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+        })
+        [void](Invoke-MonitoredFullPhase -Name 'update' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'update'
+            Assert-DistributionArtifactIdentity `
+                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
+                -ExpectedRunId $expectedFullRunId `
+                -ExpectedArtifactId $expectedFullArtifactId `
+                -ExpectedManifestSha256 $expectedFullManifestSha256 `
+                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+            Invoke-UpdateAcceptance `
+                -Stopwatch $phaseStopwatch `
+                -BudgetSeconds $descriptor.BudgetSeconds `
+                -PhaseDirectory $phaseDirectory `
+                -ArtifactManifestPath $artifactManifestPath
+            Assert-DistributionArtifactIdentity `
+                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
+                -ExpectedRunId $expectedFullRunId `
+                -ExpectedArtifactId $expectedFullArtifactId `
+                -ExpectedManifestSha256 $expectedFullManifestSha256 `
+                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+        })
 
-        Invoke-CheckedCommand dotnet format whitespace $solution '--verify-no-changes' '--no-restore' '--verbosity' 'minimal'
+        [void](Invoke-MonitoredFullPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'ProcessIntegration'
+            Assert-DistributionArtifactIdentity `
+                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
+                -ExpectedRunId $expectedFullRunId `
+                -ExpectedArtifactId $expectedFullArtifactId `
+                -ExpectedManifestSha256 $expectedFullManifestSha256 `
+                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+            $timeout = Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'ProcessIntegration test lane'
+            Invoke-TestLane `
+                -Name 'Process integration' `
+                -Filter 'TestCategory=ProcessIntegration' `
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
+                -TimeoutSeconds $timeout `
+                -NoBuild
+            Assert-DistributionArtifactIdentity `
+                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
+                -ExpectedRunId $expectedFullRunId `
+                -ExpectedArtifactId $expectedFullArtifactId `
+                -ExpectedManifestSha256 $expectedFullManifestSha256 `
+                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+        })
+        [void](Invoke-MonitoredFullPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'ReleaseAcceptance'
+            Assert-DistributionArtifactIdentity `
+                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
+                -ExpectedRunId $expectedFullRunId `
+                -ExpectedArtifactId $expectedFullArtifactId `
+                -ExpectedManifestSha256 $expectedFullManifestSha256 `
+                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+            $timeout = Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'ReleaseAcceptance test lane'
+            Invoke-TestLane `
+                -Name 'Release acceptance' `
+                -Filter 'TestCategory=ReleaseAcceptance' `
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
+                -TimeoutSeconds $timeout `
+                -NoBuild
+            Assert-DistributionArtifactIdentity `
+                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
+                -ExpectedRunId $expectedFullRunId `
+                -ExpectedArtifactId $expectedFullArtifactId `
+                -ExpectedManifestSha256 $expectedFullManifestSha256 `
+                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+        })
 
-        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-        if (-not (Test-Path -LiteralPath $vswhere)) {
-            throw "vswhere.exe was not found: $vswhere"
-        }
-        $msbuildPath = & $vswhere -version '[17.0,18.0)' -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin' | Select-Object -First 1
-        if ([string]::IsNullOrWhiteSpace($msbuildPath)) {
-            throw 'Visual Studio 2022 MSBuild 17 was not found.'
-        }
-        Invoke-CheckedCommand dotnet roslynator analyze $solution '--msbuild-path' $msbuildPath '--properties' 'Configuration=Release' '--severity-level' 'warning' '--ignore-compiler-diagnostics' '--verbosity' 'minimal'
+        [void](Invoke-MonitoredFullPhase -Name 'format' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'format'
+            Invoke-FullPhaseCommand `
+                -Stopwatch $phaseStopwatch `
+                -BudgetSeconds $descriptor.BudgetSeconds `
+                -PhaseName 'format' `
+                -Label 'dotnet format' `
+                -CommandPath 'dotnet' `
+                -Arguments (Get-RepositoryFormatArguments -WorkspaceRoot $repoRoot) `
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command')
+        })
+
+        [void](Invoke-MonitoredFullPhase -Name 'analyzer' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory)
+            $descriptor = Get-FullPhaseDescriptor -Name 'analyzer'
+            $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+            $vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
+            if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+                throw "vswhere.exe was not found: $vswhere"
+            }
+            $msbuildPath = (& $vswhere -version '[17.0,18.0)' -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin' | Select-Object -First 1).ToString().Trim()
+            if ([string]::IsNullOrWhiteSpace($msbuildPath)) {
+                throw 'Visual Studio 2022 MSBuild 17 was not found.'
+            }
+            Invoke-FullPhaseCommand `
+                -Stopwatch $phaseStopwatch `
+                -BudgetSeconds $descriptor.BudgetSeconds `
+                -PhaseName 'analyzer' `
+                -Label 'roslynator analyzer' `
+                -CommandPath 'dotnet' `
+                -Arguments @('roslynator', 'analyze', $solution, '--msbuild-path', $msbuildPath, '--properties', 'Configuration=Release', '--severity-level', 'warning', '--ignore-compiler-diagnostics', '--verbosity', 'minimal') `
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command')
+        })
+        Assert-DistributionArtifactIdentity `
+            -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
+            -ExpectedRunId $expectedFullRunId `
+            -ExpectedArtifactId $expectedFullArtifactId `
+            -ExpectedManifestSha256 $expectedFullManifestSha256 `
+            -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
         Assert-RepositoryWhitespace
     }
-    else {
-        $effectiveFilter = if ($Mode -eq 'Quick' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
-            $TestFilter
-        }
-        else {
-            $functionalFilter
-        }
-        Invoke-StandaloneTestVerification `
+    elseif (-not $canonicalFunctionalRequested) {
+        $effectiveFilter = $TestFilter
+        Invoke-FilteredQuickVerification `
             -Filter $effectiveFilter `
             -DiagnosticsRoot $testDiagnosticsDirectory `
-            -UseFunctionalShards:([string]::IsNullOrWhiteSpace($TestFilter))
+            -TimeoutSeconds $FunctionalTimeoutSeconds
     }
 }
 catch {
     $verificationFailure = $_
 }
 finally {
-    Remove-Item Env:BMS_SCD_APP_PUBLISH_ROOT -ErrorAction SilentlyContinue
-    Remove-Item Env:BMS_SCD_UPDATER_PUBLISH_ROOT -ErrorAction SilentlyContinue
-    Pop-Location
+    $environmentRestoreFailures = [System.Collections.Generic.List[string]]::new()
+    foreach ($environmentEntry in @(
+        [pscustomobject]@{ Name = 'BMS_SCD_APP_PUBLISH_ROOT'; Value = $previousAppPublishRoot },
+        [pscustomobject]@{ Name = 'BMS_SCD_UPDATER_PUBLISH_ROOT'; Value = $previousUpdaterPublishRoot })) {
+        try {
+            [Environment]::SetEnvironmentVariable($environmentEntry.Name, $environmentEntry.Value, 'Process')
+        }
+        catch {
+            [void]$environmentRestoreFailures.Add("$($environmentEntry.Name): $($_.Exception.Message)")
+        }
+    }
+    try {
+        Pop-Location
+    }
+    catch {
+        [void]$environmentRestoreFailures.Add("working directory: $($_.Exception.Message)")
+    }
+    if ($environmentRestoreFailures.Count -gt 0) {
+        $cleanupException = [Exception]::new("Full runner cleanup failed: $($environmentRestoreFailures -join '; ')")
+        if ($null -eq $verificationFailure) {
+            $verificationFailure = $cleanupException
+        }
+        else {
+            Write-Warning $cleanupException.Message
+        }
+    }
 }
 
 $trackedStateAfter = Get-TrackedWorkingTreeFingerprint

@@ -22,7 +22,7 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>
 /// アプリケーション起動時に ViewModel へ渡す production composition を構築します。
 /// </summary>
-internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
+internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort, IStartupLibraryFactory
 {
     private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
 
@@ -76,7 +76,10 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
 
     private readonly IUpdaterProcessGateway updaterProcessGateway;
 
+    private readonly IScoreViewerRegistrationGateway scoreViewerRegistrationGateway;
+
     /// <summary>Creates the application composition with replaceable process and audio catalog boundaries.</summary>
+    /// <param name="scoreViewerRegistrationGateway">Score Viewer 登録の network boundary。未指定時は production gateway を使います。</param>
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -99,7 +102,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         IExternalShellGateway externalShellGateway = null,
         IExternalPlayerProcessGateway externalPlayerProcessGateway = null,
         IUpdaterProcessGateway updaterProcessGateway = null,
-        IAudioDeviceCatalog audioDeviceCatalog = null)
+        IAudioDeviceCatalog audioDeviceCatalog = null,
+        IScoreViewerRegistrationGateway scoreViewerRegistrationGateway = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -111,6 +115,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
         this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
         this.externalPlayerProcessGateway = externalPlayerProcessGateway ?? ExternalPlayerProcessGatewayPolicy.Current;
         this.updaterProcessGateway = updaterProcessGateway ?? UpdaterProcessGatewayPolicy.Current;
+        this.scoreViewerRegistrationGateway = scoreViewerRegistrationGateway ?? new AppScoreViewerRegistrationGateway();
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         playerSettingsGateway = new SettingsPlayerSettingsGateway(() => this.settingsEditSession.Values);
         audioSettingsGateway = new SettingsAudioGateway(() => this.settingsEditSession.Values);
@@ -448,8 +453,11 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             }
         };
         return new ScoreViewerRegistrationWorkflowOwner(
-            new AppScoreViewerRegistrationGateway(),
-            new WpfScoreViewerRegistrationInteraction(warningLog, externalShellGateway),
+            scoreViewerRegistrationGateway,
+            new WpfScoreViewerRegistrationInteraction(
+                warningLog,
+                externalShellGateway,
+                playlistWorkspaceDialogService),
             () => settingsEditSession.Values.ShowScoreViewerRegisterConfirmMsg,
             warningLog);
     }
@@ -529,33 +537,44 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort
             applicationPathSnapshot);
     }
 
-    internal BMSPlaylist CreateBmsPlaylist(
-        LibraryProfile libraryProfile,
-        Func<List<BMSScore>> getBMSScores,
-        Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
-        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null)
+    /// <summary>
+    /// Creates the startup playlist from the library created for the same profile.
+    /// </summary>
+    /// <param name="libraryProfile">The immutable profile captured for startup.</param>
+    /// <param name="library">The library created from <paramref name="libraryProfile"/>.</param>
+    /// <returns>The constructed startup playlist.</returns>
+    internal BMSPlaylist CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library)
     {
         if (libraryProfile == null)
         {
             throw new ArgumentNullException(nameof(libraryProfile));
         }
+        if (library == null)
+        {
+            throw new ArgumentNullException(nameof(library));
+        }
+
         return new BMSPlaylist(
+            new BmsPlaylistLibraryBindings(library),
             libraryProfile.SongDbPath,
             libraryProfile.Lr2ConfigProvider,
             libraryProfile.Lr2ScoreDbPath,
-            getBMSScores,
-            getBeatorajaBmtSongHashResolver,
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,
             customFolderOutputSettingsProvider,
             applicationPathSnapshot,
-            uiScheduler,
-            lr2PlaylistFolderSynchronization);
+            uiScheduler);
     }
+
+    BMSLibrary IStartupLibraryFactory.CreateBmsLibrary(LibraryProfile libraryProfile)
+        => CreateBmsLibrary(libraryProfile);
+
+    BMSPlaylist IStartupLibraryFactory.CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library)
+        => CreateBmsPlaylist(libraryProfile, library);
 
     internal MainWindowViewModel CreateMainWindowViewModel()
     {
-        return new MainWindowViewModel(this);
+        return new MainWindowViewModel(this, this);
     }
 }
 
@@ -726,7 +745,8 @@ internal sealed class MainWindowChildComposition
             packageCatalogLibraryProvider ?? (() => null),
             chartFileOperations,
             ChartMutationActivity,
-            installDestinationDialogService);
+            installDestinationDialogService,
+            mutation => Task.Run(mutation));
         DuplicateMaintenanceWorkflow = new DuplicateMaintenanceWorkflowOwner(
             duplicateMaintenanceLibraryProvider ?? throw new ArgumentNullException(nameof(duplicateMaintenanceLibraryProvider)),
             chartFileOperations,

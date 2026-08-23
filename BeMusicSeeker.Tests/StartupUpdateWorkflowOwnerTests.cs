@@ -26,7 +26,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
             schedule: action =>
             {
                 events.Add("schedule");
-                return Task.Run(action);
+                return StartLongRunningAsync(action);
             });
         StartupUpdateWorkflowCompletionReceipt receipt = null!;
         owner.TerminalPublished += published =>
@@ -56,7 +56,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
                 return Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0"));
             },
             cleanup: () => throw new IOException("cleanup failed"),
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         StartupUpdateWorkflowCompletionReceipt receipt = null!;
         owner.TerminalPublished += published => receipt = published;
         owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
@@ -82,7 +82,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0")),
             cleanup: () => throw receiptException,
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.FailurePresentationRequested += exception =>
         {
             Assert.AreSame(receiptException, exception);
@@ -106,7 +106,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0")),
             cleanup: () => throw receiptException,
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.FailurePresentationRequested += _ => throw new InvalidOperationException("presentation failed");
 
         Assert.IsTrue(owner.Start());
@@ -125,7 +125,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0")),
             cleanup: () => throw receiptException,
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.FailurePresentationRequested += _ => receiptException.DeferAcknowledge();
 
         Assert.IsTrue(owner.Start());
@@ -140,7 +140,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         var events = new List<string>();
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(CreateAvailableResult()),
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.PresentationRequested += request =>
         {
             events.Add("present");
@@ -181,7 +181,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
                     return new UpdaterLaunchReceipt();
                 });
             },
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.PresentationRequested += request =>
         {
             events.Add("present");
@@ -222,7 +222,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         int presentationCount = 0;
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => checkCompletion.Task,
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.PresentationRequested += request => Interlocked.Increment(ref presentationCount);
         StartupUpdateWorkflowCompletionReceipt receipt = null!;
         owner.TerminalPublished += published => receipt = published;
@@ -249,7 +249,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
                 downloadStarted.Set();
                 return downloadCompletion.Task;
             },
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.BindShutdownPreparation(_ =>
         {
@@ -278,7 +278,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(CreateAvailableResult()),
             download: asset => throw new InvalidOperationException("download failed"),
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
         owner.ApplicationShutdownRequested += () =>
@@ -309,7 +309,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
             () => Task.FromResult(CreateAvailableResult()),
             download: asset => Task.FromResult("package.zip"),
             prepare: packagePath => new FakePreparedUpdaterLaunch(() => new UpdaterLaunchReceipt()),
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.BindShutdownPreparation(_ => Task.FromException<ShutdownPreparationResult>(new InvalidOperationException("shutdown preparation failed")));
         owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
@@ -340,7 +340,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(CreateAvailableResult()),
             prepare: packagePath => new FakePreparedUpdaterLaunch(() => new UpdaterLaunchReceipt()),
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
         owner.ApplicationShutdownRequested += () =>
@@ -372,7 +372,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
                 checkStarted.Set();
                 return checkCompletion.Task;
             },
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         Func<string, Task<ShutdownPreparationResult>> firstPort = _ => Task.FromResult(new ShutdownPreparationResult("update", 1L, false, 0));
         owner.BindShutdownPreparation(firstPort);
 
@@ -397,7 +397,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
             () => Task.FromResult(CreateAvailableResult()),
             prepare: packagePath => new FakePreparedUpdaterLaunch(
                 () => new UpdaterLaunchReceipt(() => Interlocked.Increment(ref launchAbortCount))),
-            schedule: action => Task.Run(action),
+            schedule: action => StartLongRunningAsync(action),
             dispatch: action => _ = Task.Run(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.BindShutdownPreparation(_ => Task.FromException<ShutdownPreparationResult>(new InvalidOperationException("shutdown preparation failed")));
@@ -435,7 +435,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
             download: asset => Task.FromResult("package.zip"),
             prepare: packagePath => new FakePreparedUpdaterLaunch(() => null!),
             delete: packagePath => events.Add("delete"),
-            schedule: action => Task.Run(action));
+            schedule: action => StartLongRunningAsync(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         int shutdownPreparationCount = 0;
         owner.BindShutdownPreparation(_ =>
@@ -483,6 +483,16 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
     }
 
+    private static Task StartLongRunningAsync(Func<Task> action)
+    {
+        return Task.Factory.StartNew(
+                action,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default)
+            .Unwrap();
+    }
+
     private static void WaitForCompletion(StartupUpdateWorkflowOwner owner)
     {
         Assert.IsTrue(
@@ -505,7 +515,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
             prepare ?? (packagePath => new FakePreparedUpdaterLaunch(() => new UpdaterLaunchReceipt())),
             cleanup ?? (() => { }),
             delete ?? (_ => { }),
-            schedule ?? (action => Task.Run(action)),
+            schedule ?? (action => StartLongRunningAsync(action)),
             dispatch ?? (action => action()));
     }
 

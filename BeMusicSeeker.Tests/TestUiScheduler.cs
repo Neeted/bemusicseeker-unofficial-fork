@@ -52,6 +52,41 @@ internal sealed class TestUiScheduler : IUiScheduler
 }
 
 /// <summary>
+/// Serializes test ownership of the process-global operating-system cursor.
+/// </summary>
+internal sealed class TestProcessGlobalCursorScope : IDisposable
+{
+    private static readonly object syncRoot = new();
+
+    private bool entered;
+
+    private TestProcessGlobalCursorScope()
+    {
+        Monitor.Enter(syncRoot);
+        entered = true;
+    }
+
+    /// <summary>
+    /// Acquires exclusive cursor ownership until the returned scope is disposed.
+    /// </summary>
+    /// <returns>The exclusive process-global cursor scope.</returns>
+    internal static TestProcessGlobalCursorScope Enter() => new();
+
+    /// <summary>
+    /// Releases cursor ownership exactly once.
+    /// </summary>
+    public void Dispose()
+    {
+        if (!entered)
+        {
+            return;
+        }
+        entered = false;
+        Monitor.Exit(syncRoot);
+    }
+}
+
+/// <summary>
 /// Owns the test assembly's single WPF application and its dedicated STA dispatcher.
 /// </summary>
 internal static class TestUiDispatcherHost
@@ -149,6 +184,89 @@ internal static class TestUiDispatcherHost
         Dispatcher dispatcher = host.Value.Dispatcher;
         dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
         dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+    }
+
+    /// <summary>
+    /// Pumps the host dispatcher until an explicit asynchronous outcome completes.
+    /// </summary>
+    /// <param name="task">The task that represents the outcome under test.</param>
+    /// <param name="operationName">A diagnostic name used when the outcome does not complete.</param>
+    /// <remarks>
+    /// The watchdog only detects a missing outcome; it is not part of the normal completion path.
+    /// </remarks>
+    internal static void AwaitTaskOnDispatcher(Task task, string operationName)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationName);
+
+        Dispatcher dispatcher = host.Value.Dispatcher;
+        if (!dispatcher.CheckAccess())
+        {
+            throw new InvalidOperationException(
+                "AwaitTaskOnDispatcher must be called from the test application dispatcher.");
+        }
+
+        if (task.IsCompleted)
+        {
+            task.GetAwaiter().GetResult();
+            return;
+        }
+
+        var frame = new DispatcherFrame();
+        bool timedOut = false;
+        ExceptionDispatchInfo? dispatchFailure = null;
+        var watchdog = new DispatcherTimer(
+            TimeSpan.FromSeconds(5),
+            DispatcherPriority.Send,
+            (_, _) =>
+            {
+                timedOut = true;
+                frame.Continue = false;
+            },
+            dispatcher);
+
+        _ = task.ContinueWith(
+            _ =>
+            {
+                try
+                {
+                    dispatcher.BeginInvoke(
+                        DispatcherPriority.Send,
+                        new Action(() => frame.Continue = false));
+                }
+                catch (Exception ex)
+                {
+                    dispatchFailure = ExceptionDispatchInfo.Capture(ex);
+                    frame.Continue = false;
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        watchdog.Start();
+        try
+        {
+            Dispatcher.PushFrame(frame);
+        }
+        finally
+        {
+            watchdog.Stop();
+        }
+
+        if (dispatchFailure != null)
+        {
+            dispatchFailure.Throw();
+        }
+
+        if (timedOut && !task.IsCompleted)
+        {
+            throw new TimeoutException(
+                $"The dispatcher outcome '{operationName}' did not complete within 5 seconds. "
+                + $"Task status: {task.Status}.");
+        }
+
+        task.GetAwaiter().GetResult();
     }
 
     /// <summary>

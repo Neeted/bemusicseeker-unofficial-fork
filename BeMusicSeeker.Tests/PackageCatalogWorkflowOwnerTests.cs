@@ -323,6 +323,11 @@ public sealed class PackageCatalogWorkflowOwnerTests
             synchronizer,
             activity,
             AcceptedDialogs(),
+            mutation => Task.Factory.StartNew(
+                mutation,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default),
             store);
         owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
         activity.ActivityChanged += phaseObserver.OnActivityChanged;
@@ -373,6 +378,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             new ChartFileOperationSynchronizer(),
             activity,
             dialogs,
+            mutation => Task.Run(mutation),
             store);
         owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
         activity.ActivityChanged += phaseObserver.OnActivityChanged;

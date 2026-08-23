@@ -10,6 +10,43 @@ namespace BeMusicSeeker.Tests;
 public sealed class ApplicationRestartGatewayTests
 {
     [TestMethod]
+    public void RestartArgumentsExcludeExecutableAndPreserveCanonicalWindowsQuoting()
+    {
+        string arguments = ApplicationRestartArgumentsPolicy.BuildCommandLineArguments(
+            new[]
+            {
+                @"C:\BeMusicSeeker\BeMusicSeeker.exe",
+                "first",
+                string.Empty,
+                "two words",
+                "quote\"inside",
+                "trail \\",
+            });
+
+        string quotedValue = new string(new[]
+        {
+            '"', 'q', 'u', 'o', 't', 'e', '\\', '"', 'i', 'n', 's', 'i', 'd', 'e', '"'
+        });
+        string trailingSlashValue = new string(new[]
+        {
+            '"', 't', 'r', 'a', 'i', 'l', ' ', '\\', '\\', '"'
+        });
+
+        Assert.AreEqual(
+            string.Join(" ", "first", "\"\"", "\"two words\"", quotedValue, trailingSlashValue),
+            arguments);
+    }
+
+    [TestMethod]
+    public void RestartArgumentsWithOnlyExecutableAreEmpty()
+    {
+        Assert.AreEqual(
+            string.Empty,
+            ApplicationRestartArgumentsPolicy.BuildCommandLineArguments(
+                new[] { @"C:\BeMusicSeeker\BeMusicSeeker.exe" }));
+    }
+
+    [TestMethod]
     public void RestartRequestPreservesExecutableArgumentsAndWorkingDirectory()
     {
         ApplicationRestartRequest request = ApplicationRestartRequest.Create(

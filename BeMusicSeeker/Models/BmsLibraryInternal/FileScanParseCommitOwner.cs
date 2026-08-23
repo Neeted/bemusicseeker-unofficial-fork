@@ -319,8 +319,10 @@ internal sealed class FileScanParseCommitOwner
         }
 
         List<FileDiffParseTarget> parseTargets = [.. EnumerateFileDiffTargets(bmsTargets, bmsonPaths)];
-        int parserDegree = Math.Max(1, result.FileDiffParserDegree);
-        int postParseWorkerDegree = ResolveFileDiffPostParseWorkerDegree(parserDegree);
+        int configuredParserDegree = Math.Max(1, result.FileDiffParserDegree);
+        int parserDegree = Math.Max(1, Math.Min(configuredParserDegree, parseTargets.Count));
+        int configuredPostParseWorkerDegree = ResolveFileDiffPostParseWorkerDegree(configuredParserDegree);
+        int postParseWorkerDegree = Math.Max(1, Math.Min(configuredPostParseWorkerDegree, parseTargets.Count));
         int readerDegree = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, parseTargets.Count);
         int chartInfoBatchSize = Math.Max(1, result.InlineChartInfoBatchSize);
         int readQueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(parserDegree, readerDegree);
@@ -343,6 +345,7 @@ internal sealed class FileScanParseCommitOwner
                 + " inlineChartInfoBatchSize=" + chartInfoBatchSize);
         }
         result.FileDiffReaderDegree = readerDegree;
+        result.FileDiffParserDegree = parserDegree;
         result.FileDiffPostParseWorkerDegree = postParseWorkerDegree;
         result.ReadQueueCapacity = readQueueCapacity;
         result.ParsedQueueCapacity = parsedQueueCapacity;

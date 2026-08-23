@@ -11,9 +11,9 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public sealed class MaintenanceTreeViewModel : ViewModel
 {
-    private BMSLibrary library;
+    private IMaintenanceTreePresentationState presentationState;
 
-    private PropertyChangedEventListener libraryPropertyChangedListener;
+    private PropertyChangedEventListener presentationStatePropertyChangedListener;
 
     internal event EventHandler<MaintenanceTreeDuplicatePresentationChangedEventArgs> DuplicatePresentationChanged;
 
@@ -21,75 +21,78 @@ public sealed class MaintenanceTreeViewModel : ViewModel
     /// Gets the canonical duplicate-group collection exposed to the maintenance tree.
     /// </summary>
     public List<DuplicateGroup> DuplicateChartGroups
-        => library?.DuplicateChartGroups;
+        => presentationState?.DuplicateChartGroups;
 
     /// <summary>
     /// Gets whether health maintenance initialization is still holding its write lock.
     /// </summary>
     public bool IsWriteLockHeldInitializdBMSFilesHealthStatus
-        => library?.IsWriteLockHeldInitializdBMSFilesHealthStatus ?? true;
+        => presentationState?.IsWriteLockHeldInitializdBMSFilesHealthStatus ?? true;
 
     /// <summary>
     /// Gets whether encoding maintenance initialization is still holding its write lock.
     /// </summary>
     public bool IsWriteLockHeldInitializeBMSFilesEncodingInfo
-        => library?.IsWriteLockHeldInitializeBMSFilesEncodingInfo ?? true;
+        => presentationState?.IsWriteLockHeldInitializeBMSFilesEncodingInfo ?? true;
 
     /// <summary>
     /// Gets whether zero-note maintenance initialization is still holding its write lock.
     /// </summary>
     public bool IsWriteLockHeldInitializeBMSFilesZeroNote
-        => library?.IsWriteLockHeldInitializeBMSFilesZeroNote ?? true;
+        => presentationState?.IsWriteLockHeldInitializeBMSFilesZeroNote ?? true;
 
     /// <summary>
     /// Gets whether duplicate-group maintenance is still holding its write lock.
     /// </summary>
     public bool IsWriteLockHeldDuplicateChartGroups
-        => library?.IsWriteLockHeldDuplicateChartGroups ?? false;
+        => presentationState?.IsWriteLockHeldDuplicateChartGroups ?? false;
 
-    internal void AttachLibrary(BMSLibrary value)
+    /// <summary>
+    /// Attaches a maintenance presentation state and subscribes to its existing notifications.
+    /// </summary>
+    internal void AttachPresentationState(IMaintenanceTreePresentationState value)
     {
-        if (ReferenceEquals(library, value))
+        if (ReferenceEquals(presentationState, value))
         {
             return;
         }
 
         DetachLibrary();
-        library = value ?? throw new ArgumentNullException(nameof(value));
-        BMSLibrary attachedLibrary = library;
-        libraryPropertyChangedListener = new PropertyChangedEventListener(attachedLibrary);
-        libraryPropertyChangedListener.RegisterHandler(
-            () => attachedLibrary.DuplicateChartGroups,
+        presentationState = value ?? throw new ArgumentNullException(nameof(value));
+        IMaintenanceTreePresentationState attachedState = presentationState;
+        presentationStatePropertyChangedListener = new PropertyChangedEventListener(attachedState);
+        presentationStatePropertyChangedListener.RegisterHandler(
+            () => attachedState.DuplicateChartGroups,
             delegate
             {
                 PublishDuplicatePresentationChanged("bms_files_duplicated_changed");
             });
-        libraryPropertyChangedListener.RegisterHandler(
-            () => attachedLibrary.DuplicateChartGroupsInvalidationVersion,
+        presentationStatePropertyChangedListener.RegisterHandler(
+            () => attachedState.DuplicateChartGroupsInvalidationVersion,
             delegate
             {
                 PublishDuplicatePresentationChanged("bms_files_duplicated_invalidated");
             });
-        libraryPropertyChangedListener.RegisterHandler(
-            () => attachedLibrary.IsWriteLockHeldInitializdBMSFilesHealthStatus,
+        presentationStatePropertyChangedListener.RegisterHandler(
+            () => attachedState.IsWriteLockHeldInitializdBMSFilesHealthStatus,
             delegate
             {
                 RaisePropertyChanged(nameof(IsWriteLockHeldInitializdBMSFilesHealthStatus));
             });
-        libraryPropertyChangedListener.RegisterHandler(
-            () => attachedLibrary.IsWriteLockHeldInitializeBMSFilesEncodingInfo,
+        presentationStatePropertyChangedListener.RegisterHandler(
+            () => attachedState.IsWriteLockHeldInitializeBMSFilesEncodingInfo,
             delegate
             {
                 RaisePropertyChanged(nameof(IsWriteLockHeldInitializeBMSFilesEncodingInfo));
             });
-        libraryPropertyChangedListener.RegisterHandler(
-            () => attachedLibrary.IsWriteLockHeldInitializeBMSFilesZeroNote,
+        presentationStatePropertyChangedListener.RegisterHandler(
+            () => attachedState.IsWriteLockHeldInitializeBMSFilesZeroNote,
             delegate
             {
                 RaisePropertyChanged(nameof(IsWriteLockHeldInitializeBMSFilesZeroNote));
             });
-        libraryPropertyChangedListener.RegisterHandler(
-            () => attachedLibrary.IsWriteLockHeldDuplicateChartGroups,
+        presentationStatePropertyChangedListener.RegisterHandler(
+            () => attachedState.IsWriteLockHeldDuplicateChartGroups,
             delegate
             {
                 RaisePropertyChanged(nameof(IsWriteLockHeldDuplicateChartGroups));
@@ -98,18 +101,29 @@ public sealed class MaintenanceTreeViewModel : ViewModel
         PublishDuplicatePresentationChanged("maintenance_tree_attached");
     }
 
+    /// <summary>
+    /// Attaches a BMS library through the maintenance presentation contract.
+    /// </summary>
+    internal void AttachLibrary(BMSLibrary value)
+    {
+        AttachPresentationState(value);
+    }
+
+    /// <summary>
+    /// Detaches the current maintenance presentation state and returns to unattached defaults.
+    /// </summary>
     internal void DetachLibrary()
     {
-        if (libraryPropertyChangedListener is IDisposable disposable)
+        if (presentationStatePropertyChangedListener is IDisposable disposable)
         {
             disposable.Dispose();
         }
-        libraryPropertyChangedListener = null;
-        if (library == null)
+        presentationStatePropertyChangedListener = null;
+        if (presentationState == null)
         {
             return;
         }
-        library = null;
+        presentationState = null;
         RaiseBusyStateProperties();
         PublishDuplicatePresentationChanged("maintenance_tree_detached");
     }

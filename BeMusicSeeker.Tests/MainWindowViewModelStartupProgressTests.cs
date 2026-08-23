@@ -90,6 +90,114 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public async Task StartupLibraryInitializationFailure_PreservesRootFailurePolicyAndStopsBeforeReadiness()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var settings = new Settings();
+        var composition = new ApplicationComposition(
+            settingsEditSession: new NoOpSettingsEditSession(settings),
+            uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        var failurePresenter = new RecordingStartupLibraryInitializationFailurePresenter();
+        var viewModel = new MainWindowViewModel(
+            composition,
+            composition,
+            startupLibraryInitializationFailurePresenter: failurePresenter);
+        var settingsPresentation = new RecordingSettingsDialogPresentationPort();
+        viewModel.SettingDialog.AttachPresentationPort(settingsPresentation);
+        StartupProgressWorkflowOwner progress = viewModel.ProgressHub.StartupProgress;
+        long operationToken = progress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        progress.SetStartupUiInteractionBlocked(true);
+        var failure = new InvalidOperationException("file initialization failed");
+
+        try
+        {
+            bool initialized = await viewModel.InitializeStartupLibraryFilesAsync(
+                () => throw failure,
+                operationToken,
+                startupCustomFolderSettings: null);
+
+            Assert.IsFalse(initialized);
+            Assert.AreEqual(1, failurePresenter.Presentations.Count);
+            Assert.AreSame(failure, failurePresenter.Presentations[0].Exception);
+            CollectionAssert.AreEqual(new[] { "open" }, settingsPresentation.Requests);
+            Assert.IsTrue(progress.IsFailed);
+            Assert.IsTrue(progress.IsRetryableFailure);
+            Assert.IsFalse(progress.IsStartupUiInteractionBlocked);
+            Assert.IsFalse(progress.IsStartupInitializationRequiredProgressComplete(operationToken));
+            Assert.AreEqual(1.0, progress.Value);
+            Assert.IsFalse(viewModel.IsInitializationCompleted);
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+        }
+        finally
+        {
+            viewModel.SettingDialog.DetachPresentationPort(settingsPresentation);
+            viewModel.SettingDialog.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task StartupLibraryInitializationFailure_WhenPresenterThrows_PreservesPrimaryFailureAndCleanup()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var settings = new Settings();
+        var composition = new ApplicationComposition(
+            settingsEditSession: new NoOpSettingsEditSession(settings),
+            uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        var presentationFailure = new InvalidOperationException("failure presentation failed");
+        var failurePresenter = new ThrowingStartupLibraryInitializationFailurePresenter(presentationFailure);
+        var viewModel = new MainWindowViewModel(
+            composition,
+            composition,
+            startupLibraryInitializationFailurePresenter: failurePresenter);
+        var settingsPresentation = new RecordingSettingsDialogPresentationPort();
+        viewModel.SettingDialog.AttachPresentationPort(settingsPresentation);
+        StartupProgressWorkflowOwner progress = viewModel.ProgressHub.StartupProgress;
+        long operationToken = progress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        progress.SetStartupUiInteractionBlocked(true);
+        var initializationFailure = new InvalidOperationException("file initialization failed");
+        using var gate = new SemaphoreSlim(1, 1);
+        var gateOwner = new StartupLibraryInitializationWorkflowOwner(gate);
+
+        try
+        {
+            bool initialized;
+            using (await gateOwner.AcquireGateAsync())
+            {
+                initialized = await viewModel.InitializeStartupLibraryFilesAsync(
+                    () => throw initializationFailure,
+                    operationToken,
+                    startupCustomFolderSettings: null);
+            }
+
+            Assert.IsFalse(initialized);
+            Assert.AreEqual(1, failurePresenter.Presentations.Count);
+            Assert.AreSame(initializationFailure, failurePresenter.Presentations[0].Exception);
+            CollectionAssert.AreEqual(new[] { "open" }, settingsPresentation.Requests);
+            Assert.IsTrue(progress.IsFailed);
+            Assert.IsTrue(progress.IsRetryableFailure);
+            Assert.AreEqual(initializationFailure.Message, progress.SubLabel);
+            Assert.IsFalse(progress.IsStartupUiInteractionBlocked);
+            Assert.IsFalse(progress.IsStartupInitializationRequiredProgressComplete(operationToken));
+            Assert.AreEqual(1.0, progress.Value);
+            Assert.IsFalse(viewModel.IsInitializationCompleted);
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+
+            Task<StartupLibraryInitializationGateLease> nextAcquire = gateOwner.AcquireGateAsync();
+            Assert.IsTrue(nextAcquire.IsCompletedSuccessfully);
+            using StartupLibraryInitializationGateLease nextLease = await nextAcquire;
+        }
+        finally
+        {
+            viewModel.SettingDialog.DetachPresentationPort(settingsPresentation);
+            viewModel.SettingDialog.Dispose();
+        }
+    }
+
+    [TestMethod]
     public void StartupProgress_ScoreOnlyCompletesThroughRuntimeRoutes()
     {
         StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.ScoreOnly);
@@ -776,6 +884,34 @@ public sealed class MainWindowViewModelStartupProgressTests
         })
         {
             Skip(owner, phase);
+        }
+    }
+
+    private sealed class RecordingStartupLibraryInitializationFailurePresenter
+        : IStartupLibraryInitializationFailurePresenter
+    {
+        internal List<StartupLibraryInitializationFailurePresentation> Presentations { get; } = new();
+
+        public void Present(StartupLibraryInitializationFailurePresentation presentation)
+            => Presentations.Add(presentation);
+    }
+
+    private sealed class ThrowingStartupLibraryInitializationFailurePresenter
+        : IStartupLibraryInitializationFailurePresenter
+    {
+        private readonly Exception failure;
+
+        internal ThrowingStartupLibraryInitializationFailurePresenter(Exception failure)
+        {
+            this.failure = failure;
+        }
+
+        internal List<StartupLibraryInitializationFailurePresentation> Presentations { get; } = new();
+
+        public void Present(StartupLibraryInitializationFailurePresentation presentation)
+        {
+            Presentations.Add(presentation);
+            throw failure;
         }
     }
 

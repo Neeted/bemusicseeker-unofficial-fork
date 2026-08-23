@@ -3,8 +3,11 @@ using System.Collections.ObjectModel;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -42,6 +45,236 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         {
             testSettings.ScanBmsFilesOnStartup = previousScan;
             testSettings.AutoInstall = previousAutoInstall;
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadCandidate_SupportedChartAndArchiveNamesWriteExactBasenameExtensionAndBytes()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        byte[] expectedBytes = [0x10, 0x20, 0x30, 0x40];
+        string[] supportedNames = ["chart.bms", "chart.bme", "chart.bml", "chart.pms", "chart.bmson", "package.zip", "package.7z", "package.rar", "package.lzh"];
+        try
+        {
+            var gateway = new FakePlaylistUrlDownloadGateway(temporaryDirectory, expectedBytes);
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            foreach (string fileName in supportedNames)
+            {
+                Uri uri = new("https://example.invalid/download/" + fileName);
+                PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(uri);
+
+                Assert.AreEqual(PlaylistUrlDownloadResultKind.Downloaded, result.Kind);
+                Assert.AreEqual(fileName, Path.GetFileName(result.FilePath));
+                Assert.AreEqual(Path.GetExtension(fileName), Path.GetExtension(result.FilePath));
+                CollectionAssert.AreEqual(expectedBytes, File.ReadAllBytes(result.FilePath));
+            }
+
+            Assert.AreEqual(supportedNames.Length, Directory.GetFiles(temporaryDirectory).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadCandidate_UsesContentDispositionForExtensionlessQueryUri()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        byte[] expectedBytes = [0x51, 0x52, 0x53];
+        Uri uri = new("https://example.invalid/download?id=42");
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            gateway.AddResponse(uri, () => CreateHttpResponse(
+                uri,
+                expectedBytes,
+                "application/octet-stream",
+                "attachment; filename=chart.bmson"));
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(uri);
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Downloaded, result.Kind);
+            Assert.AreEqual("chart.bmson", Path.GetFileName(result.FilePath));
+            Assert.AreEqual(".bmson", Path.GetExtension(result.FilePath));
+            CollectionAssert.AreEqual(expectedBytes, File.ReadAllBytes(result.FilePath));
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("chart.bms")]
+    [DataRow("package.zip")]
+    public async Task DownloadCandidate_ResolvesKnownSharedHtmlPageToDirectSupportedFile(string fileName)
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        byte[] expectedBytes = [0x61, 0x62, 0x63];
+        Uri pageUri = new("https://www.mediafire.com/file/test-page/playlist");
+        Uri directUri = new("https://download.mediafire.com/test-download/" + fileName);
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            string html = "<html><body><a id=\"downloadButton\" href=\"" + directUri + "\">Download</a></body></html>";
+            gateway.AddResponse(pageUri, () => CreateHttpResponse(
+                pageUri,
+                Encoding.UTF8.GetBytes(html),
+                "text/html"));
+            gateway.AddResponse(directUri, () => CreateHttpResponse(
+                directUri,
+                expectedBytes,
+                "application/octet-stream"));
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(pageUri);
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Downloaded, result.Kind);
+            Assert.AreEqual(fileName, Path.GetFileName(result.FilePath));
+            CollectionAssert.AreEqual(expectedBytes, File.ReadAllBytes(result.FilePath));
+            CollectionAssert.AreEqual(
+                new[] { pageUri.AbsoluteUri, directUri.AbsoluteUri },
+                gateway.RequestedUris.Select(requestedUri => requestedUri.AbsoluteUri).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadCandidate_UnsupportedNamesAndHtmlChartReturnBrowserFallbackWithoutWriting()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        byte[] responseBytes = [0x71, 0x72, 0x73];
+        Uri unsupportedUri = new("https://example.invalid/download/package.txt");
+        Uri htmlChartUri = new("https://example.invalid/download/chart.bms");
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            gateway.AddResponse(unsupportedUri, () => new AppHttpResponse(
+                unsupportedUri,
+                new MemoryStream(responseBytes, writable: false)));
+            gateway.AddResponse(htmlChartUri, () => CreateHttpResponse(
+                htmlChartUri,
+                responseBytes,
+                "text/html"));
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            PlaylistUrlDownloadResult unsupportedResult = await workflow.DownloadCandidateAsync(unsupportedUri);
+            PlaylistUrlDownloadResult htmlChartResult = await workflow.DownloadCandidateAsync(htmlChartUri);
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.BrowserFallback, unsupportedResult.Kind);
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.BrowserFallback, htmlChartResult.Kind);
+            Assert.AreEqual(0, gateway.OpenWriteCount);
+            Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadCandidate_TransportExceptionReturnsFailedWithoutWriting()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        Uri uri = new("https://example.invalid/download/package.zip");
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory)
+            {
+                TransportException = new HttpRequestException("transport failure")
+            };
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(uri);
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, result.Kind);
+            Assert.AreEqual(0, gateway.OpenWriteCount);
+            Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadCandidate_ExplicitCancellationPropagatesOperationCanceledException()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            using var cancellation = new CancellationTokenSource();
+            Task<PlaylistUrlDownloadResult> acquisition = workflow.DownloadCandidateAsync(
+                new Uri("https://example.invalid/download/running.zip"),
+                cancellationToken: cancellation.Token);
+
+            await gateway.ReadStarted.Task;
+            cancellation.Cancel();
+            gateway.Response.TrySetCanceled(cancellation.Token);
+
+            try
+            {
+                await acquisition;
+                Assert.Fail("Explicit cancellation should propagate as an OperationCanceledException.");
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
         }
     }
 
@@ -892,6 +1125,30 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         field.SetValue(target, value);
     }
 
+    private static AppHttpResponse CreateHttpResponse(
+        Uri requestUri,
+        byte[] content,
+        string contentType,
+        string? contentDisposition = null)
+    {
+        var responseMessage = new HttpResponseMessage
+        {
+            RequestMessage = new HttpRequestMessage(HttpMethod.Get, requestUri),
+            Content = new ByteArrayContent(content)
+        };
+        responseMessage.Content.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        if (!string.IsNullOrWhiteSpace(contentDisposition))
+        {
+            responseMessage.Content.Headers.TryAddWithoutValidation(
+                "Content-Disposition",
+                contentDisposition);
+        }
+        return new AppHttpResponse(
+            requestUri,
+            responseMessage,
+            new MemoryStream(content, writable: false));
+    }
+
     private sealed class RecordingPlaylistUrlDialogService : IUiDialogService
     {
         internal List<UiConfirmationRequest> Confirmations { get; } = [];
@@ -947,6 +1204,57 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             UiProgressRequest request,
             Func<UiProgressContext, Task> operation,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class RecordingPlaylistUrlDownloadGateway : IPlaylistUrlDownloadGateway
+    {
+        private readonly string temporaryDirectory;
+
+        private readonly Dictionary<string, Func<AppHttpResponse>> responses =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        internal RecordingPlaylistUrlDownloadGateway(string temporaryDirectory)
+        {
+            this.temporaryDirectory = temporaryDirectory;
+        }
+
+        internal List<Uri> RequestedUris { get; } = [];
+
+        internal int OpenWriteCount { get; private set; }
+
+        internal Exception? TransportException { get; set; }
+
+        internal void AddResponse(Uri uri, Func<AppHttpResponse> responseFactory)
+        {
+            responses[uri.AbsoluteUri] = responseFactory;
+        }
+
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RequestedUris.Add(uri);
+            if (TransportException is not null)
+            {
+                throw TransportException;
+            }
+            if (!responses.TryGetValue(uri.AbsoluteUri, out Func<AppHttpResponse>? responseFactory))
+            {
+                throw new InvalidOperationException("No fake response was configured for " + uri);
+            }
+            return Task.FromResult(responseFactory());
+        }
+
+        public string GetTemporaryDirectory() => temporaryDirectory;
+
+        public FileStream OpenWrite(string path, FileMode mode, FileAccess access, FileShare share)
+        {
+            OpenWriteCount++;
+            return new FileStream(path, mode, access, share);
+        }
+
+        public bool FileExists(string path) => File.Exists(path);
+
+        public void DeleteFile(string path) => File.Delete(path);
     }
 
     private sealed class FakePlaylistUrlDownloadGateway : IPlaylistUrlDownloadGateway

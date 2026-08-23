@@ -105,13 +105,13 @@ public sealed class SettingDialogOpenCommandTests
             PlayerDeviceName = "Saved missing device"
         };
         var catalog = new TestAudioDeviceCatalog
-            {
-                Devices =
+        {
+            Devices =
                 [
                     new AudioDeviceInfo("Default", string.Empty),
                     new AudioDeviceInfo("Current device", "current-device")
                 ]
-            };
+        };
         MainWindowViewModel viewModel = CreateViewModel(
             catalog,
             new TestSettingsEditSession(settings));

@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Threading;
+using System.ComponentModel;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -13,139 +11,229 @@ namespace BeMusicSeeker.Tests;
 public sealed class MaintenanceTreeViewModelTests
 {
     [TestMethod]
-    public void Attach_ExposesCanonicalMaintenanceStateAndPublishesInitialFact()
+    public void Unattached_UsesCurrentDefaults()
     {
-        WithLibrary(delegate (BMSLibrary library)
-        {
-            var owner = new MaintenanceTreeViewModel();
-            var reasons = new List<string>();
-            owner.DuplicatePresentationChanged += (_, args) => reasons.Add(args.Reason);
+        var owner = new MaintenanceTreeViewModel();
 
-            owner.AttachLibrary(library);
-
-            Assert.IsNull(owner.DuplicateChartGroups);
-            Assert.AreEqual(library.IsWriteLockHeldInitializdBMSFilesHealthStatus, owner.IsWriteLockHeldInitializdBMSFilesHealthStatus);
-            Assert.AreEqual(library.IsWriteLockHeldInitializeBMSFilesEncodingInfo, owner.IsWriteLockHeldInitializeBMSFilesEncodingInfo);
-            Assert.AreEqual(library.IsWriteLockHeldInitializeBMSFilesZeroNote, owner.IsWriteLockHeldInitializeBMSFilesZeroNote);
-            Assert.AreEqual(library.IsWriteLockHeldDuplicateChartGroups, owner.IsWriteLockHeldDuplicateChartGroups);
-            CollectionAssert.AreEqual(new[] { "maintenance_tree_attached" }, reasons);
-        });
+        Assert.IsNull(owner.DuplicateChartGroups);
+        Assert.IsTrue(owner.IsWriteLockHeldInitializdBMSFilesHealthStatus);
+        Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesEncodingInfo);
+        Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesZeroNote);
+        Assert.IsFalse(owner.IsWriteLockHeldDuplicateChartGroups);
     }
 
     [TestMethod]
-    public void DuplicateReplacementAndInvalidation_PublishDistinctFactsAndApplyOnlyDuplicateProperty()
+    public void Attach_ProjectsStateAndPublishesInitialFact()
     {
-        WithLibrary(delegate (BMSLibrary library)
-        {
-            var owner = new MaintenanceTreeViewModel();
-            var reasons = new List<string>();
-            using var replacementSignal = new ManualResetEventSlim();
-            owner.DuplicatePresentationChanged += (_, args) =>
-            {
-                lock (reasons)
-                {
-                    reasons.Add(args.Reason);
-                }
-                replacementSignal.Set();
-            };
-            owner.AttachLibrary(library);
-            reasons.Clear();
-            replacementSignal.Reset();
+        var duplicateGroups = new List<DuplicateGroup>();
+        var state = new MaintenanceTreePresentationStateFake(
+            duplicateGroups,
+            healthStatusWriteLockHeld: false,
+            encodingInfoWriteLockHeld: false,
+            zeroNoteWriteLockHeld: false,
+            duplicateGroupsWriteLockHeld: true);
+        var owner = new MaintenanceTreeViewModel();
+        var reasons = new List<string>();
+        owner.DuplicatePresentationChanged += (_, args) => reasons.Add(args.Reason);
 
-            var replacement = new List<DuplicateGroup>();
-            library.DuplicateChartGroups = replacement;
-            Assert.IsTrue(replacementSignal.Wait(TimeSpan.FromSeconds(5)));
-            CollectionAssert.AreEqual(new[] { "bms_files_duplicated_changed" }, reasons);
-            Assert.AreSame(replacement, owner.DuplicateChartGroups);
+        owner.AttachPresentationState(state);
 
-            reasons.Clear();
-            replacementSignal.Reset();
-            library.BMSFiles = [];
-            Assert.IsTrue(replacementSignal.Wait(TimeSpan.FromSeconds(5)));
-            CollectionAssert.AreEqual(new[] { "bms_files_duplicated_invalidated" }, reasons);
-
-            var propertyNames = new List<string>();
-            owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
-            owner.ApplyDuplicateGroupsPresentation();
-            CollectionAssert.AreEqual(
-                new[] { nameof(MaintenanceTreeViewModel.DuplicateChartGroups) },
-                propertyNames);
-        });
+        Assert.AreSame(duplicateGroups, owner.DuplicateChartGroups);
+        Assert.IsFalse(owner.IsWriteLockHeldInitializdBMSFilesHealthStatus);
+        Assert.IsFalse(owner.IsWriteLockHeldInitializeBMSFilesEncodingInfo);
+        Assert.IsFalse(owner.IsWriteLockHeldInitializeBMSFilesZeroNote);
+        Assert.IsTrue(owner.IsWriteLockHeldDuplicateChartGroups);
+        CollectionAssert.AreEqual(new[] { "maintenance_tree_attached" }, reasons);
     }
 
     [TestMethod]
-    public void BusyStateChanges_NotifyOnlyTheirChildProperties()
+    public void DuplicateReplacementAndInvalidation_PublishDistinctFactsSynchronously()
     {
-        WithLibrary(delegate (BMSLibrary library)
-        {
-            var owner = new MaintenanceTreeViewModel();
-            owner.AttachLibrary(library);
-            var propertyNames = new List<string>();
-            owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+        var state = new MaintenanceTreePresentationStateFake();
+        var owner = new MaintenanceTreeViewModel();
+        var reasons = new List<string>();
+        owner.DuplicatePresentationChanged += (_, args) => reasons.Add(args.Reason);
+        owner.AttachPresentationState(state);
+        reasons.Clear();
 
-            library.IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
-            CollectionAssert.AreEqual(
-                new[] { nameof(MaintenanceTreeViewModel.IsWriteLockHeldInitializdBMSFilesHealthStatus) },
-                propertyNames);
-            propertyNames.Clear();
-            library.IsWriteLockHeldInitializeBMSFilesEncodingInfo = false;
-            CollectionAssert.AreEqual(
-                new[] { nameof(MaintenanceTreeViewModel.IsWriteLockHeldInitializeBMSFilesEncodingInfo) },
-                propertyNames);
-            propertyNames.Clear();
-            library.IsWriteLockHeldInitializeBMSFilesZeroNote = false;
-            CollectionAssert.AreEqual(
-                new[] { nameof(MaintenanceTreeViewModel.IsWriteLockHeldInitializeBMSFilesZeroNote) },
-                propertyNames);
-        });
+        var replacement = new List<DuplicateGroup>();
+        state.ReplaceDuplicateChartGroups(replacement);
+
+        CollectionAssert.AreEqual(new[] { "bms_files_duplicated_changed" }, reasons);
+        Assert.AreSame(replacement, owner.DuplicateChartGroups);
+
+        reasons.Clear();
+        state.InvalidateDuplicateChartGroups();
+
+        CollectionAssert.AreEqual(new[] { "bms_files_duplicated_invalidated" }, reasons);
+        Assert.IsNull(owner.DuplicateChartGroups);
+
+        var propertyNames = new List<string>();
+        owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+        owner.ApplyDuplicateGroupsPresentation();
+        CollectionAssert.AreEqual(
+            new[] { nameof(MaintenanceTreeViewModel.DuplicateChartGroups) },
+            propertyNames);
     }
 
     [TestMethod]
-    public void Detach_ReturnsToUnattachedDefaultsAndStopsOldLibraryNotifications()
+    public void BusyStateChanges_ProjectPrecisely()
     {
-        WithLibrary(delegate (BMSLibrary library)
-        {
-            var owner = new MaintenanceTreeViewModel();
-            owner.AttachLibrary(library);
-            var propertyNames = new List<string>();
-            owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+        var state = new MaintenanceTreePresentationStateFake();
+        var owner = new MaintenanceTreeViewModel();
+        owner.AttachPresentationState(state);
+        var propertyNames = new List<string>();
+        owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
 
-            owner.DetachLibrary();
+        state.SetHealthStatusWriteLockHeld(false);
+        CollectionAssert.AreEqual(
+            new[] { nameof(MaintenanceTreeViewModel.IsWriteLockHeldInitializdBMSFilesHealthStatus) },
+            propertyNames);
+        propertyNames.Clear();
 
-            Assert.IsNull(owner.DuplicateChartGroups);
-            Assert.IsTrue(owner.IsWriteLockHeldInitializdBMSFilesHealthStatus);
-            Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesEncodingInfo);
-            Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesZeroNote);
-            Assert.IsFalse(owner.IsWriteLockHeldDuplicateChartGroups);
-            propertyNames.Clear();
-            library.IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
-            Assert.AreEqual(0, propertyNames.Count);
-        });
+        state.SetEncodingInfoWriteLockHeld(false);
+        CollectionAssert.AreEqual(
+            new[] { nameof(MaintenanceTreeViewModel.IsWriteLockHeldInitializeBMSFilesEncodingInfo) },
+            propertyNames);
+        propertyNames.Clear();
+
+        state.SetZeroNoteWriteLockHeld(false);
+        CollectionAssert.AreEqual(
+            new[] { nameof(MaintenanceTreeViewModel.IsWriteLockHeldInitializeBMSFilesZeroNote) },
+            propertyNames);
+        propertyNames.Clear();
+
+        state.SetDuplicateGroupsWriteLockHeld(true);
+        CollectionAssert.AreEqual(
+            new[] { nameof(MaintenanceTreeViewModel.IsWriteLockHeldDuplicateChartGroups) },
+            propertyNames);
     }
 
-    private static void WithLibrary(Action<BMSLibrary> action)
+    [TestMethod]
+    public void Detach_ReturnsToDefaultsAndStopsOldStateNotifications()
     {
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MaintenanceTree_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRootPath);
-        string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
-        try
+        var state = new MaintenanceTreePresentationStateFake();
+        var owner = new MaintenanceTreeViewModel();
+        var reasons = new List<string>();
+        var propertyNames = new List<string>();
+        owner.DuplicatePresentationChanged += (_, args) => reasons.Add(args.Reason);
+        owner.AttachPresentationState(state);
+        owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+        reasons.Clear();
+        propertyNames.Clear();
+
+        owner.DetachLibrary();
+
+        Assert.IsNull(owner.DuplicateChartGroups);
+        Assert.IsTrue(owner.IsWriteLockHeldInitializdBMSFilesHealthStatus);
+        Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesEncodingInfo);
+        Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesZeroNote);
+        Assert.IsFalse(owner.IsWriteLockHeldDuplicateChartGroups);
+        CollectionAssert.AreEqual(new[] { "maintenance_tree_detached" }, reasons);
+
+        reasons.Clear();
+        propertyNames.Clear();
+        state.ReplaceDuplicateChartGroups(new List<DuplicateGroup>());
+        state.SetHealthStatusWriteLockHeld(false);
+
+        Assert.AreEqual(0, reasons.Count);
+        Assert.AreEqual(0, propertyNames.Count);
+    }
+
+    [TestMethod]
+    public void Reattach_SubscribeOnceToCurrentStateAndIgnorePreviousState()
+    {
+        var previousState = new MaintenanceTreePresentationStateFake();
+        var currentState = new MaintenanceTreePresentationStateFake();
+        var owner = new MaintenanceTreeViewModel();
+        var reasons = new List<string>();
+        owner.DuplicatePresentationChanged += (_, args) => reasons.Add(args.Reason);
+
+        owner.AttachPresentationState(previousState);
+        owner.AttachPresentationState(currentState);
+        owner.AttachPresentationState(currentState);
+        reasons.Clear();
+
+        currentState.ReplaceDuplicateChartGroups(new List<DuplicateGroup>());
+        previousState.ReplaceDuplicateChartGroups(new List<DuplicateGroup>());
+
+        CollectionAssert.AreEqual(new[] { "bms_files_duplicated_changed" }, reasons);
+    }
+
+    private sealed class MaintenanceTreePresentationStateFake : IMaintenanceTreePresentationState
+    {
+        private List<DuplicateGroup> duplicateChartGroups = null!;
+
+        private int duplicateChartGroupsInvalidationVersion;
+
+        internal MaintenanceTreePresentationStateFake(
+            List<DuplicateGroup>? duplicateChartGroups = null,
+            bool healthStatusWriteLockHeld = true,
+            bool encodingInfoWriteLockHeld = true,
+            bool zeroNoteWriteLockHeld = true,
+            bool duplicateGroupsWriteLockHeld = false)
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-            }
-            action(new TestBmsLibrary(songDbPath));
+            this.duplicateChartGroups = duplicateChartGroups!;
+            IsWriteLockHeldInitializdBMSFilesHealthStatus = healthStatusWriteLockHeld;
+            IsWriteLockHeldInitializeBMSFilesEncodingInfo = encodingInfoWriteLockHeld;
+            IsWriteLockHeldInitializeBMSFilesZeroNote = zeroNoteWriteLockHeld;
+            IsWriteLockHeldDuplicateChartGroups = duplicateGroupsWriteLockHeld;
         }
-        finally
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public List<DuplicateGroup> DuplicateChartGroups => duplicateChartGroups;
+
+        public int DuplicateChartGroupsInvalidationVersion => duplicateChartGroupsInvalidationVersion;
+
+        public bool IsWriteLockHeldInitializdBMSFilesHealthStatus { get; private set; }
+
+        public bool IsWriteLockHeldInitializeBMSFilesEncodingInfo { get; private set; }
+
+        public bool IsWriteLockHeldInitializeBMSFilesZeroNote { get; private set; }
+
+        public bool IsWriteLockHeldDuplicateChartGroups { get; private set; }
+
+        internal void ReplaceDuplicateChartGroups(List<DuplicateGroup> replacement)
         {
-            if (Directory.Exists(tempRootPath))
-            {
-                Directory.Delete(tempRootPath, recursive: true);
-            }
+            duplicateChartGroups = replacement;
+            RaisePropertyChanged(nameof(DuplicateChartGroups));
+        }
+
+        internal void InvalidateDuplicateChartGroups()
+        {
+            duplicateChartGroups = null!;
+            duplicateChartGroupsInvalidationVersion++;
+            RaisePropertyChanged(nameof(DuplicateChartGroupsInvalidationVersion));
+        }
+
+        internal void SetHealthStatusWriteLockHeld(bool value)
+        {
+            IsWriteLockHeldInitializdBMSFilesHealthStatus = value;
+            RaisePropertyChanged(nameof(IsWriteLockHeldInitializdBMSFilesHealthStatus));
+        }
+
+        internal void SetEncodingInfoWriteLockHeld(bool value)
+        {
+            IsWriteLockHeldInitializeBMSFilesEncodingInfo = value;
+            RaisePropertyChanged(nameof(IsWriteLockHeldInitializeBMSFilesEncodingInfo));
+        }
+
+        internal void SetZeroNoteWriteLockHeld(bool value)
+        {
+            IsWriteLockHeldInitializeBMSFilesZeroNote = value;
+            RaisePropertyChanged(nameof(IsWriteLockHeldInitializeBMSFilesZeroNote));
+        }
+
+        internal void SetDuplicateGroupsWriteLockHeld(bool value)
+        {
+            IsWriteLockHeldDuplicateChartGroups = value;
+            RaisePropertyChanged(nameof(IsWriteLockHeldDuplicateChartGroups));
+        }
+
+        private void RaisePropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 }

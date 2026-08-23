@@ -326,22 +326,22 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     [TestMethod]
     public async Task QueryRelatedDocuments_CancellationDoesNotReturnSuccessfulReceipt()
     {
-        using var entered = new ManualResetEventSlim();
-        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
             relatedDocumentFileEnumerator: (_, _) =>
             {
-                entered.Set();
-                release.Wait();
+                entered.TrySetResult(true);
+                release.Task.GetAwaiter().GetResult();
                 return [];
             });
         ChartOperationTarget target = CreateTarget(@"C:\Songs\alpha.bms", ChartOperationCapabilities.None);
 
         using var cancellation = new CancellationTokenSource();
         Task<RelatedDocumentQueryReceipt> query = owner.QueryRelatedDocumentsAsync(target, cancellation.Token);
-        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         cancellation.Cancel();
-        release.Set();
+        release.TrySetResult(true);
 
         RelatedDocumentQueryReceipt receipt = await query;
 

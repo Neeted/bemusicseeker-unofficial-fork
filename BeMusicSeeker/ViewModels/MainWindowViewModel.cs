@@ -43,12 +43,25 @@ using Ribbit.Util.Extensions;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
+/// Supplies the shell lifecycle state required before a library reload can run.
+/// </summary>
+internal interface IMainWindowInitializationStatePort
+{
+    /// <summary>
+    /// Gets whether the shell has completed its library initialization boundary.
+    /// </summary>
+    bool IsInitializationCompleted { get; }
+}
+
+/// <summary>
 /// BeMusicSeeker のメイン画面を制御する ViewModel です。
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
 public partial class MainWindowViewModel : ViewModel,
-    ISettingsDialogStatePort
+    ISettingsDialogStatePort,
+    IStartupLibraryApplicationPort,
+    IMainWindowInitializationStatePort
 {
     /// <summary>
     /// Gets status-bar progress presentation state owned by the composed progress hub.
@@ -92,9 +105,24 @@ public partial class MainWindowViewModel : ViewModel,
 
     internal Lr2SongDbSyncWorkflowOwner Lr2SongDbSyncWorkflow { get; private set; }
 
+    /// <summary>
+    /// Gets the file-diff reload owner that sequences library reload before LR2 song DB synchronization.
+    /// </summary>
+    internal FileDiffReloadWorkflowOwner FileDiffReloadWorkflow { get; private set; }
+
     internal RankingCacheDownloadWorkflowOwner RankingCacheDownloadWorkflow { get; private set; }
 
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
+
+    /// <summary>
+    /// Gets the playlist-table reload owner that sequences table storage reload and external sync queueing.
+    /// </summary>
+    internal PlaylistTablesReloadWorkflowOwner PlaylistTablesReloadWorkflow { get; private set; }
+
+    /// <summary>
+    /// Gets the score-only reload owner for the library score-storage operation.
+    /// </summary>
+    internal ScoreOnlyReloadWorkflowOwner ScoreOnlyReloadWorkflow { get; private set; }
 
     /// <summary>
     /// Gets the one-shot startup update workflow owned by application composition.
@@ -220,9 +248,19 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly ApplicationComposition applicationComposition;
 
+    private readonly PlayHistoryRuntimeEventReporter playHistoryRuntimeEventReporter;
+
+    private readonly StartupLibraryConstructionOwner startupLibraryConstructionOwner;
+
+    private readonly StartupLibraryInitializationWorkflowOwner startupLibraryInitializationWorkflowOwner;
+
+    private readonly IStartupLibraryInitializationFailurePresenter startupLibraryInitializationFailurePresenter;
+
     private readonly IUiScheduler uiScheduler;
 
     private readonly IApplicationLifetimePort applicationLifetime;
+
+    private readonly IMainWindowInitializationStatePort initializationStatePort;
 
     internal IExternalShellGateway ExternalShellGateway => applicationComposition.ExternalShellGateway;
 
@@ -291,6 +329,7 @@ public partial class MainWindowViewModel : ViewModel,
                 deferredStartupPresentationInFlightMask = UiRefreshChannel.None;
                 deferredStartupPresentationInFlightOperationToken = 0L;
             }
+            startupPostInitializationWarmupOwner?.Reset("startup_operation_reset");
             startupBackgroundTaskScheduler.Reset(
                 operationKind != StartupProgressOperationKind.Startup && startupReadyOperableReached);
             lock (startupInitializationCompletionLock)
@@ -301,11 +340,9 @@ public partial class MainWindowViewModel : ViewModel,
                 startupInitializationCompleteLogged = false;
                 startupPostInitializationCompletionTracking = operationKind == StartupProgressOperationKind.Startup;
                 startupPostInitializationCompletionLogged = false;
-                startupPostInitializationWarmupOperationToken = 0L;
-                startupPostInitializationWarmupSchedulerGeneration = 0L;
                 startupPostInitializationWarmupScheduled = false;
-                startupPostInitializationWarmupsPending = 0;
-                startupPostInitializationVirtualWarmupScheduled = false;
+                startupPostInitializationWarmupCompleted = false;
+                startupPostInitializationLr2EnrollmentScheduled = false;
                 startupPostInitializationLr2Enrolled = false;
                 startupInitializationCompleteRetryQueued = false;
                 startupCompletionContinuationToken = 0L;
@@ -422,7 +459,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
         LogUiSuppression(startupBackgroundTaskScheduler.BuildSummaryLog(elapsedMs));
-        SchedulePostStartupBestEffortWarmups("startup_initialization_complete", expectedOperationToken);
+        ScheduleStartupPostInitializationWarmup("startup_initialization_complete", expectedOperationToken);
         QueueDeferredStartupPresentationFlushAfterInitialization(expectedOperationToken);
     }
 
@@ -441,8 +478,7 @@ public partial class MainWindowViewModel : ViewModel,
             shouldLog = startupPostInitializationCompletionTracking
                 && startupInitializationCompleteLogged
                 && startupPostInitializationWarmupScheduled
-                && startupPostInitializationVirtualWarmupScheduled
-                && startupPostInitializationWarmupsPending == 0
+                && startupPostInitializationWarmupCompleted
                 && !startupPostInitializationCompletionLogged;
             if (shouldLog)
             {
@@ -463,8 +499,11 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void CompleteStartupPostInitializationWarmup(long operationToken, long schedulerGeneration)
+    private void CompleteStartupPostInitializationWarmup(
+        StartupPostInitializationWarmupCompletion completion)
     {
+        long operationToken = completion.Request.OperationToken;
+        long schedulerGeneration = completion.Request.SchedulerGeneration;
         if (!IsCurrentStartupPostInitializationCallback(
                 operationToken,
                 schedulerGeneration,
@@ -483,11 +522,13 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 return;
             }
-            if (startupPostInitializationWarmupsPending > 0)
-            {
-                startupPostInitializationWarmupsPending--;
-            }
+            startupPostInitializationWarmupCompleted = true;
         }
+        LogMainViewBuild("post_startup_warmup terminal reason=" + completion.Request.Reason
+            + " operationToken=" + operationToken
+            + " schedulerGeneration=" + schedulerGeneration
+            + " kind=" + completion.Kind
+            + " failedStage=" + completion.FailedStage);
         TryLogStartupPostInitializationComplete();
     }
 
@@ -518,7 +559,6 @@ public partial class MainWindowViewModel : ViewModel,
             CompleteDeferredStartupPresentationFlush(expectedOperationToken);
             stopwatch.Stop();
             LogUiSuppression("startup_presentation_flush done elapsedMs=" + stopwatch.ElapsedMilliseconds + " mask=" + mask);
-            SchedulePostStartupBestEffortWarmups("startup_presentation_flush_done", expectedOperationToken);
         };
         DispatchUiAction(flush);
         return true;
@@ -628,6 +668,8 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly StartupBackgroundTaskSchedulerOwner startupBackgroundTaskScheduler;
 
+    private readonly StartupPostInitializationWarmupOwner startupPostInitializationWarmupOwner;
+
     private Stopwatch startupInitializationCompleteStopwatch;
 
     private bool startupInitializationCompleteLogged;
@@ -636,15 +678,11 @@ public partial class MainWindowViewModel : ViewModel,
 
     private bool startupPostInitializationCompletionLogged;
 
-    private long startupPostInitializationWarmupOperationToken;
-
-    private long startupPostInitializationWarmupSchedulerGeneration;
-
     private bool startupPostInitializationWarmupScheduled;
 
-    private int startupPostInitializationWarmupsPending;
+    private bool startupPostInitializationWarmupCompleted;
 
-    private bool startupPostInitializationVirtualWarmupScheduled;
+    private bool startupPostInitializationLr2EnrollmentScheduled;
 
     private bool startupPostInitializationLr2Enrolled;
 
@@ -737,9 +775,20 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private static void LogPlayHistoryEvent(string eventName, string message)
+    private static void ReportPlayHistoryRuntimeEvent(PlayHistoryRuntimeEvent runtimeEvent)
     {
-        LogMainViewBuild((eventName ?? "play_history_event") + " " + (message ?? string.Empty));
+        if (runtimeEvent.Exception != null)
+        {
+            NLogWrapper.FileLogger?.Warn(runtimeEvent.Exception, runtimeEvent.Message);
+        }
+        else if (runtimeEvent.IsWarning)
+        {
+            LogMainViewBuildWarning(runtimeEvent.Message);
+        }
+        else
+        {
+            LogMainViewBuild(runtimeEvent.Message);
+        }
     }
 
     /// <summary>
@@ -2392,258 +2441,99 @@ public partial class MainWindowViewModel : ViewModel,
             + " referenceTablesGeneration=" + regularChartListOwner.ReferenceTablesGeneration);
     }
 
-    private void SchedulePostStartupBestEffortWarmups(string reason, long operationToken)
+    private void SchedulePostStartupLr2Enrollment(string reason, long operationToken)
     {
-        Action warmupCompleted = null;
-        Action lr2WarmupCompleted = null;
-        bool scheduleLr2Warmup = false;
-        bool scheduleVirtualWarmup = false;
-        long schedulerGeneration = 0L;
+        long schedulerGeneration;
         lock (startupInitializationCompletionLock)
         {
-            if (startupPostInitializationCompletionTracking)
+            if (!startupPostInitializationCompletionTracking
+                || startupPostInitializationLr2EnrollmentScheduled)
             {
-                if (startupPostInitializationWarmupScheduled
-                    && startupPostInitializationWarmupOperationToken == operationToken)
-                {
-                    if (startupInitializationCompleteLogged
-                        && !startupPostInitializationVirtualWarmupScheduled)
-                    {
-                        schedulerGeneration = startupPostInitializationWarmupSchedulerGeneration;
-                        warmupCompleted = () => CompleteStartupPostInitializationWarmup(operationToken, schedulerGeneration);
-                        startupPostInitializationVirtualWarmupScheduled = true;
-                        startupPostInitializationWarmupsPending++;
-                        scheduleVirtualWarmup = true;
-                    }
-                }
-                else
-                {
-                    startupPostInitializationWarmupOperationToken = operationToken;
-                    startupPostInitializationWarmupScheduled = true;
-                    startupPostInitializationWarmupsPending = 1;
-                    startupPostInitializationVirtualWarmupScheduled = false;
-                    schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
-                    startupPostInitializationWarmupSchedulerGeneration = schedulerGeneration;
-                    warmupCompleted = () => CompleteStartupPostInitializationWarmup(operationToken, schedulerGeneration);
-                    scheduleLr2Warmup = true;
-                }
+                return;
             }
-            else
-            {
-                scheduleLr2Warmup = true;
-                scheduleVirtualWarmup = true;
-            }
+            startupPostInitializationLr2EnrollmentScheduled = true;
+            schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
         }
-        if (warmupCompleted != null)
+
+        int terminalPublished = 0;
+        Action enrollmentCompleted = delegate
         {
-            lr2WarmupCompleted = delegate
+            if (Interlocked.Exchange(ref terminalPublished, 1) != 0
+                || !IsCurrentStartupPostInitializationCallback(
+                    operationToken,
+                    schedulerGeneration,
+                    IsStartupCompletionTokenCurrent,
+                    startupBackgroundTaskScheduler.IsCurrentGeneration)
+                || !startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete(schedulerGeneration))
+            {
+                return;
+            }
+            lock (startupInitializationCompletionLock)
             {
                 if (!IsCurrentStartupPostInitializationCallback(
                         operationToken,
                         schedulerGeneration,
                         IsStartupCompletionTokenCurrent,
-                        startupBackgroundTaskScheduler.IsCurrentGeneration)
-                    || !startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete(schedulerGeneration))
+                        startupBackgroundTaskScheduler.IsCurrentGeneration))
                 {
                     return;
                 }
-                lock (startupInitializationCompletionLock)
-                {
-                    if (!IsCurrentStartupPostInitializationCallback(
-                            operationToken,
-                            schedulerGeneration,
-                            IsStartupCompletionTokenCurrent,
-                            startupBackgroundTaskScheduler.IsCurrentGeneration))
-                    {
-                        return;
-                    }
-                    startupPostInitializationLr2Enrolled = true;
-                }
-                warmupCompleted();
-                startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
-                TryLogStartupInitializationComplete(operationToken);
-            };
-        }
-        if (scheduleLr2Warmup)
-        {
-            Func<Action, Task> startupScheduler = null;
-            if (lr2WarmupCompleted != null)
-            {
-                startupScheduler = action =>
-                {
-                    bool accepted = startupBackgroundTaskScheduler.Queue(
-                        "lr2_song_db_sync_enrollment",
-                        reason,
-                        null,
-                        () =>
-                        {
-                            action();
-                            return Task.CompletedTask;
-                        },
-                        _ => lr2WarmupCompleted());
-                    if (!accepted)
-                    {
-                        lr2WarmupCompleted();
-                    }
-                    return Task.CompletedTask;
-                };
+                startupPostInitializationLr2Enrolled = true;
             }
-            Lr2SongDbSyncWorkflow.SchedulePostStartupSync(
-                reason,
-                lr2WarmupCompleted,
-                startupScheduler);
-        }
-        if (scheduleVirtualWarmup)
+            startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
+            TryLogStartupInitializationComplete(operationToken);
+        };
+        Func<Action, Task> startupScheduler = action =>
         {
-            ScheduleVirtualNormalLibraryOrderPrewarm(reason, warmupCompleted);
-        }
-        TryLogStartupPostInitializationComplete();
+            bool accepted = startupBackgroundTaskScheduler.Queue(
+                "lr2_song_db_sync_enrollment",
+                reason,
+                null,
+                () =>
+                {
+                    action();
+                    return Task.CompletedTask;
+                },
+                _ => enrollmentCompleted());
+            if (!accepted)
+            {
+                enrollmentCompleted();
+            }
+            return Task.CompletedTask;
+        };
+        Lr2SongDbSyncWorkflow.SchedulePostStartupSync(reason, enrollmentCompleted, startupScheduler);
     }
 
-    private void RunPostStartupOwnedAdjacentIndexWarmup(int runId, string reason, CancellationToken cancellationToken)
+    private void ScheduleStartupPostInitializationWarmup(string reason, long operationToken)
     {
-        var stopwatch = Stopwatch.StartNew();
-        try
+        long schedulerGeneration;
+        lock (startupInitializationCompletionLock)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            LogMainViewBuild("post_startup_warmup start reason=" + (reason ?? string.Empty)
-                + " runId=" + runId
-                + " stage=owned_adjacent_index");
-            BMSLibrary library = files;
-            if (library == null)
+            if (!startupPostInitializationCompletionTracking
+                || !startupInitializationCompleteLogged
+                || startupPostInitializationWarmupScheduled)
             {
-                stopwatch.Stop();
-                LogMainViewBuild("post_startup_warmup skipped reason=" + (reason ?? string.Empty)
-                    + " runId=" + runId
-                    + " stage=owned_adjacent_index"
-                    + " skipReason=no_library"
-                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 return;
             }
-
-            BMSLibrary.OwnedAdjacentIndexWarmupResult realPathResult = library.WarmOwnedRealPathDirectoryView("post_startup_" + (reason ?? string.Empty));
-            cancellationToken.ThrowIfCancellationRequested();
-            BMSLibrary.OwnedAdjacentIndexWarmupResult installDestinationOverlayResult = library.WarmInstallDestinationOverlaySnapshot("post_startup_" + (reason ?? string.Empty));
-            cancellationToken.ThrowIfCancellationRequested();
-            BMSLibrary.InstalledPrimaryHashWarmupResult primaryHashResult = library.WarmInstalledPrimaryHashLookup("post_startup_" + (reason ?? string.Empty));
-            cancellationToken.ThrowIfCancellationRequested();
-            OwnedHashIndexWarmupResult playlistSummaryResult = library.WarmOwnedChartHashIndexSnapshot("post_startup_" + (reason ?? string.Empty));
-            stopwatch.Stop();
-            LogMainViewBuild("post_startup_warmup done reason=" + (reason ?? string.Empty)
-                + " runId=" + runId
-                + " stage=owned_adjacent_index"
-                + " installedPrimaryStatus=" + (primaryHashResult?.Status ?? "(null)")
-                + " installedPrimaryHashes=" + (primaryHashResult?.PrimaryHashCount ?? 0)
-                + " installedPrimaryFiles=" + (primaryHashResult?.BmsCount ?? 0)
-                + " installedPrimaryBmson=" + (primaryHashResult?.BmsonCount ?? 0)
-                + " installedPrimaryFullDirectoryLookupInitialized=" + (primaryHashResult?.FullDirectoryLookupInitialized ?? false)
-                + " realPathStatus=" + (realPathResult?.Status ?? "(null)")
-                + " realPathChartRefs=" + (realPathResult?.ChartRefCount ?? 0)
-                + " realPathDirectDirs=" + (realPathResult?.DirectDirectoryCount ?? 0)
-                + " realPathSubtreeDirs=" + (realPathResult?.SubtreeDirectoryCount ?? 0)
-                + " realPathOwnedCollectionVersion=" + (realPathResult?.OwnedCollectionVersion ?? 0)
-                + " installDestinationOverlayStatus=" + (installDestinationOverlayResult?.Status ?? "(null)")
-                + " installDestinationOverlayChartRefs=" + (installDestinationOverlayResult?.ChartRefCount ?? 0)
-                + " installDestinationOverlayDirs=" + (installDestinationOverlayResult?.DirectoryCount ?? 0)
-                + " playlistSummaryStatus=" + (playlistSummaryResult?.Status ?? "(null)")
-                + " playlistSummaryMd5Hashes=" + (playlistSummaryResult?.Md5Count ?? 0)
-                + " playlistSummarySha256Hashes=" + (playlistSummaryResult?.Sha256Count ?? 0)
-                + " playlistSummarySnapshotVersion=" + (playlistSummaryResult?.SnapshotVersion ?? 0)
-                + " playlistSummaryInvalidationVersion=" + (playlistSummaryResult?.InvalidationVersion ?? 0)
-                + " playlistSummaryOwnedCollectionVersion=" + (playlistSummaryResult?.OwnedCollectionVersion ?? 0)
-                + " playlistSummaryBmsRowsVersion=" + (playlistSummaryResult?.BmsRowsVersion ?? 0)
-                + " playlistSummaryBmsonRowsVersion=" + (playlistSummaryResult?.BmsonRowsVersion ?? 0)
-                + " playlistSummaryStaleRetries=" + (playlistSummaryResult?.StaleRetryCount ?? 0)
-                + " installedPrimaryWarmupMs=" + (primaryHashResult?.ElapsedMs ?? 0L)
-                + " realPathWarmupMs=" + (realPathResult?.ElapsedMs ?? 0L)
-                + " installDestinationOverlayWarmupMs=" + (installDestinationOverlayResult?.ElapsedMs ?? 0L)
-                + " playlistSummaryWarmupMs=" + (playlistSummaryResult?.ElapsedMs ?? 0L)
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            startupPostInitializationWarmupScheduled = true;
+            schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            stopwatch.Stop();
-            LogMainViewBuild("post_startup_warmup cancelled reason=" + (reason ?? string.Empty)
-                + " runId=" + runId
-                + " stage=owned_adjacent_index"
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            LogMainViewBuild("post_startup_warmup failed reason=" + (reason ?? string.Empty)
-                + " runId=" + runId
-                + " stage=owned_adjacent_index"
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                + " exception=" + ex.GetType().Name
-                + " message=" + FormatTextForLog(ex.Message));
-        }
+        startupPostInitializationWarmupOwner.Schedule(
+            new StartupPostInitializationWarmupRequest(
+                reason,
+                operationToken,
+                schedulerGeneration));
     }
 
-    private void ScheduleVirtualNormalLibraryOrderPrewarm(string reason, Action completed = null)
+    private static void RunStartupPostInitializationWarmupStage(
+        RegularChartListPrewarmLease lease,
+        string reason,
+        CancellationToken cancellationToken,
+        Action<BMSLibrary, string> warmup)
     {
-        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors();
-        int degree = RegularChartListOwner.ResolveVirtualOrderPrewarmDegree(descriptors.Count);
-        BMSLibrary prewarmLibrary = files;
-        if (!regularChartListOwner.TryBeginVirtualOrderPrewarm(prewarmLibrary, out RegularChartListPrewarmLease lease))
-        {
-            LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
-                + " descriptorCount=" + descriptors.Count
-                + " degree=" + degree
-                + " priority1=" + CountPrewarmDescriptorsByPriority(descriptors, 1)
-                + " priority2=" + CountPrewarmDescriptorsByPriority(descriptors, 2)
-                + " priority3=" + CountPrewarmDescriptorsByPriority(descriptors, 3)
-                + " waitFor=owned_adjacent_index"
-                + " skipped=already_running_or_stopped");
-            completed?.Invoke();
-            return;
-        }
-        LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
-            + " runId=" + lease.RunId
-            + " descriptorCount=" + descriptors.Count
-            + " degree=" + degree
-            + " priority1=" + CountPrewarmDescriptorsByPriority(descriptors, 1)
-            + " priority2=" + CountPrewarmDescriptorsByPriority(descriptors, 2)
-            + " priority3=" + CountPrewarmDescriptorsByPriority(descriptors, 3)
-            + " waitFor=owned_adjacent_index");
-        bool queued = startupBackgroundTaskScheduler.Queue(
-            "playlist_virtual_order_prewarm",
-            reason,
-            null,
-            () =>
-            {
-                try
-                {
-                    using (lease)
-                    {
-                        RunPostStartupOwnedAdjacentIndexWarmup(lease.RunId, reason, lease.Token);
-                        bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(
-                            MainViewUpdateMode.FolderFilterSelected,
-                            MainViewUpdateMode.FolderFilterSelected);
-                        regularChartListOwner.RunVirtualOrderPrewarm(
-                            lease,
-                            prewarmLibrary,
-                            includeBmsonRows,
-                            descriptors,
-                            reason);
-                    }
-                }
-                finally
-                {
-                    completed?.Invoke();
-                }
-                return Task.CompletedTask;
-            },
-            _ =>
-            {
-                lease.Dispose();
-                completed?.Invoke();
-            });
-        if (!queued)
-        {
-            lease.Dispose();
-            completed?.Invoke();
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        warmup(lease.Library, "post_startup_" + (reason ?? string.Empty));
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private static int CountPrewarmDescriptorsByPriority(IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors, int priority)
@@ -2853,15 +2743,40 @@ public partial class MainWindowViewModel : ViewModel,
 
     public bool IS_WIN8OR10 => Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012);
 
-    internal MainWindowViewModel(ApplicationComposition composition)
+    /// <summary>
+    /// Initializes the shell ViewModel with its explicit application and startup-library boundaries.
+    /// </summary>
+    /// <param name="composition">The composition for the shell's other feature services.</param>
+    /// <param name="startupLibraryFactory">The factory used for ordered startup library construction.</param>
+    /// <param name="fileDiffReloadWorkflow">An optional typed reload owner for consumer-boundary tests; production composition creates the owner from the shell's actual reload delegate.</param>
+    /// <param name="initializationStatePort">An optional lifecycle-state port for consumer-boundary tests; production composition uses this ViewModel's own state.</param>
+    /// <param name="startupLibraryInitializationFailurePresenter">An optional failure-presentation boundary; production composition uses the shell dialog route.</param>
+    /// <param name="scoreOnlyReloadWorkflow">An optional typed score-only reload owner for consumer-boundary tests; production composition creates the owner from the shell's actual score-storage delegate.</param>
+    internal MainWindowViewModel(
+        ApplicationComposition composition,
+        IStartupLibraryFactory startupLibraryFactory,
+        FileDiffReloadWorkflowOwner fileDiffReloadWorkflow = null,
+        IMainWindowInitializationStatePort initializationStatePort = null,
+        IStartupLibraryInitializationFailurePresenter startupLibraryInitializationFailurePresenter = null,
+        ScoreOnlyReloadWorkflowOwner scoreOnlyReloadWorkflow = null)
     {
         if (composition == null)
         {
             throw new ArgumentNullException(nameof(composition));
         }
+        if (startupLibraryFactory == null)
+        {
+            throw new ArgumentNullException(nameof(startupLibraryFactory));
+        }
         applicationComposition = composition;
+        playHistoryRuntimeEventReporter = new PlayHistoryRuntimeEventReporter(ReportPlayHistoryRuntimeEvent);
+        startupLibraryConstructionOwner = new StartupLibraryConstructionOwner(startupLibraryFactory);
+        startupLibraryInitializationWorkflowOwner = new StartupLibraryInitializationWorkflowOwner(_semaphore);
+        this.startupLibraryInitializationFailurePresenter = startupLibraryInitializationFailurePresenter
+            ?? new DefaultStartupLibraryInitializationFailurePresenter();
         uiScheduler = composition.UiScheduler;
         applicationLifetime = composition.ApplicationLifetime;
+        this.initializationStatePort = initializationStatePort ?? this;
         startupSettingsProvider = composition.StartupSettingsProvider;
         ViewSettings = composition.MainWindowViewSettingsStore;
         startupBackgroundTaskScheduler = new StartupBackgroundTaskSchedulerOwner(
@@ -2948,6 +2863,16 @@ public partial class MainWindowViewModel : ViewModel,
             ApplyMainChartListPresentationActionAsync,
             () => uiScheduler.CanExecuteInline);
         PlaylistWorkspace.ConfigureCatalogNotificationQueue(QueueMainChartListAction);
+        PlaylistTablesReloadWorkflow = new PlaylistTablesReloadWorkflowOwner(
+            request => Task.Run(() =>
+                tables.ReloadTables(
+                    queueBeatorajaBmtExportAfterHydration:
+                        request.QueueBeatorajaBmtExportAfterHydration)),
+            request => PlaylistWorkspace.QueueExternalPlaylistSync(
+                request.Reason,
+                request.FromReloadTables,
+                request.PublishReferenceReceipt,
+                request.OperationToken));
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
@@ -3062,6 +2987,24 @@ public partial class MainWindowViewModel : ViewModel,
         ChartInfoParseFailureRemoval = childComposition.ChartInfoParseFailureRemoval;
         SelectedChartAudioConversion = childComposition.SelectedChartAudioConversion;
         Lr2SongDbSyncWorkflow = childComposition.Lr2SongDbSyncWorkflow;
+        FileDiffReloadWorkflow = fileDiffReloadWorkflow ?? new FileDiffReloadWorkflowOwner(
+            _ => Task.Run(delegate
+            {
+                LogInitStage("file_diff_reload_call", "ReloadFileDiff");
+                files.ReloadFileDiff();
+            }),
+            Lr2SongDbSyncWorkflow,
+            request =>
+            {
+                PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(request);
+                LogInitStage("deferred_playlist_ref_queued", request.Reason);
+            });
+        ScoreOnlyReloadWorkflow = scoreOnlyReloadWorkflow ?? new ScoreOnlyReloadWorkflowOwner(
+            () => Task.Run(delegate
+            {
+                LogInitStage("score_reload_call", "ReloadScoresOnly");
+                files.InitializeScoresOnly(null);
+            }));
         RankingCacheDownloadWorkflow = childComposition.RankingCacheDownloadWorkflow;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PendingPackages.WorkflowChanged += PendingPackageWorkflowChanged;
@@ -3108,6 +3051,67 @@ public partial class MainWindowViewModel : ViewModel,
         PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;
         PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;
         regularChartListOwner = childComposition.RegularChartListOwner;
+        startupPostInitializationWarmupOwner = new StartupPostInitializationWarmupOwner(
+            () =>
+            {
+                BMSLibrary library = files;
+                return library != null
+                    && regularChartListOwner.TryBeginVirtualOrderPrewarm(
+                        library,
+                        out RegularChartListPrewarmLease lease)
+                    ? lease
+                    : null;
+            },
+            lease => regularChartListOwner.CancelVirtualOrderPrewarm(lease),
+            (lease, reason, cancellationToken) => RunStartupPostInitializationWarmupStage(
+                lease,
+                reason,
+                cancellationToken,
+                (library, stageReason) => library.WarmOwnedRealPathDirectoryView(stageReason)),
+            (lease, reason, cancellationToken) => RunStartupPostInitializationWarmupStage(
+                lease,
+                reason,
+                cancellationToken,
+                (library, stageReason) => library.WarmInstallDestinationOverlaySnapshot(stageReason)),
+            (lease, reason, cancellationToken) => RunStartupPostInitializationWarmupStage(
+                lease,
+                reason,
+                cancellationToken,
+                (library, stageReason) => library.WarmInstalledPrimaryHashLookup(stageReason)),
+            (lease, reason, cancellationToken) => RunStartupPostInitializationWarmupStage(
+                lease,
+                reason,
+                cancellationToken,
+                (library, stageReason) => library.WarmOwnedChartHashIndexSnapshot(stageReason)),
+            (lease, reason) =>
+            {
+                IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors =
+                    RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors();
+                bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(
+                    MainViewUpdateMode.FolderFilterSelected,
+                    MainViewUpdateMode.FolderFilterSelected);
+                regularChartListOwner.RunVirtualOrderPrewarm(
+                    lease,
+                    lease.Library,
+                    includeBmsonRows,
+                    descriptors,
+                    reason);
+            },
+            (name, expectedGeneration, ownerSequence) => startupBackgroundTaskScheduler.Reserve(
+                name,
+                expectedGeneration,
+                ownerSequence),
+            (reservation, reason, work, discard) => startupBackgroundTaskScheduler.QueueReserved(
+                reservation,
+                reason,
+                work,
+                discard),
+            startupBackgroundTaskScheduler.CancelQueued,
+            CompleteStartupPostInitializationWarmup,
+            (exception, stage) => LogMainViewBuild(
+                "post_startup_warmup failure stage=" + stage
+                + " exception=" + exception.GetType().Name
+                + " message=" + FormatTextForLog(exception.Message)));
         regularChartListOwner.NormalLibraryRefreshApplied += RegularChartListOwnerNormalLibraryRefreshApplied;
         regularChartListOwner.RefreshSuppressionChanged += RegularChartListOwnerRefreshSuppressionChanged;
         regularChartListOwner.TreeNavigationPresentationRequested += RegularChartListOwnerTreeNavigationPresentationRequested;
@@ -3591,15 +3595,12 @@ public partial class MainWindowViewModel : ViewModel,
         }
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
-        bool scheduleDeferredExternalSync = false;
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
-            await Task.Run(delegate
-            {
-                tables.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
-            }).LoggingAndPropagate("ReloadTables");
-            scheduleDeferredExternalSync = true;
+            await PlaylistTablesReloadWorkflow
+                .ReloadAsync(new PlaylistTablesReloadRequest(operationToken))
+                .LoggingAndPropagate("ReloadTables");
         }
         catch (Exception ex)
         {
@@ -3608,23 +3609,29 @@ public partial class MainWindowViewModel : ViewModel,
         }
         finally
         {
-            EndUiUpdateSuppression();
-            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
             try
             {
-                if (scheduleDeferredExternalSync)
-                {
-                    PlaylistWorkspace.QueueExternalPlaylistSync(
-                        "ReloadTables",
-                        fromReloadTables: true,
-                        publishReferenceReceipt: true,
-                        operationToken: operationToken);
-                }
+                EndUiUpdateSuppression();
             }
             finally
             {
-                MarkNonStartupBackgroundSchedulingComplete();
-                _semaphore.Release();
+                try
+                {
+                    startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(
+                        StartupProgressPhase.StartupReadyOperable,
+                        operationToken);
+                }
+                finally
+                {
+                    try
+                    {
+                        MarkNonStartupBackgroundSchedulingComplete();
+                    }
+                    finally
+                    {
+                        _semaphore.Release();
+                    }
+                }
             }
         }
         startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
@@ -3640,7 +3647,7 @@ public partial class MainWindowViewModel : ViewModel,
     /// </summary>
     internal async Task ReloadScoresOnlyAsync()
     {
-        if (!initializationCompleted)
+        if (!initializationStatePort.IsInitializationCompleted)
         {
             return;
         }
@@ -3652,11 +3659,8 @@ public partial class MainWindowViewModel : ViewModel,
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
             playHistoryWorkflowOwner.InvalidateReadCache("score_reload");
             LogInitStage("score_reload_task_start", "ReloadScoresOnly");
-            await Task.Run(delegate
-            {
-                LogInitStage("score_reload_call", "ReloadScoresOnly");
-                files.InitializeScoresOnly(null);
-            }).LoggingAndPropagate("ReloadScoresOnly");
+            await ScoreOnlyReloadWorkflow.ReloadAsync()
+                .LoggingAndPropagate("ReloadScoresOnly");
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
             LogInitStage("score_reload_done", "ReloadScoresOnly");
             RefreshLibraryMainViewForCurrentFilter();
@@ -3686,7 +3690,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     internal async Task ReloadFileDiffAsync()
     {
-        if (!initializationCompleted)
+        if (!initializationStatePort.IsInitializationCompleted)
         {
             return;
         }
@@ -3697,19 +3701,14 @@ public partial class MainWindowViewModel : ViewModel,
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
             LogInitStage("file_diff_reload_task_start", "ReloadFileDiff");
-            await Task.Run(delegate
-            {
-                LogInitStage("file_diff_reload_call", "ReloadFileDiff");
-                files.ReloadFileDiff();
-                Lr2SongDbSyncWorkflow.QueueAfterReloadFileDiff("ReloadFileDiff");
-            }).LoggingAndPropagate("ReloadFileDiff");
+            await FileDiffReloadWorkflow
+                .ReloadAsync(new FileDiffReloadRequest("ReloadFileDiff", operationToken))
+                .LoggingAndPropagate("ReloadFileDiff");
             LogInitStage("file_diff_reload_done", "ReloadFileDiff");
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
             {
                 LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
             }
-            PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue("ReloadFileDiff", operationToken);
-            LogInitStage("deferred_playlist_ref_queued", "ReloadFileDiff");
             startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
                 "ReloadFileDiff:scheduled",
                 operationToken,
@@ -3987,9 +3986,44 @@ public partial class MainWindowViewModel : ViewModel,
         return new LR2Config(startupSettings.LR2ConfigXmlPath);
     }
 
+    void IStartupLibraryApplicationPort.AttachStartupLibrary(BMSLibrary library)
+    {
+        if (library == null)
+        {
+            throw new ArgumentNullException(nameof(library));
+        }
+
+        files = library;
+        using (chartFileOperations.Enter())
+        {
+            ShellShutdownWorkflow.AttachLibrary(files);
+            PackageInstallWorkflow.AttachLibrary(files);
+            MaintenanceRescanWorkflow.AttachLibrary(files);
+            FolderAutoRenameWorkflow.AttachLibrary(files);
+            regularChartListOwner.AttachNormalLibraryRefreshSource(files);
+        }
+        PlaybackPanel.AttachLibrary(files);
+    }
+
+    void IStartupLibraryApplicationPort.AttachStartupServices(StartupLibraryServices services)
+    {
+        if (services == null)
+        {
+            throw new ArgumentNullException(nameof(services));
+        }
+
+        files = services.Library;
+        tables = services.Playlist;
+        ShellShutdownWorkflow.AttachPlaylist(tables);
+        PlaylistWorkspace.RefreshPlaylistTreeTables(tables, files);
+        PlaylistWorkspace.SetDetailDataSource(
+            applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
+    }
+
     internal async Task<bool> InitializeAsync()
     {
-        await _semaphore.WaitAsync();
+        using StartupLibraryInitializationGateLease initializationGate =
+            await startupLibraryInitializationWorkflowOwner.AcquireGateAsync();
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
         initializationCompleted = false;
@@ -4020,7 +4054,6 @@ public partial class MainWindowViewModel : ViewModel,
             ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup custom folder repair failure notification");
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
-            _semaphore.Release();
             startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
             SettingDialog?.RequestOpen();
             return false;
@@ -4030,7 +4063,6 @@ public partial class MainWindowViewModel : ViewModel,
             NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + (startupValidationErrorMessage ?? string.Empty).Replace(Environment.NewLine, " | "));
             if (applicationLifetime.IsFirstStartup)
             {
-                _semaphore.Release();
                 startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
                 SettingDialog?.RequestInitialSetupLanguageDialog();
                 return false;
@@ -4039,7 +4071,6 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Startup settings validation notification");
             }
-            _semaphore.Release();
             startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
             SettingDialog?.RequestOpen();
             return false;
@@ -4048,7 +4079,6 @@ public partial class MainWindowViewModel : ViewModel,
         {
             if (startupSettings.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings))
             {
-                _semaphore.Release();
                 startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
                 return false;
             }
@@ -4059,7 +4089,6 @@ public partial class MainWindowViewModel : ViewModel,
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text2 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
-            _semaphore.Release();
             startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
             SettingDialog?.RequestOpen();
             return false;
@@ -4069,34 +4098,16 @@ public partial class MainWindowViewModel : ViewModel,
         {
             playHistoryWorkflowOwner.InvalidateReadCache("initialize");
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings);
-            using (chartFileOperations.Enter())
-            {
-                files = applicationComposition.CreateBmsLibrary(libraryProfile);
-                ShellShutdownWorkflow.AttachLibrary(files);
-                PackageInstallWorkflow.AttachLibrary(files);
-                MaintenanceRescanWorkflow.AttachLibrary(files);
-                FolderAutoRenameWorkflow.AttachLibrary(files);
-                regularChartListOwner.AttachNormalLibraryRefreshSource(files);
-            }
-            PlaybackPanel.AttachLibrary(files);
-            tables = applicationComposition.CreateBmsPlaylist(
+            StartupLibraryServices libraryServices = startupLibraryConstructionOwner.CreateAndApply(
                 libraryProfile,
-                () => files.GetBMSScores(),
-                () => files.CreateBeatorajaBmtSongHashResolver(),
-                files.Lr2PlaylistFolderSynchronization);
-            ShellShutdownWorkflow.AttachPlaylist(tables);
-            PlaylistWorkspace.RefreshPlaylistTreeTables(tables, files);
-            PlaylistWorkspace.SetDetailDataSource(
-                applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
+                this);
+            files = libraryServices.Library;
+            tables = libraryServices.Playlist;
             files.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
             files.StartupBackgroundTaskReporter = startupBackgroundTaskScheduler.Report;
             files.StartupBackgroundWorkSnapshotProvider = startupBackgroundTaskScheduler.CaptureWorkSnapshot;
             tables.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
             tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
-            if (!libraryProfile.OperationModeLR2DB)
-            {
-                files.SearchTargets.AddRange(libraryProfile.SearchRoots);
-            }
             LibraryFolderTree.AttachLibrary(files);
             InstallTree.AttachLibrary(files);
             MaintenanceTree.AttachLibrary(files);
@@ -4116,7 +4127,6 @@ public partial class MainWindowViewModel : ViewModel,
             Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
             string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
-            _semaphore.Release();
             startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
             SettingDialog?.RequestOpen();
             return false;
@@ -4426,38 +4436,16 @@ public partial class MainWindowViewModel : ViewModel,
         startupReadyDataReached = false;
         startupReadyUiReached = false;
         startupReadyOperableReached = false;
-        BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
-        try
+        bool startupLibraryInitialized = await InitializeStartupLibraryFilesAsync(
+            () => files.InitializeStartup(
+                [taskAdd1],
+                semaphore,
+                startupPerformanceInteraction),
+            operationToken,
+            startupCustomFolderSettings);
+        if (!startupLibraryInitialized)
         {
-            await Task.Run(delegate
-            {
-                files.InitializeStartup(
-                    [taskAdd1],
-                    semaphore,
-                    startupPerformanceInteraction);
-            }).Logging("Initialize");
-            PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
-            RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);
-            LogInitStage("files_initialize_done", "Initialize");
-            TryLogStartupReadyData();
-        }
-        catch (Exception ex)
-        {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup library initialization failure notification");
-            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
-            string text4 = Assembly.GetEntryAssembly().GetName().Version.ToString();
-            currentClassLogger.Error(ex, text4 + " - " + Environment.NewLine + ex.ToString(), null);
-            _semaphore.Release();
-            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            SettingDialog?.RequestOpen();
             return false;
-        }
-        finally
-        {
-            EndUiUpdateSuppression();
-            LogInitStage("ui_suppress_end_called", "Initialize");
-            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
         }
         if (applicationLifetime.IsFirstStartup)
         {
@@ -4487,7 +4475,7 @@ public partial class MainWindowViewModel : ViewModel,
                 publishReferenceReceipt: true,
                 operationToken: operationToken);
         }
-        SchedulePostStartupBestEffortWarmups("startup_initialization_ready", operationToken);
+        SchedulePostStartupLr2Enrollment("startup_initialization_ready", operationToken);
         startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
             "Initialize:scheduled",
             operationToken,
@@ -4503,8 +4491,85 @@ public partial class MainWindowViewModel : ViewModel,
             StartupProgressPhase.MaintenanceDeferredDone,
             StartupProgressPhase.InstallableMaintenanceDeferredDone);
         startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
-        _semaphore.Release();
         return true;
+    }
+
+    /// <summary>
+    /// Runs the file-backed startup initialization and applies the shell's success or failure policy.
+    /// </summary>
+    /// <param name="initializeStartup">The narrow file-backed initialization operation.</param>
+    /// <param name="operationToken">The active startup progress operation token.</param>
+    /// <param name="startupCustomFolderSettings">The startup custom-folder settings used after playlist load.</param>
+    /// <returns><see langword="true"/> after successful file initialization; otherwise <see langword="false"/> after failure cleanup and presentation.</returns>
+    internal async Task<bool> InitializeStartupLibraryFilesAsync(
+        Action initializeStartup,
+        long operationToken,
+        CustomFolderOutputSettingsSnapshot startupCustomFolderSettings)
+    {
+        if (initializeStartup == null)
+        {
+            throw new ArgumentNullException(nameof(initializeStartup));
+        }
+
+        BeginUiUpdateSuppression(
+            UiRefreshChannel.LibraryMainView
+                | UiRefreshChannel.LibraryFolderTree
+                | UiRefreshChannel.InstallTree
+                | UiRefreshChannel.PlaylistTree
+                | UiRefreshChannel.DuplicateTree);
+        try
+        {
+            await startupLibraryInitializationWorkflowOwner.InitializeAsync(initializeStartup);
+            PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
+            RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);
+            LogInitStage("files_initialize_done", "Initialize");
+            TryLogStartupReadyData();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
+            try
+            {
+                startupLibraryInitializationFailurePresenter.Present(
+                    new StartupLibraryInitializationFailurePresentation(ex));
+            }
+            catch (Exception presentationException)
+            {
+                ReportStartupLibraryInitializationFailurePresentationFailure(
+                    ex,
+                    presentationException);
+            }
+            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
+            string version = Assembly.GetEntryAssembly().GetName().Version.ToString();
+            currentClassLogger.Error(ex, version + " - " + Environment.NewLine + ex.ToString(), null);
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
+            SettingDialog?.RequestOpen();
+            return false;
+        }
+        finally
+        {
+            EndUiUpdateSuppression();
+            LogInitStage("ui_suppress_end_called", "Initialize");
+            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
+        }
+    }
+
+    private static void ReportStartupLibraryInitializationFailurePresentationFailure(
+        Exception initializationException,
+        Exception presentationException)
+    {
+        try
+        {
+            NLogWrapper.FileLogger?.Warn(
+                presentationException,
+                "startup_library_initialization_failure_presentation_failed primary_failure="
+                    + initializationException);
+        }
+        catch
+        {
+            // Diagnostic reporting is secondary to preserving the original initialization failure policy.
+        }
     }
 
     private void PlaylistWorkspacePlaylistTablesPresentationChanged(object sender, EventArgs e)
@@ -4756,12 +4821,13 @@ public partial class MainWindowViewModel : ViewModel,
             PlayHistoryViewRequest playHistoryRequest = parameter as PlayHistoryViewRequest;
             if (playHistoryRequest == null || !playHistoryWorkflowOwner.IsCurrentRequest(playHistoryRequest.RequestId))
             {
-                LogStalePlayHistoryViewRequest(
+                playHistoryRuntimeEventReporter.ReportStaleViewRequest(
                     mode,
                     requestedMode,
                     parameter,
                     playHistoryRequest?.PeriodRequest ?? parameter as PlayHistoryPeriodRequest,
                     playHistoryRequest?.RequestId ?? 0L,
+                    playHistoryWorkflowOwner.CurrentRequestId,
                     viewBuildStopwatch.ElapsedMilliseconds);
                 return;
             }
@@ -4770,12 +4836,13 @@ public partial class MainWindowViewModel : ViewModel,
         {
             if (!playHistoryWorkflowOwner.IsCurrentRequest(playHistoryKeywordRequest.RequestId))
             {
-                LogStalePlayHistoryViewRequest(
+                playHistoryRuntimeEventReporter.ReportStaleViewRequest(
                     mode,
                     requestedMode,
                     parameter,
                     playHistoryKeywordRequest.PeriodRequest,
                     playHistoryKeywordRequest.RequestId,
+                    playHistoryWorkflowOwner.CurrentRequestId,
                     viewBuildStopwatch.ElapsedMilliseconds);
                 return;
             }
@@ -4829,12 +4896,13 @@ public partial class MainWindowViewModel : ViewModel,
                 ?? playHistoryWorkflowOwner.SnapshotActiveRequest();
             if (activeRequest == null || !playHistoryWorkflowOwner.IsCurrentRequest(activeRequest.RequestId))
             {
-                LogStalePlayHistoryViewRequest(
+                playHistoryRuntimeEventReporter.ReportStaleViewRequest(
                     route.Mode,
                     route.RequestedMode,
                     parameter,
                     activeRequest?.PeriodRequest ?? parameter as PlayHistoryPeriodRequest,
                     activeRequest?.RequestId ?? 0L,
+                    playHistoryWorkflowOwner.CurrentRequestId,
                     viewBuildStopwatch.ElapsedMilliseconds);
                 return;
             }
@@ -4879,154 +4947,10 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void LogPlayHistoryViewExecution(PlayHistoryViewExecutionResult execution)
     {
-        if (execution == null)
-        {
-            return;
-        }
-
-        PlayHistoryViewExecutionRequest request = execution.Request;
-        PlayHistoryViewRequest viewRequest = request.ViewRequest;
-        PlayHistoryPeriodRequest periodRequest = viewRequest.PeriodRequest;
-        if (execution.Status == PlayHistoryViewExecutionStatus.NoCurrentMatchingState)
-        {
-            LogPlayHistoryEvent(
-                "play_history_view_presentation_skipped",
-                "period=" + periodRequest.Kind
-                + " requestId=" + viewRequest.RequestId
-                + " reason=no_current_matching_state"
-                + " totalMs=" + request.Stopwatch.ElapsedMilliseconds);
-            LogMainViewBuild(
-                "main_view_build mode=" + request.Mode
-                + " requestedMode=" + request.RequestedMode
-                + " parameterType=" + (request.Parameter?.GetType().Name ?? "(null)")
-                + " playHistorySortOnly=true skipped=true reason=no_current_matching_state"
-                + " playHistoryPeriod=" + periodRequest.Kind
-                + " totalMs=" + request.Stopwatch.ElapsedMilliseconds);
-            return;
-        }
-
-        PlayHistoryReadWorkflowResult readResult = execution.ReadResult;
-        PlayHistoryReadPresentationBuildResult readPresentation = readResult?.Presentation;
-        PlayHistoryPresentationOnlyBuildResult presentationOnly = execution.PresentationOnlyResult;
-        if (readPresentation != null)
-        {
-            LogPlayHistoryDisplayTargetFilter(
-                periodRequest,
-                viewRequest.RequestId,
-                PlayHistory.SelectedDisplayTarget,
-                readPresentation.DisplayTargetSourceCount,
-                readPresentation.DisplayTargetResultCount);
-            LogPlayHistoryKeywordFilter(
-                periodRequest,
-                viewRequest.RequestId,
-                request.KeywordFilter,
-                readResult.Read.RowCount,
-                readPresentation.DisplayTargetResultCount,
-                readPresentation.KeywordCount,
-                readPresentation.KeywordMs);
-        }
-        else if (presentationOnly != null)
-        {
-            if (presentationOnly.DisplayTargetApplied)
-            {
-                LogPlayHistoryDisplayTargetFilter(
-                    periodRequest,
-                    viewRequest.RequestId,
-                    PlayHistory.SelectedDisplayTarget,
-                    presentationOnly.DisplayTargetSourceCount,
-                    presentationOnly.DisplayTargetResultCount);
-            }
-            if (presentationOnly.KeywordFilterApplied)
-            {
-                LogPlayHistoryKeywordFilter(
-                    periodRequest,
-                    viewRequest.RequestId,
-                    request.KeywordFilter,
-                    presentationOnly.KeywordSourceCount,
-                    presentationOnly.KeywordProjectedCount,
-                    presentationOnly.KeywordCount,
-                    presentationOnly.KeywordMs);
-            }
-        }
-
-        if (execution.Status != PlayHistoryViewExecutionStatus.Applied)
-        {
-            long elapsedMs = execution.Status == PlayHistoryViewExecutionStatus.ReadCanceled
-                ? readResult?.ElapsedThroughCancellationMs ?? request.Stopwatch.ElapsedMilliseconds
-                : request.Stopwatch.ElapsedMilliseconds;
-            LogStalePlayHistoryViewRequest(
-                request.Mode,
-                request.RequestedMode,
-                request.Parameter,
-                periodRequest,
-                viewRequest.RequestId,
-                elapsedMs);
-            return;
-        }
-
-        PlayHistoryViewState state = readPresentation?.State ?? presentationOnly?.State;
-        PlayHistorySortedRowsApplyResult applyResult = execution.ApplyResult;
-        PlayHistoryTerminalCommitResult terminalCommit = applyResult.TerminalCommit;
-        long prepareSwapMs = terminalCommit.MainRowsApply.PrepareSwapMs;
-        long columnSettingMs = terminalCommit.MainRowsApply.ColumnSettingMs;
-        long setViewMs = terminalCommit.MainRowsApply.SetViewMs;
-        IReadOnlyList<PlayHistoryDiagnostic> diagnostics = applyResult.Diagnostics;
-        int diagnosticsCount = diagnostics.Count;
-        if (diagnosticsCount > 0)
-        {
-            LogPlayHistoryDiagnostics(periodRequest, applyResult.SortProfile, diagnostics);
-        }
-        long sortMs = execution.SortMs + applyResult.AdditionalSortMs;
-        LogPlayHistoryEvent(
-            "play_history_view_apply",
-            "period=" + periodRequest.Kind
-            + " requestId=" + viewRequest.RequestId
-            + " sortOnly=" + execution.FromSortOnly.ToString().ToLowerInvariant()
-            + " sortSucceeded=" + applyResult.SortSucceeded.ToString().ToLowerInvariant()
-            + " sortProfile=" + (applyResult.SortProfile ?? string.Empty)
-            + " schemaStatus=" + state.SchemaStatus
-            + " diagnosticsCount=" + diagnosticsCount
-            + " sourceCount=" + state.SourceCount
-            + " projectedCount=" + state.ProjectedRows.Count
-            + " viewCount=" + applyResult.ViewCount
-            + " readMs=" + execution.ReadMs
-            + " periodIndexMs=" + execution.PeriodIndexMs
-            + " projectionIndexMs=" + execution.ProjectionIndexMs
-            + " projectionIndexCacheHit=" + execution.ProjectionIndexCacheHit.ToString().ToLowerInvariant()
-            + " projectionIndexStaleRetries=" + execution.ProjectionIndexStaleRetries
-            + " projectionMs=" + execution.ProjectionMs
-            + " keywordMs=" + execution.KeywordMs
-            + " keywordCount=" + execution.KeywordCount
-            + " sortMs=" + sortMs
-            + " columnSettingMs=" + columnSettingMs
-            + " setViewMs=" + setViewMs
-            + " totalMs=" + request.Stopwatch.ElapsedMilliseconds);
-        LogMainViewBuild(
-            "main_view_build mode=" + request.Mode
-            + " requestedMode=" + request.RequestedMode
-            + " parameterType=" + (request.Parameter?.GetType().Name ?? "(null)")
-            + " playHistoryPeriod=" + periodRequest.Kind
-            + " playHistorySortOnly=" + execution.FromSortOnly.ToString().ToLowerInvariant()
-            + " readMs=" + execution.ReadMs
-            + " periodIndexMs=" + execution.PeriodIndexMs
-            + " projectionIndexMs=" + execution.ProjectionIndexMs
-            + " projectionIndexCacheHit=" + execution.ProjectionIndexCacheHit.ToString().ToLowerInvariant()
-            + " projectionIndexStaleRetries=" + execution.ProjectionIndexStaleRetries
-            + " projectionMs=" + execution.ProjectionMs
-            + " keywordMs=" + execution.KeywordMs
-            + " keywordCount=" + execution.KeywordCount
-            + " sortMs=" + sortMs
-            + " sortProfile=" + applyResult.SortProfile
-            + " schemaStatus=" + state.SchemaStatus
-            + " diagnosticsCount=" + diagnosticsCount
-            + " columnSettingMs=" + columnSettingMs
-            + " prepareSwapMs=" + prepareSwapMs
-            + " setViewMs=" + setViewMs
-            + " columnSettingReuse=" + terminalCommit.MainRowsApply.ColumnSettingReuse
-            + " totalMs=" + request.Stopwatch.ElapsedMilliseconds
-            + " sourceCount=" + state.SourceCount
-            + " projectedCount=" + state.ProjectedRows.Count
-            + " viewCount=" + applyResult.ViewCount);
+        playHistoryRuntimeEventReporter.ReportViewExecution(
+            execution,
+            PlayHistory.SelectedDisplayTarget,
+            playHistoryWorkflowOwner.CurrentRequestId);
     }
 
     private void ReportPlayHistoryReadWorkflowProgress(
@@ -5034,89 +4958,12 @@ public partial class MainWindowViewModel : ViewModel,
         long requestId,
         PlayHistoryReadWorkflowProgress progress)
     {
-        if (progress?.Stage == PlayHistoryReadWorkflowProgressStage.ReadCompleted)
+        if (progress?.Stage == PlayHistoryReadWorkflowProgressStage.ReadCompleted
+            && progress.Lr2SchemaStatusSnapshot != null)
         {
-            if (progress.Lr2SchemaStatusSnapshot != null)
-            {
-                PublishLr2PlayHistorySchemaStatusSnapshot(progress.Lr2SchemaStatusSnapshot);
-            }
-            LogPlayHistoryEvent(
-                "play_history_read_done",
-                "period=" + periodRequest.Kind
-                + " requestId=" + requestId
-                + " provider=" + progress.Read.Provider
-                + " schemaStatus=" + progress.Read.SchemaStatus
-                + " cacheHit=" + progress.Read.CacheHit.ToString().ToLowerInvariant()
-                + " rows=" + progress.Read.RowCount
-                + " diagnosticsCount=" + progress.Read.DiagnosticCount
-                + " elapsedMs=" + progress.Read.ElapsedMs);
-            return;
+            PublishLr2PlayHistorySchemaStatusSnapshot(progress.Lr2SchemaStatusSnapshot);
         }
-
-        if (progress?.Stage == PlayHistoryReadWorkflowProgressStage.PeriodIndexCompleted)
-        {
-            if (progress.PeriodIndex.Status == PlayHistoryPeriodIndexStageStatus.Completed)
-            {
-                LogPlayHistoryEvent(
-                    "play_history_read_period_index_done",
-                    "period=" + periodRequest.Kind
-                    + " requestId=" + requestId
-                    + " provider=" + progress.Read.Provider
-                    + " schemaStatus=" + progress.Read.SchemaStatus
-                    + " cacheHit=" + progress.PeriodIndex.CacheHit.ToString().ToLowerInvariant()
-                    + " days=" + progress.PeriodIndex.DayCount
-                    + " diagnosticsCount=" + progress.PeriodIndex.DiagnosticCount
-                    + " elapsedMs=" + progress.PeriodIndex.ElapsedMs);
-            }
-            else if (progress.PeriodIndex.Status == PlayHistoryPeriodIndexStageStatus.SkippedSchemaUnavailable)
-            {
-                LogPlayHistoryEvent(
-                    "play_history_read_period_index_skipped",
-                    "period=" + periodRequest.Kind
-                    + " requestId=" + requestId
-                    + " provider=" + progress.Read.Provider
-                    + " schemaStatus=" + progress.Read.SchemaStatus
-                    + " reason=schema_unavailable");
-            }
-            return;
-        }
-
-        if (progress?.Stage != PlayHistoryReadWorkflowProgressStage.ProjectionCompleted)
-        {
-            return;
-        }
-        string projectionEventName = progress.Projection.Status switch
-        {
-            PlayHistoryProjectionStageStatus.SkippedNoRows => "play_history_projection_skipped",
-            PlayHistoryProjectionStageStatus.Fallback => "play_history_projection_fallback",
-            _ => "play_history_projection_done"
-        };
-        string projectionReason = progress.Projection.Status switch
-        {
-            PlayHistoryProjectionStageStatus.Fallback => "projection_index_failed",
-            PlayHistoryProjectionStageStatus.SkippedNoRows when progress.PeriodIndex.Status == PlayHistoryPeriodIndexStageStatus.SkippedSchemaUnavailable => "schema_unavailable",
-            PlayHistoryProjectionStageStatus.SkippedNoRows => "no_rows",
-            _ => string.Empty
-        };
-        LogPlayHistoryEvent(
-            projectionEventName,
-            "period=" + periodRequest.Kind
-            + " requestId=" + requestId
-            + " provider=" + progress.Read.Provider
-            + " schemaStatus=" + progress.Read.SchemaStatus
-            + " rawCount=" + progress.Projection.RawCount
-            + " projectedCount=" + progress.Projection.ProjectedCount
-            + " diagnosticsCount=" + progress.Projection.DiagnosticCount
-            + " fallback=" + (progress.Projection.Status == PlayHistoryProjectionStageStatus.Fallback).ToString().ToLowerInvariant()
-            + " projectionIndexMs=" + progress.Projection.IndexMs
-            + " projectionIndexCacheHit=" + progress.Projection.IndexCacheHit.ToString().ToLowerInvariant()
-            + " projectionIndexStaleRetries=" + progress.Projection.IndexStaleRetries
-            + " projectionMs=" + progress.Projection.ProjectionMs
-            + (string.IsNullOrEmpty(projectionReason) ? string.Empty : " reason=" + projectionReason));
-        if (progress.Projection.Failure != null)
-        {
-            NLogWrapper.FileLogger?.Warn(progress.Projection.Failure, "play_history_projection_index_failed");
-        }
+        playHistoryRuntimeEventReporter.ReportReadWorkflowProgress(periodRequest, requestId, progress);
     }
 
     private void PublishLr2PlayHistorySchemaStatusSnapshot(Lr2PlayHistorySchemaStatusSnapshot snapshot)
@@ -5169,42 +5016,6 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void LogPlayHistoryDisplayTargetFilter(
-        PlayHistoryPeriodRequest periodRequest,
-        long requestId,
-        PlayHistoryDisplayTargetItem displayTarget,
-        int sourceCount,
-        int targetCount)
-    {
-        PlayHistoryDisplayTargetItem safeTarget = displayTarget ?? PlayHistoryDisplayTargetItem.All;
-        LogPlayHistoryEvent(
-            "play_history_view_display_target_filter",
-            "period=" + (periodRequest?.Kind.ToString() ?? string.Empty)
-            + " requestId=" + requestId
-            + " targetKind=" + safeTarget.Kind
-            + " targetMode=" + safeTarget.Mode
-            + " targetIdentity=" + QuotePlayHistoryLogValue(safeTarget.Identity)
-            + " active=" + safeTarget.UsesProjection.ToString().ToLowerInvariant()
-            + " rowFiltering=" + safeTarget.IsFiltering.ToString().ToLowerInvariant()
-            + " sourceCount=" + sourceCount
-            + " targetCount=" + targetCount);
-    }
-
-    private void LogPlayHistoryKeywordFilter(PlayHistoryPeriodRequest periodRequest, long requestId, string keywordFilter, int sourceCount, int projectedCount, int keywordCount, long keywordMs)
-    {
-        LogPlayHistoryEvent(
-            "play_history_view_keyword_filter",
-            "period=" + (periodRequest?.Kind.ToString() ?? string.Empty)
-            + " requestId=" + requestId
-            + " keywordActive=" + (!string.IsNullOrWhiteSpace(keywordFilter)).ToString().ToLowerInvariant()
-            + " sourceCount=" + sourceCount
-            + " projectedCount=" + projectedCount
-            + " keywordCount=" + keywordCount
-            + " elapsedMs=" + keywordMs);
-    }
-
-
-
     private void GetTreeViewFilterSelection(out MainViewUpdateMode mode, out object parameter)
     {
         lock (playHistoryViewRequestLock)
@@ -5251,15 +5062,6 @@ public partial class MainWindowViewModel : ViewModel,
         return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(settings.LR2RootPath, () => lr2config?.GetPlayerId());
     }
 
-    private bool ShouldUseBeatorajaPlayHistoryProvider()
-    {
-        string scoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath();
-        return GetStartupSettingsSnapshot().UseBeatorajaScoreDb
-            && files?.GetActiveScoreSourceForDiagnostics() == ActiveScoreSource.Beatoraja
-            && !string.IsNullOrWhiteSpace(scoreDbPath)
-            && File.Exists(scoreDbPath);
-    }
-
     private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath()
     {
         StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
@@ -5284,14 +5086,30 @@ public partial class MainWindowViewModel : ViewModel,
     private PlayHistoryReadSourceContext ResolvePlayHistoryReadSourceContext()
     {
         StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
-        bool useBeatorajaProvider = ShouldUseBeatorajaPlayHistoryProvider();
-        return useBeatorajaProvider
-            ? PlayHistoryReadSourceContext.Beatoraja(
-                ResolveMainViewBeatorajaPlayHistoryScoreDbPath(),
-                ResolveBeatorajaPlayHistoryScoreContext())
-            : PlayHistoryReadSourceContext.Lr2(
+        string beatorajaScoreDbPath = settings.UseBeatorajaScoreDb
+            ? ResolveMainViewBeatorajaPlayHistoryScoreDbPath()
+            : string.Empty;
+        ActiveScoreSource activeScoreSource = settings.UseBeatorajaScoreDb
+            ? files?.GetActiveScoreSourceForDiagnostics() ?? ActiveScoreSource.None
+            : ActiveScoreSource.None;
+        bool beatorajaScoreDbFileExists = settings.UseBeatorajaScoreDb
+            && !string.IsNullOrWhiteSpace(beatorajaScoreDbPath)
+            && File.Exists(beatorajaScoreDbPath);
+        BeatorajaPlayHistoryScoreContext beatorajaScoreContext =
+            settings.UseBeatorajaScoreDb
+            && activeScoreSource == ActiveScoreSource.Beatoraja
+            && beatorajaScoreDbFileExists
+                ? ResolveBeatorajaPlayHistoryScoreContext()
+                : BeatorajaPlayHistoryScoreContext.Empty;
+        return PlayHistoryReadSourceSelector.Select(
+            new PlayHistoryReadSourceSelectionInput(
                 ResolveMainViewLr2PlayHistoryScoreDbPath(),
-                settings.OperationModeLR2DB);
+                settings.OperationModeLR2DB,
+                settings.UseBeatorajaScoreDb,
+                beatorajaScoreDbPath,
+                activeScoreSource,
+                beatorajaScoreDbFileExists,
+                beatorajaScoreContext));
     }
 
     private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic(
@@ -5321,46 +5139,6 @@ public partial class MainWindowViewModel : ViewModel,
             Message = message ?? string.Empty,
             SourcePath = sourcePath ?? string.Empty
         };
-    }
-
-    private void LogStalePlayHistoryViewRequest(
-        MainViewUpdateMode mode,
-        MainViewUpdateMode requestedMode,
-        object parameter,
-        PlayHistoryPeriodRequest periodRequest,
-        long requestId,
-        long elapsedMs)
-    {
-        long currentRequestId = playHistoryWorkflowOwner.CurrentRequestId;
-        LogPlayHistoryEvent(
-            "play_history_view_stale_skipped",
-            "mode=" + mode
-            + " requestedMode=" + requestedMode
-            + " parameterType=" + (parameter?.GetType().Name ?? "(null)")
-            + " period=" + (periodRequest?.Kind.ToString() ?? string.Empty)
-            + " requestId=" + requestId
-            + " currentRequestId=" + currentRequestId
-            + " elapsedMs=" + elapsedMs);
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " playHistoryPeriod=" + (periodRequest?.Kind.ToString() ?? string.Empty) + " skipped=true reason=stale_play_history_request requestId=" + requestId + " currentRequestId=" + currentRequestId + " elapsedMs=" + elapsedMs);
-    }
-
-    private static void LogPlayHistoryDiagnostics(PlayHistoryPeriodRequest request, string sortProfile, IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
-    {
-        string diagnosticText = string.Join(
-            ",",
-            (diagnostics ?? [])
-                .Take(20)
-                .Select(diagnostic => "severity=" + QuotePlayHistoryLogValue(diagnostic?.Severity.ToString())
-                    + " stage=" + QuotePlayHistoryLogValue(diagnostic?.Stage)
-                    + " code=" + QuotePlayHistoryLogValue(diagnostic?.Code)
-                    + " message=" + QuotePlayHistoryLogValue(diagnostic?.Message)
-                    + " source=" + QuotePlayHistoryLogValue(diagnostic?.SourcePath)));
-        LogMainViewBuildWarning("play_history_diagnostics period=" + (request?.Kind.ToString() ?? string.Empty) + " sortProfile=" + (sortProfile ?? string.Empty) + " count=" + (diagnostics?.Count ?? 0) + " items=" + diagnosticText);
-    }
-
-    private static string QuotePlayHistoryLogValue(string value)
-    {
-        return "\"" + (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
     }
 
     private static bool ShouldIncludeBmsonLibraryRowsInMainView(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
@@ -5736,6 +5514,25 @@ public partial class MainWindowViewModel : ViewModel,
             .GetAwaiter()
             .GetResult();
         ThrowIfUiDialogNotShown(result, routeName);
+    }
+
+    private sealed class DefaultStartupLibraryInitializationFailurePresenter
+        : IStartupLibraryInitializationFailurePresenter
+    {
+        public void Present(StartupLibraryInitializationFailurePresentation presentation)
+        {
+            if (presentation == null)
+            {
+                throw new ArgumentNullException(nameof(presentation));
+            }
+            ShowUiMessage(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected
+                    + Environment.NewLine
+                    + presentation.Exception,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxImage.Hand,
+                "Startup library initialization failure notification");
+        }
     }
 
     private static bool ToUiConfirmationDecision(UiDialogResult result, string routeName)

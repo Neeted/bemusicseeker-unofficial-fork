@@ -132,10 +132,14 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             (current, progress, token) =>
             {
                 started.Set();
-                release.Wait(TimeSpan.FromSeconds(5));
+                release.Wait();
                 return new MaintenanceWorkflowResult();
             },
-            action => Task.Run(action),
+            action => Task.Factory.StartNew(
+                action,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default),
             action => action(),
             dialogs: new AcceptedDialogService());
         try
@@ -298,7 +302,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 (current, progress, token) =>
                 {
                     started.Set();
-                    release.Wait(TimeSpan.FromSeconds(5));
+                    release.Wait();
                     tokenWasCanceled = token.IsCancellationRequested;
                     progress(new MaintenanceWorkflowProgress
                     {
@@ -308,7 +312,11 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                     });
                     return new MaintenanceWorkflowResult { Canceled = token.IsCancellationRequested };
                 },
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action(),
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
@@ -421,7 +429,11 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                     }
                     return new MaintenanceWorkflowResult();
                 },
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action(),
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(first);
@@ -467,7 +479,11 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                     release.Wait(TimeSpan.FromSeconds(5));
                     return new MaintenanceWorkflowResult { Canceled = token.IsCancellationRequested };
                 },
-                action => Task.Run(action),
+                action => Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default),
                 action => action(),
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);

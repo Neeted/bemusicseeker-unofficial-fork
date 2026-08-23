@@ -45,7 +45,7 @@ public sealed class PortableSettingsMigrationTests
     public void NormalizeMigratedConfig_RewritesLegacyUrlAndRemovesDeprecatedColumnSettings()
     {
         XDocument doc = CreateConfigDocument(
-            ("TableListURL", Settings.LegacyTableListUrl),
+            ("TableListURL", "http://www.ribbit.xyz/bms/tables/table_info.json"),
             ("StandardColumnsSettings", "old"),
             ("InstallColumnsSettings", "old"),
             ("SkipEstimateOfflineScoreRanking", "True"),

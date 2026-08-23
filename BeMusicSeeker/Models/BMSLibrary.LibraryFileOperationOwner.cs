@@ -53,7 +53,7 @@ internal sealed partial class LibraryFileOperationOwner
 
     private readonly Action<LibraryMutationDelta, string> applyLibraryMutationDelta;
 
-    private readonly Action<IEnumerable<ChartFile>, bool, ResourceHealthIndexUpdateMode, string> applyCatalogMaintenance;
+    private readonly Func<IEnumerable<ChartFile>, bool, ResourceHealthIndexUpdateMode, string, MaintenanceWorkflowResult> applyCatalogMaintenance;
 
     private readonly Action invalidateDuplicateChartGroupsCache;
 
@@ -91,7 +91,7 @@ internal sealed partial class LibraryFileOperationOwner
         Func<IEnumerable<ChartFile>, string, string> createChartFolderPathFromCharts,
         Func<ChartFile, IEnumerable<string>> getDuplicateInstallRepairPaths,
         Action<LibraryMutationDelta, string> applyLibraryMutationDelta,
-        Action<IEnumerable<ChartFile>, bool, ResourceHealthIndexUpdateMode, string> applyCatalogMaintenance,
+        Func<IEnumerable<ChartFile>, bool, ResourceHealthIndexUpdateMode, string, MaintenanceWorkflowResult> applyCatalogMaintenance,
         Action invalidateDuplicateChartGroupsCache,
         Action invalidateInstalledDirectoryIndex,
         Action<string, DirectoryResourceLookupCache.ReverseLookupMutationResult> logReverseLookupMutationAndQueueWarmupIfNeeded,
@@ -680,13 +680,13 @@ internal sealed partial class LibraryFileOperationOwner
             existingHashes);
     }
 
-    private void ApplyCatalogMaintenance(
+    private MaintenanceWorkflowResult ApplyCatalogMaintenance(
         IEnumerable<ChartFile> charts,
         bool forceUpdate,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.DeltaOnUpdates,
         string resourceHealthMutationReason = null)
     {
-        applyCatalogMaintenance(charts, forceUpdate, resourceHealthIndexUpdateMode, resourceHealthMutationReason);
+        return applyCatalogMaintenance(charts, forceUpdate, resourceHealthIndexUpdateMode, resourceHealthMutationReason);
     }
 
     private bool MoveChartPackageFiles(

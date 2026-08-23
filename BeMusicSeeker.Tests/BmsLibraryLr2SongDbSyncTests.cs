@@ -1552,6 +1552,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             var fileCheckResult = new SongTableFileCheckResult
             {
                 Lr2ScanSurfaceAvailable = true,
+                Lr2ScanDirectoryEntries = CreateDirectoryEntryMap(rootDirectory, categoryDirectory, tableDirectory),
                 Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
                 Lr2ScanLr2FolderFilePaths = [lr2FolderPath],
                 Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
@@ -3463,10 +3464,26 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ]
         };
 
+        // Everything can report a complete result before its index observes files
+        // created by this test. Supply the actual text-file surface through the
+        // existing preparation boundary while keeping the no-scan input route.
+        Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
+            "test_prepare_actual_text_surface",
+            () => new Lr2SongDbSyncPreparedDataSurface(
+                [],
+                [],
+                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                CreateDirectoryEntryMap(rootDirectory, packDirectory, songDirectory),
+                [packFolderInfoPath],
+                CreateFileEntryMap(packFolderInfoPath),
+                [packDirectory, songDirectory],
+                discoveryComplete: true)));
+
         Lr2SongDbSyncInput input = InvokeCreateLr2SongDbSyncInput(library);
         List<string> folderInfoFilePaths = input.FolderInfoFilePaths.ToList();
         List<string> textFileDirectories = input.TextFileDirectories.ToList();
 
+        Assert.AreEqual(0, input.ScanSurfaceGeneration);
         CollectionAssert.Contains(folderInfoFilePaths, packFolderInfoPath);
         CollectionAssert.DoesNotContain(folderInfoFilePaths, unrelatedFolderInfoPath);
         CollectionAssert.Contains(textFileDirectories, songDirectory);

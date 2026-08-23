@@ -24,6 +24,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using System.Xml.Linq;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using ManagedBass;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -34,6 +35,37 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingDialogEditCompletionTests
 {
+    [TestMethod]
+    public void DisposedSettingsDialogStopsListeningToResourceServiceCultureChanges()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            string previousCulture = Resources.Culture?.Name ?? "ja-JP";
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            owner.SettingDialog.Dispose();
+            var playHistoryPort = new RecordingResourceRefreshPlayHistoryPort();
+            SettingsDialogViewModel? dialog = null;
+            try
+            {
+                dialog = CreateResourceListeningDialog(owner, playHistoryPort);
+
+                ResourceService.Current.ChangeCulture("en-US");
+                Assert.AreEqual(1, playHistoryPort.RefreshDisplayTargetCatalogCount);
+
+                dialog.Dispose();
+                dialog.Dispose();
+
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Assert.AreEqual(1, playHistoryPort.RefreshDisplayTargetCatalogCount);
+            }
+            finally
+            {
+                dialog?.Dispose();
+                ResourceService.Current.ChangeCulture(previousCulture);
+            }
+        });
+    }
+
     [TestMethod]
     public void PlaylistDialogs_UsePlaylistWorkspaceOwnerComposition()
     {
@@ -987,6 +1019,62 @@ public sealed class SettingDialogEditCompletionTests
                 new[] { "save", "factory-default", "apply", "notify", "close" },
                 sequence);
             Assert.IsFalse(settingsSession.Values.OperationModeLR2DB);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_Lr2bodyReplacementUsesConfiguredFactoryInStandaloneMode()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            (string songDbPath, string configPath) = CreateValidLr2Layout(root);
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.OperationModeLR2DB = false;
+            settings.LR2RootPath = root;
+            settings.LR2SongDBPath = songDbPath;
+            settings.LR2ConfigXmlPath = configPath;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            var factory = new TestSettingsDialogPlayerFactoryPort(sequence);
+            var runtime = new TestSettingsDialogPlaybackRuntimePort(sequence);
+            var composition = new ApplicationComposition(
+                settingsEditSession: settingsSession,
+                reportSettingsApplyFailure: _ => { },
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            var workspace = new ComposedSettingsDialogWorkspacePort(settingsSession.Values);
+            var state = new ActiveSettingsDialogStatePort();
+            SettingsDialogViewModel dialog = composition.CreateSettingDialogViewModel(
+                state,
+                workspace,
+                workspace,
+                viewModel.PlayHistory,
+                viewModel.LibraryFolderTree,
+                factory,
+                runtime,
+                viewModel.Lr2SongDbSyncWorkflow);
+            dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+            dialog.UsePlayerLR2body = true;
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(
+                new[] { "save", "factory-configured", "apply", "notify", "close" },
+                sequence);
+            Assert.IsNotNull(factory.LastConfiguredSettings);
+            Assert.IsFalse(factory.LastConfiguredSettings!.OperationModeLR2DB);
+            Assert.IsTrue(factory.LastConfiguredSettings.UsePlayerLR2body);
+            Assert.AreEqual(1, runtime.ApplyCount);
+
+            dialog.Dispose();
         }
         finally
         {
@@ -1963,20 +2051,24 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
-    [TestMethod]
-    public async Task ApplySettingsAsync_InitialSettings_SavesClosesAndInitializes()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ApplySettingsAsync_InitialSettings_SavesClosesAndInitializes(bool firstStartup)
     {
         string root = CreateTemporaryRoot();
         try
         {
             var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
             var sequence = new List<string>();
+            var dialogs = new RecordingRootDialogService();
+            dialogs.MessageObserved = () => sequence.Add("completion-message");
             using var initializationStarted = new ManualResetEventSlim();
             var initializationRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             int initializeCount = 0;
             MainWindowViewModel viewModel = CreateViewModel(
                 settingsSession,
-                firstStartup: false,
+                firstStartup,
                 initializeOwner: _ =>
                 {
                     initializeCount++;
@@ -1991,7 +2083,8 @@ public sealed class SettingDialogEditCompletionTests
                         CancellationToken.None,
                         TaskContinuationOptions.ExecuteSynchronously,
                         TaskScheduler.Default);
-                });
+                },
+                dialogs: dialogs);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             settingsSession.SaveObserved = () => sequence.Add("save");
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
@@ -2006,11 +2099,66 @@ public sealed class SettingDialogEditCompletionTests
             await applyTask;
 
             CollectionAssert.AreEqual(
-                new[] { "save", "initialize-start", "initialize-completed", "close" },
+                firstStartup
+                    ? new[] { "save", "completion-message", "initialize-start", "initialize-completed", "close" }
+                    : new[] { "save", "initialize-start", "initialize-completed", "close" },
                 sequence);
+            Assert.AreEqual(firstStartup ? 1 : 0, dialogs.MessageCount);
             Assert.AreEqual(1, initializeCount);
             Assert.AreEqual(1, settingsSession.SaveCount);
             Assert.IsFalse(dialog.HasPendingSettingChanges());
+            Assert.IsTrue(dialog.IsEditCompletionEnabled);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("Failed")]
+    [DataRow("OwnerUnavailable")]
+    public async Task ApplySettingsAsync_InitialSettingsDialogFailureIsReported(string statusName)
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            UiDialogStatus status = Enum.Parse<UiDialogStatus>(statusName);
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var sequence = new List<string>();
+            var dialogs = new RecordingRootDialogService
+            {
+                MessageResult = status == UiDialogStatus.Failed
+                    ? UiDialogResult.Failed(new InvalidOperationException("completion dialog failed"))
+                    : UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
+            };
+            dialogs.MessageObserved = () => sequence.Add("completion-message");
+            Exception? reportedFailure = null;
+            int initializeCount = 0;
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: true,
+                initializeOwner: _ =>
+                {
+                    initializeCount++;
+                    sequence.Add("initialize");
+                    return Task.FromResult(true);
+                },
+                reportSettingsApplyFailure: exception => reportedFailure = exception,
+                dialogs: dialogs);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
+            Assert.IsTrue(dialog.CheckValidation(out string validationError), validationError);
+
+            await dialog.ApplySettingsAsync();
+
+            Assert.IsNotNull(reportedFailure);
+            StringAssert.Contains(reportedFailure!.Message, status.ToString());
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.AreEqual(0, initializeCount);
+            CollectionAssert.AreEqual(new[] { "save", "completion-message" }, sequence);
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
         }
         finally
@@ -2608,20 +2756,20 @@ public sealed class SettingDialogEditCompletionTests
             SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             bool? result = null;
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-            {
-                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
-                advancedDialog.ContentRendered += (_, _) =>
+            TestUiDispatcherHost.RunWindowTest(windowTest =>
                 {
-                    SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_songDB, customSong);
-                    SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_configXml, customConfig);
-                    FindDescendants<Button>(advancedDialog)
-                        .Single(button => button.IsDefault)
-                        .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-                };
-                windowTest.PrepareForOwnedPresentation(advancedDialog);
-                result = advancedDialog.ShowDialog();
-            });
+                    var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                    advancedDialog.ContentRendered += (_, _) =>
+                    {
+                        SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_songDB, customSong);
+                        SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_configXml, customConfig);
+                        FindDescendants<Button>(advancedDialog)
+                            .Single(button => button.IsDefault)
+                            .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                    };
+                    windowTest.PrepareForOwnedPresentation(advancedDialog);
+                    result = advancedDialog.ShowDialog();
+                });
 
             Assert.AreEqual(true, result);
             Assert.AreEqual(customSong, draft.LR2SongDBPath);
@@ -2671,25 +2819,25 @@ public sealed class SettingDialogEditCompletionTests
                 : candidateConfig;
 
             bool? result = null;
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-            {
-                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
-                advancedDialog.ContentRendered += (_, _) =>
+            TestUiDispatcherHost.RunWindowTest(windowTest =>
                 {
-                    TextBox editor = GetLr2AdvancedPathEditor(advancedDialog, label);
-                    Assert.IsTrue(editor.Focus());
-                    editor.Text = candidate;
-                    Assert.AreNotEqual(candidate, propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath)
-                        ? draft.LR2SongDBPath
-                        : draft.LR2ConfigXmlPath);
+                    var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                    advancedDialog.ContentRendered += (_, _) =>
+                    {
+                        TextBox editor = GetLr2AdvancedPathEditor(advancedDialog, label);
+                        Assert.IsTrue(editor.Focus());
+                        editor.Text = candidate;
+                        Assert.AreNotEqual(candidate, propertyName == nameof(SettingsDialogViewModel.LR2SongDBPath)
+                            ? draft.LR2SongDBPath
+                            : draft.LR2ConfigXmlPath);
 
-                    InvokeEnterAccessKey();
-                };
-                windowTest.PrepareForOwnedPresentation(
-                    advancedDialog,
-                    TestWindowActivation.ForegroundInteraction);
-                result = advancedDialog.ShowDialog();
-            });
+                        InvokeEnterAccessKey();
+                    };
+                    windowTest.PrepareForOwnedPresentation(
+                        advancedDialog,
+                        TestWindowActivation.ForegroundInteraction);
+                    result = advancedDialog.ShowDialog();
+                });
 
             Assert.AreEqual(true, result);
             Assert.AreEqual(
@@ -2736,31 +2884,31 @@ public sealed class SettingDialogEditCompletionTests
             bool rawDraftWasRetained = false;
             bool rejectionErrorWasSet = false;
             bool failureWasVisible = false;
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-            {
-                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
-                advancedDialog.ContentRendered += (_, _) =>
+            TestUiDispatcherHost.RunWindowTest(windowTest =>
                 {
-                    TextBox editor = GetLr2AdvancedPathEditor(advancedDialog, label);
-                    Assert.IsTrue(editor.Focus());
-                    editor.Text = candidate;
+                    var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                    advancedDialog.ContentRendered += (_, _) =>
+                    {
+                        TextBox editor = GetLr2AdvancedPathEditor(advancedDialog, label);
+                        Assert.IsTrue(editor.Focus());
+                        editor.Text = candidate;
 
-                    InvokeEnterAccessKey();
-                    advancedDialog.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
-                    stayedOpen = advancedDialog.IsVisible;
-                    rawDraftWasRetained = string.Equals(originalSong, draft.LR2SongDBPath, StringComparison.Ordinal)
-                        && string.Equals(originalConfig, draft.LR2ConfigXmlPath, StringComparison.Ordinal);
-                    rejectionErrorWasSet = draft.HasLr2PathSelectionError;
-                    failureWasVisible = FindDescendants<SettingsStatusBanner>(advancedDialog)
-                        .Any(banner => banner.Visibility == Visibility.Visible
-                            && Equals(banner.Content, draft.Lr2PathSelectionError));
-                    advancedDialog.Close();
-                };
-                windowTest.PrepareForOwnedPresentation(
-                    advancedDialog,
-                    TestWindowActivation.ForegroundInteraction);
-                advancedDialog.ShowDialog();
-            });
+                        InvokeEnterAccessKey();
+                        advancedDialog.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+                        stayedOpen = advancedDialog.IsVisible;
+                        rawDraftWasRetained = string.Equals(originalSong, draft.LR2SongDBPath, StringComparison.Ordinal)
+                            && string.Equals(originalConfig, draft.LR2ConfigXmlPath, StringComparison.Ordinal);
+                        rejectionErrorWasSet = draft.HasLr2PathSelectionError;
+                        failureWasVisible = FindDescendants<SettingsStatusBanner>(advancedDialog)
+                            .Any(banner => banner.Visibility == Visibility.Visible
+                                && Equals(banner.Content, draft.Lr2PathSelectionError));
+                        advancedDialog.Close();
+                    };
+                    windowTest.PrepareForOwnedPresentation(
+                        advancedDialog,
+                        TestWindowActivation.ForegroundInteraction);
+                    advancedDialog.ShowDialog();
+                });
 
             Assert.IsTrue(stayedOpen);
             Assert.IsTrue(rawDraftWasRetained);
@@ -2810,35 +2958,35 @@ public sealed class SettingDialogEditCompletionTests
             bool stayedOpen = false;
             bool rejectedEditorFocused = false;
             bool rejectionErrorWasSet = false;
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-            {
-                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
-                advancedDialog.ContentRendered += (_, _) =>
+            TestUiDispatcherHost.RunWindowTest(windowTest =>
                 {
-                    TextBox rejectedEditor = GetLr2AdvancedPathEditor(advancedDialog, rejectedLabel);
-                    Assert.IsTrue(GetLr2AdvancedPathEditor(advancedDialog, otherLabel).Focus());
-                    if (useEnter)
+                    var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                    advancedDialog.ContentRendered += (_, _) =>
                     {
-                        InvokeEnterAccessKey();
-                    }
-                    else
-                    {
-                        FindDescendants<Button>(advancedDialog)
-                            .Single(button => button.IsDefault)
-                            .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-                    }
+                        TextBox rejectedEditor = GetLr2AdvancedPathEditor(advancedDialog, rejectedLabel);
+                        Assert.IsTrue(GetLr2AdvancedPathEditor(advancedDialog, otherLabel).Focus());
+                        if (useEnter)
+                        {
+                            InvokeEnterAccessKey();
+                        }
+                        else
+                        {
+                            FindDescendants<Button>(advancedDialog)
+                                .Single(button => button.IsDefault)
+                                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                        }
 
-                    advancedDialog.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
-                    stayedOpen = advancedDialog.IsVisible;
-                    rejectedEditorFocused = rejectedEditor.IsKeyboardFocusWithin;
-                    rejectionErrorWasSet = draft.HasLr2PathSelectionError;
-                    advancedDialog.Close();
-                };
-                windowTest.PrepareForOwnedPresentation(
-                    advancedDialog,
-                    TestWindowActivation.ForegroundInteraction);
-                advancedDialog.ShowDialog();
-            });
+                        advancedDialog.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+                        stayedOpen = advancedDialog.IsVisible;
+                        rejectedEditorFocused = rejectedEditor.IsKeyboardFocusWithin;
+                        rejectionErrorWasSet = draft.HasLr2PathSelectionError;
+                        advancedDialog.Close();
+                    };
+                    windowTest.PrepareForOwnedPresentation(
+                        advancedDialog,
+                        TestWindowActivation.ForegroundInteraction);
+                    advancedDialog.ShowDialog();
+                });
 
             Assert.IsTrue(stayedOpen);
             Assert.IsTrue(rejectedEditorFocused);
@@ -2962,27 +3110,27 @@ public sealed class SettingDialogEditCompletionTests
             SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             bool? result = null;
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-            {
-                var advancedDialog = new Lr2AdvancedPathsDialog(draft);
-                advancedDialog.ContentRendered += (_, _) =>
+            TestUiDispatcherHost.RunWindowTest(windowTest =>
                 {
-                    SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_songDB, editedSong);
-                    SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_configXml, editedConfig);
-                    if (useNativeClose)
+                    var advancedDialog = new Lr2AdvancedPathsDialog(draft);
+                    advancedDialog.ContentRendered += (_, _) =>
                     {
-                        advancedDialog.Close();
-                    }
-                    else
-                    {
-                        FindDescendants<Button>(advancedDialog)
-                            .Single(button => button.IsCancel)
-                            .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
-                    }
-                };
-                windowTest.PrepareForOwnedPresentation(advancedDialog);
-                result = advancedDialog.ShowDialog();
-            });
+                        SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_songDB, editedSong);
+                        SetLr2AdvancedPathText(advancedDialog, Resources.FilePath_configXml, editedConfig);
+                        if (useNativeClose)
+                        {
+                            advancedDialog.Close();
+                        }
+                        else
+                        {
+                            FindDescendants<Button>(advancedDialog)
+                                .Single(button => button.IsCancel)
+                                .RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                        }
+                    };
+                    windowTest.PrepareForOwnedPresentation(advancedDialog);
+                    result = advancedDialog.ShowDialog();
+                });
 
             Assert.IsFalse(result == true);
             Assert.AreEqual(savedSong, draft.LR2SongDBPath);
@@ -3048,7 +3196,8 @@ public sealed class SettingDialogEditCompletionTests
         Action<Exception>? reportSettingsApplyFailure = null,
         Func<MainWindowViewModel, Task>? reloadFileDiff = null,
         ISettingsDialogPlayerFactoryPort? playerFactoryPort = null,
-        ISettingsDialogPlaybackRuntimePort? playbackRuntimePort = null)
+        ISettingsDialogPlaybackRuntimePort? playbackRuntimePort = null,
+        IUiDialogService? dialogs = null)
     {
         var composition = new ApplicationComposition(
             settingsEditSession: settingsSession,
@@ -3084,6 +3233,7 @@ public sealed class SettingDialogEditCompletionTests
                 settingsSession,
                 applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                schemaDialogs: dialogs,
                 reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
                 applicationPathSnapshot: ApplicationPathPolicy.Current,
@@ -3101,6 +3251,29 @@ public sealed class SettingDialogEditCompletionTests
             .GetField("playbackRuntimePort", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel.SettingDialog, playbackRuntimePort ?? new TestSettingsDialogPlaybackRuntimePort());
         return viewModel;
+    }
+
+    private static SettingsDialogViewModel CreateResourceListeningDialog(
+        MainWindowViewModel owner,
+        ISettingsDialogPlayHistoryPort playHistoryPort)
+    {
+        return new SettingsDialogViewModel(
+            (ISettingsDialogStatePort)owner,
+            owner.PlaylistWorkspace,
+            owner.PlaylistWorkspace,
+            playHistoryPort,
+            owner.LibraryFolderTree,
+            new TestSettingsDialogPlayerFactoryPort(),
+            new TestSettingsDialogPlaybackRuntimePort(),
+            owner.Lr2SongDbSyncWorkflow,
+            new NoOpSettingsEditSession(new Settings()),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
     }
 
     private static SettingsDialogViewModel CreateOperationModeDialog(
@@ -3356,6 +3529,10 @@ public sealed class SettingDialogEditCompletionTests
     {
         internal UiDialogResult ConfirmationResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
 
+        internal UiDialogResult MessageResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal Action? MessageObserved { get; set; }
+
         internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
 
         internal int ConfirmationCount { get; private set; }
@@ -3368,7 +3545,8 @@ public sealed class SettingDialogEditCompletionTests
         {
             MessageCount++;
             LastMessageText = request.MessageBoxText;
-            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            MessageObserved?.Invoke();
+            return Task.FromResult(MessageResult);
         }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
@@ -3396,6 +3574,104 @@ public sealed class SettingDialogEditCompletionTests
             UiProgressRequest request,
             Func<UiProgressContext, Task> operation,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
+    private sealed class RecordingResourceRefreshPlayHistoryPort : ISettingsDialogPlayHistoryPort
+    {
+        internal int RefreshDisplayTargetCatalogCount { get; private set; }
+
+        public void InvalidateReadCache(string reason)
+        {
+        }
+
+        public void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
+        {
+            RefreshDisplayTargetCatalogCount++;
+        }
+
+        public void RefreshDisplayTargetSetsFromSettings(
+            string serializedDisplayTargetSets,
+            bool queueRefreshWhenSelectionChanges)
+        {
+        }
+    }
+
+    private sealed class ActiveSettingsDialogStatePort : ISettingsDialogStatePort
+    {
+        public bool HasActiveLibraryProfile => true;
+
+        public bool IsLibraryOperationInProgress => false;
+
+        public Task<bool> InitializeLibraryAsync() => Task.FromResult(true);
+
+        public Task ReloadScoresOnlyAsync() => Task.CompletedTask;
+
+        public Task ReloadFileDiffAsync() => Task.CompletedTask;
+
+        public event EventHandler? LibraryOperationAvailabilityChanged;
+
+        public event Action<Lr2PlayHistorySchemaStatusSnapshot>? Lr2PlayHistorySchemaStatusChanged;
+    }
+
+    private sealed class ComposedSettingsDialogWorkspacePort :
+        ISettingsDialogWorkspacePort,
+        ISettingsDialogCustomFolderOutputPort
+    {
+        private readonly Settings values;
+
+        internal ComposedSettingsDialogWorkspacePort(Settings values)
+        {
+            this.values = values ?? throw new ArgumentNullException(nameof(values));
+        }
+
+        public bool HasPlaylistTables => true;
+
+        public long PlaylistCatalogVersion => 0L;
+
+        public CustomFolderOutputSettingsSnapshot CustomFolderOutputSettings =>
+            CustomFolderOutputSettingsSnapshot.CreateCurrent(values);
+
+        public IReadOnlyList<PlaylistTablePresentationSnapshot> CapturePlaylistPresentationSnapshots() => [];
+
+        public bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string beatorajaRootPath) => false;
+
+        public void SchedulePlaylistUrlCompletionRefresh(string reason)
+        {
+        }
+
+        public void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath)
+        {
+        }
+
+        public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName) =>
+            operation();
+
+        public void ChangeCustomFolderBaseDirectoryWithSettings(
+            string outputDirBaseBefore,
+            string outputDirBaseAfter,
+            string additionalOutputBaseDirsBefore,
+            string additionalOutputBaseDirsAfter,
+            CustomFolderOutputSettingsSnapshot settings)
+        {
+        }
+
+        public void ChangeCustomFolderBaseDirectoryRootWithSettings(
+            string outputDirBaseBefore,
+            string outputDirBaseAfter,
+            CustomFolderOutputSettingsSnapshot settings)
+        {
+        }
+
+        public bool SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+            string previousRootOutputBaseDirectory,
+            CustomFolderOutputSettingsSnapshot settings) => false;
+
+        public int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
+            string previousAdditionalOutputBaseDirectories,
+            IReadOnlyDictionary<string, string> pendingRenames,
+            CustomFolderOutputSettingsSnapshot settings) => 0;
+
+        public event EventHandler<PlaylistCatalogChangedEventArgs>? PlaylistCatalogChanged;
     }
 
     private sealed class CountingSettingsEditSession : ISettingsEditSession
@@ -3613,6 +3889,8 @@ public sealed class SettingDialogEditCompletionTests
 
         internal Exception? ConfiguredFactoryFailure { get; set; }
 
+        internal StartupSettingsSnapshot? LastConfiguredSettings { get; private set; }
+
         public IBMSPlayer CreateDefaultBmsPlayer()
         {
             sequence?.Add("factory-default");
@@ -3626,6 +3904,7 @@ public sealed class SettingDialogEditCompletionTests
         public IBMSPlayer CreateBmsPlayerForSettings(StartupSettingsSnapshot settings)
         {
             sequence?.Add("factory-configured");
+            LastConfiguredSettings = settings;
             if (ConfiguredFactoryFailure != null)
             {
                 throw ConfiguredFactoryFailure;

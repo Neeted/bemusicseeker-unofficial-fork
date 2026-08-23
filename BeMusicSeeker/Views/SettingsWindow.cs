@@ -24,6 +24,12 @@ using BeMusicSeeker.Views.Settings.Pages;
 namespace BeMusicSeeker.Views;
 
 /// <summary>
+/// Executes the shell-owned terminal application-exit route for a settings window.
+/// </summary>
+/// <param name="settingsWindow">The settings window whose owner-bound close must happen first.</param>
+internal delegate void SettingsWindowApplicationExitTerminal(SettingsWindow settingsWindow);
+
+/// <summary>
 /// 設定編集セッションを MainWindow owner の modal Window として表示します。
 /// </summary>
 public partial class SettingsWindow : ThemedWindow, IComponentConnector
@@ -52,6 +58,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private readonly IUiDialogService dialogService;
 
+    private readonly SettingsWindowApplicationExitTerminal applicationExitTerminal;
+
     private readonly UserControl[] categoryPages;
 
     /// <summary>
@@ -73,7 +81,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private static void ThrowIfPickerFailed(UiDialogStatus status, Exception exception, string routeName)
     {
-        if (status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser)
+        if (status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
         {
             return;
         }
@@ -91,17 +99,67 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         throw new InvalidOperationException(routeName + " failed: " + status, exception);
     }
 
+    private static void ThrowIfDialogFailed(UiDialogResult result, string routeName)
+    {
+        if (result == null)
+        {
+            throw new InvalidOperationException(routeName + " failed: no result");
+        }
+        if (result.Status is UiDialogStatus.Accepted
+            or UiDialogStatus.Rejected
+            or UiDialogStatus.CancelledByUser
+            or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Exception);
+    }
+
     /// <summary>
     /// 設定ウィンドウを初期化します。表示状態は Window lifecycle override で ViewModel へ通知します。
     /// </summary>
     public SettingsWindow()
-        : this(new DwmNativeWindowTitleBarGateway(), new AppNativeWindowTitleBarThemeSource(), new UiDialogCoordinator())
+        : this(
+            new DwmNativeWindowTitleBarGateway(),
+            new AppNativeWindowTitleBarThemeSource(),
+            new UiDialogCoordinator(),
+            ThrowApplicationExitTerminalUnavailable)
     {
     }
 
     /// <summary>Initializes the settings window with an injectable dialog boundary.</summary>
     internal SettingsWindow(IUiDialogService dialogService)
-        : this(new DwmNativeWindowTitleBarGateway(), new AppNativeWindowTitleBarThemeSource(), dialogService)
+        : this(
+            new DwmNativeWindowTitleBarGateway(),
+            new AppNativeWindowTitleBarThemeSource(),
+            dialogService,
+            ThrowApplicationExitTerminalUnavailable)
+    {
+    }
+
+    /// <summary>Initializes the settings window with an application-exit terminal supplied by the shell.</summary>
+    /// <param name="applicationExitTerminal">The shell-owned terminal for a completed application-data uninstall.</param>
+    internal SettingsWindow(SettingsWindowApplicationExitTerminal applicationExitTerminal)
+        : this(
+            new DwmNativeWindowTitleBarGateway(),
+            new AppNativeWindowTitleBarThemeSource(),
+            new UiDialogCoordinator(),
+            applicationExitTerminal)
+    {
+    }
+
+    /// <summary>Initializes the settings window with injectable dialogs and a shell-owned application-exit terminal.</summary>
+    /// <param name="dialogService">The dialog boundary used by settings routes.</param>
+    /// <param name="applicationExitTerminal">The shell-owned terminal for a completed application-data uninstall.</param>
+    internal SettingsWindow(
+        IUiDialogService dialogService,
+        SettingsWindowApplicationExitTerminal applicationExitTerminal)
+        : this(
+            new DwmNativeWindowTitleBarGateway(),
+            new AppNativeWindowTitleBarThemeSource(),
+            dialogService,
+            applicationExitTerminal)
     {
     }
 
@@ -113,7 +171,11 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     internal SettingsWindow(
         INativeWindowTitleBarGateway titleBarGateway,
         INativeWindowTitleBarThemeSource titleBarThemeSource)
-        : this(titleBarGateway, titleBarThemeSource, new UiDialogCoordinator())
+        : this(
+            titleBarGateway,
+            titleBarThemeSource,
+            new UiDialogCoordinator(),
+            ThrowApplicationExitTerminalUnavailable)
     {
     }
 
@@ -122,9 +184,29 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         INativeWindowTitleBarGateway titleBarGateway,
         INativeWindowTitleBarThemeSource titleBarThemeSource,
         IUiDialogService dialogService)
+        : this(
+            titleBarGateway,
+            titleBarThemeSource,
+            dialogService,
+            ThrowApplicationExitTerminalUnavailable)
+    {
+    }
+
+    /// <summary>Initializes the settings window with all view and shell boundaries supplied by composition.</summary>
+    /// <param name="titleBarGateway">The boundary that applies native title-bar attributes.</param>
+    /// <param name="titleBarThemeSource">The semantic palette source for native title-bar attributes.</param>
+    /// <param name="dialogService">The dialog boundary used by settings routes.</param>
+    /// <param name="applicationExitTerminal">The shell-owned terminal for a completed application-data uninstall.</param>
+    internal SettingsWindow(
+        INativeWindowTitleBarGateway titleBarGateway,
+        INativeWindowTitleBarThemeSource titleBarThemeSource,
+        IUiDialogService dialogService,
+        SettingsWindowApplicationExitTerminal applicationExitTerminal)
         : base(titleBarGateway, titleBarThemeSource)
     {
         this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+        this.applicationExitTerminal = applicationExitTerminal
+            ?? throw new ArgumentNullException(nameof(applicationExitTerminal));
         InitializeComponent();
         categoryPages =
         [
@@ -140,6 +222,12 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             new AboutSettingsPage()
         ];
         settingsPageContent.Content = categoryPages[0];
+    }
+
+    private static void ThrowApplicationExitTerminalUnavailable(SettingsWindow settingsWindow)
+    {
+        throw new InvalidOperationException(
+            "The settings window application-exit terminal is unavailable for this presentation.");
     }
 
     private static void playbackPanelChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)
@@ -701,7 +789,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     internal void HandleAddBmsInstallDirectory()
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        UiFolderPickerResult result = new UiDialogCoordinator()
+        UiFolderPickerResult result = dialogService
             .PickFolderAsync(new UiFolderPickerRequest(
                 selectedPath: settingDialogViewModel.AvailableBMSDirectories?.FirstOrDefault(),
                 multiselect: false,
@@ -783,7 +871,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         {
             return;
         }
-        UiSaveFilePickerResult result = await new UiDialogCoordinator().PickSaveFileAsync(new UiSaveFilePickerRequest(
+        UiSaveFilePickerResult result = await dialogService.PickSaveFileAsync(new UiSaveFilePickerRequest(
             "プレイリストデータを保存",
             "BeMusicSeeker_backup.sql",
             ".sql",
@@ -826,12 +914,23 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     {
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
             ?? throw new InvalidOperationException("Playlist workspace is unavailable.");
-        if (playlistWorkspace.PlaylistTreeTables == null
-            || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        if (playlistWorkspace.PlaylistTreeTables == null)
         {
             return;
         }
-        UiFilePickerResult result = await new UiDialogCoordinator().PickFileAsync(new UiFilePickerRequest(
+        UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
+            "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？",
+            "確認",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Cancel,
+            owner: Window.GetWindow(this)));
+        ThrowIfDialogFailed(confirmation, "Playlist backup restore confirmation");
+        if (!confirmation.IsAccepted)
+        {
+            return;
+        }
+        UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
             "プレイリストバックアップを開く",
             "BeMusicSeeker_backup.sql",
             filter: "sqlファイル(*.sql)|*.sql",
@@ -842,11 +941,19 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         {
             await RunViewOperationAsync(() => playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)
                 .Logging("detailTabItemRestoreButtonClicked"));
-            await base.Dispatcher.BeginInvoke((Action)delegate
+            Func<Task> closeAfterRestore = async () =>
             {
-                UiDialogRoute.ShowMessageBox(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
+                UiDialogResult shutdownNotification = await dialogService.ShowMessageAsync(new UiMessageRequest(
+                    "アプリケーションを終了します。",
+                    "確認",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Question,
+                    MessageBoxResult.OK,
+                    owner: Application.Current.MainWindow));
+                ThrowIfDialogFailed(shutdownNotification, "Playlist backup restore shutdown notification");
                 Application.Current.MainWindow.Close();
-            }, DispatcherPriority.Normal);
+            };
+            await base.Dispatcher.InvokeAsync(closeAfterRestore, DispatcherPriority.Normal).Task.Unwrap();
         }
     }
 
@@ -862,28 +969,27 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             settingDialogViewModel.UninstallApplicationDataAsync);
         if (result.ShouldCloseApplication)
         {
-            MainWindow owner = Owner as MainWindow
-                ?? throw new InvalidOperationException("Settings window is not owned by MainWindow.");
-            closeReason = SettingsWindowCloseReason.OwnerShutdown;
-            Close();
-            owner.Close();
+            applicationExitTerminal(this);
         }
     }
 
     /// <summary>Owns the multi-select BMS root picker route for the General page.</summary>
-    internal void HandleAddBmsSearchRootPaths()
+    /// <returns>A task that completes after the picker result is applied.</returns>
+    internal async Task HandleAddBmsSearchRootPathsAsync()
     {
         if (base.DataContext is not SettingsDialogViewModel settingDialogViewModel)
         {
             return;
         }
-        UiFolderPickerResult result = new UiDialogCoordinator().PickFolderAsync(new UiFolderPickerRequest(
+        UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(
             BeMusicSeeker.Properties.Resources.Add_BMSDirectory,
             settingDialogViewModel.SelectedBmsSearchRootPath,
             multiselect: true,
-            Window.GetWindow(this)))
-            .GetAwaiter()
-            .GetResult();
+            Window.GetWindow(this)));
+        if (result == null)
+        {
+            throw new InvalidOperationException("BMS search root folder picker returned no result.");
+        }
         ThrowIfPickerFailed(result.Status, result.Error, "BMS search root folder picker");
         if (result.Status == UiDialogStatus.Accepted)
         {
@@ -898,7 +1004,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         {
             return;
         }
-        UiFolderPickerResult result = new UiDialogCoordinator().PickFolderAsync(new UiFolderPickerRequest(
+        UiFolderPickerResult result = dialogService.PickFolderAsync(new UiFolderPickerRequest(
             BeMusicSeeker.Properties.Resources.Playlist_output_additional,
             settingDialogViewModel.SelectedCustomFolderAdditionalOutputBaseDir ?? settingDialogViewModel.LR2CustomFolderOutputDir,
             multiselect: true,
@@ -941,7 +1047,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         {
             return;
         }
-        UiWindowDialogResult<object> dialogResult = new UiDialogCoordinator()
+        UiWindowDialogResult<object> dialogResult = dialogService
             .ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>(
                 () => new PlayHistoryFolderDisplayPresetEditDialog(
                     settingDialogViewModel,

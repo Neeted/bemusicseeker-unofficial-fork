@@ -47,6 +47,30 @@ internal sealed class TestBmsLibrary : BMSLibrary
     {
     }
 
+    /// <summary>
+    /// Creates a test library with the narrow install-estimation diagnostic boundary enabled.
+    /// </summary>
+    internal TestBmsLibrary(
+        string songDbPath,
+        Func<LR2Config> getLR2Config,
+        string _lr2ScoreDB,
+        IFileMutationService fileMutationService,
+        IBmsLibraryDialogService dialogService,
+        IInstallEstimationExecutionObserver installEstimationExecutionObserver)
+        : base(
+            songDbPath,
+            getLR2Config,
+            _lr2ScoreDB,
+            fileMutationService,
+            dialogService,
+            null,
+            CurrentOptions,
+            new TestUiScheduler(() => Dispatcher.CurrentDispatcher),
+            ApplicationPathPolicy.Current,
+            installEstimationExecutionObserver)
+    {
+    }
+
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config,

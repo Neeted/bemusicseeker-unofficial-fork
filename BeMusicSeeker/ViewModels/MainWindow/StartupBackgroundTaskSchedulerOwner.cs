@@ -10,10 +10,49 @@ using BeMusicSeeker.Models.Utils;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
+/// Immutable identity issued before a named startup request is submitted.
+/// </summary>
+internal sealed class StartupBackgroundTaskReservation
+{
+    /// <summary>Initializes a scheduler-owned reservation identity.</summary>
+    /// <param name="name">The normalized scheduler request name.</param>
+    /// <param name="reservationId">The monotonically increasing reservation identity.</param>
+    /// <param name="expectedGeneration">The scheduler generation captured at reservation time.</param>
+    /// <param name="ownerSequence">The warmup owner's globally monotonic reservation attempt sequence.</param>
+    internal StartupBackgroundTaskReservation(
+        string name,
+        long reservationId,
+        long expectedGeneration,
+        long ownerSequence)
+    {
+        Name = name ?? throw new ArgumentNullException(nameof(name));
+        ReservationId = reservationId;
+        ExpectedGeneration = expectedGeneration;
+        OwnerSequence = ownerSequence;
+    }
+
+    /// <summary>Gets the normalized named queue identity.</summary>
+    internal string Name { get; }
+
+    /// <summary>Gets the immutable reservation sequence identity.</summary>
+    internal long ReservationId { get; }
+
+    /// <summary>Gets the scheduler generation captured before submit.</summary>
+    internal long ExpectedGeneration { get; }
+
+    /// <summary>Gets the warmup owner's monotonic reservation attempt sequence.</summary>
+    internal long OwnerSequence { get; }
+}
+
+/// <summary>
 /// Owns startup background work scheduling, accounting, and shutdown drain policy.
 /// </summary>
 internal sealed class StartupBackgroundTaskSchedulerOwner
 {
+    private const int ReservationStateQueued = 1;
+    private const int ReservationStateRunning = 2;
+    private const int ReservationStateTerminal = 3;
+
     private sealed class Request
     {
         internal string Name;
@@ -33,6 +72,12 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         internal long Version;
 
         internal long Generation;
+
+        internal StartupBackgroundTaskReservation Reservation;
+
+        // A reserved identity is a one-shot submit receipt. The state is only
+        // observed and changed while the scheduler locks are held.
+        internal int ReservationState;
 
         internal Func<Task> Work;
 
@@ -88,6 +133,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private readonly Dictionary<string, long> completedRequestVersionByName = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly Dictionary<string, StartupBackgroundTaskReservation> currentReservationByName = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, long> latestReservationSequenceByName = new(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, int> runningCountByLane = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, Metric> metrics = new(StringComparer.OrdinalIgnoreCase);
@@ -111,6 +160,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     private long version;
 
     private long generation;
+
+    private long reservationId;
 
     private long idleRevision;
 
@@ -227,6 +278,73 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
     }
 
+    /// <summary>
+    /// Atomically issues a named reservation only when the generation is current and the
+    /// owner attempt sequence is newer than every accepted attempt for that name in the generation.
+    /// </summary>
+    /// <param name="name">The request name to reserve.</param>
+    /// <param name="expectedGeneration">The scheduler generation captured by the owner.</param>
+    /// <param name="ownerSequence">The owner's globally monotonic reservation attempt sequence.</param>
+    /// <returns>The reservation, or <see langword="null"/> when shutdown, generation, or sequence ordering rejects it.</returns>
+    internal StartupBackgroundTaskReservation Reserve(
+        string name,
+        long expectedGeneration,
+        long ownerSequence)
+    {
+        string normalizedName = string.IsNullOrWhiteSpace(name) ? "unknown" : name;
+        if (isShutdownRequested())
+        {
+            logInfo("startup_background_task reservation_rejected name=" + normalizedName + " detail=shutdown_requested");
+            return null;
+        }
+
+        StartupBackgroundTaskReservation reservation = null;
+        bool skippedAfterLock = false;
+        string rejectionDetail = null;
+        lock (progressSynchronization)
+        {
+            lock (syncRoot)
+            {
+                if (shutdownRequested
+                    || expectedGeneration != generation)
+                {
+                    skippedAfterLock = true;
+                    rejectionDetail = shutdownRequested
+                        ? "shutdown_requested_after_lock"
+                        : "generation_mismatch";
+                }
+                else if (latestReservationSequenceByName.TryGetValue(normalizedName, out long latestOwnerSequence)
+                    && ownerSequence <= latestOwnerSequence)
+                {
+                    skippedAfterLock = true;
+                    rejectionDetail = "owner_sequence_not_newer";
+                }
+                else
+                {
+                    latestReservationSequenceByName[normalizedName] = ownerSequence;
+                    reservation = new StartupBackgroundTaskReservation(
+                        normalizedName,
+                        ++reservationId,
+                        generation,
+                        ownerSequence);
+                    currentReservationByName[normalizedName] = reservation;
+                }
+            }
+        }
+        if (skippedAfterLock)
+        {
+            logInfo("startup_background_task reservation_rejected name=" + normalizedName
+                + " detail=" + rejectionDetail);
+            return null;
+        }
+
+        logInfo("startup_background_task reservation name=" + reservation.Name
+            + " reservationId=" + reservation.ReservationId
+            + " generation=" + reservation.ExpectedGeneration
+            + " ownerSequence=" + reservation.OwnerSequence);
+        return reservation;
+    }
+
     internal bool Queue(
         string name,
         string reason,
@@ -253,6 +371,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         bool skippedAfterLock = false;
         string replacedLog = null;
         string queuedLog = null;
+        Request discardedReplacedRequest = null;
         lock (progressSynchronization)
         {
             lock (syncRoot)
@@ -270,17 +389,29 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     Request existing = queue.LastOrDefault(item => string.Equals(item.CoalesceKey, normalizedName, StringComparison.OrdinalIgnoreCase));
                     if (existing != null)
                     {
-                        existing.Reason = normalizedReason;
-                        existing.Dependency = normalizedDependency;
-                        existing.Lane = normalizedLane;
-                        existing.IsPostInitialization = isPostInitialization;
-                        existing.Priority = priority;
-                        existing.Version = requestVersion;
-                        existing.Work = work;
-                        existing.Discard = discard;
-                        replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " generation=" + existing.Generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " coalesceKey=" + normalizedName + " replaced=true";
+                        if (existing.Reservation != null)
+                        {
+                            queue.Remove(existing);
+                            existing.ReservationState = ReservationStateTerminal;
+                            RecordDiscardedUnsafe(existing, "replaced_by_general_queue");
+                            discardedReplacedRequest = existing;
+                            existing = null;
+                        }
+                        if (existing != null)
+                        {
+                            existing.Reason = normalizedReason;
+                            existing.Dependency = normalizedDependency;
+                            existing.Lane = normalizedLane;
+                            existing.IsPostInitialization = isPostInitialization;
+                            existing.Priority = priority;
+                            existing.Version = requestVersion;
+                            existing.Work = work;
+                            existing.Discard = discard;
+                            replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " generation=" + existing.Generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " coalesceKey=" + normalizedName + " replaced=true";
+                        }
                     }
-                    else
+                    currentReservationByName.Remove(normalizedName);
+                    if (existing == null)
                     {
                         queue.Add(new Request
                         {
@@ -293,6 +424,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             Priority = priority,
                             Version = requestVersion,
                             Generation = generation,
+                            Reservation = null,
+                            ReservationState = 0,
                             Work = work,
                             Discard = discard
                         });
@@ -311,12 +444,174 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         {
             logInfo(replacedLog);
         }
+        if (discardedReplacedRequest != null)
+        {
+            InvokeDiscard(discardedReplacedRequest, "replaced_by_general_queue");
+        }
         logInfo(queuedLog);
         if (shouldStartWorker)
         {
             TryStartWorkers();
         }
         return true;
+    }
+
+    /// <summary>
+    /// Submits one reserved named request after validating its identity and generation.
+    /// A reserved submit may coalesce only the request currently represented by the same name;
+    /// a stale reservation cannot replace a newer request.
+    /// </summary>
+    /// <param name="reservation">The immutable reservation issued by <see cref="Reserve"/>.</param>
+    /// <param name="reason">The request reason used for metrics and diagnostics.</param>
+    /// <param name="dependency">Optional comma-separated scheduler dependencies.</param>
+    /// <param name="work">The asynchronous work to run.</param>
+    /// <param name="discard">The callback for an accepted request removed before running.</param>
+    /// <returns><see langword="true"/> when the reserved request was accepted.</returns>
+    internal bool QueueReserved(
+        StartupBackgroundTaskReservation reservation,
+        string reason,
+        string dependency,
+        Func<Task> work,
+        Action<string> discard = null)
+    {
+        if (reservation == null || work == null)
+        {
+            return false;
+        }
+
+        string normalizedName = reservation.Name;
+        string normalizedReason = string.IsNullOrWhiteSpace(reason) ? "unspecified" : reason;
+        if (isShutdownRequested())
+        {
+            logInfo("startup_background_task reserved_submit_rejected name=" + normalizedName
+                + " reservationId=" + reservation.ReservationId
+                + " reason=" + normalizedReason
+                + " detail=shutdown_requested");
+            return false;
+        }
+
+        string normalizedDependency = string.IsNullOrWhiteSpace(dependency) ? null : dependency;
+        string normalizedLane = GetLane(normalizedName);
+        int priority = GetPriority(normalizedName);
+        bool isPostInitialization = IsPostInitializationTask(normalizedName);
+        bool shouldStartWorker = false;
+        bool rejectedAfterLock = false;
+        string rejectionDetail = null;
+        Request discardedReplacedRequest = null;
+        string replacedLog = null;
+        string queuedLog = null;
+        lock (progressSynchronization)
+        {
+            lock (syncRoot)
+            {
+                if (shutdownRequested
+                    || reservation.ExpectedGeneration != generation
+                    || !currentReservationByName.TryGetValue(normalizedName, out StartupBackgroundTaskReservation currentReservation)
+                    || !ReferenceEquals(currentReservation, reservation))
+                {
+                    rejectedAfterLock = true;
+                    rejectionDetail = shutdownRequested
+                        ? "shutdown_requested_after_lock"
+                        : reservation.ExpectedGeneration != generation
+                            ? "generation_mismatch"
+                            : "stale_reservation";
+                }
+                else
+                {
+                    Request existing = queue.LastOrDefault(item => string.Equals(item.CoalesceKey, normalizedName, StringComparison.OrdinalIgnoreCase));
+                    if (existing != null && ReferenceEquals(existing.Reservation, reservation))
+                    {
+                        rejectedAfterLock = true;
+                        rejectionDetail = existing.ReservationState == ReservationStateQueued
+                            ? "reservation_already_queued"
+                            : "reservation_not_submittable";
+                    }
+                    else
+                    {
+                        RecordQueuedUnsafe(normalizedName, normalizedReason, normalizedDependency, normalizedLane);
+                        idleRevision++;
+                        long requestVersion = ++version;
+                        latestRequestVersionByName[normalizedName] = requestVersion;
+                        if (existing != null)
+                        {
+                            queue.Remove(existing);
+                            existing.ReservationState = ReservationStateTerminal;
+                            RecordDiscardedUnsafe(existing, "replaced_by_reserved_queue");
+                            discardedReplacedRequest = existing;
+                            replacedLog = "startup_background_task reserved_submit_coalesced name=" + normalizedName
+                                + " oldVersion=" + existing.Version
+                                + " oldGeneration=" + existing.Generation
+                                + " reservationId=" + reservation.ReservationId
+                                + " replaced=true";
+                            existing = null;
+                        }
+                        queue.Add(new Request
+                        {
+                            Name = normalizedName,
+                            Reason = normalizedReason,
+                            Dependency = normalizedDependency,
+                            Lane = normalizedLane,
+                            IsPostInitialization = isPostInitialization,
+                            CoalesceKey = normalizedName,
+                            Priority = priority,
+                            Version = requestVersion,
+                            Generation = generation,
+                            Reservation = reservation,
+                            ReservationState = ReservationStateQueued,
+                            Work = work,
+                            Discard = discard
+                        });
+                        queuedLog = "startup_background_task reserved_submit name=" + normalizedName
+                            + " reservationId=" + reservation.ReservationId
+                            + " version=" + requestVersion
+                            + " generation=" + generation
+                            + " reason=" + normalizedReason
+                            + " kind=" + FormatRequestKind(isPostInitialization)
+                            + " dependency=" + (normalizedDependency ?? "(none)")
+                            + " lane=" + normalizedLane
+                            + " priority=" + priority;
+                        shouldStartWorker = started;
+                    }
+                }
+            }
+        }
+        if (rejectedAfterLock)
+        {
+            logInfo("startup_background_task reserved_submit_rejected name=" + normalizedName
+                + " reservationId=" + reservation.ReservationId
+                + " reason=" + normalizedReason
+                + " detail=" + rejectionDetail);
+            return false;
+        }
+        if (discardedReplacedRequest != null)
+        {
+            InvokeDiscard(discardedReplacedRequest, "replaced_by_reserved_queue");
+        }
+        if (replacedLog != null)
+        {
+            logInfo(replacedLog);
+        }
+        logInfo(queuedLog);
+        if (shouldStartWorker)
+        {
+            TryStartWorkers();
+        }
+        return true;
+    }
+
+    /// <summary>Submits a reserved request without a dependency.</summary>
+    /// <param name="reservation">The immutable scheduler reservation.</param>
+    /// <param name="reason">The request reason.</param>
+    /// <param name="work">The asynchronous work to run.</param>
+    /// <param name="discard">The callback for a queued request discarded before running.</param>
+    /// <returns><see langword="true"/> when the reserved request was accepted.</returns>
+    internal bool QueueReserved(
+        StartupBackgroundTaskReservation reservation,
+        string reason,
+        Func<Task> work,
+        Action<string> discard = null)
+    {
+        return QueueReserved(reservation, reason, null, work, discard);
     }
 
     internal void Start()
@@ -357,6 +652,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 postInitializationSchedulingComplete = false;
                 requiredInitializationSchedulingComplete = false;
                 generation++;
+                latestReservationSequenceByName.Clear();
                 idleRevision++;
                 for (int i = 0; i < queue.Count; i++)
                 {
@@ -364,6 +660,13 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     request.Generation = generation;
                     request.Version = ++version;
                     latestRequestVersionByName[request.Name] = request.Version;
+                }
+                foreach (string staleReservationName in currentReservationByName
+                    .Where(pair => !queue.Any(request => ReferenceEquals(request.Reservation, pair.Value)))
+                    .Select(pair => pair.Key)
+                    .ToArray())
+                {
+                    currentReservationByName.Remove(staleReservationName);
                 }
                 metrics.Clear();
                 foreach (Request request in queue)
@@ -378,6 +681,77 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         {
             TryStartWorkers();
         }
+    }
+
+    /// <summary>
+    /// Cancels the exact queued request represented by a scheduler reservation.
+    /// Running work is not interrupted and must be cancelled by its feature owner.
+    /// </summary>
+    /// <param name="reservation">The reservation that owns the queued request.</param>
+    /// <param name="reason">The cancellation reason passed to the discard boundary.</param>
+    /// <returns>
+    /// <see langword="true"/> when the exact queued request was removed; otherwise
+    /// <see langword="false"/>. A matching pre-submit reservation is invalidated
+    /// even when no queued request exists, while a running or newer reservation is untouched.
+    /// </returns>
+    internal bool CancelQueued(StartupBackgroundTaskReservation reservation, string reason)
+    {
+        if (reservation == null)
+        {
+            return false;
+        }
+        string normalizedReason = string.IsNullOrWhiteSpace(reason) ? "cancelled" : reason;
+        Request cancelled = null;
+        lock (progressSynchronization)
+        {
+            lock (syncRoot)
+            {
+                int index = queue.FindLastIndex(request => ReferenceEquals(request.Reservation, reservation));
+                if (index < 0)
+                {
+                    if (currentReservationByName.TryGetValue(reservation.Name, out StartupBackgroundTaskReservation preSubmitReservation)
+                        && ReferenceEquals(preSubmitReservation, reservation))
+                    {
+                        currentReservationByName.Remove(reservation.Name);
+                    }
+                    return false;
+                }
+
+                cancelled = queue[index];
+                queue.RemoveAt(index);
+                cancelled.ReservationState = ReservationStateTerminal;
+                if (currentReservationByName.TryGetValue(cancelled.Name, out StartupBackgroundTaskReservation currentReservation)
+                    && ReferenceEquals(currentReservation, reservation))
+                {
+                    currentReservationByName.Remove(cancelled.Name);
+                }
+                RecordDiscardedUnsafe(cancelled, normalizedReason);
+                idleRevision++;
+            }
+        }
+
+        try
+        {
+            logInfo("startup_background_task cancelled name=" + cancelled.Name
+                + " reservationId=" + reservation.ReservationId
+                + " version=" + cancelled.Version
+                + " reason=" + cancelled.Reason
+                + " cancelReason=" + normalizedReason);
+        }
+        catch
+        {
+            // Diagnostic failure must not skip the exact discard or scheduler progress.
+        }
+        InvokeDiscard(cancelled, normalizedReason);
+        try
+        {
+            TryStartWorkers();
+        }
+        finally
+        {
+            NotifyIdleChanged();
+        }
+        return true;
     }
 
     internal void MarkPostInitializationSchedulingComplete()
@@ -442,6 +816,12 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                         continue;
                     }
                     queue.RemoveAt(i);
+                    if (request.Reservation != null
+                        && currentReservationByName.TryGetValue(request.Name, out StartupBackgroundTaskReservation currentReservation)
+                        && ReferenceEquals(currentReservation, request.Reservation))
+                    {
+                        currentReservationByName.Remove(request.Name);
+                    }
                     RecordDiscardedUnsafe(request, reason);
                     discardedRequests ??= [];
                     discardedRequests.Add(request);
@@ -472,7 +852,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     + " shutdownReason=" + formatTextForLog(reason));
                 try
                 {
-                    request.Discard?.Invoke(reason);
+                    InvokeDiscard(request, reason);
                 }
                 catch (Exception exception)
                 {
@@ -591,6 +971,15 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     }
                     request = queue[index];
                     queue.RemoveAt(index);
+                    if (request.Reservation != null
+                        && currentReservationByName.TryGetValue(request.Name, out StartupBackgroundTaskReservation currentReservation)
+                        && ReferenceEquals(currentReservation, request.Reservation))
+                    {
+                        currentReservationByName.Remove(request.Name);
+                    }
+                    request.ReservationState = request.Reservation == null
+                        ? 0
+                        : ReservationStateRunning;
                     idleRevision++;
                     runningCount++;
                     if (request.IsPostInitialization)
@@ -707,6 +1096,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 {
                     lock (syncRoot)
                     {
+                        if (request.Reservation != null)
+                        {
+                            request.ReservationState = ReservationStateTerminal;
+                        }
                         if (!completedRequestVersionByName.TryGetValue(request.Name, out long completedVersion)
                             || request.Version > completedVersion)
                         {
@@ -798,6 +1191,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private void RecordDiscardedUnsafe(Request request, string reason)
     {
+        if (request.Reservation != null)
+        {
+            request.ReservationState = ReservationStateTerminal;
+        }
         if (!completedRequestVersionByName.TryGetValue(request.Name, out long completedVersion)
             || request.Version > completedVersion)
         {
@@ -819,6 +1216,28 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         if (string.IsNullOrWhiteSpace(metric.Lane))
         {
             metric.Lane = request.Lane ?? GetLane(request.Name);
+        }
+    }
+
+    private void InvokeDiscard(Request request, string reason)
+    {
+        try
+        {
+            request.Discard?.Invoke(reason);
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                logWarning("startup_background_task discard cleanup failed name="
+                    + request.Name
+                    + " message="
+                    + exception.Message);
+            }
+            catch
+            {
+                // Diagnostic failure must not escape the discard boundary.
+            }
         }
     }
 
@@ -872,7 +1291,14 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
         catch (Exception exception)
         {
-            logWarning("startup_background_task idle notification failed message=" + exception.Message);
+            try
+            {
+                logWarning("startup_background_task idle notification failed message=" + exception.Message);
+            }
+            catch
+            {
+                // Diagnostic failure must not escape idle accounting.
+            }
         }
     }
 

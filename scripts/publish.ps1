@@ -17,7 +17,8 @@ param(
     [string]$MetadataSource = "artifacts\chart-info-metadata\latest\chart-info-metadata.7z",
     [string]$MetadataPackageSuffix = "-with-metadata",
     [string]$PublicSiteUrl = "https://neeted.github.io/bemusicseeker-unofficial-fork",
-    [string]$PublicRepositoryRoot
+    [string]$PublicRepositoryRoot,
+    [string]$ArtifactRoot
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,9 +36,21 @@ $platform = "x64"
 $solution = Join-Path $devRoot "BeMusicSeeker.sln"
 $appProject = Join-Path $devRoot "BeMusicSeeker.csproj"
 $updaterProject = Join-Path $devRoot "BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
-$appPublishOutput = Join-Path $devRoot "artifacts\publish\app"
-$updaterPublishOutput = Join-Path $devRoot "artifacts\publish\updater"
-$distDir = Join-Path $devRoot "dist"
+$artifactRootWasProvided = -not [string]::IsNullOrWhiteSpace($ArtifactRoot)
+$artifactRootPath = if ($artifactRootWasProvided) {
+    [System.IO.Path]::GetFullPath($ArtifactRoot)
+}
+else {
+    Join-Path $devRoot "artifacts\publish"
+}
+$appPublishOutput = Join-Path $artifactRootPath "app"
+$updaterPublishOutput = Join-Path $artifactRootPath "updater"
+$distDir = if ($artifactRootWasProvided) {
+    Join-Path $artifactRootPath "dist"
+}
+else {
+    Join-Path $devRoot "dist"
+}
 $stagingRoot = Join-Path $distDir "_staging"
 $publicRepoOwner = "Neeted"
 $publicRepoName = "bemusicseeker-unofficial-fork"

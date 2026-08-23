@@ -459,13 +459,23 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
 
     private readonly IExternalShellGateway externalShellGateway;
 
+    private readonly IUiDialogService dialogs;
+
+    /// <summary>
+    /// WPF の Score Viewer 登録 interaction を初期化します。
+    /// </summary>
+    /// <param name="warningLog">表示や外部 shell の失敗を記録する logger。</param>
+    /// <param name="externalShellGateway">登録後の viewer URL を開く shell 境界。</param>
+    /// <param name="dialogs">confirmation と結果通知を表示する dialog 境界。</param>
     internal WpfScoreViewerRegistrationInteraction(
         Action<Exception, string> warningLog,
-        IExternalShellGateway externalShellGateway)
+        IExternalShellGateway externalShellGateway,
+        IUiDialogService dialogs)
     {
         this.warningLog = warningLog ?? throw new ArgumentNullException(nameof(warningLog));
         this.externalShellGateway = externalShellGateway
             ?? throw new ArgumentNullException(nameof(externalShellGateway));
+        this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
     }
 
     public async Task<bool> ConfirmUploadAsync(
@@ -506,7 +516,7 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
                 + BeMusicSeeker.Properties.Resources.Msg_hide_message
                 + ")";
         }
-        UiDialogResult result = await new UiDialogCoordinator().ConfirmAsync(new UiConfirmationRequest(
+        UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
             message,
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxButton.YesNo,
@@ -568,13 +578,13 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
         }
     }
 
-    private static async Task ShowMessageAsync(
+    private async Task ShowMessageAsync(
         string message,
         string caption,
         MessageBoxImage icon,
         string routeName)
     {
-        UiDialogResult result = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
+        UiDialogResult result = await dialogs.ShowMessageAsync(new UiMessageRequest(
             message,
             caption,
             MessageBoxButton.OK,

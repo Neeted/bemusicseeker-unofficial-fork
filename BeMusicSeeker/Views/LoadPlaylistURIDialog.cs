@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
@@ -12,8 +13,21 @@ namespace BeMusicSeeker.Views;
 
 public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 {
+    private readonly IUiDialogService dialogService;
+
     public LoadPlaylistURIDialog()
+        : this(new UiDialogCoordinator())
     {
+    }
+
+    /// <summary>
+    /// 指定した UI dialog service を使う playlist URI dialog を初期化します。
+    /// </summary>
+    /// <param name="dialogService">local playlist file picker を実行する dialog service。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="dialogService"/> が null の場合。</exception>
+    internal LoadPlaylistURIDialog(IUiDialogService dialogService)
+    {
+        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         InitializeComponent();
     }
 
@@ -52,24 +66,38 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
         }
     }
 
-    private void OpenLocalFile(object sender, RoutedEventArgs e)
+    private async void OpenLocalFile(object sender, RoutedEventArgs e)
     {
-        UiFilePickerResult result = new UiDialogCoordinator().PickFileAsync(new UiFilePickerRequest(
+        await HandleOpenLocalFileAsync();
+    }
+
+    /// <summary>
+    /// local playlist JSON file picker を表示し、受理された path を URI 入力へ追加します。
+    /// </summary>
+    /// <returns>picker route と入力更新が完了した task。</returns>
+    /// <exception cref="InvalidOperationException">picker が cancel/close 以外の status で終了した場合。</exception>
+    internal async Task HandleOpenLocalFileAsync()
+    {
+        UiFilePickerResult result = await dialogService.PickFileAsync(new UiFilePickerRequest(
             "ヘッダーファイルを開く",
             filter: "Jsonファイル(*.json)|*.json",
             defaultExtension: ".json",
-            owner: Window.GetWindow(this)))
-            .GetAwaiter()
-            .GetResult();
-        if (result.Status is not (UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser))
+            owner: Window.GetWindow(this)));
+        if (result == null)
+        {
+            throw new InvalidOperationException("Playlist URI local file picker returned no result.");
+        }
+        if (result.Status is UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+        if (result.Status != UiDialogStatus.Accepted)
         {
             throw new InvalidOperationException("Playlist URI local file picker failed: " + result.Status, result.Error);
         }
-        if (result.Status == UiDialogStatus.Accepted)
-        {
-            textBoxURIInput.Text = AppendUriInputLine(textBoxURIInput.Text, result.FileName);
-            textBoxURIInput.CaretIndex = textBoxURIInput.Text.Length;
-        }
+
+        textBoxURIInput.Text = AppendUriInputLine(textBoxURIInput.Text, result.FileName);
+        textBoxURIInput.CaretIndex = textBoxURIInput.Text.Length;
     }
 
     internal static string AppendUriInputLine(string currentText, string line)

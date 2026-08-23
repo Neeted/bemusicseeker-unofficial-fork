@@ -323,7 +323,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 outcome = "invalid";
                 totalStopwatch.Stop();
-                ShowUiMessage(
+                await ShowUiMessageAsync(
                     BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg,
                     BeMusicSeeker.Properties.Resources.Error,
                     MessageBoxImage.Hand,
@@ -349,11 +349,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 if (applicationLifetime.IsFirstStartup)
                 {
                     totalStopwatch.Stop();
-                    ShowUiMessage(
-                        BeMusicSeeker.Properties.Resources.Msg_initsetting_completed,
-                        BeMusicSeeker.Properties.Resources.Information,
-                        MessageBoxImage.Asterisk,
-                        "Initial settings completion notification");
+                    await ShowInitialSettingsCompletionMessageAsync();
                     totalStopwatch.Start();
                 }
                 bool initializationSucceeded = await statePort.InitializeLibraryAsync();
@@ -862,7 +858,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            HandleRestartFailure(ex);
+            ObserveRestartFailure(ex);
         }
     }
 
@@ -874,18 +870,71 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception exception)
         {
-            HandleRestartFailure(exception);
+            await HandleRestartFailureAsync(exception).ConfigureAwait(true);
         }
     }
 
-    private void HandleRestartFailure(Exception exception)
+    private void ObserveRestartFailure(Exception exception)
     {
-        ShowUiMessage(
-            BeMusicSeeker.Properties.Resources.Error_RestartApplicationFailed + Environment.NewLine + Environment.NewLine + exception.Message,
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxImage.Hand,
-            "Restart failure notification");
-        applicationLifetime.RequestShutdown();
+        // This route is entered by a synchronous WPF property setter. The task
+        // owns and observes every failure so notification faults cannot become
+        // an unobserved exception while shutdown is still requested.
+        _ = HandleRestartFailureAsync(exception);
+    }
+
+    private async Task HandleRestartFailureAsync(Exception exception)
+    {
+        Exception notificationFailure = null;
+        try
+        {
+            UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Error_RestartApplicationFailed + Environment.NewLine + Environment.NewLine + exception.Message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK))
+                .ConfigureAwait(true);
+            UiDialogRoute.ThrowIfNotShown(result, "Restart failure notification");
+        }
+        catch (Exception failure)
+        {
+            notificationFailure = failure;
+        }
+        finally
+        {
+            try
+            {
+                applicationLifetime.RequestShutdown();
+            }
+            catch (Exception shutdownFailure)
+            {
+                notificationFailure ??= shutdownFailure;
+            }
+        }
+
+        if (notificationFailure != null)
+        {
+            ReportRestartFailure(notificationFailure);
+        }
+    }
+
+    private void ReportRestartFailure(Exception exception)
+    {
+        try
+        {
+            reportApplyFailure(exception);
+        }
+        catch (Exception reportFailure)
+        {
+            try
+            {
+                NLogWrapper.FileLogger?.Error(reportFailure, "settings_operation_mode_restart_failure_report_failed");
+            }
+            catch
+            {
+                // Failure reporting must not suppress the shutdown request.
+            }
+        }
     }
 
     public string LR2bodyPath
@@ -4926,7 +4975,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool IsLR2ConfigXmlPathValid(string value)
     {
-        return File.Exists(value);
+        return TryLoadLr2Config(value, out _);
     }
 
     private bool IsBeatorajaScoreDbPathValid()
@@ -5161,35 +5210,51 @@ public partial class SettingsDialogViewModel : ViewModel
         SetSettingProperty(propertyName, path);
     }
 
+    /// <summary>
+    /// Adds a search root selected by the main-window picker and applies it to the attached library.
+    /// </summary>
+    /// <param name="path">The selected directory. <c>null</c> is a no-op.</param>
+    /// <returns>A task that completes after durable/config persistence, runtime target application, and any required file-diff reload.</returns>
+    /// <remarks>
+    /// Persistence is committed before runtime search targets are applied, and the file-diff reload is attempted only after both stages succeed.
+    /// Any persistence, runtime-application, or reload failure is propagated; later stages are not attempted after a failure.
+    /// </remarks>
     public async Task AddBmsSearchRootPathFromMainWindowPicker(string path)
     {
         if (path == null)
         {
             return;
         }
-        AddBmsSearchRootPaths([path], null, saveImmediately: true);
-        if (isSearchRootsChanged)
+        try
         {
-            if (!ApplicationSettings.OperationModeLR2DB)
+            AddBmsSearchRootPaths([path], null, saveImmediately: true);
+            if (isSearchRootsChanged)
             {
-                PersistStandaloneBmsRootPathsToSettings();
-                settingsEditSession.Save();
-            }
-            ApplyRuntimeSearchRootsForCurrentMode();
-            if (isBMSDirectoryAdded)
-            {
-                await ReloadFileDiffAsync();
+                if (!ApplicationSettings.OperationModeLR2DB)
+                {
+                    PersistStandaloneBmsRootPathsToSettings();
+                    settingsEditSession.Save();
+                }
+                ApplyRuntimeSearchRootsForCurrentMode();
+                if (isBMSDirectoryAdded)
+                {
+                    await ReloadFileDiffAsync();
+                }
+                else
+                {
+                    searchRootRuntimePort.InvalidateLibraryFolderCache();
+                }
             }
             else
             {
                 searchRootRuntimePort.InvalidateLibraryFolderCache();
             }
+        }
+        finally
+        {
             isSearchRootsChanged = false;
             isBMSDirectoryAdded = false;
-        }
-        else
-        {
-            searchRootRuntimePort.InvalidateLibraryFolderCache();
+            isBMSDirectoryRemoved = false;
         }
     }
 
@@ -5785,10 +5850,18 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (ArgumentException ex)
         {
+            if (saveImmediately)
+            {
+                throw;
+            }
             ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
         }
         catch (Exception ex)
         {
+            if (saveImmediately)
+            {
+                throw;
+            }
             ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
         }
     }
@@ -7145,6 +7218,11 @@ public partial class SettingsDialogViewModel : ViewModel
                 errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2RootPath) + Environment.NewLine;
                 result = false;
             }
+            if (!IsLR2ConfigXmlPathValid())
+            {
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath) + Environment.NewLine;
+                result = false;
+            }
             if (!File.Exists(LR2bodyPath))
             {
                 errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, FormatResource(BeMusicSeeker.Properties.Resources.Error_LR2ExecutableNotFoundFormat, LR2bodyPath)) + Environment.NewLine;
@@ -7293,6 +7371,11 @@ public partial class SettingsDialogViewModel : ViewModel
             if (!IsLR2PlayerRootPathValid())
             {
                 errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2RootPath) + Environment.NewLine;
+                result = false;
+            }
+            if (!IsLR2ConfigXmlPathValid())
+            {
+                errMsg += FormatSettingValidationMessage(BeMusicSeeker.Properties.Resources.Playback, BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath) + Environment.NewLine;
                 result = false;
             }
             if (!File.Exists(LR2bodyPath))
@@ -7840,6 +7923,33 @@ public partial class SettingsDialogViewModel : ViewModel
         return ToUiConfirmationDecision(result, routeName);
     }
 
+    private async Task ShowInitialSettingsCompletionMessageAsync()
+    {
+        UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
+            BeMusicSeeker.Properties.Resources.Msg_initsetting_completed,
+            BeMusicSeeker.Properties.Resources.Information,
+            MessageBoxButton.OK,
+            MessageBoxImage.Asterisk,
+            MessageBoxResult.OK));
+        UiDialogRoute.ThrowIfNotShown(result, "Initial settings completion notification");
+    }
+
+    private async Task ShowUiMessageAsync(
+        string messageBoxText,
+        string caption,
+        MessageBoxImage icon,
+        string routeName,
+        MessageBoxResult defaultResult = MessageBoxResult.OK)
+    {
+        UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
+            messageBoxText,
+            caption,
+            MessageBoxButton.OK,
+            icon,
+            defaultResult));
+        UiDialogRoute.ThrowIfNotShown(result, routeName);
+    }
+
     private static void ShowUiMessage(
         string messageBoxText,
         string caption,
@@ -7908,6 +8018,7 @@ public partial class SettingsDialogViewModel : ViewModel
             workspacePort.PlaylistCatalogChanged -= playlistCatalogChangedHandler;
             statePort.LibraryOperationAvailabilityChanged -= libraryOperationAvailabilityChangedHandler;
             statePort.Lr2PlayHistorySchemaStatusChanged -= lr2PlayHistorySchemaStatusChangedHandler;
+            resourceServiceEventListener.Dispose();
         }
     }
 

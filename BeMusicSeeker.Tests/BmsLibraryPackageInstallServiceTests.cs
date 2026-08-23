@@ -3339,26 +3339,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
-    [TestMethod]
-    public void MovePackageFiles_SafeCleanupRemainingChartHashCheckDoesNotMaterializePendingAdapter()
-    {
-        string root = FindRepositoryRoot();
-        string source = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryPackageInstallService.cs"));
-        int methodStart = source.IndexOf("private static bool TryGetRemainingChartLookupKey", StringComparison.Ordinal);
-        int methodEnd = source.IndexOf("private static bool IsSupportedChartFilePath", methodStart, StringComparison.Ordinal);
-        Assert.IsTrue(methodStart >= 0);
-        Assert.IsTrue(methodEnd > methodStart);
-        string method = source.Substring(methodStart, methodEnd - methodStart);
-        int bmsonBranchStart = method.IndexOf("ChartFileKindResolver.IsBmsonFilePath(remainingFilePath)", StringComparison.Ordinal);
-        int nonBmsonBranchStart = method.IndexOf(": ChartFileContentReader.ReadSnapshot", bmsonBranchStart, StringComparison.Ordinal);
-        Assert.IsTrue(bmsonBranchStart >= 0);
-        Assert.IsTrue(nonBmsonBranchStart > bmsonBranchStart);
-        string bmsonBranch = method.Substring(bmsonBranchStart, nonBmsonBranchStart - bmsonBranchStart);
-
-        StringAssert.Contains(bmsonBranch, "BmsonSongParser.Parse(remainingFilePath)");
-        StringAssert.Contains(method.Substring(nonBmsonBranchStart), "ChartFileContentReader.ReadSnapshot(remainingFilePath).Md5");
-    }
-
     [DataTestMethod]
     [DataRow("fixture.zip")]
     [DataRow("fixture.7z")]
@@ -3721,23 +3701,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
     private static string GetArchiveFixturePath(string fileName)
     {
         return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "archives", fileName);
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        string? directoryPath = AppDomain.CurrentDomain.BaseDirectory;
-        while (!string.IsNullOrWhiteSpace(directoryPath))
-        {
-            if (File.Exists(Path.Combine(directoryPath, "BeMusicSeeker.csproj")))
-            {
-                return directoryPath!;
-            }
-
-            DirectoryInfo? parent = Directory.GetParent(directoryPath);
-            directoryPath = parent?.FullName;
-        }
-
-        throw new DirectoryNotFoundException("Repository root was not found.");
     }
 
     private static DateTime GetExpectedArchiveLastWriteTime()

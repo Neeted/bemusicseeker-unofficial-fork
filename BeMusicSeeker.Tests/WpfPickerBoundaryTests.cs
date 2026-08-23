@@ -1,9 +1,10 @@
 using System;
 using System.IO;
-using System.Reflection;
-using BeMusicSeeker.Views;
+using System.Linq;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Microsoft.Win32;
+using Parago.Windows;
 
 namespace BeMusicSeeker.Tests;
 
@@ -11,61 +12,99 @@ namespace BeMusicSeeker.Tests;
 public sealed class WpfPickerBoundaryTests
 {
     [TestMethod]
-    public void PickerCoordinatorMapsTypedRequestsToWpfDialogOptions()
+    public void PickerFactoriesMapCompiledOptionsWithoutShowingInteractiveDialogs()
     {
-        Assembly assembly = typeof(MainWindow).Assembly;
-        Type coordinatorType = assembly.GetType("BeMusicSeeker.Views.Dialogs.UiDialogCoordinator");
-        Type fileRequestType = assembly.GetType("BeMusicSeeker.Views.Dialogs.UiFilePickerRequest");
-        Type folderRequestType = assembly.GetType("BeMusicSeeker.Views.Dialogs.UiFolderPickerRequest");
-        Assert.IsNotNull(coordinatorType);
-        Assert.IsNotNull(fileRequestType);
-        Assert.IsNotNull(folderRequestType);
+        string root = FindRepositoryRoot();
+        var fileRequest = new UiFilePickerRequest(
+            "Open song",
+            "song.db",
+            root,
+            "song.db (*.db)|*.db|All files|*.*",
+            defaultExtension: null,
+            multiselect: true,
+            ensureFileExists: false,
+            ensurePathExists: false);
+        Assert.AreEqual("Open song", fileRequest.Title);
+        Assert.AreEqual("song.db", fileRequest.FileName);
+        Assert.AreEqual(root, fileRequest.InitialDirectory);
+        Assert.AreEqual("song.db (*.db)|*.db|All files|*.*", fileRequest.Filter);
+        Assert.IsTrue(fileRequest.Multiselect);
+        Assert.IsFalse(fileRequest.EnsureFileExists);
+        Assert.IsFalse(fileRequest.EnsurePathExists);
+        Assert.AreEqual("db", UiFilePickerUtilities.InferDefaultExtension(fileRequest.FileName, fileRequest.Filter));
+        Assert.AreEqual(fileRequest.Filter, UiFilePickerUtilities.BuildFilter(fileRequest.Filter));
 
-        object fileRequest = Activator.CreateInstance(
-            fileRequestType,
-            BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null,
-            args: ["Open song", "song.db", FindRepositoryRoot(), "song.db (*.db)|*.db|All files|*.*", null, true, false, false, null],
-            culture: null);
-        MethodInfo fileFactory = coordinatorType.GetMethod("CreateOpenFileDialog", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.IsNotNull(fileFactory);
-        var fileDialog = (OpenFileDialog)fileFactory.Invoke(null, [fileRequest]);
-        Assert.AreEqual("Open song", fileDialog.Title);
-        Assert.AreEqual("song.db", fileDialog.FileName);
-        Assert.AreEqual(FindRepositoryRoot(), fileDialog.InitialDirectory);
-        Assert.AreEqual("song.db (*.db)|*.db|All files|*.*", fileDialog.Filter);
-        Assert.AreEqual("db", fileDialog.DefaultExt);
-        Assert.IsTrue(fileDialog.AddExtension);
-        Assert.IsTrue(fileDialog.Multiselect);
-        Assert.IsFalse(fileDialog.CheckFileExists);
-        Assert.IsFalse(fileDialog.CheckPathExists);
+        OpenFileDialog openFileDialog = UiDialogCoordinator.CreateOpenFileDialog(fileRequest);
+        Assert.AreEqual(fileRequest.Title, openFileDialog.Title);
+        Assert.AreEqual(fileRequest.FileName, openFileDialog.FileName);
+        Assert.AreEqual(root, openFileDialog.InitialDirectory);
+        Assert.AreEqual(fileRequest.Filter, openFileDialog.Filter);
+        Assert.IsFalse(openFileDialog.CheckFileExists);
+        Assert.IsFalse(openFileDialog.CheckPathExists);
+        Assert.IsTrue(openFileDialog.Multiselect);
+        Assert.AreEqual("db", openFileDialog.DefaultExt);
+        Assert.IsTrue(openFileDialog.AddExtension);
 
-        object folderRequest = Activator.CreateInstance(
-            folderRequestType,
-            BindingFlags.Instance | BindingFlags.NonPublic,
-            binder: null,
-            args: ["Select roots", FindRepositoryRoot(), true, null],
-            culture: null);
-        MethodInfo folderFactory = coordinatorType.GetMethod("CreateOpenFolderDialog", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.IsNotNull(folderFactory);
-        var folderDialog = (OpenFolderDialog)folderFactory.Invoke(null, [folderRequest]);
-        Assert.AreEqual("Select roots", folderDialog.Title);
-        Assert.AreEqual(FindRepositoryRoot(), folderDialog.InitialDirectory);
-        Assert.IsTrue(folderDialog.Multiselect);
+        var folderRequest = new UiFolderPickerRequest("Select roots", root, multiselect: true);
+        Assert.AreEqual("Select roots", folderRequest.Title);
+        Assert.AreEqual(root, folderRequest.SelectedPath);
+        Assert.IsTrue(folderRequest.Multiselect);
+
+        OpenFolderDialog openFolderDialog = UiDialogCoordinator.CreateOpenFolderDialog(folderRequest);
+        Assert.AreEqual(folderRequest.Title, openFolderDialog.Title);
+        Assert.AreEqual(root, openFolderDialog.InitialDirectory);
+        Assert.IsTrue(openFolderDialog.Multiselect);
+
+        var saveRequest = new UiSaveFilePickerRequest(
+            "Save backup",
+            "backup.sql",
+            ".sql",
+            "sql files|*.sql",
+            addExtension: true);
+        Assert.AreEqual("Save backup", saveRequest.Title);
+        Assert.AreEqual("backup.sql", saveRequest.FileName);
+        Assert.AreEqual(".sql", saveRequest.DefaultExtension);
+        Assert.AreEqual("sql files|*.sql", saveRequest.Filter);
+        Assert.IsTrue(saveRequest.AddExtension);
+
+        SaveFileDialog saveFileDialog = UiDialogCoordinator.CreateSaveFileDialog(saveRequest);
+        Assert.AreEqual(saveRequest.Title, saveFileDialog.Title);
+        Assert.AreEqual(saveRequest.FileName, saveFileDialog.FileName);
+        Assert.AreEqual(saveRequest.DefaultExtension.TrimStart('.'), saveFileDialog.DefaultExt);
+        Assert.AreEqual(saveRequest.Filter, saveFileDialog.Filter);
+        Assert.IsTrue(saveFileDialog.AddExtension);
+    }
+
+    [TestMethod]
+    public void PickerCoordinatorMapsOwnerUnavailableForOpenFolderAndSaveRoutes()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            var coordinator = new UiDialogCoordinator(new UiDialogOwnerResolver(() => null));
+            UiFilePickerResult file = coordinator.PickFileAsync(new UiFilePickerRequest()).GetAwaiter().GetResult();
+            UiFolderPickerResult folder = coordinator.PickFolderAsync(new UiFolderPickerRequest()).GetAwaiter().GetResult();
+            UiSaveFilePickerResult save = coordinator.PickSaveFileAsync(new UiSaveFilePickerRequest()).GetAwaiter().GetResult();
+
+            Assert.AreEqual(UiDialogStatus.OwnerUnavailable, file.Status);
+            Assert.AreEqual(UiDialogStatus.OwnerUnavailable, folder.Status);
+            Assert.AreEqual(UiDialogStatus.OwnerUnavailable, save.Status);
+            Assert.AreEqual(0, file.FileNames.Count);
+            Assert.AreEqual(0, folder.FolderPaths.Count);
+            Assert.IsNull(save.FileName);
+        });
     }
 
     [TestMethod]
     public void WpfPickerUtilityBuildsNormalizedFilterAndRetiresCodePackDistribution()
     {
         string root = FindRepositoryRoot();
-        Type utilityType = typeof(MainWindow).Assembly.GetType("BeMusicSeeker.Views.Dialogs.UiFilePickerUtilities");
-        Assert.IsNotNull(utilityType);
-        MethodInfo buildFilterMethod = utilityType.GetMethod("BuildFilter", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.IsNotNull(buildFilterMethod);
         Assert.AreEqual(
             "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*",
-            buildFilterMethod.Invoke(null, ["song.db (*.db)|*.db|すべてのファイル(*.*)|*.*"]));
-        Assert.AreEqual("*.*|*.*", buildFilterMethod.Invoke(null, ["broken"]));
+            UiFilePickerUtilities.BuildFilter("song.db (*.db)|*.db|すべてのファイル(*.*)|*.*"));
+        Assert.AreEqual("*.*|*.*", UiFilePickerUtilities.BuildFilter("broken"));
+        CollectionAssert.AreEqual(
+            new[] { "*.db", "*.db" },
+            UiFilePickerUtilities.ParseFilterPairs("db|*.db|all|*.db").Select(pair => pair.Item2).ToArray());
 
         string project = File.ReadAllText(Path.Combine(root, "BeMusicSeeker.csproj"));
         string layout = File.ReadAllText(Path.Combine(root, "scripts", "portable-package-layout.ps1"));

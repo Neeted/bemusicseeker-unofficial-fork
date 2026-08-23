@@ -74,6 +74,21 @@ internal sealed class MaintenanceWorkflowResult
 
     public long ResourceHealthIndexMs { get; set; }
 
+    /// <summary>
+    /// Indicates that the resource-health index was updated by a targeted delta.
+    /// </summary>
+    public bool ResourceHealthIndexDeltaApplied { get; set; }
+
+    /// <summary>
+    /// Indicates that the resource-health index update was deferred.
+    /// </summary>
+    public bool ResourceHealthIndexDeferred { get; set; }
+
+    /// <summary>
+    /// Indicates that the resource-health index was rebuilt from the full owned target set.
+    /// </summary>
+    public bool ResourceHealthIndexFullRebuilt { get; set; }
+
     public int WarningReapplyTargets { get; set; }
 
     public int WarningChangedCount { get; set; }
@@ -125,6 +140,9 @@ internal sealed class MaintenanceWorkflowResultFacts
         ComputeMs = source?.ComputeMs ?? 0L;
         CommitMs = source?.CommitMs ?? 0L;
         ResourceHealthIndexMs = source?.ResourceHealthIndexMs ?? 0L;
+        ResourceHealthIndexDeltaApplied = source?.ResourceHealthIndexDeltaApplied == true;
+        ResourceHealthIndexDeferred = source?.ResourceHealthIndexDeferred == true;
+        ResourceHealthIndexFullRebuilt = source?.ResourceHealthIndexFullRebuilt == true;
         WarningReapplyTargets = source?.WarningReapplyTargets ?? 0;
         WarningChangedCount = source?.WarningChangedCount ?? 0;
         Canceled = source?.Canceled == true;
@@ -166,6 +184,12 @@ internal sealed class MaintenanceWorkflowResultFacts
     internal long ComputeMs { get; }
     internal long CommitMs { get; }
     internal long ResourceHealthIndexMs { get; }
+    /// <summary>Gets whether resource-health dispatch applied a targeted delta.</summary>
+    internal bool ResourceHealthIndexDeltaApplied { get; }
+    /// <summary>Gets whether resource-health dispatch deferred the update.</summary>
+    internal bool ResourceHealthIndexDeferred { get; }
+    /// <summary>Gets whether resource-health dispatch rebuilt the full index.</summary>
+    internal bool ResourceHealthIndexFullRebuilt { get; }
     internal int WarningReapplyTargets { get; }
     internal int WarningChangedCount { get; }
     internal bool Canceled { get; }
@@ -215,6 +239,9 @@ internal sealed class MaintenanceWorkflowResultFacts
             ComputeMs = ComputeMs,
             CommitMs = CommitMs,
             ResourceHealthIndexMs = ResourceHealthIndexMs,
+            ResourceHealthIndexDeltaApplied = ResourceHealthIndexDeltaApplied,
+            ResourceHealthIndexDeferred = ResourceHealthIndexDeferred,
+            ResourceHealthIndexFullRebuilt = ResourceHealthIndexFullRebuilt,
             WarningReapplyTargets = WarningReapplyTargets,
             WarningChangedCount = WarningChangedCount,
             Canceled = Canceled,

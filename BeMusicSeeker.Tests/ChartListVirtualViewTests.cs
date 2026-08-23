@@ -254,7 +254,7 @@ public sealed class ChartListVirtualViewTests
                 defaultBmsPlayerFactory: () => player,
                 settingsEditSession: new NoOpSettingsEditSession(testSettings),
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-            var viewModel = new MainWindowViewModel(composition);
+            var viewModel = new MainWindowViewModel(composition, composition);
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
             var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);

@@ -1267,6 +1267,70 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
     }
 
+    [TestMethod]
+    public void StartupRepair_UsesCapturedSettingsAfterEditSessionChanges()
+    {
+        bool previousOperationMode = testSettings.OperationModeLR2DB;
+        string previousConfigXmlPath = testSettings.LR2ConfigXmlPath;
+        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
+        string previousBmsInstallDir = testSettings.BMSInstallDir;
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string manualBmsRoot = Path.Combine(tempRootPath, "ManualBmsRoot");
+            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
+            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+            string rootOutputChild = Path.Combine(rootOutputBase, "PlaylistOutput");
+            string changedRootOutputBase = Path.Combine(tempRootPath, "ChangedRootOutput");
+            Directory.CreateDirectory(manualBmsRoot);
+            Directory.CreateDirectory(normalOutputBase);
+            Directory.CreateDirectory(rootOutputChild);
+
+            LR2Config config = CreateConfig(tempRootPath);
+            config.SetBMSSearchDirectories([manualBmsRoot, normalOutputBase, rootOutputBase, rootOutputChild]);
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = normalOutputBase;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            testSettings.BMSInstallDir = rootOutputChild;
+
+            MainWindowViewModel viewModel = CreateViewModel(config);
+            string songDbPath = Path.Combine(tempRootPath, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            SetViewModelTables(
+                viewModel,
+                songDbPath,
+                [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
+
+            CustomFolderOutputSettingsSnapshot startupSettings =
+                CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
+            testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(tempRootPath, "ChangedNormalOutput");
+            testSettings.LR2CustomFolderOutputBaseDirRootType = changedRootOutputBase;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[\"changed-additional\"]";
+            testSettings.BMSInstallDir = manualBmsRoot;
+
+            bool changed = viewModel.PlaylistWorkspace.RepairRootCustomFolderOutputSearchRootsAfterStartup(
+                startupSettings);
+
+            Assert.IsTrue(changed);
+            CollectionAssert.Contains(config.GetBMSSearchDirectories(), rootOutputChild);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), rootOutputBase);
+            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), changedRootOutputBase);
+        }
+        finally
+        {
+            testSettings.OperationModeLR2DB = previousOperationMode;
+            testSettings.LR2ConfigXmlPath = previousConfigXmlPath;
+            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
+            testSettings.BMSInstallDir = previousBmsInstallDir;
+            TryDeleteDirectory(tempRootPath);
+        }
+    }
+
     private MainWindowViewModel CreateViewModel(LR2Config config)
     {
         testSettings.OperationModeLR2DB = true;

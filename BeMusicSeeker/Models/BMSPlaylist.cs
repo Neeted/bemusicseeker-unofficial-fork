@@ -137,6 +137,8 @@ public partial class BMSPlaylist : ObservableObject
 
     private readonly ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization;
 
+    private BmsPlaylistLibraryBindings? libraryBindings;
+
     /// <summary>
     /// LR2 設定を取得するための遅延評価デリゲートです。
     /// </summary>
@@ -453,6 +455,57 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Gets the typed bindings used to construct this playlist, when the playlist was
+    /// created through the composition-owned library route.
+    /// </summary>
+    internal BmsPlaylistLibraryBindings LibraryBindings
+        => libraryBindings ?? throw new InvalidOperationException("Typed library bindings are unavailable for callback-based playlist construction.");
+
+    /// <summary>
+    /// Initializes a playlist with typed capabilities from one concrete library.
+    /// </summary>
+    /// <param name="libraryBindings">The exact library capability binding.</param>
+    /// <param name="_lr2SongDB">The song database path.</param>
+    /// <param name="getLR2Config">The LR2 configuration provider.</param>
+    /// <param name="_lr2ScoreDB">The optional LR2 score database path.</param>
+    /// <param name="playlistUrlCompletionOptionsProvider">The playlist URL completion options provider.</param>
+    /// <param name="beatorajaBmtOptionsProvider">The beatoraja BMT options provider.</param>
+    /// <param name="customFolderOutputSettingsProvider">The custom-folder output settings provider.</param>
+    /// <param name="applicationPathSnapshot">The application path snapshot.</param>
+    /// <param name="uiScheduler">The UI scheduler.</param>
+    /// <param name="playlistUrlCompletionTsvContentFetcher">Optional TSV completion fetcher.</param>
+    /// <param name="playlistUrlCompletionStellaContentFetcher">Optional Stella completion fetcher.</param>
+    internal BMSPlaylist(
+        BmsPlaylistLibraryBindings libraryBindings,
+        string _lr2SongDB,
+        Func<LR2Config> getLR2Config,
+        string _lr2ScoreDB,
+        Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
+        Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
+        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
+        ApplicationPathSnapshot applicationPathSnapshot,
+        IUiScheduler uiScheduler,
+        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
+        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null)
+        : this(
+            _lr2SongDB,
+            getLR2Config,
+            _lr2ScoreDB,
+            RequireLibraryBindings(libraryBindings).GetBmsScores,
+            RequireLibraryBindings(libraryBindings).CreateBeatorajaBmtSongHashResolver,
+            playlistUrlCompletionOptionsProvider,
+            beatorajaBmtOptionsProvider,
+            customFolderOutputSettingsProvider,
+            applicationPathSnapshot,
+            uiScheduler,
+            RequireLibraryBindings(libraryBindings).Lr2PlaylistFolderSynchronization,
+            playlistUrlCompletionTsvContentFetcher,
+            playlistUrlCompletionStellaContentFetcher)
+    {
+        this.libraryBindings = RequireLibraryBindings(libraryBindings);
+    }
+
     internal BMSPlaylist(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
@@ -683,6 +736,9 @@ public partial class BMSPlaylist : ObservableObject
             RaisePropertyChanged(() => IsWriteLockHeldBMSTables);
         });
     }
+
+    private static BmsPlaylistLibraryBindings RequireLibraryBindings(BmsPlaylistLibraryBindings libraryBindings)
+        => libraryBindings ?? throw new ArgumentNullException(nameof(libraryBindings));
 
     /// <summary>
     /// DB からプレイリストを読み込み、必要に応じて外部同期とカスタムフォルダ出力まで実行します。

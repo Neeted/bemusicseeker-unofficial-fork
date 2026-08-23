@@ -3,8 +3,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 
@@ -307,6 +311,112 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         }
     }
 
+    [TestMethod]
+    public async Task WpfInteraction_MapsConfirmationChoicesAndRecordsTypedRequest()
+    {
+        var dialogs = new RecordingUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
+        };
+        var interaction = new WpfScoreViewerRegistrationInteraction(
+            (_, _) => { },
+            new RecordingExternalShellGateway(),
+            dialogs);
+        ScoreViewerRegistrationPlan plan = CreateUploadPlan();
+
+        Assert.IsTrue(await interaction.ConfirmUploadAsync(plan, showSingleTargetConfirmation: true));
+        Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+        Assert.AreEqual(MessageBoxButton.YesNo, dialogs.ConfirmationRequests[0].Button);
+        Assert.AreEqual(MessageBoxImage.Asterisk, dialogs.ConfirmationRequests[0].Icon);
+        Assert.AreEqual(Resources.Confirm, dialogs.ConfirmationRequests[0].Caption);
+
+        dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.No);
+        Assert.IsFalse(await interaction.ConfirmUploadAsync(plan, showSingleTargetConfirmation: true));
+
+        dialogs.ConfirmationResult = UiDialogResult.ClosedByUser(MessageBoxResult.Yes);
+        Assert.IsTrue(await interaction.ConfirmUploadAsync(plan, showSingleTargetConfirmation: true));
+        dialogs.ConfirmationResult = UiDialogResult.ClosedByUser(MessageBoxResult.No);
+        Assert.IsFalse(await interaction.ConfirmUploadAsync(plan, showSingleTargetConfirmation: true));
+    }
+
+    [TestMethod]
+    public async Task WpfInteraction_SkipsSingleTargetConfirmationWhenSettingDisablesIt()
+    {
+        var dialogs = new RecordingUiDialogService();
+        var interaction = new WpfScoreViewerRegistrationInteraction(
+            (_, _) => { },
+            new RecordingExternalShellGateway(),
+            dialogs);
+
+        Assert.IsTrue(await interaction.ConfirmUploadAsync(CreateUploadPlan(), showSingleTargetConfirmation: false));
+        Assert.AreEqual(0, dialogs.ConfirmationRequests.Count);
+    }
+
+    [TestMethod]
+    public async Task WpfInteraction_PreservesConfirmationDisplayFailures()
+    {
+        var dialogs = new RecordingUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("display failed"))
+        };
+        var interaction = new WpfScoreViewerRegistrationInteraction(
+            (_, _) => { },
+            new RecordingExternalShellGateway(),
+            dialogs);
+
+        InvalidOperationException failed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => interaction.ConfirmUploadAsync(CreateUploadPlan(), showSingleTargetConfirmation: true));
+        StringAssert.Contains(failed.Message, "dialog failed");
+
+        dialogs.ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable);
+        InvalidOperationException unavailable = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => interaction.ConfirmUploadAsync(CreateUploadPlan(), showSingleTargetConfirmation: true));
+        StringAssert.Contains(unavailable.Message, UiDialogStatus.OwnerUnavailable.ToString());
+    }
+
+    [TestMethod]
+    public async Task WpfInteraction_PresentsSuccessAndFailureMessagesAndOpensViewer()
+    {
+        var dialogs = new RecordingUiDialogService();
+        var shell = new RecordingExternalShellGateway();
+        var interaction = new WpfScoreViewerRegistrationInteraction((_, _) => { }, shell, dialogs);
+        var result = new ScoreViewerRegistrationResult([
+            ScoreViewerRegistrationItem.Uploaded(
+                new ScoreViewerTarget("hash", "chart.bms", "Chart"),
+                "hash",
+                "https://viewer/hash"),
+            ScoreViewerRegistrationItem.UploadFailed(
+                new ScoreViewerTarget("failed", "failed.bms", "Failed"),
+                "failed",
+                "upload failed")]);
+
+        await interaction.PresentResultAsync(result);
+        Assert.AreEqual(2, dialogs.MessageRequests.Count);
+        Assert.AreEqual(Resources.Msg_success_register_chart, dialogs.MessageRequests[0].MessageBoxText);
+        Assert.AreEqual(Resources.Error, dialogs.MessageRequests[1].Caption);
+
+        interaction.OpenViewer("https://viewer/hash");
+        Assert.AreEqual(ExternalShellRequestKind.Url, shell.LastRequest.Kind);
+        Assert.AreEqual("https://viewer/hash", shell.LastRequest.Target);
+    }
+
+    [TestMethod]
+    public async Task WpfInteraction_DoesNotTreatResultDisplayFailureAsUserRejection()
+    {
+        var dialogs = new RecordingUiDialogService
+        {
+            MessageResult = UiDialogResult.Failed(new InvalidOperationException("message failed"))
+        };
+        var interaction = new WpfScoreViewerRegistrationInteraction((_, _) => { }, new RecordingExternalShellGateway(), dialogs);
+        var result = new ScoreViewerRegistrationResult([
+            ScoreViewerRegistrationItem.Uploaded(
+                new ScoreViewerTarget("hash", "chart.bms", "Chart"),
+                "hash",
+                "https://viewer/hash")]);
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => interaction.PresentResultAsync(result));
+    }
+
     private static ScoreViewerRegistrationWorkflowOwner CreateOwner(
         RecordingGateway gateway,
         RecordingInteraction interaction,
@@ -350,6 +460,14 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
             isPending: false,
             isPlaylistMissing: false,
             capabilities);
+    }
+
+    private static ScoreViewerRegistrationPlan CreateUploadPlan()
+    {
+        return new ScoreViewerRegistrationPlan([
+            ScoreViewerRegistrationItem.NeedsUpload(
+                new ScoreViewerTarget("hash", "chart.bms", "Chart"),
+                "hash")]);
     }
 
     private sealed class RecordingGateway : IScoreViewerRegistrationGateway
@@ -417,6 +535,62 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         public void OpenViewer(string url)
         {
             OpenedUrl = url;
+        }
+    }
+
+    private sealed class RecordingUiDialogService : IUiDialogService
+    {
+        internal UiDialogResult ConfirmationResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes);
+
+        internal UiDialogResult MessageResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
+
+        internal List<UiMessageRequest> MessageRequests { get; } = [];
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, System.Threading.CancellationToken cancellationToken = default)
+        {
+            MessageRequests.Add(request);
+            return Task.FromResult(MessageResult);
+        }
+
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, System.Threading.CancellationToken cancellationToken = default)
+        {
+            ConfirmationRequests.Add(request);
+            return Task.FromResult(ConfirmationResult);
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, System.Threading.CancellationToken cancellationToken = default)
+            where TWindow : Window
+            => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, System.Threading.CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, System.Threading.CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, System.Threading.CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, System.Threading.CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+    }
+
+    private sealed class RecordingExternalShellGateway : IExternalShellGateway
+    {
+        internal ExternalShellRequest LastRequest { get; private set; }
+
+        public void Open(ExternalShellRequest request) => LastRequest = request;
+
+        public ExplorerOpenResult OpenFileAndSelect(string filePath) => new();
+
+        public ExplorerOpenResult OpenDirectory(string directoryPath) => new();
+
+        public bool TryOpenDirectoryWithExplorerProcess(string directoryPath, out string failureReason)
+        {
+            failureReason = string.Empty;
+            return true;
         }
     }
 }
