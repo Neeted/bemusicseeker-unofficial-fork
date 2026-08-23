@@ -1,6 +1,6 @@
 # テスト整理後 Blocking Findings 修正計画
 
-Status: Final remediation review pending
+Status: Final verification after second remediation
 
 Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
@@ -293,8 +293,8 @@ Replan triggers:
 | Unit 0: Baseline freeze and clarification | Complete | HEAD `9dc805563bc9098531d7a0a06dff029b3b5e7c7d`, clean worktree. Review base から対象 files に差分なし。追加の observable-semantics question なし。Unit 1 / 2 は逐次実行。 |
 | Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
-| Unit 1R: Replanned lifecycle closure | Complete after review remediation | `16d256519b5f24cf63cf78c4d169a90b61448bfe`。deadline直前gate、post-lifecycle filesystem reread退役、primitive observer、late fault、nonempty exact residual PID coverageを追加。focused 10/10。 |
-| Unit 3: Integration and final review | Final verification complete; remediation review pending | final verification snapshot `2c7f0c8522eb238de5858c13cf846d7f9a0f8ded`。focused、WPF 30回、Functional 3回、Full 1回をreview修正後snapshotで再実行し、全件成功。 |
+| Unit 1R: Replanned lifecycle closure | Complete after second remediation | `98c4cbaaa7eed4f4c25e1453ad2eef245f134858`。native Capture deadline/partial state、cleanup task wait gate、shared `Invoke-VerificationFunctionalCleanup`、全residual exact assertionを追加。resolverでprobeの`pwsh`/`conhost` identity mismatchをheadless `wscript` fixtureへ修正。focused 10/10。 |
+| Unit 3: Integration and final review | Final stability gate reset and in progress | snapshot `2c7f0c8522eb238de5858c13cf846d7f9a0f8ded` の旧gateはreview findingsにより無効。`98c4cbaa` 後のsnapshotで全gateを最初から再実行する。 |
 
 ## Verification log
 
@@ -352,3 +352,5 @@ Replan triggers:
 | same | post-review Functional 2/3 | Pass | 168.5s command | `tests-functional-20260824-033851`; within 180s; fingerprint unchanged; residual test process 0 |
 | same | post-review Functional 3/3 | Pass | 171.9s command | `tests-functional-20260824-034139`; within 180s; fingerprint unchanged; residual test process 0 |
 | same | post-review Full | Pass | canonical Functional 164.0s / 180s | `tests-full-20260824-034438`; current/baseline publish, existing-data, update, ProcessIntegration 40 pass + 2 intentional skip, ReleaseAcceptance 2/2, format, analyzer passed; 0 diagnostics; fingerprint unchanged |
+| `dc0ff1705bcf795d47779aaf2990418f32596eec` | post-remediation fresh static review | Blocking | n/a | 1 P1: native process-table Capture loop starts creation-time queries after shared deadline. 3 acceptance-direct P2: cleanup task wait直前gate不足、probeがactual Functional caller orchestrationを通らない、nonempty residual assertionがunrelated PID混入を許す。前回directory creation / recursive diagnostic P1は解消確認。 |
+| `98c4cbaaa7eed4f4c25e1453ad2eef245f134858` | second remediation parse / `git diff --check` / lifecycle focused Quick | Pass (10/10) | 25.8s focused test | `tests-quick-20260824-042521/functional`; first two attempts exposed deterministic unledgered `conhost` blocker (`041100`, `041400`), resolver identified OS-created child and aligned probe identity universe without filtering production lineage; sleeper/testhost/vstest residual 0 |
