@@ -1,6 +1,6 @@
 # テスト整理後 Blocking Findings 修正計画
 
-Status: Replanned lifecycle correction in progress
+Status: Final static review pending
 
 Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
@@ -294,7 +294,7 @@ Replan triggers:
 | Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
 | Unit 1R: Replanned lifecycle closure | Complete | `c3403326e7be9d521adcb109afdb84a4fafc5782`。root-only O(1) fanoutをlineage回収より先に完了し、通常成功を含む単一cleanup遷移、deadline後operation禁止、exact identity ledger cleanupをproduction seamと9件のcontract testで閉じた。 |
-| Unit 3: Integration and final review | In progress; stability gate reset | snapshot `0ce535d3e35f8fa0c1ac282484d54e64f0310974` の旧gateはblocking findingにより無効。Unit 1R後の最終snapshotでWPF 30回、Functional 3回、Full 1回を最初から再実行する。 |
+| Unit 3: Integration and final review | Final verification complete; fresh review pending | final verification snapshot `965dc8a098287f1d77ee90cd9548b89e128ca64a`。focused、WPF 30回、Functional 3回、Full 1回を変更後snapshotで再実行し、全件成功。 |
 
 ## Verification log
 
@@ -334,3 +334,11 @@ Replan triggers:
 | same | final-candidate Full | Pass | about 560.8s total; canonical Functional 169.6s / 180s | `tests-full-20260824-011153`; publish, existing-data, update, ProcessIntegration 37 pass + 2 intentional skip, ReleaseAcceptance, format, analyzer passed; fingerprint unchanged; residual `testhost` / `vstest.console` count 0 |
 | `3f53752c96b4d4315f33077b279adde212b828ef` | second correction fresh static review | Blocking; replan required | n/a | Persistent P1: per-entry lineage scan can consume shared deadline before later root stop requests. Acceptance-direct P2: normal-success cleanup transition, post-deadline close/scan, and independent probe-child cleanup. Unit 1R supersedes the prior correction route. |
 | `c3403326e7be9d521adcb109afdb84a4fafc5782` | Unit 1R PowerShell parse / `git diff --check` / lifecycle focused Quick | Pass (9/9) | focused phase completed within configured Quick budget | `tests-quick-20260824-020406`; no timeout or retry; exact-ledger owned PID residual 0; Functional/WPF/Full intentionally deferred to Unit 3 |
+| `965dc8a098287f1d77ee90cd9548b89e128ca64a` | final PowerShell parse / `git diff --check` / Release build | Pass (0 errors) | 23.1s build | runner SHA-256 `9317E665A694599385215E37E92F9189B4EB14CE487F7754A387B234A25D996E`; existing build warnings only; clean fingerprint |
+| same | final integrated lifecycle Quick | Pass (9/9) | 18.6s test / about 34s command | `tests-quick-20260824-020734`; fingerprint unchanged; exact-ledger owned PID residual 0 |
+| same | final integrated WPF Quick | Pass (28/28) | 10.8s test / about 30s command | `tests-quick-20260824-020816`; fingerprint unchanged; no cleanup diagnostic |
+| same | final WPF focused filter, 30 consecutive runs | Pass (30/30 runs, each 28/28) | 26.7-28.3s / run | run roots: `tests-quick-20260824-020904`, `tests-quick-20260824-020931`, `tests-quick-20260824-020958`, `tests-quick-20260824-021025`, `tests-quick-20260824-021053`, `tests-quick-20260824-021120`, `tests-quick-20260824-021147`, `tests-quick-20260824-021214`, `tests-quick-20260824-021242`, `tests-quick-20260824-021309`, `tests-quick-20260824-021336`, `tests-quick-20260824-021402`, `tests-quick-20260824-021430`, `tests-quick-20260824-021457`, `tests-quick-20260824-021525`, `tests-quick-20260824-021552`, `tests-quick-20260824-021620`, `tests-quick-20260824-021648`, `tests-quick-20260824-021715`, `tests-quick-20260824-021743`, `tests-quick-20260824-021810`, `tests-quick-20260824-021837`, `tests-quick-20260824-021905`, `tests-quick-20260824-021932`, `tests-quick-20260824-022000`, `tests-quick-20260824-022027`, `tests-quick-20260824-022055`, `tests-quick-20260824-022123`, `tests-quick-20260824-022151`, `tests-quick-20260824-022218`; all fingerprints unchanged; residual `testhost` / `vstest.console` count 0 |
+| same | final Functional 1/3 | Pass | 165.7s command | `tests-functional-20260824-022304`; within 180s; fingerprint unchanged; residual test process 0 |
+| same | final Functional 2/3 | Pass | 160.7s command | `tests-functional-20260824-022549`; within 180s; fingerprint unchanged; residual test process 0 |
+| same | final Functional 3/3 | Pass | 161.8s command | `tests-functional-20260824-022829`; within 180s; fingerprint unchanged; residual test process 0 |
+| same | final Full | Pass | canonical Functional 159.3s / 180s | `tests-full-20260824-023118`; current/baseline publish, existing-data, update, ProcessIntegration 39 pass + 2 intentional skip, ReleaseAcceptance 2/2, format, analyzer passed; 0 diagnostics; fingerprint unchanged |
