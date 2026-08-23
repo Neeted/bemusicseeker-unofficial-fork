@@ -12,6 +12,8 @@ namespace BeMusicSeeker.Tests;
 [TestCategory("ProcessIntegration")]
 public sealed class VerificationProcessLifecycleTests
 {
+    private sealed record LedgerEntry(int ProcessId, long CreationIdentity);
+
     [TestMethod]
     public void NormalExitPreservesCompletedStandardOutputAndError()
     {
@@ -19,6 +21,7 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual(0, result.RootElement.GetProperty("exitCode").GetInt32());
         Assert.AreEqual("stdout-complete", result.RootElement.GetProperty("stdout").GetString());
         Assert.AreEqual("stderr-complete", result.RootElement.GetProperty("stderr").GetString());
+        Assert.AreEqual(1, result.RootElement.GetProperty("cleanupTransitionCount").GetInt32());
         CollectionAssert.AreEqual(
             Array.Empty<string>(),
             ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics")));
@@ -75,12 +78,118 @@ public sealed class VerificationProcessLifecycleTests
                 diagnostics,
                 result.RootElement.GetProperty("rootProcessId").GetInt32()) > 0,
             "The deterministic inherited-handle probe must exercise the bounded stream-drain timeout path.");
+        Assert.AreEqual(1, result.RootElement.GetProperty("cleanupTransitionCount").GetInt32());
+        Assert.IsTrue(ContainsDiagnostic(diagnostics, "stream-reader-close: skipped after cleanup deadline"));
+        Assert.IsTrue(ContainsDiagnostic(diagnostics, "process-lineage-residual-check: skipped after cleanup deadline"));
+        CollectionAssert.AreEqual(
+            Array.Empty<int>(),
+            ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
+    }
+
+    [TestMethod]
+    public void ProbeFailureCleanupUsesExactLedgerWhenResultIsMissing()
+    {
+        ProbeRun run = StartProbe("missing-result");
+        try
+        {
+            Assert.IsTrue(run.Process.WaitForExit(30_000), "The failing lifecycle probe did not terminate.");
+            Assert.AreNotEqual(0, run.Process.ExitCode, "The missing-result probe must fail before writing result JSON.");
+            Assert.IsFalse(File.Exists(run.ResultPath), "The failing probe unexpectedly wrote result JSON.");
+
+            LedgerEntry[] ledger = ReadLedger(run.LedgerPath);
+            Assert.IsTrue(ledger.Length >= 2, "The failing probe must ledger both its root and child before result persistence.");
+            string ledgerCleanup = CleanupLedger(run.LedgerPath);
+            if (!run.Process.HasExited)
+            {
+                StopProcessTree(run.Process);
+            }
+            string residualCleanup = CleanupLedger(run.LedgerPath);
+            Assert.IsTrue(
+                string.IsNullOrWhiteSpace(ledgerCleanup) && string.IsNullOrWhiteSpace(residualCleanup),
+                $"Exact lifecycle ledger cleanup failed: {ledgerCleanup}; {residualCleanup}");
+
+            foreach (LedgerEntry entry in ledger)
+            {
+                Assert.IsFalse(
+                    IsExactIdentityAlive(entry),
+                    $"Ledger PID {entry.ProcessId} remained active after outer harness cleanup.");
+            }
+        }
+        finally
+        {
+            if (!run.Process.HasExited)
+            {
+                StopProcessTree(run.Process);
+            }
+            CleanupLedger(run.LedgerPath);
+            run.Process.Dispose();
+            TryDeleteDirectory(run.DiagnosticsDirectory);
+        }
+    }
+
+    [TestMethod]
+    public void FunctionalRootFanoutStopsEveryRootBeforeLineageCollection()
+    {
+        using JsonDocument result = RunProbe("fanout-order");
+        Assert.AreEqual(2, result.RootElement.GetProperty("fanoutRootCount").GetInt32());
+        Assert.IsTrue(result.RootElement.GetProperty("fanoutRootsExitedBeforeLineage").GetBoolean());
+        CollectionAssert.AreEqual(
+            Array.Empty<string>(),
+            ReadStringArray(result.RootElement.GetProperty("fanoutFailures")));
+        CollectionAssert.AreEqual(
+            new[] { 1, 1 },
+            ReadIntArray(result.RootElement.GetProperty("lifecycleTransitionCounts")));
         CollectionAssert.AreEqual(
             Array.Empty<int>(),
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
     }
 
     private static JsonDocument RunProbe(string scenario)
+    {
+        ProbeRun run = StartProbe(scenario);
+        using Process process = run.Process;
+        const int processTimeoutMilliseconds = 30_000;
+        try
+        {
+            if (!process.WaitForExit(processTimeoutMilliseconds))
+            {
+                string cleanup = StopProcessTree(process);
+                Assert.Fail(
+                    $"The lifecycle probe exceeded {processTimeoutMilliseconds / 1000}s. "
+                    + $"Cleanup: {cleanup}; diagnostics: {run.DiagnosticsDirectory}");
+            }
+
+            Assert.AreEqual(
+                0,
+                process.ExitCode,
+                $"The lifecycle probe failed. Diagnostics: {run.DiagnosticsDirectory}");
+            Assert.IsTrue(
+                File.Exists(run.ResultPath),
+                $"The lifecycle probe did not persist its structured result: {run.ResultPath}");
+            return JsonDocument.Parse(File.ReadAllText(run.ResultPath));
+        }
+        finally
+        {
+            string ledgerCleanup = CleanupLedger(run.LedgerPath);
+            if (!process.HasExited)
+            {
+                StopProcessTree(process);
+            }
+            string residualCleanup = CleanupLedger(run.LedgerPath);
+            Assert.IsTrue(
+                string.IsNullOrWhiteSpace(ledgerCleanup) && string.IsNullOrWhiteSpace(residualCleanup),
+                $"Exact lifecycle ledger cleanup failed: {ledgerCleanup}; {residualCleanup}");
+            TryDeleteDirectory(run.DiagnosticsDirectory);
+        }
+    }
+
+    private sealed record ProbeRun(
+        Process Process,
+        string DiagnosticsDirectory,
+        string ResultPath,
+        string LedgerPath);
+
+    private static ProbeRun StartProbe(string scenario)
     {
         string repositoryRoot = FindRepositoryRoot();
         string diagnosticsDirectory = Path.Combine(
@@ -111,35 +220,84 @@ public sealed class VerificationProcessLifecycleTests
         startInfo.ArgumentList.Add("-ResultPath");
         startInfo.ArgumentList.Add(resultPath);
 
-        using var process = new Process { StartInfo = startInfo };
+        var process = new Process { StartInfo = startInfo };
         Assert.IsTrue(process.Start(), "The lifecycle probe process did not start.");
-        const int processTimeoutMilliseconds = 30_000;
+        return new ProbeRun(
+            process,
+            diagnosticsDirectory,
+            resultPath,
+            Path.Combine(diagnosticsDirectory, "ownership-ledger.jsonl"));
+    }
+
+    private static LedgerEntry[] ReadLedger(string ledgerPath)
+    {
+        Assert.IsTrue(File.Exists(ledgerPath), $"The lifecycle probe did not persist its ownership ledger: {ledgerPath}");
+        var entries = new List<LedgerEntry>();
+        foreach (string line in File.ReadLines(ledgerPath))
+        {
+            using JsonDocument document = JsonDocument.Parse(line);
+            entries.Add(new LedgerEntry(
+                document.RootElement.GetProperty("pid").GetInt32(),
+                document.RootElement.GetProperty("creationIdentity").GetInt64()));
+        }
+        return entries.ToArray();
+    }
+
+    private static string CleanupLedger(string ledgerPath)
+    {
+        if (!File.Exists(ledgerPath))
+        {
+            return string.Empty;
+        }
+
+        var diagnostics = new List<string>();
+        foreach (LedgerEntry entry in ReadLedger(ledgerPath))
+        {
+            Process? owned = null;
+            try
+            {
+                owned = Process.GetProcessById(entry.ProcessId);
+                long observedIdentity = owned.StartTime.ToUniversalTime().Ticks;
+                if (observedIdentity != entry.CreationIdentity)
+                {
+                    diagnostics.Add($"PID {entry.ProcessId} creation identity mismatch; not stopped.");
+                    continue;
+                }
+                if (!owned.HasExited)
+                {
+                    owned.Kill(entireProcessTree: false);
+                }
+                if (!owned.HasExited && !owned.WaitForExit(5_000))
+                {
+                    diagnostics.Add($"PID {entry.ProcessId} remained active after exact cleanup.");
+                }
+            }
+            catch (ArgumentException)
+            {
+                // Exact PID is already absent; no process-table or name scan is needed.
+            }
+            catch (Exception exception)
+            {
+                diagnostics.Add($"PID {entry.ProcessId} exact cleanup failed: {exception.Message}");
+            }
+            finally
+            {
+                owned?.Dispose();
+            }
+        }
+        return string.Join("; ", diagnostics);
+    }
+
+    private static bool IsExactIdentityAlive(LedgerEntry entry)
+    {
         try
         {
-            if (!process.WaitForExit(processTimeoutMilliseconds))
-            {
-                string cleanup = StopProcessTree(process);
-                Assert.Fail(
-                    $"The lifecycle probe exceeded {processTimeoutMilliseconds / 1000}s. "
-                    + $"Cleanup: {cleanup}; diagnostics: {diagnosticsDirectory}");
-            }
-
-            Assert.AreEqual(
-                0,
-                process.ExitCode,
-                $"The lifecycle probe failed. Diagnostics: {diagnosticsDirectory}");
-            Assert.IsTrue(
-                File.Exists(resultPath),
-                $"The lifecycle probe did not persist its structured result: {resultPath}");
-            return JsonDocument.Parse(File.ReadAllText(resultPath));
+            using Process process = Process.GetProcessById(entry.ProcessId);
+            return !process.HasExited && process.StartTime.ToUniversalTime().Ticks == entry.CreationIdentity;
         }
-        finally
+        catch (ArgumentException)
         {
-            if (!process.HasExited)
-            {
-                StopProcessTree(process);
-            }
-            TryDeleteDirectory(diagnosticsDirectory);
+            return false;
         }
     }
 

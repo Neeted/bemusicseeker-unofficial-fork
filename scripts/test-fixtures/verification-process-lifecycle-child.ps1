@@ -2,8 +2,30 @@
 param(
     [Parameter(Mandatory)]
     [ValidateSet('normal', 'nonzero', 'descendant-root', 'descendant-child')]
-    [string]$Scenario
+    [string]$Scenario,
+
+    [string]$LedgerPath
 )
+
+function Write-LifecycleLedgerEntry {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Process]$Process
+    )
+
+    if ([string]::IsNullOrWhiteSpace($LedgerPath)) {
+        return
+    }
+
+    $entry = [ordered]@{
+        pid = $Process.Id
+        creationIdentity = $Process.StartTime.ToUniversalTime().Ticks
+    } | ConvertTo-Json -Compress
+    [System.IO.File]::AppendAllText(
+        $LedgerPath,
+        $entry + [Environment]::NewLine,
+        [System.Text.UTF8Encoding]::new($false))
+}
 
 switch ($Scenario) {
     'normal' {
@@ -21,12 +43,16 @@ switch ($Scenario) {
         $childInfo.FileName = 'pwsh'
         $childInfo.UseShellExecute = $false
         $childInfo.CreateNoWindow = $false
-        foreach ($argument in @(
-                '-NoProfile',
-                '-File',
-                $PSCommandPath,
-                '-Scenario',
-                'descendant-child')) {
+        $childArguments = @(
+            '-NoProfile',
+            '-File',
+            $PSCommandPath,
+            '-Scenario',
+            'descendant-child')
+        if (-not [string]::IsNullOrWhiteSpace($LedgerPath)) {
+            $childArguments += @('-LedgerPath', $LedgerPath)
+        }
+        foreach ($argument in $childArguments) {
             [void]$childInfo.ArgumentList.Add($argument)
         }
         $child = [System.Diagnostics.Process]::new()
@@ -34,6 +60,7 @@ switch ($Scenario) {
         if (-not $child.Start()) {
             throw 'Unable to start the owned descendant probe.'
         }
+        Write-LifecycleLedgerEntry -Process $child
         $child.Dispose()
         [Console]::Out.Write('root-exit')
         if ($env:BMS_LIFECYCLE_PROBE_NONZERO -ceq '1') {

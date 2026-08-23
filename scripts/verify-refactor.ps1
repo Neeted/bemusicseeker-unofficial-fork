@@ -658,26 +658,52 @@ function Invoke-MonitoredCommand {
             -CommandIdentity $commandIdentity `
             -DiagnosticsDirectory $DiagnosticsDirectory `
             -ProcessDeadlineUtc $processDeadline `
+            -PhaseDeadlineUtc $phaseDeadline `
             -CleanupDeadlineUtc $cleanupDeadline `
-            -CleanupBudgetSeconds $monitoredCommandCleanupSeconds
+            -TerminateProcessTree:$false
     }
     catch {
         $stageStopwatch.Stop()
+        $startupCleanupDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
+        if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc') -and
+            $PhaseDeadlineUtc -lt $startupCleanupDeadlineUtc) {
+            $startupCleanupDeadlineUtc = $PhaseDeadlineUtc
+        }
+        $startupCleanupDiagnostics = [System.Collections.Generic.List[string]]::new()
         try {
-            [System.IO.File]::WriteAllText(
-                (Join-Path $DiagnosticsDirectory 'stdout.log'),
-                [string]::Empty,
-                [System.Text.UTF8Encoding]::new($false))
-            [System.IO.File]::WriteAllText(
-                (Join-Path $DiagnosticsDirectory 'stderr.log'),
-                [string]::Empty,
-                [System.Text.UTF8Encoding]::new($false))
+            if ([DateTime]::UtcNow -lt $startupCleanupDeadlineUtc) {
+                foreach ($streamName in @('stdout', 'stderr')) {
+                    $writeTask = [System.IO.File]::WriteAllTextAsync(
+                        (Join-Path $DiagnosticsDirectory "$streamName.log"),
+                        [string]::Empty,
+                        [System.Text.UTF8Encoding]::new($false))
+                    [void](Wait-VerificationCleanupTask `
+                            -Task $writeTask `
+                            -OperationName "$Label $streamName startup diagnostic write (PID $($process.Id))" `
+                            -CleanupDeadlineUtc $startupCleanupDeadlineUtc `
+                            -CleanupDiagnostics $startupCleanupDiagnostics)
+                }
+            }
+            else {
+                $startupCleanupDiagnostics.Add(
+                    "$Label startup diagnostic persistence skipped after cleanup deadline; elapsed $($stageStopwatch.ElapsedMilliseconds)ms")
+            }
         }
         catch {
             Write-Warning "$Label startup diagnostics write failed: $($_.Exception.Message)"
         }
         try {
-            $process.Dispose()
+            if ([DateTime]::UtcNow -lt $startupCleanupDeadlineUtc) {
+                [void](Dispose-VerificationProcessHandleBounded `
+                        -Process $process `
+                        -OperationName "$Label startup process dispose (PID $($process.Id))" `
+                        -CleanupDeadlineUtc $startupCleanupDeadlineUtc `
+                        -CleanupDiagnostics $startupCleanupDiagnostics)
+            }
+            else {
+                $startupCleanupDiagnostics.Add(
+                    "$Label startup process dispose skipped after cleanup deadline; elapsed $($stageStopwatch.ElapsedMilliseconds)ms")
+            }
         }
         catch {
             Write-Warning "$Label process dispose failed after startup failure: $($_.Exception.Message)"
@@ -1406,6 +1432,7 @@ function Invoke-ParallelFunctionalTestShards {
     $failedShardName = $null
     $failedShardExitCode = $null
     $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+    $launchFailureFileName = $null
 
     try {
         $exclusiveDirectory = Join-Path $DiagnosticsDirectory 'exclusive-portable-settings'
@@ -1510,16 +1537,12 @@ function Invoke-ParallelFunctionalTestShards {
     }
     catch {
         $launchFailure = $_
-        $failureFileName = if ($null -ne $lr2LaunchFailure) {
+        $launchFailureFileName = if ($null -ne $lr2LaunchFailure) {
             'launch-failure.log'
         }
         else {
             'orchestration-failure.log'
         }
-        Write-FunctionalShardFailureDiagnostic `
-            -DiagnosticsDirectory $lr2DiagnosticsDirectory `
-            -Failure $launchFailure `
-            -FileName $failureFileName
     }
     finally {
         if ($null -ne $failedShard) {
@@ -1534,26 +1557,13 @@ function Invoke-ParallelFunctionalTestShards {
             $null -ne $launchFailure
 
         if ($forceCleanup) {
-            # Request termination for every owned root/lineage before collecting any
-            # one shard.  The request phase has no per-entry wait window; all entries
-            # share the one absolute Functional cleanup deadline.
-            foreach ($entry in $entries) {
-                if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
-                    $cleanupFailures.Add(
-                        "$($entry.Name): owned-process termination request skipped because the shared cleanup deadline expired")
-                    continue
-                }
-                $requestDiagnostics = [System.Collections.Generic.List[string]]::new()
-                [void](Request-VerificationOwnedProcessTreeStop `
-                        -RootProcess $entry.Process `
-                        -RootProcessId $entry.ProcessId `
-                        -CommandIdentity $entry.CommandIdentity `
-                        -CleanupDeadlineUtc $CleanupDeadlineUtc `
-                        -CleanupDiagnostics $requestDiagnostics)
-                foreach ($diagnostic in @($requestDiagnostics)) {
-                    $cleanupFailures.Add("$($entry.Name): $diagnostic")
-                }
-            }
+            # Functional cleanup has a deliberately O(1) first pass.  Every retained root
+            # receives an identity-validated root-only request before any entry is allowed
+            # to perform lineage discovery, stream drain, persistence, waiting, or disposal.
+            Invoke-VerificationRootStopFanout `
+                -Entries $entries `
+                -CleanupDeadlineUtc $CleanupDeadlineUtc `
+                -CleanupFailures $cleanupFailures
         }
 
         foreach ($entry in $entries) {
@@ -1567,8 +1577,9 @@ function Invoke-ParallelFunctionalTestShards {
                     -CommandIdentity $entry.CommandIdentity `
                     -DiagnosticsDirectory $entry.Directory `
                     -ProcessDeadlineUtc ([DateTime]::UtcNow) `
+                    -PhaseDeadlineUtc $CleanupDeadlineUtc `
                     -CleanupDeadlineUtc $CleanupDeadlineUtc `
-                    -CleanupBudgetSeconds $functionalCleanupReserveSeconds `
+                    -RootStopAlreadyRequested:$forceCleanup `
                     -TerminateProcessTree:$forceCleanup
                 if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
                     foreach ($diagnostic in @($lifecycleResult.SecondaryDiagnostics)) {
@@ -1619,6 +1630,19 @@ function Invoke-ParallelFunctionalTestShards {
             catch {
                 $cleanupFailures.Add(
                     "$($entry.Name): cleanup/output collection failed: $($_.Exception.Message)")
+            }
+        }
+        if ($null -ne $launchFailure -and
+            -not [string]::IsNullOrWhiteSpace($launchFailureFileName)) {
+            if ([DateTime]::UtcNow -lt $CleanupDeadlineUtc) {
+                Write-FunctionalShardFailureDiagnostic `
+                    -DiagnosticsDirectory $lr2DiagnosticsDirectory `
+                    -Failure $launchFailure `
+                    -FileName $launchFailureFileName
+            }
+            else {
+                $cleanupFailures.Add(
+                    "lr2-songdb-sync: $launchFailureFileName persistence skipped after the shared cleanup deadline")
             }
         }
         if ($failureObserved -and -not $lr2DiagnosticsCaptured) {
