@@ -1,6 +1,6 @@
 # テスト整理後 Blocking Findings 修正計画
 
-Status: Final verification after WPF lifecycle correction
+Status: Final static review pending
 
 Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
@@ -314,7 +314,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Ful
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
 | Unit 1R: Replanned lifecycle closure | Complete after second remediation | `98c4cbaaa7eed4f4c25e1453ad2eef245f134858`。native Capture deadline/partial state、cleanup task wait gate、shared `Invoke-VerificationFunctionalCleanup`、全residual exact assertionを追加。resolverでprobeの`pwsh`/`conhost` identity mismatchをheadless `wscript` fixtureへ修正。focused 10/10。 |
 | Unit 2R: Play-history WPF startup sequencing | Complete | `28e90e79`。host attachment → startup deactivation/Collapsed signal → BeginRequest → Visible signalへfixture順序を固定。focused 1/1、class 3/3。 |
-| Unit 3: Integration and final review | Final stability gate reset and in progress | `bf23285b` の旧gateはFull failureにより無効。Unit 2R後snapshotでWPF 30回、Functional 3回、Full 1回を最初から再実行する。 |
+| Unit 3: Integration and final review | Final verification complete; static review pending | Unit 2R後の同一snapshot `28260a09fd0ce7e503828b0f1d74cb7cea23f64e` で lifecycle/WPF Quick、WPF 30回、Functional 3回、Full 1回を完了。fresh static review のみ未完了。 |
 
 ## Verification log
 
@@ -379,3 +379,11 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Ful
 | same | final-candidate Functional 1/3, 2/3, 3/3 | Pass | 164.7s / 163.6s / 165.7s | `tests-functional-20260824-044941`, `tests-functional-20260824-045225`, `tests-functional-20260824-045508`; all within 180s; fingerprints unchanged; residual 0 |
 | same | final-candidate Full | Fail: compiled-WPF assertion | canonical Functional 145.9s / 180s before failure surfaced | `tests-full-20260824-045759`; `MainWindowPlayHistoryWpfTests.PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics` expected Visible, observed Collapsed. Non-timeout recurring fixture race (3/106 prior artifacts), no crash/cleanup/residual process; retry prohibited until Unit 2R correction. |
 | `28e90e79` | Unit 2R focused exact method / full class Quick | Pass (1/1; 3/3) | within Quick budget | `tests-quick-20260824-050932`, `tests-quick-20260824-051021`; existing dispatcher/visibility signals only; no timeout or residual process |
+| `28260a09fd0ce7e503828b0f1d74cb7cea23f64e` | final PowerShell parse / `git diff --check` / Release build | Pass (0 errors) | 24.1s build | runner SHA-256 `9259F4B7E606BA8566CF277BF3B512B82EA10C628D1CA89CFB7BA42106E303BC`; existing build warnings only; tracked fingerprint `E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855` |
+| same | final integrated lifecycle Quick | Pass (10/10) | 26.8s test / 37.5s phase | `tests-quick-20260824-051235`; exact-ledger cases included; fingerprint unchanged; residual test process 0 |
+| same | final combined WPF Quick including Unit 2R | Pass (31/31) | within Quick budget | `tests-quick-20260824-051328`; original focused fixtures, shared host, and play-history fixture included; residual test process 0 |
+| same | final WPF focused filter, 30 consecutive runs | Pass (30/30 runs) | 26.4-32.7s / run | run roots: `tests-quick-20260824-051513`, `tests-quick-20260824-051542`, `tests-quick-20260824-051612`, `tests-quick-20260824-051640`, `tests-quick-20260824-051708`, `tests-quick-20260824-051736`, `tests-quick-20260824-051805`, `tests-quick-20260824-051835`, `tests-quick-20260824-051904`, `tests-quick-20260824-051933`, `tests-quick-20260824-052004`, `tests-quick-20260824-052035`, `tests-quick-20260824-052105`, `tests-quick-20260824-052135`, `tests-quick-20260824-052203`, `tests-quick-20260824-052233`, `tests-quick-20260824-052304`, `tests-quick-20260824-052334`, `tests-quick-20260824-052405`, `tests-quick-20260824-052437`, `tests-quick-20260824-052509`, `tests-quick-20260824-052538`, `tests-quick-20260824-052604`, `tests-quick-20260824-052632`, `tests-quick-20260824-052659`, `tests-quick-20260824-052726`, `tests-quick-20260824-052753`, `tests-quick-20260824-052820`, `tests-quick-20260824-052847`, `tests-quick-20260824-052914`; all tracked fingerprints unchanged; residual test process 0 |
+| same | final Functional 1/3 | Pass | 166.2s command | `tests-functional-20260824-052952`; within 180s; fingerprint unchanged; residual test process 0 |
+| same | final Functional 2/3 | Pass | 161.6s command | `tests-functional-20260824-053238`; within 180s; fingerprint unchanged; residual test process 0 |
+| same | final Functional 3/3 | Pass | 163.5s command | `tests-functional-20260824-053520`; within 180s; fingerprint unchanged; residual test process 0 |
+| same | final Full | Pass | 532.2s total; canonical Functional 165.0s / 180s | `tests-full-20260824-053810`; current/baseline publish, existing-data, update, ProcessIntegration 40 pass + 2 intentional skip, ReleaseAcceptance 2/2, format, analyzer passed; 0 diagnostics; fingerprint unchanged; residual test process 0 |
