@@ -1,6 +1,6 @@
 # テスト整理後 Blocking Findings 修正計画
 
-Status: Final verification after review remediation
+Status: Final remediation review pending
 
 Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
@@ -294,7 +294,7 @@ Replan triggers:
 | Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
 | Unit 1R: Replanned lifecycle closure | Complete after review remediation | `16d256519b5f24cf63cf78c4d169a90b61448bfe`。deadline直前gate、post-lifecycle filesystem reread退役、primitive observer、late fault、nonempty exact residual PID coverageを追加。focused 10/10。 |
-| Unit 3: Integration and final review | Final stability gate reset and in progress | snapshot `965dc8a098287f1d77ee90cd9548b89e128ca64a` の旧gateはfresh review findingsにより無効。`16d25651` 後のsnapshotでWPF 30回、Functional 3回、Full 1回を最初から再実行する。 |
+| Unit 3: Integration and final review | Final verification complete; remediation review pending | final verification snapshot `2c7f0c8522eb238de5858c13cf846d7f9a0f8ded`。focused、WPF 30回、Functional 3回、Full 1回をreview修正後snapshotで再実行し、全件成功。 |
 
 ## Verification log
 
@@ -344,3 +344,11 @@ Replan triggers:
 | same | final Full | Pass | canonical Functional 159.3s / 180s | `tests-full-20260824-023118`; current/baseline publish, existing-data, update, ProcessIntegration 39 pass + 2 intentional skip, ReleaseAcceptance 2/2, format, analyzer passed; 0 diagnostics; fingerprint unchanged |
 | `b6d76206a6f58d52bbd8c964d2e34b945c0c6a51` | Unit 1R fresh static review | Blocking | n/a | 3 P1: descendant second scan/open after deadline, later-entry `New-Item` after shared deadline, unbounded post-lifecycle diagnostic filesystem reads that can replace primary failure. 1 acceptance-direct P2: order/deadline tests observe reported metadata instead of actual primitive boundaries; late fault and nonempty exact residual PID cases missing. |
 | `16d256519b5f24cf63cf78c4d169a90b61448bfe` | review remediation parse / `git diff --check` / lifecycle focused Quick | Pass (10/10) | 49.6s focused test | `tests-quick-20260824-031735/functional`; actual primitive observer, deterministic late fault, nonempty residual PID and exact-ledger cleanup included; no replan trigger |
+| `2c7f0c8522eb238de5858c13cf846d7f9a0f8ded` | post-review final parse / `git diff --check` / Release build | Pass (0 errors) | 23.3s build | runner SHA-256 `2C4C2E265CC0CFF71A0AB22759941D23B8913EBE1ED98F2B5FE5C5F01AE7867E`; existing build warnings only; clean fingerprint |
+| same | post-review lifecycle Quick | Pass (10/10) | 23.2s test / 32.6s phase | `tests-quick-20260824-032020`; actual primitive, late fault, nonempty residual and exact-ledger cases included; fingerprint unchanged |
+| same | post-review WPF Quick | Pass (28/28) | 10.6s test / 19.5s phase | `tests-quick-20260824-032106`; fingerprint unchanged; no cleanup diagnostic |
+| same | post-review WPF focused filter, 30 consecutive runs | Pass (30/30 runs, each 28/28) | 26.3-30.8s / run | run roots: `tests-quick-20260824-032145`, `tests-quick-20260824-032214`, `tests-quick-20260824-032241`, `tests-quick-20260824-032310`, `tests-quick-20260824-032338`, `tests-quick-20260824-032406`, `tests-quick-20260824-032433`, `tests-quick-20260824-032501`, `tests-quick-20260824-032528`, `tests-quick-20260824-032557`, `tests-quick-20260824-032628`, `tests-quick-20260824-032658`, `tests-quick-20260824-032727`, `tests-quick-20260824-032754`, `tests-quick-20260824-032823`, `tests-quick-20260824-032850`, `tests-quick-20260824-032918`, `tests-quick-20260824-032946`, `tests-quick-20260824-033015`, `tests-quick-20260824-033043`, `tests-quick-20260824-033111`, `tests-quick-20260824-033140`, `tests-quick-20260824-033211`, `tests-quick-20260824-033240`, `tests-quick-20260824-033309`, `tests-quick-20260824-033336`, `tests-quick-20260824-033402`, `tests-quick-20260824-033429`, `tests-quick-20260824-033456`, `tests-quick-20260824-033523`; all fingerprints unchanged; residual `testhost` / `vstest.console` count 0 |
+| same | post-review Functional 1/3 | Pass | 163.6s command | `tests-functional-20260824-033608`; within 180s; fingerprint unchanged; residual test process 0 |
+| same | post-review Functional 2/3 | Pass | 168.5s command | `tests-functional-20260824-033851`; within 180s; fingerprint unchanged; residual test process 0 |
+| same | post-review Functional 3/3 | Pass | 171.9s command | `tests-functional-20260824-034139`; within 180s; fingerprint unchanged; residual test process 0 |
+| same | post-review Full | Pass | canonical Functional 164.0s / 180s | `tests-full-20260824-034438`; current/baseline publish, existing-data, update, ProcessIntegration 40 pass + 2 intentional skip, ReleaseAcceptance 2/2, format, analyzer passed; 0 diagnostics; fingerprint unchanged |
