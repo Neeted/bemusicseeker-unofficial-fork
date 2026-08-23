@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -89,6 +90,9 @@ public sealed class VerificationProcessLifecycleTests
         Assert.IsTrue(
             CountPrimitiveEvents(events, "late-task-fault") >= 2,
             "Both deterministic late stream faults must be observed through the production seam.");
+        Assert.IsTrue(
+            CountPrimitiveEvents(events, "cleanup-task-wait") > 0,
+            "The production seam did not observe a bounded cleanup task wait.");
         AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
         Assert.IsFalse(ContainsPrimitiveEvent(events, "reader-close"));
         Assert.IsFalse(ContainsPrimitiveEvent(events, "persistence"));
@@ -172,19 +176,21 @@ public sealed class VerificationProcessLifecycleTests
             int[] residualIds = ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds"));
             Assert.IsTrue(residualIds.Length > 0, "The expired deadline must report a nonempty exact residual PID set.");
             LedgerEntry[] ledger = ReadLedger(run.LedgerPath);
-            bool residualIsLedgerOwned = false;
+            var ledgerByPid = ledger.ToDictionary(entry => entry.ProcessId);
+            var residualPidSet = new HashSet<int>();
             foreach (int residualId in residualIds)
             {
-                foreach (LedgerEntry entry in ledger)
-                {
-                    if (entry.ProcessId == residualId)
-                    {
-                        residualIsLedgerOwned = true;
-                        break;
-                    }
-                }
+                Assert.IsTrue(
+                    residualPidSet.Add(residualId),
+                    $"The lifecycle returned duplicate residual PID {residualId}.");
+                Assert.IsTrue(
+                    ledgerByPid.TryGetValue(residualId, out LedgerEntry entry),
+                    $"Residual PID {residualId} did not map to an exact ownership ledger entry.");
+                Assert.IsTrue(
+                    IsExactIdentityAlive(entry),
+                    $"Exact residual PID {residualId} was not alive before outer ledger cleanup.");
             }
-            Assert.IsTrue(residualIsLedgerOwned, "Every reported residual must come from the exact ownership ledger.");
+            Assert.AreEqual(residualIds.Length, residualPidSet.Count);
             PrimitiveEvent[] events = ReadPrimitiveEvents(result.RootElement.GetProperty("primitiveEvents"));
             AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
             string cleanup = CleanupLedger(run.LedgerPath);
@@ -365,7 +371,7 @@ public sealed class VerificationProcessLifecycleTests
     {
         var roots = new HashSet<int>(rootProcessIds);
         int maximumRootStopSequence = 0;
-        int firstLineageSequence = int.MaxValue;
+        int firstLineageOrCreationSequence = int.MaxValue;
         var stoppedRoots = new HashSet<int>();
         foreach (PrimitiveEvent primitiveEvent in events)
         {
@@ -375,9 +381,9 @@ public sealed class VerificationProcessLifecycleTests
                 stoppedRoots.Add(primitiveEvent.RootProcessId);
                 maximumRootStopSequence = Math.Max(maximumRootStopSequence, primitiveEvent.Sequence);
             }
-            if (primitiveEvent.Operation.Equals("lineage-snapshot", StringComparison.Ordinal))
+            if (primitiveEvent.Operation is "lineage-snapshot" or "creation-query")
             {
-                firstLineageSequence = Math.Min(firstLineageSequence, primitiveEvent.Sequence);
+                firstLineageOrCreationSequence = Math.Min(firstLineageOrCreationSequence, primitiveEvent.Sequence);
             }
         }
         Assert.AreEqual(roots.Count, stoppedRoots.Count, "Every retained root must receive a root-stop primitive.");
@@ -385,7 +391,10 @@ public sealed class VerificationProcessLifecycleTests
         {
             Assert.IsTrue(stoppedRoots.Contains(rootProcessId), $"Root PID {rootProcessId} did not receive a root-stop primitive.");
         }
-        Assert.IsTrue(firstLineageSequence > maximumRootStopSequence, "Lineage must begin after every root-stop primitive.");
+        Assert.AreNotEqual(int.MaxValue, firstLineageOrCreationSequence, "The production seam did not observe a lineage or creation query.");
+        Assert.IsTrue(
+            firstLineageOrCreationSequence > maximumRootStopSequence,
+            "Lineage and creation queries must begin after every root-stop primitive.");
     }
 
     private static int CountPrimitiveEvents(IEnumerable<PrimitiveEvent> events, string operation)

@@ -93,11 +93,27 @@ public sealed class VerificationProcessSnapshotEntry
     public string ExecutableName { get; init; } = string.Empty;
 }
 
+public sealed class VerificationProcessSnapshotResult
+{
+    public VerificationProcessSnapshotEntry[] Entries { get; init; } = Array.Empty<VerificationProcessSnapshotEntry>();
+    public bool IsComplete { get; init; }
+    public bool DeadlineExpired { get; init; }
+    public string FailureMessage { get; init; } = string.Empty;
+}
+
+public sealed class VerificationProcessCreationObservation
+{
+    public int ProcessId { get; init; }
+    public long UtcTicks { get; init; }
+}
+
 public static class VerificationProcessSnapshotNative
 {
     private const uint TH32CS_SNAPPROCESS = 0x00000002;
     private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    private const int ERROR_NO_MORE_FILES = 18;
     private static readonly IntPtr InvalidHandleValue = new IntPtr(-1);
+    private static readonly ConcurrentQueue<VerificationProcessCreationObservation> CreationObservations = new();
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct PROCESSENTRY32
@@ -147,50 +163,95 @@ public static class VerificationProcessSnapshotNative
     [DllImport("kernel32.dll")]
     private static extern bool CloseHandle(IntPtr handle);
 
-    public static VerificationProcessSnapshotEntry[] Capture()
+    public static VerificationProcessSnapshotResult Capture(long cleanupDeadlineUtcTicks, bool observeCreationQueries)
     {
+        var entries = new List<VerificationProcessSnapshotEntry>();
+        if (IsDeadlineExpired(cleanupDeadlineUtcTicks))
+        {
+            return DeadlineResult(entries);
+        }
+
         IntPtr snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if (snapshot == InvalidHandleValue)
         {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to capture the process table.");
+            return FailureResult(
+                entries,
+                new Win32Exception(Marshal.GetLastWin32Error(), "Unable to capture the process table.").Message);
         }
 
         try
         {
-            var entries = new List<VerificationProcessSnapshotEntry>();
             var nativeEntry = new PROCESSENTRY32
             {
                 dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32>()
             };
+            if (IsDeadlineExpired(cleanupDeadlineUtcTicks))
+            {
+                return DeadlineResult(entries);
+            }
             if (!Process32FirstW(snapshot, ref nativeEntry))
             {
                 int error = Marshal.GetLastWin32Error();
-                if (error == 18) // ERROR_NO_MORE_FILES
+                if (IsDeadlineExpired(cleanupDeadlineUtcTicks))
                 {
-                    return Array.Empty<VerificationProcessSnapshotEntry>();
+                    return DeadlineResult(entries);
                 }
-                throw new Win32Exception(error, "Unable to read the process snapshot.");
+                if (error == ERROR_NO_MORE_FILES)
+                {
+                    return CompleteResult(entries);
+                }
+                return FailureResult(entries, new Win32Exception(error, "Unable to read the process snapshot.").Message);
             }
 
-            do
+            while (true)
             {
+                if (IsDeadlineExpired(cleanupDeadlineUtcTicks))
+                {
+                    return DeadlineResult(entries);
+                }
+                bool creationQueryExpired;
+                long? creationTimeUtcTicks = TryGetCreationTimeUtcTicks(
+                    nativeEntry.th32ProcessID,
+                    cleanupDeadlineUtcTicks,
+                    observeCreationQueries,
+                    out creationQueryExpired);
+                if (creationQueryExpired)
+                {
+                    return DeadlineResult(entries);
+                }
                 entries.Add(new VerificationProcessSnapshotEntry
                 {
                     ProcessId = unchecked((int)nativeEntry.th32ProcessID),
                     ParentProcessId = unchecked((int)nativeEntry.th32ParentProcessID),
-                    CreationTimeUtcTicks = TryGetCreationTimeUtcTicks(nativeEntry.th32ProcessID),
+                    CreationTimeUtcTicks = creationTimeUtcTicks,
                     ExecutableName = nativeEntry.szExeFile ?? string.Empty
                 });
                 nativeEntry.dwSize = (uint)Marshal.SizeOf<PROCESSENTRY32>();
+                if (IsDeadlineExpired(cleanupDeadlineUtcTicks))
+                {
+                    return DeadlineResult(entries);
+                }
+                bool hasNext = Process32NextW(snapshot, ref nativeEntry);
+                if (IsDeadlineExpired(cleanupDeadlineUtcTicks))
+                {
+                    return DeadlineResult(entries);
+                }
+                if (!hasNext)
+                {
+                    int nextError = Marshal.GetLastWin32Error();
+                    if (nextError == ERROR_NO_MORE_FILES)
+                    {
+                        return CompleteResult(entries);
+                    }
+                    return FailureResult(
+                        entries,
+                        new Win32Exception(nextError, "Unable to finish reading the process snapshot.").Message);
+                }
             }
-            while (Process32NextW(snapshot, ref nativeEntry));
-
-            int nextError = Marshal.GetLastWin32Error();
-            if (nextError != 18) // ERROR_NO_MORE_FILES
-            {
-                throw new Win32Exception(nextError, "Unable to finish reading the process snapshot.");
-            }
-            return entries.ToArray();
+        }
+        catch (Exception exception)
+        {
+            return FailureResult(entries, exception.Message);
         }
         finally
         {
@@ -198,9 +259,76 @@ public static class VerificationProcessSnapshotNative
         }
     }
 
-    private static long? TryGetCreationTimeUtcTicks(uint processId)
+    public static object[] DrainCreationObservations()
     {
+        var observations = new List<object>();
+        while (CreationObservations.TryDequeue(out VerificationProcessCreationObservation observation))
+        {
+            observations.Add(observation);
+        }
+        return observations.ToArray();
+    }
+
+    private static VerificationProcessSnapshotResult CompleteResult(List<VerificationProcessSnapshotEntry> entries)
+    {
+        return new VerificationProcessSnapshotResult
+        {
+            Entries = entries.ToArray(),
+            IsComplete = true,
+            DeadlineExpired = false
+        };
+    }
+
+    private static VerificationProcessSnapshotResult DeadlineResult(List<VerificationProcessSnapshotEntry> entries)
+    {
+        return new VerificationProcessSnapshotResult
+        {
+            Entries = entries.ToArray(),
+            IsComplete = false,
+            DeadlineExpired = true,
+            FailureMessage = "The process snapshot reached the cleanup deadline before it completed."
+        };
+    }
+
+    private static VerificationProcessSnapshotResult FailureResult(
+        List<VerificationProcessSnapshotEntry> entries,
+        string failureMessage)
+    {
+        return new VerificationProcessSnapshotResult
+        {
+            Entries = entries.ToArray(),
+            IsComplete = false,
+            DeadlineExpired = false,
+            FailureMessage = failureMessage
+        };
+    }
+
+    private static bool IsDeadlineExpired(long cleanupDeadlineUtcTicks)
+    {
+        return DateTime.UtcNow.Ticks >= cleanupDeadlineUtcTicks;
+    }
+
+    private static long? TryGetCreationTimeUtcTicks(
+        uint processId,
+        long cleanupDeadlineUtcTicks,
+        bool observeCreationQueries,
+        out bool deadlineExpired)
+    {
+        deadlineExpired = IsDeadlineExpired(cleanupDeadlineUtcTicks);
+        if (deadlineExpired)
+        {
+            return null;
+        }
+        if (observeCreationQueries)
+        {
+            CreationObservations.Enqueue(new VerificationProcessCreationObservation
+            {
+                ProcessId = unchecked((int)processId),
+                UtcTicks = DateTime.UtcNow.Ticks
+            });
+        }
         IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+        deadlineExpired = IsDeadlineExpired(cleanupDeadlineUtcTicks);
         if (process == IntPtr.Zero)
         {
             return null;
@@ -208,9 +336,13 @@ public static class VerificationProcessSnapshotNative
 
         try
         {
-            return GetProcessTimes(process, out FILETIME creation, out _, out _, out _)
-                ? DateTime.FromFileTimeUtc(creation.ToLong()).Ticks
-                : null;
+            if (deadlineExpired)
+            {
+                return null;
+            }
+            bool succeeded = GetProcessTimes(process, out FILETIME creation, out _, out _, out _);
+            deadlineExpired = IsDeadlineExpired(cleanupDeadlineUtcTicks);
+            return succeeded ? DateTime.FromFileTimeUtc(creation.ToLong()).Ticks : null;
         }
         finally
         {
@@ -271,9 +403,25 @@ public static class VerificationProcessTaskObserver
 }
 
 function Get-VerificationProcessTable {
+    param(
+        [Parameter(Mandatory)]
+        [DateTime]$CleanupDeadlineUtc,
+
+        [Parameter(Mandatory)]
+        [int]$RootProcessId,
+
+        [object]$PrimitiveObserver,
+
+        [string]$ObserverContext
+    )
+
     try {
-        return @(
-            [VerificationProcessSnapshotNative]::Capture() |
+        [void][VerificationProcessSnapshotNative]::DrainCreationObservations()
+        $nativeResult = [VerificationProcessSnapshotNative]::Capture(
+            $CleanupDeadlineUtc.Ticks,
+            $null -ne $PrimitiveObserver)
+        $table = @(
+            $nativeResult.Entries |
                 ForEach-Object {
                     [pscustomobject]@{
                         ProcessId = $_.ProcessId
@@ -283,6 +431,22 @@ function Get-VerificationProcessTable {
                         CommandLine = [string]::Empty
                     }
                 })
+        foreach ($observation in @([VerificationProcessSnapshotNative]::DrainCreationObservations())) {
+            Invoke-VerificationPrimitiveObserver `
+                -Observer $PrimitiveObserver `
+                -Operation 'creation-query' `
+                -RootProcessId $observation.ProcessId `
+                -Context $ObserverContext `
+                -UtcTicks $observation.UtcTicks
+        }
+        $deadlineExpired = [bool]$nativeResult.DeadlineExpired -or
+            [DateTime]::UtcNow -ge $CleanupDeadlineUtc
+        return [pscustomobject]@{
+            Entries = $table
+            IsComplete = [bool]$nativeResult.IsComplete -and -not $deadlineExpired
+            DeadlineExpired = $deadlineExpired
+            FailureMessage = [string]$nativeResult.FailureMessage
+        }
     }
     catch {
         throw "Unable to observe the owned process lineage: $($_.Exception.Message)"
@@ -297,6 +461,7 @@ function Update-VerificationProcessLineage {
         [Parameter(Mandatory)]
         [System.Diagnostics.Process]$RootProcess,
 
+        [Parameter(Mandatory)]
         [DateTime]$CleanupDeadlineUtc,
 
         [object]$CleanupDiagnostics,
@@ -328,14 +493,28 @@ function Update-VerificationProcessLineage {
         }
         return @()
     }
-    $table = @(Get-VerificationProcessTable)
-    if ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc') -and
-        [DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
+    $snapshot = Get-VerificationProcessTable `
+        -CleanupDeadlineUtc $CleanupDeadlineUtc `
+        -RootProcessId $RootProcessId `
+        -PrimitiveObserver $PrimitiveObserver `
+        -ObserverContext $ObserverContext
+    if (-not $snapshot.IsComplete) {
+        if ($snapshot.DeadlineExpired) {
+            if ($null -ne $CleanupDiagnostics) {
+                $CleanupDiagnostics.Add(
+                    "process-lineage-observation: native process-table snapshot incomplete at cleanup deadline; root PID $RootProcessId; ownership remains uncertain")
+            }
+            return @()
+        }
+        throw "Native process-table snapshot was incomplete: $($snapshot.FailureMessage)"
+    }
+    $table = @($snapshot.Entries)
+    if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
         if ($null -ne $CleanupDiagnostics) {
             $CleanupDiagnostics.Add(
                 "process-lineage-observation: process-table scan completed after cleanup deadline; root PID $RootProcessId; ownership remains uncertain")
         }
-        return $table
+        return @()
     }
     $reachable = [System.Collections.Generic.HashSet[int]]::new()
     $rootTracked = @($Lineage | Where-Object { $_.IsRoot } | Select-Object -First 1)[0]
@@ -544,13 +723,13 @@ function Stop-VerificationOwnedDescendantHandle {
     }
     finally {
         if ($null -ne $descendant) {
-            Dispose-VerificationProcessHandleBounded `
+            [void](Dispose-VerificationProcessHandleBounded `
                 -Process $descendant `
                 -OperationName "owned-descendant PID $($Tracked.ProcessId) dispose" `
                 -CleanupDeadlineUtc $CleanupDeadlineUtc `
                 -CleanupDiagnostics $CleanupDiagnostics `
                 -RootProcessId $Tracked.ProcessId `
-                -PrimitiveObserver $PrimitiveObserver
+                -PrimitiveObserver $PrimitiveObserver)
         }
     }
 }
@@ -753,6 +932,98 @@ function Invoke-VerificationRootStopFanout {
     }
 }
 
+function Invoke-VerificationFunctionalCleanup {
+    param(
+        [Parameter(Mandatory)]
+        [object[]]$Entries,
+
+        [Parameter(Mandatory)]
+        [DateTime]$CleanupDeadlineUtc,
+
+        [switch]$StopRoots,
+
+        [object]$PrimitiveObserver
+    )
+
+    $fanoutFailures = [System.Collections.Generic.List[string]]::new()
+    if ($StopRoots) {
+        Invoke-VerificationRootStopFanout `
+            -Entries $Entries `
+            -CleanupDeadlineUtc $CleanupDeadlineUtc `
+            -CleanupFailures $fanoutFailures `
+            -PrimitiveObserver $PrimitiveObserver
+    }
+
+    $entryResults = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $Entries) {
+        if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
+            $diagnostic =
+                "bounded process lifecycle skipped after shared cleanup deadline; root PID $($entry.ProcessId); ownership remains uncertain"
+            $uncertaintyResult = [pscustomobject][ordered]@{
+                RootProcessId = $entry.ProcessId
+                RootProcessIdentity = $entry.RootProcessIdentity
+                CommandIdentity = $entry.CommandIdentity
+                ProcessTimedOut = $false
+                ProcessExited = $false
+                ExitCode = $null
+                PrimaryFailureKind = $null
+                StandardOutput = [string]::Empty
+                StandardError = [string]::Empty
+                CleanupDiagnostics = @($diagnostic)
+                DiagnosticWriteDiagnostics = @()
+                SecondaryDiagnostics = @($diagnostic)
+                RemainingOwnedProcessIds = @()
+                CleanupTransitionCount = 0
+                CleanupDeadlineUtc = $CleanupDeadlineUtc
+            }
+            [void]$entryResults.Add([pscustomobject]@{
+                    Entry = $entry
+                    Result = $uncertaintyResult
+                    Error = $null
+                    SkippedAfterDeadline = $true
+                })
+            continue
+        }
+
+        try {
+            $lifecycleResult = Invoke-BoundedProcessLifecycle `
+                -Process $entry.Process `
+                -StandardOutputTask $entry.StandardOutputTask `
+                -StandardErrorTask $entry.StandardErrorTask `
+                -RootProcessId $entry.ProcessId `
+                -RootProcessIdentity $entry.RootProcessIdentity `
+                -CommandIdentity $entry.CommandIdentity `
+                -DiagnosticsDirectory $entry.Directory `
+                -ProcessDeadlineUtc ([DateTime]::UtcNow) `
+                -PhaseDeadlineUtc $CleanupDeadlineUtc `
+                -CleanupDeadlineUtc $CleanupDeadlineUtc `
+                -RootStopAlreadyRequested:$StopRoots `
+                -TerminateProcessTree:$StopRoots `
+                -PrimitiveObserver $PrimitiveObserver `
+                -LifecycleName $entry.Name
+            [void]$entryResults.Add([pscustomobject]@{
+                    Entry = $entry
+                    Result = $lifecycleResult
+                    Error = $null
+                    SkippedAfterDeadline = $false
+                })
+        }
+        catch {
+            [void]$entryResults.Add([pscustomobject]@{
+                    Entry = $entry
+                    Result = $null
+                    Error = $_
+                    SkippedAfterDeadline = $false
+                })
+        }
+    }
+
+    return [pscustomobject]@{
+        FanoutFailures = @($fanoutFailures)
+        EntryResults = @($entryResults)
+    }
+}
+
 function Add-VerificationKnownResiduals {
     param(
         [Parameter(Mandatory)]
@@ -894,11 +1165,16 @@ function Stop-VerificationOwnedProcessTree {
                 & $recordDeadlineUncertainty
                 return
             }
-            [void](Stop-VerificationOwnedDescendantHandle `
-                    -Tracked $tracked `
-                    -CleanupDiagnostics $CleanupDiagnostics `
-                    -CleanupDeadlineUtc $CleanupDeadlineUtc `
-                    -PrimitiveObserver $PrimitiveObserver)
+            $descendantStopSucceeded = Stop-VerificationOwnedDescendantHandle `
+                -Tracked $tracked `
+                -CleanupDiagnostics $CleanupDiagnostics `
+                -CleanupDeadlineUtc $CleanupDeadlineUtc `
+                -PrimitiveObserver $PrimitiveObserver
+            if ($descendantStopSucceeded) {
+                $knownRemainingDescendants = @(
+                    $knownRemainingDescendants |
+                        Where-Object { $_.ProcessId -ne $tracked.ProcessId })
+            }
             if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
                 & $recordDeadlineUncertainty
                 return
@@ -1115,6 +1391,12 @@ function Wait-VerificationCleanupTask {
 
         [Parameter(Mandatory)]
         [object]$CleanupDiagnostics
+
+        ,
+
+        [int]$RootProcessId,
+
+        [object]$PrimitiveObserver
     )
 
     $waitStartedUtc = [DateTime]::UtcNow
@@ -1124,6 +1406,17 @@ function Wait-VerificationCleanupTask {
             1,
             [int][Math]::Min(50, ($CleanupDeadlineUtc - [DateTime]::UtcNow).TotalMilliseconds))
         try {
+            if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
+                break
+            }
+            Invoke-VerificationPrimitiveObserver `
+                -Observer $PrimitiveObserver `
+                -Operation 'cleanup-task-wait' `
+                -RootProcessId $RootProcessId `
+                -Context $OperationName
+            if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
+                break
+            }
             [void]$Task.Wait($remainingMilliseconds)
         }
         catch [System.AggregateException] {
@@ -1193,7 +1486,9 @@ function Dispose-VerificationProcessHandleBounded {
                 -Task $disposeTask `
                 -OperationName $OperationName `
                 -CleanupDeadlineUtc $CleanupDeadlineUtc `
-                -CleanupDiagnostics $CleanupDiagnostics)
+                -CleanupDiagnostics $CleanupDiagnostics `
+                -RootProcessId $RootProcessId `
+                -PrimitiveObserver $PrimitiveObserver)
     }
     catch {
         $CleanupDiagnostics.Add("$OperationName failed: $($_.Exception.Message)")
@@ -1243,7 +1538,9 @@ function Close-VerificationProcessReaderBounded {
             -Task $closeTask `
             -OperationName "$OperationName (root PID $RootProcessId)" `
             -CleanupDeadlineUtc $CleanupDeadlineUtc `
-            -CleanupDiagnostics $CleanupDiagnostics
+            -CleanupDiagnostics $CleanupDiagnostics `
+            -RootProcessId $RootProcessId `
+            -PrimitiveObserver $PrimitiveObserver
     }
     catch {
         $CleanupDiagnostics.Add(
@@ -1603,6 +1900,14 @@ function Invoke-BoundedProcessLifecycle {
                 break
             }
             try {
+                Invoke-VerificationPrimitiveObserver `
+                    -Observer $PrimitiveObserver `
+                    -Operation 'cleanup-task-wait' `
+                    -RootProcessId $RootProcessId `
+                    -Context 'redirected-stream-drain'
+                if ([DateTime]::UtcNow -ge $cleanupState.DeadlineUtc) {
+                    break
+                }
                 [void][System.Threading.Tasks.Task]::WaitAll(
                     [System.Threading.Tasks.Task[]]$pendingTasks,
                     $remainingMilliseconds)
@@ -1844,14 +2149,18 @@ function Invoke-BoundedProcessLifecycle {
                         -Task $write.Task `
                         -OperationName "$($write.Name) (root PID $RootProcessId)" `
                         -CleanupDeadlineUtc $cleanupState.DeadlineUtc `
-                        -CleanupDiagnostics $diagnosticWriteDiagnostics)
+                        -CleanupDiagnostics $diagnosticWriteDiagnostics `
+                        -RootProcessId $RootProcessId `
+                        -PrimitiveObserver $PrimitiveObserver)
             }
             if ($null -ne $disposeTask) {
                 [void](Wait-VerificationCleanupTask `
                         -Task $disposeTask `
                         -OperationName "process-dispose (root PID $RootProcessId)" `
                         -CleanupDeadlineUtc $cleanupState.DeadlineUtc `
-                        -CleanupDiagnostics $cleanupDiagnostics)
+                        -CleanupDiagnostics $cleanupDiagnostics `
+                        -RootProcessId $RootProcessId `
+                        -PrimitiveObserver $PrimitiveObserver)
             }
         }
         else {

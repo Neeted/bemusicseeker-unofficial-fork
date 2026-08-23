@@ -1485,64 +1485,49 @@ function Invoke-ParallelFunctionalTestShards {
             $null -ne $failedShardName -or
             $null -ne $launchFailure
 
-        if ($forceCleanup) {
-            # Functional cleanup has a deliberately O(1) first pass.  Every retained root
-            # receives an identity-validated root-only request before any entry is allowed
-            # to perform lineage discovery, stream drain, persistence, waiting, or disposal.
-            Invoke-VerificationRootStopFanout `
-                -Entries $entries `
-                -CleanupDeadlineUtc $CleanupDeadlineUtc `
-                -CleanupFailures $cleanupFailures
+        $functionalCleanup = Invoke-VerificationFunctionalCleanup `
+            -Entries $entries `
+            -CleanupDeadlineUtc $CleanupDeadlineUtc `
+            -StopRoots:$forceCleanup
+        foreach ($fanoutFailure in @($functionalCleanup.FanoutFailures)) {
+            $cleanupFailures.Add($fanoutFailure)
         }
-
-        foreach ($entry in $entries) {
-            try {
-                $lifecycleResult = Invoke-BoundedProcessLifecycle `
-                    -Process $entry.Process `
-                    -StandardOutputTask $entry.StandardOutputTask `
-                    -StandardErrorTask $entry.StandardErrorTask `
-                    -RootProcessId $entry.ProcessId `
-                    -RootProcessIdentity $entry.RootProcessIdentity `
-                    -CommandIdentity $entry.CommandIdentity `
-                    -DiagnosticsDirectory $entry.Directory `
-                    -ProcessDeadlineUtc ([DateTime]::UtcNow) `
-                    -PhaseDeadlineUtc $CleanupDeadlineUtc `
-                    -CleanupDeadlineUtc $CleanupDeadlineUtc `
-                    -RootStopAlreadyRequested:$forceCleanup `
-                    -TerminateProcessTree:$forceCleanup
-                if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
-                    foreach ($diagnostic in @($lifecycleResult.SecondaryDiagnostics)) {
-                        $cleanupFailures.Add("$($entry.Name): $diagnostic")
-                    }
-                }
-                if ($null -eq $failedShardName -and $lifecycleResult.PrimaryFailureKind -ceq 'nonzero-exit') {
-                    $failedShardName = $entry.Name
-                    $failedShardExitCode = $lifecycleResult.ExitCode
-                }
-                if ($lifecycleResult.PrimaryFailureKind -ceq 'timeout' -and -not $timedOut) {
-                    $cleanupFailures.Add("$($entry.Name): bounded process lifecycle timed out during cleanup")
-                }
-
-                $standardOutput = $lifecycleResult.StandardOutput
-                $standardError = $lifecycleResult.StandardError
-
-                Write-Host "Test shard: $($entry.Name); exit code: $($lifecycleResult.ExitCode)"
-                if (-not $timedOut -and -not [string]::IsNullOrEmpty($standardOutput)) {
-                    Write-Host $standardOutput -NoNewline
-                }
-                if (-not [string]::IsNullOrEmpty($standardError)) {
-                    if (-not $timedOut -and $lifecycleResult.ExitCode -eq 0) {
-                        Write-Warning $standardError.TrimEnd()
-                    }
-                    else {
-                        Write-Error $standardError -ErrorAction Continue
-                    }
-                }
-
-            }
-            catch {
+        foreach ($entryResult in @($functionalCleanup.EntryResults)) {
+            $entry = $entryResult.Entry
+            if ($null -ne $entryResult.Error) {
                 $cleanupFailures.Add(
-                    "$($entry.Name): cleanup/output collection failed: $($_.Exception.Message)")
+                    "$($entry.Name): cleanup/output collection failed: $($entryResult.Error.Exception.Message)")
+                continue
+            }
+
+            $lifecycleResult = $entryResult.Result
+            if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
+                foreach ($diagnostic in @($lifecycleResult.SecondaryDiagnostics)) {
+                    $cleanupFailures.Add("$($entry.Name): $diagnostic")
+                }
+            }
+            if ($null -eq $failedShardName -and $lifecycleResult.PrimaryFailureKind -ceq 'nonzero-exit') {
+                $failedShardName = $entry.Name
+                $failedShardExitCode = $lifecycleResult.ExitCode
+            }
+            if ($lifecycleResult.PrimaryFailureKind -ceq 'timeout' -and -not $timedOut) {
+                $cleanupFailures.Add("$($entry.Name): bounded process lifecycle timed out during cleanup")
+            }
+
+            $standardOutput = $lifecycleResult.StandardOutput
+            $standardError = $lifecycleResult.StandardError
+
+            Write-Host "Test shard: $($entry.Name); exit code: $($lifecycleResult.ExitCode)"
+            if (-not $timedOut -and -not [string]::IsNullOrEmpty($standardOutput)) {
+                Write-Host $standardOutput -NoNewline
+            }
+            if (-not [string]::IsNullOrEmpty($standardError)) {
+                if (-not $timedOut -and $lifecycleResult.ExitCode -eq 0) {
+                    Write-Warning $standardError.TrimEnd()
+                }
+                else {
+                    Write-Error $standardError -ErrorAction Continue
+                }
             }
         }
         $stageStopwatch.Stop()

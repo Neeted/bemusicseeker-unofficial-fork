@@ -4,7 +4,9 @@ param(
     [ValidateSet('normal', 'nonzero', 'descendant-root', 'descendant-child')]
     [string]$Scenario,
 
-    [string]$LedgerPath
+    [string]$LedgerPath,
+
+    [string]$DescendantScriptPath
 )
 
 function Write-LifecycleLedgerEntry {
@@ -39,19 +41,18 @@ switch ($Scenario) {
         exit 7
     }
     'descendant-root' {
-        $childInfo = [System.Diagnostics.ProcessStartInfo]::new()
-        $childInfo.FileName = 'pwsh'
-        $childInfo.UseShellExecute = $false
-        $childInfo.CreateNoWindow = $false
-        $childArguments = @(
-            '-NoProfile',
-            '-File',
-            $PSCommandPath,
-            '-Scenario',
-            'descendant-child')
-        if (-not [string]::IsNullOrWhiteSpace($LedgerPath)) {
-            $childArguments += @('-LedgerPath', $LedgerPath)
+        if ([string]::IsNullOrWhiteSpace($DescendantScriptPath) -or
+            -not [System.IO.File]::Exists($DescendantScriptPath)) {
+            throw "The descendant sleeper script was not found: $DescendantScriptPath"
         }
+        $childInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $childInfo.FileName = 'wscript.exe'
+        $childInfo.UseShellExecute = $false
+        $childInfo.CreateNoWindow = $true
+        $childArguments = @(
+            '//B',
+            '//NoLogo',
+            $DescendantScriptPath)
         foreach ($argument in $childArguments) {
             [void]$childInfo.ArgumentList.Add($argument)
         }
@@ -70,8 +71,9 @@ switch ($Scenario) {
         exit 0
     }
     'descendant-child' {
-        # The child deliberately keeps the inherited stdout handle open.  The production
-        # lifecycle must identify and stop this child by lineage, not by process name.
+        # Fanout probes use this process itself as the retained root.  Descendant-root
+        # scenarios use the GUI-subsystem sleeper above so their exact sidecar contains
+        # every process that can remain alive at the forced residual boundary.
         [Console]::Out.Write('descendant-handle')
         [Console]::Out.Flush()
         Start-Sleep -Seconds 30

@@ -15,10 +15,14 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $repositoryRoot 'scripts\verification-process-lifecycle.ps1')
 $childScript = Join-Path $PSScriptRoot 'verification-process-lifecycle-child.ps1'
+$descendantScript = Join-Path $PSScriptRoot 'verification-process-lifecycle-sleeper.vbs'
 $ledgerPath = Join-Path $DiagnosticsDirectory 'ownership-ledger.jsonl'
 $primitiveEvents = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
 $primitiveSequence = [long]0
-$primitiveObserverState = [pscustomobject]@{ ResidualGate = $null }
+$primitiveObserverState = [pscustomobject]@{
+    ResidualGate = $null
+    ResidualProcessId = $null
+}
 $primitiveObserver = [pscustomobject]@{
     Observe = {
         param($event)
@@ -32,6 +36,7 @@ $primitiveObserver = [pscustomobject]@{
             })
         if ($Scenario -ceq 'expired-residual' -and
             $event.Operation -ceq 'descendant-stop' -and
+            $event.RootProcessId -eq $primitiveObserverState.ResidualProcessId -and
             $null -ne $primitiveObserverState.ResidualGate) {
             $primitiveObserverState.ResidualGate.Wait()
         }
@@ -103,7 +108,9 @@ if ($Scenario -ceq 'fanout-order') {
                 '-Scenario',
                 'descendant-child',
                 '-LedgerPath',
-                $ledgerPath)) {
+                $ledgerPath,
+                '-DescendantScriptPath',
+                $descendantScript)) {
             [void]$startInfo.ArgumentList.Add($argument)
         }
         $process = [System.Diagnostics.Process]::new()
@@ -129,44 +136,36 @@ if ($Scenario -ceq 'fanout-order') {
             })
     }
 
-    $fanoutFailures = [System.Collections.Generic.List[string]]::new()
     $fanoutDeadlineUtc = [DateTime]::UtcNow.AddSeconds(4)
-    Invoke-VerificationRootStopFanout `
+    $functionalCleanup = Invoke-VerificationFunctionalCleanup `
         -Entries @($fanoutRoots.ToArray()) `
         -CleanupDeadlineUtc $fanoutDeadlineUtc `
-        -CleanupFailures $fanoutFailures `
+        -StopRoots `
         -PrimitiveObserver $primitiveObserver
-    $rootsExitedBeforeLineage = $true
-    foreach ($entry in $fanoutRoots) {
-        if (-not $entry.Process.WaitForExit(1000)) {
-            $rootsExitedBeforeLineage = $false
+    $lineageResults = [System.Collections.Generic.List[object]]::new()
+    foreach ($entryResult in @($functionalCleanup.EntryResults)) {
+        if ($null -ne $entryResult.Result) {
+            [void]$lineageResults.Add($entryResult.Result)
         }
     }
-    $lineageResults = [System.Collections.Generic.List[object]]::new()
-    foreach ($entry in $fanoutRoots) {
-        [void]$lineageResults.Add((Invoke-BoundedProcessLifecycle `
-                -Process $entry.Process `
-                -StandardOutputTask $entry.StandardOutputTask `
-                -StandardErrorTask $entry.StandardErrorTask `
-                -RootProcessId $entry.ProcessId `
-                -RootProcessIdentity $entry.RootProcessIdentity `
-                -CommandIdentity $entry.CommandIdentity `
-                -DiagnosticsDirectory $DiagnosticsDirectory `
-                -ProcessDeadlineUtc ([DateTime]::UtcNow) `
-                -PhaseDeadlineUtc $fanoutDeadlineUtc `
-                -CleanupDeadlineUtc $fanoutDeadlineUtc `
-                -RootStopAlreadyRequested `
-                -TerminateProcessTree `
-                -PrimitiveObserver $primitiveObserver `
-                -LifecycleName $entry.Name))
-    }
+    $firstCleanupPrimitiveSequence = @(
+        $primitiveEvents.ToArray() |
+            Where-Object { $_.Operation -ceq 'lineage-snapshot' -or $_.Operation -ceq 'creation-query' } |
+            Sort-Object Sequence |
+            Select-Object -First 1).Sequence
+    $lastRootStopPrimitiveSequence = @(
+        $primitiveEvents.ToArray() |
+            Where-Object { $_.Operation -ceq 'root-stop' } |
+            Sort-Object Sequence |
+            Select-Object -Last 1).Sequence
+    $rootsExitedBeforeLineage = $firstCleanupPrimitiveSequence -gt $lastRootStopPrimitiveSequence
     [System.IO.File]::WriteAllText(
         $ResultPath,
         ([ordered]@{
                 scenario = $Scenario
                 fanoutRootCount = $fanoutRoots.Count
                 fanoutRootsExitedBeforeLineage = $rootsExitedBeforeLineage
-                fanoutFailures = @($fanoutFailures)
+                fanoutFailures = @($functionalCleanup.FanoutFailures)
                 fanoutRootIds = @($fanoutRoots | ForEach-Object { $_.ProcessId })
                 lifecycleTransitionCounts = @($lineageResults | ForEach-Object { $_.CleanupTransitionCount })
                 remainingOwnedProcessIds = @($lineageResults | ForEach-Object { $_.RemainingOwnedProcessIds })
@@ -201,6 +200,10 @@ foreach ($argument in @(
         $ledgerPath)) {
     [void]$rootInfo.ArgumentList.Add($argument)
 }
+if ($rootScenario -ceq 'descendant-root') {
+    [void]$rootInfo.ArgumentList.Add('-DescendantScriptPath')
+    [void]$rootInfo.ArgumentList.Add($descendantScript)
+}
 if ($Scenario -ceq 'nonzero-descendant') {
     # The root probe still exits nonzero after starting its inherited-handle child.
     $rootInfo.Environment['BMS_LIFECYCLE_PROBE_NONZERO'] = '1'
@@ -226,6 +229,9 @@ if ($Scenario -ceq 'expired-residual') {
     if (@(Get-Content -LiteralPath $ledgerPath -ErrorAction SilentlyContinue).Count -lt 2) {
         throw 'The expired residual probe did not observe the child launch ledger entry.'
     }
+    $ledgerEntries = @(Get-Content -LiteralPath $ledgerPath |
+            ForEach-Object { $_ | ConvertFrom-Json })
+    $primitiveObserverState.ResidualProcessId = [int]$ledgerEntries[-1].pid
 }
 $sourceOutputTask = $root.StandardOutput.ReadToEndAsync()
 $sourceErrorTask = $root.StandardError.ReadToEndAsync()
