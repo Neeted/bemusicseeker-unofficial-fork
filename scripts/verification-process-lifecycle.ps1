@@ -1409,15 +1409,17 @@ function Wait-VerificationCleanupTask {
             if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
                 break
             }
+            $primitiveStartUtcTicks = [DateTime]::UtcNow.Ticks
+            if ($primitiveStartUtcTicks -ge $CleanupDeadlineUtc.Ticks) {
+                break
+            }
+            [void]$Task.Wait($remainingMilliseconds)
             Invoke-VerificationPrimitiveObserver `
                 -Observer $PrimitiveObserver `
                 -Operation 'cleanup-task-wait' `
                 -RootProcessId $RootProcessId `
-                -Context $OperationName
-            if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
-                break
-            }
-            [void]$Task.Wait($remainingMilliseconds)
+                -Context $OperationName `
+                -UtcTicks $primitiveStartUtcTicks
         }
         catch [System.AggregateException] {
             # Fault details are recorded after the bounded wait below.
@@ -1900,17 +1902,19 @@ function Invoke-BoundedProcessLifecycle {
                 break
             }
             try {
-                Invoke-VerificationPrimitiveObserver `
-                    -Observer $PrimitiveObserver `
-                    -Operation 'cleanup-task-wait' `
-                    -RootProcessId $RootProcessId `
-                    -Context 'redirected-stream-drain'
-                if ([DateTime]::UtcNow -ge $cleanupState.DeadlineUtc) {
+                $primitiveStartUtcTicks = [DateTime]::UtcNow.Ticks
+                if ($primitiveStartUtcTicks -ge $cleanupState.DeadlineUtc.Ticks) {
                     break
                 }
                 [void][System.Threading.Tasks.Task]::WaitAll(
                     [System.Threading.Tasks.Task[]]$pendingTasks,
                     $remainingMilliseconds)
+                Invoke-VerificationPrimitiveObserver `
+                    -Observer $PrimitiveObserver `
+                    -Operation 'cleanup-task-wait' `
+                    -RootProcessId $RootProcessId `
+                    -Context 'redirected-stream-drain' `
+                    -UtcTicks $primitiveStartUtcTicks
             }
             catch [System.AggregateException] {
                 # Fault details are recorded by the non-blocking result inspection below.
