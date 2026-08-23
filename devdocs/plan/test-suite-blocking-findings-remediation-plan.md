@@ -1,6 +1,6 @@
 # テスト整理後 Blocking Findings 修正計画
 
-Status: Ready for implementation
+Status: Replanned lifecycle correction in progress
 
 Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
@@ -228,6 +228,54 @@ Reviewer へ渡す重点:
 - 4 fixture の local dispatcher pump が完全に削除され、共通 watchdog へ接続されたか
 - helper の local 再実装、固定 sleep、追加 DNP、worker 低下で問題を隠していないか
 
+## Unit 1R: Replanned root fanout and bounded cleanup closure
+
+Owner: `implementation-worker` (single sequential owner)
+
+This unit supersedes the review-fix route that called lineage discovery before each Functional root termination request. The same P1 remained after two correction reviews, so further local additions to that route are prohibited.
+
+Writable paths:
+
+- `scripts/verification-process-lifecycle.ps1`
+- `scripts/verify-refactor.ps1`
+- `scripts/test-fixtures/verification-process-lifecycle-probe.ps1`
+- `scripts/test-fixtures/verification-process-lifecycle-child.ps1`
+- `BeMusicSeeker.Tests/VerificationProcessLifecycleTests.cs`
+- lifecycle contract changes in `devdocs/spec/testing-strategy.md`
+
+### Phase A: O(1) root-stop fanout before lineage work
+
+Observable outcome: every Functional shard root receives a root-only termination request before any process-table snapshot, descendant discovery, wait, stream drain, residual check, persistence, or disposal begins for any shard.
+
+1. Use the retained launch-time `Process` handle and launch identity. Immediately before the request, validate the retained handle's `StartTime` against the launch identity.
+2. The first pass may call only the root-only primitive and `Kill(false)` (or an equivalent bounded root-only OS request). It must not enumerate or terminate descendants, scan the process table, wait, drain streams, write files, or dispose the process.
+3. Only after the first pass has visited every Functional root may the second pass take bounded Toolhelp PID/PPID snapshots, query creation time for attributable candidates, collect descendants, drain streams, persist output, dispose processes, and check residual ownership.
+4. The second pass uses the one existing absolute Functional cleanup deadline. It does not reset a per-entry deadline. No process-table or creation-time query is started after that deadline.
+5. If the deadline prevents residual confirmation, report cleanup failure and uncertainty; do not silently claim cleanup success and do not use a process-name fallback.
+
+### Phase B: one cleanup transition and deadline-closed terminal operations
+
+Observable outcome: every ordinary monitored command, including normal success with completed streams, enters cleanup exactly once with `cleanupDeadline = min(now + 5 seconds, phaseDeadline)` before persistence or disposal. Functional keeps its existing shared absolute cleanup deadline.
+
+1. Once the applicable deadline is reached, do not initiate reader `Close`, a residual snapshot, blocking I/O, a blocking wait, or a disposal wait. Already-started asynchronous operations may only be observed without blocking.
+2. Output persistence, reader closure, and process disposal must start before and complete within the applicable deadline, or add a contextual cleanup diagnostic containing operation, PID, and elapsed time.
+3. Preserve primary failure precedence. Cleanup failures remain secondary unless the process path itself otherwise succeeded.
+4. The deterministic probe writes a sidecar ownership ledger immediately after each root or child launch, with PID and creation identity. The C# harness uses that exact ledger in `finally` for bounded identity-validated cleanup, independent of the production result JSON. It must not copy descendant discovery or use name/global scans.
+
+### Required behavior tests
+
+- Functional fanout order: all root-only requests are observed before the first lineage snapshot or descendant operation.
+- Ordinary normal success: cleanup transition occurs once before persistence/disposal and produces no cleanup failure.
+- Stream deadline: after expiry, no synchronous reader close or residual scan starts; late task faults are still observed diagnostically.
+- Probe failure cleanup: exact ledger PIDs are absent after the outer harness cleanup even if production result JSON is missing.
+- Existing normal, inherited-handle, timeout/nonzero, primary-precedence, contextual diagnostic, and residual-PID cases remain passing through the production seam.
+
+Replan triggers:
+
+- retained-handle `Kill(false)` cannot provide a bounded root-only request;
+- supported Windows/runtime behavior cannot provide reliable post-exit Toolhelp PPID attribution;
+- the required sidecar cannot be made independent of the production result contract without duplicating production lineage logic.
+
 ## Done when
 
 - `Invoke-MonitoredCommand` と Functional shard 回収に unbounded stream `GetResult()` が残っていない。
@@ -245,7 +293,8 @@ Reviewer へ渡す重点:
 | Unit 0: Baseline freeze and clarification | Complete | HEAD `9dc805563bc9098531d7a0a06dff029b3b5e7c7d`, clean worktree. Review base から対象 files に差分なし。追加の observable-semantics question なし。Unit 1 / 2 は逐次実行。 |
 | Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
-| Unit 3: Integration and final review | Final verification complete; second fix review pending | 2回目reviewの1 P1 / 3 acceptance-direct P2を修正。変更後snapshot `0ce535d3e35f8fa0c1ac282484d54e64f0310974` で全stability gateを再実行済み。 |
+| Unit 1R: Replanned lifecycle closure | Complete | `c3403326e7be9d521adcb109afdb84a4fafc5782`。root-only O(1) fanoutをlineage回収より先に完了し、通常成功を含む単一cleanup遷移、deadline後operation禁止、exact identity ledger cleanupをproduction seamと9件のcontract testで閉じた。 |
+| Unit 3: Integration and final review | In progress; stability gate reset | snapshot `0ce535d3e35f8fa0c1ac282484d54e64f0310974` の旧gateはblocking findingにより無効。Unit 1R後の最終snapshotでWPF 30回、Functional 3回、Full 1回を最初から再実行する。 |
 
 ## Verification log
 
@@ -283,3 +332,5 @@ Reviewer へ渡す重点:
 | same | final-candidate Functional 2/3 | Pass | 161.3s command / 146.0s phase | `tests-functional-20260824-010626`; within 180s; fingerprint unchanged; no cleanup diagnostic |
 | same | final-candidate Functional 3/3 | Pass | 159.0s command / 143.1s phase | `tests-functional-20260824-010908`; within 180s; fingerprint unchanged; no cleanup diagnostic |
 | same | final-candidate Full | Pass | about 560.8s total; canonical Functional 169.6s / 180s | `tests-full-20260824-011153`; publish, existing-data, update, ProcessIntegration 37 pass + 2 intentional skip, ReleaseAcceptance, format, analyzer passed; fingerprint unchanged; residual `testhost` / `vstest.console` count 0 |
+| `3f53752c96b4d4315f33077b279adde212b828ef` | second correction fresh static review | Blocking; replan required | n/a | Persistent P1: per-entry lineage scan can consume shared deadline before later root stop requests. Acceptance-direct P2: normal-success cleanup transition, post-deadline close/scan, and independent probe-child cleanup. Unit 1R supersedes the prior correction route. |
+| `c3403326e7be9d521adcb109afdb84a4fafc5782` | Unit 1R PowerShell parse / `git diff --check` / lifecycle focused Quick | Pass (9/9) | focused phase completed within configured Quick budget | `tests-quick-20260824-020406`; no timeout or retry; exact-ledger owned PID residual 0; Functional/WPF/Full intentionally deferred to Unit 3 |
