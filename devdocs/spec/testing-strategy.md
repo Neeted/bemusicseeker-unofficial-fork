@@ -47,6 +47,8 @@ lock file を所有する project は `RuntimeIdentifiers=win-x64` を宣言し�
 
 Functional の名前付き shard は、それぞれ別 testhost/process で ownership を分離するが、性能上は `remaining` shard と並行起動する。専用 lane である `method-level-pre-wave` は exclusive lane 完了後に先行する。ただし LR2だけはその直前に専用 processで起動し、pre-waveと重ねて実行する。pre-wave完了直後にLR2がsuccessならそのentryを再起動せずaccountし、runningなら同じentryを維持したまま `remaining` とLR2以外の名前付き shardを起動する。LR2のfailure/canceled/invalid stateはfanout前に失敗させ、LR2を同じglobal deadline・cleanupへ合流させる。したがって「別 process であること」と「並行起動しないこと」は別の契約であり、LR2はpre-waveおよび必要な場合のfanoutと重なる唯一の意図的なcross-phase overlapである。
 
+runner の redirected process は、`scripts/verification-process-lifecycle.ps1` の共有 bounded lifecycle seam を通る。`Invoke-MonitoredCommand` と Functional shard は、root PID と観測できた descendant の identity だけを所有対象として、process exit、stdout / stderr の完了、cleanup、残留 PID 確認を同じ deadline 内で処理する。stream fault、cleanup、diagnostic write failure は primary process / orchestration failure を置き換えず、成功 process の cleanup-only failure は成功に隠さない。process 名による global kill と未完了 stream task の無期限同期取得は行わない。
+
 ### Quick: 反復中の対象テスト
 
 ```powershell

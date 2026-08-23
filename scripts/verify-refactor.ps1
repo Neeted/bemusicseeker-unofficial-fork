@@ -24,8 +24,8 @@ $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existi
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
 $testHangTimeoutSeconds = 120
 $functionalCleanupReserveSeconds = 10
-$functionalProcessCleanupSeconds = 7
 . (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
+. (Join-Path $PSScriptRoot 'verification-process-lifecycle.ps1')
 . (Join-Path $PSScriptRoot 'distribution-artifact.ps1')
 $verificationRunnerContract = Get-VerificationRunnerContract
 Assert-VerificationRunnerContract -Contract $verificationRunnerContract
@@ -598,8 +598,6 @@ function Invoke-MonitoredCommand {
     )
 
     [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
-    $standardOutputPath = Join-Path $DiagnosticsDirectory 'stdout.log'
-    $standardErrorPath = Join-Path $DiagnosticsDirectory 'stderr.log'
     $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $process = [System.Diagnostics.Process]::new()
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -614,10 +612,6 @@ function Invoke-MonitoredCommand {
     }
     $process.StartInfo = $startInfo
 
-    $timedOut = $false
-    $exitCode = $null
-    $standardOutput = [string]::Empty
-    $standardError = [string]::Empty
     try {
         Write-Host "$Label (timeout ${TimeoutSeconds}s): $CommandPath $($Arguments -join ' ')"
         if (-not $process.Start()) {
@@ -626,64 +620,76 @@ function Invoke-MonitoredCommand {
 
         $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
         $standardErrorTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-            $timedOut = $true
-            Write-Warning "$Label exceeded ${TimeoutSeconds}s after $([Math]::Round($stageStopwatch.Elapsed.TotalSeconds, 1))s. Stopping process tree PID $($process.Id)."
-            try {
-                $process.Kill($true)
-            }
-            catch {
-                Write-Warning "Managed process-tree termination failed: $($_.Exception.Message)"
-                & taskkill.exe /PID $process.Id /T /F 2>$null | Out-Null
-            }
-            if (-not $process.WaitForExit(10000)) {
-                throw "$Label process tree did not exit within the 10-second cleanup window."
-            }
-        }
-        else {
-            $process.WaitForExit()
-            $exitCode = $process.ExitCode
-        }
-
-        $standardOutput = $standardOutputTask.GetAwaiter().GetResult()
-        $standardError = $standardErrorTask.GetAwaiter().GetResult()
+        $commandIdentity = "$CommandPath $($Arguments -join ' ')"
+        $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity $commandIdentity
+        $processDeadlineUtc = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        $cleanupDeadlineUtc = $processDeadlineUtc.AddSeconds($functionalCleanupReserveSeconds)
+        $lifecycleResult = Invoke-BoundedProcessLifecycle `
+            -Process $process `
+            -StandardOutputTask $standardOutputTask `
+            -StandardErrorTask $standardErrorTask `
+            -RootProcessId $identity.ProcessId `
+            -RootProcessIdentity ("$($identity.StartTimeUtcTicks)|$($identity.ProcessId)") `
+            -CommandIdentity $commandIdentity `
+            -DiagnosticsDirectory $DiagnosticsDirectory `
+            -ProcessDeadlineUtc $processDeadlineUtc `
+            -CleanupDeadlineUtc $cleanupDeadlineUtc
     }
-    finally {
+    catch {
         $stageStopwatch.Stop()
-        [System.IO.File]::WriteAllText(
-            $standardOutputPath,
-            $standardOutput,
-            [System.Text.UTF8Encoding]::new($false))
-        [System.IO.File]::WriteAllText(
-            $standardErrorPath,
-            $standardError,
-            [System.Text.UTF8Encoding]::new($false))
-        $process.Dispose()
+        try {
+            [System.IO.File]::WriteAllText(
+                (Join-Path $DiagnosticsDirectory 'stdout.log'),
+                [string]::Empty,
+                [System.Text.UTF8Encoding]::new($false))
+            [System.IO.File]::WriteAllText(
+                (Join-Path $DiagnosticsDirectory 'stderr.log'),
+                [string]::Empty,
+                [System.Text.UTF8Encoding]::new($false))
+        }
+        catch {
+            Write-Warning "$Label startup diagnostics write failed: $($_.Exception.Message)"
+        }
+        try {
+            $process.Dispose()
+        }
+        catch {
+            Write-Warning "$Label process dispose failed after startup failure: $($_.Exception.Message)"
+        }
+        throw
     }
 
-    if (-not [string]::IsNullOrEmpty($standardOutput)) {
-        Write-Host $standardOutput -NoNewline
+    $stageStopwatch.Stop()
+    if (-not [string]::IsNullOrEmpty($lifecycleResult.StandardOutput)) {
+        Write-Host $lifecycleResult.StandardOutput -NoNewline
     }
-    if (-not [string]::IsNullOrEmpty($standardError)) {
-        if (-not $timedOut -and $exitCode -eq 0) {
-            Write-Warning $standardError.TrimEnd()
+    if (-not [string]::IsNullOrEmpty($lifecycleResult.StandardError)) {
+        if ($null -eq $lifecycleResult.PrimaryFailureKind) {
+            Write-Warning $lifecycleResult.StandardError.TrimEnd()
         }
         else {
-            Write-Error $standardError -ErrorAction Continue
+            Write-Error $lifecycleResult.StandardError -ErrorAction Continue
         }
     }
 
     Write-Host "$Label elapsed: $([Math]::Round($stageStopwatch.Elapsed.TotalSeconds, 1))s; diagnostics: $DiagnosticsDirectory"
-    if ($timedOut -or $exitCode -ne 0) {
+    if ($null -ne $lifecycleResult.PrimaryFailureKind) {
         if ($IsTestCommand) {
             Write-TestDiagnosticSummary `
                 -DiagnosticsDirectory $DiagnosticsDirectory `
-                -StandardOutputPath $standardOutputPath
+                -StandardOutputPath (Join-Path $DiagnosticsDirectory 'stdout.log')
         }
-        if ($timedOut) {
-            throw "$Label exceeded the ${TimeoutSeconds}-second timeout. Diagnostics: $DiagnosticsDirectory"
+        $failureMessage = Get-VerificationLifecycleFailureMessage `
+            -Label $Label `
+            -Result $lifecycleResult `
+            -TimeoutSeconds $TimeoutSeconds
+        if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
+            Write-Warning "$Label secondary lifecycle diagnostics: $(@($lifecycleResult.SecondaryDiagnostics) -join '; ')"
         }
-        throw "$Label failed with exit code $exitCode. Diagnostics: $DiagnosticsDirectory"
+        throw "$failureMessage Diagnostics: $DiagnosticsDirectory"
+    }
+    if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
+        throw "$(Get-VerificationLifecycleFailureMessage -Label $Label -Result $lifecycleResult) Diagnostics: $DiagnosticsDirectory"
     }
 }
 
@@ -1015,9 +1021,11 @@ function Get-FunctionalPhaseRemainingSeconds {
         [string]$PhaseName
     )
 
-    $remaining = $DeadlineSeconds - $Stopwatch.Elapsed.TotalSeconds
+    $remaining = $DeadlineSeconds `
+        - $functionalCleanupReserveSeconds `
+        - $Stopwatch.Elapsed.TotalSeconds
     if ($remaining -le 0) {
-        throw "Functional test phase exhausted its ${DeadlineSeconds}-second timeout before $PhaseName."
+        throw "Functional test phase exhausted its ${DeadlineSeconds}-second timeout before $PhaseName while retaining the ${functionalCleanupReserveSeconds}-second cleanup reserve."
     }
 
     return [Math]::Max(1, [int][Math]::Floor($remaining))
@@ -1221,11 +1229,15 @@ function Start-FunctionalShardProcess {
             throw "Unable to start functional test shard '$($Shard.Name)'."
         }
         $started = $true
+        $commandIdentity = "dotnet $($arguments -join ' ')"
+        $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity $commandIdentity
         return [pscustomobject]@{
             Name = $Shard.Name
             Directory = $DiagnosticsDirectory
             Process = $process
             ProcessId = $process.Id
+            RootProcessIdentity = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
+            CommandIdentity = $commandIdentity
             StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
             StandardErrorTask = $process.StandardError.ReadToEndAsync()
         }
@@ -1317,6 +1329,8 @@ function Invoke-ParallelFunctionalTestShards {
     $lr2DiagnosticsDirectory = Join-Path $DiagnosticsDirectory 'lr2-songdb-sync'
     [void](New-Item -ItemType Directory -Path $lr2DiagnosticsDirectory -Force)
     $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $stageStartedUtc = [DateTime]::UtcNow
+    $cleanupDeadlineUtc = $stageStartedUtc.AddSeconds($TimeoutSeconds)
     $entries = @()
     $phaseTrace = [System.Collections.Generic.List[string]]::new()
     $lr2Entry = $null
@@ -1424,10 +1438,10 @@ function Invoke-ParallelFunctionalTestShards {
             if ($runningEntries.Count -eq 0) {
                 break
             }
-            if ($stageStopwatch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+            if ($stageStopwatch.Elapsed.TotalSeconds -ge ($TimeoutSeconds - $functionalCleanupReserveSeconds)) {
                 $timedOut = $true
                 $timedOutShardNames = @($runningEntries | ForEach-Object { $_.Name })
-                Write-Warning "Functional test phase exceeded ${TimeoutSeconds}s. Stopping shards: $($timedOutShardNames -join ', ')"
+                Write-Warning "Functional test phase reached its ${functionalCleanupReserveSeconds}-second cleanup reserve before the ${TimeoutSeconds}-second deadline. Stopping shards: $($timedOutShardNames -join ', ')"
                 break
             }
             Start-Sleep -Milliseconds 100
@@ -1447,138 +1461,53 @@ function Invoke-ParallelFunctionalTestShards {
             -FileName $failureFileName
     }
     finally {
-        $fallbackProcesses = @()
         if ($null -ne $failedShard) {
             $failedShardName = $failedShard.Name
             $failedShardExitCode = $failedShard.Process.ExitCode
         }
-        if ($timedOut -or $null -ne $failedShard -or $null -ne $launchFailure) {
-            $runningEntries = @($entries | Where-Object { -not $_.Process.HasExited })
-            foreach ($entry in $runningEntries) {
-                try {
-                    $entry.Process.Kill($true)
-                }
-                catch {
-                    Write-Warning "$($entry.Name): managed process-tree termination failed for PID $($entry.ProcessId): $($_.Exception.Message)"
-                    try {
-                        $taskkillStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
-                        $taskkillStartInfo.FileName = 'taskkill.exe'
-                        $taskkillStartInfo.UseShellExecute = $false
-                        $taskkillStartInfo.CreateNoWindow = $true
-                        foreach ($argument in @('/PID', [string]$entry.ProcessId, '/T', '/F')) {
-                            [void]$taskkillStartInfo.ArgumentList.Add($argument)
-                        }
-                        $taskkillProcess = [System.Diagnostics.Process]::new()
-                        $taskkillProcess.StartInfo = $taskkillStartInfo
-                        if (-not $taskkillProcess.Start()) {
-                            throw "Unable to start taskkill.exe for PID $($entry.ProcessId)."
-                        }
-                        $fallbackProcesses += [pscustomobject]@{
-                            Name = $entry.Name
-                            Process = $taskkillProcess
-                            ProcessId = $taskkillProcess.Id
-                            TargetProcessId = $entry.ProcessId
-                        }
-                    }
-                    catch {
-                        $cleanupFailures.Add(
-                            "$($entry.Name): taskkill fallback could not start for PID $($entry.ProcessId): $($_.Exception.Message)")
-                    }
-                }
-            }
-
-            $cleanupStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            while ($cleanupStopwatch.Elapsed.TotalSeconds -lt $functionalProcessCleanupSeconds) {
-                $activeEntries = @($runningEntries | Where-Object { -not $_.Process.HasExited })
-                $activeFallbacks = @($fallbackProcesses | Where-Object { -not $_.Process.HasExited })
-                if ($activeEntries.Count -eq 0 -and $activeFallbacks.Count -eq 0) {
-                    break
-                }
-                Start-Sleep -Milliseconds 50
-            }
-            $cleanupStopwatch.Stop()
-
-            $activeEntriesAtDeadline = @(
-                $runningEntries | Where-Object { -not $_.Process.HasExited })
-            foreach ($entry in $activeEntriesAtDeadline) {
-                $cleanupFailures.Add(
-                    "$($entry.Name): PID $($entry.ProcessId) remained active after the shared ${functionalProcessCleanupSeconds}-second process cleanup deadline")
-            }
-            $activeFallbacksAtDeadline = @(
-                $fallbackProcesses | Where-Object { -not $_.Process.HasExited })
-            foreach ($fallback in $activeFallbacksAtDeadline) {
-                $cleanupFailures.Add(
-                    "$($fallback.Name): taskkill helper PID $($fallback.ProcessId) for target PID $($fallback.TargetProcessId) remained active after the shared ${functionalProcessCleanupSeconds}-second process cleanup deadline")
-                try {
-                    $fallback.Process.Kill($true)
-                }
-                catch {
-                    $cleanupFailures.Add(
-                        "$($fallback.Name): taskkill helper for PID $($fallback.TargetProcessId) could not be stopped: $($_.Exception.Message)")
-                }
-            }
-
-            $helperCleanupMilliseconds = [Math]::Max(
-                0,
-                [int](($functionalCleanupReserveSeconds - $cleanupStopwatch.Elapsed.TotalSeconds) * 1000))
-            $helperCleanupStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            while ($helperCleanupStopwatch.ElapsedMilliseconds -lt $helperCleanupMilliseconds) {
-                $activeFallbacks = @(
-                    $activeFallbacksAtDeadline | Where-Object { -not $_.Process.HasExited })
-                if ($activeFallbacks.Count -eq 0) {
-                    break
-                }
-                Start-Sleep -Milliseconds 50
-            }
-            $helperCleanupStopwatch.Stop()
-            foreach ($fallback in $activeFallbacksAtDeadline | Where-Object { -not $_.Process.HasExited }) {
-                $cleanupFailures.Add(
-                    "$($fallback.Name): taskkill helper PID $($fallback.ProcessId) for target PID $($fallback.TargetProcessId) remained active after the shared ${functionalCleanupReserveSeconds}-second cleanup reserve")
-            }
-        }
-
-        foreach ($fallback in $fallbackProcesses) {
-            try {
-                if (-not $fallback.Process.HasExited) {
-                    continue
-                }
-                $fallback.Process.WaitForExit()
-            }
-            finally {
-                if ($fallback.Process.HasExited) {
-                    $fallback.Process.Dispose()
-                }
-            }
-        }
-
         $failureObserved = $timedOut -or
+            $null -ne $failedShardName -or
+            $null -ne $launchFailure
+        $forceCleanup = $timedOut -or
             $null -ne $failedShardName -or
             $null -ne $launchFailure
         foreach ($entry in $entries) {
             try {
-                if (-not $entry.Process.HasExited) {
-                    continue
+                $lifecycleResult = Invoke-BoundedProcessLifecycle `
+                    -Process $entry.Process `
+                    -StandardOutputTask $entry.StandardOutputTask `
+                    -StandardErrorTask $entry.StandardErrorTask `
+                    -RootProcessId $entry.ProcessId `
+                    -RootProcessIdentity $entry.RootProcessIdentity `
+                    -CommandIdentity $entry.CommandIdentity `
+                    -DiagnosticsDirectory $entry.Directory `
+                    -ProcessDeadlineUtc ([DateTime]::UtcNow) `
+                    -CleanupDeadlineUtc $cleanupDeadlineUtc `
+                    -TerminateProcessTree:$forceCleanup
+                if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
+                    foreach ($diagnostic in @($lifecycleResult.SecondaryDiagnostics)) {
+                        $cleanupFailures.Add("$($entry.Name): $diagnostic")
+                    }
                 }
-                $entry.Process.WaitForExit()
-                $standardOutput = $entry.StandardOutputTask.GetAwaiter().GetResult()
-                $standardError = $entry.StandardErrorTask.GetAwaiter().GetResult()
+                if ($null -eq $failedShardName -and $lifecycleResult.PrimaryFailureKind -ceq 'nonzero-exit') {
+                    $failedShardName = $entry.Name
+                    $failedShardExitCode = $lifecycleResult.ExitCode
+                }
+                if ($lifecycleResult.PrimaryFailureKind -ceq 'timeout' -and -not $timedOut) {
+                    $cleanupFailures.Add("$($entry.Name): bounded process lifecycle timed out during cleanup")
+                }
+
+                $standardOutput = $lifecycleResult.StandardOutput
+                $standardError = $lifecycleResult.StandardError
                 $standardOutputPath = Join-Path $entry.Directory 'stdout.log'
                 $standardErrorPath = Join-Path $entry.Directory 'stderr.log'
-                [System.IO.File]::WriteAllText(
-                    $standardOutputPath,
-                    $standardOutput,
-                    [System.Text.UTF8Encoding]::new($false))
-                [System.IO.File]::WriteAllText(
-                    $standardErrorPath,
-                    $standardError,
-                    [System.Text.UTF8Encoding]::new($false))
 
-                Write-Host "Test shard: $($entry.Name); exit code: $($entry.Process.ExitCode)"
+                Write-Host "Test shard: $($entry.Name); exit code: $($lifecycleResult.ExitCode)"
                 if (-not $timedOut -and -not [string]::IsNullOrEmpty($standardOutput)) {
                     Write-Host $standardOutput -NoNewline
                 }
                 if (-not [string]::IsNullOrEmpty($standardError)) {
-                    if (-not $timedOut -and $entry.Process.ExitCode -eq 0) {
+                    if (-not $timedOut -and $lifecycleResult.ExitCode -eq 0) {
                         Write-Warning $standardError.TrimEnd()
                     }
                     else {
@@ -1588,7 +1517,7 @@ function Invoke-ParallelFunctionalTestShards {
 
                 $captureDiagnostics =
                     ($timedOutShardNames -contains $entry.Name) -or
-                    $entry.Process.ExitCode -ne 0
+                    $lifecycleResult.ExitCode -ne 0
                 if ($entry.Name -ceq 'lr2-songdb-sync' -and $failureObserved) {
                     $captureDiagnostics = $true
                 }
@@ -1605,9 +1534,6 @@ function Invoke-ParallelFunctionalTestShards {
                 $cleanupFailures.Add(
                     "$($entry.Name): cleanup/output collection failed: $($_.Exception.Message)")
             }
-            finally {
-                $entry.Process.Dispose()
-            }
         }
         if ($failureObserved -and -not $lr2DiagnosticsCaptured) {
             Write-TestDiagnosticSummary `
@@ -1619,17 +1545,28 @@ function Invoke-ParallelFunctionalTestShards {
     }
 
     Write-Host "Functional test phase elapsed: $([Math]::Round($stageStopwatch.Elapsed.TotalSeconds, 1))s; diagnostics: $DiagnosticsDirectory"
-    if ($cleanupFailures.Count -gt 0) {
-        throw "Functional test shard cleanup failed: $($cleanupFailures -join '; ')"
-    }
+    $primaryFailure = $null
     if ($null -ne $launchFailure) {
-        throw $launchFailure
+        $primaryFailure = $launchFailure
     }
-    if ($timedOut) {
-        throw "Functional test phase exceeded the ${TimeoutSeconds}-second timeout. Diagnostics: $DiagnosticsDirectory"
+    elseif ($timedOut) {
+        $primaryFailure = [Exception]::new(
+            "Functional test phase exceeded the ${TimeoutSeconds}-second timeout. Diagnostics: $DiagnosticsDirectory")
     }
-    if ($null -ne $failedShardName) {
-        throw "Functional test shard '$failedShardName' failed with exit code $failedShardExitCode. Diagnostics: $(Join-Path $DiagnosticsDirectory $failedShardName)"
+    elseif ($null -ne $failedShardName) {
+        $primaryFailure = [Exception]::new(
+            "Functional test shard '$failedShardName' failed with exit code $failedShardExitCode. Diagnostics: $(Join-Path $DiagnosticsDirectory $failedShardName)")
+    }
+    if ($cleanupFailures.Count -gt 0) {
+        if ($null -ne $primaryFailure) {
+            Write-Warning "Functional test shard cleanup also failed after the primary failure: $($cleanupFailures -join '; ')"
+        }
+        else {
+            throw "Functional test shard cleanup failed: $($cleanupFailures -join '; ')"
+        }
+    }
+    if ($null -ne $primaryFailure) {
+        throw $primaryFailure
     }
 }
 

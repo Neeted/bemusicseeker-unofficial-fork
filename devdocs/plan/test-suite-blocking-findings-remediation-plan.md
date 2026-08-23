@@ -242,8 +242,8 @@ Reviewer へ渡す重点:
 
 | Unit | Status | Notes |
 | --- | --- | --- |
-| Unit 0: Baseline freeze and clarification | Not started | |
-| Unit 1: Runner process and stream lifecycle | Not started | |
+| Unit 0: Baseline freeze and clarification | Complete | HEAD `9dc805563bc9098531d7a0a06dff029b3b5e7c7d`, clean worktree. Review base から対象 files に差分なし。追加の observable-semantics question なし。Unit 1 / 2 は逐次実行。 |
+| Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Not started | |
 | Unit 3: Integration and final review | Not started | |
 
@@ -251,4 +251,6 @@ Reviewer へ渡す重点:
 
 | Snapshot | Command / filter | Result | Elapsed | Artifact / residual-process evidence |
 | --- | --- | --- | ---: | --- |
-| | | | | |
+| `9dc805563bc9098531d7a0a06dff029b3b5e7c7d` | Unit 0 baseline / plan clarification | Pass | n/a | clean worktree; both findings reproduced by targeted static inspection; no user decision required |
+| Unit 1 pre-resolver | filtered Quick: `VerificationRunnerContractTests|VerificationProcessLifecycleTests` | Fail (5/6) | 17.7s test | `tests-quick-20260823-220916`; recurring stream watchdog, no residual process; resolver threshold met |
+| Unit 1 current worktree | same filtered Quick after resolver fix | Pass (6/6) | 7.9s test / 16.4s phase | `tests-quick-20260823-222602/functional`; tracked fingerprint unchanged; direct probe owned PIDs removed |
