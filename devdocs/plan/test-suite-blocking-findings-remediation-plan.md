@@ -245,7 +245,7 @@ Reviewer へ渡す重点:
 | Unit 0: Baseline freeze and clarification | Complete | HEAD `9dc805563bc9098531d7a0a06dff029b3b5e7c7d`, clean worktree. Review base から対象 files に差分なし。追加の observable-semantics question なし。Unit 1 / 2 は逐次実行。 |
 | Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
-| Unit 3: Integration and final review | Not started | |
+| Unit 3: Integration and final review | Verification complete; review pending | Final snapshot `f1c7860ccb34c1e2e528f23a7e75a23fc7d1934e`; WPF 30回、Functional 3回、Full 1回が成功。fresh static review待ち。 |
 
 ## Verification log
 
@@ -255,3 +255,11 @@ Reviewer へ渡す重点:
 | Unit 1 pre-resolver | filtered Quick: `VerificationRunnerContractTests|VerificationProcessLifecycleTests` | Fail (5/6) | 17.7s test | `tests-quick-20260823-220916`; recurring stream watchdog, no residual process; resolver threshold met |
 | Unit 1 current worktree | same filtered Quick after resolver fix | Pass (6/6) | 7.9s test / 16.4s phase | `tests-quick-20260823-222602/functional`; tracked fingerprint unchanged; direct probe owned PIDs removed |
 | Unit 2 current worktree | filtered Quick: four affected WPF fixtures + `WpfTestApplicationHostTests` | Pass (28/28) | 35.3s | `tests-quick-20260823-223123/functional`; anti-pattern scan 0; no residual test process |
+| `f1c7860ccb34c1e2e528f23a7e75a23fc7d1934e` | PowerShell parse / `git diff --check` / Release build | Pass (0 errors) | 21.8s build | runner SHA-256 `8A53D15B3550DC314B4CEF4D8837CE4DB3472F2060EFB36CE6B5A6163EE22D22`; existing build warnings only |
+| same | integrated runner lifecycle Quick | Pass (6/6) | 8.0s test / 16.8s phase | `tests-quick-20260823-223413/functional`; fingerprint unchanged; no cleanup diagnostic |
+| same | integrated WPF Quick | Pass (28/28) | 10.0s test / 18.3s phase | `tests-quick-20260823-223444/functional`; fingerprint unchanged; no cleanup diagnostic |
+| same | WPF focused filter, 30 consecutive runs | Pass (30/30 runs, each 28/28) | 25.5-27.1s / run | run roots: `tests-quick-20260823-223539`, `tests-quick-20260823-223606`, `tests-quick-20260823-223632`, `tests-quick-20260823-223658`, `tests-quick-20260823-223725`, `tests-quick-20260823-223751`, `tests-quick-20260823-223817`, `tests-quick-20260823-223843`, `tests-quick-20260823-223910`, `tests-quick-20260823-223936`, `tests-quick-20260823-224003`, `tests-quick-20260823-224030`, `tests-quick-20260823-224057`, `tests-quick-20260823-224123`, `tests-quick-20260823-224149`, `tests-quick-20260823-224216`, `tests-quick-20260823-224243`, `tests-quick-20260823-224309`, `tests-quick-20260823-224335`, `tests-quick-20260823-224402`, `tests-quick-20260823-224429`, `tests-quick-20260823-224456`, `tests-quick-20260823-224523`, `tests-quick-20260823-224549`, `tests-quick-20260823-224615`, `tests-quick-20260823-224642`, `tests-quick-20260823-224708`, `tests-quick-20260823-224734`, `tests-quick-20260823-224801`, `tests-quick-20260823-224828`; all fingerprints unchanged; no cleanup diagnostic |
+| same | Functional 1/3 | Pass | 160.1s command / 145.0s phase | `tests-functional-20260823-224913`; within 180s; fingerprint unchanged; no cleanup diagnostic |
+| same | Functional 2/3 | Pass | 158.8s command / 144.0s phase | `tests-functional-20260823-225152`; within 180s; fingerprint unchanged; no cleanup diagnostic |
+| same | Functional 3/3 | Pass | 157.1s command / 142.4s phase | `tests-functional-20260823-225431`; within 180s; fingerprint unchanged; no cleanup diagnostic |
+| same | Full | Pass | about 524s total; canonical Functional 156.2s / 180s | `tests-full-20260823-225723`; publish, existing-data, update, ProcessIntegration, ReleaseAcceptance, format, analyzer passed; fingerprint unchanged; residual `testhost` / `vstest.console` count 0 |
