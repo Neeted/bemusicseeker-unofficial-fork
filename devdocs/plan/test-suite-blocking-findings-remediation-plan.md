@@ -1,6 +1,6 @@
 # テスト整理後 Blocking Findings 修正計画
 
-Status: Final static review pending
+Status: Complete
 
 Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
@@ -314,7 +314,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Ful
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
 | Unit 1R: Replanned lifecycle closure | Complete after second remediation | `98c4cbaaa7eed4f4c25e1453ad2eef245f134858`。native Capture deadline/partial state、cleanup task wait gate、shared `Invoke-VerificationFunctionalCleanup`、全residual exact assertionを追加。resolverでprobeの`pwsh`/`conhost` identity mismatchをheadless `wscript` fixtureへ修正。focused 10/10。 |
 | Unit 2R: Play-history WPF startup sequencing | Complete | `28e90e79`。host attachment → startup deactivation/Collapsed signal → BeginRequest → Visible signalへfixture順序を固定。focused 1/1、class 3/3。 |
-| Unit 3: Integration and final review | Final verification complete; static review pending | Unit 2R後の同一snapshot `28260a09fd0ce7e503828b0f1d74cb7cea23f64e` で lifecycle/WPF Quick、WPF 30回、Functional 3回、Full 1回を完了。fresh static review のみ未完了。 |
+| Unit 3: Integration and final review | Complete | Unit 2R後の同一snapshot `28260a09fd0ce7e503828b0f1d74cb7cea23f64e` で lifecycle/WPF Quick、WPF 30回、Functional 3回、Full 1回を完了。`68f31eb78f1ef1ea4a00c190c1b9117d4766f08e` の fresh static review は blocking finding なし。 |
 
 ## Verification log
 
@@ -387,3 +387,4 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Ful
 | same | final Functional 2/3 | Pass | 161.6s command | `tests-functional-20260824-053238`; within 180s; fingerprint unchanged; residual test process 0 |
 | same | final Functional 3/3 | Pass | 163.5s command | `tests-functional-20260824-053520`; within 180s; fingerprint unchanged; residual test process 0 |
 | same | final Full | Pass | 532.2s total; canonical Functional 165.0s / 180s | `tests-full-20260824-053810`; current/baseline publish, existing-data, update, ProcessIntegration 40 pass + 2 intentional skip, ReleaseAcceptance 2/2, format, analyzer passed; 0 diagnostics; fingerprint unchanged; residual test process 0 |
+| `68f31eb78f1ef1ea4a00c190c1b9117d4766f08e` | final fresh static review | Pass: no blocking findings | n/a | P0/P1、acceptance-direct P2、pre-existing/out-of-scope、recommendation はすべて0件。native deadline gate、cleanup wait gate、shared Functional caller seam、exact residual ledger、observer timing、play-history WPF startup sequencingを確認。 |
