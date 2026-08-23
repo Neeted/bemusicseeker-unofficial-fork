@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
-using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -34,6 +34,9 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual(0, result.RootElement.GetProperty("exitCode").GetInt32());
         Assert.IsFalse(result.RootElement.GetProperty("processTimedOut").GetBoolean());
         string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
+        AssertStreamTimeoutDiagnosticsIncludeContext(
+            diagnostics,
+            result.RootElement.GetProperty("rootProcessId").GetInt32());
         Assert.IsTrue(
             ContainsDiagnostic(diagnostics, "owned-descendant-cleanup")
             || ContainsDiagnostic(diagnostics, "stream-drain-timeout"),
@@ -51,6 +54,9 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual("nonzero-exit", result.RootElement.GetProperty("primaryFailureKind").GetString());
         Assert.AreEqual("primary-stderr", result.RootElement.GetProperty("stderr").GetString());
         string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
+        AssertStreamTimeoutDiagnosticsIncludeContext(
+            diagnostics,
+            result.RootElement.GetProperty("rootProcessId").GetInt32());
         Assert.IsTrue(ContainsDiagnostic(diagnostics, "owned-descendant-cleanup"));
         CollectionAssert.AreEqual(
             Array.Empty<int>(),
@@ -70,14 +76,13 @@ public sealed class VerificationProcessLifecycleTests
             "scripts",
             "test-fixtures",
             "verification-process-lifecycle-probe.ps1");
+        string resultPath = Path.Combine(diagnosticsDirectory, "probe-result.json");
         var startInfo = new ProcessStartInfo
         {
             FileName = "pwsh",
             WorkingDirectory = repositoryRoot,
             UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
+            CreateNoWindow = true
         };
         startInfo.ArgumentList.Add("-NoProfile");
         startInfo.ArgumentList.Add("-File");
@@ -86,13 +91,12 @@ public sealed class VerificationProcessLifecycleTests
         startInfo.ArgumentList.Add(scenario);
         startInfo.ArgumentList.Add("-DiagnosticsDirectory");
         startInfo.ArgumentList.Add(diagnosticsDirectory);
+        startInfo.ArgumentList.Add("-ResultPath");
+        startInfo.ArgumentList.Add(resultPath);
 
         using var process = new Process { StartInfo = startInfo };
         Assert.IsTrue(process.Start(), "The lifecycle probe process did not start.");
-        Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
-        Task<string> errorTask = process.StandardError.ReadToEndAsync();
         const int processTimeoutMilliseconds = 30_000;
-        const int streamTimeoutMilliseconds = 5_000;
         try
         {
             if (!process.WaitForExit(processTimeoutMilliseconds))
@@ -100,16 +104,17 @@ public sealed class VerificationProcessLifecycleTests
                 string cleanup = StopProcessTree(process);
                 Assert.Fail(
                     $"The lifecycle probe exceeded {processTimeoutMilliseconds / 1000}s. "
-                    + $"Cleanup: {cleanup}; stdout: {GetCompletedTaskValue(outputTask)}; "
-                    + $"stderr: {GetCompletedTaskValue(errorTask)}");
+                    + $"Cleanup: {cleanup}; diagnostics: {diagnosticsDirectory}");
             }
 
+            Assert.AreEqual(
+                0,
+                process.ExitCode,
+                $"The lifecycle probe failed. Diagnostics: {diagnosticsDirectory}");
             Assert.IsTrue(
-                Task.WaitAll(new Task[] { outputTask, errorTask }, streamTimeoutMilliseconds),
-                $"The lifecycle probe streams did not close within {streamTimeoutMilliseconds / 1000}s. "
-                + $"stdout: {GetCompletedTaskValue(outputTask)}; stderr: {GetCompletedTaskValue(errorTask)}");
-            Assert.AreEqual(0, process.ExitCode, errorTask.GetAwaiter().GetResult());
-            return JsonDocument.Parse(outputTask.GetAwaiter().GetResult().Trim());
+                File.Exists(resultPath),
+                $"The lifecycle probe did not persist its structured result: {resultPath}");
+            return JsonDocument.Parse(File.ReadAllText(resultPath));
         }
         finally
         {
@@ -142,11 +147,6 @@ public sealed class VerificationProcessLifecycleTests
         return diagnostics.Count == 0 ? "completed" : string.Join("; ", diagnostics);
     }
 
-    private static string GetCompletedTaskValue(Task<string> task)
-    {
-        return task.Status == TaskStatus.RanToCompletion ? task.GetAwaiter().GetResult() : "<unavailable>";
-    }
-
     private static string[] ReadStringArray(JsonElement array)
     {
         var values = new List<string>();
@@ -177,6 +177,28 @@ public sealed class VerificationProcessLifecycleTests
             }
         }
         return false;
+    }
+
+    private static void AssertStreamTimeoutDiagnosticsIncludeContext(
+        IEnumerable<string> diagnostics,
+        int rootProcessId)
+    {
+        foreach (string diagnostic in diagnostics)
+        {
+            if (!diagnostic.Contains("stream-drain-timeout", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            Assert.IsTrue(
+                diagnostic.Contains($"root PID {rootProcessId};", StringComparison.Ordinal),
+                $"Stream timeout diagnostic did not identify root PID {rootProcessId}: {diagnostic}");
+            Assert.IsTrue(
+                Regex.IsMatch(
+                    diagnostic,
+                    @"^stream-drain-timeout: (stdout|stderr); root PID \d+; elapsed \d+ms;"),
+                $"Stream timeout diagnostic did not include stream and elapsed context: {diagnostic}");
+        }
     }
 
     private static void TryDeleteDirectory(string directory)

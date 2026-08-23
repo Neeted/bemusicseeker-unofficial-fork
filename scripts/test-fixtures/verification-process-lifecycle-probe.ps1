@@ -5,7 +5,10 @@ param(
     [string]$Scenario,
 
     [Parameter(Mandatory)]
-    [string]$DiagnosticsDirectory
+    [string]$DiagnosticsDirectory,
+
+    [Parameter(Mandatory)]
+    [string]$ResultPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,7 +63,7 @@ if ($Scenario -ceq 'nonzero-descendant' -and $null -ne $result.ExitCode -and $re
     throw 'The nonzero descendant probe did not produce its required primary exit failure.'
 }
 
-[ordered]@{
+$serializedResult = [ordered]@{
     scenario = $Scenario
     rootProcessId = $result.RootProcessId
     processTimedOut = $result.ProcessTimedOut
@@ -74,3 +77,12 @@ if ($Scenario -ceq 'nonzero-descendant' -and $null -ne $result.ExitCode -and $re
     remainingOwnedProcessIds = @($result.RemainingOwnedProcessIds)
     diagnosticsDirectory = $DiagnosticsDirectory
 } | ConvertTo-Json -Depth 8 -Compress
+
+# The inherited-handle scenario intentionally keeps the inner redirected pipe open until
+# bounded cleanup completes.  Persist the structured result independently of this probe's
+# own stdout EOF so callers observe the production seam result, not handle inheritance from
+# an outer test-harness pipe.
+[System.IO.File]::WriteAllText(
+    $ResultPath,
+    $serializedResult,
+    [System.Text.UTF8Encoding]::new($false))

@@ -245,7 +245,7 @@ Reviewer へ渡す重点:
 | Unit 0: Baseline freeze and clarification | Complete | HEAD `9dc805563bc9098531d7a0a06dff029b3b5e7c7d`, clean worktree. Review base から対象 files に差分なし。追加の observable-semantics question なし。Unit 1 / 2 は逐次実行。 |
 | Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
-| Unit 3: Integration and final review | Verification complete; review pending | Final snapshot `f1c7860ccb34c1e2e528f23a7e75a23fc7d1934e`; WPF 30回、Functional 3回、Full 1回が成功。fresh static review待ち。 |
+| Unit 3: Integration and final review | Review fix applied; final verification pending | 初回static reviewの2 P1 / 2 acceptance-direct P2を修正。変更後snapshotでWPF 30回、Functional 3回、Full、fresh reviewをやり直す。 |
 
 ## Verification log
 
@@ -263,3 +263,5 @@ Reviewer へ渡す重点:
 | same | Functional 2/3 | Pass | 158.8s command / 144.0s phase | `tests-functional-20260823-225152`; within 180s; fingerprint unchanged; no cleanup diagnostic |
 | same | Functional 3/3 | Pass | 157.1s command / 142.4s phase | `tests-functional-20260823-225431`; within 180s; fingerprint unchanged; no cleanup diagnostic |
 | same | Full | Pass | about 524s total; canonical Functional 156.2s / 180s | `tests-full-20260823-225723`; publish, existing-data, update, ProcessIntegration, ReleaseAcceptance, format, analyzer passed; fingerprint unchanged; residual `testhost` / `vstest.console` count 0 |
+| `59c3c8b9f21de71c1e8a841c33e3305eee895cfe` | fresh static review | Blocking | n/a | 2 P1: cleanup reserve二重控除、kill前identity再照合不足。2 acceptance-direct P2: monitored cleanup 10s、stream diagnostic context不足。 |
+| review-fix worktree | lifecycle Quick after reserve/identity/diagnostic fixes and probe EOF-seam correction | Pass (6/6) | 8.5s test / 34.1s phase | `tests-quick-20260823-233441/functional`; direct probe 2.4s、owned PID residual 0。旧stability runは変更前snapshotのため最終gateには数えない。 |

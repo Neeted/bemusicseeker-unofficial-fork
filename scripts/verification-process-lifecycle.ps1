@@ -272,6 +272,7 @@ function Update-VerificationProcessLineage {
                 [void]$Lineage.Add([pscustomobject]@{
                         ProcessId = $process.ProcessId
                         ParentProcessId = $process.ParentProcessId
+                        CreationTimeUtcTicks = $creationTimeUtcTicks
                         Identity = $identity
                         CommandIdentity = if ([string]::IsNullOrWhiteSpace($process.CommandLine)) {
                             $process.ExecutablePath
@@ -365,16 +366,25 @@ function Stop-VerificationOwnedProcessTree {
         }
 
         foreach ($tracked in @(Get-VerificationCurrentOwnedDescendants -Lineage $Lineage -ProcessTable $table)) {
+            $descendant = $null
             try {
                 $descendant = [System.Diagnostics.Process]::GetProcessById($tracked.ProcessId)
-                try {
-                    # The PID is killed only after the current creation identity matches the identity
-                    # captured while this runner's root was alive.  PID reuse is not owned.
-                    $descendant.Kill($true)
+                $handleCreationTimeUtcTicks = $descendant.StartTime.ToUniversalTime().Ticks
+                if ($null -eq $tracked.CreationTimeUtcTicks -or
+                    $handleCreationTimeUtcTicks -ne [long]$tracked.CreationTimeUtcTicks) {
+                    $observedCreationTime = if ($null -eq $tracked.CreationTimeUtcTicks) {
+                        '<unavailable>'
+                    }
+                    else {
+                        [string]$tracked.CreationTimeUtcTicks
+                    }
+                    $CleanupDiagnostics.Add(
+                        "owned-descendant-stop: PID $($tracked.ProcessId) handle creation identity mismatch; expected $observedCreationTime, observed $handleCreationTimeUtcTicks; not stopped")
+                    continue
                 }
-                finally {
-                    $descendant.Dispose()
-                }
+                # The PID is killed only after both the historical snapshot and the actual
+                # Process handle agree on creation identity.  PID reuse is not owned.
+                $descendant.Kill($true)
             }
             catch [System.ArgumentException] {
                 # The descendant exited between the identity check and GetProcessById.
@@ -382,6 +392,11 @@ function Stop-VerificationOwnedProcessTree {
             catch {
                 $CleanupDiagnostics.Add(
                     "owned-descendant-stop: PID $($tracked.ProcessId) ($($tracked.CommandIdentity)) could not be stopped: $($_.Exception.Message)")
+            }
+            finally {
+                if ($null -ne $descendant) {
+                    $descendant.Dispose()
+                }
             }
         }
 
@@ -464,6 +479,12 @@ function Get-VerificationCompletedTaskOutput {
         [string]$StreamName,
 
         [Parameter(Mandatory)]
+        [int]$RootProcessId,
+
+        [Parameter(Mandatory)]
+        [long]$ElapsedMilliseconds,
+
+        [Parameter(Mandatory)]
         [object]$CleanupDiagnostics
     )
 
@@ -482,7 +503,8 @@ function Get-VerificationCompletedTaskOutput {
         return [string]::Empty
     }
 
-    $CleanupDiagnostics.Add("stream-drain-timeout: $StreamName did not complete before the cleanup deadline")
+    $CleanupDiagnostics.Add(
+        "stream-drain-timeout: $StreamName; root PID $RootProcessId; elapsed ${ElapsedMilliseconds}ms; did not complete before the cleanup deadline")
     return [string]::Empty
 }
 
@@ -674,10 +696,14 @@ function Invoke-BoundedProcessLifecycle {
         $standardOutput = Get-VerificationCompletedTaskOutput `
             -Task $StandardOutputTask `
             -StreamName 'stdout' `
+            -RootProcessId $RootProcessId `
+            -ElapsedMilliseconds $lifecycleStopwatch.ElapsedMilliseconds `
             -CleanupDiagnostics $cleanupDiagnostics
         $standardError = Get-VerificationCompletedTaskOutput `
             -Task $StandardErrorTask `
             -StreamName 'stderr' `
+            -RootProcessId $RootProcessId `
+            -ElapsedMilliseconds $lifecycleStopwatch.ElapsedMilliseconds `
             -CleanupDiagnostics $cleanupDiagnostics
 
         try {

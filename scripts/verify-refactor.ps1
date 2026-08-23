@@ -24,6 +24,7 @@ $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existi
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
 $testHangTimeoutSeconds = 120
 $functionalCleanupReserveSeconds = 10
+$monitoredCommandCleanupSeconds = 5
 . (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
 . (Join-Path $PSScriptRoot 'verification-process-lifecycle.ps1')
 . (Join-Path $PSScriptRoot 'distribution-artifact.ps1')
@@ -594,6 +595,8 @@ function Invoke-MonitoredCommand {
         [Parameter(Mandatory)]
         [int]$TimeoutSeconds,
 
+        [DateTime]$CleanupDeadlineUtc,
+
         [switch]$IsTestCommand
     )
 
@@ -623,7 +626,12 @@ function Invoke-MonitoredCommand {
         $commandIdentity = "$CommandPath $($Arguments -join ' ')"
         $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity $commandIdentity
         $processDeadlineUtc = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-        $cleanupDeadlineUtc = $processDeadlineUtc.AddSeconds($functionalCleanupReserveSeconds)
+        $maximumCleanupDeadlineUtc = $processDeadlineUtc.AddSeconds($monitoredCommandCleanupSeconds)
+        $cleanupDeadlineUtc = $maximumCleanupDeadlineUtc
+        if ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc') -and
+            $CleanupDeadlineUtc -lt $cleanupDeadlineUtc) {
+            $cleanupDeadlineUtc = $CleanupDeadlineUtc
+        }
         $lifecycleResult = Invoke-BoundedProcessLifecycle `
             -Process $process `
             -StandardOutputTask $standardOutputTask `
@@ -990,6 +998,8 @@ function Invoke-TestLane {
 
         [string]$RunSettingsPath,
 
+        [DateTime]$CleanupDeadlineUtc,
+
         [switch]$NoBuild
     )
 
@@ -999,33 +1009,33 @@ function Invoke-TestLane {
         -TimeoutSeconds $TimeoutSeconds `
         -RunSettingsPath $RunSettingsPath `
         -NoBuild:$NoBuild
-    Invoke-MonitoredCommand `
-        -Label "$Name test lane" `
-        -CommandPath 'dotnet' `
-        -Arguments $arguments `
-        -WorkingDirectory $repoRoot `
-        -DiagnosticsDirectory $DiagnosticsDirectory `
-        -TimeoutSeconds $TimeoutSeconds `
-        -IsTestCommand
+    $invokeParameters = @{
+        Label = "$Name test lane"
+        CommandPath = 'dotnet'
+        Arguments = $arguments
+        WorkingDirectory = $repoRoot
+        DiagnosticsDirectory = $DiagnosticsDirectory
+        TimeoutSeconds = $TimeoutSeconds
+        IsTestCommand = $true
+    }
+    if ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc')) {
+        $invokeParameters.CleanupDeadlineUtc = $CleanupDeadlineUtc
+    }
+    Invoke-MonitoredCommand @invokeParameters
 }
 
 function Get-FunctionalPhaseRemainingSeconds {
     param(
         [Parameter(Mandatory)]
-        [System.Diagnostics.Stopwatch]$Stopwatch,
-
-        [Parameter(Mandatory)]
-        [int]$DeadlineSeconds,
+        [DateTime]$ProcessDeadlineUtc,
 
         [Parameter(Mandatory)]
         [string]$PhaseName
     )
 
-    $remaining = $DeadlineSeconds `
-        - $functionalCleanupReserveSeconds `
-        - $Stopwatch.Elapsed.TotalSeconds
+    $remaining = ($ProcessDeadlineUtc - [DateTime]::UtcNow).TotalSeconds
     if ($remaining -le 0) {
-        throw "Functional test phase exhausted its ${DeadlineSeconds}-second timeout before $PhaseName while retaining the ${functionalCleanupReserveSeconds}-second cleanup reserve."
+        throw "Functional test phase reached its process deadline before $PhaseName."
     }
 
     return [Math]::Max(1, [int][Math]::Floor($remaining))
@@ -1285,7 +1295,13 @@ function Invoke-ParallelFunctionalTestShards {
         [string]$DiagnosticsDirectory,
 
         [Parameter(Mandatory)]
-        [int]$TimeoutSeconds
+        [int]$TimeoutSeconds,
+
+        [Parameter(Mandatory)]
+        [DateTime]$ProcessDeadlineUtc,
+
+        [Parameter(Mandatory)]
+        [DateTime]$CleanupDeadlineUtc
     )
 
     Assert-FunctionalShardConfiguration
@@ -1329,8 +1345,6 @@ function Invoke-ParallelFunctionalTestShards {
     $lr2DiagnosticsDirectory = Join-Path $DiagnosticsDirectory 'lr2-songdb-sync'
     [void](New-Item -ItemType Directory -Path $lr2DiagnosticsDirectory -Force)
     $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $stageStartedUtc = [DateTime]::UtcNow
-    $cleanupDeadlineUtc = $stageStartedUtc.AddSeconds($TimeoutSeconds)
     $entries = @()
     $phaseTrace = [System.Collections.Generic.List[string]]::new()
     $lr2Entry = $null
@@ -1349,14 +1363,14 @@ function Invoke-ParallelFunctionalTestShards {
         $exclusiveClassFilter = ($functionalExclusiveTestClasses |
             ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
         $exclusiveTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
-            -Stopwatch $stageStopwatch `
-            -DeadlineSeconds $TimeoutSeconds `
+            -ProcessDeadlineUtc $ProcessDeadlineUtc `
             -PhaseName 'exclusive portable settings'
         Invoke-TestLane `
             -Name 'Functional exclusive portable settings' `
             -Filter "($functionalFilter)&($exclusiveClassFilter)" `
             -DiagnosticsDirectory $exclusiveDirectory `
             -TimeoutSeconds $exclusiveTimeoutSeconds `
+            -CleanupDeadlineUtc $CleanupDeadlineUtc `
             -NoBuild
 
         [void]$phaseTrace.Add('exclusive-portable-settings')
@@ -1366,8 +1380,7 @@ function Invoke-ParallelFunctionalTestShards {
         Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
         try {
             $lr2TimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
-                -Stopwatch $stageStopwatch `
-                -DeadlineSeconds $TimeoutSeconds `
+                -ProcessDeadlineUtc $ProcessDeadlineUtc `
                 -PhaseName 'lr2-songdb-sync'
             $lr2Entry = Start-FunctionalShardProcess `
                 -Shard $lr2Shard `
@@ -1390,8 +1403,7 @@ function Invoke-ParallelFunctionalTestShards {
         $preWaveClassFilter = ($functionalMethodLevelPreWaveClasses |
             ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
         $preWaveTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
-            -Stopwatch $stageStopwatch `
-            -DeadlineSeconds $TimeoutSeconds `
+            -ProcessDeadlineUtc $ProcessDeadlineUtc `
             -PhaseName 'method-level pre-wave'
         [void]$phaseTrace.Add('method-level-pre-wave')
         Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
@@ -1401,6 +1413,7 @@ function Invoke-ParallelFunctionalTestShards {
             -DiagnosticsDirectory $preWaveDirectory `
             -TimeoutSeconds $preWaveTimeoutSeconds `
             -RunSettingsPath $preWaveRunSettingsPath `
+            -CleanupDeadlineUtc $CleanupDeadlineUtc `
             -NoBuild
 
         $lr2PreFanoutState = Assert-FunctionalLr2CanProceedToFanout -Entry $lr2Entry
@@ -1413,8 +1426,7 @@ function Invoke-ParallelFunctionalTestShards {
         foreach ($shard in $fanoutShards) {
             $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
             $shardTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
-                -Stopwatch $stageStopwatch `
-                -DeadlineSeconds $TimeoutSeconds `
+                -ProcessDeadlineUtc $ProcessDeadlineUtc `
                 -PhaseName $shard.Name
             $entries += Start-FunctionalShardProcess `
                 -Shard $shard `
@@ -1438,10 +1450,10 @@ function Invoke-ParallelFunctionalTestShards {
             if ($runningEntries.Count -eq 0) {
                 break
             }
-            if ($stageStopwatch.Elapsed.TotalSeconds -ge ($TimeoutSeconds - $functionalCleanupReserveSeconds)) {
+            if ([DateTime]::UtcNow -ge $ProcessDeadlineUtc) {
                 $timedOut = $true
                 $timedOutShardNames = @($runningEntries | ForEach-Object { $_.Name })
-                Write-Warning "Functional test phase reached its ${functionalCleanupReserveSeconds}-second cleanup reserve before the ${TimeoutSeconds}-second deadline. Stopping shards: $($timedOutShardNames -join ', ')"
+                Write-Warning "Functional test phase reached its process deadline before the shared ${functionalCleanupReserveSeconds}-second cleanup reserve. Stopping shards: $($timedOutShardNames -join ', ')"
                 break
             }
             Start-Sleep -Milliseconds 100
@@ -1482,7 +1494,7 @@ function Invoke-ParallelFunctionalTestShards {
                     -CommandIdentity $entry.CommandIdentity `
                     -DiagnosticsDirectory $entry.Directory `
                     -ProcessDeadlineUtc ([DateTime]::UtcNow) `
-                    -CleanupDeadlineUtc $cleanupDeadlineUtc `
+                    -CleanupDeadlineUtc $CleanupDeadlineUtc `
                     -TerminateProcessTree:$forceCleanup
                 if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
                     foreach ($diagnostic in @($lifecycleResult.SecondaryDiagnostics)) {
@@ -1928,6 +1940,10 @@ function Invoke-CanonicalFunctionalVerification {
     )
 
     [void](New-Item -ItemType Directory -Path $DiagnosticsRoot -Force)
+    $functionalStartedUtc = [DateTime]::UtcNow
+    $functionalProcessDeadlineUtc = $functionalStartedUtc.AddSeconds(
+        $TimeoutSeconds - $functionalCleanupReserveSeconds)
+    $functionalCleanupDeadlineUtc = $functionalStartedUtc.AddSeconds($TimeoutSeconds)
     $functionalStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
         Invoke-BudgetedCommand `
@@ -1945,12 +1961,14 @@ function Invoke-CanonicalFunctionalVerification {
             -Arguments @('build', $solution, '/p:Configuration=Release', '/p:Platform=x64', '--no-restore') `
             -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'build')
         Assert-BuiltOutputs
-        $remaining = Get-RemainingBudgetSeconds `
+        [void](Get-RemainingBudgetSeconds `
             -Stopwatch $functionalStopwatch `
-            -BudgetSeconds $TimeoutSeconds
+            -BudgetSeconds $TimeoutSeconds)
         Invoke-ParallelFunctionalTestShards `
             -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'functional') `
-            -TimeoutSeconds $remaining
+            -TimeoutSeconds $TimeoutSeconds `
+            -ProcessDeadlineUtc $functionalProcessDeadlineUtc `
+            -CleanupDeadlineUtc $functionalCleanupDeadlineUtc
         Assert-RepositoryWhitespace
     }
     finally {
