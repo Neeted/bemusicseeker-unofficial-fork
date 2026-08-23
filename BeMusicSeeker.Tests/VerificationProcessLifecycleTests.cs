@@ -13,6 +13,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class VerificationProcessLifecycleTests
 {
     private sealed record LedgerEntry(int ProcessId, long CreationIdentity);
+    private sealed record PrimitiveEvent(int Sequence, string Operation, int RootProcessId, string Context, long UtcTicks);
 
     [TestMethod]
     public void NormalExitPreservesCompletedStandardOutputAndError()
@@ -22,6 +23,9 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual("stdout-complete", result.RootElement.GetProperty("stdout").GetString());
         Assert.AreEqual("stderr-complete", result.RootElement.GetProperty("stderr").GetString());
         Assert.AreEqual(1, result.RootElement.GetProperty("cleanupTransitionCount").GetInt32());
+        PrimitiveEvent[] events = ReadPrimitiveEvents(result.RootElement.GetProperty("primitiveEvents"));
+        AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
+        AssertCleanupTransitionPrecedesPersistenceAndDispose(events);
         CollectionAssert.AreEqual(
             Array.Empty<string>(),
             ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics")));
@@ -81,6 +85,13 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual(1, result.RootElement.GetProperty("cleanupTransitionCount").GetInt32());
         Assert.IsTrue(ContainsDiagnostic(diagnostics, "stream-reader-close: skipped after cleanup deadline"));
         Assert.IsTrue(ContainsDiagnostic(diagnostics, "process-lineage-residual-check: skipped after cleanup deadline"));
+        PrimitiveEvent[] events = ReadPrimitiveEvents(result.RootElement.GetProperty("primitiveEvents"));
+        Assert.IsTrue(
+            CountPrimitiveEvents(events, "late-task-fault") >= 2,
+            "Both deterministic late stream faults must be observed through the production seam.");
+        AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
+        Assert.IsFalse(ContainsPrimitiveEvent(events, "reader-close"));
+        Assert.IsFalse(ContainsPrimitiveEvent(events, "persistence"));
         CollectionAssert.AreEqual(
             Array.Empty<int>(),
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
@@ -142,6 +153,57 @@ public sealed class VerificationProcessLifecycleTests
         CollectionAssert.AreEqual(
             Array.Empty<int>(),
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
+        PrimitiveEvent[] events = ReadPrimitiveEvents(result.RootElement.GetProperty("primitiveEvents"));
+        int[] fanoutRootIds = ReadIntArray(result.RootElement.GetProperty("fanoutRootIds"));
+        AssertRootFanoutPrecedesLineage(events, fanoutRootIds);
+        AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
+    }
+
+    [TestMethod]
+    public void ExpiredDeadlineReportsExactResidualAndOuterLedgerCleanupRemovesIt()
+    {
+        ProbeRun run = StartProbe("expired-residual");
+        try
+        {
+            Assert.IsTrue(run.Process.WaitForExit(30_000), "The expired residual probe did not terminate.");
+            Assert.AreEqual(0, run.Process.ExitCode, "The expired residual probe failed.");
+            Assert.IsTrue(File.Exists(run.ResultPath));
+            using JsonDocument result = JsonDocument.Parse(File.ReadAllText(run.ResultPath));
+            int[] residualIds = ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds"));
+            Assert.IsTrue(residualIds.Length > 0, "The expired deadline must report a nonempty exact residual PID set.");
+            LedgerEntry[] ledger = ReadLedger(run.LedgerPath);
+            bool residualIsLedgerOwned = false;
+            foreach (int residualId in residualIds)
+            {
+                foreach (LedgerEntry entry in ledger)
+                {
+                    if (entry.ProcessId == residualId)
+                    {
+                        residualIsLedgerOwned = true;
+                        break;
+                    }
+                }
+            }
+            Assert.IsTrue(residualIsLedgerOwned, "Every reported residual must come from the exact ownership ledger.");
+            PrimitiveEvent[] events = ReadPrimitiveEvents(result.RootElement.GetProperty("primitiveEvents"));
+            AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
+            string cleanup = CleanupLedger(run.LedgerPath);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(cleanup), cleanup);
+            foreach (LedgerEntry entry in ledger)
+            {
+                Assert.IsFalse(IsExactIdentityAlive(entry), $"Ledger PID {entry.ProcessId} remained after exact cleanup.");
+            }
+        }
+        finally
+        {
+            if (!run.Process.HasExited)
+            {
+                StopProcessTree(run.Process);
+            }
+            CleanupLedger(run.LedgerPath);
+            run.Process.Dispose();
+            TryDeleteDirectory(run.DiagnosticsDirectory);
+        }
     }
 
     private static JsonDocument RunProbe(string scenario)
@@ -241,6 +303,114 @@ public sealed class VerificationProcessLifecycleTests
                 document.RootElement.GetProperty("creationIdentity").GetInt64()));
         }
         return entries.ToArray();
+    }
+
+    private static PrimitiveEvent[] ReadPrimitiveEvents(JsonElement array)
+    {
+        var events = new List<PrimitiveEvent>();
+        foreach (JsonElement value in array.EnumerateArray())
+        {
+            events.Add(new PrimitiveEvent(
+                value.GetProperty("Sequence").GetInt32(),
+                value.GetProperty("Operation").GetString()!,
+                value.GetProperty("RootProcessId").GetInt32(),
+                value.GetProperty("Context").GetString()!,
+                value.GetProperty("UtcTicks").GetInt64()));
+        }
+        return events.ToArray();
+    }
+
+    private static void AssertNoPrimitiveStartedAfterDeadline(JsonElement result, IEnumerable<PrimitiveEvent> events)
+    {
+        long deadlineTicks = result.GetProperty("cleanupDeadlineUtcTicks").GetInt64();
+        foreach (PrimitiveEvent primitiveEvent in events)
+        {
+            if (primitiveEvent.Operation.Equals("late-task-fault", StringComparison.Ordinal))
+            {
+                continue;
+            }
+            Assert.IsTrue(
+                primitiveEvent.UtcTicks <= deadlineTicks,
+                $"Primitive {primitiveEvent.Operation} for PID {primitiveEvent.RootProcessId} started after the cleanup deadline.");
+        }
+    }
+
+    private static void AssertCleanupTransitionPrecedesPersistenceAndDispose(IEnumerable<PrimitiveEvent> events)
+    {
+        int transitionSequence = int.MaxValue;
+        bool hasTransition = false;
+        foreach (PrimitiveEvent primitiveEvent in events)
+        {
+            if (primitiveEvent.Operation.Equals("cleanup-transition", StringComparison.Ordinal))
+            {
+                transitionSequence = Math.Min(transitionSequence, primitiveEvent.Sequence);
+                hasTransition = true;
+            }
+        }
+        Assert.IsTrue(hasTransition, "The production seam did not observe cleanup transition.");
+        foreach (PrimitiveEvent primitiveEvent in events)
+        {
+            if (primitiveEvent.Operation is "persistence" or "dispose")
+            {
+                Assert.IsTrue(
+                    transitionSequence < primitiveEvent.Sequence,
+                    $"Cleanup transition must precede actual {primitiveEvent.Operation} primitive.");
+            }
+        }
+    }
+
+    private static void AssertRootFanoutPrecedesLineage(
+        IEnumerable<PrimitiveEvent> events,
+        IEnumerable<int> rootProcessIds)
+    {
+        var roots = new HashSet<int>(rootProcessIds);
+        int maximumRootStopSequence = 0;
+        int firstLineageSequence = int.MaxValue;
+        var stoppedRoots = new HashSet<int>();
+        foreach (PrimitiveEvent primitiveEvent in events)
+        {
+            if (primitiveEvent.Operation.Equals("root-stop", StringComparison.Ordinal) &&
+                roots.Contains(primitiveEvent.RootProcessId))
+            {
+                stoppedRoots.Add(primitiveEvent.RootProcessId);
+                maximumRootStopSequence = Math.Max(maximumRootStopSequence, primitiveEvent.Sequence);
+            }
+            if (primitiveEvent.Operation.Equals("lineage-snapshot", StringComparison.Ordinal))
+            {
+                firstLineageSequence = Math.Min(firstLineageSequence, primitiveEvent.Sequence);
+            }
+        }
+        Assert.AreEqual(roots.Count, stoppedRoots.Count, "Every retained root must receive a root-stop primitive.");
+        foreach (int rootProcessId in roots)
+        {
+            Assert.IsTrue(stoppedRoots.Contains(rootProcessId), $"Root PID {rootProcessId} did not receive a root-stop primitive.");
+        }
+        Assert.IsTrue(firstLineageSequence > maximumRootStopSequence, "Lineage must begin after every root-stop primitive.");
+    }
+
+    private static int CountPrimitiveEvents(IEnumerable<PrimitiveEvent> events, string operation)
+    {
+        int count = 0;
+        foreach (PrimitiveEvent primitiveEvent in events)
+        {
+            if (primitiveEvent.Operation.Equals(operation, StringComparison.Ordinal))
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static bool ContainsPrimitiveEvent(IEnumerable<PrimitiveEvent> events, string operation)
+    {
+        foreach (PrimitiveEvent primitiveEvent in events)
+        {
+            if (primitiveEvent.Operation.Equals(operation, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static string CleanupLedger(string ledgerPath)

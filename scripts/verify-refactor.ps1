@@ -541,40 +541,6 @@ function Get-RemainingBudgetSeconds {
     return [Math]::Max(1, [int][Math]::Floor($remaining))
 }
 
-function Write-TestDiagnosticSummary {
-    param(
-        [Parameter(Mandatory)]
-        [string]$DiagnosticsDirectory,
-
-        [Parameter(Mandatory)]
-        [string]$StandardOutputPath
-    )
-
-    $sequenceFiles = @(
-        Get-ChildItem -LiteralPath $DiagnosticsDirectory -Filter 'Sequence*.xml' -File -Recurse -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTimeUtc -Descending)
-    if ($sequenceFiles.Count -gt 0) {
-        Write-Warning "Blame sequence (active/last tests): $($sequenceFiles[0].FullName)"
-        try {
-            [xml]$sequence = Get-Content -LiteralPath $sequenceFiles[0].FullName -Raw
-            $testNames = @($sequence.SelectNodes('//Test') | ForEach-Object { $_.Name })
-            if ($testNames.Count -gt 0) {
-                Write-Warning "Last blame-observed tests:`n$($testNames | Select-Object -Last 10 | ForEach-Object { '  ' + $_ } | Out-String)"
-            }
-        }
-        catch {
-            Write-Warning "Unable to parse blame sequence: $($_.Exception.Message)"
-        }
-    }
-
-    if (Test-Path -LiteralPath $StandardOutputPath -PathType Leaf) {
-        $lastOutput = @(Get-Content -LiteralPath $StandardOutputPath | Select-Object -Last 30)
-        if ($lastOutput.Count -gt 0) {
-            Write-Warning "Last test output:`n$($lastOutput -join [Environment]::NewLine)"
-        }
-    }
-}
-
 function Invoke-MonitoredCommand {
     param(
         [Parameter(Mandatory)]
@@ -726,11 +692,6 @@ function Invoke-MonitoredCommand {
 
     Write-Host "$Label elapsed: $([Math]::Round($stageStopwatch.Elapsed.TotalSeconds, 1))s; diagnostics: $DiagnosticsDirectory"
     if ($null -ne $lifecycleResult.PrimaryFailureKind) {
-        if ($IsTestCommand) {
-            Write-TestDiagnosticSummary `
-                -DiagnosticsDirectory $DiagnosticsDirectory `
-                -StandardOutputPath (Join-Path $DiagnosticsDirectory 'stdout.log')
-        }
         $failureMessage = Get-VerificationLifecycleFailureMessage `
             -Label $Label `
             -Result $lifecycleResult `
@@ -1284,7 +1245,6 @@ function Start-FunctionalShardProcess {
         [int]$TimeoutSeconds
     )
 
-    [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
     $runSettingsPath = Join-Path $DiagnosticsDirectory 'parallel.runsettings'
     Write-MSTestParallelRunSettings `
         -Path $runSettingsPath `
@@ -1341,29 +1301,6 @@ function Start-FunctionalShardProcess {
     }
 }
 
-function Write-FunctionalShardFailureDiagnostic {
-    param(
-        [Parameter(Mandatory)]
-        [string]$DiagnosticsDirectory,
-
-        [Parameter(Mandatory)]
-        [System.Management.Automation.ErrorRecord]$Failure,
-
-        [string]$FileName = 'failure.log'
-    )
-
-    try {
-        [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
-        [System.IO.File]::WriteAllText(
-            (Join-Path $DiagnosticsDirectory $FileName),
-            $Failure.ToString(),
-            [System.Text.UTF8Encoding]::new($false))
-    }
-    catch {
-        Write-Warning "Unable to write shard failure diagnostics to '$DiagnosticsDirectory': $($_.Exception.Message)"
-    }
-}
-
 function Invoke-ParallelFunctionalTestShards {
     param(
         [Parameter(Mandatory)]
@@ -1416,15 +1353,21 @@ function Invoke-ParallelFunctionalTestShards {
         -Shards $shards `
         -FanoutShards $fanoutShards
 
+    # Allocate every Functional entry directory before any monitored process is launched.
+    # Lifecycle cleanup receives only pre-created paths and therefore cannot begin a new
+    # filesystem operation for a later entry after the shared cleanup deadline.
     [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
     $lr2DiagnosticsDirectory = Join-Path $DiagnosticsDirectory 'lr2-songdb-sync'
-    [void](New-Item -ItemType Directory -Path $lr2DiagnosticsDirectory -Force)
+    $exclusiveDirectory = Join-Path $DiagnosticsDirectory 'exclusive-portable-settings'
+    $preWaveDirectory = Join-Path $DiagnosticsDirectory 'method-level-pre-wave'
+    $shardDirectories = @($shards | ForEach-Object { Join-Path $DiagnosticsDirectory $_.Name })
+    foreach ($directory in @($lr2DiagnosticsDirectory, $exclusiveDirectory, $preWaveDirectory) + $shardDirectories) {
+        [void](New-Item -ItemType Directory -Path $directory -Force)
+    }
     $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $entries = @()
     $phaseTrace = [System.Collections.Generic.List[string]]::new()
     $lr2Entry = $null
-    $lr2LaunchFailure = $null
-    $lr2DiagnosticsCaptured = $false
     $timedOut = $false
     $timedOutShardNames = @()
     $launchFailure = $null
@@ -1432,10 +1375,8 @@ function Invoke-ParallelFunctionalTestShards {
     $failedShardName = $null
     $failedShardExitCode = $null
     $cleanupFailures = [System.Collections.Generic.List[string]]::new()
-    $launchFailureFileName = $null
 
     try {
-        $exclusiveDirectory = Join-Path $DiagnosticsDirectory 'exclusive-portable-settings'
         $exclusiveClassFilter = ($functionalExclusiveTestClasses |
             ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
         $exclusiveTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
@@ -1465,12 +1406,9 @@ function Invoke-ParallelFunctionalTestShards {
             $entries += $lr2Entry
         }
         catch {
-            $lr2LaunchFailure = $_
             throw
         }
 
-        $preWaveDirectory = Join-Path $DiagnosticsDirectory 'method-level-pre-wave'
-        [void](New-Item -ItemType Directory -Path $preWaveDirectory -Force)
         $preWaveRunSettingsPath = Join-Path $preWaveDirectory 'parallel.runsettings'
         Write-MSTestParallelRunSettings `
             -Path $preWaveRunSettingsPath `
@@ -1537,21 +1475,12 @@ function Invoke-ParallelFunctionalTestShards {
     }
     catch {
         $launchFailure = $_
-        $launchFailureFileName = if ($null -ne $lr2LaunchFailure) {
-            'launch-failure.log'
-        }
-        else {
-            'orchestration-failure.log'
-        }
     }
     finally {
         if ($null -ne $failedShard) {
             $failedShardName = $failedShard.Name
             $failedShardExitCode = $failedShard.Process.ExitCode
         }
-        $failureObserved = $timedOut -or
-            $null -ne $failedShardName -or
-            $null -ne $launchFailure
         $forceCleanup = $timedOut -or
             $null -ne $failedShardName -or
             $null -ne $launchFailure
@@ -1596,8 +1525,6 @@ function Invoke-ParallelFunctionalTestShards {
 
                 $standardOutput = $lifecycleResult.StandardOutput
                 $standardError = $lifecycleResult.StandardError
-                $standardOutputPath = Join-Path $entry.Directory 'stdout.log'
-                $standardErrorPath = Join-Path $entry.Directory 'stderr.log'
 
                 Write-Host "Test shard: $($entry.Name); exit code: $($lifecycleResult.ExitCode)"
                 if (-not $timedOut -and -not [string]::IsNullOrEmpty($standardOutput)) {
@@ -1612,44 +1539,11 @@ function Invoke-ParallelFunctionalTestShards {
                     }
                 }
 
-                $captureDiagnostics =
-                    ($timedOutShardNames -contains $entry.Name) -or
-                    $lifecycleResult.ExitCode -ne 0
-                if ($entry.Name -ceq 'lr2-songdb-sync' -and $failureObserved) {
-                    $captureDiagnostics = $true
-                }
-                if ($captureDiagnostics) {
-                    Write-TestDiagnosticSummary `
-                        -DiagnosticsDirectory $entry.Directory `
-                        -StandardOutputPath $standardOutputPath
-                    if ($entry.Name -ceq 'lr2-songdb-sync') {
-                        $lr2DiagnosticsCaptured = $true
-                    }
-                }
             }
             catch {
                 $cleanupFailures.Add(
                     "$($entry.Name): cleanup/output collection failed: $($_.Exception.Message)")
             }
-        }
-        if ($null -ne $launchFailure -and
-            -not [string]::IsNullOrWhiteSpace($launchFailureFileName)) {
-            if ([DateTime]::UtcNow -lt $CleanupDeadlineUtc) {
-                Write-FunctionalShardFailureDiagnostic `
-                    -DiagnosticsDirectory $lr2DiagnosticsDirectory `
-                    -Failure $launchFailure `
-                    -FileName $launchFailureFileName
-            }
-            else {
-                $cleanupFailures.Add(
-                    "lr2-songdb-sync: $launchFailureFileName persistence skipped after the shared cleanup deadline")
-            }
-        }
-        if ($failureObserved -and -not $lr2DiagnosticsCaptured) {
-            Write-TestDiagnosticSummary `
-                -DiagnosticsDirectory $lr2DiagnosticsDirectory `
-                -StandardOutputPath (Join-Path $lr2DiagnosticsDirectory 'stdout.log')
-            $lr2DiagnosticsCaptured = $true
         }
         $stageStopwatch.Stop()
     }

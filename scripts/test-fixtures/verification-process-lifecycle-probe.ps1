@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('normal', 'nonzero', 'descendant-root', 'nonzero-descendant', 'stream-timeout', 'missing-result', 'fanout-order')]
+    [ValidateSet('normal', 'nonzero', 'descendant-root', 'nonzero-descendant', 'stream-timeout', 'missing-result', 'fanout-order', 'expired-residual')]
     [string]$Scenario,
 
     [Parameter(Mandatory)]
@@ -16,6 +16,27 @@ $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $repositoryRoot 'scripts\verification-process-lifecycle.ps1')
 $childScript = Join-Path $PSScriptRoot 'verification-process-lifecycle-child.ps1'
 $ledgerPath = Join-Path $DiagnosticsDirectory 'ownership-ledger.jsonl'
+$primitiveEvents = [System.Collections.Concurrent.ConcurrentQueue[object]]::new()
+$primitiveSequence = [long]0
+$primitiveObserverState = [pscustomobject]@{ ResidualGate = $null }
+$primitiveObserver = [pscustomobject]@{
+    Observe = {
+        param($event)
+        $sequence = [System.Threading.Interlocked]::Increment([ref]$primitiveSequence)
+        [void]$primitiveEvents.Enqueue([pscustomobject]@{
+                Sequence = $sequence
+                Operation = [string]$event.Operation
+                RootProcessId = [int]$event.RootProcessId
+                Context = [string]$event.Context
+                UtcTicks = [long]$event.UtcTicks
+            })
+        if ($Scenario -ceq 'expired-residual' -and
+            $event.Operation -ceq 'descendant-stop' -and
+            $null -ne $primitiveObserverState.ResidualGate) {
+            $primitiveObserverState.ResidualGate.Wait()
+        }
+    }.GetNewClosure()
+}
 
 function Write-LifecycleLedgerEntry {
     param(
@@ -41,21 +62,25 @@ using System.Threading.Tasks;
 
 public static class VerificationLifecycleProbeTasks
 {
-    public static Task<string> HoldCompletion(Task<string> source)
+    public static Task<string> FaultAfter(string message, int delayMilliseconds)
     {
-        var gate = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _ = source.ContinueWith(
-            completed =>
+        return Task.Run(async () =>
+        {
+            await Task.Delay(delayMilliseconds).ConfigureAwait(false);
+            return await Task.FromException<string>(new InvalidOperationException(message));
+        });
+    }
+
+    public static Task ReleaseGateAt(ManualResetEventSlim gate, long deadlineUtcTicks)
+    {
+        return Task.Run(async () =>
+        {
+            while (DateTime.UtcNow.Ticks < deadlineUtcTicks)
             {
-                if (completed.IsFaulted)
-                {
-                    _ = completed.Exception;
-                }
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
-        return gate.Task;
+                await Task.Delay(10).ConfigureAwait(false);
+            }
+            gate.Set();
+        });
     }
 }
 '@
@@ -109,7 +134,8 @@ if ($Scenario -ceq 'fanout-order') {
     Invoke-VerificationRootStopFanout `
         -Entries @($fanoutRoots.ToArray()) `
         -CleanupDeadlineUtc $fanoutDeadlineUtc `
-        -CleanupFailures $fanoutFailures
+        -CleanupFailures $fanoutFailures `
+        -PrimitiveObserver $primitiveObserver
     $rootsExitedBeforeLineage = $true
     foreach ($entry in $fanoutRoots) {
         if (-not $entry.Process.WaitForExit(1000)) {
@@ -130,7 +156,9 @@ if ($Scenario -ceq 'fanout-order') {
                 -PhaseDeadlineUtc $fanoutDeadlineUtc `
                 -CleanupDeadlineUtc $fanoutDeadlineUtc `
                 -RootStopAlreadyRequested `
-                -TerminateProcessTree))
+                -TerminateProcessTree `
+                -PrimitiveObserver $primitiveObserver `
+                -LifecycleName $entry.Name))
     }
     [System.IO.File]::WriteAllText(
         $ResultPath,
@@ -139,15 +167,18 @@ if ($Scenario -ceq 'fanout-order') {
                 fanoutRootCount = $fanoutRoots.Count
                 fanoutRootsExitedBeforeLineage = $rootsExitedBeforeLineage
                 fanoutFailures = @($fanoutFailures)
+                fanoutRootIds = @($fanoutRoots | ForEach-Object { $_.ProcessId })
                 lifecycleTransitionCounts = @($lineageResults | ForEach-Object { $_.CleanupTransitionCount })
                 remainingOwnedProcessIds = @($lineageResults | ForEach-Object { $_.RemainingOwnedProcessIds })
                 secondaryDiagnostics = @($lineageResults | ForEach-Object { $_.SecondaryDiagnostics })
+                primitiveEvents = @($primitiveEvents.ToArray())
+                cleanupDeadlineUtcTicks = $fanoutDeadlineUtc.Ticks
             } | ConvertTo-Json -Depth 8 -Compress),
         [System.Text.UTF8Encoding]::new($false))
     exit 0
 }
 
-$rootScenario = if ($Scenario -ceq 'nonzero-descendant' -or $Scenario -ceq 'stream-timeout' -or $Scenario -ceq 'missing-result') {
+$rootScenario = if ($Scenario -ceq 'nonzero-descendant' -or $Scenario -ceq 'stream-timeout' -or $Scenario -ceq 'missing-result' -or $Scenario -ceq 'expired-residual') {
     'descendant-root'
 }
 else {
@@ -181,15 +212,33 @@ if (-not $root.Start()) {
     throw 'Unable to start the lifecycle root probe.'
 }
 Write-LifecycleLedgerEntry -Process $root
-$standardOutputTask = $root.StandardOutput.ReadToEndAsync()
-$standardErrorTask = $root.StandardError.ReadToEndAsync()
+$ledgerReadyDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
+if ($Scenario -ceq 'expired-residual') {
+    # Do not enter the bounded lifecycle until the child launch has produced its exact
+    # sidecar identity.  This makes the residual case deterministic without making the
+    # production lifecycle discover ownership from the ledger.
+    while ([DateTime]::UtcNow -lt $ledgerReadyDeadlineUtc) {
+        if (@(Get-Content -LiteralPath $ledgerPath -ErrorAction SilentlyContinue).Count -ge 2) {
+            break
+        }
+        Start-Sleep -Milliseconds 20
+    }
+    if (@(Get-Content -LiteralPath $ledgerPath -ErrorAction SilentlyContinue).Count -lt 2) {
+        throw 'The expired residual probe did not observe the child launch ledger entry.'
+    }
+}
+$sourceOutputTask = $root.StandardOutput.ReadToEndAsync()
+$sourceErrorTask = $root.StandardError.ReadToEndAsync()
+$standardOutputTask = $sourceOutputTask
+$standardErrorTask = $sourceErrorTask
 if ($Scenario -ceq 'stream-timeout') {
-    # Keep the real redirected-handle reads active, but expose an intentionally
-    # incomplete completion gate to the production seam.  The source tasks still drain
-    # the inherited handles and observe any late faults; the gate makes the bounded
-    # stream-timeout path deterministic without a fixed sleep.
-    $standardOutputTask = [VerificationLifecycleProbeTasks]::HoldCompletion($standardOutputTask)
-    $standardErrorTask = [VerificationLifecycleProbeTasks]::HoldCompletion($standardErrorTask)
+    # The production seam sees deterministic faulting tasks after its cleanup deadline.
+    # The retained source reads remain observed independently so inherited handles do not
+    # create an unobserved task fault.
+    Register-VerificationTaskObservation -Task $sourceOutputTask
+    Register-VerificationTaskObservation -Task $sourceErrorTask
+    $standardOutputTask = [VerificationLifecycleProbeTasks]::FaultAfter('stdout late fault', 4500)
+    $standardErrorTask = [VerificationLifecycleProbeTasks]::FaultAfter('stderr late fault', 4500)
 }
 if ($Scenario -ceq 'missing-result') {
     # Wait only for the sidecar ownership signal so the harness test can prove that
@@ -206,9 +255,18 @@ if ($Scenario -ceq 'missing-result') {
 }
 $commandIdentity = "pwsh -File $childScript -Scenario $rootScenario"
 $identity = Get-VerificationProcessIdentity -Process $root -CommandIdentity $commandIdentity
-$processBudgetSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero') { 10 } else { 2 }
-$cleanupBudgetSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero') { 12 } else { 4 }
-$phaseDeadlineUtc = [DateTime]::UtcNow.AddSeconds($cleanupBudgetSeconds)
+$processBudgetSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero' -or $Scenario -ceq 'expired-residual') { 10 } else { 2 }
+$scenarioCleanupSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero') { 12 } elseif ($Scenario -ceq 'expired-residual') { 1 } else { 4 }
+$phaseDeadlineUtc = [DateTime]::UtcNow.AddSeconds($scenarioCleanupSeconds)
+$residualGate = $null
+$residualReleaseTask = $null
+if ($Scenario -ceq 'expired-residual') {
+    $residualGate = [System.Threading.ManualResetEventSlim]::new($false)
+    $primitiveObserverState.ResidualGate = $residualGate
+    $residualReleaseTask = [VerificationLifecycleProbeTasks]::ReleaseGateAt(
+        $residualGate,
+        $phaseDeadlineUtc.Ticks)
+}
 $result = Invoke-BoundedProcessLifecycle `
     -Process $root `
     -StandardOutputTask $standardOutputTask `
@@ -219,7 +277,22 @@ $result = Invoke-BoundedProcessLifecycle `
     -DiagnosticsDirectory $DiagnosticsDirectory `
     -ProcessDeadlineUtc ([DateTime]::UtcNow.AddSeconds($processBudgetSeconds)) `
     -PhaseDeadlineUtc $phaseDeadlineUtc `
-    -CleanupDeadlineUtc $phaseDeadlineUtc
+    -CleanupDeadlineUtc $phaseDeadlineUtc `
+    -PrimitiveObserver $primitiveObserver `
+    -LifecycleName $Scenario
+
+if ($Scenario -ceq 'stream-timeout') {
+    # Wait for both deterministic late-fault continuations without extending production
+    # cleanup or using a fixed sleep.  This is a bounded probe watchdog only.
+    $lateFaultDeadlineUtc = [DateTime]::UtcNow.AddSeconds(3)
+    while ([DateTime]::UtcNow -lt $lateFaultDeadlineUtc) {
+        Drain-VerificationLateTaskObservations -PrimitiveObserver $primitiveObserver
+        if (@($primitiveEvents.ToArray() | Where-Object { $_.Operation -ceq 'late-task-fault' }).Count -ge 2) {
+            break
+        }
+        Start-Sleep -Milliseconds 20
+    }
+}
 
 if ($Scenario -ceq 'nonzero-descendant' -and $null -ne $result.ExitCode -and $result.ExitCode -eq 0) {
     throw 'The nonzero descendant probe did not produce its required primary exit failure.'
@@ -239,6 +312,8 @@ $serializedResult = [ordered]@{
     remainingOwnedProcessIds = @($result.RemainingOwnedProcessIds)
     cleanupTransitionCount = $result.CleanupTransitionCount
     cleanupDeadlineUtc = $result.CleanupDeadlineUtc
+    cleanupDeadlineUtcTicks = $result.CleanupDeadlineUtc.Ticks
+    primitiveEvents = @($primitiveEvents.ToArray())
     diagnosticsDirectory = $DiagnosticsDirectory
     ownershipLedgerPath = $ledgerPath
 } | ConvertTo-Json -Depth 8 -Compress
