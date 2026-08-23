@@ -4,7 +4,11 @@
 
 `BeMusicSeeker_refactoring_plans/`は完了済みのMVVM / .NET 10 / performance engineeringについて、現在の維持方針と最終状態だけを持つ。個別unitやcommit履歴はGit historyへ委ねる。
 
-現在の5文書:
+現在進行中の計画:
+
+- `test-suite-blocking-findings-remediation-plan.md`: テスト整理後レビューで残ったrunner stream lifecycleとWPF dispatcher cleanupのBlocking findings修正計画。
+
+長期参照する5文書:
 
 - `00_Codex共通実行ルール.md`: 再開時に守る共通ルール。
 - `BeMusicSeeker_性能回帰改善計画.md`: 完了後の性能・起動境界invariant。

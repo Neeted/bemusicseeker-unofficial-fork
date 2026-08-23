@@ -32,6 +32,10 @@
    - アプリログ、性能診断ログ、出力先、ローテーション、起動引数互換。
 13. [testing-strategy.md](testing-strategy.md)
    - 通常検証、parser 互換検証、大容量 fixture、性能検証の切り分け。
+14. [test-authoring-contract.md](test-authoring-contract.md)
+   - 既存coverage調査、test shape、shared infrastructure、flake safety、Codex handoff。
+15. [codex-agent-workflow.md](codex-agent-workflow.md)
+   - Codexの計画、worker委譲、並列境界、fresh reviewの運用契約。
 
 ## 機能別仕様
 
@@ -57,7 +61,12 @@
 - [custom-table-view.md](custom-table-view.md)
 - [file-selection-dialogs.md](file-selection-dialogs.md)
 - [logging-policy.md](logging-policy.md)
+
+## 開発運用
+
 - [testing-strategy.md](testing-strategy.md)
+- [test-authoring-contract.md](test-authoring-contract.md)
+- [codex-agent-workflow.md](codex-agent-workflow.md)
 
 ## 旧 TECH_SPEC について
 

@@ -1,6 +1,6 @@
 # Codex エージェント運用契約
 
-最終更新: 2026-08-21
+最終更新: 2026-08-23
 
 この文書は、BeMusicSeeker で複数段階の変更を計画・実装・レビューするときの Codex 運用の正本である。目的は、ルートエージェントへ要件・判断・統合責任を残しながら、必要な作業だけを適切なモデルへ委譲し、重複調査、過剰な並列化、長い生ログによる rate limit と context の消費を抑えることである。
 
@@ -25,14 +25,14 @@
 - **Goal**: 何を変え、どの observable outcome を得るか。
 - **Context**: 関連する file、symbol、spec、現行 route、既知の failure evidence。
 - **Constraints**: 対象外、互換性、ownership、threading、永続化、安全性、作業中差分。
-- **Done when**: behavior、削除する旧 route、必要な test lane、review、artifact。
+- **Done when**: behavior、削除する旧 route、必要な test lane、review、artifact。test を触る場合は既存 coverage、shared resource、completion signal も含める。
 - **Decision list**: 選択で observable behavior が変わる事項と、既に決まっている回答。
 
 repository の正本、既存 test、履歴、合意済み方針から一意に決まる事項は、ルートまたは clarifier が調べて解決する。永続化、fallback、failure contract、ownership、互換性、破壊的操作などが一意に決まらない場合だけ、ユーザーへ具体的な質問を返す。
 
 ## 2. draft plan と Luna Low の点検
 
-ルートはまず自分で draft plan を作る。各 unit は method 数や file 数だけでなく、同じ behavior、owner、failure contract、verification scope が閉じる vertical slice とする。3つを超える subsystem、約15 filesを超える見込み、同一巨大 fixture 内に複数領域が混在する場合は分割の signal とする。
+ルートはまず自分で draft plan を作る。各 unit は method 数や file 数だけでなく、同じ behavior、owner、failure contract、verification scope が閉じる vertical slice とする。3つを超える subsystem、約15 files を超える見込み、同一巨大 fixture 内に複数領域が混在する場合は分割の signal とする。
 
 サブエージェントへ実装を渡す計画では、完成前に `plan-clarifier` を原則一度だけ呼ぶ。次をまとめて渡す。
 
@@ -47,10 +47,15 @@ Draft units:
 - writable paths / read-only references
 - dependencies and proposed order
 - verification and review scope
+Test delta when tests change:
+- behavior / failure contract
+- candidate existing fixture and `extend / replace / new`
+- shared resource / lane / completion signal
+- retired test / helper / route
 Known open questions:
 ```
 
-clarifier は計画を代作せず、repo で解けた事実、ユーザーへ必要な質問、安全な並列候補、衝突、replan trigger だけを返す。ルートは回答を decision list と draft units へ反映してから final plan とする。回答で ownership や unit 境界が大きく変わった場合だけ、差分を限定して再点検する。repo で解ける事項のために planner loop を繰り返さない。
+clarifier は計画を代作せず、repo で解けた事実、ユーザーへ必要な質問、安全な並列候補、衝突、replan trigger だけを返す。test を触る計画では、feature spec と production symbol から候補 fixture を絞る targeted search があり、既存 coverage、shared resource、completion signal が test delta へ反映されているかも点検する。ルートは回答を decision list と draft units へ反映してから final plan とする。回答で ownership や unit 境界が大きく変わった場合だけ、差分を限定して再点検する。repo で解ける事項のために planner loop を繰り返さない。
 
 ## 3. final plan の必須項目
 
@@ -62,10 +67,11 @@ clarifier は計画を代作せず、repo で解けた事実、ユーザーへ�
 4. 変更する production / test route と、同時に退役する旧 route
 5. 維持する UI、persisted data、file / protocol compatibility、threading、shutdown、failure invariant
 6. 追加・更新する behavior test、具体的な Quick filter、統合時の Functional / opt-in lane
-7. worker が返す旧 test / route と replacement の対応表
-8. static review の intent、base / head、review scope
-9. 実装を止めて再計画・ユーザー判断へ戻す具体的な evidence
-10. 統合 conflict を避ける path ownership と handoff 順
+7. test を触る場合の coverage ledger: behavior / failure contract、候補 fixture、`extend / replace / new`、shared resource / lane、completion signal、退役 test / helper / route
+8. worker が返す旧 test / route と replacement の対応表
+9. static review の intent、base / head、review scope
+10. 実装を止めて再計画・ユーザー判断へ戻す具体的な evidence
+11. 統合 conflict を避ける path ownership と handoff 順
 
 計画は「調査して適宜直す」だけで終わらせず、worker が observable semantics を推測せずに着手できる粒度まで閉じる。
 
@@ -84,7 +90,7 @@ read-heavy な探索、inventory、log analysis は並列化しやすい。write
 
 ## 5. worker と issue resolver
 
-`implementation-worker` は final plan の unit だけを実装し、反復中は対象を絞った Quick を使う。ルートは worker と同じ path を同時に編集せず、同じ調査や test を重複実行しない。worker の返却内容は、生ログではなく変更概要、path、verification、旧 route の replacement、残る risk の要約とする。
+`implementation-worker` は final plan の unit だけを実装し、反復中は対象を絞った Quick を使う。test を触る場合は `devdocs/spec/test-authoring-contract.md` と近傍の `AGENTS.md` に従い、feature spec、production symbol、failure 文言から candidate fixture を絞って読む。最初から test project 全体を通読したり、既存の共通 helper を local に複製したりしない。ルートは worker と同じ path を同時に編集せず、同じ調査や test を重複実行しない。worker の返却内容は、生ログではなく変更概要、path、verification、旧 route の replacement、残る risk の要約とし、test 変更時は `TEST COVERAGE` と `TEST SAFETY` を含める。
 
 worker が `issue-resolver` を呼べるのは、次のような大きな問題に限る。
 
@@ -103,7 +109,7 @@ worker が `issue-resolver` を呼べるのは、次のような大きな問題�
 
 ## 7. 統合、検証、review
 
-worker 完了後、ルートは handoff と diff を軽く確認し、並列結果を統合する。許されるのは、path ownership の確認、機械的 conflict の解消、明白な欠落の確認、統合 snapshot に対する filtered Quick / Functional / 必要な opt-in lane である。worker が既に閉じた範囲を同じ深さで再実装・再調査しない。
+worker 完了後、ルートは handoff と diff を軽く確認し、並列結果を統合する。許されるのは、path ownership の確認、機械的 conflict の解消、明白な欠落の確認、統合 snapshot に対する filtered Quick / Functional / 必要な opt-in lane である。worker が既に閉じた範囲を同じ深さで再実装・再調査しない。runner、lane、並列化、fixture 配置を変更した場合の3回連続 Functional は、同一の最終 snapshotで数える。途中で failure を修正した場合は修正前の pass を破棄し、1回目からやり直す。
 
 実装と標準検証が完了したら、実装 thread を閉じ、worktree を凍結して `repo-static-review` を一度呼ぶ。reviewer には intent、acceptance criteria、base / head、worktree diff、verification evidence、初回 timeout と再実行結果があればその両方を渡す。reviewer 実行中、ルートは repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、重複チェックをしない。
 

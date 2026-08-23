@@ -2,7 +2,7 @@
 
 最終更新: 2026-08-23
 
-この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。
+この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。個々の test の設計、既存 coverage 調査、共通 infrastructure、Codex handoff は [test-authoring-contract.md](test-authoring-contract.md) を正本とする。
 
 ## 運用目標
 
@@ -11,7 +11,7 @@
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
 - リソース競合で不安定になる場合は、共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
 - timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。最初の単発 timeout は、残留 process がないことを確認して同一 command・filter・budget で一度だけ再実行してから調査要否を判断する。
-- runner、lane、並列化、fixture 配置を変更した場合は、Functional を同一条件で 3 回連続実行し、各回が 180 秒以内であることを確認する。
+- runner、lane、並列化、fixture 配置を変更した場合は、同一の最終 snapshot で Functional を同一条件で3回連続実行し、各回が180秒以内であることを確認する。途中で failure を修正した場合は修正前の pass を数えず、1回目からやり直す。
 
 ## 標準コマンド
 
@@ -178,12 +178,14 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 
 ## 新しいテストを追加するとき
 
-- 先にそのテストが保証する observable behavior と failure contract を一文で示す。
-- Functional に入れるなら、少数の合成データと deterministic fake で再現できないかを確認する。
-- 実データでしか再現しない場合も、最小 fixture に切り出せるなら全件 fixture に依存しない。
-- 外部 process、実 app、publish artifact が必要なら対応する lane を付け、Functional へ混ぜない。
-- 性能を測る場合は機能 assertion から分離し、`Performance` と opt-in 条件を付ける。
-- `DoNotParallelize`、固定待ち、大容量 output copy を追加する場合は、必要性と通常検証の時間予算への影響をレビュー対象にする。
+詳細は [test-authoring-contract.md](test-authoring-contract.md) と `BeMusicSeeker.Tests/AGENTS.md` を正本とする。
+
+- 先に observable behavior / failure contract、production owner、candidate existing fixture、`extend / replace / new`、shared resource / lane、completion signal、退役 test を coverage ledger へ示す。
+- feature spec、production symbol、feature 用語、failure 文言で候補を絞り、最初から test project 全体を通読しない。canonical fixture を新設・移動・分割する場合は feature spec の `Verification map` を更新する。
+- Functional に入れるなら、少数の合成データと deterministic fake で再現できないかを確認する。実データでしか再現しない場合も、最小 fixture に切り出せるなら全件 fixture へ依存しない。
+- 外部 process、実 app、publish artifact が必要なら対応する lane を付け、Functional へ混ぜない。性能を測る場合は機能 assertion から分離し、`Performance` と opt-in 条件を付ける。
+- fixture へ新しい直接 `Dispatcher.PushFrame`、`HwndSourceParameters`、unbounded process / stream wait を追加せず、既存の owner helper を使う。source text / private reflection は artifact 自体が contractである理由と退役条件を残す。
+- `DoNotParallelize`、固定待ち、大容量 output copy を追加する場合は、必要性、resource owner、通常検証の時間予算への影響を review 対象にする。
 
 ## 現状の改善 backlog
 
@@ -194,3 +196,4 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 - updater 以外の process 起動テストを `ProcessIntegration` と軽量 contract test に分離する。
 - 性能テストを専用 project または明示実行 profile へ移し、履歴比較可能な測定結果を保存する。
 - test ごとの実行時間と flaky 履歴を継続収集し、Functional の 180 秒予算を超える前に増加を検出する。
+- compiled test discovery から FQN、category、source fixture、lane / shard、shared resource tag、実行時間、flaky 履歴を生成する machine-readable catalog を derived artifact として整備し、Codex が候補を絞るために test source 全体を読む必要を減らす。人手管理の巨大一覧を正本にはしない。

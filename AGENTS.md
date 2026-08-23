@@ -17,7 +17,7 @@
 2. repository の正本や既に合意した方針から一意に決まる事項は調査して解決する。永続化、fallback、failure contract、ownership、互換性など、選択で observable behavior が変わる事項だけをユーザーへ確認し、回答を decision list に残す。
 3. draft plan は、同じ behavior、owner、failure contract、verification scope が閉じる reviewable unit に分け、書込み path、依存順、統合検証を明示する。作成時に、独立した unit を安全に並列化できないか検討する。
 4. サブエージェントへ実装を渡す計画は、完成前に `.codex/agents/plan-clarifier.toml` の Luna Low `plan-clarifier` へ原則一度だけ渡す。repo で解けた事実、未決質問、並列境界、replan trigger を返させ、ルートが必要なユーザー回答を得て最終計画へ反映する。clarifier に計画全体を代作させない。
-5. final plan には unit ごとの observable outcome、所有 path、依存関係、退役する旧 route、維持する invariant、behavior test / filter、review scope、handoff、再計画条件を含める。
+5. final plan には unit ごとの observable outcome、所有 path、依存関係、退役する旧 route、維持する invariant、behavior test / filter、review scope、handoff、再計画条件を含める。test を触る unit では、既存 coverage 候補、`extend / replace / new`、shared resource / lane、completion signal、退役 test を test delta として明示する。
 6. feature 固有の現行仕様は `devdocs\spec`、背景・判断履歴は `devdocs\decisions`、一時的な計画は `devdocs\plan` に置く。個別機能仕様を `AGENTS.md` や汎用 agent 設定へ混ぜない。
 
 ### 実装と並列作業
@@ -25,7 +25,7 @@
 - production code、test、runner、設定の bounded implementation は、原則 `.codex/agents/implementation-worker.toml` の Luna Max `implementation-worker` へ任せる。ルートは割当 path を同時に編集・重複調査せず、統合責任を持つ。
 - 書込み worker は既定1つ、同時実行は最大2つとする。writable path、生成物、schema / shared fixture、依存順が重ならず、並列化の利益が統合コストを上回る場合だけ並列化する。同じ巨大 file の別 method を同時編集しない。
 - worker が重大な correctness、安全性、compatibility、ownership 問題、または同一条件で2回目の timeout / failure を発見した場合だけ、worker 自身が `.codex/agents/issue-resolver.toml` の Sol High `issue-resolver` を一度呼ぶ。worker は編集を止めて結果を待ち、resolver から先へ再帰しない。通常の compile error、局所的な test failure、最初の単発 timeout では呼ばない。
-- worker は変更概要、path、focused verification、旧 test / route と replacement、残る risk を要約して返す。生ログや同じ調査をルートへ持ち帰らない。完了した agent thread は結果受領後に閉じる。
+- worker は変更概要、path、focused verification、旧 test / route と replacement、残る risk を要約して返す。test を触った場合は、検索した既存 fixture、`extend / replace / new`、shared resource / lane、completion signal と例外 seam も `TEST COVERAGE` / `TEST SAFETY` として返す。生ログや同じ調査をルートへ持ち帰らない。完了した agent thread は結果受領後に閉じる。
 - ルートは並列結果の path ownership と handoff を軽く確認し、機械的 conflict を解消して統合 snapshot の Quick / Functional / 必要な opt-in lane を実行してよい。worker と同じ範囲を最初から再実装・全面調査しない。
 
 ### 実装後レビュー
@@ -77,7 +77,7 @@
 - 新規または変更する public / protected / internal API には、契約と存在理由が分かる XML documentation を追加・更新する。
 - 触れた範囲のデコンパイル由来名は、挙動を変えずに domain 用語へ改善する。ただし命名だけの広範な差分を混ぜない。
 - 互換性維持、性能最適化、外部仕様、回避策など、コードだけでは理由が分からない箇所には「何をしているか」ではなく「なぜ必要か」をコメントする。
-- source text だけを確認する脆いテストより、observable behavior、永続データ、threading、failure contract を確認するテストを優先する。
+- test を追加・変更するときは、`BeMusicSeeker.Tests\AGENTS.md` と `devdocs\spec\test-authoring-contract.md` を正本として、近傍の既存 coverage と共通 infrastructure を先に確認する。source text だけを確認する脆いテストより、observable behavior、永続データ、threading、failure contract を確認するテストを優先する。
 
 ## 標準検証
 
@@ -99,7 +99,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 - `Full` は publish / updater / distribution、release 手順、または Full runner 自体を変更した場合と release 前に使う。settings、startup、共有 model などの変更だけを理由に、通常機能テストと release acceptance を毎回まとめて実行しない。対象に応じて filtered `Quick`、`Functional`、明示的な opt-in lane を組み合わせる。
 - review 修正後は、まず影響範囲の filtered `Quick` を行う。修正が通常機能検証の前提を変えた場合だけ最終 `Functional` を再実行し、release lane を変えた場合だけ `Full` も再実行する。
 - timeout 時は process tree を停止し、active または last observed test、経過時間、console progress / TRX / blame artifact を残し、残留 test process がないことを確認する。最初の単発 timeout は同じ command・filter・budget で一度だけ再実行し、2回目が成功して再発 evidence がなければ一過性のマシン負荷として両方の結果を記録する。2回目も timeout / failure、同じ症状の再発、または artifact が決定的問題を示す場合は原因を調査する。timeout 延長や無制限の再試行は行わない。
-- runner、lane、並列化、fixture 配置を変更した場合は、同一条件の `Functional` を3回連続で実行し、各 command が180秒以内、tracked file が不変、残留 test process がないことを確認する。
+- runner、lane、並列化、fixture 配置を変更した場合は、同一の最終 snapshot と条件で `Functional` を3回連続実行し、各 command が180秒以内、tracked file が不変、残留 test process がないことを確認する。途中で failure を修正した場合は修正前の pass を数えず1回目からやり直し、HEAD、command、elapsed、diagnostics root を記録する。
 - test はマシンの CPU / I/O を安定性が許す範囲で利用し、wall-clock time を短縮する。負荷抑制だけを理由に shard / worker を制限せず、競合で不安定になる場合は共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
 - timeout 以外の deterministic failure、2回目も失敗した timeout、同じ症状が再発する flaky / 長時間化を確認した時点で、本筋を一旦止めて原因を調査する。現在の変更範囲外に見えても放置せず、並列実行、共有 state、固定待ち時間、競合、I/O、fixture / input 量、監視側の timeout 根拠を確認する。
 - test の見直しでは、可能なら同期 barrier や決定的な fake で安定化し、不要な固定待ちや過大な入力を削減する。必要な処理量として妥当な長時間 test は、実測と失敗検出能力を根拠に timeout / shard 設計を変更してよい。timeout 延長だけで不安定性を隠さない。
