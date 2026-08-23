@@ -1,6 +1,6 @@
 # テスト整理後 Blocking Findings 修正計画
 
-Status: Final verification after second remediation
+Status: Final verification after WPF lifecycle correction
 
 Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
@@ -276,6 +276,25 @@ Replan triggers:
 - supported Windows/runtime behavior cannot provide reliable post-exit Toolhelp PPID attribution;
 - the required sidecar cannot be made independent of the production result contract without duplicating production lineage logic.
 
+## Unit 2R: Stabilize play-history compiled-WPF startup sequencing
+
+Owner: `implementation-worker`
+
+Writable path: `BeMusicSeeker.Tests/MainWindowPlayHistoryWpfTests.cs`
+
+Observable outcome: `PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics` no longer races `BeginRequest` against the first visual-host startup/tree-selection deactivation.
+
+1. Create and attach the visual host before activating play history.
+2. Observe the actual startup deactivation/visibility transition through the existing dispatcher/test-host synchronization surface; do not add fixed sleep, timeout extension, DNP, or retry.
+3. Call `BeginRequest` only after that signal, then observe the summary bar `Visible` transition before asserting the remaining bindings.
+4. Preserve production behavior and the existing cleanup/dispatcher host contract.
+
+Focused verification:
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName=BeMusicSeeker.Tests.MainWindowPlayHistoryWpfTests.PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics'
+```
+
 ## Done when
 
 - `Invoke-MonitoredCommand` と Functional shard 回収に unbounded stream `GetResult()` が残っていない。
@@ -294,7 +313,8 @@ Replan triggers:
 | Unit 1: Runner process and stream lifecycle | Complete | Shared bounded lifecycle seamをrunnerの2 callerへ接続。Toolhelp32 PID lineage、bounded stream drain、primary/cleanup precedence、actual-seam ProcessIntegration probeを追加。再発したCIM/`WaitForExit()` blockerはresolverで除去。 |
 | Unit 2: WPF dispatcher cleanup | Complete | 4 fixtureのlocal helper/pumpを既存`TestUiDispatcherHost.AwaitTaskOnDispatcher`へ置換。共通helper、lane、worker、DNPは不変。 |
 | Unit 1R: Replanned lifecycle closure | Complete after second remediation | `98c4cbaaa7eed4f4c25e1453ad2eef245f134858`。native Capture deadline/partial state、cleanup task wait gate、shared `Invoke-VerificationFunctionalCleanup`、全residual exact assertionを追加。resolverでprobeの`pwsh`/`conhost` identity mismatchをheadless `wscript` fixtureへ修正。focused 10/10。 |
-| Unit 3: Integration and final review | Final stability gate reset and in progress | snapshot `2c7f0c8522eb238de5858c13cf846d7f9a0f8ded` の旧gateはreview findingsにより無効。`98c4cbaa` 後のsnapshotで全gateを最初から再実行する。 |
+| Unit 2R: Play-history WPF startup sequencing | Complete | `28e90e79`。host attachment → startup deactivation/Collapsed signal → BeginRequest → Visible signalへfixture順序を固定。focused 1/1、class 3/3。 |
+| Unit 3: Integration and final review | Final stability gate reset and in progress | `bf23285b` の旧gateはFull failureにより無効。Unit 2R後snapshotでWPF 30回、Functional 3回、Full 1回を最初から再実行する。 |
 
 ## Verification log
 
@@ -354,3 +374,8 @@ Replan triggers:
 | same | post-review Full | Pass | canonical Functional 164.0s / 180s | `tests-full-20260824-034438`; current/baseline publish, existing-data, update, ProcessIntegration 40 pass + 2 intentional skip, ReleaseAcceptance 2/2, format, analyzer passed; 0 diagnostics; fingerprint unchanged |
 | `dc0ff1705bcf795d47779aaf2990418f32596eec` | post-remediation fresh static review | Blocking | n/a | 1 P1: native process-table Capture loop starts creation-time queries after shared deadline. 3 acceptance-direct P2: cleanup task wait直前gate不足、probeがactual Functional caller orchestrationを通らない、nonempty residual assertionがunrelated PID混入を許す。前回directory creation / recursive diagnostic P1は解消確認。 |
 | `98c4cbaaa7eed4f4c25e1453ad2eef245f134858` | second remediation parse / `git diff --check` / lifecycle focused Quick | Pass (10/10) | 25.8s focused test | `tests-quick-20260824-042521/functional`; first two attempts exposed deterministic unledgered `conhost` blocker (`041100`, `041400`), resolver identified OS-created child and aligned probe identity universe without filtering production lineage; sleeper/testhost/vstest residual 0 |
+| `bf23285bb95ce1a9fe0f91361328e6abd08b9da9` | observer timing correction / lifecycle focused Quick | Pass (10/10) | 25.6s test | `tests-quick-20260824-043403`; prior `042930` focused run exposed observer-induced check/use race; production-captured wait-start timestamp fixed it; fingerprint unchanged |
+| same | final-candidate WPF focused filter, 30 consecutive runs | Pass (30/30 runs, each 28/28) | 26.1-29.4s / run | `tests-quick-20260824-043531` through `tests-quick-20260824-044857`; all fingerprints unchanged; residual test process 0 |
+| same | final-candidate Functional 1/3, 2/3, 3/3 | Pass | 164.7s / 163.6s / 165.7s | `tests-functional-20260824-044941`, `tests-functional-20260824-045225`, `tests-functional-20260824-045508`; all within 180s; fingerprints unchanged; residual 0 |
+| same | final-candidate Full | Fail: compiled-WPF assertion | canonical Functional 145.9s / 180s before failure surfaced | `tests-full-20260824-045759`; `MainWindowPlayHistoryWpfTests.PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics` expected Visible, observed Collapsed. Non-timeout recurring fixture race (3/106 prior artifacts), no crash/cleanup/residual process; retry prohibited until Unit 2R correction. |
+| `28e90e79` | Unit 2R focused exact method / full class Quick | Pass (1/1; 3/3) | within Quick budget | `tests-quick-20260824-050932`, `tests-quick-20260824-051021`; existing dispatcher/visibility signals only; no timeout or residual process |
