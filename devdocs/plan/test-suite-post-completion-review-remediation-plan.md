@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 4c LR2-only early and regular-chart ownership replan approved; implementation pending
+Status: Unit 4d final Functional tail ownership replan approved; implementation pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -348,9 +348,42 @@ Replan triggerは、LR2がpre-wave終了後も長時間running、old/new Regular
 - The old `RegularChartListOwnerTests` class is retired. Methods 1-76 were moved without method-body or assertion changes into the five owner fixtures listed above. Existing helper/test doubles are in one narrow `RegularChartListOwnerTestSupport` file; no production route, DNP, or process was added.
 - Static body identity comparison currently passes 76/76. Focused Quick, PowerShell parse, whitespace, and final plan counts are recorded in the Verification log after execution.
 
+## Unit 4d: close the final ClassLevel owner tails without adding processes
+
+`3fcf07fa` の Functional は source rebuild run と exact retry の両方で process deadline へ到達した（`tests-functional-20260825-012115` / `012440`）。両runとも未完了shardのstderrは空で、stdoutはcutoffまで進行し、retryでは完了件数が前進した。したがって単一testのhangではなく、pre-wave後14 testhostの起動競合と、巨大な `ClassLevel` fixture / catch-all queue tailの組合せである。
+
+retryでは `feature-process-global-state` の非DNP 11 class 393件が完了し、残る138件はexact 5 DNP classだった。`remaining` ではRegularChart 5 fixture 76件、`PlaylistSummaryAggregationTests` 18件、`StartupLibraryConstructionOwnerTests` 6件が両runとも未開始だった。`OwnedChartCollectionStateTests` 105件は初回でもdeadline約2秒前の完了、`ChartInfoMetadataTests` 141件はfocused artifactで約54.6秒の単一class spanである。playlist 2 routeはisolated payloadが各10秒未満であり、追加process分割はstartup contentionを悪化させるため対象外とする。
+
+### Design and dependency order
+
+1. **Chart owner route**: `OwnedChartCollectionStateTests` 105件を projection/index、reference-index mutation、lookup/membership、library mutation delta、installed/overlay lookup、refresh/file-scan、inline digest のowner fixtureへ `replace` 分割する。`PlaylistSummaryAggregationTests` 18件を count/presentation、owned-hash build、mutation/warm、resolve-index のowner fixtureへ `replace` 分割する。Unit 4cのRegularChart 5 fixture 76件は `remaining` から既存 `owned-chart-collection` processへ移す。process数は増やさず、routeはexact 6 workers / `ClassLevel` とする。
+2. **Library owner route**: `ChartInfoMetadataTests` 141件を schema/export/import、parser behavior、backfill/storage、inline/hydration、install/failure/retry のowner fixtureへ `replace` 分割する。`BmsLibraryInitializationServiceTests` 108件を load、install、file-scan、LR2/normal-folder、inline-chart-info のowner fixtureへ `replace` 分割する。`StartupLibraryConstructionOwnerTests` 6件は profile success、failure contract、MainWindow typed route のowner fixtureへ分割して `remaining` から既存 `library-chart-classwide` processへ移す。process数は増やさず、routeはexact 6 workers / `ClassLevel` とする。
+3. **Feature route integration**: `feature-process-global-state` は実在するclass-wide DNP owner 5 class（installed-only resource overwrite、library file scan pipeline、LR2 play-history schema UI、MainWindow external shell、play-history read model）だけをexact 1 worker / `ClassLevel` で保持する。非DNP 11 classは、上記で100件の重いownerを除いた `remaining` / 12 workers / `ClassLevel` へ戻す。
+
+Unit 1、2、3の順で実装する。各fixture unit後にrunner exact membership、remaining exclusion、cross-route uniqueness、旧/new FQN absence、Verification mapを統合し、次unitへ進む。shared runner、validator、specは同時編集しない。14 fanout process、LR2-only early、pre-wave、logical test set、180秒command / 170秒process deadline / 10秒cleanup reserve、既存category、method/class DNP、GUID DB/root/file、dispatcher、task/event completion、failure watchdogを維持する。新process、新DNP、fixed wait、timeout延長、worker低下、production seamは追加しない。
+
+### Writable ownership and test delta
+
+| Unit / behavior | Writable paths | Decision / retired route | Shared resource / lane / completion signal |
+| --- | --- | --- | --- |
+| chart collection / summary / regular chart owners | `OwnedChartCollectionStateTests.cs`、`PlaylistSummaryAggregationTests.cs`、Unit 4cの5 `RegularChart*Tests.cs`、owner別replacementとnarrow support、runner / validator、`testing-strategy.md`、chart / playlist Verification map、本計画 | `replace`; 105 + 18件のmonolithを退役し、Regular 76件をremainingから退役 | existing owned-chart process、6 workers / `ClassLevel`; GUID DB/root、immutable snapshots、task/event receipts、cleanup / watchdog |
+| chart metadata / library initialization / startup owners | `ChartInfoMetadataTests.cs`、`BmsLibraryInitializationServiceTests.cs`、`StartupLibraryConstructionOwnerTests.cs`、owner別replacementとnarrow support、runner / validator、`testing-strategy.md`、chart-info / library / startup Verification map、本計画 | `replace`; 141 + 108 + 6件のmonolithとStartup remaining routeを退役 | existing library process、6 workers / `ClassLevel`; existing category、GUID song DB/files、dispatcher/task/event receipts、cleanup / watchdog |
+| actual feature-global safety boundary | runner / validator、`testing-strategy.md`、該当feature Verification map、本計画 | `replace` route membership; nonDNP 11 classの専用1-worker直列化を退役 | exact 5 DNP classだけをexisting feature process / 1 workerへ保持; nonDNP 11 classはremainingへ一度だけdiscover |
+
+各canonical monolithはmethod body、assertion、category、completion/failure semanticsをexactに移動し、旧FQNを削除する。各unitのfocused Quickはnew owner fixture全件と `VerificationRunnerContractTests` を含める。実装workerはmethod ledger、旧→新fixture対応、shared resource、正常completion signal、failure watchdog、anti-pattern scanをhandoffする。
+
+### Replan triggers
+
+- exact method ledgerに欠落・重複・body/assertion/category変更が生じる、またはper-testで隔離されないmutable static/settings/resource ownershipが見つかる。
+- process launch数が14から変わる、old/new FQN absence、remaining exclusion、cross-route uniqueness、exact 5/11 feature membershipをvalidatorで閉じられない。
+- route単体のowner spanが35秒を超える、fanout startup taxが50秒超のまま15秒headroomを阻む、playlistなど別routeが新たなcritical tailになる。
+- focused / Functionalでdeterministic failure、timeout、tracked mutation、residual process/HWND、DNP交差failureが生じる。
+
+最終snapshotではFunctionalを最初から3回連続実行し、各command 180秒以内、canonical elapsed 155秒以内（process deadline headroom 15秒以上）、tracked fingerprint不変、残留test process 0を必須とする。途中修正後は成功回数をリセットする。
+
 ## Unit 5: final stability gates and review
 
-Unit 4c implementation snapshotの統合後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
+Unit 4d implementation snapshotの統合後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
 
 1. PowerShell parse、`git diff --check`、Release build、runner hash。
 2. lifecycle focused Quick。
@@ -371,7 +404,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4: critical-tail owner topology | Implementation and focused verification complete; stability pending | `4097e3a3` でremainingは完走したがplaylist / presentation / settingsがdeadlineへ残ったため、4つのBMS playlist owner shard、7-class / 3-worker workspace shard、foreground / nonactivating / stateの3 settings shardへ再編した。実際のlaunch plan objectをvalidatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、旧FQN不在、foreground exact allowlist、fanout object identityを検証する。180秒command、170秒process deadline、10秒cleanup reserve、pre-wave順、remaining 12 workers、DNP、logical test setは維持。settings 142/142、workspace 208/208、BMS playlist + runner contract 99/99 pass。Functional / Full / static reviewはUnit 5で実施する。 |
 | Unit 4b: staged settings and bounded fanout | Implementation complete; stability verification pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
 | Unit 4c: LR2-only early and regular-chart ownership | Implementation and focused verification complete; stability pending | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割した。actual planは15/14/14/1、LR2-only early、settings post-pre-wave fanout exact-once、old class退役、narrow supportを維持する。fixture/runner focused Quick、parse、diff check、76/76 body identityを完了。 |
-| Unit 5: final stability gates and review | Pending | Unit 4c implementation snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
+| Unit 4d: final Functional tail ownership | Planned; implementation pending | `3fcf07fa` のsource rebuild run / exact retryが175.4s / 175.0sでdeadlineへ到達。新processを増やさず、chart / library巨大fixtureをowner分割し、Regular / Summary / Startupを既存named routeへ移し、feature routeをexact 5 DNP classへ縮める。 |
+| Unit 5: final stability gates and review | Pending | Unit 4d implementation snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
 
@@ -403,6 +437,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | static method-body identity comparison | Pass (76/76) | <1s | old `RegularChartListOwnerTests` methods matched by name/body to five fixtures; no missing/extra/mismatch |
 | same | regular five-fixture + `VerificationRunnerContractTests` focused Quick | Pass (80/80) | 38.8s command | first identical run hit only deterministic EOF whitespace guard (`tests-quick-20260825-011045`); formatting-only cleanup and exact rerun `tests-quick-20260825-011201` passed; fingerprint unchanged; residual0 |
 | same | LR2/settings/library/BMS playlist grouped focused Quick | Pass (593 total: 582 passed, 11 skipped) | 95.1s command / 1.4m test | `tests-quick-20260825-011301`; expected opt-in compatibility skips; fingerprint unchanged; residual0 |
+| `3fcf07fa` | Functional first run after Unit 4c | Fail: shared process deadline | 175.4s canonical / 139.9s test phase | `tests-functional-20260825-012115`; source rebuild 26.7s; LR2 and several routes completed、remaining / library / playlist / presentation / settings / WPF / feature stopped; tracked unchanged; residual test process0 |
+| same | exact Functional retry | Fail: repeated process deadline | 175.0s canonical / 157.7s test phase | `tests-functional-20260825-012440`; build 8.9s; remaining / library / owned-chart / playlist 2 route / feature stopped、他route完了; tracked unchanged; residual test process0; Unit4d trigger met |
 
 ## Done when
 
