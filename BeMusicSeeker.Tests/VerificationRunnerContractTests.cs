@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -48,6 +49,104 @@ public sealed class VerificationRunnerContractTests
                 "repository-whitespace"
             },
             ReadStringArray(GetProperty(canonical, "Stages")));
+    }
+
+    [TestMethod]
+    public void FunctionalShardPlan_UsesValidatedLaunchObjectsForExactOwnership()
+    {
+        using JsonDocument plan = ReadFunctionalShardPlan();
+        JsonElement shards = GetProperty(plan.RootElement, "Shards");
+        JsonElement fanoutShards = GetProperty(plan.RootElement, "FanoutShards");
+
+        Assert.AreEqual(13, shards.GetArrayLength());
+        Assert.AreEqual(12, fanoutShards.GetArrayLength());
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "remaining",
+                "bass-collectible-load-context",
+                "library-chart-classwide",
+                "lr2-songdb-sync",
+                "owned-db-file-class-level",
+                "owned-chart-collection",
+                "playlist-update",
+                "presentation-workspace",
+                "settings-presentation-classwide",
+                "settings-state-classwide",
+                "compiled-wpf-classwide",
+                "process-global-lifecycle",
+                "feature-process-global-state"
+            },
+            ReadShardNames(shards));
+
+        AssertShard(
+            FindShard(shards, "settings-presentation-classwide"),
+            1,
+            "ClassLevel",
+            new[]
+            {
+                "BeMusicSeeker.Tests.SettingDialogEditCompletionTests",
+                "BeMusicSeeker.Tests.SettingsWindowPresentationTests"
+            });
+        AssertShard(
+            FindShard(shards, "settings-state-classwide"),
+            1,
+            "ClassLevel",
+            new[]
+            {
+                "BeMusicSeeker.Tests.ApplicationCompositionTests",
+                "BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests",
+                "BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests",
+                "BeMusicSeeker.Tests.BeatorajaBmtOptionsSnapshotTests",
+                "BeMusicSeeker.Tests.BmsLibraryOptionsSnapshotTests",
+                "BeMusicSeeker.Tests.CustomFolderOutputSettingsSnapshotTests",
+                "BeMusicSeeker.Tests.MainWindowViewSettingsBoundaryTests",
+                "BeMusicSeeker.Tests.PlayerSettingsGatewayTests",
+                "BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests",
+                "BeMusicSeeker.Tests.ResourceIconContractTests",
+                "BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests",
+                "BeMusicSeeker.Tests.SettingDialogOpenCommandTests",
+                "BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests",
+                "BeMusicSeeker.Tests.StartupSettingsSnapshotTests"
+            });
+        AssertShard(
+            FindShard(shards, "presentation-workspace"),
+            2,
+            "ClassLevel",
+            new[]
+            {
+                "BeMusicSeeker.Tests.PlaybackPanelViewModelTests",
+                "BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests",
+                "BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests"
+            });
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "remaining",
+                "bass-collectible-load-context",
+                "library-chart-classwide",
+                "owned-db-file-class-level",
+                "owned-chart-collection",
+                "playlist-update",
+                "presentation-workspace",
+                "settings-presentation-classwide",
+                "settings-state-classwide",
+                "compiled-wpf-classwide",
+                "process-global-lifecycle",
+                "feature-process-global-state"
+            },
+            ReadShardNames(fanoutShards));
+
+        JsonElement remaining = FindShard(shards, "remaining");
+        string[] excludedClasses = ReadStringArray(GetProperty(remaining, "ExcludedClasses"));
+        Assert.IsTrue(excludedClasses.Length > 0);
+        Assert.IsTrue(
+            GetProperty(remaining, "Filter").GetString()!.Contains(
+                "FullyQualifiedName!~BeMusicSeeker.Tests.SettingDialogEditCompletionTests",
+                StringComparison.Ordinal));
+        Assert.IsFalse(
+            ReadShardNames(shards).Any(name => name.Contains("foreground", StringComparison.OrdinalIgnoreCase)));
     }
 
     [TestMethod]
@@ -172,12 +271,72 @@ public sealed class VerificationRunnerContractTests
         Assert.AreEqual(route, GetProperty(mapping, "Route").GetString());
     }
 
+    private static void AssertShard(JsonElement shard, int workers, string scope, string[] classes)
+    {
+        Assert.AreEqual(workers, GetProperty(shard, "Workers").GetInt32());
+        Assert.AreEqual(scope, GetProperty(shard, "Scope").GetString());
+        CollectionAssert.AreEqual(classes, ReadStringArray(GetProperty(shard, "Classes")));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(GetProperty(shard, "Filter").GetString()));
+    }
+
+    private static JsonElement FindShard(JsonElement shards, string name)
+    {
+        foreach (JsonElement shard in shards.EnumerateArray())
+        {
+            if (GetProperty(shard, "Name").GetString() == name)
+            {
+                return shard;
+            }
+        }
+
+        Assert.Fail($"Functional shard was not found: {name}");
+        return default;
+    }
+
+    private static string[] ReadShardNames(JsonElement shards)
+    {
+        return shards.EnumerateArray()
+            .Select(shard => GetProperty(shard, "Name").GetString()!)
+            .ToArray();
+    }
+
     private static JsonDocument ReadRunnerContract()
+    {
+        string scriptPath = Path.Combine(FindRepositoryRoot(), "scripts", "verification-runner-contract.ps1");
+        return ReadPowerShellJson(new[] { "-File", scriptPath });
+    }
+
+    private static JsonDocument ReadFunctionalShardPlan()
+    {
+        // The typed guard loads the actual runner definitions without entering a normal
+        // verification route; the plan builder and launch-time validator are then invoked
+        // directly on the same objects used by Invoke-ParallelFunctionalTestShards.
+        string repositoryRoot = FindRepositoryRoot();
+        string lifecyclePath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verification-process-lifecycle.ps1"));
+        string verifyScriptPath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"));
+        string command = string.Join(
+            Environment.NewLine,
+            "$ErrorActionPreference = 'Stop'",
+            $". {lifecyclePath}",
+            "$signal = [System.Threading.ManualResetEventSlim]::new($true)",
+            "$guard = [VerificationPostStartFaultGuard]::new($signal)",
+            $". {verifyScriptPath} -InternalTestGuard $guard",
+            "$plan = New-FunctionalShardPlan",
+            "Assert-FunctionalShardConfiguration -Plan $plan",
+            "[pscustomobject][ordered]@{",
+            "    Shards = @($plan.Shards | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Workers = $_.Workers; Scope = $_.Scope; Classes = @($_.Classes); Filter = $_.Filter; ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') { @($_.ExcludedClasses) } else { @() } } })",
+            "    FanoutShards = @($plan.FanoutShards | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Workers = $_.Workers; Scope = $_.Scope; Classes = @($_.Classes); Filter = $_.Filter; ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') { @($_.ExcludedClasses) } else { @() } } })",
+            "} | ConvertTo-Json -Depth 16 -Compress");
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static JsonDocument ReadPowerShellJson(IReadOnlyList<string> arguments)
     {
         const int processTimeoutMilliseconds = 60_000;
         const int cleanupTimeoutMilliseconds = 5_000;
         const int streamTimeoutMilliseconds = 5_000;
-        string scriptPath = Path.Combine(FindRepositoryRoot(), "scripts", "verification-runner-contract.ps1");
         var startInfo = new ProcessStartInfo
         {
             FileName = "pwsh",
@@ -190,8 +349,10 @@ public sealed class VerificationRunnerContractTests
         };
         startInfo.ArgumentList.Add("-NoProfile");
         startInfo.ArgumentList.Add("-NonInteractive");
-        startInfo.ArgumentList.Add("-File");
-        startInfo.ArgumentList.Add(scriptPath);
+        foreach (string argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
 
         using var process = new Process { StartInfo = startInfo };
         Assert.IsTrue(process.Start(), "The PowerShell contract process did not start.");
@@ -237,6 +398,11 @@ public sealed class VerificationRunnerContractTests
         Assert.AreEqual(0, process.ExitCode, error);
         Assert.IsTrue(string.IsNullOrWhiteSpace(error), error);
         return JsonDocument.Parse(output);
+    }
+
+    private static string QuotePowerShellLiteral(string value)
+    {
+        return "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
     }
 
     private static string StopProcessTree(Process process, int cleanupTimeoutMilliseconds)

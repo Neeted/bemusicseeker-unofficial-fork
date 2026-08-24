@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 2 ready for implementation
+Status: Unit 2 implementation complete; stability verification pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -192,7 +192,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit | Status | Notes |
 | --- | --- | --- |
 | Unit 1: lifecycle P2 closure | Complete | `5e7ccaed`。focused Quick 17/17、PowerShell parse、`git diff --check`、Release build成功。 |
-| Unit 2: Functional headroom replan | Ready for implementation | 2回連続deadlineはlifecycle回帰ではなく既存topologyのheadroom不足。settings 16 fixtureをforeground 2/state 14の2 testhostへ分離し、presentation workspaceを2-worker化する。playlist overlapとremaining fixture分割は現時点では採用しない。 |
+| Unit 2: Functional headroom replan | Implementation complete; stability verification pending | base HEAD `128519856d57b304bc21930843b1aecfc10eeaa4` から、settings 16 fixtureをforeground 2/state 14の2 testhostへ分離し、presentation workspaceを2-worker/ClassLevel化。実 launch plan objectを同一 validatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、fanout object identityを検証する。PowerShell parse / `git diff --check` pass。focused Quick `VerificationRunnerContractTests` 4/4 pass、33.5s command、diagnostics `artifacts/verification/tests-quick-20260824-213148`。Functional/Full/WPF30はroot担当。playlist overlapとremaining fixture分割は採用しない。 |
 | Unit 3: final stability gates and review | Pending | Unit 2後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
@@ -203,6 +203,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | WPF focused filter, 30 consecutive runs | Pass (30/30) | 31.6-33.9s / run | `tests-quick-20260824-201725` through `tests-quick-20260824-203307`; residual test process 0 |
 | same | Functional first run | Fail: process deadline | 176.5s command; canonical 174.6s | `tests-functional-20260824-203352`; remaining / playlist-update / settings-presentation-classwide stopped; fingerprint unchanged; residual 0 |
 | same | Functional exact retry | Fail: process deadline | 176.2s command; canonical 174.0s | `tests-functional-20260824-203720`; remaining / playlist-update / presentation-workspace stopped; fingerprint unchanged; residual 0; repeated-timeout investigation threshold met |
+| Unit 2 snapshot | PowerShell parse + `git diff --check` | Pass | <1s | runner script parse clean; whitespace clean |
+| Unit 2 snapshot | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests'` | Pass (4/4) | 33.5s command / 6.3s test | `tests-quick-20260824-213148`; actual launch plan validator and contract tests passed; no residual testhost process |
 
 ## Done when
 

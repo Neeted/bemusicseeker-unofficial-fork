@@ -73,6 +73,9 @@ $functionalFilter = @(
     'TestCategory!=ReleaseAcceptance') -join '&'
 $functionalBassCollectibleLoadContextClass = 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
 $functionalSettingsPresentationClasswideClasses = @(
+    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
+    'BeMusicSeeker.Tests.SettingsWindowPresentationTests')
+$functionalSettingsStateClasswideClasses = @(
     'BeMusicSeeker.Tests.ApplicationCompositionTests',
     'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests',
     'BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests',
@@ -84,9 +87,7 @@ $functionalSettingsPresentationClasswideClasses = @(
     'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests',
     'BeMusicSeeker.Tests.ResourceIconContractTests',
     'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests',
-    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
     'BeMusicSeeker.Tests.SettingDialogOpenCommandTests',
-    'BeMusicSeeker.Tests.SettingsWindowPresentationTests',
     'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests',
     'BeMusicSeeker.Tests.StartupSettingsSnapshotTests')
 $functionalProcessGlobalLifecycleClasses = @(
@@ -191,7 +192,8 @@ $functionalTestClassShards = @(
     },
     [pscustomobject]@{
         Name = 'presentation-workspace'
-        Workers = 1
+        Workers = 2
+        Scope = 'ClassLevel'
         Classes = @(
             'BeMusicSeeker.Tests.PlaybackPanelViewModelTests',
             'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests',
@@ -205,6 +207,14 @@ $functionalTestClassShards = @(
         Workers = 1
         Scope = 'ClassLevel'
         Classes = $functionalSettingsPresentationClasswideClasses
+    },
+    [pscustomobject]@{
+        # Keep process-local settings state separate from foreground presentation
+        # interactions while retaining class-wide serialization in its own host.
+        Name = 'settings-state-classwide'
+        Workers = 1
+        Scope = 'ClassLevel'
+        Classes = $functionalSettingsStateClasswideClasses
     },
     [pscustomobject]@{
         # These constructor-only compiled WPF fixtures share process-scoped
@@ -241,20 +251,107 @@ $functionalRemainingShardWorkers = [Math]::Max(
     1,
     [Environment]::ProcessorCount)
 
+function New-FunctionalShardPlan {
+    $assignedClasses = @(
+        @($functionalTestClassShards | ForEach-Object { $_.Classes }) +
+        @($functionalExclusiveTestClasses) +
+        @($functionalMethodLevelPreWaveClasses))
+    $remainingClassFilter = ($assignedClasses |
+        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
+    $remainingShard = [pscustomobject]@{
+        Name = 'remaining'
+        Classes = [string[]]@()
+        ExcludedClasses = [string[]]$assignedClasses
+        Filter = "($functionalFilter)&($remainingClassFilter)"
+        Workers = $functionalRemainingShardWorkers
+        Scope = 'ClassLevel'
+    }
+    $dedicatedShards = @(
+        $functionalTestClassShards | ForEach-Object {
+            $classes = [string[]]@($_.Classes)
+            $classFilter = ($classes |
+                ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+            $scope = if ($_.PSObject.Properties.Name -contains 'Scope') {
+                $_.Scope
+            }
+            else {
+                'ClassLevel'
+            }
+            [pscustomobject]@{
+                Name = $_.Name
+                Classes = $classes
+                Filter = "($functionalFilter)&($classFilter)"
+                Workers = $_.Workers
+                Scope = $scope
+            }
+        })
+    $shards = @($remainingShard) + @($dedicatedShards)
+    $fanoutShards = @($shards | Where-Object { $_.Name -cne 'lr2-songdb-sync' })
+    return [pscustomobject][ordered]@{
+        Shards = [object[]]$shards
+        FanoutShards = [object[]]$fanoutShards
+        AssignedClasses = [string[]]$assignedClasses
+        ExclusiveClasses = [string[]]$functionalExclusiveTestClasses
+        PreWaveClasses = [string[]]$functionalMethodLevelPreWaveClasses
+    }
+}
+
 function Assert-FunctionalShardConfiguration {
-    $names = @($functionalTestClassShards | ForEach-Object { $_.Name })
+    param(
+        [Parameter(Mandatory)]
+        [object]$Plan
+    )
+
+    if ($null -eq $Plan.Shards -or
+        $null -eq $Plan.FanoutShards -or
+        $null -eq $Plan.AssignedClasses -or
+        $null -eq $Plan.ExclusiveClasses -or
+        $null -eq $Plan.PreWaveClasses) {
+        throw 'Functional shard plan must contain launch shards, fanout shards, and route exclusions.'
+    }
+
+    $shards = @($Plan.Shards)
+    $functionalTestClassShardsForLaunch = @($shards |
+        Where-Object { $_.Name -cne 'remaining' })
+    $fanoutShardsForLaunch = @($Plan.FanoutShards)
+    $names = @($functionalTestClassShardsForLaunch | ForEach-Object { $_.Name })
     if (@($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
         throw 'Functional test shard names must not be empty.'
     }
     if (($names | Sort-Object -Unique).Count -ne $names.Count) {
         throw 'Functional test shard names must be unique.'
     }
+    $requiredDedicatedShardNames = @(
+        'bass-collectible-load-context'
+        'library-chart-classwide'
+        'lr2-songdb-sync'
+        'owned-db-file-class-level'
+        'owned-chart-collection'
+        'playlist-update'
+        'presentation-workspace'
+        'settings-presentation-classwide'
+        'settings-state-classwide'
+        'compiled-wpf-classwide'
+        'process-global-lifecycle'
+        'feature-process-global-state')
+    if ($names.Count -ne $requiredDedicatedShardNames.Count -or
+        @(Compare-Object `
+            -ReferenceObject $requiredDedicatedShardNames `
+            -DifferenceObject $names `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional launch shards must contain exactly the approved dedicated routes.'
+    }
+    $remainingShards = @($shards | Where-Object { $_.Name -ceq 'remaining' })
+    if ($remainingShards.Count -ne 1) {
+        throw 'Functional launch shards must contain exactly one remaining route.'
+    }
+    $remainingShard = $remainingShards[0]
 
-    $workers = @($functionalTestClassShards | ForEach-Object { $_.Workers })
+    $workers = @($shards | ForEach-Object { $_.Workers })
     if (@($workers | Where-Object { $_ -isnot [int] -or $_ -lt 1 }).Count -gt 0) {
         throw 'Functional test shard workers must be positive integers.'
     }
-    $libraryChartClasswideShards = @($functionalTestClassShards |
+    $libraryChartClasswideShards = @($functionalTestClassShardsForLaunch |
         Where-Object { $_.Name -ceq 'library-chart-classwide' })
     if ($libraryChartClasswideShards.Count -ne 1) {
         throw 'Functional library/chart tests must have exactly one dedicated shard.'
@@ -276,7 +373,7 @@ function Assert-FunctionalShardConfiguration {
         $libraryChartClasswideShard.Scope -cne 'ClassLevel') {
         throw 'Functional library/chart shard must use two workers with ClassLevel scope.'
     }
-    $ownedDbFileShards = @($functionalTestClassShards |
+    $ownedDbFileShards = @($functionalTestClassShardsForLaunch |
         Where-Object { $_.Name -ceq 'owned-db-file-class-level' })
     if ($ownedDbFileShards.Count -ne 1) {
         throw 'Functional owned database/file tests must have exactly one dedicated shard.'
@@ -297,7 +394,7 @@ function Assert-FunctionalShardConfiguration {
     if ($ownedDbFileShard.Workers -ne 3 -or $ownedDbFileShard.Scope -cne 'ClassLevel') {
         throw 'Functional owned database/file shard must use three workers with ClassLevel scope.'
     }
-    $lr2SongDbShards = @($functionalTestClassShards |
+    $lr2SongDbShards = @($functionalTestClassShardsForLaunch |
         Where-Object { $_.Name -ceq 'lr2-songdb-sync' })
     if ($lr2SongDbShards.Count -ne 1) {
         throw 'Functional LR2 song database tests must have exactly one dedicated shard.'
@@ -316,10 +413,32 @@ function Assert-FunctionalShardConfiguration {
     if ($lr2SongDbShard.Workers -ne 1 -or $lr2SongDbShard.Scope -cne 'ClassLevel') {
         throw 'Functional LR2 song database shard must use one worker with ClassLevel scope.'
     }
+    $presentationWorkspaceShards = @($functionalTestClassShardsForLaunch |
+        Where-Object { $_.Name -ceq 'presentation-workspace' })
+    if ($presentationWorkspaceShards.Count -ne 1) {
+        throw 'Functional presentation workspace tests must have exactly one dedicated shard.'
+    }
+    $presentationWorkspaceShard = $presentationWorkspaceShards[0]
+    $requiredPresentationWorkspaceClasses = @(
+        'BeMusicSeeker.Tests.PlaybackPanelViewModelTests'
+        'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests'
+        'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests')
+    if (@($presentationWorkspaceShard.Classes).Count -ne $requiredPresentationWorkspaceClasses.Count -or
+        @(Compare-Object `
+            -ReferenceObject $requiredPresentationWorkspaceClasses `
+            -DifferenceObject @($presentationWorkspaceShard.Classes) `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional presentation workspace shard must contain exactly its approved three test classes.'
+    }
+    if ($presentationWorkspaceShard.Workers -ne 2 -or
+        $presentationWorkspaceShard.Scope -cne 'ClassLevel') {
+        throw 'Functional presentation workspace shard must use two workers with ClassLevel scope.'
+    }
     $allowedMultiWorkerShards = @(
         'library-chart-classwide',
-        'owned-db-file-class-level')
-    if (@($functionalTestClassShards |
+        'owned-db-file-class-level',
+        'presentation-workspace')
+    if (@($functionalTestClassShardsForLaunch |
         Where-Object {
             $scope = if ($_.PSObject.Properties.Name -contains 'Scope') {
                 $_.Scope
@@ -335,21 +454,60 @@ function Assert-FunctionalShardConfiguration {
         [Math]::Max(1, [Environment]::ProcessorCount)) {
         throw 'Functional remaining test shard must use every logical processor.'
     }
+    if ($remainingShard.Workers -ne $functionalRemainingShardWorkers -or
+        $remainingShard.Scope -cne 'ClassLevel' -or
+        @($remainingShard.Classes).Count -ne 0) {
+        throw 'Functional remaining launch shard must preserve its worker, scope, and empty class selector contract.'
+    }
 
-    if (@($functionalTestClassShards | Where-Object { @($_.Classes).Count -eq 0 }).Count -gt 0) {
+    if (@($functionalTestClassShardsForLaunch | Where-Object { @($_.Classes).Count -eq 0 }).Count -gt 0) {
         throw 'Functional test shards must contain at least one class selector.'
     }
-    $shardClasses = @($functionalTestClassShards | ForEach-Object { $_.Classes })
+    $shardClasses = @($functionalTestClassShardsForLaunch | ForEach-Object { $_.Classes })
     if (@($shardClasses | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
         throw 'Functional test shard class selectors must not be empty.'
     }
     if (($shardClasses | Sort-Object -Unique).Count -ne $shardClasses.Count) {
         throw 'Functional test shard classes must belong to exactly one shard.'
     }
+    foreach ($launchShard in $functionalTestClassShardsForLaunch) {
+        $launchClassFilter = (@($launchShard.Classes) |
+            ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+        $expectedLaunchFilter = "($functionalFilter)&($launchClassFilter)"
+        if ($launchShard.Filter -cne $expectedLaunchFilter) {
+            throw "Functional launch shard '$($launchShard.Name)' must carry the exact class filter used for launch."
+        }
+    }
+
+    $fanoutNames = @($fanoutShardsForLaunch | ForEach-Object { $_.Name })
+    if (($fanoutNames | Sort-Object -Unique).Count -ne $fanoutNames.Count) {
+        throw 'Functional fanout launch shards must have unique names.'
+    }
+    $expectedFanoutNames = @($shards |
+        Where-Object { $_.Name -cne 'lr2-songdb-sync' } |
+        ForEach-Object { $_.Name })
+    if ($fanoutNames.Count -ne $expectedFanoutNames.Count -or
+        @(Compare-Object `
+            -ReferenceObject $expectedFanoutNames `
+            -DifferenceObject $fanoutNames `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional fanout launch shards must contain every non-LR2 launch object exactly once.'
+    }
+    foreach ($fanoutShard in $fanoutShardsForLaunch) {
+        if (@($shards | Where-Object { [object]::ReferenceEquals($_, $fanoutShard) }).Count -ne 1) {
+            throw 'Functional fanout must pass through the same launch shard objects as the primary shard array.'
+        }
+    }
 
     $exactSingleWorkerClassLevelShards = @(
         [pscustomobject]@{
             Name = 'settings-presentation-classwide'
+            Classes = @(
+                'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
+                'BeMusicSeeker.Tests.SettingsWindowPresentationTests')
+        },
+        [pscustomobject]@{
+            Name = 'settings-state-classwide'
             Classes = @(
                 'BeMusicSeeker.Tests.ApplicationCompositionTests',
                 'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests',
@@ -362,9 +520,7 @@ function Assert-FunctionalShardConfiguration {
                 'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests',
                 'BeMusicSeeker.Tests.ResourceIconContractTests',
                 'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests',
-                'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
                 'BeMusicSeeker.Tests.SettingDialogOpenCommandTests',
-                'BeMusicSeeker.Tests.SettingsWindowPresentationTests',
                 'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests',
                 'BeMusicSeeker.Tests.StartupSettingsSnapshotTests')
         },
@@ -413,7 +569,7 @@ function Assert-FunctionalShardConfiguration {
                 'BeMusicSeeker.Tests.UiDialogCoordinatorWpfTests')
         })
     foreach ($requiredShard in $exactSingleWorkerClassLevelShards) {
-        $matchingShards = @($functionalTestClassShards |
+        $matchingShards = @($functionalTestClassShardsForLaunch |
             Where-Object { $_.Name -ceq $requiredShard.Name })
         if ($matchingShards.Count -ne 1) {
             throw "Functional $($requiredShard.Name) tests must have exactly one dedicated shard."
@@ -432,15 +588,27 @@ function Assert-FunctionalShardConfiguration {
         }
     }
 
-    if (@($functionalMethodLevelPreWaveClasses).Count -eq 0) {
+    $exclusiveClasses = @($Plan.ExclusiveClasses)
+    $preWaveClasses = @($Plan.PreWaveClasses)
+    if (@(Compare-Object `
+            -ReferenceObject @($functionalExclusiveTestClasses) `
+            -DifferenceObject $exclusiveClasses `
+            -CaseSensitive).Count -ne 0 -or
+        @(Compare-Object `
+            -ReferenceObject @($functionalMethodLevelPreWaveClasses) `
+            -DifferenceObject $preWaveClasses `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional launch plan route exclusions must use the runner-owned arrays.'
+    }
+    if (@($preWaveClasses).Count -eq 0) {
         throw 'Functional method-level pre-wave must contain at least one class selector.'
     }
-    if (@($functionalMethodLevelPreWaveClasses |
+    if (@($preWaveClasses |
         Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
         throw 'Functional method-level pre-wave class selectors must not be empty.'
     }
-    if (@($functionalMethodLevelPreWaveClasses | Sort-Object -Unique).Count -ne
-        $functionalMethodLevelPreWaveClasses.Count) {
+    if (@($preWaveClasses | Sort-Object -Unique).Count -ne
+        $preWaveClasses.Count) {
         throw 'Functional method-level pre-wave classes must be unique.'
     }
     $requiredMethodLevelPreWaveClasses = @(
@@ -451,15 +619,15 @@ function Assert-FunctionalShardConfiguration {
         'BeMusicSeeker.Tests.BmsLibraryDuplicateServiceTests',
         'BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests',
         'BeMusicSeeker.Tests.PlaylistViewPipelineTests')
-    if ($functionalMethodLevelPreWaveClasses.Count -ne $requiredMethodLevelPreWaveClasses.Count -or
+    if ($preWaveClasses.Count -ne $requiredMethodLevelPreWaveClasses.Count -or
         @(Compare-Object `
             -ReferenceObject $requiredMethodLevelPreWaveClasses `
-            -DifferenceObject $functionalMethodLevelPreWaveClasses `
+            -DifferenceObject $preWaveClasses `
             -CaseSensitive).Count -ne 0) {
         throw 'Functional method-level pre-wave must contain exactly its approved seven test classes.'
     }
 
-    $bassCollectibleShards = @($functionalTestClassShards |
+    $bassCollectibleShards = @($functionalTestClassShardsForLaunch |
         Where-Object { $_.Name -eq 'bass-collectible-load-context' })
     if ($bassCollectibleShards.Count -ne 1) {
         throw 'Functional BASS collectible load-context tests must have exactly one dedicated shard.'
@@ -470,21 +638,41 @@ function Assert-FunctionalShardConfiguration {
         throw 'Functional BASS collectible load-context shard must contain only BassCollectibleLoadContextTests.'
     }
 
-    if (@($functionalExclusiveTestClasses).Count -eq 0) {
+    if (@($exclusiveClasses).Count -eq 0) {
         throw 'Functional exclusive tests must contain at least one class selector.'
     }
-    if (@($functionalExclusiveTestClasses |
+    if (@($exclusiveClasses |
         Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
         throw 'Functional exclusive test class selectors must not be empty.'
     }
-    if (@($functionalExclusiveTestClasses | Sort-Object -Unique).Count -ne
-        $functionalExclusiveTestClasses.Count) {
+    if (@($exclusiveClasses | Sort-Object -Unique).Count -ne
+        $exclusiveClasses.Count) {
         throw 'Functional exclusive test classes must be unique.'
     }
 
     $assignedClasses = @($shardClasses) +
-        @($functionalExclusiveTestClasses) +
-        @($functionalMethodLevelPreWaveClasses)
+        @($exclusiveClasses) +
+        @($preWaveClasses)
+    if ($Plan.AssignedClasses.Count -ne $assignedClasses.Count -or
+        @(Compare-Object `
+            -ReferenceObject $assignedClasses `
+            -DifferenceObject @($Plan.AssignedClasses) `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional launch plan assigned classes must match the actual launch routes.'
+    }
+    if (@($remainingShard.ExcludedClasses).Count -ne $assignedClasses.Count -or
+        @(Compare-Object `
+            -ReferenceObject $assignedClasses `
+            -DifferenceObject @($remainingShard.ExcludedClasses) `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional remaining launch shard must exclude every assigned class exactly once.'
+    }
+    $remainingExclusionFilter = ($assignedClasses |
+        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
+    $expectedRemainingFilter = "($functionalFilter)&($remainingExclusionFilter)"
+    if ($remainingShard.Filter -cne $expectedRemainingFilter) {
+        throw 'Functional remaining launch shard must carry the exact assigned-class exclusion filter.'
+    }
     if (($assignedClasses | Sort-Object -Unique).Count -ne $assignedClasses.Count) {
         throw 'Functional assigned test classes must be excluded from remaining and belong to exactly one route.'
     }
@@ -1386,39 +1574,11 @@ function Invoke-ParallelFunctionalTestShards {
         [DateTime]$CleanupDeadlineUtc
     )
 
-    Assert-FunctionalShardConfiguration
-    $assignedClasses = @(
-        @($functionalTestClassShards | ForEach-Object { $_.Classes }) +
-        @($functionalExclusiveTestClasses) +
-        @($functionalMethodLevelPreWaveClasses))
-    $remainingClassFilter = ($assignedClasses |
-        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
-    $shards = @(
-        [pscustomobject]@{
-            Name = 'remaining'
-            Filter = "($functionalFilter)&($remainingClassFilter)"
-            Workers = $functionalRemainingShardWorkers
-            Scope = 'ClassLevel'
-        })
-    $shards += @(
-        $functionalTestClassShards | ForEach-Object {
-            $classFilter = ($_.Classes |
-                ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-            $scope = if ($_.PSObject.Properties.Name -contains 'Scope') {
-                $_.Scope
-            }
-            else {
-                'ClassLevel'
-            }
-            [pscustomobject]@{
-                Name = $_.Name
-                Filter = "($functionalFilter)&($classFilter)"
-                Workers = $_.Workers
-                Scope = $scope
-            }
-        })
+    $shardPlan = New-FunctionalShardPlan
+    Assert-FunctionalShardConfiguration -Plan $shardPlan
+    $shards = @($shardPlan.Shards)
+    $fanoutShards = @($shardPlan.FanoutShards)
     $lr2Shard = @($shards | Where-Object { $_.Name -ceq 'lr2-songdb-sync' })[0]
-    $fanoutShards = @($shards | Where-Object { $_.Name -cne 'lr2-songdb-sync' })
     Assert-FunctionalOrchestrationConfiguration `
         -Shards $shards `
         -FanoutShards $fanoutShards
