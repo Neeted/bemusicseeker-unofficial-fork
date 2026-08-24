@@ -25,9 +25,7 @@ using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
-
-[TestClass]
-public sealed class ChartInfoParserBehaviorTests
+public sealed partial class ChartInfoMetadataOwnerTests
 {
     [TestMethod]
     public void ParseBms_SimpleFixture_ComputesChartMetadata()

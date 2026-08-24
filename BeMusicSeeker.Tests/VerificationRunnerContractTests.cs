@@ -130,11 +130,7 @@ public sealed class VerificationRunnerContractTests
             new[]
             {
                 "BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests",
-                "BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests",
-                "BeMusicSeeker.Tests.ChartInfoParserBehaviorTests",
-                "BeMusicSeeker.Tests.ChartInfoBackfillStorageTests",
-                "BeMusicSeeker.Tests.ChartInfoInlineHydrationTests",
-                "BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests",
+                "BeMusicSeeker.Tests.ChartInfoMetadataOwnerTests",
                 "BeMusicSeeker.Tests.BmsLibraryInitializationLoadTests",
                 "BeMusicSeeker.Tests.BmsLibraryInitializationInstallTests",
                 "BeMusicSeeker.Tests.BmsLibraryInitializationFileScanTests",
@@ -442,6 +438,11 @@ public sealed class VerificationRunnerContractTests
             "BeMusicSeeker.Tests.PlaylistSummaryAggregationTests",
             "BeMusicSeeker.Tests.RegularChartListOwnerTests",
             "BeMusicSeeker.Tests.ChartInfoMetadataTests",
+            "BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests",
+            "BeMusicSeeker.Tests.ChartInfoParserBehaviorTests",
+            "BeMusicSeeker.Tests.ChartInfoBackfillStorageTests",
+            "BeMusicSeeker.Tests.ChartInfoInlineHydrationTests",
+            "BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests",
             "BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests",
             "BeMusicSeeker.Tests.StartupLibraryConstructionOwnerTests"
         })

@@ -149,8 +149,9 @@ $functionalTestClassShards = @(
     [pscustomobject]@{
         # Dedicated fixture groups have explicit worker contracts. Keep the
         # library/chart classes in one ClassLevel testhost while using six
-        # workers because the canonical monoliths are split into independent
-        # owner fixtures. Other single-worker hosts stay at one while the
+        # workers while ChartInfo metadata remains one ClassLevel owner because
+        # its background workflows share the process ThreadPool. Other
+        # single-worker hosts stay at one while the
         # explicit owned database/file contract remains three. The remaining
         # host uses every logical processor; the final stability gate validates
         # this bounded overlap without changing the process topology.
@@ -159,11 +160,7 @@ $functionalTestClassShards = @(
         Scope = 'ClassLevel'
         Classes = @(
             'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests'
-            'BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests'
-            'BeMusicSeeker.Tests.ChartInfoParserBehaviorTests'
-            'BeMusicSeeker.Tests.ChartInfoBackfillStorageTests'
-            'BeMusicSeeker.Tests.ChartInfoInlineHydrationTests'
-            'BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests'
+            'BeMusicSeeker.Tests.ChartInfoMetadataOwnerTests'
             'BeMusicSeeker.Tests.BmsLibraryInitializationLoadTests'
             'BeMusicSeeker.Tests.BmsLibraryInitializationInstallTests'
             'BeMusicSeeker.Tests.BmsLibraryInitializationFileScanTests'
@@ -428,11 +425,7 @@ function Assert-FunctionalShardConfiguration {
     }
     $requiredLibraryChartClasswideClasses = @(
         'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests'
-        'BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests'
-        'BeMusicSeeker.Tests.ChartInfoParserBehaviorTests'
-        'BeMusicSeeker.Tests.ChartInfoBackfillStorageTests'
-        'BeMusicSeeker.Tests.ChartInfoInlineHydrationTests'
-        'BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests'
+        'BeMusicSeeker.Tests.ChartInfoMetadataOwnerTests'
         'BeMusicSeeker.Tests.BmsLibraryInitializationLoadTests'
         'BeMusicSeeker.Tests.BmsLibraryInitializationInstallTests'
         'BeMusicSeeker.Tests.BmsLibraryInitializationFileScanTests'
@@ -835,6 +828,11 @@ function Assert-FunctionalShardConfiguration {
         'BeMusicSeeker.Tests.BmsPlaylistUpdateTests'
         'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests'
         'BeMusicSeeker.Tests.ChartInfoMetadataTests'
+        'BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests'
+        'BeMusicSeeker.Tests.ChartInfoParserBehaviorTests'
+        'BeMusicSeeker.Tests.ChartInfoBackfillStorageTests'
+        'BeMusicSeeker.Tests.ChartInfoInlineHydrationTests'
+        'BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests'
         'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests'
         'BeMusicSeeker.Tests.StartupLibraryConstructionOwnerTests')
     $allLaunchText = @(

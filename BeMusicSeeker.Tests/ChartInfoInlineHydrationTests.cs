@@ -25,9 +25,7 @@ using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
-
-[TestClass]
-public sealed class ChartInfoInlineHydrationTests
+public sealed partial class ChartInfoMetadataOwnerTests
 {
     [TestMethod]
     public void LoadChartInfosByHash_LoadsRequestedRowsAndUsesStableMd5Representative()

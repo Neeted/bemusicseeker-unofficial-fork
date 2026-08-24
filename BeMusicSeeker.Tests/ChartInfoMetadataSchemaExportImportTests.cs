@@ -25,9 +25,12 @@ using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
-
+/// <summary>
+/// Owns chart-info metadata behavior as one ClassLevel scheduling boundary while
+/// keeping each behavior group in an owner-local source file.
+/// </summary>
 [TestClass]
-public sealed class ChartInfoMetadataSchemaExportImportTests
+public sealed partial class ChartInfoMetadataOwnerTests
 {
     [TestMethod]
     public void EnsureChartInfoSchema_CreatesTableIndexesAndVersionWithoutAlteringSongTable()
