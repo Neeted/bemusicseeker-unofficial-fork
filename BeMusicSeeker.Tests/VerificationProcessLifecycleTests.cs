@@ -236,6 +236,39 @@ public sealed class VerificationProcessLifecycleTests
     }
 
     [TestMethod]
+    public void StagedEarlyEntriesAccountOnceAndJoinCommonCleanupBeforeFanout()
+    {
+        using JsonDocument result = RunProbe("functional-early-entry");
+        Assert.AreEqual(3, result.RootElement.GetProperty("earlyStartCount").GetInt32());
+        CollectionAssert.AreEqual(
+            new[] { "early-completed", "early-running", "early-failed" },
+            ReadStringArray(result.RootElement.GetProperty("earlyEntryNames")));
+        CollectionAssert.AreEqual(
+            new[] { "early-completed:Succeeded", "early-running:Running" },
+            ReadStringArray(result.RootElement.GetProperty("earlyStates")));
+        CollectionAssert.AreEqual(
+            new[] { "early-completed", "early-running" },
+            ReadStringArray(result.RootElement.GetProperty("accountedEntryNames")));
+        Assert.AreEqual(2, result.RootElement.GetProperty("accountedCount").GetInt32());
+        Assert.AreEqual(3, result.RootElement.GetProperty("rawRecordCount").GetInt32());
+        Assert.AreEqual(3, result.RootElement.GetProperty("uniqueEntryProcessIds").GetInt32());
+        Assert.AreEqual(0, result.RootElement.GetProperty("fanoutStartCount").GetInt32());
+        Assert.IsTrue(result.RootElement.GetProperty("failureBeforeFanout").GetBoolean());
+        Assert.IsTrue(
+            result.RootElement.GetProperty("failureMessage").GetString()!.Contains(
+                "early-failed", StringComparison.Ordinal));
+        CollectionAssert.AreEqual(
+            Array.Empty<int>(),
+            ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
+        CollectionAssert.AreEqual(
+            Array.Empty<int>(),
+            ReadIntArray(result.RootElement.GetProperty("ledgerResidualProcessIds")));
+        CollectionAssert.AreEqual(
+            Array.Empty<string>(),
+            ReadStringArray(result.RootElement.GetProperty("cleanupFailures")));
+    }
+
+    [TestMethod]
     public void ProbeFailureCleanupUsesExactLedgerWhenResultIsMissing()
     {
         ProbeRun run = StartProbe("missing-result");

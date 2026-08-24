@@ -57,9 +57,13 @@ public sealed class VerificationRunnerContractTests
         using JsonDocument plan = ReadFunctionalShardPlan();
         JsonElement shards = GetProperty(plan.RootElement, "Shards");
         JsonElement fanoutShards = GetProperty(plan.RootElement, "FanoutShards");
+        JsonElement fanoutLaunchShards = GetProperty(plan.RootElement, "FanoutLaunchShards");
+        JsonElement earlyShards = GetProperty(plan.RootElement, "EarlyShards");
 
-        Assert.AreEqual(17, shards.GetArrayLength());
-        Assert.AreEqual(16, fanoutShards.GetArrayLength());
+        Assert.AreEqual(15, shards.GetArrayLength());
+        Assert.AreEqual(14, fanoutShards.GetArrayLength());
+        Assert.AreEqual(12, fanoutLaunchShards.GetArrayLength());
+        Assert.AreEqual(3, earlyShards.GetArrayLength());
         CollectionAssert.AreEqual(
             new[]
             {
@@ -69,10 +73,8 @@ public sealed class VerificationRunnerContractTests
                 "lr2-songdb-sync",
                 "owned-db-file-class-level",
                 "owned-chart-collection",
-                "playlist-external-reload",
-                "playlist-persistence-lifecycle",
-                "playlist-custom-folder-output",
-                "playlist-migration-registration",
+                "playlist-external-custom-folder",
+                "playlist-persistence-migration",
                 "presentation-workspace",
                 "settings-edit-foreground-classwide",
                 "settings-window-nonactivating-classwide",
@@ -137,25 +139,23 @@ public sealed class VerificationRunnerContractTests
             });
 
         AssertShard(
-            FindShard(shards, "playlist-external-reload"),
+            FindShard(shards, "playlist-external-custom-folder"),
             1,
             "ClassLevel",
-            new[] { "BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests" });
+            new[]
+            {
+                "BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests",
+                "BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests"
+            });
         AssertShard(
-            FindShard(shards, "playlist-persistence-lifecycle"),
+            FindShard(shards, "playlist-persistence-migration"),
             1,
             "ClassLevel",
-            new[] { "BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests" });
-        AssertShard(
-            FindShard(shards, "playlist-custom-folder-output"),
-            1,
-            "ClassLevel",
-            new[] { "BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests" });
-        AssertShard(
-            FindShard(shards, "playlist-migration-registration"),
-            1,
-            "ClassLevel",
-            new[] { "BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests" });
+            new[]
+            {
+                "BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests",
+                "BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests"
+            });
 
         CollectionAssert.AreEqual(
             new[]
@@ -165,10 +165,8 @@ public sealed class VerificationRunnerContractTests
                 "library-chart-classwide",
                 "owned-db-file-class-level",
                 "owned-chart-collection",
-                "playlist-external-reload",
-                "playlist-persistence-lifecycle",
-                "playlist-custom-folder-output",
-                "playlist-migration-registration",
+                "playlist-external-custom-folder",
+                "playlist-persistence-migration",
                 "presentation-workspace",
                 "settings-edit-foreground-classwide",
                 "settings-window-nonactivating-classwide",
@@ -178,6 +176,31 @@ public sealed class VerificationRunnerContractTests
                 "feature-process-global-state"
             },
             ReadShardNames(fanoutShards));
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "remaining",
+                "bass-collectible-load-context",
+                "library-chart-classwide",
+                "owned-db-file-class-level",
+                "owned-chart-collection",
+                "playlist-external-custom-folder",
+                "playlist-persistence-migration",
+                "presentation-workspace",
+                "settings-state-classwide",
+                "compiled-wpf-classwide",
+                "process-global-lifecycle",
+                "feature-process-global-state"
+            },
+            ReadShardNames(fanoutLaunchShards));
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "lr2-songdb-sync",
+                "settings-edit-foreground-classwide",
+                "settings-window-nonactivating-classwide"
+            },
+            ReadShardNames(earlyShards));
 
         JsonElement remaining = FindShard(shards, "remaining");
         string[] excludedClasses = ReadStringArray(GetProperty(remaining, "ExcludedClasses"));
@@ -331,6 +354,7 @@ public sealed class VerificationRunnerContractTests
                 "BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll",
                 "BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes",
                 "BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes",
+                "BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow",
                 "BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting",
                 "BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected",
                 "BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor"
@@ -345,6 +369,10 @@ public sealed class VerificationRunnerContractTests
         Assert.IsFalse(
             GetProperty(nonactivatingShard, "Filter").GetString()!.Contains(
                 foregroundClass,
+                StringComparison.Ordinal));
+        Assert.IsFalse(
+            GetProperty(nonactivatingShard, "Filter").GetString()!.Contains(
+                "BeMusicSeeker.Tests.SettingsWindowPresentationTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow",
                 StringComparison.Ordinal));
 
         foreach (JsonElement shard in shards.EnumerateArray())
@@ -422,6 +450,8 @@ public sealed class VerificationRunnerContractTests
             "[pscustomobject][ordered]@{",
             "    Shards = @($plan.Shards | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Workers = $_.Workers; Scope = $_.Scope; Classes = @($_.Classes); Filter = $_.Filter; ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') { @($_.ExcludedClasses) } else { @() } } })",
             "    FanoutShards = @($plan.FanoutShards | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Workers = $_.Workers; Scope = $_.Scope; Classes = @($_.Classes); Filter = $_.Filter; ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') { @($_.ExcludedClasses) } else { @() } } })",
+            "    FanoutLaunchShards = @($plan.FanoutLaunchShards | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Workers = $_.Workers; Scope = $_.Scope; Classes = @($_.Classes); Filter = $_.Filter; ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') { @($_.ExcludedClasses) } else { @() } } })",
+            "    EarlyShards = @($plan.EarlyShards | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Workers = $_.Workers; Scope = $_.Scope; Classes = @($_.Classes); Filter = $_.Filter; ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') { @($_.ExcludedClasses) } else { @() } } })",
             "    ForegroundInteractionMethods = @($plan.ForegroundInteractionMethods)",
             "} | ConvertTo-Json -Depth 16 -Compress");
         return ReadPowerShellJson(new[] { "-Command", command });

@@ -14,6 +14,7 @@ param(
         'terminal-diagnostic',
         'terminal-flush-failure',
         'functional-shared-deadline',
+        'functional-early-entry',
         'missing-result',
         'fanout-order',
         'expired-residual')]
@@ -431,6 +432,182 @@ if ($Scenario -ceq 'post-start-exception') {
                 stdoutArtifact = if (Test-Path -LiteralPath (Join-Path $postStartDirectory 'stdout.log') -PathType Leaf) { [System.IO.File]::ReadAllText((Join-Path $postStartDirectory 'stdout.log'), [System.Text.UTF8Encoding]::new($false)) } else { $null }
                 stderrArtifact = $artifactText
                 primitiveEvents = @($primitiveEvents.ToArray())
+            } | ConvertTo-Json -Depth 8 -Compress),
+        [System.Text.UTF8Encoding]::new($false))
+    exit 0
+}
+
+if ($Scenario -ceq 'functional-early-entry') {
+    # Exercise the staged-entry state/accounting and common cleanup contracts with actual
+    # child processes.  The probe deliberately does not launch a fanout process: a failed
+    # early entry must stop before fanout, while a running early entry remains in the same
+    # lifecycle result set.  The bounded WaitForExit call is only a failure watchdog.
+    . (Join-Path $repositoryRoot 'scripts' 'verify-refactor.ps1') `
+        -Mode Quick `
+        -InternalTestGuard ([VerificationPostStartFaultGuard]::new(
+            [System.Threading.ManualResetEventSlim]::new($true)))
+
+    $entries = [System.Collections.Generic.List[object]]::new()
+    $ownedProcessRecords = [System.Collections.Generic.List[object]]::new()
+    $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+    $accountedEntries = [System.Collections.Generic.List[object]]::new()
+    $startCount = 0
+
+    function Start-StagedEarlyProbeEntry {
+        param(
+            [Parameter(Mandatory)]
+            [string]$Name,
+
+            [Parameter(Mandatory)]
+            [ValidateSet('normal', 'nonzero', 'descendant-child')]
+            [string]$ChildScenario
+        )
+
+        $directory = Join-Path $DiagnosticsDirectory $Name
+        [void](New-Item -ItemType Directory -Path $directory -Force)
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = 'pwsh'
+        $startInfo.WorkingDirectory = $repositoryRoot
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in @(
+                '-NoProfile',
+                '-File',
+                $childScript,
+                '-Scenario',
+                $ChildScenario,
+                '-LedgerPath',
+                $ledgerPath)) {
+            [void]$startInfo.ArgumentList.Add($argument)
+        }
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            throw "Unable to start staged early entry '$Name'."
+        }
+        $script:startCount++
+        # The raw record is retained before identity, stream, or entry construction can
+        # fail.  The common converter below promotes it into the same exact entry ledger.
+        $commandIdentity = "pwsh -File $childScript -Scenario $ChildScenario"
+        $rawRecord = [pscustomobject][ordered]@{
+            Name = $Name
+            Directory = $directory
+            Process = $process
+            ProcessId = $process.Id
+            RootProcessIdentity = $null
+            CommandIdentity = $commandIdentity
+            StandardOutputTask = $null
+            StandardErrorTask = $null
+            Entry = $null
+        }
+        [void]$ownedProcessRecords.Add($rawRecord)
+        Write-LifecycleLedgerEntry -Process $process
+        $identity = Get-VerificationProcessIdentity `
+            -Process $process `
+            -CommandIdentity $commandIdentity
+        if ($null -eq $identity.StartTimeUtcTicks) {
+            throw "Staged early entry '$Name' did not retain an exact creation identity."
+        }
+        $rawRecord.RootProcessIdentity = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
+        $rawRecord.StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
+        $rawRecord.StandardErrorTask = $process.StandardError.ReadToEndAsync()
+        $entry = [pscustomobject]@{
+            Name = $Name
+            Directory = $directory
+            Process = $process
+            ProcessId = $process.Id
+            RootProcessIdentity = $rawRecord.RootProcessIdentity
+            CommandIdentity = $commandIdentity
+            StandardOutputTask = $rawRecord.StandardOutputTask
+            StandardErrorTask = $rawRecord.StandardErrorTask
+        }
+        $rawRecord.Entry = $entry
+        [void]$entries.Add($entry)
+        return [pscustomobject]@{
+            Entry = $entry
+            Raw = $rawRecord
+        }
+    }
+
+    $completed = Start-StagedEarlyProbeEntry -Name 'early-completed' -ChildScenario 'normal'
+    $running = Start-StagedEarlyProbeEntry -Name 'early-running' -ChildScenario 'descendant-child'
+    $failed = Start-StagedEarlyProbeEntry -Name 'early-failed' -ChildScenario 'nonzero'
+    if (-not $completed.Entry.Process.WaitForExit(5000) -or
+        -not $failed.Entry.Process.WaitForExit(5000)) {
+        throw 'The staged early entry probe did not observe its terminal entries within the bounded watchdog.'
+    }
+    if ($running.Entry.Process.HasExited) {
+        throw 'The staged early running entry exited before common monitoring began.'
+    }
+
+    # Simulate an entry-construction exception after Process.Start: remove the partial entry
+    # while retaining its raw record, then promote it without relaunching the process.
+    [void]$entries.Remove($failed.Entry)
+    $failed.Raw.Entry = $null
+    Convert-FunctionalRawOwnershipRecordsToEntries `
+        -Entries $entries `
+        -OwnedProcessRecords $ownedProcessRecords `
+        -CleanupFailures $cleanupFailures
+    $promotedFailure = @($entries | Where-Object { $_.Name -ceq 'early-failed' })
+    if ($promotedFailure.Count -ne 1) {
+        throw 'The raw early process record was not promoted exactly once.'
+    }
+    $failedEntry = $promotedFailure[0]
+
+    $earlyStates = Resolve-FunctionalEarlyEntryStates `
+        -Entries @($completed.Entry, $running.Entry) `
+        -AccountedEntries $accountedEntries
+    $fanoutStartCount = 0
+    $failureBeforeFanout = $false
+    $failureMessage = $null
+    try {
+        Assert-FunctionalEarlyEntryCanProceedToFanout -Entry $failedEntry
+    }
+    catch {
+        $failureBeforeFanout = $true
+        $failureMessage = $_.Exception.Message
+    }
+    $cleanupDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
+    $functionalCleanup = Invoke-VerificationFunctionalCleanup `
+        -Entries @($entries.ToArray()) `
+        -CleanupDeadlineUtc $cleanupDeadlineUtc `
+        -StopRoots `
+        -PrimitiveObserver $primitiveObserver
+    foreach ($failure in @($functionalCleanup.FanoutFailures)) {
+        [void]$cleanupFailures.Add($failure)
+    }
+    $lifecycleResults = @($functionalCleanup.EntryResults)
+    $remainingOwnedProcessIds = @($lifecycleResults |
+        Where-Object { $null -ne $_.Result } |
+        ForEach-Object { @($_.Result.RemainingOwnedProcessIds) })
+    $ledgerEntries = @(Get-Content -LiteralPath $ledgerPath -ErrorAction SilentlyContinue |
+        ForEach-Object { $_ | ConvertFrom-Json })
+    $ledgerResiduals = @($ledgerEntries | Where-Object {
+            Test-ProbeExactIdentityAlive `
+                -ProcessId ([int]$_.pid) `
+                -CreationIdentity ([long]$_.creationIdentity) } |
+        ForEach-Object { [int]$_.pid })
+    [System.IO.File]::WriteAllText(
+        $ResultPath,
+        ([ordered]@{
+                scenario = $Scenario
+                earlyStartCount = $startCount
+                earlyEntryNames = @($entries | ForEach-Object { $_.Name })
+                earlyStates = @($earlyStates | ForEach-Object { "$($_.Entry.Name):$($_.State)" })
+                accountedEntryNames = @($accountedEntries | ForEach-Object { $_.Name })
+                accountedCount = $accountedEntries.Count
+                rawRecordCount = $ownedProcessRecords.Count
+                uniqueEntryProcessIds = @($entries | ForEach-Object { $_.ProcessId } | Sort-Object -Unique).Count
+                fanoutStartCount = $fanoutStartCount
+                failureBeforeFanout = $failureBeforeFanout
+                failureMessage = $failureMessage
+                remainingOwnedProcessIds = $remainingOwnedProcessIds
+                ledgerResidualProcessIds = $ledgerResiduals
+                cleanupFailures = @($cleanupFailures)
+                primitiveEvents = @($primitiveEvents.ToArray())
+                cleanupDeadlineUtcTicks = $cleanupDeadlineUtc.Ticks
             } | ConvertTo-Json -Depth 8 -Compress),
         [System.Text.UTF8Encoding]::new($false))
     exit 0

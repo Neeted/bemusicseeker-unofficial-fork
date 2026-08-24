@@ -291,9 +291,9 @@ beatoraja 選曲画面の難易度表表示順は `config_sys.json` の `tableUR
 
 | behavior | canonical fixture | Functional route |
 | --- | --- | --- |
-| 外部 playlist reload、header/data hydration、deferred sync | `BmsPlaylistExternalReloadTests` | `playlist-external-reload`, 1 worker / `ClassLevel` |
-| playlist / entry persistence、publication、backup / restore lifecycle | `BmsPlaylistPersistenceLifecycleTests` | `playlist-persistence-lifecycle`, 1 worker / `ClassLevel` |
-| custom-folder / beatoraja output、manifest cleanup、table URL projection | `BmsPlaylistCustomFolderOutputTests` | `playlist-custom-folder-output`, 1 worker / `ClassLevel` |
-| migration、registration、Table URL import、duplicate / failure contract | `BmsPlaylistMigrationAndRegistrationTests` | `playlist-migration-registration`, 1 worker / `ClassLevel` |
+| 外部 playlist reload、header/data hydration、deferred sync | `BmsPlaylistExternalReloadTests` | `playlist-external-custom-folder`, 1 worker / `ClassLevel`; `BmsPlaylistCustomFolderOutputTests` と同じ process-local host |
+| playlist / entry persistence、publication、backup / restore lifecycle | `BmsPlaylistPersistenceLifecycleTests` | `playlist-persistence-migration`, 1 worker / `ClassLevel`; `BmsPlaylistMigrationAndRegistrationTests` と同じ process-local host |
+| custom-folder / beatoraja output、manifest cleanup、table URL projection | `BmsPlaylistCustomFolderOutputTests` | `playlist-external-custom-folder`, 1 worker / `ClassLevel`; `BmsPlaylistExternalReloadTests` と同じ process-local host |
+| migration、registration、Table URL import、duplicate / failure contract | `BmsPlaylistMigrationAndRegistrationTests` | `playlist-persistence-migration`, 1 worker / `ClassLevel`; `BmsPlaylistPersistenceLifecycleTests` と同じ process-local host |
 
-旧 `BmsPlaylistUpdateTests` と `playlist-update` routeは退役し、4 fixtureの論理 test set と completion / cleanup signalを replacementへ移す。runnerは4つの実際の class selectorを remainingから除外し、他 routeとの重複がないことを起動前に検証する。
+旧 `BmsPlaylistUpdateTests` と `playlist-update` routeは退役し、4 fixtureの論理 test set と completion / cleanup signalを2つのgrouped replacementへ移す。runnerは4つの実際の class selectorをremainingから除外し、各groupのexact membership、1 worker / `ClassLevel`、他 routeとの重複がないことを起動前に検証する。

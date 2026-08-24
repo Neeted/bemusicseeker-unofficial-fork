@@ -78,6 +78,7 @@ $functionalSettingsForegroundInteractionMethods = @(
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll',
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes',
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes',
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow',
     'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting',
     'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected',
     'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor')
@@ -196,31 +197,19 @@ $functionalTestClassShards = @(
             'BeMusicSeeker.Tests.OwnedChartCollectionStateTests')
     },
     [pscustomobject]@{
-        Name = 'playlist-external-reload'
+        Name = 'playlist-external-custom-folder'
         Workers = 1
         Scope = 'ClassLevel'
         Classes = @(
-            'BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests')
-    },
-    [pscustomobject]@{
-        Name = 'playlist-persistence-lifecycle'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = @(
-            'BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests')
-    },
-    [pscustomobject]@{
-        Name = 'playlist-custom-folder-output'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = @(
+            'BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests'
             'BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests')
     },
     [pscustomobject]@{
-        Name = 'playlist-migration-registration'
+        Name = 'playlist-persistence-migration'
         Workers = 1
         Scope = 'ClassLevel'
         Classes = @(
+            'BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests'
             'BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests')
     },
     [pscustomobject]@{
@@ -237,7 +226,7 @@ $functionalTestClassShards = @(
             'BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests')
     },
     [pscustomobject]@{
-        # This is the only Functional process allowed to run the six explicit
+        # This is the only Functional process allowed to run the seven explicit
         # foreground-interaction methods. Keep it separate from the
         # non-activating settings presentation fixture.
         Name = 'settings-edit-foreground-classwide'
@@ -247,7 +236,7 @@ $functionalTestClassShards = @(
     },
     [pscustomobject]@{
         # SettingsWindowPresentationTests contains only non-foreground cases
-        # after the six interaction methods move to the dedicated fixture.
+        # after the four activating interaction methods move to the dedicated fixture.
         Name = 'settings-window-nonactivating-classwide'
         Workers = 1
         Scope = 'ClassLevel'
@@ -292,6 +281,10 @@ $functionalExclusiveTestClasses = @(
     # This test temporarily replaces the repository-local portable user.config.
     # Run it before any testhost that could read settings from the same file.
     'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests')
+$functionalEarlyShardNames = @(
+    'lr2-songdb-sync'
+    'settings-edit-foreground-classwide'
+    'settings-window-nonactivating-classwide')
 $functionalRemainingShardWorkers = [Math]::Max(
     1,
     [Environment]::ProcessorCount)
@@ -331,10 +324,20 @@ function New-FunctionalShardPlan {
             }
         })
     $shards = @($remainingShard) + @($dedicatedShards)
+    # FanoutShards is the validated descriptor set retained by the runner.  LR2 is
+    # already staged before the pre-wave and therefore does not belong to this set.
+    # The two settings descriptors are also staged early, but remain in this descriptor
+    # set so the launch plan, remaining exclusion, and object identity stay one ledger.
     $fanoutShards = @($shards | Where-Object { $_.Name -cne 'lr2-songdb-sync' })
+    $earlyShards = @($shards | Where-Object { $functionalEarlyShardNames -contains $_.Name })
+    $fanoutLaunchShards = @($fanoutShards |
+        Where-Object { $functionalEarlyShardNames -notcontains $_.Name })
     return [pscustomobject][ordered]@{
         Shards = [object[]]$shards
         FanoutShards = [object[]]$fanoutShards
+        FanoutLaunchShards = [object[]]$fanoutLaunchShards
+        EarlyShards = [object[]]$earlyShards
+        EarlyShardNames = [string[]]$functionalEarlyShardNames
         AssignedClasses = [string[]]$assignedClasses
         ExclusiveClasses = [string[]]$functionalExclusiveTestClasses
         PreWaveClasses = [string[]]$functionalMethodLevelPreWaveClasses
@@ -350,6 +353,9 @@ function Assert-FunctionalShardConfiguration {
 
     if ($null -eq $Plan.Shards -or
         $null -eq $Plan.FanoutShards -or
+        $null -eq $Plan.FanoutLaunchShards -or
+        $null -eq $Plan.EarlyShards -or
+        $null -eq $Plan.EarlyShardNames -or
         $null -eq $Plan.AssignedClasses -or
         $null -eq $Plan.ExclusiveClasses -or
         $null -eq $Plan.PreWaveClasses -or
@@ -374,10 +380,8 @@ function Assert-FunctionalShardConfiguration {
         'lr2-songdb-sync'
         'owned-db-file-class-level'
         'owned-chart-collection'
-        'playlist-external-reload'
-        'playlist-persistence-lifecycle'
-        'playlist-custom-folder-output'
-        'playlist-migration-registration'
+        'playlist-external-custom-folder'
+        'playlist-persistence-migration'
         'presentation-workspace'
         'settings-edit-foreground-classwide'
         'settings-window-nonactivating-classwide'
@@ -467,20 +471,16 @@ function Assert-FunctionalShardConfiguration {
 
     $requiredPlaylistOwnerShards = @(
         [pscustomobject]@{
-            Name = 'playlist-external-reload'
-            Classes = @('BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests')
+            Name = 'playlist-external-custom-folder'
+            Classes = @(
+                'BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests'
+                'BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests')
         },
         [pscustomobject]@{
-            Name = 'playlist-persistence-lifecycle'
-            Classes = @('BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests')
-        },
-        [pscustomobject]@{
-            Name = 'playlist-custom-folder-output'
-            Classes = @('BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests')
-        },
-        [pscustomobject]@{
-            Name = 'playlist-migration-registration'
-            Classes = @('BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests')
+            Name = 'playlist-persistence-migration'
+            Classes = @(
+                'BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests'
+                'BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests')
         })
     foreach ($requiredPlaylistOwnerShard in $requiredPlaylistOwnerShards) {
         $matchingPlaylistShards = @($functionalTestClassShardsForLaunch |
@@ -489,8 +489,12 @@ function Assert-FunctionalShardConfiguration {
             throw "Functional $($requiredPlaylistOwnerShard.Name) tests must have exactly one dedicated shard."
         }
         $playlistClasses = @($matchingPlaylistShards[0].Classes)
-        if ($playlistClasses.Count -ne 1 -or
-            $playlistClasses[0] -cne $requiredPlaylistOwnerShard.Classes[0]) {
+        $requiredPlaylistClasses = @($requiredPlaylistOwnerShard.Classes)
+        if ($playlistClasses.Count -ne $requiredPlaylistClasses.Count -or
+            @(Compare-Object `
+                -ReferenceObject $requiredPlaylistClasses `
+                -DifferenceObject $playlistClasses `
+                -CaseSensitive).Count -ne 0) {
             throw "Functional $($requiredPlaylistOwnerShard.Name) shard must contain exactly its approved test class."
         }
         if ($matchingPlaylistShards[0].Workers -ne 1 -or
@@ -586,6 +590,40 @@ function Assert-FunctionalShardConfiguration {
     foreach ($fanoutShard in $fanoutShardsForLaunch) {
         if (@($shards | Where-Object { [object]::ReferenceEquals($_, $fanoutShard) }).Count -ne 1) {
             throw 'Functional fanout must pass through the same launch shard objects as the primary shard array.'
+        }
+    }
+    $earlyShardsForPlan = @($Plan.EarlyShards)
+    $earlyShardNames = @($Plan.EarlyShardNames)
+    if ($earlyShardNames.Count -ne $functionalEarlyShardNames.Count -or
+        @(Compare-Object `
+            -ReferenceObject $functionalEarlyShardNames `
+            -DifferenceObject $earlyShardNames `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional early shard names must use the runner-owned exact allowlist.'
+    }
+    if ($earlyShardsForPlan.Count -ne $earlyShardNames.Count -or
+        @($earlyShardsForPlan | ForEach-Object { $_.Name } | Sort-Object -Unique).Count -ne $earlyShardNames.Count) {
+        throw 'Functional early shard descriptors must contain each staged route exactly once.'
+    }
+    foreach ($earlyShard in $earlyShardsForPlan) {
+        if ($earlyShardNames -notcontains $earlyShard.Name -or
+            @($shards | Where-Object { [object]::ReferenceEquals($_, $earlyShard) }).Count -ne 1) {
+            throw 'Functional early shard descriptors must be the exact launch objects from the primary plan.'
+        }
+    }
+    $fanoutLaunchShardsForPlan = @($Plan.FanoutLaunchShards)
+    $expectedFanoutLaunchShards = @($fanoutShardsForLaunch |
+        Where-Object { $functionalEarlyShardNames -notcontains $_.Name })
+    if ($fanoutLaunchShardsForPlan.Count -ne $expectedFanoutLaunchShards.Count -or
+        @(Compare-Object `
+            -ReferenceObject @($expectedFanoutLaunchShards | ForEach-Object { $_.Name }) `
+            -DifferenceObject @($fanoutLaunchShardsForPlan | ForEach-Object { $_.Name }) `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional fanout launch descriptors must exclude every early settings route.'
+    }
+    foreach ($fanoutLaunchShard in $fanoutLaunchShardsForPlan) {
+        if (@($shards | Where-Object { [object]::ReferenceEquals($_, $fanoutLaunchShard) }).Count -ne 1) {
+            throw 'Functional fanout launch descriptors must reuse the exact validated launch objects.'
         }
     }
 
@@ -689,7 +727,7 @@ function Assert-FunctionalShardConfiguration {
             -ReferenceObject $functionalSettingsForegroundInteractionMethods `
             -DifferenceObject $foregroundMethods `
             -CaseSensitive).Count -ne 0) {
-        throw 'Functional foreground interaction allowlist must contain exactly the approved six methods.'
+        throw 'Functional foreground interaction allowlist must contain exactly the approved seven methods.'
     }
     $foregroundClassRoutes = @($functionalTestClassShardsForLaunch |
         Where-Object { @($_.Classes) -contains $functionalSettingsForegroundInteractionClass })
@@ -705,6 +743,12 @@ function Assert-FunctionalShardConfiguration {
             $functionalSettingsForegroundInteractionClass,
             [StringComparison]::Ordinal)) {
         throw 'Functional non-activating settings route must not contain foreground interaction methods.'
+    }
+    $retiredManualResyncFqn =
+        'BeMusicSeeker.Tests.SettingsWindowPresentationTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow'
+    if ($nonactivatingSettingsShard.Filter.Contains($retiredManualResyncFqn, [StringComparison]::Ordinal) -or
+        @($nonactivatingSettingsShard.Classes) -contains $retiredManualResyncFqn) {
+        throw 'Functional non-activating settings route must not contain the activating ManualResync route.'
     }
 
     $retiredClassSelectors = @(
@@ -1477,7 +1521,13 @@ function Assert-FunctionalOrchestrationConfiguration {
         [object[]]$Shards,
 
         [Parameter(Mandatory)]
-        [object[]]$FanoutShards
+        [object[]]$FanoutShards,
+
+        [Parameter(Mandatory)]
+        [object[]]$EarlyShards,
+
+        [Parameter(Mandatory)]
+        [object[]]$FanoutLaunchShards
     )
 
     $shardEntries = @()
@@ -1517,6 +1567,34 @@ function Assert-FunctionalOrchestrationConfiguration {
             -CaseSensitive).Count -ne 0) {
         throw 'Functional fanout must contain each non-LR2 shard exactly once.'
     }
+    $earlyEntries = @($EarlyShards)
+    if ($earlyEntries.Count -ne $functionalEarlyShardNames.Count -or
+        @(Compare-Object `
+            -ReferenceObject $functionalEarlyShardNames `
+            -DifferenceObject @($earlyEntries | ForEach-Object { $_.Name }) `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional orchestration must stage LR2 and both settings routes exactly once.'
+    }
+    foreach ($earlyEntry in $earlyEntries) {
+        if (@($shardEntries | Where-Object { [object]::ReferenceEquals($_, $earlyEntry) }).Count -ne 1) {
+            throw 'Functional early entries must reuse the actual launch shard objects.'
+        }
+    }
+    $actualFanoutLaunchNames = @($FanoutLaunchShards | ForEach-Object { $_.Name })
+    $expectedFanoutLaunchNames = @($expectedFanoutNames |
+        Where-Object { $functionalEarlyShardNames -notcontains $_ })
+    if ($actualFanoutLaunchNames.Count -ne $expectedFanoutLaunchNames.Count -or
+        @(Compare-Object `
+            -ReferenceObject $expectedFanoutLaunchNames `
+            -DifferenceObject $actualFanoutLaunchNames `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional fanout launch must exclude both early settings routes.'
+    }
+    foreach ($fanoutLaunchEntry in @($FanoutLaunchShards)) {
+        if (@($shardEntries | Where-Object { [object]::ReferenceEquals($_, $fanoutLaunchEntry) }).Count -ne 1) {
+            throw 'Functional fanout launch must use the same validated launch objects.'
+        }
+    }
 }
 
 function Assert-FunctionalOrchestrationPhaseOrder {
@@ -1534,7 +1612,7 @@ function Assert-FunctionalOrchestrationPhaseOrder {
     }
     $expectedPhases = @(
         'exclusive-portable-settings',
-        'lr2-songdb-sync',
+        'early-entries',
         'method-level-pre-wave',
         'remaining-and-non-lr2-shards')
     if ($phaseEntries.Count -gt $expectedPhases.Count) {
@@ -1549,11 +1627,11 @@ function Assert-FunctionalOrchestrationPhaseOrder {
         }
     }
     if (-not $AllowPrefix -and $phaseEntries.Count -ne $expectedPhases.Count) {
-        throw 'Functional orchestration must complete exclusive -> LR2 -> pre-wave -> fanout order.'
+        throw 'Functional orchestration must complete exclusive -> early entries -> pre-wave -> fanout order.'
     }
 }
 
-function Get-FunctionalLr2EntryState {
+function Get-FunctionalEarlyEntryState {
     param(
         [AllowNull()]
         [object]$Entry
@@ -1562,7 +1640,7 @@ function Get-FunctionalLr2EntryState {
     if ($null -eq $Entry -or $null -eq $Entry.Process) {
         return [pscustomobject]@{
             State = 'Invalid'
-            Detail = 'The LR2 process entry or process handle is missing.'
+            Detail = 'The early process entry or process handle is missing.'
         }
     }
 
@@ -1571,20 +1649,20 @@ function Get-FunctionalLr2EntryState {
             [bool]$Entry.Canceled) {
             return [pscustomobject]@{
                 State = 'Canceled'
-                Detail = 'The LR2 process entry was canceled before fanout.'
+                Detail = 'The early process entry was canceled before fanout.'
             }
         }
         $hasExited = $Entry.Process.HasExited
         if ($hasExited -isnot [bool]) {
             return [pscustomobject]@{
                 State = 'Invalid'
-                Detail = "The LR2 process reported an invalid HasExited state '$hasExited'."
+                Detail = "The early process reported an invalid HasExited state '$hasExited'."
             }
         }
         if (-not $hasExited) {
             return [pscustomobject]@{
                 State = 'Running'
-                Detail = 'The LR2 process is still running and remains in the common result set.'
+                Detail = 'The early process is still running and remains in the common result set.'
             }
         }
 
@@ -1592,26 +1670,48 @@ function Get-FunctionalLr2EntryState {
         if ($exitCode -isnot [int]) {
             return [pscustomobject]@{
                 State = 'Invalid'
-                Detail = "The LR2 process reported an invalid exit code '$exitCode'."
+                Detail = "The early process reported an invalid exit code '$exitCode'."
             }
         }
         if ($exitCode -eq 0) {
             return [pscustomobject]@{
                 State = 'Succeeded'
-                Detail = 'The LR2 process exited successfully and remains accounted once.'
+                Detail = 'The early process exited successfully and remains accounted once.'
             }
         }
         return [pscustomobject]@{
             State = 'Failed'
-            Detail = "The LR2 process exited with code $exitCode (failure or cancellation)."
+            Detail = "The early process exited with code $exitCode (failure or cancellation)."
         }
     }
     catch {
         return [pscustomobject]@{
             State = 'Invalid'
-            Detail = "The LR2 process state could not be inspected: $($_.Exception.Message)"
+            Detail = "The early process state could not be inspected: $($_.Exception.Message)"
         }
     }
+}
+
+function Assert-FunctionalEarlyEntryCanProceedToFanout {
+    param(
+        [Parameter(Mandatory)]
+        [object]$Entry
+    )
+
+    $state = Get-FunctionalEarlyEntryState -Entry $Entry
+    if ($state.State -in @('Failed', 'Canceled', 'Invalid')) {
+        throw "Functional early shard '$($Entry.Name)' cannot enter fanout ($($state.State)): $($state.Detail)"
+    }
+    return $state
+}
+
+function Get-FunctionalLr2EntryState {
+    param(
+        [AllowNull()]
+        [object]$Entry
+    )
+
+    return Get-FunctionalEarlyEntryState -Entry $Entry
 }
 
 function Assert-FunctionalLr2CanProceedToFanout {
@@ -1620,11 +1720,33 @@ function Assert-FunctionalLr2CanProceedToFanout {
         [object]$Entry
     )
 
-    $state = Get-FunctionalLr2EntryState -Entry $Entry
-    if ($state.State -in @('Failed', 'Canceled', 'Invalid')) {
-        throw "Functional LR2 shard cannot enter fanout ($($state.State)): $($state.Detail)"
+    return Assert-FunctionalEarlyEntryCanProceedToFanout -Entry $Entry
+}
+
+function Resolve-FunctionalEarlyEntryStates {
+    param(
+        [Parameter(Mandatory)]
+        [object[]]$Entries,
+
+        [Parameter(Mandatory)]
+        [object]$AccountedEntries
+    )
+
+    $states = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $Entries) {
+        $state = Assert-FunctionalEarlyEntryCanProceedToFanout -Entry $entry
+        if (@($AccountedEntries | Where-Object { [object]::ReferenceEquals($_, $entry) }).Count -gt 0) {
+            throw "Functional early entry '$($entry.Name)' was accounted more than once."
+        }
+        [void]$AccountedEntries.Add($entry)
+        [void]$states.Add([pscustomobject][ordered]@{
+                Entry = $entry
+                State = $state.State
+                Detail = $state.Detail
+                Accounted = $true
+            })
     }
-    return $state
+    return @($states)
 }
 
 function Start-FunctionalShardProcess {
@@ -1637,6 +1759,16 @@ function Start-FunctionalShardProcess {
 
         [Parameter(Mandatory)]
         [int]$TimeoutSeconds
+
+        ,
+
+        [Parameter(Mandatory)]
+        [System.Collections.IList]$Entries,
+
+        [Parameter(Mandatory)]
+        [System.Collections.IList]$OwnedProcessRecords,
+
+        [object]$PostStartFaultGuard
     )
 
     $runSettingsPath = Join-Path $DiagnosticsDirectory 'parallel.runsettings'
@@ -1663,35 +1795,124 @@ function Start-FunctionalShardProcess {
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     $started = $false
+    $ownershipRecord = $null
     try {
         if (-not $process.Start()) {
             throw "Unable to start functional test shard '$($Shard.Name)'."
         }
         $started = $true
         $commandIdentity = "dotnet $($arguments -join ' ')"
+        # Retain the raw Process handle before any subsequent start/stream/identity
+        # operation can throw.  The caller's single ownership ledger then cleans up
+        # both fully recorded entries and a process whose entry construction failed.
+        $ownershipRecord = [pscustomobject][ordered]@{
+            Name = $Shard.Name
+            Directory = $DiagnosticsDirectory
+            Process = $process
+            ProcessId = $process.Id
+            RootProcessIdentity = $null
+            CommandIdentity = $commandIdentity
+            StandardOutputTask = $null
+            StandardErrorTask = $null
+            Entry = $null
+        }
+        [void]$OwnedProcessRecords.Add($ownershipRecord)
         $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity $commandIdentity
-        return [pscustomobject]@{
+        $ownershipRecord.RootProcessIdentity = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
+        $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
+        $standardErrorTask = $process.StandardError.ReadToEndAsync()
+        $ownershipRecord.StandardOutputTask = $standardOutputTask
+        $ownershipRecord.StandardErrorTask = $standardErrorTask
+        $entry = [pscustomobject]@{
             Name = $Shard.Name
             Directory = $DiagnosticsDirectory
             Process = $process
             ProcessId = $process.Id
             RootProcessIdentity = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
             CommandIdentity = $commandIdentity
-            StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
-            StandardErrorTask = $process.StandardError.ReadToEndAsync()
+            StandardOutputTask = $standardOutputTask
+            StandardErrorTask = $standardErrorTask
         }
+        $ownershipRecord.Entry = $entry
+        [void]$Entries.Add($entry)
+        if ($null -ne $PostStartFaultGuard) {
+            if ($PostStartFaultGuard -isnot [VerificationPostStartFaultGuard]) {
+                throw 'Post-start fault guard was not created by the internal deterministic probe.'
+            }
+            if ($PostStartFaultGuard.TryConsumeSignal()) {
+                throw "Internal post-start fault injection for $($Shard.Name)."
+            }
+        }
+        return $entry
     }
     catch {
-        if ($started -and -not $process.HasExited) {
-            try {
-                $process.Kill($true)
-            }
-            catch {
-                Write-Warning "$($Shard.Name): failed to stop a process whose entry could not be recorded: $($_.Exception.Message)"
-            }
+        if (-not $started) {
+            $process.Dispose()
         }
-        $process.Dispose()
+        else {
+            Write-Warning "$($Shard.Name): start/entry construction failed; retaining exact process ownership for common cleanup: $($_.Exception.Message)"
+        }
         throw
+    }
+}
+
+function Convert-FunctionalRawOwnershipRecordsToEntries {
+    param(
+        [Parameter(Mandatory)]
+        [System.Collections.IList]$Entries,
+
+        [Parameter(Mandatory)]
+        [System.Collections.IList]$OwnedProcessRecords,
+
+        [Parameter(Mandatory)]
+        [object]$CleanupFailures
+    )
+
+    foreach ($record in @($OwnedProcessRecords)) {
+        if ($null -ne $record.Entry) {
+            if (@($Entries | Where-Object { [object]::ReferenceEquals($_, $record.Entry) }).Count -eq 0) {
+                [void]$Entries.Add($record.Entry)
+            }
+            continue
+        }
+        if ($null -eq $record.Process) {
+            $CleanupFailures.Add("$($record.Name): started process ownership record did not retain a process handle")
+            continue
+        }
+        try {
+            $identity = Get-VerificationProcessIdentity `
+                -Process $record.Process `
+                -CommandIdentity $record.CommandIdentity
+            if ($null -eq $identity.StartTimeUtcTicks) {
+                throw 'Process creation identity was unavailable after start failure.'
+            }
+            $record.RootProcessIdentity = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
+            $record.Entry = [pscustomobject]@{
+                Name = $record.Name
+                Directory = $record.Directory
+                Process = $record.Process
+                ProcessId = $record.ProcessId
+                RootProcessIdentity = $record.RootProcessIdentity
+                CommandIdentity = $record.CommandIdentity
+                StandardOutputTask = if ($null -ne $record.StandardOutputTask) {
+                    $record.StandardOutputTask
+                }
+                else {
+                    [System.Threading.Tasks.Task[string]]::FromResult([string]::Empty)
+                }
+                StandardErrorTask = if ($null -ne $record.StandardErrorTask) {
+                    $record.StandardErrorTask
+                }
+                else {
+                    [System.Threading.Tasks.Task[string]]::FromResult([string]::Empty)
+                }
+            }
+            [void]$Entries.Add($record.Entry)
+        }
+        catch {
+            $CleanupFailures.Add(
+                "$($record.Name): raw process ownership could not be promoted to an exact lifecycle entry: $($_.Exception.Message)")
+        }
     }
 }
 
@@ -1713,11 +1934,15 @@ function Invoke-ParallelFunctionalTestShards {
     $shardPlan = New-FunctionalShardPlan
     Assert-FunctionalShardConfiguration -Plan $shardPlan
     $shards = @($shardPlan.Shards)
-    $fanoutShards = @($shardPlan.FanoutShards)
+    $fanoutDescriptors = @($shardPlan.FanoutShards)
+    $fanoutShards = @($shardPlan.FanoutLaunchShards)
+    $earlyShards = @($shardPlan.EarlyShards)
     $lr2Shard = @($shards | Where-Object { $_.Name -ceq 'lr2-songdb-sync' })[0]
     Assert-FunctionalOrchestrationConfiguration `
         -Shards $shards `
-        -FanoutShards $fanoutShards
+        -FanoutShards $fanoutDescriptors `
+        -EarlyShards $earlyShards `
+        -FanoutLaunchShards $fanoutShards
 
     # Allocate every Functional entry directory before any monitored process is launched.
     # Lifecycle cleanup receives only pre-created paths and therefore cannot begin a new
@@ -1731,9 +1956,10 @@ function Invoke-ParallelFunctionalTestShards {
         [void](New-Item -ItemType Directory -Path $directory -Force)
     }
     $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $entries = @()
+    $entries = [System.Collections.Generic.List[object]]::new()
+    $ownedProcessRecords = [System.Collections.Generic.List[object]]::new()
+    $accountedEarlyEntries = [System.Collections.Generic.List[object]]::new()
     $phaseTrace = [System.Collections.Generic.List[string]]::new()
-    $lr2Entry = $null
     $timedOut = $false
     $timedOutShardNames = @()
     $launchFailure = $null
@@ -1759,20 +1985,20 @@ function Invoke-ParallelFunctionalTestShards {
         [void]$phaseTrace.Add('exclusive-portable-settings')
         Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
 
-        [void]$phaseTrace.Add('lr2-songdb-sync')
+        [void]$phaseTrace.Add('early-entries')
         Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
-        try {
-            $lr2TimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
+        foreach ($earlyShard in $earlyShards) {
+            $earlyDirectory = Join-Path $DiagnosticsDirectory $earlyShard.Name
+            $earlyTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
                 -ProcessDeadlineUtc $ProcessDeadlineUtc `
-                -PhaseName 'lr2-songdb-sync'
-            $lr2Entry = Start-FunctionalShardProcess `
-                -Shard $lr2Shard `
-                -DiagnosticsDirectory $lr2DiagnosticsDirectory `
-                -TimeoutSeconds $lr2TimeoutSeconds
-            $entries += $lr2Entry
-        }
-        catch {
-            throw
+                -PhaseName $earlyShard.Name
+            [void](Start-FunctionalShardProcess `
+                    -Shard $earlyShard `
+                    -DiagnosticsDirectory $earlyDirectory `
+                    -TimeoutSeconds $earlyTimeoutSeconds `
+                    -Entries $entries `
+                    -OwnedProcessRecords $ownedProcessRecords `
+                    -PostStartFaultGuard $InternalTestGuard)
         }
 
         $preWaveRunSettingsPath = Join-Path $preWaveDirectory 'parallel.runsettings'
@@ -1796,11 +2022,17 @@ function Invoke-ParallelFunctionalTestShards {
             -CleanupDeadlineUtc $CleanupDeadlineUtc `
             -NoBuild
 
-        $lr2PreFanoutState = Assert-FunctionalLr2CanProceedToFanout -Entry $lr2Entry
-        if (@($entries | Where-Object { $_.Name -ceq 'lr2-songdb-sync' }).Count -ne 1) {
-            throw 'Functional LR2 result accounting must retain exactly one existing entry before fanout.'
+        $earlyEntries = @($entries |
+            Where-Object { $functionalEarlyShardNames -contains $_.Name })
+        if ($earlyEntries.Count -ne $earlyShards.Count) {
+            throw 'Functional early result accounting must retain every staged entry exactly once before fanout.'
         }
-        Write-Host "Functional LR2 state before fanout: $($lr2PreFanoutState.State); $($lr2PreFanoutState.Detail)"
+        $earlyStates = Resolve-FunctionalEarlyEntryStates `
+            -Entries $earlyEntries `
+            -AccountedEntries $accountedEarlyEntries
+        foreach ($earlyState in $earlyStates) {
+            Write-Host "Functional early state before fanout ($($earlyState.Entry.Name)): $($earlyState.State); $($earlyState.Detail)"
+        }
         [void]$phaseTrace.Add('remaining-and-non-lr2-shards')
         Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray())
         foreach ($shard in $fanoutShards) {
@@ -1808,10 +2040,13 @@ function Invoke-ParallelFunctionalTestShards {
             $shardTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
                 -ProcessDeadlineUtc $ProcessDeadlineUtc `
                 -PhaseName $shard.Name
-            $entries += Start-FunctionalShardProcess `
+            [void](Start-FunctionalShardProcess `
                 -Shard $shard `
                 -DiagnosticsDirectory $shardDirectory `
-                -TimeoutSeconds $shardTimeoutSeconds
+                -TimeoutSeconds $shardTimeoutSeconds `
+                -Entries $entries `
+                -OwnedProcessRecords $ownedProcessRecords `
+                -PostStartFaultGuard $InternalTestGuard)
         }
 
         $shardSummary = ($shards | ForEach-Object {
@@ -1843,6 +2078,10 @@ function Invoke-ParallelFunctionalTestShards {
         $launchFailure = $_
     }
     finally {
+        Convert-FunctionalRawOwnershipRecordsToEntries `
+            -Entries $entries `
+            -OwnedProcessRecords $ownedProcessRecords `
+            -CleanupFailures $cleanupFailures
         if ($null -ne $failedShard) {
             $failedShardName = $failedShard.Name
             $failedShardExitCode = $failedShard.Process.ExitCode

@@ -50,6 +50,99 @@ namespace BeMusicSeeker.Tests;
 public sealed class SettingsForegroundInteractionTests
 {
     [TestMethod]
+    public void SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            var runtime = new RecordingManualResyncRuntime();
+            SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime);
+            var ownerWindow = new Window
+            {
+                Width = 320,
+                Height = 200,
+                ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.Manual
+            };
+            var window = new SettingsWindow
+            {
+                DataContext = settings,
+                PlaybackPanel = owner.PlaybackPanel,
+                PlaylistWorkspace = owner.PlaylistWorkspace
+            };
+            Window confirmationWindow = null;
+            Exception confirmationFailure = null;
+
+            try
+            {
+                windowTest.PrepareForOwnedPresentation(ownerWindow);
+                ownerWindow.Show();
+                ownerWindow.UpdateLayout();
+                window.Owner = ownerWindow;
+                windowTest.ShowAndWaitForContentRendered(window);
+                GeneralSettingsPage page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                Button resyncButton = FindDescendants<Button>(page)
+                    .Single(candidate => Equals(candidate.Content, Resources.Lr2_song_db_sync_data_resync));
+                Assert.IsTrue(settings.CanRequestLr2SongDbSyncDataResync);
+                Assert.IsTrue(resyncButton.IsEnabled);
+
+                window.Dispatcher.BeginInvoke(
+                    DispatcherPriority.ApplicationIdle,
+                    (Action)(() =>
+                    {
+                        try
+                        {
+                            confirmationWindow = Application.Current.Windows
+                                .OfType<Window>()
+                                .Single(candidate => candidate.IsVisible
+                                    && ReferenceEquals(candidate.Owner, window));
+                            Assert.IsInstanceOfType<ThemedWindow>(confirmationWindow);
+                            Assert.AreEqual(Resources.Confirm, confirmationWindow.Title);
+                            Button acceptButton = FindDescendants<Button>(confirmationWindow)
+                                .Single(candidate => Equals(candidate.Content, "OK"));
+                            acceptButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, acceptButton));
+                        }
+                        catch (Exception exception)
+                        {
+                            confirmationFailure = exception;
+                            confirmationWindow?.Close();
+                        }
+                    }));
+
+                resyncButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, resyncButton));
+                PumpUntil(
+                    window.Dispatcher,
+                    () => runtime.QueueCount == 1,
+                    "Manual LR2 resync did not queue its runtime request within the bounded UI pump.");
+
+                Assert.IsNull(confirmationFailure);
+                Assert.IsNotNull(confirmationWindow);
+                Assert.IsFalse(window.IsVisible);
+                Assert.AreEqual(SettingsWindowCloseReason.ManualResync, window.CloseReason);
+                Assert.IsNull(window.DataContext);
+                RecordingManualResyncRuntime.QueueCall call = runtime.LastQueueCall;
+                Assert.AreEqual("setting_dialog_manual_resync", call.Reason);
+                Assert.IsTrue(call.Force);
+            }
+            finally
+            {
+                if (confirmationWindow?.IsVisible == true)
+                {
+                    confirmationWindow.Close();
+                }
+                if (window.IsVisible)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                if (ownerWindow.IsVisible)
+                {
+                    ownerWindow.Close();
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -709,6 +802,45 @@ public sealed class SettingsForegroundInteractionTests
         return (songDb, config);
     }
 
+    private static SettingsDialogViewModel CreateManualResyncSettingsDialog(
+        MainWindowViewModel owner,
+        RecordingManualResyncRuntime runtime)
+    {
+        var settingsSession = new ManualResyncSettingsEditSession(
+            new Settings { OperationModeLR2DB = true });
+        var composition = new ApplicationComposition(
+            settingsEditSession: settingsSession,
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        var workflow = new Lr2SongDbSyncWorkflowOwner(
+            runtime,
+            new UiDialogCoordinator(),
+            action =>
+            {
+                action();
+                return Task.CompletedTask;
+            },
+            (_, _) => { });
+        return new SettingsDialogViewModel(
+            new ManualResyncStatePort(),
+            owner.PlaylistWorkspace,
+            owner.PlaylistWorkspace,
+            owner.PlayHistory,
+            owner.LibraryFolderTree,
+            composition,
+            owner.PlaybackPanel,
+            workflow,
+            settingsSession,
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+    }
+
     private static MainWindowViewModel CreateViewModel(
         CountingSettingsEditSession settingsSession,
         bool firstStartup,
@@ -854,6 +986,135 @@ public sealed class SettingsForegroundInteractionTests
         }
     }
 
+    private sealed class ManualResyncStatePort : ISettingsDialogStatePort
+    {
+        public bool HasActiveLibraryProfile => true;
+
+        public bool IsLibraryOperationInProgress => false;
+
+        public Task<bool> InitializeLibraryAsync() => Task.FromResult(true);
+
+        public Task ReloadScoresOnlyAsync() => Task.CompletedTask;
+
+        public Task ReloadFileDiffAsync() => Task.CompletedTask;
+
+        public event EventHandler LibraryOperationAvailabilityChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public event Action<Lr2PlayHistorySchemaStatusSnapshot> Lr2PlayHistorySchemaStatusChanged
+        {
+            add { }
+            remove { }
+        }
+    }
+
+    private sealed class ManualResyncSettingsEditSession : ISettingsEditSession
+    {
+        internal ManualResyncSettingsEditSession(Settings values)
+        {
+            Values = values;
+        }
+
+        public Settings Values { get; }
+
+        public void Reload()
+        {
+        }
+
+        public void Save()
+        {
+        }
+    }
+
+    private sealed class RecordingManualResyncRuntime : ILr2SongDbSyncWorkflowRuntime
+    {
+        private readonly object gate = new();
+
+        private readonly List<QueueCall> queueCalls = [];
+
+        bool ILr2SongDbSyncWorkflowRuntime.IsLr2ModeEnabled => true;
+
+        bool ILr2SongDbSyncWorkflowRuntime.IsLibraryAvailable => true;
+
+        internal int QueueCount
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return queueCalls.Count;
+                }
+            }
+        }
+
+        internal QueueCall LastQueueCall
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return queueCalls.Single();
+                }
+            }
+        }
+
+        public void Queue(
+            string reason,
+            bool force,
+            Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
+            bool allowIncompleteToQueue = true)
+        {
+            lock (gate)
+            {
+                queueCalls.Add(new QueueCall(reason, force, allowIncompleteToQueue));
+            }
+            prepareGeneratedData?.Invoke();
+        }
+
+        public bool TryRunDataPreparation(
+            string reason,
+            Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
+            Action queueAfterPreparation = null)
+        {
+            prepareGeneratedData?.Invoke();
+            queueAfterPreparation?.Invoke();
+            return true;
+        }
+
+        public Lr2SongDbSyncPreparedDataSurface PreparePlaylistGeneratedData(string reason) =>
+            Lr2SongDbSyncPreparedDataSurface.Empty;
+
+        public Lr2SongDbSyncPreparedDataSurface PrepareBuiltinGeneratedData(string reason) =>
+            Lr2SongDbSyncPreparedDataSurface.Empty;
+
+        public void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason)
+        {
+        }
+
+        public bool Cancel(string reason) => true;
+
+        public Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(string reason) => null;
+
+        internal sealed class QueueCall
+        {
+            internal QueueCall(string reason, bool force, bool allowIncompleteToQueue)
+            {
+                Reason = reason;
+                Force = force;
+                AllowIncompleteToQueue = allowIncompleteToQueue;
+            }
+
+            internal string Reason { get; }
+
+            internal bool Force { get; }
+
+            internal bool AllowIncompleteToQueue { get; }
+        }
+    }
+
     private sealed class CountingSettingsEditSession : ISettingsEditSession
     {
         internal CountingSettingsEditSession(Settings values)
@@ -970,6 +1231,16 @@ public sealed class SettingsForegroundInteractionTests
         dispatcher.Invoke(DispatcherPriority.Input, new Action(() => { }));
         dispatcher.Invoke(DispatcherPriority.Render, new Action(() => { }));
         dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+    }
+
+    private static void PumpUntil(Dispatcher dispatcher, Func<bool> predicate, string failureMessage)
+    {
+        var timeout = Stopwatch.StartNew();
+        while (!predicate() && timeout.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            PumpDispatcher(dispatcher);
+        }
+        Assert.IsTrue(predicate(), failureMessage);
     }
 
     private static void RaiseKey(UIElement target, Key key)

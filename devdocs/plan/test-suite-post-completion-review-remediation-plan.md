@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 4b staged fanout replan approved; implementation pending
+Status: Unit 4b staged fanout replan implementation complete; stability verification pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -227,7 +227,7 @@ Workerは上記fixture filterのQuick、PowerShell parse、`git diff --check`を
 
 Unit 3後の `4097e3a3` では `remaining` が1869/1869でprocess deadlineの約2秒前に完了し、旧58.1秒の `BmsLibraryStateApplierTests` は3 fixtureの最大10.4秒まで短縮された。一方、旧 `playlist-update`、`presentation-workspace`、`settings-presentation-classwide` がdeadline時点で残った。3 routeの過去成功時のtailはそれぞれ約57.3秒、53.5秒、60.6秒であるため、1 routeだけの局所修正では別routeがcriticalになる。次の3 ownership変更を同じreviewable unitで閉じ、既存の180秒command budget、170秒process deadline、10秒cleanup reserve、pre-wave順序、remaining 12 workers、logical test setを維持する。
 
-1. Settingsはexact 6 foreground methodを新しい `SettingsForegroundInteractionTests` へ集約する。foreground fixtureとnon-foreground `SettingDialogEditCompletionTests` を1-workerの `settings-edit-foreground-classwide` で実行し、non-foreground `SettingsWindowPresentationTests` は別の1-worker `settings-window-nonactivating-classwide` で実行する。foregroundを取得するprocessはexact 1つとし、複数foreground process案は退役する。
+1. Settingsはexact 7 foreground methodを新しい `SettingsForegroundInteractionTests` へ集約する。foreground fixtureとnon-foreground `SettingDialogEditCompletionTests` を1-workerの `settings-edit-foreground-classwide` で実行し、non-foreground `SettingsWindowPresentationTests` は別の1-worker `settings-window-nonactivating-classwide` で実行する。foregroundを取得するprocessはexact 1つとし、複数foreground process案は退役する。
 2. 旧95-case `BmsPlaylistUpdateTests` は external reload、persistence lifecycle、custom-folder output、migration / registration の4 owner fixtureへ分割し、各fixtureを別の1-worker / `ClassLevel` processへ割り当てる。各classは既存のclass-wide DNP、process-local `Settings.Default`、GUID temporary DB/files/outputを維持する。`Settings.Default.Save()` または共有portable config書込みが見つかった場合は並列化しない。
 3. 旧147-case `PlaylistWorkspaceViewModelTests` は external source、action workflow、detail refresh、presentation state、persistence command の5 owner fixtureへ分割する。既存 `presentation-workspace` testhost内で `LibraryFolderTreeViewModelTests` とともに3-worker / `ClassLevel` で実行し、`PlaybackPanelViewModelTests` のclass-wide DNP exclusive phaseは維持する。新しいprocessは追加しない。
 
@@ -243,8 +243,8 @@ Unit 3後の `4097e3a3` では `remaining` が1869/1869でprocess deadlineの約
 
 | Behavior / failure contract | Coverage | Decision | Shared resource / lane | Completion signal | Retired route |
 | --- | --- | --- | --- | --- | --- |
-| settings foreground / nonactivating presentation | 旧2 fixtureの全case + exact 6 foreground methods | `replace` fixture containers; `SettingsForegroundInteractionTests` + non-FG `SettingDialogEditCompletionTests` in `settings-edit-foreground-classwide`, non-FG `SettingsWindowPresentationTests` in `settings-window-nonactivating-classwide` | two 1-worker `ClassLevel` testhosts; process-local Application/dispatcher/resources/settings | existing dispatcher host、window scope、task/event completion、HWND cleanup | `settings-presentation-classwide` single host |
-| playlist reload / persistence / output / migration | 旧 `BmsPlaylistUpdateTests` 95 methods | `replace` with `BmsPlaylistExternalReloadTests`、`BmsPlaylistPersistenceLifecycleTests`、`BmsPlaylistCustomFolderOutputTests`、`BmsPlaylistMigrationAndRegistrationTests` | four 1-worker `ClassLevel` processes; existing DNP; process-local settings; GUID DB/files | existing task/event/DB commit and visible-publication receipts | `playlist-update` single-class route |
+| settings foreground / nonactivating presentation | 旧2 fixtureの全case + exact 7 foreground methods | `replace` fixture containers; `SettingsForegroundInteractionTests` + non-FG `SettingDialogEditCompletionTests` in `settings-edit-foreground-classwide`, non-FG `SettingsWindowPresentationTests` in `settings-window-nonactivating-classwide` | two 1-worker `ClassLevel` testhosts; process-local Application/dispatcher/resources/settings | existing dispatcher host、window scope、task/event completion、HWND cleanup | `settings-presentation-classwide` single host |
+| playlist reload / persistence / output / migration | 旧 `BmsPlaylistUpdateTests` 95 methods | `replace` with `BmsPlaylistExternalReloadTests`、`BmsPlaylistPersistenceLifecycleTests`、`BmsPlaylistCustomFolderOutputTests`、`BmsPlaylistMigrationAndRegistrationTests` in two grouped routes | two 1-worker `ClassLevel` processes; existing DNP; process-local settings; GUID DB/files | existing task/event/DB commit and visible-publication receipts | four singleton playlist routes / `playlist-update` single-class route |
 | playlist workspace owner boundaries | 旧 `PlaylistWorkspaceViewModelTests` 147 methods | `replace` with `PlaylistWorkspaceExternalSourceTests`、`PlaylistWorkspaceActionWorkflowTests`、`PlaylistWorkspaceDetailRefreshTests`、`PlaylistWorkspacePresentationStateTests`、`PlaylistWorkspacePersistenceCommandTests` | existing `presentation-workspace`, 3 workers/ClassLevel; Playback DNP exclusive | existing dispatcher host、TCS/event/barrier、GUID files | monolithic workspace class / 2-worker assumption |
 | actual launch topology | `VerificationRunnerContractTests` + Functional | `extend` actual-consumed plan validator | no metadata-only route | launch validator + exact TRX/host exit | old settings/playlist/workspace allowlists |
 
@@ -296,6 +296,13 @@ Unit 3後の `4097e3a3` では `remaining` が1869/1869でprocess deadlineの約
 
 Focused Quickはsettings 3 fixture、4 BMS fixture、`VerificationRunnerContractTests`、`VerificationProcessLifecycleTests` を実行する。最終snapshotでFunctional 3回、WPF focused 30回、Full 1回を最初から実行する。
 
+### Unit 4b implementation evidence
+
+- SettingsWindowのManualResync behavior body、assertion、completion、window cleanupを `SettingsForegroundInteractionTests` へ移動し、foreground allowlistをexact 7 methodへ更新した。旧 `SettingsWindowPresentationTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow` FQNとnonactivating routeのactivating ownershipは退役。
+- BMS playlist descriptorを `playlist-external-custom-folder`（external reload + custom-folder output）と `playlist-persistence-migration`（persistence lifecycle + migration / registration）の2つへgroup化した。4 fixtureのclass-wide DNP、process-local settings、GUID-owned DB/files、logical test setは維持。
+- `New-FunctionalShardPlan` は15 launch shards / 14 retained fanout descriptors / 12 actual fanout launchesを返し、LR2とsettingsの3 early descriptorを同じobject ledgerへ渡す。exclusive lane後に3 entryをexact 1回起動・即時記録し、pre-wave後のcompleted/running/nonzero/canceled/invalid stateを共通accounting・deadline・diagnostics・cleanupへ接続する。raw process ownershipはentry構築例外にも保持し、primary failureをcleanup failureで置換しない。
+- Validator coverageは実際のrunner plan objectとobject identityを対象にextendし、exact grouped membership、remaining exclusion、cross-route uniqueness、early membership、settings fanout exclusion、foreground exact 7を確認する。PowerShell parse、`git diff --check`、focused Quickの結果は下記のVerification logへ追記する。
+
 ### Replan triggers
 
 - settings nonactivating routeに別のnested activating HWNDが見つかる。
@@ -324,7 +331,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 2: Functional headroom replan | Implementation complete; stability verification pending | base HEAD `128519856d57b304bc21930843b1aecfc10eeaa4` から、settings 16 fixtureをforeground 2/state 14の2 testhostへ分離し、presentation workspaceを2-worker/ClassLevel化。実 launch plan objectを同一 validatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、fanout object identityを検証する。PowerShell parse / `git diff --check` pass。focused Quick `VerificationRunnerContractTests` 4/4 pass、33.5s command、diagnostics `artifacts/verification/tests-quick-20260824-213148`。Functional/Full/WPF30はroot担当。playlist overlapとremaining fixture分割は採用しない。 |
 | Unit 3: remaining owner fixture rebalancing | Complete; integration stability pending | `7ccca8ea` / `tests-functional-20260824-213728` のprocess deadline failureを受け、26 caseをlibrary init/mutation 13、package lifecycle/pending 7、catalog relocation 6へ分割。既存remaining process、12-worker ClassLevel、GUID resource、completion signalは維持。focused Quick 26/26 pass、Functional/Full/WPF30はroot担当。 |
 | Unit 4: critical-tail owner topology | Implementation and focused verification complete; stability pending | `4097e3a3` でremainingは完走したがplaylist / presentation / settingsがdeadlineへ残ったため、4つのBMS playlist owner shard、7-class / 3-worker workspace shard、foreground / nonactivating / stateの3 settings shardへ再編した。実際のlaunch plan objectをvalidatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、旧FQN不在、foreground exact allowlist、fanout object identityを検証する。180秒command、170秒process deadline、10秒cleanup reserve、pre-wave順、remaining 12 workers、DNP、logical test setは維持。settings 142/142、workspace 208/208、BMS playlist + runner contract 99/99 pass。Functional / Full / static reviewはUnit 5で実施する。 |
-| Unit 4b: staged settings and bounded fanout | Planned; implementation pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。 |
+| Unit 4b: staged settings and bounded fanout | Implementation complete; stability verification pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
 | Unit 5: final stability gates and review | Pending | Unit 4b後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
@@ -348,6 +355,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | workspace five-fixture + LibraryFolderTree + Playback focused Quick | Pass (208/208) | 20.8s test | `tests-quick-20260824-232355`; first identical test run also passed but whitespace guard found EOF formatting, then formatting-only fix and exact rerun passed; residual 0 |
 | same | four BMS playlist fixture + `VerificationRunnerContractTests` focused Quick | Pass (99/99) | 47.6s command / 26.7s test | `tests-quick-20260824-232556`; runner exit 0 and tracked fingerprint unchanged; residual 0. Root summary wrapper alone returned failure after success because its dirty-status array comparison produced `System.Object[]`; test/runner evidence is green |
 | `018b894b` | Functional first run | Fail: 17-shard contention / shared process deadline | 180.0s command / 178.1s canonical / 144.8s test phase | `tests-functional-20260824-232820`; 593/3519 fanout results; LR2 case latency 100-300x after fanout; most shards no TRX; tracked unchanged; residual 0 after outer check; Unit 4b replan trigger met |
+| Unit 4b snapshot | PowerShell parse + direct shard-plan validator + `functional-early-entry` lifecycle probe + `git diff --check` | Pass | 5.9s probe; parse/check clean | 15 launch shards / 14 retained fanout descriptors / 12 actual fanout launches; 3 early entries started once, exit0/running accounted once, nonzero blocked fanout, raw record promoted once, exact cleanup residual 0 |
+| Unit 4b snapshot | requested focused Quick: settings, four BMS playlist fixtures, `VerificationRunnerContractTests`, `VerificationProcessLifecycleTests` | Pass (256/256) | 146.6s command / 138.4s filtered build/test | `tests-quick-20260825-001640`; tracked fingerprint unchanged; residual test process 0; includes `functional-early-entry` behavior coverage |
 
 ## Done when
 
