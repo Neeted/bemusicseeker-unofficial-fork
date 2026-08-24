@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 2 implementation complete; stability verification pending
+Status: Unit 4 critical-tail ownership replan approved; implementation pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -221,9 +221,50 @@ Workerは上記fixture filterのQuick、PowerShell parse、`git diff --check`を
 - 既存method bodyの移動だけではcompile / test semanticsを維持できず、production fallback、runner topology、worker数、timeout、DNPまたは所有path外の変更が必要になる。
 - GUID resource cleanup、completion / cancellation signal、failure precedenceのいずれかを変更しないとfixtureを分離できない。
 
-## Unit 4: final stability gates and review
+## Unit 4: critical-tail owner topology
 
-Unit 1をcommit後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
+### Context and decision
+
+Unit 3後の `4097e3a3` では `remaining` が1869/1869でprocess deadlineの約2秒前に完了し、旧58.1秒の `BmsLibraryStateApplierTests` は3 fixtureの最大10.4秒まで短縮された。一方、`playlist-update`、`presentation-workspace`、`settings-presentation-classwide` がdeadline時点で残った。3 routeの過去成功時のtailはそれぞれ約57.3秒、53.5秒、60.6秒であるため、1 routeだけの局所修正では別routeがcriticalになる。次の3 ownership変更を同じreviewable unitで閉じ、既存の180秒command budget、170秒process deadline、10秒cleanup reserve、pre-wave順序、remaining 12 workers、logical test setを維持する。
+
+1. Settingsはexact 6 foreground methodを新しい `SettingsForegroundInteractionTests` へ集約する。foreground fixtureとnon-foreground `SettingDialogEditCompletionTests` を1-workerの `settings-edit-foreground-classwide` で実行し、non-foreground `SettingsWindowPresentationTests` は別の1-worker `settings-window-nonactivating-classwide` で実行する。foregroundを取得するprocessはexact 1つとし、複数foreground process案は退役する。
+2. 旧95-case `BmsPlaylistUpdateTests` は external reload、persistence lifecycle、custom-folder output、migration / registration の4 owner fixtureへ分割し、各fixtureを別の1-worker / `ClassLevel` processへ割り当てる。各classは既存のclass-wide DNP、process-local `Settings.Default`、GUID temporary DB/files/outputを維持する。`Settings.Default.Save()` または共有portable config書込みが見つかった場合は並列化しない。
+3. 旧147-case `PlaylistWorkspaceViewModelTests` は external source、action workflow、detail refresh、presentation state、persistence command の5 owner fixtureへ分割する。既存 `presentation-workspace` testhost内で `LibraryFolderTreeViewModelTests` とともに3-worker / `ClassLevel` で実行し、`PlaybackPanelViewModelTests` のclass-wide DNP exclusive phaseは維持する。新しいprocessは追加しない。
+
+期待critical tailは約60.6秒から39-43秒で、17秒以上のheadroomを得る。production code、fallback、timeout、固定wait、追加DNP、pre-wave overlapは変更しない。
+
+### Ownership and handoff
+
+- Worker A owns `SettingDialogEditCompletionTests.cs`、`SettingsWindowPresentationTests.cs`、`BmsPlaylistUpdateTests.cs` と新しいsettings / BMS playlist fixture/support files。既存method body、assertion、completion signal、cleanupを一度だけ移動し、共通support変更が必要なら停止してrootへ返す。
+- Worker B owns `PlaylistWorkspaceViewModelTests.cs` と新しいworkspace fixture/support files。同じ巨大fileをWorker Aは編集しない。
+- 両worker完了後、integration workerが `scripts/verify-refactor.ps1`、`VerificationRunnerContractTests.cs`、`testing-strategy.md`、feature Verification map、本計画を所有する。実launch objectのexact membership、worker/scope、remaining exclusion、cross-route uniqueness、foreground exact allowlistを検証する。
+
+### Test delta
+
+| Behavior / failure contract | Coverage | Decision | Shared resource / lane | Completion signal | Retired route |
+| --- | --- | --- | --- | --- | --- |
+| settings foreground / nonactivating presentation | 旧2 fixtureの全case + exact 6 foreground methods | `replace` fixture containers; foreground exact 1 process | two 1-worker `ClassLevel` testhosts; process-local Application/dispatcher/resources/settings | existing dispatcher host、window scope、task/event completion、HWND cleanup | `settings-presentation-classwide` single host |
+| playlist reload / persistence / output / migration | 旧 `BmsPlaylistUpdateTests` 95 methods | `replace` with four owner fixtures/processes | each 1-worker `ClassLevel`; existing DNP; process-local settings; GUID DB/files | existing task/event/DB commit and visible-publication receipts | `playlist-update` single-class route |
+| playlist workspace owner boundaries | 旧 `PlaylistWorkspaceViewModelTests` 147 methods | `replace` with five owner fixtures | existing `presentation-workspace`, 3 workers/ClassLevel; Playback DNP exclusive | existing dispatcher host、TCS/event/barrier、GUID files | monolithic workspace class / 2-worker assumption |
+| actual launch topology | `VerificationRunnerContractTests` + Functional | `extend` actual-consumed plan validator | no metadata-only route | launch validator + exact TRX/host exit | old settings/playlist/workspace allowlists |
+
+### Focused verification
+
+- Worker A: new settings fixture FQNs and four BMS playlist fixture FQNs.
+- Worker B: five workspace fixture FQNs plus `LibraryFolderTreeViewModelTests` and `PlaybackPanelViewModelTests`.
+- Integration: `VerificationRunnerContractTests`、PowerShell parse、`git diff --check`。
+- Final snapshot: WPF focused 30回とFunctional 3回を1回目から再実行し、Fullを1回実行する。
+
+### Replan triggers
+
+- method移動にshared mutable state、portable `user.config` write、cross-fixture cleanup dependency、意味の変わるhelper抽出が必要になる。
+- nonactivating settings hostにforeground methodまたはunprepared activation routeが残る。
+- Functionalのいずれかでprocess deadlineまで15秒未満、timeout、deterministic failure、残留process/HWND、tracked file変更が生じる。
+- 追加processのSQLite / I/O contentionで別routeがcriticalになる。この場合もtimeout延長やworker削減で隠さずownershipを再調査する。
+
+## Unit 5: final stability gates and review
+
+Unit 4をcommit後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
 
 1. PowerShell parse、`git diff --check`、Release build、runner hash。
 2. lifecycle focused Quick。
@@ -241,7 +282,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 1: lifecycle P2 closure | Complete | `5e7ccaed`。focused Quick 17/17、PowerShell parse、`git diff --check`、Release build成功。 |
 | Unit 2: Functional headroom replan | Implementation complete; stability verification pending | base HEAD `128519856d57b304bc21930843b1aecfc10eeaa4` から、settings 16 fixtureをforeground 2/state 14の2 testhostへ分離し、presentation workspaceを2-worker/ClassLevel化。実 launch plan objectを同一 validatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、fanout object identityを検証する。PowerShell parse / `git diff --check` pass。focused Quick `VerificationRunnerContractTests` 4/4 pass、33.5s command、diagnostics `artifacts/verification/tests-quick-20260824-213148`。Functional/Full/WPF30はroot担当。playlist overlapとremaining fixture分割は採用しない。 |
 | Unit 3: remaining owner fixture rebalancing | Complete; integration stability pending | `7ccca8ea` / `tests-functional-20260824-213728` のprocess deadline failureを受け、26 caseをlibrary init/mutation 13、package lifecycle/pending 7、catalog relocation 6へ分割。既存remaining process、12-worker ClassLevel、GUID resource、completion signalは維持。focused Quick 26/26 pass、Functional/Full/WPF30はroot担当。 |
-| Unit 4: final stability gates and review | Pending | Unit 3後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
+| Unit 4: critical-tail owner topology | Planned; implementation pending | `4097e3a3` でremainingは完走したがplaylist / presentation / settingsがdeadlineへ残ったため、3 routeをowner単位へ再編する。foreground exact 1 process、logical test set、deadline、pre-wave順、remaining workersは維持する。 |
+| Unit 5: final stability gates and review | Pending | Unit 4後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
 
@@ -255,6 +297,9 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 2 snapshot | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests'` | Pass (4/4) | 33.5s command / 6.3s test | `tests-quick-20260824-213148`; actual launch plan validator and contract tests passed; no residual testhost process |
 | `7ccca8ea` / Unit 2 retry | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional` | Fail: shared process deadline | 176.5s command | `tests-functional-20260824-213728`; settings-presentation-classwide 142/142 and settings-state-classwide 119/119 completed; remaining / playlist-update / presentation-workspace stopped without TRX; tracked fingerprint unchanged; residual testhost / dotnet process 0 |
 | Unit 3 snapshot | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~BmsLibraryStateApplierTests|FullyQualifiedName~BmsLibraryPackageLifecycleTests|FullyQualifiedName~BmsLibraryCatalogRelocationTests'` | Pass (26/26) | 29.3s command / 2.8s test | `tests-quick-20260824-215349`; build succeeded; 12 workers / `ClassLevel` observed; tracked fingerprint unchanged; no residual test process |
+| `4097e3a3` | Release build + lifecycle/runner focused Quick | Pass (18/18) | 22.4s build / 70.7s Quick | `tests-quick-20260824-215800`; 0 errors; runner `F434C6C3...15DFF0`; lifecycle `87D0E075...A28997C`; tracked unchanged; residual 0 |
+| same | WPF focused filter, 30 consecutive runs | Pass (30/30) | 31.3-34.6s / run | `tests-quick-20260824-215928` through `tests-quick-20260824-221507`; all residual 0; tracked unchanged |
+| same | Functional first run | Fail: shared process deadline | 173.4s command / 171.8s canonical / 155.4s test phase | `tests-functional-20260824-221554`; remaining 1869/1869 completed; playlist-update 87/95、presentation 205/208、settings-presentation 136/142 at cutoff; tracked unchanged; residual 0; Unit 4 replan trigger met |
 
 ## Done when
 
