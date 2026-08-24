@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 4e-C canonical Functional deadline policy implemented; focused verification complete; stability pending
+Status: Unit 4e-D persistent nonactivating HWND correction implemented; focused verification complete; stability pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -476,9 +476,33 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Ful
 
 Replan triggerは、execution / cleanup deadlineが別 phaseへ resetされる、successが180秒超過後に通る、failure cleanupが +10秒 cutoffを超える、restore/build/portable/fanoutで absolute deadlineの伝播が失われる、5-host topologyやlogical onceが変わる、tracked mutationまたはresidual processが発生する、もしくは同一条件の2回目の deterministic timeout / failure evidenceが出る場合とする。
 
+### Unit 4e-D: persistent nonactivating HWND style correction
+
+#### Trigger evidence
+
+`b19a8c29` の Functional `tests-functional-20260825-053138` は `serial-state-a` で 392 件中 1 件が失敗した。失敗は `SettingsWindowPresentationTests.SettingsWindow_AboutIdentityPresentationUpdatesVersionAndBuildWithoutRedundantStatus` の `Non-activating test HWND ... became the foreground window` で、canonical elapsed は 125.8 秒、residual は 0 だった。同じ host は直前に foreground interaction の 12 invocation をすべて実行しており、直前の foreground window が閉じた時点で、`ShowActivated=false`、offscreen placement、`SWP_NOACTIVATE` だけでは共有 dispatcher の test HWND が選択され得ることが確認された。
+
+#### Correction and observable outcome
+
+`TestWindowPresentationScope` の既存 HWND 作成境界で、`NonActivating` window の native extended style を読み、既存 bits を保持したまま `WS_EX_NOACTIVATE` を追加する。`GetWindowLongPtr` / `SetWindowLongPtr` の error state と readback を検証し、native API failure、既存 style の欠落、style mismatch は明示的に失敗させる。popup は既存 `Opened` observation で同じ policy を適用する。`VerifyPresentationPolicy` は offscreen / non-foreground に加えて native `WS_EX_NOACTIVATE` を確認する。`ShowActivated=false`、`ShowInTaskbar=false`、offscreen placement、`SWP_NOACTIVATE`、現行 5-host `1/1/1/1/ProcessorCount` topology、`ForegroundInteraction` の exact 7 methodは変更しない。
+
+#### Test delta and verification
+
+| Behavior / failure contract | Production owner / symbol | Candidate coverage | Decision | Shared resource / lane | Completion signal | Retired route |
+| --- | --- | --- | --- | --- | --- | --- |
+| foreground close後も non-activating owner / child / popup HWND が選択されない | `TestWindowPresentationScope` HWND creation / native style readback / `VerifyPresentationPolicy` | existing `WpfTestApplicationHostTests.RunWindowTest_NonActivatingPresentationStaysOffscreenAndCleansWindowAndPopupHwnds` を extend; failed `SettingsWindowPresentationTests` methodは behavior coverage として維持 | extend; new fixtureなし | process-local WPF `Application` / STA dispatcher / `serial-state-a`; standard filtered Quick | existing `ContentRendered` / owned presentation signal、popup `Opened`、deterministic cleanup | transient `ShowActivated` / `SWP_NOACTIVATE` flagsだけに依存する route、stale named settings host map |
+
+Focused verification:
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~WpfTestApplicationHostTests|FullyQualifiedName=BeMusicSeeker.Tests.SettingsWindowPresentationTests.SettingsWindow_AboutIdentityPresentationUpdatesVersionAndBuildWithoutRedundantStatus|FullyQualifiedName~SettingsForegroundInteractionTests'
+```
+
+結果は 18/18 pass、diagnostics `artifacts/verification/tests-quick-20260825-055313`、testhost / vstest / verification residual 0、`git diff --check` pass。Functional / Full / repeat30 は Unit 5 の root 統合責任であり、final stability は未完了のままとする。
+
 ## Unit 5: final stability gates and review
 
-Unit 4e implementation snapshotの統合後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
+Unit 4e-D implementation snapshotの統合後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
 
 1. PowerShell parse、`git diff --check`、Release build、runner hash。
 2. lifecycle focused Quick。
@@ -500,8 +524,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4b: staged settings and bounded fanout | Implementation complete; stability verification pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
 | Unit 4c: LR2-only early and regular-chart ownership | Implementation and focused verification complete; stability pending | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割した。actual planは15/14/14/1、LR2-only early、settings post-pre-wave fanout exact-once、old class退役、narrow supportを維持する。fixture/runner focused Quick、parse、diff check、76/76 body identityを完了。 |
 | Unit 4d: final Functional tail ownership | Blocker correction implemented; stability pending | Functional fanoutでChartInfo splitのThreadPool completion ownership premiseが破綻したため、5 source groupを単一partial `ChartInfoMetadataOwnerTests`へregroup。library/startup owner split、exact 6-worker ClassLevel route、15/14/14/1 topology、logical test set、watchdogを維持する。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
-| Unit 4e: KISS Functional / watchdog policy | Implementation and focused verification complete; stability pending | 個別testの短時間予算と15-shard性能topologyを退役。portable単独完了後、同じactual plan arrayからBass / serial A / serial B / remainingを4-host fanoutし、5-host `1/1/1/1/ProcessorCount` / `ClassLevel`、one canonical execution deadline、failure-cleanup deadline = execution + 10秒、normal-completion plain await、exact remaining exclusionを実装。Unit 4e-Cでは deadline policy の executable probe と `VerificationRunnerContractTests` を extend。Focused Quick 19/19 pass; Functional/Full/WPF30/static reviewはroot担当。 |
-| Unit 5: final stability gates and review | Pending | Unit 4e implementation snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
+| Unit 4e: KISS Functional / watchdog policy | Unit 4e-D implementation and focused verification complete; stability pending | 個別testの短時間予算と15-shard性能topologyを退役。portable単独完了後、同じactual plan arrayからBass / serial A / serial B / remainingを4-host fanoutし、5-host `1/1/1/1/ProcessorCount` / `ClassLevel`、one canonical execution deadline、failure-cleanup deadline = execution + 10秒、normal-completion plain await、exact remaining exclusionを実装。Unit 4e-Cでは deadline policy の executable probe と `VerificationRunnerContractTests` を extend。Unit 4e-Dでは `WS_EX_NOACTIVATE` の native style readback と owner/child/popup canonical coverageを追加。Focused Quick 19/19（4e-C）、18/18（4e-D）pass; Functional/Full/WPF30/static reviewはroot担当。 |
+| Unit 5: final stability gates and review | Pending | Unit 4e-D implementation snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
 

@@ -296,12 +296,12 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 
 ## Verification map
 
-設定画面の Functional ownership は、foreground interaction と non-activating presentation、process-local state を別 testhost に分離する。
+設定画面の Functional ownership は、現在の `serial-state-a`（1 worker / `ClassLevel`）で process-local な WPF `Application` / STA dispatcher / settings state を直列化する。foreground interaction と non-activating presentation は同じ serial host を共有するが、`TestWindowPresentationScope` は既定の non-activating HWND に `WS_EX_NOACTIVATE` を永続設定して readback するため、foreground を必要とする exact 7 method 以外は foreground を取得しない。旧 `settings-edit-foreground-classwide`、`settings-window-nonactivating-classwide`、`settings-state-classwide` の named host route は退役済みである。
 
 | behavior | canonical fixture | Functional route |
 | --- | --- | --- |
-| foreground keyboard、focus、hit-testing、nested modal activation と LR2 advanced path commit の7 method | `SettingsForegroundInteractionTests`（`SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll`、`SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes`、`SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes`、`SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow`、`Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting`、`Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected`、`Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor`） | `settings-edit-foreground-classwide`, 1 worker / `ClassLevel`; `SettingDialogEditCompletionTests` の他の non-FG case と同居 |
-| non-foreground SettingsWindow presentation | `SettingsWindowPresentationTests`（foreground 7 methodは含めない） | `settings-window-nonactivating-classwide`, 1 worker / `ClassLevel` |
-| process-local settings/application state | existing exact 14 classes | `settings-state-classwide`, 1 worker / `ClassLevel` |
+| foreground keyboard、focus、hit-testing、nested modal activation と LR2 advanced path commit の7 method | `SettingsForegroundInteractionTests`（`SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll`、`SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes`、`SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes`、`SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow`、`Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting`、`Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected`、`Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor`） | `serial-state-a`, 1 worker / `ClassLevel`; この exact 7 methodだけが `TestWindowActivation.ForegroundInteraction` を要求 |
+| non-foreground SettingsWindow presentation | `SettingsWindowPresentationTests`（foreground 7 methodは含めない） | `serial-state-a`, 1 worker / `ClassLevel`; 共有 host の既定 `NonActivating` policy が offscreen、非foreground、native `WS_EX_NOACTIVATE` を検証 |
+| process-local settings/application state | existing exact 14 classes | `serial-state-a`, 1 worker / `ClassLevel` |
 
 runner は上記 route の実際の class selector、worker、scope、remaining exclusion、foreground allowlistを起動前に検証する。反復時の対象は `FullyQualifiedName~VerificationRunnerContractTests` の filtered Quick とする。

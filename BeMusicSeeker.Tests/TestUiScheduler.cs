@@ -441,6 +441,8 @@ internal sealed class TestWindowPresentationScope
     private const uint SwpNoSize = 0x0001;
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
+    private const int GwlExStyle = -20;
+    private const long WsExNoActivate = 0x08000000L;
     private readonly Application application;
     private readonly uint nativeThreadId;
     private readonly HashSet<Window> baselineWindows;
@@ -522,7 +524,13 @@ internal sealed class TestWindowPresentationScope
 
         var registration = new WindowRegistration(window, activation);
         registration.SourceInitialized = (_, _) =>
+        {
             registration.Handle = new WindowInteropHelper(window).Handle;
+            if (activation == TestWindowActivation.NonActivating)
+            {
+                EnsureNonActivatingStyle(registration.Handle, window.GetType().Name);
+            }
+        };
         registration.Loaded = (_, _) => ObservePresentation(registration);
         registration.Closing = (_, _) => ObservePresentation(registration);
         window.SourceInitialized += registration.SourceInitialized;
@@ -598,6 +606,15 @@ internal sealed class TestWindowPresentationScope
     /// Gets the current foreground HWND.
     /// </summary>
     internal static nint ForegroundWindow => GetForegroundWindow();
+
+    /// <summary>
+    /// Reads the native extended style and reports whether a presentation HWND has persistent non-activation.
+    /// </summary>
+    /// <param name="handle">The HWND to inspect.</param>
+    /// <returns><see langword="true"/> when the native style contains <c>WS_EX_NOACTIVATE</c>.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the HWND or native style read is unavailable.</exception>
+    internal static bool HasNoActivateStyle(nint handle)
+        => (ReadExtendedWindowStyle(handle, "non-activating test") & WsExNoActivate) != 0;
 
     internal static uint GetCurrentNativeThreadId() => GetCurrentThreadId();
 
@@ -740,6 +757,13 @@ internal sealed class TestWindowPresentationScope
             return;
         }
 
+        long extendedStyle = ReadExtendedWindowStyle(handle, "non-activating test");
+        if ((extendedStyle & WsExNoActivate) == 0)
+        {
+            throw new InvalidOperationException(
+                $"Non-activating test HWND 0x{handle:X} does not have WS_EX_NOACTIVATE in its native extended style.");
+        }
+
         if (!IsOutsideAllMonitors(handle))
         {
             throw new InvalidOperationException($"Non-activating test HWND 0x{handle:X} intersects a monitor.");
@@ -760,6 +784,56 @@ internal sealed class TestWindowPresentationScope
         ApplyAndVerifyNonActivatingPosition(handle, window.GetType().Name, left, top);
     }
 
+    private static void EnsureNonActivatingStyle(nint handle, string presentationName)
+    {
+        long existingStyle = ReadExtendedWindowStyle(handle, presentationName);
+        long requiredStyle = existingStyle | WsExNoActivate;
+        if (requiredStyle != existingStyle)
+        {
+            Marshal.SetLastPInvokeError(0);
+            nint previousStyle = SetWindowLongPtr(handle, GwlExStyle, (nint)requiredStyle);
+            int error = Marshal.GetLastPInvokeError();
+            if (previousStyle == 0 && error != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to add WS_EX_NOACTIVATE to non-activating {presentationName} HWND 0x{handle:X}; Win32 error {error}.");
+            }
+        }
+
+        long observedStyle = ReadExtendedWindowStyle(handle, presentationName);
+        if ((observedStyle & existingStyle) != existingStyle)
+        {
+            throw new InvalidOperationException(
+                $"Adding WS_EX_NOACTIVATE changed existing extended styles on non-activating {presentationName} HWND 0x{handle:X}.");
+        }
+
+        if ((observedStyle & WsExNoActivate) == 0)
+        {
+            throw new InvalidOperationException(
+                $"Non-activating {presentationName} HWND 0x{handle:X} did not retain WS_EX_NOACTIVATE after native style update.");
+        }
+    }
+
+    private static long ReadExtendedWindowStyle(nint handle, string presentationName)
+    {
+        if (!IsWindow(handle))
+        {
+            throw new InvalidOperationException(
+                $"The non-activating {presentationName} presentation has no valid HWND for native style verification.");
+        }
+
+        Marshal.SetLastPInvokeError(0);
+        nint style = GetWindowLongPtr(handle, GwlExStyle);
+        int error = Marshal.GetLastPInvokeError();
+        if (style == 0 && error != 0)
+        {
+            throw new InvalidOperationException(
+                $"Failed to read the extended style for non-activating {presentationName} HWND 0x{handle:X}; Win32 error {error}.");
+        }
+
+        return style.ToInt64();
+    }
+
     private static void ApplyAndVerifyNonActivatingPosition(
         nint handle,
         string presentationName,
@@ -772,14 +846,16 @@ internal sealed class TestWindowPresentationScope
                 $"The non-activating {presentationName} presentation lost its HWND before policy verification.");
         }
 
+        EnsureNonActivatingStyle(handle, presentationName);
+
         if (!SetWindowPos(
-                handle,
-                0,
-                left,
-                top,
-                0,
-                0,
-                SwpNoSize | SwpNoZOrder | SwpNoActivate))
+            handle,
+            0,
+            left,
+            top,
+            0,
+            0,
+            SwpNoSize | SwpNoZOrder | SwpNoActivate))
         {
             throw new InvalidOperationException(
                 $"Failed to position non-activating test HWND 0x{handle:X} outside the virtual screen; Win32 error {Marshal.GetLastWin32Error()}.");
@@ -953,6 +1029,12 @@ internal sealed class TestWindowPresentationScope
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern nint GetWindowLongPtr(nint window, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern nint SetWindowLongPtr(nint window, int index, nint value);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

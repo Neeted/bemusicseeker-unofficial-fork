@@ -168,6 +168,12 @@ public sealed class WpfTestApplicationHostTests
 
             Assert.AreNotEqual(0, windowHandle);
             Assert.AreNotEqual(0, popupHandle);
+            Assert.IsTrue(
+                TestWindowPresentationScope.HasNoActivateStyle(windowHandle),
+                "The owner HWND must retain WS_EX_NOACTIVATE.");
+            Assert.IsTrue(
+                TestWindowPresentationScope.HasNoActivateStyle(popupHandle),
+                "The popup HWND must retain WS_EX_NOACTIVATE.");
             Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(windowHandle));
             Assert.AreNotEqual(windowHandle, TestWindowPresentationScope.ForegroundWindow);
             Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(popupHandle));
@@ -182,6 +188,13 @@ public sealed class WpfTestApplicationHostTests
             };
             child.Closed += (_, _) => closeEvents.Add("child");
             scope.ShowAndWaitForContentRendered(child);
+            nint childHandle = TestWindowPresentationScope.GetNativeHandle(child);
+            Assert.AreNotEqual(0, childHandle);
+            Assert.IsTrue(
+                TestWindowPresentationScope.HasNoActivateStyle(childHandle),
+                "The owned child HWND must retain WS_EX_NOACTIVATE.");
+            Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(childHandle));
+            Assert.AreNotEqual(childHandle, TestWindowPresentationScope.ForegroundWindow);
         });
 
         CollectionAssert.AreEqual(new[] { "popup", "child", "owner" }, closeEvents);
