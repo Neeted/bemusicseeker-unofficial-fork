@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class FolderAutoRenameWorkflowOwnerTests
 {
     [TestMethod]
-    public void SelectedRequest_PublishesTerminalProgressBeforeCompletion()
+    public async Task SelectedRequest_PublishesTerminalProgressBeforeCompletion()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -26,7 +26,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             ChartFolderAutoRenameRequest observedRequest = null!;
             var events = new List<string>();
-            var completion = new ManualResetEventSlim(false);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             FolderAutoRenameCompletionReceipt receipt = null!;
             var owner = CreateOwner(
                 (current, selectedRequest, progress) =>
@@ -61,7 +61,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 {
                     events.Add("completion");
                 }
-                completion.Set();
+                completion.TrySetResult(true);
             };
             owner.TerminalPublished += () =>
             {
@@ -72,8 +72,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             };
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)));
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await completion.Task;
+            await owner.WaitForIdleAsync();
             CollectionAssert.AreEqual(
                 new[] { "initial", "progress", "terminal", "completion", "terminal-published" },
                 events.ToArray());
@@ -124,7 +124,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.ProgressChanged += _ => Interlocked.Increment(ref progressCalls);
 
             await owner.RequestStartAllAsync(root);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(0, executorCalls);
             Assert.AreEqual(0, progressCalls);
             Assert.AreNotEqual(callerThreadId, checkerThreadId);
@@ -178,7 +178,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreEqual(MessageBoxResult.Cancel, dialogs.LastConfirmationRequest.DefaultResult);
             Assert.AreEqual(1, schedulerCalls);
             Assert.AreEqual(1, completionCount);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(1, executorCalls);
             Assert.AreEqual(root, observedParentDirectory);
         }
@@ -218,7 +218,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
             Assert.AreEqual(1, dialogs.ConfirmationCalls);
             Assert.AreEqual(0, executorCalls);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -256,7 +256,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
             Assert.AreEqual(1, dialogs.ConfirmationCalls);
             Assert.AreEqual(0, executorCalls);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -293,12 +293,12 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(first);
 
             Task requestTask = owner.RequestStartAllAsync(firstRoot);
-            Assert.IsTrue(dialogs.ConfirmationStarted.Wait(TimeSpan.FromSeconds(5)));
+            await dialogs.ConfirmationStarted.Task;
             owner.AttachLibrary(second);
             dialogs.ReleaseConfirmation();
             await requestTask;
 
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(0, executorCalls);
         }
         finally
@@ -308,7 +308,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void NextRequestWaitsForQueuedTerminalPublication()
+    public async Task NextRequestWaitsForQueuedTerminalPublication()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -352,12 +352,12 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
             DrainNotifications(notifications);
 
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
             Assert.IsTrue(firstIdle.IsCompleted);
             Assert.AreEqual(0, completionCount, "A stale terminal must not publish completion.");
             Assert.IsTrue(owner.RequestStartSelected(targets));
             DrainNotifications(notifications);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(1, completionCount);
         }
         finally
@@ -367,7 +367,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void Start_RejectsDuplicateWhileSelectedRequestIsActive()
+    public async Task Start_RejectsDuplicateWhileSelectedRequestIsActive()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -376,12 +376,12 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
-            var started = new ManualResetEventSlim(false);
-            var completed = new ManualResetEventSlim(false);
+            var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
-                    started.Set();
+                    started.TrySetResult(true);
                     release.Wait(TimeSpan.FromSeconds(5));
                     return new FolderAutoRenameExecutionResult { RefreshRequired = true };
                 },
@@ -395,14 +395,14 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 action => action(),
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
-            owner.CompletionPublished += _ => completed.Set();
+            owner.CompletionPublished += _ => completed.TrySetResult(true);
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
+            await started.Task;
             Assert.IsFalse(owner.RequestStartSelected(targets));
             release.Set();
-            Assert.IsTrue(completed.Wait(TimeSpan.FromSeconds(5)));
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await completed.Task;
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -412,7 +412,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AttachLibrary_SuppressesStaleCompletionAndAllowsReplacement()
+    public async Task AttachLibrary_SuppressesStaleCompletionAndAllowsReplacement()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -426,21 +426,21 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             BMSLibrary first = CreateLibrary(firstRoot, "song.db");
             BMSLibrary second = CreateLibrary(secondRoot, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
-            var firstStarted = new ManualResetEventSlim(false);
-            var secondStarted = new ManualResetEventSlim(false);
-            var completion = new ManualResetEventSlim(false);
+            var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var secondStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             int completionCount = 0;
             var owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
                     if (ReferenceEquals(current, first))
                     {
-                        firstStarted.Set();
+                        firstStarted.TrySetResult(true);
                         releaseFirst.Wait(TimeSpan.FromSeconds(5));
                     }
                     else
                     {
-                        secondStarted.Set();
+                        secondStarted.TrySetResult(true);
                     }
                     return new FolderAutoRenameExecutionResult { RefreshRequired = true };
                 },
@@ -457,19 +457,20 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.CompletionPublished += _ =>
             {
                 Interlocked.Increment(ref completionCount);
-                completion.Set();
+                completion.TrySetResult(true);
             };
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)));
+            await firstStarted.Task;
             owner.AttachLibrary(second);
             releaseFirst.Set();
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(0, completionCount);
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            Assert.IsTrue(secondStarted.Wait(TimeSpan.FromSeconds(5)));
-            Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)));
+            await secondStarted.Task;
+            await completion.Task;
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(1, completionCount);
         }
         finally
@@ -480,7 +481,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AttachLibrary_RechecksGenerationBeforeMutationAfterGateWait()
+    public async Task AttachLibrary_RechecksGenerationBeforeMutationAfterGateWait()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -524,7 +525,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 owner.AttachLibrary(second);
             }
 
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(0, mutationCalls);
         }
         finally
@@ -534,7 +535,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AttachLibraryResetSurvivesStaleRunCompletion()
+    public async Task AttachLibraryResetSurvivesStaleRunCompletion()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -543,7 +544,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         Directory.CreateDirectory(firstRoot);
         Directory.CreateDirectory(secondRoot);
         var releaseFirst = new ManualResetEventSlim(false);
-        var firstStarted = new ManualResetEventSlim(false);
+        var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var notifications = new Queue<Action>();
         try
         {
@@ -556,7 +557,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 {
                     if (ReferenceEquals(current, first))
                     {
-                        firstStarted.Set();
+                        firstStarted.TrySetResult(true);
                         releaseFirst.Wait(TimeSpan.FromSeconds(5));
                     }
                     return new FolderAutoRenameExecutionResult { RefreshRequired = true };
@@ -586,10 +587,10 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(first);
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)));
+            await firstStarted.Task;
             owner.AttachLibrary(second);
             releaseFirst.Set();
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
 
             DrainNotifications(notifications);
 
@@ -603,7 +604,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void RequestShutdown_DrainsActiveRequestAndRejectsLaterRequest()
+    public async Task RequestShutdown_DrainsActiveRequestAndRejectsLaterRequest()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -612,11 +613,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
-            var started = new ManualResetEventSlim(false);
+            var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
-                    started.Set();
+                    started.TrySetResult(true);
                     release.Wait(TimeSpan.FromSeconds(5));
                     return new FolderAutoRenameExecutionResult { RefreshRequired = true };
                 },
@@ -632,11 +633,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(library);
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
+            await started.Task;
             owner.RequestShutdown();
             Assert.IsFalse(owner.RequestStartSelected(targets));
             release.Set();
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -646,7 +647,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void ExecutorFailure_PublishesFailureAndLeavesOwnerIdle()
+    public async Task ExecutorFailure_PublishesFailureAndLeavesOwnerIdle()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -654,7 +655,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
-            var failure = new ManualResetEventSlim(false);
+            var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Exception observed = null!;
             var owner = CreateOwner(
                 (current, selectedRequest, progress) => throw new InvalidOperationException("rename failed"),
@@ -669,12 +670,12 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 reportWorkflowFailure: exception => observed = exception,
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
-            owner.FailurePublished += _ => failure.Set();
+            owner.FailurePublished += _ => failure.TrySetResult(true);
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            Assert.IsTrue(failure.IsSet);
+            await failure.Task;
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -683,7 +684,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void SchedulerFailureAndNotificationFailure_DoNotLeaveOwnerActive()
+    public async Task SchedulerFailureAndNotificationFailure_DoNotLeaveOwnerActive()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -705,7 +706,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(library);
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(1, workflowFailures);
             Assert.IsTrue(notificationFailures > 0);
         }
@@ -848,7 +849,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
         internal bool DeferConfirmation { get; set; }
 
-        internal ManualResetEventSlim ConfirmationStarted { get; } = new(false);
+        internal TaskCompletionSource<bool> ConfirmationStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal int ConfirmationCalls { get; private set; }
 
@@ -866,7 +868,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         {
             ConfirmationCalls++;
             LastConfirmationRequest = request;
-            ConfirmationStarted.Set();
+            ConfirmationStarted.TrySetResult(true);
             return DeferConfirmation
                 ? pendingConfirmation.Task
                 : Task.FromResult(ConfirmationResult);

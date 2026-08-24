@@ -42,7 +42,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
 
         Assert.AreEqual(MaintenanceRescanStartStatus.Rejected, result.Status);
         Assert.AreEqual(0, executionCalls);
-        Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+        await owner.WaitForIdleAsync();
     }
 
     [TestMethod]
@@ -66,7 +66,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
 
         Assert.AreEqual(MaintenanceRescanStartStatus.Failed, result.Status);
         Assert.IsNotNull(result.Failure);
-        Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+        await owner.WaitForIdleAsync();
     }
 
     [TestMethod]
@@ -119,19 +119,19 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
 
         Assert.AreEqual(MaintenanceRescanStartStatus.Failed, result.Status);
         Assert.IsNotNull(result.Failure);
-        Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+        await owner.WaitForIdleAsync();
     }
 
     [TestMethod]
     public async Task RequestStartAsync_AcceptedButUnavailableOrActiveReturnsNotStarted()
     {
         var release = new ManualResetEventSlim(false);
-        var started = new ManualResetEventSlim(false);
+        var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         string root = CreateRoot();
         var owner = new MaintenanceRescanWorkflowOwner(
             (current, progress, token) =>
             {
-                started.Set();
+                started.TrySetResult(true);
                 release.Wait();
                 return new MaintenanceWorkflowResult();
             },
@@ -152,11 +152,11 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 owner.AttachLibrary(CreateLibrary(root, "song.db"));
                 MaintenanceRescanStartResult startedResult = await owner.RequestStartAsync();
                 Assert.AreEqual(MaintenanceRescanStartStatus.Started, startedResult.Status);
-                Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
+                await started.Task;
                 MaintenanceRescanStartResult active = await owner.RequestStartAsync();
                 Assert.AreEqual(MaintenanceRescanStartStatus.NotStarted, active.Status);
                 release.Set();
-                Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+                await owner.WaitForIdleAsync();
             }
             finally
             {
@@ -171,7 +171,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void Start_PublishesTerminalProgressBeforeCompletion()
+    public async Task Start_PublishesTerminalProgressBeforeCompletion()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -179,7 +179,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var events = new List<string>();
-            var completion = new ManualResetEventSlim(false);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             MaintenanceRescanCompletionReceipt receipt = null!;
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) =>
@@ -221,12 +221,12 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 {
                     events.Add("completion");
                 }
-                completion.Set();
+                completion.TrySetResult(true);
             };
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)), "The rescan did not publish completion.");
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(await StartConfirmed(owner));
+            await completion.Task;
+            await owner.WaitForIdleAsync();
             CollectionAssert.AreEqual(
                 new[] { "initial", "progress", "terminal", "completion" },
                 events.ToArray());
@@ -242,7 +242,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void Start_RejectsDuplicateWhileTheCurrentRunIsActive()
+    public async Task Start_RejectsDuplicateWhileTheCurrentRunIsActive()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -250,12 +250,12 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var started = new ManualResetEventSlim(false);
-            var completed = new ManualResetEventSlim(false);
+            var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) =>
                 {
-                    started.Set();
+                    started.TrySetResult(true);
                     release.Wait(TimeSpan.FromSeconds(5));
                     return new MaintenanceWorkflowResult { Canceled = token.IsCancellationRequested };
                 },
@@ -267,14 +267,14 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 action => action(),
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
-            owner.CompletionPublished += _ => completed.Set();
+            owner.CompletionPublished += _ => completed.TrySetResult(true);
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)), "The first rescan did not start.");
-            Assert.IsFalse(StartConfirmed(owner), "A second request must not overlap the active rescan.");
+            Assert.IsTrue(await StartConfirmed(owner));
+            await started.Task;
+            Assert.IsFalse(await StartConfirmed(owner), "A second request must not overlap the active rescan.");
             release.Set();
-            Assert.IsTrue(completed.Wait(TimeSpan.FromSeconds(5)), "The active rescan did not complete.");
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await completed.Task;
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -284,7 +284,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void Cancel_CancelsLiveRunAndPublishesCanceledCompletion()
+    public async Task Cancel_CancelsLiveRunAndPublishesCanceledCompletion()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -292,16 +292,16 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var started = new ManualResetEventSlim(false);
+            var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var canceledProgress = new ManualResetEventSlim(false);
-            var completed = new ManualResetEventSlim(false);
+            var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             bool tokenWasCanceled = false;
             bool receiptWasCanceled = false;
             bool uncanceledProgressAfterCancel = false;
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) =>
                 {
-                    started.Set();
+                    started.TrySetResult(true);
                     release.Wait();
                     tokenWasCanceled = token.IsCancellationRequested;
                     progress(new MaintenanceWorkflowProgress
@@ -334,19 +334,19 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.CompletionPublished += receipt =>
             {
                 receiptWasCanceled = receipt.Canceled;
-                completed.Set();
+                completed.TrySetResult(true);
             };
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)), "The rescan did not start.");
+            Assert.IsTrue(await StartConfirmed(owner));
+            await started.Task;
             owner.Cancel();
             Assert.IsTrue(canceledProgress.IsSet, "Cancel must immediately disable the active progress state.");
             release.Set();
-            Assert.IsTrue(completed.Wait(TimeSpan.FromSeconds(5)), "The canceled rescan did not publish completion.");
+            await completed.Task;
             Assert.IsTrue(tokenWasCanceled);
             Assert.IsTrue(receiptWasCanceled);
             Assert.IsFalse(uncanceledProgressAfterCancel);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -356,14 +356,14 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void CancelDuringExecutorReturn_PublishesCanceledReceipt()
+    public async Task CancelDuringExecutorReturn_PublishesCanceledReceipt()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var completion = new ManualResetEventSlim(false);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             bool receiptWasCanceled = false;
             MaintenanceRescanWorkflowOwner owner = null!;
             owner = new MaintenanceRescanWorkflowOwner(
@@ -383,13 +383,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.CompletionPublished += receipt =>
             {
                 receiptWasCanceled = receipt.Canceled;
-                completion.Set();
+                completion.TrySetResult(true);
             };
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(completion.IsSet);
+            Assert.IsTrue(await StartConfirmed(owner));
+            await completion.Task;
             Assert.IsTrue(receiptWasCanceled);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -398,7 +398,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AttachLibrary_DropsStaleGenerationAndAllowsTheReplacementToRun()
+    public async Task AttachLibrary_DropsStaleGenerationAndAllowsTheReplacementToRun()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -411,21 +411,21 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             Directory.CreateDirectory(secondRoot);
             BMSLibrary first = CreateLibrary(firstRoot, "song.db");
             BMSLibrary second = CreateLibrary(secondRoot, "song.db");
-            var firstStarted = new ManualResetEventSlim(false);
-            var secondStarted = new ManualResetEventSlim(false);
-            var completion = new ManualResetEventSlim(false);
+            var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var secondStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             int completionCount = 0;
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) =>
                 {
                     if (ReferenceEquals(current, first))
                     {
-                        firstStarted.Set();
+                        firstStarted.TrySetResult(true);
                         releaseFirst.Wait(TimeSpan.FromSeconds(5));
                     }
                     else
                     {
-                        secondStarted.Set();
+                        secondStarted.TrySetResult(true);
                     }
                     return new MaintenanceWorkflowResult();
                 },
@@ -440,19 +440,20 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.CompletionPublished += _ =>
             {
                 Interlocked.Increment(ref completionCount);
-                completion.Set();
+                completion.TrySetResult(true);
             };
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(firstStarted.Wait(TimeSpan.FromSeconds(5)), "The first generation did not start.");
+            Assert.IsTrue(await StartConfirmed(owner));
+            await firstStarted.Task;
             owner.AttachLibrary(second);
             releaseFirst.Set();
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(0, completionCount, "A replaced generation must not publish completion.");
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(secondStarted.Wait(TimeSpan.FromSeconds(5)), "The replacement generation did not start.");
-            Assert.IsTrue(completion.Wait(TimeSpan.FromSeconds(5)), "The replacement generation did not publish completion.");
+            Assert.IsTrue(await StartConfirmed(owner));
+            await secondStarted.Task;
+            await completion.Task;
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(1, completionCount);
         }
         finally
@@ -463,7 +464,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void RequestShutdown_CancelsActiveRunAndBlocksLaterStart()
+    public async Task RequestShutdown_CancelsActiveRunAndBlocksLaterStart()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -471,11 +472,11 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var started = new ManualResetEventSlim(false);
+            var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) =>
                 {
-                    started.Set();
+                    started.TrySetResult(true);
                     release.Wait(TimeSpan.FromSeconds(5));
                     return new MaintenanceWorkflowResult { Canceled = token.IsCancellationRequested };
                 },
@@ -488,12 +489,12 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(await StartConfirmed(owner));
+            await started.Task;
             owner.RequestShutdown();
-            Assert.IsFalse(StartConfirmed(owner), "Shutdown must prevent a new rescan.");
+            Assert.IsFalse(await StartConfirmed(owner), "Shutdown must prevent a new rescan.");
             release.Set();
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -503,14 +504,14 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void SchedulerFailure_PublishesFailureAndLeavesOwnerIdle()
+    public async Task SchedulerFailure_PublishesFailureAndLeavesOwnerIdle()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var failure = new ManualResetEventSlim(false);
+            var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Exception observed = null!;
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) => new MaintenanceWorkflowResult(),
@@ -521,13 +522,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.FailurePublished += publishedFailure =>
             {
                 observed = publishedFailure.Exception;
-                failure.Set();
+                failure.TrySetResult(true);
             };
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(failure.IsSet);
+            Assert.IsTrue(await StartConfirmed(owner));
+            await failure.Task;
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -536,25 +537,25 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void CanceledSchedulerTask_DoesNotLeaveOwnerActive()
+    public async Task CanceledSchedulerTask_DoesNotLeaveOwnerActive()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var failure = new ManualResetEventSlim(false);
+            var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) => new MaintenanceWorkflowResult(),
                 action => Task.FromCanceled(new CancellationToken(true)),
                 action => action(),
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
-            owner.FailurePublished += _ => failure.Set();
+            owner.FailurePublished += _ => failure.TrySetResult(true);
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(failure.IsSet, "An unrequested canceled scheduler task must publish failure.");
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(await StartConfirmed(owner));
+            await failure.Task;
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -563,14 +564,14 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void ExecutorFailure_PublishesFailureAndLeavesOwnerIdle()
+    public async Task ExecutorFailure_PublishesFailureAndLeavesOwnerIdle()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var failure = new ManualResetEventSlim(false);
+            var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Exception observed = null!;
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) => throw new InvalidOperationException("executor failed"),
@@ -583,12 +584,12 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 reportWorkflowFailure: exception => observed = exception,
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
-            owner.FailurePublished += _ => failure.Set();
+            owner.FailurePublished += _ => failure.TrySetResult(true);
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(failure.IsSet);
+            Assert.IsTrue(await StartConfirmed(owner));
+            await failure.Task;
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -597,15 +598,15 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void NullExecutorResult_PublishesFailureInsteadOfSuccessfulCompletion()
+    public async Task NullExecutorResult_PublishesFailureInsteadOfSuccessfulCompletion()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var failure = new ManualResetEventSlim(false);
-            var completion = new ManualResetEventSlim(false);
+            var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) => null!,
                 action =>
@@ -616,13 +617,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 action => action(),
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
-            owner.FailurePublished += _ => failure.Set();
-            owner.CompletionPublished += _ => completion.Set();
+            owner.FailurePublished += _ => failure.TrySetResult(true);
+            owner.CompletionPublished += _ => completion.TrySetResult(true);
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(failure.IsSet);
-            Assert.IsFalse(completion.IsSet);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(await StartConfirmed(owner));
+            await failure.Task;
+            Assert.IsFalse(completion.Task.IsCompleted);
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -631,15 +632,15 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void UnrequestedOperationCanceledException_PublishesFailure()
+    public async Task UnrequestedOperationCanceledException_PublishesFailure()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var failure = new ManualResetEventSlim(false);
-            var completion = new ManualResetEventSlim(false);
+            var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) => throw new OperationCanceledException("unexpected cancellation"),
                 action =>
@@ -650,13 +651,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 action => action(),
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
-            owner.FailurePublished += _ => failure.Set();
-            owner.CompletionPublished += _ => completion.Set();
+            owner.FailurePublished += _ => failure.TrySetResult(true);
+            owner.CompletionPublished += _ => completion.TrySetResult(true);
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(failure.IsSet);
-            Assert.IsFalse(completion.IsSet);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(await StartConfirmed(owner));
+            await failure.Task;
+            Assert.IsFalse(completion.Task.IsCompleted);
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -665,7 +666,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void ExecutorFailure_IsReportedEvenWhenUiDispatchFails()
+    public async Task ExecutorFailure_IsReportedEvenWhenUiDispatchFails()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -687,8 +688,8 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(await StartConfirmed(owner));
+            await owner.WaitForIdleAsync();
             Assert.AreEqual(1, workflowFailures);
             Assert.IsTrue(notificationFailures > 0);
         }
@@ -699,7 +700,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void DispatcherFailure_IsReportedWithoutLeavingOwnerActive()
+    public async Task DispatcherFailure_IsReportedWithoutLeavingOwnerActive()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -719,8 +720,8 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(await StartConfirmed(owner));
+            await owner.WaitForIdleAsync();
             Assert.IsTrue(notificationFailures > 0);
         }
         finally
@@ -730,14 +731,14 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void ObserverFailure_DoesNotSuppressFollowingCompletionNotification()
+    public async Task ObserverFailure_DoesNotSuppressFollowingCompletionNotification()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
-            var completion = new ManualResetEventSlim(false);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             int notificationFailures = 0;
             var owner = new MaintenanceRescanWorkflowOwner(
                 (current, progress, token) => new MaintenanceWorkflowResult(),
@@ -751,12 +752,12 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 dialogs: new AcceptedDialogService());
             owner.AttachLibrary(library);
             owner.ProgressChanged += _ => throw new InvalidOperationException("observer failed");
-            owner.CompletionPublished += _ => completion.Set();
+            owner.CompletionPublished += _ => completion.TrySetResult(true);
 
-            Assert.IsTrue(StartConfirmed(owner));
-            Assert.IsTrue(completion.IsSet);
+            Assert.IsTrue(await StartConfirmed(owner));
+            await completion.Task;
             Assert.IsTrue(notificationFailures > 0);
-            Assert.IsTrue(owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
+            await owner.WaitForIdleAsync();
         }
         finally
         {
@@ -790,9 +791,10 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         Directory.Delete(root, recursive: true);
     }
 
-    private static bool StartConfirmed(MaintenanceRescanWorkflowOwner owner)
+    private static async Task<bool> StartConfirmed(MaintenanceRescanWorkflowOwner owner)
     {
-        return owner.RequestStartAsync().GetAwaiter().GetResult().Started;
+        MaintenanceRescanStartResult result = await owner.RequestStartAsync();
+        return result.Started;
     }
 
     private sealed class AcceptedDialogService : IUiDialogService

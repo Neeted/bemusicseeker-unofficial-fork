@@ -226,7 +226,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void ActiveProgressBurst_QueuesOneLatestStatusBeforeCompletionAndInactive()
+    public async Task ActiveProgressBurst_QueuesOneLatestStatusBeforeCompletionAndInactive()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(
@@ -273,7 +273,7 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             owner.Enqueue(Enumerable.Range(1, 20).Select(index => "batch-" + index + ".zip"));
 
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             lock (notifications)
             {
                 Assert.AreEqual(
@@ -297,7 +297,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void GenerationReplacement_OldDrainCannotConsumeNewActiveStatus()
+    public async Task GenerationReplacement_OldDrainCannotConsumeNewActiveStatus()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(
@@ -313,11 +313,11 @@ public sealed class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(firstDb, []);
         File.WriteAllBytes(secondDb, []);
         var notifications = new Queue<Action>();
-        using var firstStarted = new ManualResetEventSlim(false);
-        using var secondStarted = new ManualResetEventSlim(false);
+        var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseFirst = new ManualResetEventSlim(false);
         using var releaseSecond = new ManualResetEventSlim(false);
-        using var notificationsReady = new ManualResetEventSlim(false);
+        var notificationsReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
@@ -334,12 +334,12 @@ public sealed class PackageInstallWorkflowOwnerTests
                 {
                     if (ReferenceEquals(library, first))
                     {
-                        firstStarted.Set();
+                        firstStarted.TrySetResult(true);
                         releaseFirst.Wait(5000);
                     }
                     else
                     {
-                        secondStarted.Set();
+                        secondStarted.TrySetResult(true);
                         releaseSecond.Wait(5000);
                     }
                     return [];
@@ -351,7 +351,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                         notifications.Enqueue(action);
                         if (notifications.Count >= 3)
                         {
-                            notificationsReady.Set();
+                            notificationsReady.TrySetResult(true);
                         }
                     }
                     return true;
@@ -363,14 +363,12 @@ public sealed class PackageInstallWorkflowOwnerTests
             published.Clear();
 
             owner.Enqueue(["first.zip"]);
-            Assert.IsTrue(firstStarted.Wait(5000));
+            await firstStarted.Task;
             owner.AttachLibrary(second);
             owner.Enqueue(["second.zip"]);
             releaseFirst.Set();
-            Assert.IsTrue(secondStarted.Wait(5000));
-            Assert.IsTrue(
-                notificationsReady.Wait(5000),
-                "Replacement status notifications were not queued.");
+            await secondStarted.Task;
+            await notificationsReady.Task;
 
             DrainNotifications(notifications);
 
@@ -381,7 +379,7 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             releaseFirst.Set();
             releaseSecond.Set();
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             DrainNotifications(notifications);
         }
         finally
@@ -396,7 +394,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void RetiredQueuePruningWaitsForTerminalReceiptAfterStatusDispatchStops()
+    public async Task RetiredQueuePruningWaitsForTerminalReceiptAfterStatusDispatchStops()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(
@@ -411,8 +409,8 @@ public sealed class PackageInstallWorkflowOwnerTests
         string secondDb = Path.Combine(secondDirectory, "song.db");
         File.WriteAllBytes(firstDb, []);
         File.WriteAllBytes(secondDb, []);
-        using var firstStarted = new ManualResetEventSlim(false);
-        using var terminalEntered = new ManualResetEventSlim(false);
+        var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var terminalEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseTerminal = new ManualResetEventSlim(false);
         try
         {
@@ -429,7 +427,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 {
                     if (ReferenceEquals(library, first))
                     {
-                        firstStarted.Set();
+                        firstStarted.TrySetResult(true);
                     }
                     return [];
                 },
@@ -443,17 +441,15 @@ public sealed class PackageInstallWorkflowOwnerTests
                 if (!snapshot.IsActive
                     && snapshot.Sequence > 0)
                 {
-                    terminalEntered.Set();
+                    terminalEntered.TrySetResult(true);
                     Assert.IsTrue(releaseTerminal.Wait(5000));
                 }
             };
             owner.AttachLibrary(first);
             owner.Enqueue([Path.Combine(root, "first.zip")]);
-            Assert.IsTrue(firstStarted.Wait(5000), "The first generation did not start.");
+            await firstStarted.Task;
 
-            Assert.IsTrue(
-                terminalEntered.Wait(5000),
-                "The current generation terminal status was not held.");
+            await terminalEntered.Task;
             owner.AttachLibrary(second);
 
             Assert.IsTrue(owner.IsIdle, "The status getter should still report queue state as idle.");
@@ -463,7 +459,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 "Owner idle must retain a retired processor until its terminal receipt completes.");
 
             releaseTerminal.Set();
-            Assert.IsTrue(idle.Wait(TimeSpan.FromSeconds(5)));
+            await idle;
         }
         finally
         {
@@ -508,7 +504,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AcquireAndTryEnqueueDroppedPaths_StagesTransientSourceThroughMutationPort()
+    public async Task AcquireAndTryEnqueueDroppedPaths_StagesTransientSourceThroughMutationPort()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(
@@ -522,9 +518,9 @@ public sealed class PackageInstallWorkflowOwnerTests
         Directory.CreateDirectory(Path.GetDirectoryName(source)!);
         File.WriteAllText(source, "borrowed-chart");
         File.WriteAllBytes(songDbPath, []);
-        using var mutationEntered = new ManualResetEventSlim(false);
+        var mutationEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var allowMutationRead = new ManualResetEventSlim(false);
-        using var mutationFinished = new ManualResetEventSlim(false);
+        var mutationFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         string? installedPath = null;
         string? installedContents = null;
         try
@@ -546,10 +542,10 @@ public sealed class PackageInstallWorkflowOwnerTests
                 (_, paths, _, _, _) =>
                 {
                     installedPath = paths.Single();
-                    mutationEntered.Set();
+                    mutationEntered.TrySetResult(true);
                     Assert.IsTrue(allowMutationRead.Wait(5000));
                     installedContents = File.ReadAllText(installedPath);
-                    mutationFinished.Set();
+                    mutationFinished.TrySetResult(true);
                     return [];
                 },
                 action =>
@@ -564,11 +560,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                 owner.AcquireAndTryEnqueueDroppedPaths([source]);
 
             Assert.IsTrue(result.Succeeded, result.Exception?.ToString());
-            Assert.IsTrue(mutationEntered.Wait(5000));
+            await mutationEntered.Task;
             File.Delete(source);
             allowMutationRead.Set();
-            Assert.IsTrue(mutationFinished.Wait(5000));
-            AssertOwnerIdle(owner);
+            await mutationFinished.Task;
+            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(
                 Path.Combine(ingressRoot, "archiver", "nested", "chart.bms"),
                 installedPath);
@@ -589,20 +585,20 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void Enqueue_PublishesCompletionAfterLiveInstallReturnsAndContinuesAfterFailure()
+    public async Task Enqueue_PublishesCompletionAfterLiveInstallReturnsAndContinuesAfterFailure()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string songDbPath = Path.Combine(root, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        using var firstInstallEntered = new ManualResetEventSlim(false);
+        var firstInstallEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseFirstInstall = new ManualResetEventSlim(false);
-        using var secondInstallEntered = new ManualResetEventSlim(false);
+        var secondInstallEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseSecondInstall = new ManualResetEventSlim(false);
-        using var secondFinished = new ManualResetEventSlim(false);
-        using var completed = new ManualResetEventSlim(false);
-        using var terminalInactive = new ManualResetEventSlim(false);
+        var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var terminalInactive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var observationLock = new object();
         PackageInstallWorkflowOwner? owner = null;
         bool workerStarted = false;
@@ -625,19 +621,19 @@ public sealed class PackageInstallWorkflowOwnerTests
                     }
                     if (displayName == "first.zip")
                     {
-                        firstInstallEntered.Set();
+                        firstInstallEntered.TrySetResult(true);
                         if (!releaseFirstInstall.Wait(5000))
                         {
                             throw new TimeoutException("The first install barrier was not released.");
                         }
                         throw new InvalidOperationException("first failed");
                     }
-                    secondInstallEntered.Set();
+                    secondInstallEntered.TrySetResult(true);
                     if (!releaseSecondInstall.Wait(5000))
                     {
                         throw new TimeoutException("The second install barrier was not released.");
                     }
-                    secondFinished.Set();
+                    secondFinished.TrySetResult(true);
                     return [new ChartPackage()];
                 },
                 action =>
@@ -654,7 +650,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                     {
                         eventOrder.Add("inactive");
                     }
-                    terminalInactive.Set();
+                    terminalInactive.TrySetResult(true);
                 }
             };
             owner.FailurePublished += failure =>
@@ -670,22 +666,23 @@ public sealed class PackageInstallWorkflowOwnerTests
                 {
                     eventOrder.Add("completion");
                 }
-                completed.Set();
+                completed.TrySetResult(true);
             };
             owner.Enqueue([Path.Combine(root, "first.zip")]);
             workerStarted = true;
-            Assert.IsTrue(firstInstallEntered.Wait(5000), "The first batch did not start.");
+            await firstInstallEntered.Task;
             owner.Enqueue([Path.Combine(root, "second.zip")]);
             releaseFirstInstall.Set();
 
-            Assert.IsTrue(secondInstallEntered.Wait(5000), "The following batch did not start after failure.");
-            Assert.IsFalse(completed.IsSet, "Completion must not be published before the live install returns.");
-            Assert.IsFalse(terminalInactive.IsSet, "The queue must remain active while the following batch is running.");
+            await secondInstallEntered.Task;
+            Assert.IsFalse(completed.Task.IsCompleted, "Completion must not be published before the live install returns.");
+            Assert.IsFalse(terminalInactive.Task.IsCompleted, "The queue must remain active while the following batch is running.");
             Assert.IsFalse(owner.IsIdle, "The workflow must not become idle before the live install returns.");
             releaseSecondInstall.Set();
 
-            Assert.IsTrue(secondFinished.Wait(5000), "The following batch did not run after failure.");
-            Assert.IsTrue(terminalInactive.Wait(5000), "The workflow did not publish its terminal inactive status.");
+            await secondFinished.Task;
+            await terminalInactive.Task;
+            await AssertOwnerIdleAsync(owner);
             string[] callSnapshot;
             PackageInstallFailure[] failureSnapshot;
             string[] eventOrderSnapshot;
@@ -696,7 +693,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 eventOrderSnapshot = eventOrder.ToArray();
             }
 
-            Assert.IsTrue(completed.IsSet, "The successful following batch must publish a completion receipt.");
+            await completed.Task;
             Assert.AreEqual(1, failureSnapshot.Length);
             CollectionAssert.AreEqual(new[] { "first.zip", "second.zip" }, callSnapshot);
             CollectionAssert.AreEqual(new[] { "completion", "inactive" }, eventOrderSnapshot);
@@ -708,7 +705,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             releaseSecondInstall.Set();
             if (workerStarted && owner != null)
             {
-                terminalInactive.Wait(5000);
+                terminalInactive.Task.Wait(TimeSpan.FromSeconds(5));
             }
             if (Directory.Exists(root))
             {
@@ -718,7 +715,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AttachLibrary_InvalidatesCompletionFromPreviousGeneration()
+    public async Task AttachLibrary_InvalidatesCompletionFromPreviousGeneration()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -741,13 +738,13 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
             var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
-            var started = new ManualResetEventSlim(false);
+            var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new ManualResetEventSlim(false);
-            var completion = new ManualResetEventSlim(false);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = CreateOwner(
                 (library, paths, token, onPath, onArchive) =>
                 {
-                    started.Set();
+                    started.TrySetResult(true);
                     release.Wait(5000);
                     return [new ChartPackage()];
                 },
@@ -756,15 +753,15 @@ public sealed class PackageInstallWorkflowOwnerTests
                     action();
                     return true;
                 });
-            owner.CompletionPublished += _ => completion.Set();
+            owner.CompletionPublished += _ => completion.TrySetResult(true);
             owner.AttachLibrary(first);
             owner.Enqueue([Path.Combine(root, "first.zip")]);
-            Assert.IsTrue(started.Wait(5000), "The first generation did not start.");
+            await started.Task;
             owner.AttachLibrary(second);
             release.Set();
 
-            AssertOwnerIdle(owner, "The stale workflow did not drain.");
-            Assert.IsFalse(completion.IsSet, "A replaced library generation must not publish a receipt.");
+            await AssertOwnerIdleAsync(owner);
+            Assert.IsFalse(completion.Task.IsCompleted, "A replaced library generation must not publish a receipt.");
         }
         finally
         {
@@ -776,7 +773,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AttachLibrary_RechecksGenerationBeforeMutationAfterGateWait()
+    public async Task AttachLibrary_RechecksGenerationBeforeMutationAfterGateWait()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -836,7 +833,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 owner.AttachLibrary(second);
             }
 
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.AreEqual(1, staleFailureReports);
         }
@@ -850,7 +847,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void CancelAll_WhileWaitingForOperationGateDeletesUnhandedIngressWithoutCallingInstaller()
+    public async Task CancelAll_WhileWaitingForOperationGateDeletesUnhandedIngressWithoutCallingInstaller()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -890,7 +887,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                 owner.CancelAll();
             }
 
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
@@ -904,7 +901,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void CancelAll_FromSuppressionCallbackWinsBeforeHandoffAndDeletesIngress()
+    public async Task CancelAll_FromSuppressionCallbackWinsBeforeHandoffAndDeletesIngress()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -944,7 +941,7 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
 
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
@@ -958,7 +955,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void DelayedFailurePublication_ReportsDiagnosticsAfterGenerationChanges()
+    public async Task DelayedFailurePublication_ReportsDiagnosticsAfterGenerationChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1004,7 +1001,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(first);
             owner.Enqueue([Path.Combine(root, "failed-generation.zip")]);
 
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             Assert.IsTrue(notificationQueued.Wait(5000), "The failure notification was not queued.");
             owner.AttachLibrary(second);
             DrainNotifications(notifications);
@@ -1022,7 +1019,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void DispatcherRejection_ReportsOriginalInstallFailure()
+    public async Task DispatcherRejection_ReportsOriginalInstallFailure()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1052,7 +1049,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.Enqueue([Path.Combine(root, "dispatcher-rejected.zip")]);
 
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             lock (diagnosticReports)
             {
                 Assert.IsTrue(
@@ -1070,7 +1067,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void DispatcherException_ReportsOriginalInstallFailure()
+    public async Task DispatcherException_ReportsOriginalInstallFailure()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1100,7 +1097,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.Enqueue([Path.Combine(root, "dispatcher-threw.zip")]);
 
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             lock (diagnosticReports)
             {
                 Assert.IsTrue(
@@ -1121,7 +1118,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void FailureNotificationException_ReportsInstallAndNotificationFailures()
+    public async Task FailureNotificationException_ReportsInstallAndNotificationFailures()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1153,7 +1150,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.Enqueue([Path.Combine(root, "notification-failed.zip")]);
 
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             lock (diagnosticReports)
             {
                 Assert.IsTrue(diagnosticReports.Any(exception => exception?.Message == "install failed"));
@@ -1170,7 +1167,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void CancelAfterLiveApplyReturns_PublishesCompletionReceipt()
+    public async Task CancelAfterLiveApplyReturns_PublishesCompletionReceipt()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1183,13 +1180,13 @@ public sealed class PackageInstallWorkflowOwnerTests
             {
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
-            var started = new ManualResetEventSlim(false);
+            var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new ManualResetEventSlim(false);
-            var completion = new ManualResetEventSlim(false);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
-                    started.Set();
+                    started.TrySetResult(true);
                     Assert.IsTrue(release.Wait(5000), "The live apply delegate was not released.");
                     Assert.IsTrue(token.IsCancellationRequested, "The test must cancel while live apply is in progress.");
                     return [new ChartPackage()];
@@ -1202,16 +1199,16 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.CompletionPublished += receipt =>
             {
                 Assert.AreEqual(1, receipt.Packages.Count);
-                completion.Set();
+                completion.TrySetResult(true);
             };
             owner.AttachLibrary(library);
             owner.Enqueue([Path.Combine(root, "cancelled-after-apply.zip")]);
-            Assert.IsTrue(started.Wait(5000), "The install batch did not start.");
+            await started.Task;
             owner.CancelAll();
             release.Set();
 
-            Assert.IsTrue(completion.Wait(5000), "A completed live apply must still publish its receipt after cancellation.");
-            AssertOwnerIdle(owner, "The workflow did not become idle.");
+            await completion.Task;
+            await AssertOwnerIdleAsync(owner);
         }
         finally
         {
@@ -1223,7 +1220,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AttachLibrary_EnqueueAfterReplacementUsesNewGenerationQueue()
+    public async Task AttachLibrary_EnqueueAfterReplacementUsesNewGenerationQueue()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1246,9 +1243,9 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
             var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
-            var firstStarted = new ManualResetEventSlim(false);
+            var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var releaseFirst = new ManualResetEventSlim(false);
-            var secondCompleted = new ManualResetEventSlim(false);
+            var secondCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var calls = new List<string>();
             var completions = 0;
             var owner = CreateOwner(
@@ -1261,11 +1258,11 @@ public sealed class PackageInstallWorkflowOwnerTests
                     }
                     if (ReferenceEquals(library, first))
                     {
-                        firstStarted.Set();
+                        firstStarted.TrySetResult(true);
                         Assert.IsTrue(releaseFirst.Wait(5000), "The replaced generation did not drain.");
                         return [new ChartPackage()];
                     }
-                    secondCompleted.Set();
+                    secondCompleted.TrySetResult(true);
                     return [new ChartPackage()];
                 },
                 action =>
@@ -1276,7 +1273,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.CompletionPublished += _ => Interlocked.Increment(ref completions);
             owner.AttachLibrary(first);
             owner.Enqueue([Path.Combine(root, "first-generation.zip")]);
-            Assert.IsTrue(firstStarted.Wait(5000), "The first generation did not start.");
+            await firstStarted.Task;
 
             owner.AttachLibrary(second);
             owner.Enqueue([Path.Combine(root, "second-generation.zip")]);
@@ -1284,9 +1281,9 @@ public sealed class PackageInstallWorkflowOwnerTests
             // operation gate. Release the retired generation before waiting for
             // the replacement generation to enter that same corridor.
             releaseFirst.Set();
-            Assert.IsTrue(secondCompleted.Wait(5000), "The new generation request was lost during replacement.");
+            await secondCompleted.Task;
 
-            AssertOwnerIdle(owner, "The replaced workflow did not drain.");
+            await AssertOwnerIdleAsync(owner);
             CollectionAssert.AreEqual(new[] { "first-generation.zip", "second-generation.zip" }, calls);
             Assert.AreEqual(1, completions, "Only the current generation may publish a completion receipt.");
         }
@@ -1300,7 +1297,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void RequestShutdown_PreventsLaterEnqueueFromStartingLiveMutation()
+    public async Task RequestShutdown_PreventsLaterEnqueueFromStartingLiveMutation()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1329,7 +1326,7 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.RequestShutdown();
             owner.Enqueue([Path.Combine(root, "after-shutdown.zip")]);
 
-            AssertOwnerIdle(owner, "Shutdown must drain all queue contexts.");
+            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(0, mutationCalls, "A request submitted after shutdown must not enter live mutation.");
         }
         finally
@@ -1342,7 +1339,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void NotificationFailure_DoesNotStopQueueLifecycle()
+    public async Task NotificationFailure_DoesNotStopQueueLifecycle()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1356,14 +1353,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
-            var secondFinished = new ManualResetEventSlim(false);
+            var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = CreateOwner(
                 (current, paths, token, onPath, onArchive) =>
                 {
                     int call = Interlocked.Increment(ref mutationCalls);
                     if (call == 2)
                     {
-                        secondFinished.Set();
+                        secondFinished.TrySetResult(true);
                     }
                     return [new ChartPackage()];
                 },
@@ -1378,8 +1375,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.Enqueue([Path.Combine(root, "first.zip")]);
             owner.Enqueue([Path.Combine(root, "second.zip")]);
 
-            Assert.IsTrue(secondFinished.Wait(5000), "A notification exception must not stop the following batch.");
-            AssertOwnerIdle(owner, "The queue must remain drainable after notification failure.");
+            await secondFinished.Task;
+            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(2, mutationCalls);
         }
         finally
@@ -1412,7 +1409,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void RequestShutdown_AfterPhysicalInsertionDrainsRequestWithoutPrivateLockCoordination()
+    public async Task RequestShutdown_AfterPhysicalInsertionDrainsRequestWithoutPrivateLockCoordination()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1459,14 +1456,12 @@ public sealed class PackageInstallWorkflowOwnerTests
                 "Physical insertion did not reach its lock-free status publication boundary.");
 
             Task shutdown = Task.Run(owner.RequestShutdown);
-            Assert.IsTrue(
-                shutdown.Wait(5000),
-                "Status publication must not retain the owner or queue lock needed by shutdown.");
+            await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
             releaseEnqueueStatusDispatch.Set();
 
-            Assert.IsTrue(enqueue.Wait(5000));
-            Assert.IsTrue(enqueue.Result, "Physical insertion preceding shutdown remains an accepted transfer.");
-            AssertOwnerIdle(owner);
+            bool enqueueAccepted = await enqueue.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsTrue(enqueueAccepted, "Physical insertion preceding shutdown remains an accepted transfer.");
+            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
@@ -1481,7 +1476,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void CancelAll_AfterPhysicalInsertionCannotCancelFreshPostDrainAdmission()
+    public async Task CancelAll_AfterPhysicalInsertionCannotCancelFreshPostDrainAdmission()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1492,7 +1487,7 @@ public sealed class PackageInstallWorkflowOwnerTests
         File.WriteAllBytes(songDbPath, []);
         using var enqueueStatusDispatchEntered = new ManualResetEventSlim(false);
         using var releaseEnqueueStatusDispatch = new ManualResetEventSlim(false);
-        using var freshInstallCalled = new ManualResetEventSlim(false);
+        var freshInstallCalled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
@@ -1508,7 +1503,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                     Interlocked.Increment(ref mutationCalls);
                     if (paths.Contains("fresh.zip"))
                     {
-                        freshInstallCalled.Set();
+                        freshInstallCalled.TrySetResult(true);
                     }
                     return [];
                 },
@@ -1535,15 +1530,14 @@ public sealed class PackageInstallWorkflowOwnerTests
             owner.CancelAll();
             releaseEnqueueStatusDispatch.Set();
 
-            Assert.IsTrue(enqueue.Wait(5000));
-            Assert.IsTrue(enqueue.Result);
-            AssertOwnerIdle(owner);
+            Assert.IsTrue(await enqueue.WaitAsync(TimeSpan.FromSeconds(5)));
+            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
 
             owner.Enqueue(["fresh.zip"]);
-            Assert.IsTrue(freshInstallCalled.Wait(5000), "Normal cancellation must not close later admissions.");
-            AssertOwnerIdle(owner);
+            await freshInstallCalled.Task;
+            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(1, mutationCalls);
         }
         finally
@@ -1557,7 +1551,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void AttachLibrary_DeletesOldPendingIngressButPreservesHandedOffActiveIngress()
+    public async Task AttachLibrary_DeletesOldPendingIngressButPreservesHandedOffActiveIngress()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1603,12 +1597,10 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             owner.AttachLibrary(secondLibrary);
 
-            Assert.IsTrue(
-                pendingRequest.WaitForDispositionAsync().Wait(TimeSpan.FromSeconds(5)),
-                "The retired pending ingress was not abandoned.");
+            await pendingRequest.WaitForDispositionAsync();
             Assert.IsTrue(Directory.Exists(activeRoot), "Installer handoff must protect the active source from queue cleanup.");
             releaseActive.Set();
-            AssertOwnerIdle(owner);
+            await AssertOwnerIdleAsync(owner);
             Assert.IsTrue(Directory.Exists(activeRoot));
         }
         finally
@@ -1639,13 +1631,9 @@ public sealed class PackageInstallWorkflowOwnerTests
         }
     }
 
-    private static void AssertOwnerIdle(
-        PackageInstallWorkflowOwner owner,
-        string message = "The package install workflow did not become idle.")
+    private static async Task AssertOwnerIdleAsync(PackageInstallWorkflowOwner owner)
     {
-        Assert.IsTrue(
-            owner.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)),
-            message);
+        await owner.WaitForIdleAsync();
     }
 
     private static PackageInstallWorkflowOwner CreateOwner(
