@@ -906,6 +906,20 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - BMS / bmson の install、uninstall、merge、repair、folder move、path rename、maintenance、playlist reference、duplicate search の既存挙動が維持される。
 - 既存の LR2 DB、app-owned bmson DB、playlist DB / JSON、settings、UI 文言の互換性を壊していない。
 
+## Verification map: regular-chart owner fixtures
+
+`RegularChartListOwner` の chart-common owner contract は、旧 `RegularChartListOwnerTests` の76 caseを5つの owner fixtureへ分けて検証する。fixtureは新しい named Functional routeを持たず、既存 `remaining` の12-worker / `ClassLevel` hostで実行する。元の method body、assertion、GUID付き song DB / filesystem root、task / event completion、failure watchdogは変更しない。共通の test double と builder は `RegularChartListOwnerTestSupport` という一つの narrow supportに閉じ、mutable static state、DNP、新process、production seamを追加しない。
+
+| Behavior / failure contract | Owner fixture | Existing case set | Lane / completion signal | Retired route |
+| --- | --- | --- | --- | --- |
+| tree / maintenance / install navigation, summary transition, refresh request | `RegularChartNavigationTests` | declaration indices 1-7 | `remaining`, `ClassLevel`; existing synchronous presentation events and refresh assertions | monolithic `RegularChartListOwnerTests` methods 1-7 |
+| normal-library source attach, replacement, drain, version, apply failure | `RegularChartNormalLibraryRefreshTests` | 8-10 and 14-19 | same remaining host; existing task / event receipts, catalog gate, and failure watchdog | monolithic methods 8-10 and 14-19 |
+| folder rename serialization, queued refresh, shutdown drain | `RegularChartFolderRenameTests` | 11-13 | same remaining host; existing mutation completion and shutdown receipt | monolithic methods 11-13 |
+| materialized / virtual build, filter, ordering, cache and prewarm behavior | `RegularChartViewBuildAndOrderingTests` | 20-45 | same remaining host; existing request leases, cancellation signals, and publication assertions | monolithic methods 20-45 |
+| commit, nested request retirement, presentation notification, disposal and lifecycle failure | `RegularChartCommitAndLifecycleTests` | 46-76 | same remaining host; existing terminal receipts, event ordering, and failure watchdog | monolithic methods 46-76 |
+
+The fixture split is an ownership-only test topology change. It does not change `ChartFile` / `ChartOperationTarget` persistence or BMS / bmson capability boundaries; the chart abstraction behavior remains observable through the existing owner results, row snapshots, notifications, and cleanup contracts.
+
 ## 維持する境界
 
 1. 永続化 storage は BMS / bmson の二本立てを維持する。

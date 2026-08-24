@@ -282,9 +282,7 @@ $functionalExclusiveTestClasses = @(
     # Run it before any testhost that could read settings from the same file.
     'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests')
 $functionalEarlyShardNames = @(
-    'lr2-songdb-sync'
-    'settings-edit-foreground-classwide'
-    'settings-window-nonactivating-classwide')
+    'lr2-songdb-sync')
 $functionalRemainingShardWorkers = [Math]::Max(
     1,
     [Environment]::ProcessorCount)
@@ -326,8 +324,8 @@ function New-FunctionalShardPlan {
     $shards = @($remainingShard) + @($dedicatedShards)
     # FanoutShards is the validated descriptor set retained by the runner.  LR2 is
     # already staged before the pre-wave and therefore does not belong to this set.
-    # The two settings descriptors are also staged early, but remain in this descriptor
-    # set so the launch plan, remaining exclusion, and object identity stay one ledger.
+    # Settings remain in this descriptor set and are launched after the pre-wave so
+    # the launch plan, remaining exclusion, and object identity stay one ledger.
     $fanoutShards = @($shards | Where-Object { $_.Name -cne 'lr2-songdb-sync' })
     $earlyShards = @($shards | Where-Object { $functionalEarlyShardNames -contains $_.Name })
     $fanoutLaunchShards = @($fanoutShards |
@@ -603,7 +601,7 @@ function Assert-FunctionalShardConfiguration {
     }
     if ($earlyShardsForPlan.Count -ne $earlyShardNames.Count -or
         @($earlyShardsForPlan | ForEach-Object { $_.Name } | Sort-Object -Unique).Count -ne $earlyShardNames.Count) {
-        throw 'Functional early shard descriptors must contain each staged route exactly once.'
+        throw 'Functional early shard descriptors must contain the staged LR2 route exactly once.'
     }
     foreach ($earlyShard in $earlyShardsForPlan) {
         if ($earlyShardNames -notcontains $earlyShard.Name -or
@@ -619,7 +617,7 @@ function Assert-FunctionalShardConfiguration {
             -ReferenceObject @($expectedFanoutLaunchShards | ForEach-Object { $_.Name }) `
             -DifferenceObject @($fanoutLaunchShardsForPlan | ForEach-Object { $_.Name }) `
             -CaseSensitive).Count -ne 0) {
-        throw 'Functional fanout launch descriptors must exclude every early settings route.'
+        throw 'Functional fanout launch descriptors must contain every post-pre-wave route exactly once.'
     }
     foreach ($fanoutLaunchShard in $fanoutLaunchShardsForPlan) {
         if (@($shards | Where-Object { [object]::ReferenceEquals($_, $fanoutLaunchShard) }).Count -ne 1) {
@@ -1573,7 +1571,7 @@ function Assert-FunctionalOrchestrationConfiguration {
             -ReferenceObject $functionalEarlyShardNames `
             -DifferenceObject @($earlyEntries | ForEach-Object { $_.Name }) `
             -CaseSensitive).Count -ne 0) {
-        throw 'Functional orchestration must stage LR2 and both settings routes exactly once.'
+        throw 'Functional orchestration must stage LR2 exactly once before the pre-wave.'
     }
     foreach ($earlyEntry in $earlyEntries) {
         if (@($shardEntries | Where-Object { [object]::ReferenceEquals($_, $earlyEntry) }).Count -ne 1) {
@@ -1588,7 +1586,7 @@ function Assert-FunctionalOrchestrationConfiguration {
             -ReferenceObject $expectedFanoutLaunchNames `
             -DifferenceObject $actualFanoutLaunchNames `
             -CaseSensitive).Count -ne 0) {
-        throw 'Functional fanout launch must exclude both early settings routes.'
+        throw 'Functional fanout launch must contain both settings routes after the pre-wave.'
     }
     foreach ($fanoutLaunchEntry in @($FanoutLaunchShards)) {
         if (@($shardEntries | Where-Object { [object]::ReferenceEquals($_, $fanoutLaunchEntry) }).Count -ne 1) {

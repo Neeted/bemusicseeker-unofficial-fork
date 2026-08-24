@@ -62,8 +62,8 @@ public sealed class VerificationRunnerContractTests
 
         Assert.AreEqual(15, shards.GetArrayLength());
         Assert.AreEqual(14, fanoutShards.GetArrayLength());
-        Assert.AreEqual(12, fanoutLaunchShards.GetArrayLength());
-        Assert.AreEqual(3, earlyShards.GetArrayLength());
+        Assert.AreEqual(14, fanoutLaunchShards.GetArrayLength());
+        Assert.AreEqual(1, earlyShards.GetArrayLength());
         CollectionAssert.AreEqual(
             new[]
             {
@@ -187,6 +187,8 @@ public sealed class VerificationRunnerContractTests
                 "playlist-external-custom-folder",
                 "playlist-persistence-migration",
                 "presentation-workspace",
+                "settings-edit-foreground-classwide",
+                "settings-window-nonactivating-classwide",
                 "settings-state-classwide",
                 "compiled-wpf-classwide",
                 "process-global-lifecycle",
@@ -196,9 +198,7 @@ public sealed class VerificationRunnerContractTests
         CollectionAssert.AreEqual(
             new[]
             {
-                "lr2-songdb-sync",
-                "settings-edit-foreground-classwide",
-                "settings-window-nonactivating-classwide"
+                "lr2-songdb-sync"
             },
             ReadShardNames(earlyShards));
 

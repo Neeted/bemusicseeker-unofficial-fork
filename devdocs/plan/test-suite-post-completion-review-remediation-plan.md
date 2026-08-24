@@ -325,13 +325,32 @@ Focused Quickはsettings 3 fixture、4 BMS fixture、`VerificationRunnerContract
 
 Runner validatorはearly exact LR2、fanout launch exact 14、settings2 routeのfanout exact-once、same object identity、no relaunch、remaining/cross-route uniquenessを検証する。180/170/10 budget、pre-wave I/O isolation、logical test setは不変とする。
 
+### Test delta and verification
+
+| Behavior / failure contract | Candidate existing coverage | Decision | Shared resource / lane / completion signal | Retired test / route |
+| --- | --- | --- | --- | --- |
+| LR2 early ownership、settings post-pre-wave fanout、account-once / no relaunch | `VerificationRunnerContractTests` + existing lifecycle early-entry probe | `extend`; actual plan counts and exact route membership | same launch objects、common raw ownership / cleanup ledger、global deadline | three-entry early set and settings fanout exclusion |
+| navigation and summary transitions | old `RegularChartListOwnerTests` methods 1-7 | `replace`; exact bodies / assertions | existing `remaining`, 12 workers, `ClassLevel`; synchronous presentation / refresh events | old methods 1-7 in monolithic class |
+| normal-library refresh ownership and failure | old methods 8-10, 14-19 | `replace`; exact bodies / assertions | same remaining host; existing task/event receipts, catalog gate, failure watchdog | old methods 8-10, 14-19 |
+| folder rename mutation / shutdown drain | old methods 11-13 | `replace`; exact bodies / assertions | same remaining host; existing mutation completion / shutdown receipt | old methods 11-13 |
+| view build, ordering, virtual cache / prewarm | old methods 20-45 | `replace`; exact bodies / assertions | same remaining host; request leases, cancellation, publication signals | old methods 20-45 |
+| commit, nested retirement, presentation notification, disposal lifecycle | old methods 46-76 | `replace`; exact bodies / assertions | same remaining host; terminal receipts, event ordering, failure watchdog | old methods 46-76 |
+
+The five new fixtures are not added to a named route; the existing catch-all `remaining` route discovers them after exact class exclusion. No DNP, new process, broad base, mutable static state, or production seam is introduced.
+
 Focused Quickはnew5 fixture 76件、runner contract、LR2 103件、settings 142件、library 243件、playlist grouped 47件を実行する。最終snapshotでFunctional 3回、WPF30、Full1回を実行する。
 
 Replan triggerは、LR2がpre-wave終了後も長時間running、old/new Regular classの重複・欠落、fanout testhost launch delay 25秒超、deadline headroom 15秒未満、timeout、tracked mutation、residual process/HWNDのいずれかとする。
 
+### Unit 4c implementation evidence
+
+- `New-FunctionalShardPlan` now retains 15 launch shard objects, 14 fanout descriptors, 14 fanout launch objects, and one early LR2 descriptor. Settings edit/window objects remain in the same validated fanout ledger and start once after the pre-wave; generic raw ownership, state inspection, account-once, deadline, diagnostics, and cleanup paths are unchanged.
+- The old `RegularChartListOwnerTests` class is retired. Methods 1-76 were moved without method-body or assertion changes into the five owner fixtures listed above. Existing helper/test doubles are in one narrow `RegularChartListOwnerTestSupport` file; no production route, DNP, or process was added.
+- Static body identity comparison currently passes 76/76. Focused Quick, PowerShell parse, whitespace, and final plan counts are recorded in the Verification log after execution.
+
 ## Unit 5: final stability gates and review
 
-Unit 4bをcommit後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
+Unit 4c implementation snapshotの統合後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
 
 1. PowerShell parse、`git diff --check`、Release build、runner hash。
 2. lifecycle focused Quick。
@@ -351,8 +370,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 3: remaining owner fixture rebalancing | Complete; integration stability pending | `7ccca8ea` / `tests-functional-20260824-213728` のprocess deadline failureを受け、26 caseをlibrary init/mutation 13、package lifecycle/pending 7、catalog relocation 6へ分割。既存remaining process、12-worker ClassLevel、GUID resource、completion signalは維持。focused Quick 26/26 pass、Functional/Full/WPF30はroot担当。 |
 | Unit 4: critical-tail owner topology | Implementation and focused verification complete; stability pending | `4097e3a3` でremainingは完走したがplaylist / presentation / settingsがdeadlineへ残ったため、4つのBMS playlist owner shard、7-class / 3-worker workspace shard、foreground / nonactivating / stateの3 settings shardへ再編した。実際のlaunch plan objectをvalidatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、旧FQN不在、foreground exact allowlist、fanout object identityを検証する。180秒command、170秒process deadline、10秒cleanup reserve、pre-wave順、remaining 12 workers、DNP、logical test setは維持。settings 142/142、workspace 208/208、BMS playlist + runner contract 99/99 pass。Functional / Full / static reviewはUnit 5で実施する。 |
 | Unit 4b: staged settings and bounded fanout | Implementation complete; stability verification pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
-| Unit 4c: LR2-only early and regular-chart ownership | Planned; implementation pending | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割する。 |
-| Unit 5: final stability gates and review | Pending | Unit 4b後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
+| Unit 4c: LR2-only early and regular-chart ownership | Implementation and focused verification complete; stability pending | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割した。actual planは15/14/14/1、LR2-only early、settings post-pre-wave fanout exact-once、old class退役、narrow supportを維持する。fixture/runner focused Quick、parse、diff check、76/76 body identityを完了。 |
+| Unit 5: final stability gates and review | Pending | Unit 4c implementation snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
 
@@ -380,6 +399,10 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | `1db6ae18` | Functional after deterministic pre-wave fix | Fail: shared process deadline | 176.4s command / 174.4s canonical | `tests-functional-20260825-003425`; source rebuild 25.7s; pre-wave pass; residual0 |
 | same | exact Functional retry | Fail: repeated process deadline | 175.9s command / 174.0s canonical | `tests-functional-20260825-003803`; remaining / library-chart / playlist-external-custom incomplete; LR2 span116s; tracked unchanged; residual0; Unit4c trigger met |
 | same | LR2 isolated Quick | Pass (103/103) | 50.0s command / 25.9s test | `tests-quick-20260825-005600`; fingerprint unchanged; residual0; topology contention confirmed |
+| Unit 4c integration worktree | PowerShell parse + direct `New-FunctionalShardPlan` / `Assert-FunctionalShardConfiguration` / `Assert-FunctionalOrchestrationConfiguration` probe + `git diff --check` | Pass | <1s | actual plan 15 shards / 14 fanout descriptors / 14 fanout launches / 1 early (`lr2-songdb-sync`); settings are post-pre-wave fanout; clean parse and whitespace |
+| same | static method-body identity comparison | Pass (76/76) | <1s | old `RegularChartListOwnerTests` methods matched by name/body to five fixtures; no missing/extra/mismatch |
+| same | regular five-fixture + `VerificationRunnerContractTests` focused Quick | Pass (80/80) | 38.8s command | first identical run hit only deterministic EOF whitespace guard (`tests-quick-20260825-011045`); formatting-only cleanup and exact rerun `tests-quick-20260825-011201` passed; fingerprint unchanged; residual0 |
+| same | LR2/settings/library/BMS playlist grouped focused Quick | Pass (593 total: 582 passed, 11 skipped) | 95.1s command / 1.4m test | `tests-quick-20260825-011301`; expected opt-in compatibility skips; fingerprint unchanged; residual0 |
 
 ## Done when
 
