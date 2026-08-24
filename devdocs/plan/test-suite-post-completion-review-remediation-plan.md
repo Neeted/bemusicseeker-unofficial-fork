@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Implementation complete; integration verification pending
+Status: Unit 2 ready for implementation
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -104,6 +104,76 @@ Worker は PowerShell parse、`git diff --check`、focused Quick まで行い、
 - actual caller fault injectionが通常 runnerから到達不能な明示guardでは構成できない。
 - lifecycle-local scopeではdeadline後のfault observationとdurable diagnostic ownershipを両立できず、run-level owner追加が必要になる。
 
+## Unit 2: Rebalance process-local presentation and settings ownership
+
+Owner: `implementation-worker`（Unit 1 ownerとは別turn、single sequential owner）
+
+Writable paths:
+
+- `scripts/verify-refactor.ps1`
+- 必要なら `scripts/verification-runner-contract.ps1`
+- `BeMusicSeeker.Tests/VerificationRunnerContractTests.cs`
+- `devdocs/spec/testing-strategy.md`
+- 本計画書
+
+### Context and decision
+
+直近15件の完了Functionalでも最終shardのprocess-deadline headroomは0.3-14.3秒で、critical shardはremaining 8回、settings 5回、playlist 1回、library 1回と交代していた。`5e7ccaed` の2回のfailureも未完了shardが入れ替わり、lifecycle cleanup前の通常workloadでdeadlineへ到達した。
+
+- `settings-presentation-classwide` の16 fixtureを、foreground interactionを持つ2 fixtureとprocess-local stateを持つ14 fixtureへ分離する。両方1-worker / `ClassLevel` とし、portable settings lane後に他named shardと同時起動する。
+- `presentation-workspace` は同じ3 fixture membershipと`ClassLevel`を維持して2-workerへ変更する。class-wide `DoNotParallelize` の `PlaybackPanelViewModelTests` は他classと重ならず、`PlaylistWorkspaceViewModelTests` と `LibraryFolderTreeViewModelTests` だけが並行可能になる。
+- `playlist-update` のpre-wave overlapは、27件中25件で理論critical path短縮がなく、pre-waveの明示I/O isolationを崩すため採用しない。
+- `BmsLibraryStateApplierTests` のfixture分割は今回行わない。Unit 2後もdeadline failureが残る場合だけ、remaining owner rebalancingとして再計画する。
+
+`settings-state-classwide` のexact 14 fixture:
+
+- `ApplicationCompositionTests`
+- `ApplicationSettingsLifecycleTests`
+- `ApplicationUiSchedulerBoundaryTests`
+- `BeatorajaBmtOptionsSnapshotTests`
+- `BmsLibraryOptionsSnapshotTests`
+- `CustomFolderOutputSettingsSnapshotTests`
+- `MainWindowViewSettingsBoundaryTests`
+- `PlayerSettingsGatewayTests`
+- `PlaylistUrlCompletionOptionsSnapshotTests`
+- `ResourceIconContractTests`
+- `SettingDialogCustomFolderOutputBaseTests`
+- `SettingDialogOpenCommandTests`
+- `ShellShutdownWorkflowOwnerTests`
+- `StartupSettingsSnapshotTests`
+
+2つのsettings testhost間で `Application`、dispatcher、resources、generated resource culture、`Settings.Default` static instanceはprocess-localである。対象16 fixtureに実portable `Settings.Save` / `Reload` / `Reset` はなく、filesystem書込みはGUID-owned temp rootを使う。`SettingDialogCustomFolderOutputBaseTests` の`config.Save()`はGUID付きtemporary LR2 configだけを対象にする。foreground routeは2 fixtureの既存6 methodだけで、14 fixture側はforeground windowを持たない。このisolationが崩れる差分を見つけた場合は2 host同時起動を実装せずreplanする。
+
+### Observable outcomes
+
+1. `settings-presentation-classwide` は `SettingDialogEditCompletionTests` と `SettingsWindowPresentationTests` のexact 2 fixtureだけを1-worker / `ClassLevel`で実行する。
+2. 新しい `settings-state-classwide` は残るexact 14 fixtureだけを1-worker / `ClassLevel`で実行する。
+3. `presentation-workspace` は既存exact 3 fixtureを2-worker / `ClassLevel`で実行し、`PlaybackPanelViewModelTests` のDNP safetyを維持する。
+4. runnerが実際に起動へ使う shard object / allowlistを正本として、exact membership、worker、scope、remaining exclusion、cross-route uniqueness、重複起動なしをlaunch前に検証し、検証済みの同じobjectをlaunchへ渡す。descriptor-only / 自己申告metadataだけをgreenにするrouteは追加しない。
+5. Functionalのlogical test set、process deadline、10秒cleanup reserve、remaining worker数、pre-wave順序、WPF foreground allowlistは変更しない。
+
+### Test delta
+
+| Behavior / failure contract | Production owner / symbol | Candidate coverage | Decision | Shared resource / lane | Completion signal | Retired route |
+| --- | --- | --- | --- | --- | --- | --- |
+| settings foreground/state process ownership | actual Functional shard descriptors and `Assert-FunctionalShardConfiguration` | existing `VerificationRunnerContractTests` + actual Functional | extend | two process-local WPF/settings testhosts | launch-time exact validator + exact TRX completion + host exit/HWND cleanup | 16 fixtureを1 testhostへ直列化する旧allowlist |
+| presentation workspace parallel ownership | same | existing `VerificationRunnerContractTests` + actual Functional | extend | one testhost, 2 workers, ClassLevel; Playback class DNP | launch-time validator + exact TRX completion; Playback intervalは他2 classと非重複 | generic 1-worker assumption |
+
+### Focused verification
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests'
+```
+
+WorkerはPowerShell parse、`git diff --check`、focused Quickまで行う。Functionalはrootが同一最終snapshotで3回連続実行する。
+
+### Replan triggers
+
+- 対象14 fixtureに実portable-settings保存、固定共有path書込み、またはforeground routeが見つかる。
+- `PlaybackPanelViewModelTests` がMSTest DNPでも他2 classと実際に重なる。
+- Functionalでactivation、HWND cleanup、culture/theme、user.config、shared settings failureが1回でも発生する。
+- Functionalが1回でもprocess deadlineへ再到達する。この場合はtimeout延長やworker追加を継ぎ足さず、remaining owner fixture分割を別unitとして再計画する。
+
 ## Integration and final review
 
 Unit 1をcommit後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
@@ -116,6 +186,23 @@ Unit 1をcommit後、同一最終snapshotで次を実行する。途中でfailur
 6. implementation threadを閉じ、snapshotを凍結してfresh `repo-static-review`を呼ぶ。
 
 Reviewer は asymmetric persistence、scope seal後のfault、actual post-start caller exception、artifact非破壊、primary/secondary precedence、deadline後のprimitive開始、test自己検証を重点確認する。
+
+## Progress
+
+| Unit | Status | Notes |
+| --- | --- | --- |
+| Unit 1: lifecycle P2 closure | Complete | `5e7ccaed`。focused Quick 17/17、PowerShell parse、`git diff --check`、Release build成功。 |
+| Unit 2: Functional headroom replan | Ready for implementation | 2回連続deadlineはlifecycle回帰ではなく既存topologyのheadroom不足。settings 16 fixtureをforeground 2/state 14の2 testhostへ分離し、presentation workspaceを2-worker化する。playlist overlapとremaining fixture分割は現時点では採用しない。 |
+| Unit 3: final stability gates and review | Pending | Unit 2後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
+
+## Verification log
+
+| Snapshot | Command / filter | Result | Elapsed | Artifact / evidence |
+| --- | --- | --- | ---: | --- |
+| `5e7ccaed` | lifecycle focused Quick | Pass (17/17) | 74.2s command / 51.5s test | `tests-quick-20260824-201559`; fingerprint unchanged; residual test process 0 |
+| same | WPF focused filter, 30 consecutive runs | Pass (30/30) | 31.6-33.9s / run | `tests-quick-20260824-201725` through `tests-quick-20260824-203307`; residual test process 0 |
+| same | Functional first run | Fail: process deadline | 176.5s command; canonical 174.6s | `tests-functional-20260824-203352`; remaining / playlist-update / settings-presentation-classwide stopped; fingerprint unchanged; residual 0 |
+| same | Functional exact retry | Fail: process deadline | 176.2s command; canonical 174.0s | `tests-functional-20260824-203720`; remaining / playlist-update / presentation-workspace stopped; fingerprint unchanged; residual 0; repeated-timeout investigation threshold met |
 
 ## Done when
 
