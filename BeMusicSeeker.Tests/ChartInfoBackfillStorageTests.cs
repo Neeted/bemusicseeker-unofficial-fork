@@ -25,7 +25,11 @@ using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class ChartInfoMetadataOwnerTests
+/// <summary>
+/// Owns chart-info backfill, storage projection, and publication cases.
+/// </summary>
+[TestClass]
+public sealed class ChartInfoBackfillStorageTests
 {
     [TestMethod]
     public void BackfillChartInfos_ParsesMissingRowsSkipsCurrentRowsAndReparsesStaleRows()

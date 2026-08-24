@@ -447,6 +447,13 @@ Focused verificationはrunner/lifecycle、Startup fixture、ChartInfo 5 fixture�
 
 Replan triggerは、logical testの欠落/重複、portable/Bass/foreground/process-global stateの交差、async signalの例外/late completion喪失、Functional failure/180秒超過、残留process/HWND、tracked mutationである。failure時は局所watchdog追加、timeout延長、named shardの継ぎ足しをせず、resource ownershipかcompletion signalを調査する。
 
+### Unit 4e-B implementation evidence
+
+- `AwaitChartInfoHydrationAsync` / `AwaitChartInfoBackfillAsync` now subscribe to the BMSLibrary `PropertyChanged` event, recheck the requested/completed version and running predicate after subscription, complete a `RunContinuationsAsynchronously` TCS, and always unsubscribe in `finally`. All former ChartInfo normal-completion poll sites, including the direct owner poll, no longer use `SpinWait` / 10-second polling; lock and other negative bounds remain unchanged.
+- The temporary song DB helper has an async-delegate overload whose root cleanup runs after the awaited delegate in `finally`. Eight hydration/backfill/install tests are async MSTest methods; task faults and late state notifications remain observable, and GUID-owned DB/filesystem cleanup is still awaited before deletion.
+- The five source groups are distinct `TestClass` fixtures (`ChartInfoMetadataSchemaExportImportTests`, `ChartInfoParserBehaviorTests`, `ChartInfoBackfillStorageTests`, `ChartInfoInlineHydrationTests`, `ChartInfoInstallFailureRetryTests`). The partial `ChartInfoMetadataOwnerTests` type and its runner absence selector are retired; KISS Functional keeps all five on `remaining` discovery with no named selector. The 134-method / 141-case ledger is unchanged, including all `DataRow` cases.
+- Focused Quick for the five fixtures plus `VerificationRunnerContractTests` passed 134 tests with 11 expected opt-in skips (145 discovered) in `tests-quick-20260825-044047`; tracked fingerprint and residual process checks were clean. Functional / Full / WPF repeat and final static review remain Unit 5 responsibilities.
+
 ## Unit 5: final stability gates and review
 
 Unit 4e implementation snapshotの統合後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。

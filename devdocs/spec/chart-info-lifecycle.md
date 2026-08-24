@@ -66,14 +66,14 @@ parse timeout、parser exception、最終 parse failure は evaluator が同じ 
 
 ## Verification map
 
-Chart-info metadata coverage is organized in five owner-local source files that contribute one partial `ChartInfoMetadataOwnerTests` fixture in the existing `library-chart-classwide` process. The fixture is the ClassLevel scheduling owner because hydration, backfill, and install cases synchronously observe background work scheduled on the process ThreadPool; scheduling the source groups as independent classes can starve those completion paths during Functional fanout. This regrouping preserves the original GUID-owned song database / filesystem roots, parser compatibility categories, dispatcher and task/event completion signals, failure watchdogs, and cleanup behavior; it adds no process, DNP, fixed wait, timeout change, or production seam.
+Chart-info metadata coverage is organized in five owner-local source files, each with a distinct `TestClass` fixture discovered once by the existing `remaining` ClassLevel route. The async completion signal observes `BMSLibrary.PropertyChanged` and rechecks the requested/completed version and running predicates, so hydration, backfill, and install cases do not synchronously block a process ThreadPool worker. This preserves the original GUID-owned song database / filesystem roots, parser compatibility categories, dispatcher and task/event completion signals, failure watchdogs, and cleanup behavior; it adds no process, DNP, fixed wait, timeout change, or production seam.
 
 | Behavior / failure contract | Owner fixture | Retired cases | Route |
 | --- | --- | --- | --- |
-| schema creation, bundle export/import, startup importer, catalog mutation | `ChartInfoMetadataOwnerTests` (`ChartInfoMetadataSchemaExportImportTests.cs`) | `ChartInfoMetadataTests` cases 1-19 | `library-chart-classwide`, 6 workers / `ClassLevel` |
-| BMS/BMSON parser behavior and compatibility fixtures | same fixture (`ChartInfoParserBehaviorTests.cs`) | cases 23-81 | same route |
-| full backfill, storage projection, digest/index publication and transaction failure | same fixture (`ChartInfoBackfillStorageTests.cs`) | cases 82-96 | same route |
-| read-only lookup, deferred hydration, inline evaluator and hydration candidate state | same fixture (`ChartInfoInlineHydrationTests.cs`) | cases 20-22, 97-111 | same route |
-| install, parse-failure warning/removal, retry and contention contracts | same fixture (`ChartInfoInstallFailureRetryTests.cs`) | cases 112-134 | same route |
+| schema creation, bundle export/import, startup importer, catalog mutation | `ChartInfoMetadataSchemaExportImportTests` | `ChartInfoMetadataTests` cases 1-19 | `remaining`, ClassLevel discovery |
+| BMS/BMSON parser behavior and compatibility fixtures | `ChartInfoParserBehaviorTests` | cases 23-81 | same route |
+| full backfill, storage projection, digest/index publication and transaction failure | `ChartInfoBackfillStorageTests` | cases 82-96 | same route |
+| read-only lookup, deferred hydration, inline evaluator and hydration candidate state | `ChartInfoInlineHydrationTests` | cases 20-22, 97-111 | same route |
+| install, parse-failure warning/removal, retry and contention contracts | `ChartInfoInstallFailureRetryTests` | cases 112-134 | same route |
 
-The old `ChartInfoMetadataTests` selector and the five unsafe split-fixture selectors are absent from the launch plan and remaining exclusion ledger. The partial replacement owns every original behavior case exactly, including `DataRow` cases.
+The old `ChartInfoMetadataTests` selector and retired partial `ChartInfoMetadataOwnerTests` selector are absent from the launch plan and remaining exclusion ledger. The five distinct fixtures are not named selectors; `remaining` discovers each exactly once. The replacement owns every original behavior case exactly, including `DataRow` cases.

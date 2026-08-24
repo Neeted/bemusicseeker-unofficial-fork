@@ -25,7 +25,11 @@ using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class ChartInfoMetadataOwnerTests
+/// <summary>
+/// Owns chart-info lookup, hydration, inline evaluation, and candidate cases.
+/// </summary>
+[TestClass]
+public sealed class ChartInfoInlineHydrationTests
 {
     [TestMethod]
     public void LoadChartInfosByHash_LoadsRequestedRowsAndUsesStableMd5Representative()
@@ -102,10 +106,10 @@ public sealed partial class ChartInfoMetadataOwnerTests
 
     [TestMethod]
     [DoNotParallelize]
-    public void DeferredChartInfoHydration_BuildsSessionIndexAndUsesSha256BeforeMd5()
+    public async Task DeferredChartInfoHydration_BuildsSessionIndexAndUsesSha256BeforeMd5()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             var gateway = new BmsLibraryDbGateway(songDbPath);
             string md5 = new('a', 32);
@@ -126,7 +130,7 @@ public sealed partial class ChartInfoMetadataOwnerTests
 
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false);
 
-            Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
+            await AwaitChartInfoHydrationAsync(library);
             Assert.IsTrue(library.ChartInfoIndexHydrated);
             Assert.IsTrue(library.ChartInfoIndexVersion > 0);
             Assert.AreEqual(secondSha, library.ResolveChartInfo(secondSha, md5).sha256, "sha256 match should win over md5 fallback.");
@@ -411,10 +415,10 @@ public sealed partial class ChartInfoMetadataOwnerTests
 
     [TestMethod]
     [DoNotParallelize]
-    public void DeferredChartInfoHydration_IndexesExistingRowsForBmsAndBmson()
+    public async Task DeferredChartInfoHydration_IndexesExistingRowsForBmsAndBmson()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string bmsSha = new('1', 64);
             string bmsonSha = new('2', 64);
@@ -442,7 +446,7 @@ public sealed partial class ChartInfoMetadataOwnerTests
 
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false);
 
-            Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
+            await AwaitChartInfoHydrationAsync(library);
             Assert.IsFalse(library.ChartInfoHydrationRunning);
             Assert.AreEqual(2, library.ChartInfoHydrationTotalCount);
             Assert.AreEqual(0, library.ChartInfoHydrationAppliedCount);
@@ -456,7 +460,7 @@ public sealed partial class ChartInfoMetadataOwnerTests
 
             InvokeDeferredChartInfoHydration(library, "unit_test_repeat", queueFullBackfillAfterHydration: false);
 
-            Assert.IsTrue(WaitForChartInfoHydration(library), "second chart_info hydration did not complete.");
+            await AwaitChartInfoHydrationAsync(library);
             Assert.AreEqual(2, library.ChartInfoHydrationTotalCount);
             Assert.AreEqual(0, library.ChartInfoHydrationAppliedCount);
         });
@@ -466,10 +470,10 @@ public sealed partial class ChartInfoMetadataOwnerTests
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
-    public void DeferredChartInfoHydration_UsesActualDataInBothModesAndSkipsFullBackfillWhenCurrent(bool operationModeLr2Db)
+    public async Task DeferredChartInfoHydration_UsesActualDataInBothModesAndSkipsFullBackfillWhenCurrent(bool operationModeLr2Db)
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string md5 = new('a', 32);
             string sha = new('1', 64);
@@ -517,7 +521,7 @@ public sealed partial class ChartInfoMetadataOwnerTests
 
                 InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: true);
 
-                Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
+                await AwaitChartInfoHydrationAsync(library);
                 Assert.IsTrue(library.ChartInfoIndexHydrated);
                 Assert.IsTrue(library.ChartInfoIndexVersion > 0);
                 Assert.AreEqual(1, library.ChartInfoBackfillRequestedVersion);
@@ -540,9 +544,9 @@ public sealed partial class ChartInfoMetadataOwnerTests
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void CatalogChartInfoOwner_ActualDataAllCurrentSnapshotSkipsCandidateSummary(bool operationModeLr2Db)
+    public async Task CatalogChartInfoOwner_ActualDataAllCurrentSnapshotSkipsCandidateSummary(bool operationModeLr2Db)
     {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string md5 = new('a', 32);
             string sha256 = new('1', 64);
@@ -573,8 +577,29 @@ public sealed partial class ChartInfoMetadataOwnerTests
             var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
             var logs = new ConcurrentQueue<string>();
             var events = new ConcurrentQueue<CatalogChartInfoOwnerEvent>();
-            var owner = new CatalogChartInfoOwner(
-                _ => { },
+            var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            CatalogChartInfoOwner owner = null;
+            void SignalCompletion()
+            {
+                try
+                {
+                    if (owner.ChartInfoHydrationRequestedVersion > 0
+                        && owner.ChartInfoHydrationCompletedVersion == owner.ChartInfoHydrationRequestedVersion
+                        && owner.ChartInfoBackfillRequestedVersion > 0
+                        && owner.ChartInfoBackfillCompletedVersion == owner.ChartInfoBackfillRequestedVersion
+                        && !owner.ChartInfoHydrationRunning
+                        && !owner.ChartInfoBackfillRunning)
+                    {
+                        completion.TrySetResult(null);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    completion.TrySetException(exception);
+                }
+            }
+            owner = new CatalogChartInfoOwner(
+                _ => SignalCompletion(),
                 () => false,
                 (_, _) => false,
                 null,
@@ -589,14 +614,8 @@ public sealed partial class ChartInfoMetadataOwnerTests
 
             owner.QueueDeferredHydration("unit_test_all_current", queueFullBackfillAfterHydration: true);
 
-            Assert.IsTrue(
-                SpinWait.SpinUntil(
-                    () => owner.ChartInfoHydrationCompletedVersion == owner.ChartInfoHydrationRequestedVersion
-                        && owner.ChartInfoBackfillCompletedVersion == owner.ChartInfoBackfillRequestedVersion
-                        && !owner.ChartInfoHydrationRunning
-                        && !owner.ChartInfoBackfillRunning,
-                    10000),
-                "chart-info hydration/backfill skip did not complete.");
+            SignalCompletion();
+            await completion.Task;
             Assert.IsTrue(logs.Any(message => message.StartsWith("chart_info_backfill skipped reason=hydration_all_current", StringComparison.Ordinal)));
             Assert.IsFalse(logs.Any(message => message.StartsWith("chart_info_backfill candidate_summary_start", StringComparison.Ordinal)));
             Assert.AreEqual(0, owner.ChartInfoBackfillTotalCount);
@@ -673,10 +692,10 @@ public sealed partial class ChartInfoMetadataOwnerTests
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
-    public void DeferredChartInfoHydration_MissingCurrentRowBackfillsRegardlessOfCompletedLr2Status(bool operationModeLr2Db)
+    public async Task DeferredChartInfoHydration_MissingCurrentRowBackfillsRegardlessOfCompletedLr2Status(bool operationModeLr2Db)
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "missing-current.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 13\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
@@ -711,8 +730,8 @@ public sealed partial class ChartInfoMetadataOwnerTests
 
                 InvokeDeferredChartInfoHydration(library, "unit_test_missing", queueFullBackfillAfterHydration: true);
 
-                Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration/backfill did not complete.");
-                Assert.IsTrue(WaitForChartInfoBackfill(library), "chart_info backfill did not complete.");
+                await AwaitChartInfoHydrationAsync(library);
+                await AwaitChartInfoBackfillAsync(library);
                 using var verify = new LR2SongDBExtended(songDbPath);
                 Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.sha256));
                 Assert.AreEqual(13, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
@@ -727,16 +746,16 @@ public sealed partial class ChartInfoMetadataOwnerTests
 
     [TestMethod]
     [DoNotParallelize]
-    public void DeferredChartInfoHydration_SkipsFullBackfillWhenNoCandidates()
+    public async Task DeferredChartInfoHydration_SkipsFullBackfillWhenNoCandidates()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
 
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: true);
 
-            Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
+            await AwaitChartInfoHydrationAsync(library);
             Assert.AreEqual(1, library.ChartInfoBackfillRequestedVersion);
             Assert.AreEqual(1, library.ChartInfoBackfillCompletedVersion);
             Assert.IsFalse(library.ChartInfoBackfillRunning);

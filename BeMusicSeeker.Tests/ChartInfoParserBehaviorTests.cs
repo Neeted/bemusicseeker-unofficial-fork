@@ -25,7 +25,11 @@ using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class ChartInfoMetadataOwnerTests
+/// <summary>
+/// Owns BMS/BMSON chart-info parser behavior and compatibility cases.
+/// </summary>
+[TestClass]
+public sealed class ChartInfoParserBehaviorTests
 {
     [TestMethod]
     public void ParseBms_SimpleFixture_ComputesChartMetadata()

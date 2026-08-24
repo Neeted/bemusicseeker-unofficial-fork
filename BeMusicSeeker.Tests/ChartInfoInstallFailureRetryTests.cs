@@ -25,7 +25,11 @@ using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
-public sealed partial class ChartInfoMetadataOwnerTests
+/// <summary>
+/// Owns chart-info install, failure, warning, retry, and contention cases.
+/// </summary>
+[TestClass]
+public sealed class ChartInfoInstallFailureRetryTests
 {
     [TestMethod]
     public void InstallChartPackages_AddsBmsAndBuildsInlineChartInfo()
@@ -223,10 +227,10 @@ public sealed partial class ChartInfoMetadataOwnerTests
     }
 
     [TestMethod]
-    public void RemoveChartInfoParseFailuresByMd5_RemovesFailureRowsAndPublishesWarningRefresh()
+    public async Task RemoveChartInfoParseFailuresByMd5_RemovesFailureRowsAndPublishesWarningRefresh()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string sharedMd5 = new('a', 32);
             string sharedSha256 = new('1', 64);
@@ -276,7 +280,7 @@ public sealed partial class ChartInfoMetadataOwnerTests
                 library,
                 "parse_failure_remove_current_info",
                 queueFullBackfillAfterHydration: false);
-            Assert.IsTrue(WaitForChartInfoHydration(library));
+            await AwaitChartInfoHydrationAsync(library);
             int hydrationRequestedVersion = library.ChartInfoHydrationRequestedVersion;
             int backfillRequestedVersion = library.ChartInfoBackfillRequestedVersion;
             refreshNotificationChanged = 0;
@@ -302,9 +306,9 @@ public sealed partial class ChartInfoMetadataOwnerTests
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
-    public void RemoveChartInfoParseFailuresByMd5_RetriesOnNextStartupInBothModes(bool operationModeLr2Db)
+    public async Task RemoveChartInfoParseFailuresByMd5_RetriesOnNextStartupInBothModes(bool operationModeLr2Db)
     {
-        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "retry-after-delete.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#PLAYLEVEL 8\r\n#BPM 140\r\n#00111:01\r\n", Encoding.ASCII);
@@ -335,7 +339,7 @@ public sealed partial class ChartInfoMetadataOwnerTests
             {
                 Settings.Default.OperationModeLR2DB = operationModeLr2Db;
                 InvokeDeferredChartInfoHydration(library, "failure_is_current", queueFullBackfillAfterHydration: true);
-                Assert.IsTrue(WaitForChartInfoBackfill(library));
+                await AwaitChartInfoBackfillAsync(library);
                 using (var beforeDelete = new LR2SongDBExtended(songDbPath))
                 {
                     Assert.AreEqual(0L, beforeDelete.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
@@ -359,8 +363,8 @@ public sealed partial class ChartInfoMetadataOwnerTests
                     nextStartupLibrary,
                     "next_startup_after_failure_delete",
                     queueFullBackfillAfterHydration: true);
-                Assert.IsTrue(WaitForChartInfoHydration(nextStartupLibrary));
-                Assert.IsTrue(WaitForChartInfoBackfill(nextStartupLibrary));
+                await AwaitChartInfoHydrationAsync(nextStartupLibrary);
+                await AwaitChartInfoBackfillAsync(nextStartupLibrary);
                 using var verify = new LR2SongDBExtended(songDbPath);
                 Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.sha256));
                 Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", file.hash));

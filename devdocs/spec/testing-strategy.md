@@ -183,6 +183,8 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 
 `chart_info_real` と `chart_info_edge_cases` は、`BMS_TEST_CHART_INFO_FULL=1` を build 開始前に設定した場合だけ test output へコピーする。これらの opt-in parser test は対応する full / slow category と環境変数 guard の両方を持ち、flag が無ければ `Inconclusive`、flag があるのに fixture が無ければ failure とする。少数でも約 20 MiB を parse する `chart_info_production_latest_diff` は `ProductionDiffFull` / `LargeFixture` とし、Functional には含めない。Functional の parser behavior は小さい合成入力で検証する。
 
+Chart-info metadata lifecycle coverage uses the five distinct owner fixtures `ChartInfoMetadataSchemaExportImportTests`, `ChartInfoParserBehaviorTests`, `ChartInfoBackfillStorageTests`, `ChartInfoInlineHydrationTests`, and `ChartInfoInstallFailureRetryTests`. They remain in the catch-all `remaining` ClassLevel route with no named selector; normal hydration and backfill completion is awaited from `BMSLibrary.PropertyChanged` state transitions, while cleanup, lock, and timeout-contract bounds remain local.
+
 ## 新しいテストを追加するとき
 
 詳細は [test-authoring-contract.md](test-authoring-contract.md) と `BeMusicSeeker.Tests/AGENTS.md` を正本とする。

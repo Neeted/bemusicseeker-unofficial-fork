@@ -26,11 +26,10 @@ using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Owns chart-info metadata behavior as one ClassLevel scheduling boundary while
-/// keeping each behavior group in an owner-local source file.
+/// Owns chart-info schema, bundle, importer, and catalog-mutation behavior.
 /// </summary>
 [TestClass]
-public sealed partial class ChartInfoMetadataOwnerTests
+public sealed class ChartInfoMetadataSchemaExportImportTests
 {
     [TestMethod]
     public void EnsureChartInfoSchema_CreatesTableIndexesAndVersionWithoutAlteringSongTable()

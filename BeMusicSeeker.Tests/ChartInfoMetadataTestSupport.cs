@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
@@ -316,6 +316,25 @@ internal static class ChartInfoMetadataTestSupport
         }
     }
 
+    internal static async Task WithTemporarySongDb(Func<string, string, Task> testAction)
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            await testAction(tempRootPath, songDbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
     internal static string CreateChartInfoMetadataBundle(
         string tempRootPath,
         IEnumerable<LR2SongDBExtended.chart_info> chartInfos,
@@ -368,13 +387,16 @@ internal static class ChartInfoMetadataTestSupport
             ]);
     }
 
-    internal static bool WaitForChartInfoBackfill(BMSLibrary library)
+    internal static Task AwaitChartInfoBackfillAsync(BMSLibrary library)
     {
-        return SpinWait.SpinUntil(
-            () => library.ChartInfoBackfillRequestedVersion > 0
-                && library.ChartInfoBackfillCompletedVersion == library.ChartInfoBackfillRequestedVersion
-                && !library.ChartInfoBackfillRunning,
-            10000);
+        return AwaitChartInfoStateAsync(
+            library,
+            current => current.ChartInfoBackfillRequestedVersion > 0
+                && current.ChartInfoBackfillCompletedVersion == current.ChartInfoBackfillRequestedVersion
+                && !current.ChartInfoBackfillRunning,
+            nameof(BMSLibrary.ChartInfoBackfillRequestedVersion),
+            nameof(BMSLibrary.ChartInfoBackfillCompletedVersion),
+            nameof(BMSLibrary.ChartInfoBackfillRunning));
     }
 
     internal static void InvokeDeferredChartInfoHydration(BMSLibrary library, string reason, bool queueFullBackfillAfterHydration)
@@ -384,13 +406,58 @@ internal static class ChartInfoMetadataTestSupport
         method.Invoke(library, [reason, queueFullBackfillAfterHydration]);
     }
 
-    internal static bool WaitForChartInfoHydration(BMSLibrary library)
+    internal static Task AwaitChartInfoHydrationAsync(BMSLibrary library)
     {
-        return SpinWait.SpinUntil(
-            () => library.ChartInfoHydrationRequestedVersion > 0
-                && library.ChartInfoHydrationCompletedVersion == library.ChartInfoHydrationRequestedVersion
-                && !library.ChartInfoHydrationRunning,
-            10000);
+        return AwaitChartInfoStateAsync(
+            library,
+            current => current.ChartInfoHydrationRequestedVersion > 0
+                && current.ChartInfoHydrationCompletedVersion == current.ChartInfoHydrationRequestedVersion
+                && !current.ChartInfoHydrationRunning,
+            nameof(BMSLibrary.ChartInfoHydrationRequestedVersion),
+            nameof(BMSLibrary.ChartInfoHydrationCompletedVersion),
+            nameof(BMSLibrary.ChartInfoHydrationRunning));
+    }
+
+    private static async Task AwaitChartInfoStateAsync(
+        BMSLibrary library,
+        Func<BMSLibrary, bool> isComplete,
+        params string[] observedPropertyNames)
+    {
+        var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void CompleteIfReady()
+        {
+            try
+            {
+                if (isComplete(library))
+                {
+                    completion.TrySetResult(null);
+                }
+            }
+            catch (Exception exception)
+            {
+                completion.TrySetException(exception);
+            }
+        }
+
+        PropertyChangedEventHandler propertyChangedHandler = delegate (object sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName is null || Array.IndexOf(observedPropertyNames, args.PropertyName) >= 0)
+            {
+                CompleteIfReady();
+            }
+        };
+
+        library.PropertyChanged += propertyChangedHandler;
+        try
+        {
+            CompleteIfReady();
+            await completion.Task;
+        }
+        finally
+        {
+            library.PropertyChanged -= propertyChangedHandler;
+        }
     }
 
     internal static int ReadPositiveIntEnvironmentVariable(string name, int defaultValue)
