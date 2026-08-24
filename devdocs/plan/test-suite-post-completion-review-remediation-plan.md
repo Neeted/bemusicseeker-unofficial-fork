@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 4b staged fanout replan implementation complete; stability verification pending
+Status: Unit 4c LR2-only early and regular-chart ownership replan approved; implementation pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -310,6 +310,25 @@ Focused Quickはsettings 3 fixture、4 BMS fixture、`VerificationRunnerContract
 - grouped Quickでcross-class settings/static/resource leakageが出る。
 - Functionalでstartup delay、LR2のfanout同期膨張、15秒未満のdeadline headroom、timeout、残留process/HWND、tracked mutationが一度でも出る。
 
+## Unit 4c: LR2-only early and regular-chart ownership
+
+`1db6ae18` のFunctionalはsource変更直後runとexact retryの両方でdeadlineへ到達した（`tests-functional-20260825-003425` / `003803`）。retryではsettingsを含む大半が完了したが、LR2が通常34秒から116秒へ膨張してfanout全期間と重なった。LR2単独Quick `tests-quick-20260825-005600` は103/103、test 25.9秒であり、fixtureではなくsettings + LR2 + pre-wave同時実行によるcontentionと確定した。
+
+1. early setをLR2 exact 1 routeへ戻し、settings edit/windowはpre-wave後の通常fanoutでexact 1回起動する。foreground exact 7、BMS 2 grouping、15 retained shard / 14 fanout descriptorは維持し、actual fanout launchは14とする。historical LR2-only evidenceではLR2はpre-wave終了2.4秒後、fanout testhost開始20秒以上前に完了している。
+2. `RegularChartListOwnerTests` 76 methodを既存remaining process / 12 workers / `ClassLevel`内の5 owner fixtureへexact移動し、old classを退役する。method body、assertion、GUID resource、task/event completion、failure watchdogを維持する。
+   - `RegularChartNavigationTests`: methods 1-7。
+   - `RegularChartNormalLibraryRefreshTests`: methods 8-10 + 14-19。
+   - `RegularChartFolderRenameTests`: methods 11-13。
+   - `RegularChartViewBuildAndOrderingTests`: methods 20-45。
+   - `RegularChartCommitAndLifecycleTests`: methods 46-76。
+3. helper/test doubleはnarrow supportへ一度だけ抽出し、mutable shared state、production seam、DNP、新processを追加しない。単一classのprior span約33.3秒を最大owner約12.6秒へ下げる。
+
+Runner validatorはearly exact LR2、fanout launch exact 14、settings2 routeのfanout exact-once、same object identity、no relaunch、remaining/cross-route uniquenessを検証する。180/170/10 budget、pre-wave I/O isolation、logical test setは不変とする。
+
+Focused Quickはnew5 fixture 76件、runner contract、LR2 103件、settings 142件、library 243件、playlist grouped 47件を実行する。最終snapshotでFunctional 3回、WPF30、Full1回を実行する。
+
+Replan triggerは、LR2がpre-wave終了後も長時間running、old/new Regular classの重複・欠落、fanout testhost launch delay 25秒超、deadline headroom 15秒未満、timeout、tracked mutation、residual process/HWNDのいずれかとする。
+
 ## Unit 5: final stability gates and review
 
 Unit 4bをcommit後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
@@ -332,6 +351,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 3: remaining owner fixture rebalancing | Complete; integration stability pending | `7ccca8ea` / `tests-functional-20260824-213728` のprocess deadline failureを受け、26 caseをlibrary init/mutation 13、package lifecycle/pending 7、catalog relocation 6へ分割。既存remaining process、12-worker ClassLevel、GUID resource、completion signalは維持。focused Quick 26/26 pass、Functional/Full/WPF30はroot担当。 |
 | Unit 4: critical-tail owner topology | Implementation and focused verification complete; stability pending | `4097e3a3` でremainingは完走したがplaylist / presentation / settingsがdeadlineへ残ったため、4つのBMS playlist owner shard、7-class / 3-worker workspace shard、foreground / nonactivating / stateの3 settings shardへ再編した。実際のlaunch plan objectをvalidatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、旧FQN不在、foreground exact allowlist、fanout object identityを検証する。180秒command、170秒process deadline、10秒cleanup reserve、pre-wave順、remaining 12 workers、DNP、logical test setは維持。settings 142/142、workspace 208/208、BMS playlist + runner contract 99/99 pass。Functional / Full / static reviewはUnit 5で実施する。 |
 | Unit 4b: staged settings and bounded fanout | Implementation complete; stability verification pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
+| Unit 4c: LR2-only early and regular-chart ownership | Planned; implementation pending | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割する。 |
 | Unit 5: final stability gates and review | Pending | Unit 4b後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
@@ -357,6 +377,9 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | `018b894b` | Functional first run | Fail: 17-shard contention / shared process deadline | 180.0s command / 178.1s canonical / 144.8s test phase | `tests-functional-20260824-232820`; 593/3519 fanout results; LR2 case latency 100-300x after fanout; most shards no TRX; tracked unchanged; residual 0 after outer check; Unit 4b replan trigger met |
 | Unit 4b snapshot | PowerShell parse + direct shard-plan validator + `functional-early-entry` lifecycle probe + `git diff --check` | Pass | 5.9s probe; parse/check clean | 15 launch shards / 14 retained fanout descriptors / 12 actual fanout launches; 3 early entries started once, exit0/running accounted once, nonzero blocked fanout, raw record promoted once, exact cleanup residual 0 |
 | Unit 4b snapshot | requested focused Quick: settings, four BMS playlist fixtures, `VerificationRunnerContractTests`, `VerificationProcessLifecycleTests` | Pass (256/256) | 146.6s command / 138.4s filtered build/test | `tests-quick-20260825-001640`; tracked fingerprint unchanged; residual test process 0; includes `functional-early-entry` behavior coverage |
+| `1db6ae18` | Functional after deterministic pre-wave fix | Fail: shared process deadline | 176.4s command / 174.4s canonical | `tests-functional-20260825-003425`; source rebuild 25.7s; pre-wave pass; residual0 |
+| same | exact Functional retry | Fail: repeated process deadline | 175.9s command / 174.0s canonical | `tests-functional-20260825-003803`; remaining / library-chart / playlist-external-custom incomplete; LR2 span116s; tracked unchanged; residual0; Unit4c trigger met |
+| same | LR2 isolated Quick | Pass (103/103) | 50.0s command / 25.9s test | `tests-quick-20260825-005600`; fingerprint unchanged; residual0; topology contention confirmed |
 
 ## Done when
 
