@@ -26,7 +26,6 @@ $toolExecutables = @(
 $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
-$testHangTimeoutSeconds = 120
 $functionalCleanupReserveSeconds = 10
 $monitoredCommandCleanupSeconds = 5
 . (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
@@ -71,288 +70,145 @@ $functionalFilter = @(
     'TestCategory!=ProductionDiffFull',
     'TestCategory!=ProcessIntegration',
     'TestCategory!=ReleaseAcceptance') -join '&'
-$functionalBassCollectibleLoadContextClass = 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
+
+$functionalPortableSettingsClass =
+    'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests'
+$functionalBassCollectibleLoadContextClass =
+    'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
 $functionalSettingsForegroundInteractionClass =
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests'
-$functionalSettingsForegroundInteractionMethods = @(
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll',
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes',
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes',
-    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow',
-    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting',
-    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected',
-    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor')
-$functionalSettingsEditForegroundClasswideClasses = @(
-    $functionalSettingsForegroundInteractionClass,
-    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests')
-$functionalSettingsWindowNonactivatingClasswideClasses = @(
-    'BeMusicSeeker.Tests.SettingsWindowPresentationTests')
-$functionalSettingsStateClasswideClasses = @(
-    'BeMusicSeeker.Tests.ApplicationCompositionTests',
-    'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests',
-    'BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests',
-    'BeMusicSeeker.Tests.BeatorajaBmtOptionsSnapshotTests',
-    'BeMusicSeeker.Tests.BmsLibraryOptionsSnapshotTests',
-    'BeMusicSeeker.Tests.CustomFolderOutputSettingsSnapshotTests',
-    'BeMusicSeeker.Tests.MainWindowViewSettingsBoundaryTests',
-    'BeMusicSeeker.Tests.PlayerSettingsGatewayTests',
-    'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests',
-    'BeMusicSeeker.Tests.ResourceIconContractTests',
-    'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests',
-    'BeMusicSeeker.Tests.SettingDialogOpenCommandTests',
-    'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests',
-    'BeMusicSeeker.Tests.StartupSettingsSnapshotTests')
-$functionalProcessGlobalLifecycleClasses = @(
-    'BeMusicSeeker.Tests.BassNativeRuntimeTests',
+$functionalSerialStateAClasses = @(
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests'
+    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests'
+    'BeMusicSeeker.Tests.SettingsWindowPresentationTests'
+    'BeMusicSeeker.Tests.ApplicationCompositionTests'
+    'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests'
+    'BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests'
+    'BeMusicSeeker.Tests.BeatorajaBmtOptionsSnapshotTests'
+    'BeMusicSeeker.Tests.BmsLibraryOptionsSnapshotTests'
+    'BeMusicSeeker.Tests.CustomFolderOutputSettingsSnapshotTests'
+    'BeMusicSeeker.Tests.MainWindowViewSettingsBoundaryTests'
+    'BeMusicSeeker.Tests.PlayerSettingsGatewayTests'
+    'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests'
+    'BeMusicSeeker.Tests.ResourceIconContractTests'
+    'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests'
+    'BeMusicSeeker.Tests.SettingDialogOpenCommandTests'
+    'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests'
+    'BeMusicSeeker.Tests.StartupSettingsSnapshotTests'
+    'BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests'
+    'BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests'
+    'BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests'
+    'BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests'
+    'BeMusicSeeker.Tests.BassNativeRuntimeTests'
     'BeMusicSeeker.Tests.NLogWrapperTests')
-$functionalFeatureProcessGlobalStateClasses = @(
-    'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests',
-    'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests',
-    'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests',
-    'BeMusicSeeker.Tests.MainWindowExternalShellTests',
+$functionalSerialStateBClasses = @(
+    'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests'
+    'BeMusicSeeker.Tests.LoadPlaylistURIDialogTests'
+    'BeMusicSeeker.Tests.MainWindowChartPresentationWpfTests'
+    'BeMusicSeeker.Tests.MainWindowPackageMaintenanceWpfTests'
+    'BeMusicSeeker.Tests.MainWindowPlaybackWpfTests'
+    'BeMusicSeeker.Tests.MainWindowPlayHistoryWpfTests'
+    'BeMusicSeeker.Tests.MainWindowPlaylistWorkspaceWpfTests'
+    'BeMusicSeeker.Tests.MainWindowProgressStatusBarWpfTests'
+    'BeMusicSeeker.Tests.MainWindowSelectedChartContextMenuWpfTests'
+    'BeMusicSeeker.Tests.MainWindowTreePresentationWpfTests'
+    'BeMusicSeeker.Tests.MainWindowViewHostTests'
+    'BeMusicSeeker.Tests.SettingsWindowCompiledBehaviorTests'
+    'BeMusicSeeker.Tests.UiDialogCoordinatorWpfTests'
+    'BeMusicSeeker.Tests.PlaybackPanelViewModelTests'
+    'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests'
+    'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests'
+    'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests'
+    'BeMusicSeeker.Tests.MainWindowExternalShellTests'
     'BeMusicSeeker.Tests.PlayHistoryReadModelTests'
-)
-$functionalCompiledWpfClasswideClasses = @(
-    'BeMusicSeeker.Tests.LoadPlaylistURIDialogTests',
-    'BeMusicSeeker.Tests.MainWindowChartPresentationWpfTests',
-    'BeMusicSeeker.Tests.MainWindowPackageMaintenanceWpfTests',
-    'BeMusicSeeker.Tests.MainWindowPlaybackWpfTests',
-    'BeMusicSeeker.Tests.MainWindowPlayHistoryWpfTests',
-    'BeMusicSeeker.Tests.MainWindowPlaylistWorkspaceWpfTests',
-    'BeMusicSeeker.Tests.MainWindowProgressStatusBarWpfTests',
-    'BeMusicSeeker.Tests.MainWindowSelectedChartContextMenuWpfTests',
-    'BeMusicSeeker.Tests.MainWindowTreePresentationWpfTests',
-    'BeMusicSeeker.Tests.MainWindowViewHostTests',
-    'BeMusicSeeker.Tests.SettingsWindowCompiledBehaviorTests',
-    'BeMusicSeeker.Tests.UiDialogCoordinatorWpfTests')
-$functionalMethodLevelPreWaveClasses = @(
-    # These I/O-heavy fixtures own a distinct temporary database and directory
-    # per test. Keep them in the dedicated MethodLevel pre-wave to avoid
-    # cross-shard I/O contention; their explicit non-parallel settings tests
-    # remain protected by DoNotParallelize.
-    'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
-    'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
-    'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
-    'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests',
-    'BeMusicSeeker.Tests.BmsLibraryDuplicateServiceTests',
-    'BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests',
-    'BeMusicSeeker.Tests.PlaylistViewPipelineTests')
-$functionalTestClassShards = @(
-    [pscustomobject]@{
-        # This collectible ALC contract must run in a testhost that has never
-        # initialized the shared WPF Application or resolved WPF resources.
-        Name = 'bass-collectible-load-context'
-        Workers = 1
-        Classes = @(
-            $functionalBassCollectibleLoadContextClass)
-    },
-    [pscustomobject]@{
-        # Dedicated fixture groups have explicit worker contracts. Keep the
-        # library/chart classes in one ClassLevel testhost while using six
-        # workers while ChartInfo metadata remains one ClassLevel owner because
-        # its background workflows share the process ThreadPool. Other
-        # single-worker hosts stay at one while the
-        # explicit owned database/file contract remains three. The remaining
-        # host uses every logical processor; the final stability gate validates
-        # this bounded overlap without changing the process topology.
-        Name = 'library-chart-classwide'
-        Workers = 6
-        Scope = 'ClassLevel'
-        Classes = @(
-            'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests'
-            'BeMusicSeeker.Tests.ChartInfoMetadataOwnerTests'
-            'BeMusicSeeker.Tests.BmsLibraryInitializationLoadTests'
-            'BeMusicSeeker.Tests.BmsLibraryInitializationInstallTests'
-            'BeMusicSeeker.Tests.BmsLibraryInitializationFileScanTests'
-            'BeMusicSeeker.Tests.BmsLibraryInitializationLr2NormalFolderTests'
-            'BeMusicSeeker.Tests.BmsLibraryInitializationInlineChartInfoTests'
-            'BeMusicSeeker.Tests.StartupLibraryProfileTests'
-            'BeMusicSeeker.Tests.StartupLibraryFailureContractTests'
-            'BeMusicSeeker.Tests.StartupMainWindowTypedRouteTests')
-    },
-    [pscustomobject]@{
-        Name = 'lr2-songdb-sync'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = @(
-            'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests')
-    },
-    [pscustomobject]@{
-        # ClassLevel scope keeps each fixture serial while allowing these three
-        # independently owned database/filesystem fixtures to run concurrently.
-        Name = 'owned-db-file-class-level'
-        Workers = 3
-        Scope = 'ClassLevel'
-        Classes = @(
-            'BeMusicSeeker.Tests.BmsLibraryIrServiceTests',
-            'BeMusicSeeker.Tests.PackageInstallWorkflowOwnerTests',
-            'BeMusicSeeker.Tests.Lr2SongDbSyncServiceTests')
-    },
-    [pscustomobject]@{
-        Name = 'owned-chart-collection'
-        Workers = 6
-        Scope = 'ClassLevel'
-        Classes = @(
-            'BeMusicSeeker.Tests.OwnedChartCollectionProjectionTests'
-            'BeMusicSeeker.Tests.OwnedChartCollectionReferenceIndexTests'
-            'BeMusicSeeker.Tests.OwnedChartCollectionLookupMembershipTests'
-            'BeMusicSeeker.Tests.OwnedChartCollectionLibraryMutationTests'
-            'BeMusicSeeker.Tests.OwnedChartCollectionInstalledOverlayTests'
-            'BeMusicSeeker.Tests.OwnedChartCollectionRefreshTests'
-            'BeMusicSeeker.Tests.OwnedChartCollectionInlineDigestTests'
-            'BeMusicSeeker.Tests.PlaylistSummaryCountAndPresentationTests'
-            'BeMusicSeeker.Tests.PlaylistSummaryOwnedHashTests'
-            'BeMusicSeeker.Tests.PlaylistSummaryMutationAndWarmTests'
-            'BeMusicSeeker.Tests.PlaylistSummaryResolveIndexTests'
-            'BeMusicSeeker.Tests.RegularChartNavigationTests'
-            'BeMusicSeeker.Tests.RegularChartNormalLibraryRefreshTests'
-            'BeMusicSeeker.Tests.RegularChartFolderRenameTests'
-            'BeMusicSeeker.Tests.RegularChartViewBuildAndOrderingTests'
-            'BeMusicSeeker.Tests.RegularChartCommitAndLifecycleTests')
-    },
-    [pscustomobject]@{
-        Name = 'playlist-external-custom-folder'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = @(
-            'BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests'
-            'BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests')
-    },
-    [pscustomobject]@{
-        Name = 'playlist-persistence-migration'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = @(
-            'BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests'
-            'BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests')
-    },
-    [pscustomobject]@{
-        Name = 'presentation-workspace'
-        Workers = 3
-        Scope = 'ClassLevel'
-        Classes = @(
-            'BeMusicSeeker.Tests.PlaybackPanelViewModelTests',
-            'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests',
-            'BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests',
-            'BeMusicSeeker.Tests.PlaylistWorkspaceActionWorkflowTests',
-            'BeMusicSeeker.Tests.PlaylistWorkspaceDetailRefreshTests',
-            'BeMusicSeeker.Tests.PlaylistWorkspacePresentationStateTests',
-            'BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests')
-    },
-    [pscustomobject]@{
-        # This is the only Functional process allowed to run the seven explicit
-        # foreground-interaction methods. Keep it separate from the
-        # non-activating settings presentation fixture.
-        Name = 'settings-edit-foreground-classwide'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = $functionalSettingsEditForegroundClasswideClasses
-    },
-    [pscustomobject]@{
-        # SettingsWindowPresentationTests contains only non-foreground cases
-        # after the four activating interaction methods move to the dedicated fixture.
-        Name = 'settings-window-nonactivating-classwide'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = $functionalSettingsWindowNonactivatingClasswideClasses
-    },
-    [pscustomobject]@{
-        # Keep process-local settings state separate from foreground presentation
-        # interactions while retaining class-wide serialization in its own host.
-        Name = 'settings-state-classwide'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = $functionalSettingsStateClasswideClasses
-    },
-    [pscustomobject]@{
-        # These constructor-only compiled WPF fixtures share process-scoped
-        # WPF resources, cursor state, and self-completing modal test seams.
-        # Keep them class-serial in their own host without starting the app.
-        Name = 'compiled-wpf-classwide'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = $functionalCompiledWpfClasswideClasses
-    },
-    [pscustomobject]@{
-        # These fixtures mutate process-global native or logging lifecycle
-        # state and therefore require a single serial host.
-        Name = 'process-global-lifecycle'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = $functionalProcessGlobalLifecycleClasses
-    },
-    [pscustomobject]@{
-        # This is a Functional topology group for measured headroom and
-        # owner-local resource isolation. Only the five class-wide
-        # DoNotParallelize safety owners remain in this one-worker host;
-        # all other former members return to the existing remaining route.
-        Name = 'feature-process-global-state'
-        Workers = 1
-        Scope = 'ClassLevel'
-        Classes = $functionalFeatureProcessGlobalStateClasses
-    })
-$functionalExclusiveTestClasses = @(
-    # This test temporarily replaces the repository-local portable user.config.
-    # Run it before any testhost that could read settings from the same file.
-    'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests')
-$functionalEarlyShardNames = @(
-    'lr2-songdb-sync')
+    'BeMusicSeeker.Tests.ApplicationStartupCompositionOwnerTests')
+$functionalSettingsForegroundInteractionMethods = @(
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll'
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes'
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes'
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow'
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting'
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected'
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor')
 $functionalRemainingShardWorkers = [Math]::Max(
     1,
     [Environment]::ProcessorCount)
+$functionalHostNames = @(
+    'portable-settings'
+    'bass-collectible'
+    'serial-state-a'
+    'serial-state-b'
+    'remaining')
 
 function New-FunctionalShardPlan {
     $assignedClasses = @(
-        @($functionalTestClassShards | ForEach-Object { $_.Classes }) +
-        @($functionalExclusiveTestClasses) +
-        @($functionalMethodLevelPreWaveClasses))
+        $functionalPortableSettingsClass
+        $functionalBassCollectibleLoadContextClass
+        $functionalSerialStateAClasses
+        $functionalSerialStateBClasses)
     $remainingClassFilter = ($assignedClasses |
         ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
-    $remainingShard = [pscustomobject]@{
-        Name = 'remaining'
-        Classes = [string[]]@()
-        ExcludedClasses = [string[]]$assignedClasses
-        Filter = "($functionalFilter)&($remainingClassFilter)"
-        Workers = $functionalRemainingShardWorkers
-        Scope = 'ClassLevel'
-    }
-    $dedicatedShards = @(
-        $functionalTestClassShards | ForEach-Object {
-            $classes = [string[]]@($_.Classes)
-            $classFilter = ($classes |
-                ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-            $scope = if ($_.PSObject.Properties.Name -contains 'Scope') {
-                $_.Scope
+    $hostDefinitions = @(
+        [pscustomobject]@{
+            Name = 'portable-settings'
+            Workers = 1
+            Scope = 'ClassLevel'
+            Classes = [string[]]@($functionalPortableSettingsClass)
+        }
+        [pscustomobject]@{
+            Name = 'bass-collectible'
+            Workers = 1
+            Scope = 'ClassLevel'
+            Classes = [string[]]@($functionalBassCollectibleLoadContextClass)
+        }
+        [pscustomobject]@{
+            Name = 'serial-state-a'
+            Workers = 1
+            Scope = 'ClassLevel'
+            Classes = [string[]]@($functionalSerialStateAClasses)
+        }
+        [pscustomobject]@{
+            Name = 'serial-state-b'
+            Workers = 1
+            Scope = 'ClassLevel'
+            Classes = [string[]]@($functionalSerialStateBClasses)
+        }
+        [pscustomobject]@{
+            Name = 'remaining'
+            Workers = $functionalRemainingShardWorkers
+            Scope = 'ClassLevel'
+            Classes = [string[]]@()
+            ExcludedClasses = [string[]]$assignedClasses
+        })
+    $shards = @($hostDefinitions | ForEach-Object {
+        $classes = [string[]]@($_.Classes)
+        $classFilter = if ($classes.Count -eq 0) {
+            [string]::Empty
+        }
+        else {
+            ($classes | ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+        }
+        [pscustomobject][ordered]@{
+            Name = $_.Name
+            Workers = [int]$_.Workers
+            Scope = [string]$_.Scope
+            Classes = $classes
+            Filter = if ($classes.Count -eq 0) {
+                "($functionalFilter)&($remainingClassFilter)"
             }
             else {
-                'ClassLevel'
+                "($functionalFilter)&($classFilter)"
             }
-            [pscustomobject]@{
-                Name = $_.Name
-                Classes = $classes
-                Filter = "($functionalFilter)&($classFilter)"
-                Workers = $_.Workers
-                Scope = $scope
+            ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') {
+                [string[]]$_.ExcludedClasses
             }
-        })
-    $shards = @($remainingShard) + @($dedicatedShards)
-    # FanoutShards is the validated descriptor set retained by the runner.  LR2 is
-    # already staged before the pre-wave and therefore does not belong to this set.
-    # Settings remain in this descriptor set and are launched after the pre-wave so
-    # the launch plan, remaining exclusion, and object identity stay one ledger.
-    $fanoutShards = @($shards | Where-Object { $_.Name -cne 'lr2-songdb-sync' })
-    $earlyShards = @($shards | Where-Object { $functionalEarlyShardNames -contains $_.Name })
-    $fanoutLaunchShards = @($fanoutShards |
-        Where-Object { $functionalEarlyShardNames -notcontains $_.Name })
+            else {
+                [string[]]@()
+            }
+        }
+    })
     return [pscustomobject][ordered]@{
         Shards = [object[]]$shards
-        FanoutShards = [object[]]$fanoutShards
-        FanoutLaunchShards = [object[]]$fanoutLaunchShards
-        EarlyShards = [object[]]$earlyShards
-        EarlyShardNames = [string[]]$functionalEarlyShardNames
-        AssignedClasses = [string[]]$assignedClasses
-        ExclusiveClasses = [string[]]$functionalExclusiveTestClasses
-        PreWaveClasses = [string[]]$functionalMethodLevelPreWaveClasses
         ForegroundInteractionMethods = [string[]]$functionalSettingsForegroundInteractionMethods
     }
 }
@@ -364,578 +220,62 @@ function Assert-FunctionalShardConfiguration {
     )
 
     if ($null -eq $Plan.Shards -or
-        $null -eq $Plan.FanoutShards -or
-        $null -eq $Plan.FanoutLaunchShards -or
-        $null -eq $Plan.EarlyShards -or
-        $null -eq $Plan.EarlyShardNames -or
-        $null -eq $Plan.AssignedClasses -or
-        $null -eq $Plan.ExclusiveClasses -or
-        $null -eq $Plan.PreWaveClasses -or
         $null -eq $Plan.ForegroundInteractionMethods) {
-        throw 'Functional shard plan must contain launch shards, fanout shards, and route exclusions.'
+        throw 'Functional launch plan must contain one executable shard array and the foreground allowlist.'
     }
 
     $shards = @($Plan.Shards)
-    $functionalTestClassShardsForLaunch = @($shards |
-        Where-Object { $_.Name -cne 'remaining' })
-    $fanoutShardsForLaunch = @($Plan.FanoutShards)
-    $names = @($functionalTestClassShardsForLaunch | ForEach-Object { $_.Name })
-    if (@($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
-        throw 'Functional test shard names must not be empty.'
+    if ($shards.Count -ne $functionalHostNames.Count) {
+        throw 'Functional launch plan must contain portable, BASS, serial A, serial B, and remaining exactly once.'
     }
-    if (($names | Sort-Object -Unique).Count -ne $names.Count) {
-        throw 'Functional test shard names must be unique.'
+    $names = @($shards | ForEach-Object { [string]$_.Name })
+    if (@($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0 -or
+        ($names | Sort-Object -Unique).Count -ne $names.Count) {
+        throw 'Functional launch host names must be nonempty and unique.'
     }
-    $requiredDedicatedShardNames = @(
-        'bass-collectible-load-context'
-        'library-chart-classwide'
-        'lr2-songdb-sync'
-        'owned-db-file-class-level'
-        'owned-chart-collection'
-        'playlist-external-custom-folder'
-        'playlist-persistence-migration'
-        'presentation-workspace'
-        'settings-edit-foreground-classwide'
-        'settings-window-nonactivating-classwide'
-        'settings-state-classwide'
-        'compiled-wpf-classwide'
-        'process-global-lifecycle'
-        'feature-process-global-state')
-    if ($names.Count -ne $requiredDedicatedShardNames.Count -or
-        @(Compare-Object `
-            -ReferenceObject $requiredDedicatedShardNames `
-            -DifferenceObject $names `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional launch shards must contain exactly the approved dedicated routes.'
+    if (@(Compare-Object -ReferenceObject $functionalHostNames -DifferenceObject $names -CaseSensitive).Count -ne 0) {
+        throw 'Functional launch hosts must use the exact portable/BASS/serial A/serial B/remaining names.'
     }
-    $remainingShards = @($shards | Where-Object { $_.Name -ceq 'remaining' })
-    if ($remainingShards.Count -ne 1) {
-        throw 'Functional launch shards must contain exactly one remaining route.'
-    }
-    $remainingShard = $remainingShards[0]
-
-    $workers = @($shards | ForEach-Object { $_.Workers })
-    if (@($workers | Where-Object { $_ -isnot [int] -or $_ -lt 1 }).Count -gt 0) {
-        throw 'Functional test shard workers must be positive integers.'
-    }
-    $libraryChartClasswideShards = @($functionalTestClassShardsForLaunch |
-        Where-Object { $_.Name -ceq 'library-chart-classwide' })
-    if ($libraryChartClasswideShards.Count -ne 1) {
-        throw 'Functional library/chart tests must have exactly one dedicated shard.'
-    }
-    $requiredLibraryChartClasswideClasses = @(
-        'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests'
-        'BeMusicSeeker.Tests.ChartInfoMetadataOwnerTests'
-        'BeMusicSeeker.Tests.BmsLibraryInitializationLoadTests'
-        'BeMusicSeeker.Tests.BmsLibraryInitializationInstallTests'
-        'BeMusicSeeker.Tests.BmsLibraryInitializationFileScanTests'
-        'BeMusicSeeker.Tests.BmsLibraryInitializationLr2NormalFolderTests'
-        'BeMusicSeeker.Tests.BmsLibraryInitializationInlineChartInfoTests'
-        'BeMusicSeeker.Tests.StartupLibraryProfileTests'
-        'BeMusicSeeker.Tests.StartupLibraryFailureContractTests'
-        'BeMusicSeeker.Tests.StartupMainWindowTypedRouteTests')
-    $libraryChartClasswideShard = $libraryChartClasswideShards[0]
-    $libraryChartClasswideClasses = @($libraryChartClasswideShard.Classes)
-    if ($libraryChartClasswideClasses.Count -ne $requiredLibraryChartClasswideClasses.Count -or
-        @(Compare-Object `
-            -ReferenceObject $requiredLibraryChartClasswideClasses `
-            -DifferenceObject $libraryChartClasswideClasses `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional library/chart shard must contain exactly the approved owner fixtures.'
-    }
-    if ($libraryChartClasswideShard.Workers -ne 6 -or
-        $libraryChartClasswideShard.Scope -cne 'ClassLevel') {
-        throw 'Functional library/chart shard must use six workers with ClassLevel scope.'
-    }
-    $ownedDbFileShards = @($functionalTestClassShardsForLaunch |
-        Where-Object { $_.Name -ceq 'owned-db-file-class-level' })
-    if ($ownedDbFileShards.Count -ne 1) {
-        throw 'Functional owned database/file tests must have exactly one dedicated shard.'
-    }
-    $ownedDbFileShard = $ownedDbFileShards[0]
-    $requiredOwnedDbFileClasses = @(
-        'BeMusicSeeker.Tests.BmsLibraryIrServiceTests',
-        'BeMusicSeeker.Tests.PackageInstallWorkflowOwnerTests',
-        'BeMusicSeeker.Tests.Lr2SongDbSyncServiceTests')
-    $ownedDbFileClasses = @($ownedDbFileShard.Classes)
-    if ($ownedDbFileClasses.Count -ne $requiredOwnedDbFileClasses.Count -or
-        @(Compare-Object `
-            -ReferenceObject $requiredOwnedDbFileClasses `
-            -DifferenceObject $ownedDbFileClasses `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional owned database/file shard must contain exactly the approved three test classes.'
-    }
-    if ($ownedDbFileShard.Workers -ne 3 -or $ownedDbFileShard.Scope -cne 'ClassLevel') {
-        throw 'Functional owned database/file shard must use three workers with ClassLevel scope.'
-    }
-    $ownedChartCollectionShards = @($functionalTestClassShardsForLaunch |
-        Where-Object { $_.Name -ceq 'owned-chart-collection' })
-    if ($ownedChartCollectionShards.Count -ne 1) {
-        throw 'Functional owned chart collection tests must have exactly one dedicated shard.'
-    }
-    $ownedChartCollectionShard = $ownedChartCollectionShards[0]
-    $requiredOwnedChartCollectionClasses = @(
-        'BeMusicSeeker.Tests.OwnedChartCollectionProjectionTests'
-        'BeMusicSeeker.Tests.OwnedChartCollectionReferenceIndexTests'
-        'BeMusicSeeker.Tests.OwnedChartCollectionLookupMembershipTests'
-        'BeMusicSeeker.Tests.OwnedChartCollectionLibraryMutationTests'
-        'BeMusicSeeker.Tests.OwnedChartCollectionInstalledOverlayTests'
-        'BeMusicSeeker.Tests.OwnedChartCollectionRefreshTests'
-        'BeMusicSeeker.Tests.OwnedChartCollectionInlineDigestTests'
-        'BeMusicSeeker.Tests.PlaylistSummaryCountAndPresentationTests'
-        'BeMusicSeeker.Tests.PlaylistSummaryOwnedHashTests'
-        'BeMusicSeeker.Tests.PlaylistSummaryMutationAndWarmTests'
-        'BeMusicSeeker.Tests.PlaylistSummaryResolveIndexTests'
-        'BeMusicSeeker.Tests.RegularChartNavigationTests'
-        'BeMusicSeeker.Tests.RegularChartNormalLibraryRefreshTests'
-        'BeMusicSeeker.Tests.RegularChartFolderRenameTests'
-        'BeMusicSeeker.Tests.RegularChartViewBuildAndOrderingTests'
-        'BeMusicSeeker.Tests.RegularChartCommitAndLifecycleTests')
-    $ownedChartCollectionClasses = @($ownedChartCollectionShard.Classes)
-    if ($ownedChartCollectionClasses.Count -ne $requiredOwnedChartCollectionClasses.Count -or
-        @(Compare-Object `
-            -ReferenceObject $requiredOwnedChartCollectionClasses `
-            -DifferenceObject $ownedChartCollectionClasses `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional owned chart collection shard must contain exactly the approved owner fixtures.'
-    }
-    if ($ownedChartCollectionShard.Workers -ne 6 -or
-        $ownedChartCollectionShard.Scope -cne 'ClassLevel') {
-        throw 'Functional owned chart collection shard must use six workers with ClassLevel scope.'
-    }
-    $lr2SongDbShards = @($functionalTestClassShardsForLaunch |
-        Where-Object { $_.Name -ceq 'lr2-songdb-sync' })
-    if ($lr2SongDbShards.Count -ne 1) {
-        throw 'Functional LR2 song database tests must have exactly one dedicated shard.'
-    }
-    $lr2SongDbShard = $lr2SongDbShards[0]
-    $requiredLr2SongDbClasses = @(
-        'BeMusicSeeker.Tests.BmsLibraryLr2SongDbSyncTests')
-    $lr2SongDbClasses = @($lr2SongDbShard.Classes)
-    if ($lr2SongDbClasses.Count -ne $requiredLr2SongDbClasses.Count -or
-        @(Compare-Object `
-            -ReferenceObject $requiredLr2SongDbClasses `
-            -DifferenceObject $lr2SongDbClasses `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional LR2 song database shard must contain exactly its approved test class.'
-    }
-    if ($lr2SongDbShard.Workers -ne 1 -or $lr2SongDbShard.Scope -cne 'ClassLevel') {
-        throw 'Functional LR2 song database shard must use one worker with ClassLevel scope.'
+    if (($functionalHostNames -join '|') -cne ($names -join '|')) {
+        throw 'Functional launch hosts must preserve portable-first then Bass/A/B/remaining order.'
     }
 
-    $requiredPlaylistOwnerShards = @(
-        [pscustomobject]@{
-            Name = 'playlist-external-custom-folder'
-            Classes = @(
-                'BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests'
-                'BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests')
-        },
-        [pscustomobject]@{
-            Name = 'playlist-persistence-migration'
-            Classes = @(
-                'BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests'
-                'BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests')
-        })
-    foreach ($requiredPlaylistOwnerShard in $requiredPlaylistOwnerShards) {
-        $matchingPlaylistShards = @($functionalTestClassShardsForLaunch |
-            Where-Object { $_.Name -ceq $requiredPlaylistOwnerShard.Name })
-        if ($matchingPlaylistShards.Count -ne 1) {
-            throw "Functional $($requiredPlaylistOwnerShard.Name) tests must have exactly one dedicated shard."
-        }
-        $playlistClasses = @($matchingPlaylistShards[0].Classes)
-        $requiredPlaylistClasses = @($requiredPlaylistOwnerShard.Classes)
-        if ($playlistClasses.Count -ne $requiredPlaylistClasses.Count -or
-            @(Compare-Object `
-                -ReferenceObject $requiredPlaylistClasses `
-                -DifferenceObject $playlistClasses `
-                -CaseSensitive).Count -ne 0) {
-            throw "Functional $($requiredPlaylistOwnerShard.Name) shard must contain exactly its approved test class."
-        }
-        if ($matchingPlaylistShards[0].Workers -ne 1 -or
-            $matchingPlaylistShards[0].Scope -cne 'ClassLevel') {
-            throw "Functional $($requiredPlaylistOwnerShard.Name) shard must use one worker with ClassLevel scope."
-        }
-    }
-
-    $presentationWorkspaceShards = @($functionalTestClassShardsForLaunch |
-        Where-Object { $_.Name -ceq 'presentation-workspace' })
-    if ($presentationWorkspaceShards.Count -ne 1) {
-        throw 'Functional presentation workspace tests must have exactly one dedicated shard.'
-    }
-    $presentationWorkspaceShard = $presentationWorkspaceShards[0]
-    $requiredPresentationWorkspaceClasses = @(
-        'BeMusicSeeker.Tests.PlaybackPanelViewModelTests'
-        'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests'
-        'BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests'
-        'BeMusicSeeker.Tests.PlaylistWorkspaceActionWorkflowTests'
-        'BeMusicSeeker.Tests.PlaylistWorkspaceDetailRefreshTests'
-        'BeMusicSeeker.Tests.PlaylistWorkspacePresentationStateTests'
-        'BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests')
-    if (@($presentationWorkspaceShard.Classes).Count -ne $requiredPresentationWorkspaceClasses.Count -or
-        @(Compare-Object `
-            -ReferenceObject $requiredPresentationWorkspaceClasses `
-            -DifferenceObject @($presentationWorkspaceShard.Classes) `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional presentation workspace shard must contain exactly its approved seven test classes.'
-    }
-    if ($presentationWorkspaceShard.Workers -ne 3 -or
-        $presentationWorkspaceShard.Scope -cne 'ClassLevel') {
-        throw 'Functional presentation workspace shard must use three workers with ClassLevel scope.'
-    }
-    $allowedMultiWorkerShards = @(
-        'library-chart-classwide',
-        'owned-db-file-class-level',
-        'owned-chart-collection',
-        'presentation-workspace')
-    if (@($functionalTestClassShardsForLaunch |
-        Where-Object {
-            $scope = if ($_.PSObject.Properties.Name -contains 'Scope') {
-                $_.Scope
+    $assignedClasses = @()
+    foreach ($shard in $shards) {
+        $classes = [string[]]@($shard.Classes)
+        if ($shard.Name -ceq 'remaining') {
+            if ($classes.Count -ne 0) {
+                throw 'Functional remaining host must rely on the exclusion filter rather than class selectors.'
             }
-            else {
-                'ClassLevel'
-            }
-            $allowedMultiWorkerShards -cnotcontains $_.Name -and
-            ($_.Workers -ne 1 -or $scope -cne 'ClassLevel') }).Count -gt 0) {
-        throw 'All Functional external test shards except the approved library/chart and owned database/file contracts must use one worker with ClassLevel scope.'
-    }
-    if ($functionalRemainingShardWorkers -ne
-        [Math]::Max(1, [Environment]::ProcessorCount)) {
-        throw 'Functional remaining test shard must use every logical processor.'
-    }
-    if ($remainingShard.Workers -ne $functionalRemainingShardWorkers -or
-        $remainingShard.Scope -cne 'ClassLevel' -or
-        @($remainingShard.Classes).Count -ne 0) {
-        throw 'Functional remaining launch shard must preserve its worker, scope, and empty class selector contract.'
-    }
-
-    if (@($functionalTestClassShardsForLaunch | Where-Object { @($_.Classes).Count -eq 0 }).Count -gt 0) {
-        throw 'Functional test shards must contain at least one class selector.'
-    }
-    $shardClasses = @($functionalTestClassShardsForLaunch | ForEach-Object { $_.Classes })
-    if (@($shardClasses | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
-        throw 'Functional test shard class selectors must not be empty.'
-    }
-    if (($shardClasses | Sort-Object -Unique).Count -ne $shardClasses.Count) {
-        throw 'Functional test shard classes must belong to exactly one shard.'
-    }
-    foreach ($launchShard in $functionalTestClassShardsForLaunch) {
-        $launchClassFilter = (@($launchShard.Classes) |
-            ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-        $expectedLaunchFilter = "($functionalFilter)&($launchClassFilter)"
-        if ($launchShard.Filter -cne $expectedLaunchFilter) {
-            throw "Functional launch shard '$($launchShard.Name)' must carry the exact class filter used for launch."
+            continue
+        }
+        if (@($shard.ExcludedClasses).Count -ne 0) {
+            throw "Functional host '$($shard.Name)' must not carry remaining-only exclusions."
+        }
+        if ($classes.Count -eq 0 -or
+            @($classes | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+            throw "Functional host '$($shard.Name)' must contain nonempty class selectors."
+        }
+        $assignedClasses += $classes
+        $classFilter = ($classes | ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+        $expectedFilter = "($functionalFilter)&($classFilter)"
+        if ($shard.Filter -cne $expectedFilter) {
+            throw "Functional host '$($shard.Name)' must carry the exact executable class filter."
         }
     }
 
-    $fanoutNames = @($fanoutShardsForLaunch | ForEach-Object { $_.Name })
-    if (($fanoutNames | Sort-Object -Unique).Count -ne $fanoutNames.Count) {
-        throw 'Functional fanout launch shards must have unique names.'
-    }
-    $expectedFanoutNames = @($shards |
-        Where-Object { $_.Name -cne 'lr2-songdb-sync' } |
-        ForEach-Object { $_.Name })
-    if ($fanoutNames.Count -ne $expectedFanoutNames.Count -or
-        @(Compare-Object `
-            -ReferenceObject $expectedFanoutNames `
-            -DifferenceObject $fanoutNames `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional fanout launch shards must contain every non-LR2 launch object exactly once.'
-    }
-    foreach ($fanoutShard in $fanoutShardsForLaunch) {
-        if (@($shards | Where-Object { [object]::ReferenceEquals($_, $fanoutShard) }).Count -ne 1) {
-            throw 'Functional fanout must pass through the same launch shard objects as the primary shard array.'
-        }
-    }
-    $earlyShardsForPlan = @($Plan.EarlyShards)
-    $earlyShardNames = @($Plan.EarlyShardNames)
-    if ($earlyShardNames.Count -ne $functionalEarlyShardNames.Count -or
-        @(Compare-Object `
-            -ReferenceObject $functionalEarlyShardNames `
-            -DifferenceObject $earlyShardNames `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional early shard names must use the runner-owned exact allowlist.'
-    }
-    if ($earlyShardsForPlan.Count -ne $earlyShardNames.Count -or
-        @($earlyShardsForPlan | ForEach-Object { $_.Name } | Sort-Object -Unique).Count -ne $earlyShardNames.Count) {
-        throw 'Functional early shard descriptors must contain the staged LR2 route exactly once.'
-    }
-    foreach ($earlyShard in $earlyShardsForPlan) {
-        if ($earlyShardNames -notcontains $earlyShard.Name -or
-            @($shards | Where-Object { [object]::ReferenceEquals($_, $earlyShard) }).Count -ne 1) {
-            throw 'Functional early shard descriptors must be the exact launch objects from the primary plan.'
-        }
-    }
-    $fanoutLaunchShardsForPlan = @($Plan.FanoutLaunchShards)
-    $expectedFanoutLaunchShards = @($fanoutShardsForLaunch |
-        Where-Object { $functionalEarlyShardNames -notcontains $_.Name })
-    if ($fanoutLaunchShardsForPlan.Count -ne $expectedFanoutLaunchShards.Count -or
-        @(Compare-Object `
-            -ReferenceObject @($expectedFanoutLaunchShards | ForEach-Object { $_.Name }) `
-            -DifferenceObject @($fanoutLaunchShardsForPlan | ForEach-Object { $_.Name }) `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional fanout launch descriptors must contain every post-pre-wave route exactly once.'
-    }
-    foreach ($fanoutLaunchShard in $fanoutLaunchShardsForPlan) {
-        if (@($shards | Where-Object { [object]::ReferenceEquals($_, $fanoutLaunchShard) }).Count -ne 1) {
-            throw 'Functional fanout launch descriptors must reuse the exact validated launch objects.'
-        }
-    }
-
-    $exactSingleWorkerClassLevelShards = @(
-        [pscustomobject]@{
-            Name = 'settings-edit-foreground-classwide'
-            Classes = @(
-                'BeMusicSeeker.Tests.SettingsForegroundInteractionTests',
-                'BeMusicSeeker.Tests.SettingDialogEditCompletionTests')
-        },
-        [pscustomobject]@{
-            Name = 'settings-window-nonactivating-classwide'
-            Classes = @(
-                'BeMusicSeeker.Tests.SettingsWindowPresentationTests')
-        },
-        [pscustomobject]@{
-            Name = 'settings-state-classwide'
-            Classes = @(
-                'BeMusicSeeker.Tests.ApplicationCompositionTests',
-                'BeMusicSeeker.Tests.ApplicationSettingsLifecycleTests',
-                'BeMusicSeeker.Tests.ApplicationUiSchedulerBoundaryTests',
-                'BeMusicSeeker.Tests.BeatorajaBmtOptionsSnapshotTests',
-                'BeMusicSeeker.Tests.BmsLibraryOptionsSnapshotTests',
-                'BeMusicSeeker.Tests.CustomFolderOutputSettingsSnapshotTests',
-                'BeMusicSeeker.Tests.MainWindowViewSettingsBoundaryTests',
-                'BeMusicSeeker.Tests.PlayerSettingsGatewayTests',
-                'BeMusicSeeker.Tests.PlaylistUrlCompletionOptionsSnapshotTests',
-                'BeMusicSeeker.Tests.ResourceIconContractTests',
-                'BeMusicSeeker.Tests.SettingDialogCustomFolderOutputBaseTests',
-                'BeMusicSeeker.Tests.SettingDialogOpenCommandTests',
-                'BeMusicSeeker.Tests.ShellShutdownWorkflowOwnerTests',
-                'BeMusicSeeker.Tests.StartupSettingsSnapshotTests')
-        },
-        [pscustomobject]@{
-            Name = 'process-global-lifecycle'
-            Classes = @(
-                'BeMusicSeeker.Tests.BassNativeRuntimeTests',
-                'BeMusicSeeker.Tests.NLogWrapperTests')
-        },
-        [pscustomobject]@{
-            Name = 'feature-process-global-state'
-            Classes = @(
-                'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests',
-                'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests',
-                'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests',
-                'BeMusicSeeker.Tests.MainWindowExternalShellTests',
-                'BeMusicSeeker.Tests.PlayHistoryReadModelTests')
-        },
-        [pscustomobject]@{
-            # Keep this literal contract independent from the route declaration
-            # so drift cannot silently return compiled WPF fixtures to remaining.
-            Name = 'compiled-wpf-classwide'
-            Classes = @(
-                'BeMusicSeeker.Tests.LoadPlaylistURIDialogTests',
-                'BeMusicSeeker.Tests.MainWindowChartPresentationWpfTests',
-                'BeMusicSeeker.Tests.MainWindowPackageMaintenanceWpfTests',
-                'BeMusicSeeker.Tests.MainWindowPlaybackWpfTests',
-                'BeMusicSeeker.Tests.MainWindowPlayHistoryWpfTests',
-                'BeMusicSeeker.Tests.MainWindowPlaylistWorkspaceWpfTests',
-                'BeMusicSeeker.Tests.MainWindowProgressStatusBarWpfTests',
-                'BeMusicSeeker.Tests.MainWindowSelectedChartContextMenuWpfTests',
-                'BeMusicSeeker.Tests.MainWindowTreePresentationWpfTests',
-                'BeMusicSeeker.Tests.MainWindowViewHostTests',
-                'BeMusicSeeker.Tests.SettingsWindowCompiledBehaviorTests',
-                'BeMusicSeeker.Tests.UiDialogCoordinatorWpfTests')
-        })
-    foreach ($requiredShard in $exactSingleWorkerClassLevelShards) {
-        $matchingShards = @($functionalTestClassShardsForLaunch |
-            Where-Object { $_.Name -ceq $requiredShard.Name })
-        if ($matchingShards.Count -ne 1) {
-            throw "Functional $($requiredShard.Name) tests must have exactly one dedicated shard."
-        }
-        $actualClasses = @($matchingShards[0].Classes)
-        $requiredClasses = @($requiredShard.Classes)
-        if ($actualClasses.Count -ne $requiredClasses.Count -or
-            @(Compare-Object `
-                -ReferenceObject $requiredClasses `
-                -DifferenceObject $actualClasses `
-                -CaseSensitive).Count -ne 0) {
-            throw "Functional $($requiredShard.Name) shard must contain exactly its approved test classes."
-        }
-        if ($matchingShards[0].Workers -ne 1 -or $matchingShards[0].Scope -cne 'ClassLevel') {
-            throw "Functional $($requiredShard.Name) shard must use one worker with ClassLevel scope."
-        }
-    }
-
-    $requiredFeatureProcessGlobalStateRemainingClasses = @(
-        'BeMusicSeeker.Tests.AudioContractsTests',
-        'BeMusicSeeker.Tests.AudioDeviceTestWorkflowOwnerTests',
-        'BeMusicSeeker.Tests.BmsLibraryInstallEstimationServiceTests',
-        'BeMusicSeeker.Tests.CatalogMutationOwnerTests',
-        'BeMusicSeeker.Tests.ChartListVirtualViewTests',
-        'BeMusicSeeker.Tests.InstallDestinationStateOwnerTests',
-        'BeMusicSeeker.Tests.Lr2PlayHistorySchemaServiceTests',
-        'BeMusicSeeker.Tests.MainWindowViewModelStartupProgressTests',
-        'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
-        'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
-        'BeMusicSeeker.Tests.PlaylistUrlCompletionTests')
-    $featureRouteText = @(
-        $functionalTestClassShardsForLaunch |
-        ForEach-Object {
-            @($_.Classes)
-            $_.Filter
-        }) -join "`n"
-    foreach ($remainingFeatureClass in $requiredFeatureProcessGlobalStateRemainingClasses) {
-        if ($featureRouteText.Contains($remainingFeatureClass, [StringComparison]::Ordinal) -or
-            @($Plan.AssignedClasses).Contains($remainingFeatureClass) -or
-            @($remainingShard.ExcludedClasses).Contains($remainingFeatureClass) -or
-            $remainingShard.Filter.Contains(
-                "FullyQualifiedName!~$remainingFeatureClass",
-                [StringComparison]::Ordinal)) {
-            throw "Feature process-global class must be discovered only by remaining: $remainingFeatureClass"
-        }
-    }
-
-    $foregroundMethods = @($Plan.ForegroundInteractionMethods)
-    if ($foregroundMethods.Count -ne $functionalSettingsForegroundInteractionMethods.Count -or
-        @(Compare-Object `
-            -ReferenceObject $functionalSettingsForegroundInteractionMethods `
-            -DifferenceObject $foregroundMethods `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional foreground interaction allowlist must contain exactly the approved seven methods.'
-    }
-    $foregroundClassRoutes = @($functionalTestClassShardsForLaunch |
-        Where-Object { @($_.Classes) -contains $functionalSettingsForegroundInteractionClass })
-    if ($foregroundClassRoutes.Count -ne 1 -or
-        $foregroundClassRoutes[0].Name -cne 'settings-edit-foreground-classwide') {
-        throw 'Functional foreground interaction methods must belong to the dedicated settings-edit-foreground-classwide route.'
-    }
-    $nonactivatingSettingsShard = @($functionalTestClassShardsForLaunch |
-        Where-Object { $_.Name -ceq 'settings-window-nonactivating-classwide' })[0]
-    if ($null -eq $nonactivatingSettingsShard -or
-        @($nonactivatingSettingsShard.Classes) -contains $functionalSettingsForegroundInteractionClass -or
-        $nonactivatingSettingsShard.Filter.Contains(
-            $functionalSettingsForegroundInteractionClass,
-            [StringComparison]::Ordinal)) {
-        throw 'Functional non-activating settings route must not contain foreground interaction methods.'
-    }
-    $retiredManualResyncFqn =
-        'BeMusicSeeker.Tests.SettingsWindowPresentationTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow'
-    if ($nonactivatingSettingsShard.Filter.Contains($retiredManualResyncFqn, [StringComparison]::Ordinal) -or
-        @($nonactivatingSettingsShard.Classes) -contains $retiredManualResyncFqn) {
-        throw 'Functional non-activating settings route must not contain the activating ManualResync route.'
-    }
-
-    $retiredClassSelectors = @(
-        'BeMusicSeeker.Tests.BmsPlaylistUpdateTests'
-        'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests'
-        'BeMusicSeeker.Tests.ChartInfoMetadataTests'
-        'BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests'
-        'BeMusicSeeker.Tests.ChartInfoParserBehaviorTests'
-        'BeMusicSeeker.Tests.ChartInfoBackfillStorageTests'
-        'BeMusicSeeker.Tests.ChartInfoInlineHydrationTests'
-        'BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests'
-        'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests'
-        'BeMusicSeeker.Tests.StartupLibraryConstructionOwnerTests')
-    $allLaunchText = @(
-        $functionalTestClassShardsForLaunch |
-        ForEach-Object {
-            @($_.Classes)
-            $_.Filter
-        }) -join "`n"
-    foreach ($retiredClassSelector in $retiredClassSelectors) {
-        if ($allLaunchText.Contains($retiredClassSelector, [StringComparison]::Ordinal) -or
-            @($Plan.AssignedClasses).Contains($retiredClassSelector) -or
-            @($remainingShard.ExcludedClasses).Contains($retiredClassSelector)) {
-            throw "Retired Functional class selector remains in the launch plan: $retiredClassSelector"
-        }
-    }
-
-    $exclusiveClasses = @($Plan.ExclusiveClasses)
-    $preWaveClasses = @($Plan.PreWaveClasses)
-    if (@(Compare-Object `
-            -ReferenceObject @($functionalExclusiveTestClasses) `
-            -DifferenceObject $exclusiveClasses `
-            -CaseSensitive).Count -ne 0 -or
-        @(Compare-Object `
-            -ReferenceObject @($functionalMethodLevelPreWaveClasses) `
-            -DifferenceObject $preWaveClasses `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional launch plan route exclusions must use the runner-owned arrays.'
-    }
-    if (@($preWaveClasses).Count -eq 0) {
-        throw 'Functional method-level pre-wave must contain at least one class selector.'
-    }
-    if (@($preWaveClasses |
-        Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
-        throw 'Functional method-level pre-wave class selectors must not be empty.'
-    }
-    if (@($preWaveClasses | Sort-Object -Unique).Count -ne
-        $preWaveClasses.Count) {
-        throw 'Functional method-level pre-wave classes must be unique.'
-    }
-    $requiredMethodLevelPreWaveClasses = @(
-        'BeMusicSeeker.Tests.BmsLibraryFolderRenameRefreshTests',
-        'BeMusicSeeker.Tests.BmsLibraryPendingPackageRegroupTests',
-        'BeMusicSeeker.Tests.AppSchemaPreflightServiceTests',
-        'BeMusicSeeker.Tests.BmsLibraryMaintenanceServiceTests',
-        'BeMusicSeeker.Tests.BmsLibraryDuplicateServiceTests',
-        'BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests',
-        'BeMusicSeeker.Tests.PlaylistViewPipelineTests')
-    if ($preWaveClasses.Count -ne $requiredMethodLevelPreWaveClasses.Count -or
-        @(Compare-Object `
-            -ReferenceObject $requiredMethodLevelPreWaveClasses `
-            -DifferenceObject $preWaveClasses `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional method-level pre-wave must contain exactly its approved seven test classes.'
-    }
-
-    $bassCollectibleShards = @($functionalTestClassShardsForLaunch |
-        Where-Object { $_.Name -eq 'bass-collectible-load-context' })
-    if ($bassCollectibleShards.Count -ne 1) {
-        throw 'Functional BASS collectible load-context tests must have exactly one dedicated shard.'
-    }
-    $bassCollectibleClasses = @($bassCollectibleShards[0].Classes)
-    if ($bassCollectibleClasses.Count -ne 1 -or
-        $bassCollectibleClasses[0] -cne $functionalBassCollectibleLoadContextClass) {
-        throw 'Functional BASS collectible load-context shard must contain only BassCollectibleLoadContextTests.'
-    }
-
-    if (@($exclusiveClasses).Count -eq 0) {
-        throw 'Functional exclusive tests must contain at least one class selector.'
-    }
-    if (@($exclusiveClasses |
-        Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
-        throw 'Functional exclusive test class selectors must not be empty.'
-    }
-    if (@($exclusiveClasses | Sort-Object -Unique).Count -ne
-        $exclusiveClasses.Count) {
-        throw 'Functional exclusive test classes must be unique.'
-    }
-
-    $assignedClasses = @($shardClasses) +
-        @($exclusiveClasses) +
-        @($preWaveClasses)
-    if ($Plan.AssignedClasses.Count -ne $assignedClasses.Count -or
-        @(Compare-Object `
-            -ReferenceObject $assignedClasses `
-            -DifferenceObject @($Plan.AssignedClasses) `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional launch plan assigned classes must match the actual launch routes.'
-    }
-    if (@($remainingShard.ExcludedClasses).Count -ne $assignedClasses.Count -or
-        @(Compare-Object `
-            -ReferenceObject $assignedClasses `
-            -DifferenceObject @($remainingShard.ExcludedClasses) `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional remaining launch shard must exclude every assigned class exactly once.'
-    }
-    $remainingExclusionFilter = ($assignedClasses |
-        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
-    $expectedRemainingFilter = "($functionalFilter)&($remainingExclusionFilter)"
-    if ($remainingShard.Filter -cne $expectedRemainingFilter) {
-        throw 'Functional remaining launch shard must carry the exact assigned-class exclusion filter.'
+    $expectedAssignedClasses = @(
+        $functionalPortableSettingsClass
+        $functionalBassCollectibleLoadContextClass
+        $functionalSerialStateAClasses
+        $functionalSerialStateBClasses)
+    if ($assignedClasses.Count -ne 45 -or
+        $expectedAssignedClasses.Count -ne 45 -or
+        @(Compare-Object -ReferenceObject $expectedAssignedClasses -DifferenceObject $assignedClasses -CaseSensitive).Count -ne 0) {
+        throw 'Functional assigned selectors must be the exact portable/BASS/serial A/serial B set of 45 classes.'
     }
     if (($assignedClasses | Sort-Object -Unique).Count -ne $assignedClasses.Count) {
-        throw 'Functional assigned test classes must be excluded from remaining and belong to exactly one route.'
+        throw 'Functional assigned selectors must be unique and logically disjoint.'
     }
     for ($leftIndex = 0; $leftIndex -lt $assignedClasses.Count; $leftIndex++) {
         for ($rightIndex = $leftIndex + 1; $rightIndex -lt $assignedClasses.Count; $rightIndex++) {
@@ -947,7 +287,99 @@ function Assert-FunctionalShardConfiguration {
             }
         }
     }
+
+    $remainingShard = @($shards | Where-Object { $_.Name -ceq 'remaining' })[0]
+    $remainingExclusions = [string[]]@($remainingShard.ExcludedClasses)
+    if ($remainingExclusions.Count -ne 45 -or
+        @(Compare-Object -ReferenceObject $expectedAssignedClasses -DifferenceObject $remainingExclusions -CaseSensitive).Count -ne 0) {
+        throw 'Functional remaining must exclude exactly the 45 assigned classes.'
+    }
+    $remainingExclusionFilter = ($expectedAssignedClasses |
+        ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
+    if ($remainingShard.Filter -cne "($functionalFilter)&($remainingExclusionFilter)") {
+        throw 'Functional remaining must carry the exact logical test exclusion filter.'
+    }
+    if ($remainingShard.Workers -ne $functionalRemainingShardWorkers -or
+        $remainingShard.Scope -ne 'ClassLevel') {
+        throw 'Functional remaining must use ProcessorCount workers with ClassLevel scope.'
+    }
+
+    $portableShard = @($shards | Where-Object { $_.Name -ceq 'portable-settings' })[0]
+    $bassShard = @($shards | Where-Object { $_.Name -ceq 'bass-collectible' })[0]
+    $serialA = @($shards | Where-Object { $_.Name -ceq 'serial-state-a' })[0]
+    $serialB = @($shards | Where-Object { $_.Name -ceq 'serial-state-b' })[0]
+    if ($portableShard.Workers -ne 1 -or $portableShard.Scope -ne 'ClassLevel' -or
+        @($portableShard.Classes).Count -ne 1 -or
+        $portableShard.Classes[0] -ne $functionalPortableSettingsClass) {
+        throw 'Functional portable settings host must own its exact single class with one ClassLevel worker.'
+    }
+    if ($bassShard.Workers -ne 1 -or $bassShard.Scope -ne 'ClassLevel' -or
+        @($bassShard.Classes).Count -ne 1 -or
+        $bassShard.Classes[0] -ne $functionalBassCollectibleLoadContextClass) {
+        throw 'Functional BASS host must own its exact single class with one ClassLevel worker.'
+    }
+    foreach ($pair in @(
+            [pscustomobject]@{ Name = 'serial-state-a'; Shard = $serialA; Classes = $functionalSerialStateAClasses }
+            [pscustomobject]@{ Name = 'serial-state-b'; Shard = $serialB; Classes = $functionalSerialStateBClasses })) {
+        if ($pair.Shard.Workers -ne 1 -or $pair.Shard.Scope -ne 'ClassLevel' -or
+            @($pair.Shard.Classes).Count -ne @($pair.Classes).Count -or
+            @(Compare-Object -ReferenceObject @($pair.Classes) -DifferenceObject @($pair.Shard.Classes) -CaseSensitive).Count -ne 0) {
+            throw "Functional $($pair.Name) must preserve its exact Unit4e class selectors with one ClassLevel worker."
+        }
+    }
+
+    $foregroundMethods = [string[]]@($Plan.ForegroundInteractionMethods)
+    if ($foregroundMethods.Count -ne 7 -or
+        @(Compare-Object -ReferenceObject $functionalSettingsForegroundInteractionMethods -DifferenceObject $foregroundMethods -CaseSensitive).Count -ne 0) {
+        throw 'Functional foreground interaction allowlist must contain the exact seven current SettingsForegroundInteractionTests methods.'
+    }
+    foreach ($method in $foregroundMethods) {
+        if (-not $method.StartsWith(
+                "$functionalSettingsForegroundInteractionClass.",
+                [StringComparison]::Ordinal)) {
+            throw 'Functional foreground interaction methods must all belong to SettingsForegroundInteractionTests.'
+        }
+    }
+    if (@($serialA.Classes) -notcontains $functionalSettingsForegroundInteractionClass) {
+        throw 'Functional serial-state-a must own the foreground interaction fixture.'
+    }
+    foreach ($shard in $shards | Where-Object { $_.Name -cne 'serial-state-a' }) {
+        if (@($shard.Classes) -contains $functionalSettingsForegroundInteractionClass) {
+            throw "Foreground interaction fixture leaked into host '$($shard.Name)'."
+        }
+    }
+
+    $retiredFqns = @(
+        'BeMusicSeeker.Tests.BmsPlaylistUpdateTests'
+        'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests'
+        'BeMusicSeeker.Tests.OwnedChartCollectionStateTests'
+        'BeMusicSeeker.Tests.PlaylistSummaryAggregationTests'
+        'BeMusicSeeker.Tests.RegularChartListOwnerTests'
+        'BeMusicSeeker.Tests.ChartInfoMetadataTests'
+        'BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests'
+        'BeMusicSeeker.Tests.ChartInfoParserBehaviorTests'
+        'BeMusicSeeker.Tests.ChartInfoBackfillStorageTests'
+        'BeMusicSeeker.Tests.ChartInfoInlineHydrationTests'
+        'BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests'
+        'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests'
+        'BeMusicSeeker.Tests.StartupLibraryConstructionOwnerTests'
+        'BeMusicSeeker.Tests.SettingsWindowPresentationTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow'
+        'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting'
+        'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected'
+        'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor')
+    $routeText = @(
+        $shards | ForEach-Object {
+            @($_.Classes)
+            [string]$_.Filter
+            @($_.ExcludedClasses)
+        }) -join [Environment]::NewLine
+    foreach ($retiredFqn in $retiredFqns) {
+        if ($routeText.Contains($retiredFqn, [StringComparison]::Ordinal)) {
+            throw "Retired Functional selector remains in the executable launch plan: $retiredFqn"
+        }
+    }
 }
+
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
 
 function Invoke-CheckedCommand {
@@ -1480,9 +912,6 @@ function Get-TestArguments {
         [Parameter(Mandatory)]
         [string]$DiagnosticsDirectory,
 
-        [Parameter(Mandatory)]
-        [int]$TimeoutSeconds,
-
         [string]$RunSettingsPath,
 
         [switch]$NoBuild
@@ -1501,11 +930,6 @@ function Get-TestArguments {
         '--logger',
         'console;verbosity=normal',
         '--blame-crash',
-        '--blame-hang',
-        '--blame-hang-timeout',
-        "${testHangTimeoutSeconds}s",
-        '--blame-hang-dump-type',
-        'mini',
         '--filter',
         $Filter)
     if (-not [string]::IsNullOrWhiteSpace($RunSettingsPath)) {
@@ -1546,7 +970,6 @@ function Invoke-TestLane {
     $arguments = Get-TestArguments `
         -Filter $Filter `
         -DiagnosticsDirectory $DiagnosticsDirectory `
-        -TimeoutSeconds $TimeoutSeconds `
         -RunSettingsPath $RunSettingsPath `
         -NoBuild:$NoBuild
     $invokeParameters = @{
@@ -1596,240 +1019,6 @@ function Get-FunctionalPhaseRemainingSeconds {
     return [Math]::Max(1, [int][Math]::Floor($remaining))
 }
 
-function Assert-FunctionalOrchestrationConfiguration {
-    param(
-        [Parameter(Mandatory)]
-        [object[]]$Shards,
-
-        [Parameter(Mandatory)]
-        [object[]]$FanoutShards,
-
-        [Parameter(Mandatory)]
-        [object[]]$EarlyShards,
-
-        [Parameter(Mandatory)]
-        [object[]]$FanoutLaunchShards
-    )
-
-    $shardEntries = @()
-    if ($null -ne $Shards) {
-        $shardEntries = @($Shards)
-    }
-    $fanoutEntries = @()
-    if ($null -ne $FanoutShards) {
-        $fanoutEntries = @($FanoutShards)
-    }
-    $shardNames = @($shardEntries | ForEach-Object { $_.Name })
-    if (@($shardNames | Sort-Object -Unique).Count -ne $shardNames.Count) {
-        throw 'Functional orchestration shards must have unique names.'
-    }
-    $expectedShardEntryCount = @($functionalTestClassShards).Count + 1
-    if ($shardEntries.Count -ne $expectedShardEntryCount) {
-        throw "Functional orchestration must preserve $expectedShardEntryCount total shard process entries."
-    }
-
-    $lr2Shards = @($shardEntries |
-        Where-Object { $_.Name -ceq 'lr2-songdb-sync' })
-    if ($lr2Shards.Count -ne 1) {
-        throw 'Functional orchestration must contain exactly one lr2-songdb-sync entry.'
-    }
-
-    $expectedFanoutNames = @($shardEntries |
-        Where-Object { $_.Name -cne 'lr2-songdb-sync' } |
-        ForEach-Object { $_.Name })
-    $actualFanoutNames = @($fanoutEntries | ForEach-Object { $_.Name })
-    if (@($actualFanoutNames | Where-Object { $_ -ceq 'lr2-songdb-sync' }).Count -ne 0) {
-        throw 'Functional fanout must exclude the already-started lr2-songdb-sync entry.'
-    }
-    if ($actualFanoutNames.Count -ne $expectedFanoutNames.Count -or
-        @(Compare-Object `
-            -ReferenceObject $expectedFanoutNames `
-            -DifferenceObject $actualFanoutNames `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional fanout must contain each non-LR2 shard exactly once.'
-    }
-    $earlyEntries = @($EarlyShards)
-    if ($earlyEntries.Count -ne $functionalEarlyShardNames.Count -or
-        @(Compare-Object `
-            -ReferenceObject $functionalEarlyShardNames `
-            -DifferenceObject @($earlyEntries | ForEach-Object { $_.Name }) `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional orchestration must stage LR2 exactly once before the pre-wave.'
-    }
-    foreach ($earlyEntry in $earlyEntries) {
-        if (@($shardEntries | Where-Object { [object]::ReferenceEquals($_, $earlyEntry) }).Count -ne 1) {
-            throw 'Functional early entries must reuse the actual launch shard objects.'
-        }
-    }
-    $actualFanoutLaunchNames = @($FanoutLaunchShards | ForEach-Object { $_.Name })
-    $expectedFanoutLaunchNames = @($expectedFanoutNames |
-        Where-Object { $functionalEarlyShardNames -notcontains $_ })
-    if ($actualFanoutLaunchNames.Count -ne $expectedFanoutLaunchNames.Count -or
-        @(Compare-Object `
-            -ReferenceObject $expectedFanoutLaunchNames `
-            -DifferenceObject $actualFanoutLaunchNames `
-            -CaseSensitive).Count -ne 0) {
-        throw 'Functional fanout launch must contain both settings routes after the pre-wave.'
-    }
-    foreach ($fanoutLaunchEntry in @($FanoutLaunchShards)) {
-        if (@($shardEntries | Where-Object { [object]::ReferenceEquals($_, $fanoutLaunchEntry) }).Count -ne 1) {
-            throw 'Functional fanout launch must use the same validated launch objects.'
-        }
-    }
-}
-
-function Assert-FunctionalOrchestrationPhaseOrder {
-    param(
-        [AllowNull()]
-        [AllowEmptyCollection()]
-        [object]$PhaseTrace,
-
-        [switch]$AllowPrefix
-    )
-
-    $phaseEntries = @()
-    if ($null -ne $PhaseTrace) {
-        $phaseEntries = @($PhaseTrace)
-    }
-    $expectedPhases = @(
-        'exclusive-portable-settings',
-        'early-entries',
-        'method-level-pre-wave',
-        'remaining-and-non-lr2-shards')
-    if ($phaseEntries.Count -gt $expectedPhases.Count) {
-        throw 'Functional orchestration contains an unexpected phase.'
-    }
-    if (@($phaseEntries | Sort-Object -Unique).Count -ne $phaseEntries.Count) {
-        throw 'Functional orchestration phases must not be repeated.'
-    }
-    for ($phaseIndex = 0; $phaseIndex -lt $phaseEntries.Count; $phaseIndex++) {
-        if ($phaseEntries[$phaseIndex] -cne $expectedPhases[$phaseIndex]) {
-            throw "Functional orchestration phase '$($phaseEntries[$phaseIndex])' is out of order."
-        }
-    }
-    if (-not $AllowPrefix -and $phaseEntries.Count -ne $expectedPhases.Count) {
-        throw 'Functional orchestration must complete exclusive -> early entries -> pre-wave -> fanout order.'
-    }
-}
-
-function Get-FunctionalEarlyEntryState {
-    param(
-        [AllowNull()]
-        [object]$Entry
-    )
-
-    if ($null -eq $Entry -or $null -eq $Entry.Process) {
-        return [pscustomobject]@{
-            State = 'Invalid'
-            Detail = 'The early process entry or process handle is missing.'
-        }
-    }
-
-    try {
-        if ($Entry.PSObject.Properties.Name -contains 'Canceled' -and
-            [bool]$Entry.Canceled) {
-            return [pscustomobject]@{
-                State = 'Canceled'
-                Detail = 'The early process entry was canceled before fanout.'
-            }
-        }
-        $hasExited = $Entry.Process.HasExited
-        if ($hasExited -isnot [bool]) {
-            return [pscustomobject]@{
-                State = 'Invalid'
-                Detail = "The early process reported an invalid HasExited state '$hasExited'."
-            }
-        }
-        if (-not $hasExited) {
-            return [pscustomobject]@{
-                State = 'Running'
-                Detail = 'The early process is still running and remains in the common result set.'
-            }
-        }
-
-        $exitCode = $Entry.Process.ExitCode
-        if ($exitCode -isnot [int]) {
-            return [pscustomobject]@{
-                State = 'Invalid'
-                Detail = "The early process reported an invalid exit code '$exitCode'."
-            }
-        }
-        if ($exitCode -eq 0) {
-            return [pscustomobject]@{
-                State = 'Succeeded'
-                Detail = 'The early process exited successfully and remains accounted once.'
-            }
-        }
-        return [pscustomobject]@{
-            State = 'Failed'
-            Detail = "The early process exited with code $exitCode (failure or cancellation)."
-        }
-    }
-    catch {
-        return [pscustomobject]@{
-            State = 'Invalid'
-            Detail = "The early process state could not be inspected: $($_.Exception.Message)"
-        }
-    }
-}
-
-function Assert-FunctionalEarlyEntryCanProceedToFanout {
-    param(
-        [Parameter(Mandatory)]
-        [object]$Entry
-    )
-
-    $state = Get-FunctionalEarlyEntryState -Entry $Entry
-    if ($state.State -in @('Failed', 'Canceled', 'Invalid')) {
-        throw "Functional early shard '$($Entry.Name)' cannot enter fanout ($($state.State)): $($state.Detail)"
-    }
-    return $state
-}
-
-function Get-FunctionalLr2EntryState {
-    param(
-        [AllowNull()]
-        [object]$Entry
-    )
-
-    return Get-FunctionalEarlyEntryState -Entry $Entry
-}
-
-function Assert-FunctionalLr2CanProceedToFanout {
-    param(
-        [Parameter(Mandatory)]
-        [object]$Entry
-    )
-
-    return Assert-FunctionalEarlyEntryCanProceedToFanout -Entry $Entry
-}
-
-function Resolve-FunctionalEarlyEntryStates {
-    param(
-        [Parameter(Mandatory)]
-        [object[]]$Entries,
-
-        [Parameter(Mandatory)]
-        [object]$AccountedEntries
-    )
-
-    $states = [System.Collections.Generic.List[object]]::new()
-    foreach ($entry in $Entries) {
-        $state = Assert-FunctionalEarlyEntryCanProceedToFanout -Entry $entry
-        if (@($AccountedEntries | Where-Object { [object]::ReferenceEquals($_, $entry) }).Count -gt 0) {
-            throw "Functional early entry '$($entry.Name)' was accounted more than once."
-        }
-        [void]$AccountedEntries.Add($entry)
-        [void]$states.Add([pscustomobject][ordered]@{
-                Entry = $entry
-                State = $state.State
-                Detail = $state.Detail
-                Accounted = $true
-            })
-    }
-    return @($states)
-}
-
 function Start-FunctionalShardProcess {
     param(
         [Parameter(Mandatory)]
@@ -1837,11 +1026,6 @@ function Start-FunctionalShardProcess {
 
         [Parameter(Mandatory)]
         [string]$DiagnosticsDirectory,
-
-        [Parameter(Mandatory)]
-        [int]$TimeoutSeconds
-
-        ,
 
         [Parameter(Mandatory)]
         [System.Collections.IList]$Entries,
@@ -1860,7 +1044,6 @@ function Start-FunctionalShardProcess {
     $arguments = Get-TestArguments `
         -Filter $Shard.Filter `
         -DiagnosticsDirectory $DiagnosticsDirectory `
-        -TimeoutSeconds $TimeoutSeconds `
         -RunSettingsPath $runSettingsPath `
         -NoBuild
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -2012,133 +1195,62 @@ function Invoke-ParallelFunctionalTestShards {
         [DateTime]$CleanupDeadlineUtc
     )
 
+    # Build once, validate once, and keep every descriptor as the object consumed by
+    # the launch loops. There is no metadata-only fanout or second allowlist route.
     $shardPlan = New-FunctionalShardPlan
     Assert-FunctionalShardConfiguration -Plan $shardPlan
     $shards = @($shardPlan.Shards)
-    $fanoutDescriptors = @($shardPlan.FanoutShards)
-    $fanoutShards = @($shardPlan.FanoutLaunchShards)
-    $earlyShards = @($shardPlan.EarlyShards)
-    $lr2Shard = @($shards | Where-Object { $_.Name -ceq 'lr2-songdb-sync' })[0]
-    Assert-FunctionalOrchestrationConfiguration `
-        -Shards $shards `
-        -FanoutShards $fanoutDescriptors `
-        -EarlyShards $earlyShards `
-        -FanoutLaunchShards $fanoutShards
+    $portableShard = @($shards | Where-Object { $_.Name -ceq 'portable-settings' })[0]
+    $fanoutShards = @($shards | Where-Object { $_.Name -cne 'portable-settings' })
+    if ($fanoutShards.Count -ne 4) {
+        throw 'Functional launch plan must start exactly four hosts after portable settings completes.'
+    }
+    foreach ($fanoutShard in $fanoutShards) {
+        if (@($shards | Where-Object { [object]::ReferenceEquals($_, $fanoutShard) }).Count -ne 1) {
+            throw 'Functional fanout must use the exact validated host objects.'
+        }
+    }
 
     # Allocate every Functional entry directory before any monitored process is launched.
     # Lifecycle cleanup receives only pre-created paths and therefore cannot begin a new
     # filesystem operation for a later entry after the shared cleanup deadline.
     [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
-    $lr2DiagnosticsDirectory = Join-Path $DiagnosticsDirectory 'lr2-songdb-sync'
-    $exclusiveDirectory = Join-Path $DiagnosticsDirectory 'exclusive-portable-settings'
-    $preWaveDirectory = Join-Path $DiagnosticsDirectory 'method-level-pre-wave'
     $shardDirectories = @($shards | ForEach-Object { Join-Path $DiagnosticsDirectory $_.Name })
-    foreach ($directory in @($lr2DiagnosticsDirectory, $exclusiveDirectory, $preWaveDirectory) + $shardDirectories) {
+    foreach ($directory in $shardDirectories) {
         [void](New-Item -ItemType Directory -Path $directory -Force)
     }
+
+    $portableDirectory = Join-Path $DiagnosticsDirectory $portableShard.Name
+    $portableRunSettingsPath = Join-Path $portableDirectory 'parallel.runsettings'
+    Write-MSTestParallelRunSettings -Path $portableRunSettingsPath -Workers $portableShard.Workers -Scope $portableShard.Scope
     $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $entries = [System.Collections.Generic.List[object]]::new()
     $ownedProcessRecords = [System.Collections.Generic.List[object]]::new()
-    $accountedEarlyEntries = [System.Collections.Generic.List[object]]::new()
-    $phaseTrace = [System.Collections.Generic.List[string]]::new()
     $timedOut = $false
-    $timedOutShardNames = @()
+    $timedOutHostNames = @()
     $launchFailure = $null
-    $failedShard = $null
-    $failedShardName = $null
-    $failedShardExitCode = $null
+    $failedHost = $null
+    $failedHostName = $null
+    $failedHostExitCode = $null
     $cleanupFailures = [System.Collections.Generic.List[string]]::new()
 
     try {
-        $exclusiveClassFilter = ($functionalExclusiveTestClasses |
-            ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-        $exclusiveTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
-            -ProcessDeadlineUtc $ProcessDeadlineUtc `
-            -PhaseName 'exclusive portable settings'
-        Invoke-TestLane `
-            -Name 'Functional exclusive portable settings' `
-            -Filter "($functionalFilter)&($exclusiveClassFilter)" `
-            -DiagnosticsDirectory $exclusiveDirectory `
-            -TimeoutSeconds $exclusiveTimeoutSeconds `
-            -CleanupDeadlineUtc $CleanupDeadlineUtc `
-            -NoBuild
+        $portableTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds -ProcessDeadlineUtc $ProcessDeadlineUtc -PhaseName 'portable settings'
+        Invoke-TestLane -Name 'Functional portable settings' -Filter $portableShard.Filter -DiagnosticsDirectory $portableDirectory -TimeoutSeconds $portableTimeoutSeconds -RunSettingsPath $portableRunSettingsPath -ProcessDeadlineUtc $ProcessDeadlineUtc -CleanupDeadlineUtc $CleanupDeadlineUtc -NoBuild
 
-        [void]$phaseTrace.Add('exclusive-portable-settings')
-        Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
-
-        [void]$phaseTrace.Add('early-entries')
-        Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
-        foreach ($earlyShard in $earlyShards) {
-            $earlyDirectory = Join-Path $DiagnosticsDirectory $earlyShard.Name
-            $earlyTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
-                -ProcessDeadlineUtc $ProcessDeadlineUtc `
-                -PhaseName $earlyShard.Name
-            [void](Start-FunctionalShardProcess `
-                    -Shard $earlyShard `
-                    -DiagnosticsDirectory $earlyDirectory `
-                    -TimeoutSeconds $earlyTimeoutSeconds `
-                    -Entries $entries `
-                    -OwnedProcessRecords $ownedProcessRecords `
-                    -PostStartFaultGuard $InternalTestGuard)
+        # The four hosts begin from this same validated array without a phase barrier.
+        foreach ($fanoutShard in $fanoutShards) {
+            $shardDirectory = Join-Path $DiagnosticsDirectory $fanoutShard.Name
+            [void](Start-FunctionalShardProcess -Shard $fanoutShard -DiagnosticsDirectory $shardDirectory -Entries $entries -OwnedProcessRecords $ownedProcessRecords -PostStartFaultGuard $InternalTestGuard)
         }
 
-        $preWaveRunSettingsPath = Join-Path $preWaveDirectory 'parallel.runsettings'
-        Write-MSTestParallelRunSettings `
-            -Path $preWaveRunSettingsPath `
-            -Workers $functionalRemainingShardWorkers `
-            -Scope 'MethodLevel'
-        $preWaveClassFilter = ($functionalMethodLevelPreWaveClasses |
-            ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
-        $preWaveTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
-            -ProcessDeadlineUtc $ProcessDeadlineUtc `
-            -PhaseName 'method-level pre-wave'
-        [void]$phaseTrace.Add('method-level-pre-wave')
-        Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray()) -AllowPrefix
-        Invoke-TestLane `
-            -Name 'Functional method-level pre-wave' `
-            -Filter "($functionalFilter)&($preWaveClassFilter)" `
-            -DiagnosticsDirectory $preWaveDirectory `
-            -TimeoutSeconds $preWaveTimeoutSeconds `
-            -RunSettingsPath $preWaveRunSettingsPath `
-            -CleanupDeadlineUtc $CleanupDeadlineUtc `
-            -NoBuild
-
-        $earlyEntries = @($entries |
-            Where-Object { $functionalEarlyShardNames -contains $_.Name })
-        if ($earlyEntries.Count -ne $earlyShards.Count) {
-            throw 'Functional early result accounting must retain every staged entry exactly once before fanout.'
-        }
-        $earlyStates = Resolve-FunctionalEarlyEntryStates `
-            -Entries $earlyEntries `
-            -AccountedEntries $accountedEarlyEntries
-        foreach ($earlyState in $earlyStates) {
-            Write-Host "Functional early state before fanout ($($earlyState.Entry.Name)): $($earlyState.State); $($earlyState.Detail)"
-        }
-        [void]$phaseTrace.Add('remaining-and-non-lr2-shards')
-        Assert-FunctionalOrchestrationPhaseOrder -PhaseTrace @($phaseTrace.ToArray())
-        foreach ($shard in $fanoutShards) {
-            $shardDirectory = Join-Path $DiagnosticsDirectory $shard.Name
-            $shardTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds `
-                -ProcessDeadlineUtc $ProcessDeadlineUtc `
-                -PhaseName $shard.Name
-            [void](Start-FunctionalShardProcess `
-                -Shard $shard `
-                -DiagnosticsDirectory $shardDirectory `
-                -TimeoutSeconds $shardTimeoutSeconds `
-                -Entries $entries `
-                -OwnedProcessRecords $ownedProcessRecords `
-                -PostStartFaultGuard $InternalTestGuard)
-        }
-
-        $shardSummary = ($shards | ForEach-Object {
-            "$($_.Name)=$($_.Workers) workers"
-        }) -join ', '
-        Write-Host "Functional test shards (global timeout ${TimeoutSeconds}s): $shardSummary"
+        $hostSummary = ($shards | ForEach-Object { "$($_.Name)=$($_.Workers) workers" }) -join ', '
+        Write-Host "Functional test hosts (global timeout ${TimeoutSeconds}s; process deadline 170s; cleanup reserve ${functionalCleanupReserveSeconds}s): $hostSummary"
         while ($true) {
-            $failedShard = $entries |
+            $failedHost = $entries |
                 Where-Object { $_.Process.HasExited -and $_.Process.ExitCode -ne 0 } |
                 Select-Object -First 1
-            if ($null -ne $failedShard) {
+            if ($null -ne $failedHost) {
                 break
             }
 
@@ -2148,8 +1260,8 @@ function Invoke-ParallelFunctionalTestShards {
             }
             if ([DateTime]::UtcNow -ge $ProcessDeadlineUtc) {
                 $timedOut = $true
-                $timedOutShardNames = @($runningEntries | ForEach-Object { $_.Name })
-                Write-Warning "Functional test phase reached its process deadline before the shared ${functionalCleanupReserveSeconds}-second cleanup reserve. Stopping shards: $($timedOutShardNames -join ', ')"
+                $timedOutHostNames = @($runningEntries | ForEach-Object { $_.Name })
+                Write-Warning "Functional test hosts reached the shared 170-second process deadline before the ${functionalCleanupReserveSeconds}-second cleanup reserve. Stopping hosts: $($timedOutHostNames -join ', ')"
                 break
             }
             Start-Sleep -Milliseconds 100
@@ -2159,30 +1271,21 @@ function Invoke-ParallelFunctionalTestShards {
         $launchFailure = $_
     }
     finally {
-        Convert-FunctionalRawOwnershipRecordsToEntries `
-            -Entries $entries `
-            -OwnedProcessRecords $ownedProcessRecords `
-            -CleanupFailures $cleanupFailures
-        if ($null -ne $failedShard) {
-            $failedShardName = $failedShard.Name
-            $failedShardExitCode = $failedShard.Process.ExitCode
+        Convert-FunctionalRawOwnershipRecordsToEntries -Entries $entries -OwnedProcessRecords $ownedProcessRecords -CleanupFailures $cleanupFailures
+        if ($null -ne $failedHost) {
+            $failedHostName = $failedHost.Name
+            $failedHostExitCode = $failedHost.Process.ExitCode
         }
-        $forceCleanup = $timedOut -or
-            $null -ne $failedShardName -or
-            $null -ne $launchFailure
+        $forceCleanup = $timedOut -or $null -ne $failedHostName -or $null -ne $launchFailure
 
-        $functionalCleanup = Invoke-VerificationFunctionalCleanup `
-            -Entries $entries `
-            -CleanupDeadlineUtc $CleanupDeadlineUtc `
-            -StopRoots:$forceCleanup
+        $functionalCleanup = Invoke-VerificationFunctionalCleanup -Entries $entries -CleanupDeadlineUtc $CleanupDeadlineUtc -StopRoots:$forceCleanup
         foreach ($fanoutFailure in @($functionalCleanup.FanoutFailures)) {
             $cleanupFailures.Add($fanoutFailure)
         }
         foreach ($entryResult in @($functionalCleanup.EntryResults)) {
             $entry = $entryResult.Entry
             if ($null -ne $entryResult.Error) {
-                $cleanupFailures.Add(
-                    "$($entry.Name): cleanup/output collection failed: $($entryResult.Error.Exception.Message)")
+                $cleanupFailures.Add("$($entry.Name): cleanup/output collection failed: $($entryResult.Error.Exception.Message)")
                 continue
             }
 
@@ -2192,9 +1295,9 @@ function Invoke-ParallelFunctionalTestShards {
                     $cleanupFailures.Add("$($entry.Name): $diagnostic")
                 }
             }
-            if ($null -eq $failedShardName -and $lifecycleResult.PrimaryFailureKind -ceq 'nonzero-exit') {
-                $failedShardName = $entry.Name
-                $failedShardExitCode = $lifecycleResult.ExitCode
+            if ($null -eq $failedHostName -and $lifecycleResult.PrimaryFailureKind -ceq 'nonzero-exit') {
+                $failedHostName = $entry.Name
+                $failedHostExitCode = $lifecycleResult.ExitCode
             }
             if ($lifecycleResult.PrimaryFailureKind -ceq 'timeout' -and -not $timedOut) {
                 $cleanupFailures.Add("$($entry.Name): bounded process lifecycle timed out during cleanup")
@@ -2203,7 +1306,7 @@ function Invoke-ParallelFunctionalTestShards {
             $standardOutput = $lifecycleResult.StandardOutput
             $standardError = $lifecycleResult.StandardError
 
-            Write-Host "Test shard: $($entry.Name); exit code: $($lifecycleResult.ExitCode)"
+            Write-Host "Test host: $($entry.Name); exit code: $($lifecycleResult.ExitCode)"
             if (-not $timedOut -and -not [string]::IsNullOrEmpty($standardOutput)) {
                 Write-Host $standardOutput -NoNewline
             }
@@ -2225,19 +1328,17 @@ function Invoke-ParallelFunctionalTestShards {
         $primaryFailure = $launchFailure
     }
     elseif ($timedOut) {
-        $primaryFailure = [Exception]::new(
-            "Functional test phase exceeded the ${TimeoutSeconds}-second timeout. Diagnostics: $DiagnosticsDirectory")
+        $primaryFailure = [Exception]::new("Functional test hosts exceeded the shared 170-second process deadline within the ${TimeoutSeconds}-second command budget. Diagnostics: $DiagnosticsDirectory")
     }
-    elseif ($null -ne $failedShardName) {
-        $primaryFailure = [Exception]::new(
-            "Functional test shard '$failedShardName' failed with exit code $failedShardExitCode. Diagnostics: $(Join-Path $DiagnosticsDirectory $failedShardName)")
+    elseif ($null -ne $failedHostName) {
+        $primaryFailure = [Exception]::new("Functional test host '$failedHostName' failed with exit code $failedHostExitCode. Diagnostics: $(Join-Path $DiagnosticsDirectory $failedHostName)")
     }
     if ($cleanupFailures.Count -gt 0) {
         if ($null -ne $primaryFailure) {
-            Write-Warning "Functional test shard cleanup also failed after the primary failure: $($cleanupFailures -join '; ')"
+            Write-Warning "Functional test host cleanup also failed after the primary failure: $($cleanupFailures -join '; ')"
         }
         else {
-            throw "Functional test shard cleanup failed: $($cleanupFailures -join '; ')"
+            throw "Functional test host cleanup failed: $($cleanupFailures -join '; ')"
         }
     }
     if ($null -ne $primaryFailure) {
@@ -2670,13 +1771,9 @@ function Invoke-FilteredQuickVerification {
 
         $testDirectory = Join-Path $DiagnosticsRoot 'functional'
         [void](New-Item -ItemType Directory -Path $testDirectory -Force)
-        $remaining = Get-RemainingBudgetSeconds `
-            -Stopwatch $filteredQuickStopwatch `
-            -BudgetSeconds $TimeoutSeconds
         $testArguments = Get-TestArguments `
             -Filter $Filter `
-            -DiagnosticsDirectory $testDirectory `
-            -TimeoutSeconds $remaining
+            -DiagnosticsDirectory $testDirectory
         Invoke-BudgetedCommand `
             -Stopwatch $filteredQuickStopwatch `
             -BudgetSeconds $TimeoutSeconds `

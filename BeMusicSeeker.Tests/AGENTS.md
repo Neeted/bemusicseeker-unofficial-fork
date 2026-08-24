@@ -25,6 +25,8 @@
 - fixed `Thread.Sleep`、正常完了を推定する正の `Task.Delay`、busy wait を追加しない。deterministic signal と短い failure watchdog を使う。
 - `DoNotParallelize` は分離不能な shared resource が実在するときだけ使い、resource owner、復元、Quick を含む必要性を comment または spec へ残す。
 - process test は bounded process wait、bounded stream drain、owned PID lineage cleanup、diagnostics、primary failure precedence を一つの owner へ閉じる。process 名だけの global kill を行わない。
+- normal completion は対象の `Task` / event / state transition を plain `await` で待つ。coordinator で `.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` による同期 block を行わない。
+- local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限る。成功を推定する固定 wait や既定 timeout helper、広域な timeout 化を追加しない。
 
 ## Verification and handoff
 

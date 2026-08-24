@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 4e KISS Functional topology and watchdog policy replan approved; implementation pending
+Status: Unit 4e-A KISS Functional topology and watchdog policy implemented; focused verification complete; stability pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -422,7 +422,7 @@ portable exclusive fixture `PlayerPanelStateSettingsCompatibilityTests` を1 wor
 
 `BmsLibraryLr2SongDbSyncTests`、`LoadPlaylistURIDialogTests`、`MainWindowChartPresentationWpfTests`、`MainWindowPackageMaintenanceWpfTests`、`MainWindowPlaybackWpfTests`、`MainWindowPlayHistoryWpfTests`、`MainWindowPlaylistWorkspaceWpfTests`、`MainWindowProgressStatusBarWpfTests`、`MainWindowSelectedChartContextMenuWpfTests`、`MainWindowTreePresentationWpfTests`、`MainWindowViewHostTests`、`SettingsWindowCompiledBehaviorTests`、`UiDialogCoordinatorWpfTests`、`PlaybackPanelViewModelTests`、`InstalledOnlyResourceOverwriteValidationTests`、`LibraryFileScanPipelineOwnerTests`、`Lr2PlayHistorySchemaUiTests`、`MainWindowExternalShellTests`、`PlayHistoryReadModelTests`、`ApplicationStartupCompositionOwnerTests`。
 
-A/Bは、process-global settings / Application / resources / foreground、native / logging、LR2 state、class-wide DNPの安全境界を同一host内で直列化する。残りのDB / file / chart / library / presentation ownerはGUID resourceと既存method-level DNPを維持してremainingへ戻す。旧named routeからremainingへ戻るexact 42 classは、旧pre-wave 7、library 10、owned DB/file 3、owned chart 16、presentation workspace 6である。validatorはこれらがassigned exclusionに残らず、全logical testが一度だけdiscoverされることを実際のlaunch planで検証する。
+A/Bは、process-global settings / Application / resources / foreground、native / logging、LR2 state、class-wide DNPの安全境界を同一host内で直列化する。残りのDB / file / chart / library / presentation ownerはGUID resourceと既存method-level DNPを維持してremainingへ戻す。現在の validator は portable、Bass、A、B の exact 45 class を remaining から除外し、それ以外の Functional logical test を一度だけ discover / launch する実際の plan を検証する。
 
 foreground exact 7 methodはすべて`SettingsForegroundInteractionTests`にある現行FQNへ修正し、Aだけがclass全体を所有する。旧`SettingDialogEditCompletionTests`をownerとする3 FQNは退役する。
 
@@ -471,7 +471,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4b: staged settings and bounded fanout | Implementation complete; stability verification pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
 | Unit 4c: LR2-only early and regular-chart ownership | Implementation and focused verification complete; stability pending | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割した。actual planは15/14/14/1、LR2-only early、settings post-pre-wave fanout exact-once、old class退役、narrow supportを維持する。fixture/runner focused Quick、parse、diff check、76/76 body identityを完了。 |
 | Unit 4d: final Functional tail ownership | Blocker correction implemented; stability pending | Functional fanoutでChartInfo splitのThreadPool completion ownership premiseが破綻したため、5 source groupを単一partial `ChartInfoMetadataOwnerTests`へregroup。library/startup owner split、exact 6-worker ClassLevel route、15/14/14/1 topology、logical test set、watchdogを維持する。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
-| Unit 4e: KISS Functional / watchdog policy | Planned; implementation pending | ユーザー判断により個別testの短時間予算と15-shard性能topologyを退役。portable後4-host fanout、global 180秒budget、normal-completion plain awaitへ再計画。 |
+| Unit 4e: KISS Functional / watchdog policy | Implementation and focused verification complete; stability pending | 個別testの短時間予算と15-shard性能topologyを退役。portable単独完了後、同じactual plan arrayからBass / serial A / serial B / remainingを4-host fanoutし、global 180秒budget、normal-completion plain await、exact remaining exclusionを実装。Focused Quick 18/18 pass; Functional/Full/WPF30/static reviewはroot担当。 |
 | Unit 5: final stability gates and review | Pending | Unit 4e implementation snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
@@ -516,6 +516,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | exact regrouped 10-class library-chart direct 6-worker / `ClassLevel` route | Pass (248 + 1 expected skip) | 17s test | `issue-resolver-library-chart-regrouped`; no build/restore, unchanged route runsettings |
 | `7875a908` | exact foreground navigation diagnostic Quick | Pass (1/1) | 31.3s filtered build/test | `tests-quick-20260825-030451`; preceding Functionalの単発keyboard-focus lossはselection/page遷移後のfocus theftと判定; tracked unchanged; residual0 |
 | same | Functional after ChartInfo regroup | Fail: remaining false watchdog / global oversubscription | 169.6s canonical / 154.1s test phase | `tests-functional-20260825-030537`; LR2 103/103だが115sへ膨張、Startup progress work-startの5s sync wait failure、tracked unchanged、residual0; Unit4e trigger |
+| Unit 4e-A snapshot | PowerShell parse + direct `New-FunctionalShardPlan` / `Assert-FunctionalShardConfiguration` probe + `git diff --check` | Pass | <1s | actual executable plan: 5 hosts (`portable-settings`, `bass-collectible`, `serial-state-a`, `serial-state-b`, `remaining`), workers `1/1/1/1/12`, all `ClassLevel`, assigned 45, remaining exclusion 45, foreground 7; tracked files unchanged |
+| Unit 4e-A snapshot | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests|FullyQualifiedName~VerificationProcessLifecycleTests'` | Pass (18/18) | 58.6s command / 48.8s test | `tests-quick-20260825-042849`; build succeeded after order/exclusion validator strengthening, actual plan contract and lifecycle probes passed, fingerprint unchanged, residual test process 0 |
 
 ## Done when
 

@@ -88,6 +88,8 @@ process 名だけでマシン全体の `dotnet` / `testhost` / `vstest` を停�
 - task fault、cancel、dispatcher shutdown、cleanup failure を握りつぶさない。
 - `DoNotParallelize` は分離できない shared resource が実在する場合だけ使い、resource owner と復元処理を comment または spec へ書く。
 - shard / worker 低下や timeout 延長だけで flake を消した扱いにしない。
+- 正常完了の coordinator は対象の `Task`、event、signal、state transition を plain `await` で待ち、`.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` で同期 block しない。
+- local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限る。固定 sleep、成功推定用の正の delay、既定 timeout helper、bulk な timeout 変更は追加しない。
 
 runner、lane、parallelization、fixture placement、shared WPF / process infrastructure を変更した場合、最終 snapshot で Functional を3回連続実行する。途中で failure を修正した場合、修正前の pass を数えず1回目からやり直す。
 
