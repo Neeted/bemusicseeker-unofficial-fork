@@ -67,25 +67,25 @@ P0 として次の操作は共通境界を通す。
 
 ## Verification map
 
-`BmsLibraryStateApplierTests` の26 caseは、owner境界と remaining の `ClassLevel` 実行単位を一致させるため、次の3 fixtureへ分けて維持する。
+`BmsLibraryStateApplierTests` の26 caseは、owner境界と `remaining-bms-library` の `ClassLevel` 実行単位を一致させるため、次の3 fixtureへ分けて維持する。
 
 - `BmsLibraryStateApplierTests`: library initialization progress と `ApplyLibraryMutationDelta(...)` の13 case。
 - `BmsLibraryPackageLifecycleTests`: pending package collection publication と durable pending-package delta の7 case。
 - `BmsLibraryCatalogRelocationTests`: catalog relocation の storage-row、path、LR2 compatibility の6 case。
 
-3 fixtureは既存の `BmsLibraryStateApplierTestSupport` が提供する GUID付き temporary song DB、package state callback、UI scheduler、completion / cancellation signalを共有する。ただし各 testの resource rootとDBは従来どおり個別に所有し、Functional の既存 `remaining` process、12 worker、`ClassLevel` scopeから新しい laneや `DoNotParallelize`を追加せずに実行する。分割は test semantics、永続化結果、failure contract、cleanupを変更しない。
+3 fixtureは既存の `BmsLibraryStateApplierTestSupport` が提供する GUID付き temporary song DB、package state callback、UI scheduler、completion / cancellation signalを共有する。ただし各 testの resource rootとDBは従来どおり個別に所有し、Functional の `remaining-bms-library` process、`ProcessorCount` worker、`ClassLevel` scopeから新しい laneや `DoNotParallelize`を追加せずに実行する。分割は test semantics、永続化結果、failure contract、cleanupを変更しない。
 
-`BmsLibraryInitializationServiceTests` の108 casesは、既存の GUID付き song DB / filesystem、dispatcher/task/event completion、failure watchdog、cleanupを保持したまま、library ownerごとの5 fixtureへ置換する。これらは `BmsLibraryZeroNoteRefreshTests` および chart-info / startup owner fixturesと同じ `library-chart-classwide` processの6-worker `ClassLevel` routeで実行し、新しい process、DNP、fixed wait、timeout変更、production seamは追加しない。
+`BmsLibraryInitializationServiceTests` の108 casesは、既存の GUID付き song DB / filesystem、dispatcher/task/event completion、failure watchdog、cleanupを保持したまま、library ownerごとの5 fixtureへ置換する。BmsLibrary prefixを持つこれらのfixtureと `BmsLibraryZeroNoteRefreshTests` は `remaining-bms-library` processの `ProcessorCount` / `ClassLevel` routeで実行し、chart-info / startup owner fixturesはselectorのnegative側である `remaining` routeに留める。新しい process、DNP、fixed wait、timeout変更、production seamは追加しない。
 
 | Behavior / failure contract | Owner fixture | Retired cases | Route |
 | --- | --- | --- | --- |
-| catalog / maintenance load, BMSON load, leap-year validation | `BmsLibraryInitializationLoadTests` | `BmsLibraryInitializationServiceTests` cases 1-9, 76-77, 107 | `library-chart-classwide`, 6 workers / `ClassLevel` |
+| catalog / maintenance load, BMSON load, leap-year validation | `BmsLibraryInitializationLoadTests` | `BmsLibraryInitializationServiceTests` cases 1-9, 76-77, 107 | `remaining-bms-library`, `ProcessorCount` / `ClassLevel` |
 | install initialization, pending package restoration, resource warning projection | `BmsLibraryInitializationInstallTests` | cases 47-49, 98-106 | same route |
 | file scan diff, catalog mutation, deletion, path/date/hash preservation, scan cache | `BmsLibraryInitializationFileScanTests` | cases 10-28, 67-75, 78-97 | same route |
 | LR2 folder and normal-folder synchronization and affected-scope pruning | `BmsLibraryInitializationLr2NormalFolderTests` | cases 29-46 | same route |
 | inline chart-info / maintenance batches, current-row reuse, parse failure and callback publication | `BmsLibraryInitializationInlineChartInfoTests` | cases 50-66 | same route |
 
-The old `BmsLibraryInitializationServiceTests` selector is absent from the route and remaining exclusion ledger. `BmsLibraryStateApplierTests` remains a separate remaining-route owner map above.
+The old `BmsLibraryInitializationServiceTests` selector is absent from the route and the 45-class exclusion ledger. All current `BmsLibrary*` owner fixtures are automatically routed by the logical prefix selector to `remaining-bms-library`; no exact class allowlist is maintained. `BmsLibraryStateApplierTests` remains a separate owner map within that route above.
 
 ## 関連仕様
 

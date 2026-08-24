@@ -130,6 +130,8 @@ $functionalSettingsForegroundInteractionMethods = @(
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting'
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected'
     'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor')
+$functionalBmsLibrarySelector =
+    'FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary'
 $functionalRemainingShardWorkers = [Math]::Max(
     1,
     [Environment]::ProcessorCount)
@@ -138,6 +140,7 @@ $functionalHostNames = @(
     'bass-collectible'
     'serial-state-a'
     'serial-state-b'
+    'remaining-bms-library'
     'remaining')
 
 function New-FunctionalShardPlan {
@@ -148,6 +151,7 @@ function New-FunctionalShardPlan {
         $functionalSerialStateBClasses)
     $remainingClassFilter = ($assignedClasses |
         ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
+    $remainingBaseFilter = "($functionalFilter)&($remainingClassFilter)"
     $hostDefinitions = @(
         [pscustomobject]@{
             Name = 'portable-settings'
@@ -174,31 +178,56 @@ function New-FunctionalShardPlan {
             Classes = [string[]]@($functionalSerialStateBClasses)
         }
         [pscustomobject]@{
+            Name = 'remaining-bms-library'
+            Workers = $functionalRemainingShardWorkers
+            Scope = 'ClassLevel'
+            Classes = [string[]]@()
+            ExcludedClasses = [string[]]$assignedClasses
+            SelectorPolarity = 'Positive'
+            Routing = 'logical-prefix'
+        }
+        [pscustomobject]@{
             Name = 'remaining'
             Workers = $functionalRemainingShardWorkers
             Scope = 'ClassLevel'
             Classes = [string[]]@()
             ExcludedClasses = [string[]]$assignedClasses
+            SelectorPolarity = 'Negative'
+            Routing = 'logical-prefix'
         })
     $shards = @($hostDefinitions | ForEach-Object {
         $classes = [string[]]@($_.Classes)
-        $classFilter = if ($classes.Count -eq 0) {
+        $hasLogicalPrefixSelector = $_.PSObject.Properties.Name -contains 'SelectorPolarity'
+        $selectorFilter = if (-not $hasLogicalPrefixSelector) {
+            [string]::Empty
+        }
+        elseif ([string]$_.SelectorPolarity -ceq 'Positive') {
+            $functionalBmsLibrarySelector
+        }
+        else {
+            $functionalBmsLibrarySelector.Replace('~', '!~', [StringComparison]::Ordinal)
+        }
+        $filter = if ($hasLogicalPrefixSelector) {
+            "($remainingBaseFilter)&($selectorFilter)"
+        }
+        elseif ($classes.Count -eq 0) {
             [string]::Empty
         }
         else {
-            ($classes | ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+            $classFilter = ($classes | ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
+            "($functionalFilter)&($classFilter)"
         }
         [pscustomobject][ordered]@{
             Name = $_.Name
             Workers = [int]$_.Workers
             Scope = [string]$_.Scope
             Classes = $classes
-            Filter = if ($classes.Count -eq 0) {
-                "($functionalFilter)&($remainingClassFilter)"
-            }
-            else {
-                "($functionalFilter)&($classFilter)"
-            }
+            BaseFilter = if ($hasLogicalPrefixSelector) { $remainingBaseFilter } else { [string]::Empty }
+            Selector = if ($hasLogicalPrefixSelector) { $functionalBmsLibrarySelector } else { [string]::Empty }
+            SelectorPolarity = if ($hasLogicalPrefixSelector) { [string]$_.SelectorPolarity } else { [string]::Empty }
+            SelectorFilter = $selectorFilter
+            Routing = if ($hasLogicalPrefixSelector) { [string]$_.Routing } else { [string]::Empty }
+            Filter = $filter
             ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') {
                 [string[]]$_.ExcludedClasses
             }
@@ -226,7 +255,7 @@ function Assert-FunctionalShardConfiguration {
 
     $shards = @($Plan.Shards)
     if ($shards.Count -ne $functionalHostNames.Count) {
-        throw 'Functional launch plan must contain portable, BASS, serial A, serial B, and remaining exactly once.'
+        throw 'Functional launch plan must contain portable, BASS, serial A, serial B, BmsLibrary remaining, and remaining exactly once.'
     }
     $names = @($shards | ForEach-Object { [string]$_.Name })
     if (@($names | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0 -or
@@ -234,18 +263,19 @@ function Assert-FunctionalShardConfiguration {
         throw 'Functional launch host names must be nonempty and unique.'
     }
     if (@(Compare-Object -ReferenceObject $functionalHostNames -DifferenceObject $names -CaseSensitive).Count -ne 0) {
-        throw 'Functional launch hosts must use the exact portable/BASS/serial A/serial B/remaining names.'
+        throw 'Functional launch hosts must use the exact portable/BASS/serial A/serial B/BmsLibrary remaining/remaining names.'
     }
     if (($functionalHostNames -join '|') -cne ($names -join '|')) {
-        throw 'Functional launch hosts must preserve portable-first then Bass/A/B/remaining order.'
+        throw 'Functional launch hosts must preserve portable-first then Bass/A/B/BmsLibrary remaining/remaining order.'
     }
 
+    $remainingPartitionNames = @('remaining-bms-library', 'remaining')
     $assignedClasses = @()
     foreach ($shard in $shards) {
         $classes = [string[]]@($shard.Classes)
-        if ($shard.Name -ceq 'remaining') {
+        if ($remainingPartitionNames -contains [string]$shard.Name) {
             if ($classes.Count -ne 0) {
-                throw 'Functional remaining host must rely on the exclusion filter rather than class selectors.'
+                throw "Functional $($shard.Name) host must rely on logical-prefix routing rather than class selectors."
             }
             continue
         }
@@ -288,20 +318,49 @@ function Assert-FunctionalShardConfiguration {
         }
     }
 
-    $remainingShard = @($shards | Where-Object { $_.Name -ceq 'remaining' })[0]
-    $remainingExclusions = [string[]]@($remainingShard.ExcludedClasses)
-    if ($remainingExclusions.Count -ne 45 -or
-        @(Compare-Object -ReferenceObject $expectedAssignedClasses -DifferenceObject $remainingExclusions -CaseSensitive).Count -ne 0) {
-        throw 'Functional remaining must exclude exactly the 45 assigned classes.'
-    }
     $remainingExclusionFilter = ($expectedAssignedClasses |
         ForEach-Object { "FullyQualifiedName!~$_" }) -join '&'
-    if ($remainingShard.Filter -cne "($functionalFilter)&($remainingExclusionFilter)") {
-        throw 'Functional remaining must carry the exact logical test exclusion filter.'
+    $remainingBaseFilter = "($functionalFilter)&($remainingExclusionFilter)"
+    $remainingPartitions = @($shards | Where-Object {
+        $remainingPartitionNames -contains [string]$_.Name
+    })
+    if ($remainingPartitions.Count -ne 2) {
+        throw 'Functional remaining must be exactly the two logical-prefix partition hosts.'
     }
-    if ($remainingShard.Workers -ne $functionalRemainingShardWorkers -or
-        $remainingShard.Scope -ne 'ClassLevel') {
-        throw 'Functional remaining must use ProcessorCount workers with ClassLevel scope.'
+    $positiveSelectorFilter = $functionalBmsLibrarySelector
+    $negativeSelectorFilter = $functionalBmsLibrarySelector.Replace('~', '!~', [StringComparison]::Ordinal)
+    $positivePartition = @($remainingPartitions | Where-Object { $_.SelectorPolarity -ceq 'Positive' })
+    $negativePartition = @($remainingPartitions | Where-Object { $_.SelectorPolarity -ceq 'Negative' })
+    if ($positivePartition.Count -ne 1 -or $negativePartition.Count -ne 1) {
+        throw 'Functional BmsLibrary remaining partitions must have one positive and one negative selector.'
+    }
+    foreach ($partition in $remainingPartitions) {
+        if ($partition.BaseFilter -cne $remainingBaseFilter -or
+            $partition.Selector -cne $functionalBmsLibrarySelector -or
+            $partition.Routing -cne 'logical-prefix' -or
+            $partition.Workers -ne $functionalRemainingShardWorkers -or
+            $partition.Scope -ne 'ClassLevel' -or
+            @($partition.Classes).Count -ne 0 -or
+            @($partition.ExcludedClasses).Count -ne 45 -or
+            @(Compare-Object -ReferenceObject $expectedAssignedClasses -DifferenceObject @($partition.ExcludedClasses) -CaseSensitive).Count -ne 0) {
+            throw "Functional BmsLibrary partition '$($partition.Name)' must share R, use ProcessorCount/ClassLevel, and have no exact class allowlist."
+        }
+    }
+    if ($positivePartition[0].SelectorFilter -cne $positiveSelectorFilter -or
+        $negativePartition[0].SelectorFilter -cne $negativeSelectorFilter -or
+        $positivePartition[0].SelectorFilter -ceq $negativePartition[0].SelectorFilter -or
+        $positivePartition[0].SelectorPolarity -ceq $negativePartition[0].SelectorPolarity) {
+        throw 'Functional BmsLibrary partitions must use the common selector with opposite polarity.'
+    }
+    foreach ($partition in $remainingPartitions) {
+        if ($partition.Filter -cne "($remainingBaseFilter)&($($partition.SelectorFilter))") {
+            throw "Functional BmsLibrary partition '$($partition.Name)' must be generated from the shared exclusion base and selector predicate."
+        }
+    }
+    # The shared base plus one positive and one negative predicate is the complete,
+    # disjoint logical partition of R; no exact BmsLibrary class allowlist can widen it.
+    if ($positivePartition[0].BaseFilter -cne $negativePartition[0].BaseFilter) {
+        throw 'Functional BmsLibrary partitions must have a disjoint union over one shared R base filter.'
     }
 
     $portableShard = @($shards | Where-Object { $_.Name -ceq 'portable-settings' })[0]
@@ -1272,8 +1331,8 @@ function Invoke-ParallelFunctionalTestShards {
     $shards = @($shardPlan.Shards)
     $portableShard = @($shards | Where-Object { $_.Name -ceq 'portable-settings' })[0]
     $fanoutShards = @($shards | Where-Object { $_.Name -cne 'portable-settings' })
-    if ($fanoutShards.Count -ne 4) {
-        throw 'Functional launch plan must start exactly four hosts after portable settings completes.'
+    if ($fanoutShards.Count -ne 5) {
+        throw 'Functional launch plan must start exactly five hosts after portable settings completes.'
     }
     foreach ($fanoutShard in $fanoutShards) {
         if (@($shards | Where-Object { [object]::ReferenceEquals($_, $fanoutShard) }).Count -ne 1) {
@@ -1309,7 +1368,7 @@ function Invoke-ParallelFunctionalTestShards {
         $portableTimeoutSeconds = $TimeoutSeconds
         Invoke-TestLane -Name 'Functional portable settings' -Filter $portableShard.Filter -DiagnosticsDirectory $portableDirectory -TimeoutSeconds $portableTimeoutSeconds -RunSettingsPath $portableRunSettingsPath -ProcessDeadlineUtc $executionDeadlineUtc -CleanupDeadlineUtc $failureCleanupDeadlineUtc -NoBuild
 
-        # The four hosts begin from this same validated array without a phase barrier.
+        # The five hosts begin from this same validated array without a phase barrier.
         foreach ($fanoutShard in $fanoutShards) {
             Assert-FunctionalExecutionDeadline -DeadlinePolicy $DeadlinePolicy -StageName "starting $($fanoutShard.Name)"
             $shardDirectory = Join-Path $DiagnosticsDirectory $fanoutShard.Name

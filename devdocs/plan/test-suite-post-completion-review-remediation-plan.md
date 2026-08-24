@@ -500,6 +500,24 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Ful
 
 結果は 18/18 pass、diagnostics `artifacts/verification/tests-quick-20260825-055313`、testhost / vstest / verification residual 0、`git diff --check` pass。Functional / Full / repeat30 は Unit 5 の root 統合責任であり、final stability は未完了のままとする。
 
+### Unit 4e-E: BmsLibrary logical-prefix partition replan
+
+#### Trigger evidence
+
+`d9d33b55` の Functional evidenceでは `055855` が142.6秒で完了した一方、`055532` と `060135` は `remaining` の execution deadlineへ到達した。成功した `remaining` のwallは112.1秒で、method-DNP tailは3.3秒に留まったため、単一hostのmethod tailや新しいwatchdogが主因ではない。portable完了後の通常parallel phase全体で、BmsLibraryを含むcatch-all `remaining` の進捗が広く減速する証拠であり、同じ180秒 execution deadlineと+10秒 failure-cleanup contractを維持したまま、論理的なprefix partitionを再計画する。
+
+#### Replan and bounded implementation
+
+既存catch-allのbase filter `R`（Functional category exclusionとportable / BASS / serial A / serial Bのexact 45 class exclusion）を、一つの selector constant `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary`から生成したpositive / negative predicateへ分割する。`remaining-bms-library` は `R & positive`、`remaining` は `R & negative` とし、両descriptorは同じ `R`、`ProcessorCount` workers、`ClassLevel` scope、45 class exclusionを共有する。exact 21-class allowlistをexecution sourceへ追加せず、logical prefixで自動routeする。validatorはactual plan array上で6 hostの名前 / 順序、portable first、fanout 5 host、shared base、common selectorのopposite polarity、disjoint union = `R`、workers / scope、logical onceを起動前に証明する。
+
+portable hostはexclusive firstのまま、成功後にBass、serial A、serial B、`remaining-bms-library`、remainingを同じvalidated plan arrayから待機phaseなしで開始する。fanoutのworkersは `1/1/1/ProcessorCount/ProcessorCount`（portableを含む全体は `1/1/1/1/ProcessorCount/ProcessorCount`）で、12 logical processorsではportable完了後の最大同時worker数は約27となる。one canonical 180-second execution deadline、failure cleanup deadline = execution + 10 seconds、foreground exact 7 methods、45 exclusions、logical once、既存process lifecycle / cleanupは変更しない。worker reduction、pre-wave、per-host accounting、new watchdog、arbitrary fixture shard、new lane / DNP / timeoutは追加しない。
+
+Test deltaは既存 `VerificationRunnerContractTests.FunctionalShardPlan_UsesExecutablePlanForExactHostOwnership` の `extend`。actual runner planを通して、6 host names/order、二つの空class logical-prefix descriptor、shared `R`、positive / negative selector、45 exclusions、ProcessorCount / ClassLevel、filter compositionを検証する。新しいfixture、process seam、completion signal、lane、DNPは追加しない。
+
+Focused PowerShell parse / guarded actual plan probeと `git diff --check` はpassした。`VerificationRunnerContractTests` filtered Quickは5/5 pass、diagnostics `artifacts/verification/tests-quick-20260825-073449`、tracked fingerprint不変だった。Functional / Full / final stabilityはUnit 5のroot統合責任であり、ここではまだpassを主張しない。
+
+Replan triggerは、actual planが6 host / 5 fanout / logical-prefix complementを証明できない、BmsLibraryのexact allowlistや別selector constantが再導入される、portable後の同一plan fanoutが崩れる、180秒/+10秒 deadlineまたはcleanup ownershipが変わる、tracked mutation / residual processが出る、または同一条件の2回目のdeterministic timeout / failure evidenceが出る場合とする。
+
 ## Unit 5: final stability gates and review
 
 Unit 4e-D implementation snapshotの統合後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
@@ -525,6 +543,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4c: LR2-only early and regular-chart ownership | Implementation and focused verification complete; stability pending | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割した。actual planは15/14/14/1、LR2-only early、settings post-pre-wave fanout exact-once、old class退役、narrow supportを維持する。fixture/runner focused Quick、parse、diff check、76/76 body identityを完了。 |
 | Unit 4d: final Functional tail ownership | Blocker correction implemented; stability pending | Functional fanoutでChartInfo splitのThreadPool completion ownership premiseが破綻したため、5 source groupを単一partial `ChartInfoMetadataOwnerTests`へregroup。library/startup owner split、exact 6-worker ClassLevel route、15/14/14/1 topology、logical test set、watchdogを維持する。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
 | Unit 4e: KISS Functional / watchdog policy | Unit 4e-D implementation and focused verification complete; stability pending | 個別testの短時間予算と15-shard性能topologyを退役。portable単独完了後、同じactual plan arrayからBass / serial A / serial B / remainingを4-host fanoutし、5-host `1/1/1/1/ProcessorCount` / `ClassLevel`、one canonical execution deadline、failure-cleanup deadline = execution + 10秒、normal-completion plain await、exact remaining exclusionを実装。Unit 4e-Cでは deadline policy の executable probe と `VerificationRunnerContractTests` を extend。Unit 4e-Dでは `WS_EX_NOACTIVATE` の native style readback と owner/child/popup canonical coverageを追加。Focused Quick 19/19（4e-C）、18/18（4e-D）pass; Functional/Full/WPF30/static reviewはroot担当。 |
+| Unit 4e-E: BmsLibrary logical-prefix partition | Implementation and focused verification complete; stability pending | `d9d33b55` の remaining timeout evidenceを受け、shared base `R`を一つの `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` selectorのpositive / negative predicateへ分割。portable first後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount` topology、45 exclusions、one canonical deadline、logical onceをactual plan validatorへ閉じた。parse / guarded plan probe / diff checkと runner contract Quick 5/5を完了。Functional / Fullは未実施で、passを主張しない。 |
 | Unit 5: final stability gates and review | Pending | Unit 4e-D implementation snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log

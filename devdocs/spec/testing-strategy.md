@@ -30,7 +30,7 @@ Quick の filter なし呼び出しもこの canonical owner を一度だけ使�
 
 ### Functional launch plan
 
-Functional は category exclusion を適用した論理 test set を一度だけ discovery し、一つの検証済み plan array を実行する。portable settings host の完了後、同じ descriptor object を使って4つの host を待機 phase なしで開始する。validator は起動対象そのものに対して host 名、selector、worker、scope、重複、remaining exclusion、foreground ownership、退役 FQN を検証する。metadata-only allowlist、二重 discovery、early entry、pre-wave、fallback route は持たない。
+Functional は category exclusion を適用した論理 test set を一度だけ discovery し、全体6 hostの一つの検証済み plan array を実行する。portable settings host の完了後、同じ descriptor object を使って残り5つの host を待機 phase なしで開始する。validator は起動対象そのものに対して host 名、selector、worker、scope、重複、remaining exclusion、foreground ownership、退役 FQN を検証する。metadata-only allowlist、二重 discovery、early entry、pre-wave、fallback route は持たない。
 
 | host | worker / scope | exact ownership |
 | --- | --- | --- |
@@ -38,11 +38,12 @@ Functional は category exclusion を適用した論理 test set を一度だけ
 | `bass-collectible` | 1 / `ClassLevel` | `BassCollectibleLoadContextTests` |
 | `serial-state-a` | 1 / `ClassLevel` | Unit 4e-A の exact 23 class selector |
 | `serial-state-b` | 1 / `ClassLevel` | Unit 4e-A の exact 20 class selector |
-| `remaining` | `ProcessorCount` / `ClassLevel` | portable、BASS、A、B の exact 45 class を除く全 Functional classを logical once |
+| `remaining-bms-library` | `ProcessorCount` / `ClassLevel` | `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` の logical-prefix positive route |
+| `remaining` | `ProcessorCount` / `ClassLevel` | 上記 selector の negative route。portable、BASS、A、B の exact 45 classを除く shared baseを logical once |
 
-`serial-state-a` は settings / foreground / playlist settings / native logging owner を、`serial-state-b` は LR2、compiled WPF、class-wide DNP owner を所有する。A / B の exact selector はこの Unit 4e-A plan と runner の実装本文を正本とし、その他の class は `remaining` で一度だけ実行する。4 host の専用 worker は各1で、`remaining` の `ProcessorCount` と合わせた process worker 数は最大約15に留める。
+`serial-state-a` は settings / foreground / playlist settings / native logging owner を、`serial-state-b` は LR2、compiled WPF、class-wide DNP owner を所有する。A / B の exact selector はこの Unit 4e-A plan と runner の実装本文を正本とし、残りの論理 test setは、45 class exclusionを共有する `R` を一つの `BmsLibrary` selectorのpositive / negative predicateへ分けて一度だけ実行する。BmsLibraryのexact class allowlistは実行源にせず、論理 prefixで自動 routeする。fanout 5 host の専用 worker は Bass / A / B が各1、二つのremaining partitionが各 `ProcessorCount` で、portable完了後の最大同時 worker 数は約27である。
 
-起動順は portable host を単独で完了させ、その成功後に Bass、serial A、serial B、remaining を同じ validated plan array から即時 start する。全 test process は canonical 開始時刻 + `FunctionalTimeoutSeconds` の一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。execution deadline 内の成功だけを成功扱いにする。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
+起動順は portable host を単独で完了させ、その成功後に Bass、serial A、serial B、`remaining-bms-library`、remaining を同じ validated plan array から即時 start する。二つのremaining partitionは同じ `R` base filter、共通selectorのpositive / negative predicate、`ClassLevel` / `ProcessorCount`を持ち、互いに重ならず合計で `R` 全体を覆う。全 test process は canonical 開始時刻 + `FunctionalTimeoutSeconds` の一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。execution deadline 内の成功だけを成功扱いにする。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
 
 foreground input、keyboard focus、hit testing、nested modal activation が保証対象の7 methodは、すべて現行 FQN の `SettingsForegroundInteractionTests` に属し、`serial-state-a` だけが所有する。`SettingDialogEditCompletionTests` や旧 SettingsWindow owner の FQN を foreground selector に含めない。
 

@@ -80,7 +80,7 @@ public sealed class VerificationRunnerContractTests
         using JsonDocument plan = ReadFunctionalShardPlan();
         JsonElement shards = GetProperty(plan.RootElement, "Shards");
 
-        Assert.AreEqual(5, shards.GetArrayLength());
+        Assert.AreEqual(6, shards.GetArrayLength());
         CollectionAssert.AreEqual(
             new[]
             {
@@ -88,6 +88,7 @@ public sealed class VerificationRunnerContractTests
                 "bass-collectible",
                 "serial-state-a",
                 "serial-state-b",
+                "remaining-bms-library",
                 "remaining"
             },
             ReadShardNames(shards));
@@ -160,6 +161,19 @@ public sealed class VerificationRunnerContractTests
                 "BeMusicSeeker.Tests.ApplicationStartupCompositionOwnerTests"
             });
 
+        int remainingWorkers = Math.Max(1, Environment.ProcessorCount);
+        AssertShard(
+            FindShard(shards, "remaining-bms-library"),
+            remainingWorkers,
+            "ClassLevel",
+            Array.Empty<string>());
+        AssertShard(
+            FindShard(shards, "remaining"),
+            remainingWorkers,
+            "ClassLevel",
+            Array.Empty<string>());
+
+        JsonElement remainingBmsLibrary = FindShard(shards, "remaining-bms-library");
         JsonElement remaining = FindShard(shards, "remaining");
         string[] expectedExclusions =
         [
@@ -210,16 +224,10 @@ public sealed class VerificationRunnerContractTests
             "BeMusicSeeker.Tests.ApplicationStartupCompositionOwnerTests"
         ];
         Assert.AreEqual(45, expectedExclusions.Length);
+        AssertRemainingBmsLibraryPartition(remainingBmsLibrary, remaining, expectedExclusions);
         CollectionAssert.AreEqual(
             expectedExclusions,
             ReadStringArray(GetProperty(remaining, "ExcludedClasses")));
-        foreach (string selector in expectedExclusions)
-        {
-            Assert.IsTrue(
-                GetProperty(remaining, "Filter").GetString()!.Contains(
-                    $"FullyQualifiedName!~{selector}",
-                    StringComparison.Ordinal));
-        }
 
         AssertForegroundInteractionContract(plan.RootElement, shards);
         AssertRetiredFixtureSelectorsAbsent(plan.RootElement);
@@ -395,6 +403,50 @@ public sealed class VerificationRunnerContractTests
                 method.Contains("SettingDialogEditCompletionTests", StringComparison.Ordinal),
                 $"Retired foreground owner remains in the allowlist: {method}");
         }
+    }
+
+    private static void AssertRemainingBmsLibraryPartition(
+        JsonElement positive,
+        JsonElement negative,
+        string[] expectedExclusions)
+    {
+        const string selector = "FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary";
+        string positiveBaseFilter = GetProperty(positive, "BaseFilter").GetString()!;
+        string negativeBaseFilter = GetProperty(negative, "BaseFilter").GetString()!;
+        Assert.AreEqual(positiveBaseFilter, negativeBaseFilter);
+        Assert.AreEqual(selector, GetProperty(positive, "Selector").GetString());
+        Assert.AreEqual(selector, GetProperty(negative, "Selector").GetString());
+        Assert.AreEqual("Positive", GetProperty(positive, "SelectorPolarity").GetString());
+        Assert.AreEqual("Negative", GetProperty(negative, "SelectorPolarity").GetString());
+        Assert.AreEqual("logical-prefix", GetProperty(positive, "Routing").GetString());
+        Assert.AreEqual("logical-prefix", GetProperty(negative, "Routing").GetString());
+        Assert.AreEqual(selector, GetProperty(positive, "SelectorFilter").GetString());
+        string negativeSelector = selector.Replace("~", "!~", StringComparison.Ordinal);
+        Assert.AreEqual(negativeSelector, GetProperty(negative, "SelectorFilter").GetString());
+        Assert.AreNotEqual(
+            GetProperty(positive, "SelectorFilter").GetString(),
+            GetProperty(negative, "SelectorFilter").GetString());
+
+        Assert.AreEqual(
+            $"({positiveBaseFilter})&({GetProperty(positive, "SelectorFilter").GetString()})",
+            GetProperty(positive, "Filter").GetString());
+        Assert.AreEqual(
+            $"({positiveBaseFilter})&({GetProperty(negative, "SelectorFilter").GetString()})",
+            GetProperty(negative, "Filter").GetString());
+        CollectionAssert.AreEqual(
+            expectedExclusions,
+            ReadStringArray(GetProperty(positive, "ExcludedClasses")));
+        CollectionAssert.AreEqual(
+            expectedExclusions,
+            ReadStringArray(GetProperty(negative, "ExcludedClasses")));
+        foreach (string exclusion in expectedExclusions)
+        {
+            string exclusionPredicate = $"FullyQualifiedName!~{exclusion}";
+            Assert.IsTrue(positiveBaseFilter.Contains(exclusionPredicate, StringComparison.Ordinal));
+            Assert.IsTrue(negativeBaseFilter.Contains(exclusionPredicate, StringComparison.Ordinal));
+        }
+        Assert.AreEqual(0, GetProperty(positive, "Classes").GetArrayLength());
+        Assert.AreEqual(0, GetProperty(negative, "Classes").GetArrayLength());
     }
 
     private static void AssertRetiredFixtureSelectorsAbsent(JsonElement planRoot)
