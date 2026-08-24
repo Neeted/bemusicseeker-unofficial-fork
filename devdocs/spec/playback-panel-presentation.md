@@ -43,3 +43,15 @@ requested state が `TITLE_SMALL | BMS_PLAYER` で BMS 面が利用できない�
 - 上記 property に animation clock がない
 
 初期同期のために panel を一時的に非表示にしたり、任意の Dispatcher 遅延、固定待ち、起動時専用 opacity を使ったりしない。
+
+## Verification map
+
+再生パネルと playlist workspace の owner coverage は既存 `presentation-workspace` testhost内で `ClassLevel` scope の3 workerに分ける。
+
+| behavior | canonical fixture | Functional route / safety |
+| --- | --- | --- |
+| playback session、player replacement、panel requested/effective state、初期同期と遷移 | `PlaybackPanelViewModelTests` | `presentation-workspace`, 3 workers / `ClassLevel`; class-wide `DoNotParallelize` を維持 |
+| library folder tree refresh、selection、explorer boundary | `LibraryFolderTreeViewModelTests` | `presentation-workspace`, 3 workers / `ClassLevel` |
+| workspace external source、action workflow、detail refresh、presentation state、persistence command | `PlaylistWorkspaceExternalSourceTests`、`PlaylistWorkspaceActionWorkflowTests`、`PlaylistWorkspaceDetailRefreshTests`、`PlaylistWorkspacePresentationStateTests`、`PlaylistWorkspacePersistenceCommandTests` | `presentation-workspace`, 3 workers / `ClassLevel` |
+
+旧 `PlaylistWorkspaceViewModelTests` の monolithic routeは退役する。workspace 5 fixtureのGUID付き filesystem / task completion signalと、PlaybackのDNP safety boundaryを変更せず、runnerは7 classのexact membership・remaining exclusion・他 routeとの重複なしを起動前に検証する。

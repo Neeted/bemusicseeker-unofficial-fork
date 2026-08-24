@@ -284,3 +284,16 @@ beatoraja 選曲画面の難易度表表示順は `config_sys.json` の `tableUR
 同期時は、既存 `tableURL` のうち BeMusicSeeker 管理外の URL を既存順のまま先頭側に残す。manifest に記録された前回 BeMusicSeeker 管理 URL は削除し、今回の managed URL を playlist の `bmt_sort` 昇順で末尾に追加する。managed URL は `.bmt` ファイル本体が出力済みかどうかではなく、manifest の `playlists` に URL 所有権があるかで判定する。これにより、空表など一時的に `.bmt` を出力できない playlist も、BeMusicSeeker 管理の Table URL として `BMT SORT` 順に配置され、管理外 URL として先頭側に固定されない。manifest entry が現在の playlist snapshot に見つからない場合は、既知 playlist の後ろへ name / playlist identity 順で並べる。`RegisterBeatorajaBmtUrls` が OFF の場合は、前回管理 URL を `tableURL` から外す。
 
 設定画面の `beatoraja の Table URL をインポートする` は、既存 `tableURL` の URL を BeMusicSeeker playlist へ取り込み、成功または既存一致した playlist を `tableURL` 順で `BMT SORT` 先頭へ反映する。通常の外部表読み込みに失敗した URL は beatoraja `tablepath` の `.bmt` から復元を試みる。復元も失敗した URL は manifest 管理外のまま残るため、上記同期仕様により次回以降も `tableURL` 先頭側に残る。詳細は [beatoraja-table-url-import.md](beatoraja-table-url-import.md) を参照。
+
+## Verification map
+
+プレイリスト更新と出力の behavior coverage は owner 単位の Functional fixtureへ分離する。各 fixtureは class-wide `DoNotParallelize`、process-local `Settings.Default`、GUID付き temporary database / filesystemを従来どおり所有する。
+
+| behavior | canonical fixture | Functional route |
+| --- | --- | --- |
+| 外部 playlist reload、header/data hydration、deferred sync | `BmsPlaylistExternalReloadTests` | `playlist-external-reload`, 1 worker / `ClassLevel` |
+| playlist / entry persistence、publication、backup / restore lifecycle | `BmsPlaylistPersistenceLifecycleTests` | `playlist-persistence-lifecycle`, 1 worker / `ClassLevel` |
+| custom-folder / beatoraja output、manifest cleanup、table URL projection | `BmsPlaylistCustomFolderOutputTests` | `playlist-custom-folder-output`, 1 worker / `ClassLevel` |
+| migration、registration、Table URL import、duplicate / failure contract | `BmsPlaylistMigrationAndRegistrationTests` | `playlist-migration-registration`, 1 worker / `ClassLevel` |
+
+旧 `BmsPlaylistUpdateTests` と `playlist-update` routeは退役し、4 fixtureの論理 test set と completion / cleanup signalを replacementへ移す。runnerは4つの実際の class selectorを remainingから除外し、他 routeとの重複がないことを起動前に検証する。

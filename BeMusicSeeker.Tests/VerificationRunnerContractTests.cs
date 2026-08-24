@@ -58,8 +58,8 @@ public sealed class VerificationRunnerContractTests
         JsonElement shards = GetProperty(plan.RootElement, "Shards");
         JsonElement fanoutShards = GetProperty(plan.RootElement, "FanoutShards");
 
-        Assert.AreEqual(13, shards.GetArrayLength());
-        Assert.AreEqual(12, fanoutShards.GetArrayLength());
+        Assert.AreEqual(17, shards.GetArrayLength());
+        Assert.AreEqual(16, fanoutShards.GetArrayLength());
         CollectionAssert.AreEqual(
             new[]
             {
@@ -69,9 +69,13 @@ public sealed class VerificationRunnerContractTests
                 "lr2-songdb-sync",
                 "owned-db-file-class-level",
                 "owned-chart-collection",
-                "playlist-update",
+                "playlist-external-reload",
+                "playlist-persistence-lifecycle",
+                "playlist-custom-folder-output",
+                "playlist-migration-registration",
                 "presentation-workspace",
-                "settings-presentation-classwide",
+                "settings-edit-foreground-classwide",
+                "settings-window-nonactivating-classwide",
                 "settings-state-classwide",
                 "compiled-wpf-classwide",
                 "process-global-lifecycle",
@@ -80,12 +84,20 @@ public sealed class VerificationRunnerContractTests
             ReadShardNames(shards));
 
         AssertShard(
-            FindShard(shards, "settings-presentation-classwide"),
+            FindShard(shards, "settings-edit-foreground-classwide"),
             1,
             "ClassLevel",
             new[]
             {
+                "BeMusicSeeker.Tests.SettingsForegroundInteractionTests",
                 "BeMusicSeeker.Tests.SettingDialogEditCompletionTests",
+            });
+        AssertShard(
+            FindShard(shards, "settings-window-nonactivating-classwide"),
+            1,
+            "ClassLevel",
+            new[]
+            {
                 "BeMusicSeeker.Tests.SettingsWindowPresentationTests"
             });
         AssertShard(
@@ -111,14 +123,39 @@ public sealed class VerificationRunnerContractTests
             });
         AssertShard(
             FindShard(shards, "presentation-workspace"),
-            2,
+            3,
             "ClassLevel",
             new[]
             {
                 "BeMusicSeeker.Tests.PlaybackPanelViewModelTests",
-                "BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests",
-                "BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests"
+                "BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests",
+                "BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests",
+                "BeMusicSeeker.Tests.PlaylistWorkspaceActionWorkflowTests",
+                "BeMusicSeeker.Tests.PlaylistWorkspaceDetailRefreshTests",
+                "BeMusicSeeker.Tests.PlaylistWorkspacePresentationStateTests",
+                "BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests"
             });
+
+        AssertShard(
+            FindShard(shards, "playlist-external-reload"),
+            1,
+            "ClassLevel",
+            new[] { "BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests" });
+        AssertShard(
+            FindShard(shards, "playlist-persistence-lifecycle"),
+            1,
+            "ClassLevel",
+            new[] { "BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests" });
+        AssertShard(
+            FindShard(shards, "playlist-custom-folder-output"),
+            1,
+            "ClassLevel",
+            new[] { "BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests" });
+        AssertShard(
+            FindShard(shards, "playlist-migration-registration"),
+            1,
+            "ClassLevel",
+            new[] { "BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests" });
 
         CollectionAssert.AreEqual(
             new[]
@@ -128,9 +165,13 @@ public sealed class VerificationRunnerContractTests
                 "library-chart-classwide",
                 "owned-db-file-class-level",
                 "owned-chart-collection",
-                "playlist-update",
+                "playlist-external-reload",
+                "playlist-persistence-lifecycle",
+                "playlist-custom-folder-output",
+                "playlist-migration-registration",
                 "presentation-workspace",
-                "settings-presentation-classwide",
+                "settings-edit-foreground-classwide",
+                "settings-window-nonactivating-classwide",
                 "settings-state-classwide",
                 "compiled-wpf-classwide",
                 "process-global-lifecycle",
@@ -145,8 +186,11 @@ public sealed class VerificationRunnerContractTests
             GetProperty(remaining, "Filter").GetString()!.Contains(
                 "FullyQualifiedName!~BeMusicSeeker.Tests.SettingDialogEditCompletionTests",
                 StringComparison.Ordinal));
-        Assert.IsFalse(
-            ReadShardNames(shards).Any(name => name.Contains("foreground", StringComparison.OrdinalIgnoreCase)));
+        Assert.AreEqual(
+            1,
+            ReadShardNames(shards).Count(name => name.Contains("foreground", StringComparison.OrdinalIgnoreCase)));
+        AssertForegroundInteractionContract(plan.RootElement, shards);
+        AssertRetiredFixtureSelectorsAbsent(plan.RootElement);
     }
 
     [TestMethod]
@@ -279,6 +323,56 @@ public sealed class VerificationRunnerContractTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(GetProperty(shard, "Filter").GetString()));
     }
 
+    private static void AssertForegroundInteractionContract(JsonElement planRoot, JsonElement shards)
+    {
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll",
+                "BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes",
+                "BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes",
+                "BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting",
+                "BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected",
+                "BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor"
+            },
+            ReadStringArray(GetProperty(planRoot, "ForegroundInteractionMethods")));
+
+        JsonElement foregroundShard = FindShard(shards, "settings-edit-foreground-classwide");
+        JsonElement nonactivatingShard = FindShard(shards, "settings-window-nonactivating-classwide");
+        const string foregroundClass = "BeMusicSeeker.Tests.SettingsForegroundInteractionTests";
+        Assert.IsTrue(ReadStringArray(GetProperty(foregroundShard, "Classes")).Contains(foregroundClass));
+        Assert.IsFalse(ReadStringArray(GetProperty(nonactivatingShard, "Classes")).Contains(foregroundClass));
+        Assert.IsFalse(
+            GetProperty(nonactivatingShard, "Filter").GetString()!.Contains(
+                foregroundClass,
+                StringComparison.Ordinal));
+
+        foreach (JsonElement shard in shards.EnumerateArray())
+        {
+            string name = GetProperty(shard, "Name").GetString()!;
+            string[] classes = ReadStringArray(GetProperty(shard, "Classes"));
+            if (!string.Equals(name, "settings-edit-foreground-classwide", StringComparison.Ordinal))
+            {
+                Assert.IsFalse(classes.Contains(foregroundClass), $"Foreground fixture leaked into route: {name}");
+            }
+        }
+    }
+
+    private static void AssertRetiredFixtureSelectorsAbsent(JsonElement planRoot)
+    {
+        string serializedPlan = planRoot.GetRawText();
+        foreach (string retiredSelector in new[]
+        {
+            "BeMusicSeeker.Tests.BmsPlaylistUpdateTests",
+            "BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests"
+        })
+        {
+            Assert.IsFalse(
+                serializedPlan.Contains(retiredSelector, StringComparison.Ordinal),
+                $"Retired fixture selector remains in the actual launch plan: {retiredSelector}");
+        }
+    }
+
     private static JsonElement FindShard(JsonElement shards, string name)
     {
         foreach (JsonElement shard in shards.EnumerateArray())
@@ -328,6 +422,7 @@ public sealed class VerificationRunnerContractTests
             "[pscustomobject][ordered]@{",
             "    Shards = @($plan.Shards | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Workers = $_.Workers; Scope = $_.Scope; Classes = @($_.Classes); Filter = $_.Filter; ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') { @($_.ExcludedClasses) } else { @() } } })",
             "    FanoutShards = @($plan.FanoutShards | ForEach-Object { [pscustomobject][ordered]@{ Name = $_.Name; Workers = $_.Workers; Scope = $_.Scope; Classes = @($_.Classes); Filter = $_.Filter; ExcludedClasses = if ($_.PSObject.Properties.Name -contains 'ExcludedClasses') { @($_.ExcludedClasses) } else { @() } } })",
+            "    ForegroundInteractionMethods = @($plan.ForegroundInteractionMethods)",
             "} | ConvertTo-Json -Depth 16 -Compress");
         return ReadPowerShellJson(new[] { "-Command", command });
     }

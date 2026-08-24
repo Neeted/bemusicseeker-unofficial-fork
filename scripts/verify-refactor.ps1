@@ -72,8 +72,19 @@ $functionalFilter = @(
     'TestCategory!=ProcessIntegration',
     'TestCategory!=ReleaseAcceptance') -join '&'
 $functionalBassCollectibleLoadContextClass = 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
-$functionalSettingsPresentationClasswideClasses = @(
-    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
+$functionalSettingsForegroundInteractionClass =
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests'
+$functionalSettingsForegroundInteractionMethods = @(
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll',
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes',
+    'BeMusicSeeker.Tests.SettingsForegroundInteractionTests.SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes',
+    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting',
+    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected',
+    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor')
+$functionalSettingsEditForegroundClasswideClasses = @(
+    $functionalSettingsForegroundInteractionClass,
+    'BeMusicSeeker.Tests.SettingDialogEditCompletionTests')
+$functionalSettingsWindowNonactivatingClasswideClasses = @(
     'BeMusicSeeker.Tests.SettingsWindowPresentationTests')
 $functionalSettingsStateClasswideClasses = @(
     'BeMusicSeeker.Tests.ApplicationCompositionTests',
@@ -185,28 +196,62 @@ $functionalTestClassShards = @(
             'BeMusicSeeker.Tests.OwnedChartCollectionStateTests')
     },
     [pscustomobject]@{
-        Name = 'playlist-update'
+        Name = 'playlist-external-reload'
         Workers = 1
+        Scope = 'ClassLevel'
         Classes = @(
-            'BeMusicSeeker.Tests.BmsPlaylistUpdateTests')
+            'BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests')
+    },
+    [pscustomobject]@{
+        Name = 'playlist-persistence-lifecycle'
+        Workers = 1
+        Scope = 'ClassLevel'
+        Classes = @(
+            'BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests')
+    },
+    [pscustomobject]@{
+        Name = 'playlist-custom-folder-output'
+        Workers = 1
+        Scope = 'ClassLevel'
+        Classes = @(
+            'BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests')
+    },
+    [pscustomobject]@{
+        Name = 'playlist-migration-registration'
+        Workers = 1
+        Scope = 'ClassLevel'
+        Classes = @(
+            'BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests')
     },
     [pscustomobject]@{
         Name = 'presentation-workspace'
-        Workers = 2
+        Workers = 3
         Scope = 'ClassLevel'
         Classes = @(
             'BeMusicSeeker.Tests.PlaybackPanelViewModelTests',
-            'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests',
-            'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests')
+            'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests',
+            'BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests',
+            'BeMusicSeeker.Tests.PlaylistWorkspaceActionWorkflowTests',
+            'BeMusicSeeker.Tests.PlaylistWorkspaceDetailRefreshTests',
+            'BeMusicSeeker.Tests.PlaylistWorkspacePresentationStateTests',
+            'BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests')
     },
     [pscustomobject]@{
-        # These fixtures share application/settings/presentation state that is
-        # not isolated per class. ClassLevel serializes each fixture while the
-        # dedicated testhost remains concurrent with the other hosts.
-        Name = 'settings-presentation-classwide'
+        # This is the only Functional process allowed to run the six explicit
+        # foreground-interaction methods. Keep it separate from the
+        # non-activating settings presentation fixture.
+        Name = 'settings-edit-foreground-classwide'
         Workers = 1
         Scope = 'ClassLevel'
-        Classes = $functionalSettingsPresentationClasswideClasses
+        Classes = $functionalSettingsEditForegroundClasswideClasses
+    },
+    [pscustomobject]@{
+        # SettingsWindowPresentationTests contains only non-foreground cases
+        # after the six interaction methods move to the dedicated fixture.
+        Name = 'settings-window-nonactivating-classwide'
+        Workers = 1
+        Scope = 'ClassLevel'
+        Classes = $functionalSettingsWindowNonactivatingClasswideClasses
     },
     [pscustomobject]@{
         # Keep process-local settings state separate from foreground presentation
@@ -293,6 +338,7 @@ function New-FunctionalShardPlan {
         AssignedClasses = [string[]]$assignedClasses
         ExclusiveClasses = [string[]]$functionalExclusiveTestClasses
         PreWaveClasses = [string[]]$functionalMethodLevelPreWaveClasses
+        ForegroundInteractionMethods = [string[]]$functionalSettingsForegroundInteractionMethods
     }
 }
 
@@ -306,7 +352,8 @@ function Assert-FunctionalShardConfiguration {
         $null -eq $Plan.FanoutShards -or
         $null -eq $Plan.AssignedClasses -or
         $null -eq $Plan.ExclusiveClasses -or
-        $null -eq $Plan.PreWaveClasses) {
+        $null -eq $Plan.PreWaveClasses -or
+        $null -eq $Plan.ForegroundInteractionMethods) {
         throw 'Functional shard plan must contain launch shards, fanout shards, and route exclusions.'
     }
 
@@ -327,9 +374,13 @@ function Assert-FunctionalShardConfiguration {
         'lr2-songdb-sync'
         'owned-db-file-class-level'
         'owned-chart-collection'
-        'playlist-update'
+        'playlist-external-reload'
+        'playlist-persistence-lifecycle'
+        'playlist-custom-folder-output'
+        'playlist-migration-registration'
         'presentation-workspace'
-        'settings-presentation-classwide'
+        'settings-edit-foreground-classwide'
+        'settings-window-nonactivating-classwide'
         'settings-state-classwide'
         'compiled-wpf-classwide'
         'process-global-lifecycle'
@@ -413,6 +464,41 @@ function Assert-FunctionalShardConfiguration {
     if ($lr2SongDbShard.Workers -ne 1 -or $lr2SongDbShard.Scope -cne 'ClassLevel') {
         throw 'Functional LR2 song database shard must use one worker with ClassLevel scope.'
     }
+
+    $requiredPlaylistOwnerShards = @(
+        [pscustomobject]@{
+            Name = 'playlist-external-reload'
+            Classes = @('BeMusicSeeker.Tests.BmsPlaylistExternalReloadTests')
+        },
+        [pscustomobject]@{
+            Name = 'playlist-persistence-lifecycle'
+            Classes = @('BeMusicSeeker.Tests.BmsPlaylistPersistenceLifecycleTests')
+        },
+        [pscustomobject]@{
+            Name = 'playlist-custom-folder-output'
+            Classes = @('BeMusicSeeker.Tests.BmsPlaylistCustomFolderOutputTests')
+        },
+        [pscustomobject]@{
+            Name = 'playlist-migration-registration'
+            Classes = @('BeMusicSeeker.Tests.BmsPlaylistMigrationAndRegistrationTests')
+        })
+    foreach ($requiredPlaylistOwnerShard in $requiredPlaylistOwnerShards) {
+        $matchingPlaylistShards = @($functionalTestClassShardsForLaunch |
+            Where-Object { $_.Name -ceq $requiredPlaylistOwnerShard.Name })
+        if ($matchingPlaylistShards.Count -ne 1) {
+            throw "Functional $($requiredPlaylistOwnerShard.Name) tests must have exactly one dedicated shard."
+        }
+        $playlistClasses = @($matchingPlaylistShards[0].Classes)
+        if ($playlistClasses.Count -ne 1 -or
+            $playlistClasses[0] -cne $requiredPlaylistOwnerShard.Classes[0]) {
+            throw "Functional $($requiredPlaylistOwnerShard.Name) shard must contain exactly its approved test class."
+        }
+        if ($matchingPlaylistShards[0].Workers -ne 1 -or
+            $matchingPlaylistShards[0].Scope -cne 'ClassLevel') {
+            throw "Functional $($requiredPlaylistOwnerShard.Name) shard must use one worker with ClassLevel scope."
+        }
+    }
+
     $presentationWorkspaceShards = @($functionalTestClassShardsForLaunch |
         Where-Object { $_.Name -ceq 'presentation-workspace' })
     if ($presentationWorkspaceShards.Count -ne 1) {
@@ -421,18 +507,22 @@ function Assert-FunctionalShardConfiguration {
     $presentationWorkspaceShard = $presentationWorkspaceShards[0]
     $requiredPresentationWorkspaceClasses = @(
         'BeMusicSeeker.Tests.PlaybackPanelViewModelTests'
-        'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests'
-        'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests')
+        'BeMusicSeeker.Tests.LibraryFolderTreeViewModelTests'
+        'BeMusicSeeker.Tests.PlaylistWorkspaceExternalSourceTests'
+        'BeMusicSeeker.Tests.PlaylistWorkspaceActionWorkflowTests'
+        'BeMusicSeeker.Tests.PlaylistWorkspaceDetailRefreshTests'
+        'BeMusicSeeker.Tests.PlaylistWorkspacePresentationStateTests'
+        'BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests')
     if (@($presentationWorkspaceShard.Classes).Count -ne $requiredPresentationWorkspaceClasses.Count -or
         @(Compare-Object `
             -ReferenceObject $requiredPresentationWorkspaceClasses `
             -DifferenceObject @($presentationWorkspaceShard.Classes) `
             -CaseSensitive).Count -ne 0) {
-        throw 'Functional presentation workspace shard must contain exactly its approved three test classes.'
+        throw 'Functional presentation workspace shard must contain exactly its approved seven test classes.'
     }
-    if ($presentationWorkspaceShard.Workers -ne 2 -or
+    if ($presentationWorkspaceShard.Workers -ne 3 -or
         $presentationWorkspaceShard.Scope -cne 'ClassLevel') {
-        throw 'Functional presentation workspace shard must use two workers with ClassLevel scope.'
+        throw 'Functional presentation workspace shard must use three workers with ClassLevel scope.'
     }
     $allowedMultiWorkerShards = @(
         'library-chart-classwide',
@@ -501,9 +591,14 @@ function Assert-FunctionalShardConfiguration {
 
     $exactSingleWorkerClassLevelShards = @(
         [pscustomobject]@{
-            Name = 'settings-presentation-classwide'
+            Name = 'settings-edit-foreground-classwide'
             Classes = @(
-                'BeMusicSeeker.Tests.SettingDialogEditCompletionTests',
+                'BeMusicSeeker.Tests.SettingsForegroundInteractionTests',
+                'BeMusicSeeker.Tests.SettingDialogEditCompletionTests')
+        },
+        [pscustomobject]@{
+            Name = 'settings-window-nonactivating-classwide'
+            Classes = @(
                 'BeMusicSeeker.Tests.SettingsWindowPresentationTests')
         },
         [pscustomobject]@{
@@ -585,6 +680,47 @@ function Assert-FunctionalShardConfiguration {
         }
         if ($matchingShards[0].Workers -ne 1 -or $matchingShards[0].Scope -cne 'ClassLevel') {
             throw "Functional $($requiredShard.Name) shard must use one worker with ClassLevel scope."
+        }
+    }
+
+    $foregroundMethods = @($Plan.ForegroundInteractionMethods)
+    if ($foregroundMethods.Count -ne $functionalSettingsForegroundInteractionMethods.Count -or
+        @(Compare-Object `
+            -ReferenceObject $functionalSettingsForegroundInteractionMethods `
+            -DifferenceObject $foregroundMethods `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional foreground interaction allowlist must contain exactly the approved six methods.'
+    }
+    $foregroundClassRoutes = @($functionalTestClassShardsForLaunch |
+        Where-Object { @($_.Classes) -contains $functionalSettingsForegroundInteractionClass })
+    if ($foregroundClassRoutes.Count -ne 1 -or
+        $foregroundClassRoutes[0].Name -cne 'settings-edit-foreground-classwide') {
+        throw 'Functional foreground interaction methods must belong to the dedicated settings-edit-foreground-classwide route.'
+    }
+    $nonactivatingSettingsShard = @($functionalTestClassShardsForLaunch |
+        Where-Object { $_.Name -ceq 'settings-window-nonactivating-classwide' })[0]
+    if ($null -eq $nonactivatingSettingsShard -or
+        @($nonactivatingSettingsShard.Classes) -contains $functionalSettingsForegroundInteractionClass -or
+        $nonactivatingSettingsShard.Filter.Contains(
+            $functionalSettingsForegroundInteractionClass,
+            [StringComparison]::Ordinal)) {
+        throw 'Functional non-activating settings route must not contain foreground interaction methods.'
+    }
+
+    $retiredClassSelectors = @(
+        'BeMusicSeeker.Tests.BmsPlaylistUpdateTests'
+        'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests')
+    $allLaunchText = @(
+        $functionalTestClassShardsForLaunch |
+        ForEach-Object {
+            @($_.Classes)
+            $_.Filter
+        }) -join "`n"
+    foreach ($retiredClassSelector in $retiredClassSelectors) {
+        if ($allLaunchText.Contains($retiredClassSelector, [StringComparison]::Ordinal) -or
+            @($Plan.AssignedClasses).Contains($retiredClassSelector) -or
+            @($remainingShard.ExcludedClasses).Contains($retiredClassSelector)) {
+            throw "Retired Functional class selector remains in the launch plan: $retiredClassSelector"
         }
     }
 

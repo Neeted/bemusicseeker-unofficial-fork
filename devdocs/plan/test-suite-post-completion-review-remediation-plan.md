@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 4 critical-tail ownership replan approved; implementation pending
+Status: Unit 4 critical-tail ownership integrated; stability verification pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -225,7 +225,7 @@ Workerは上記fixture filterのQuick、PowerShell parse、`git diff --check`を
 
 ### Context and decision
 
-Unit 3後の `4097e3a3` では `remaining` が1869/1869でprocess deadlineの約2秒前に完了し、旧58.1秒の `BmsLibraryStateApplierTests` は3 fixtureの最大10.4秒まで短縮された。一方、`playlist-update`、`presentation-workspace`、`settings-presentation-classwide` がdeadline時点で残った。3 routeの過去成功時のtailはそれぞれ約57.3秒、53.5秒、60.6秒であるため、1 routeだけの局所修正では別routeがcriticalになる。次の3 ownership変更を同じreviewable unitで閉じ、既存の180秒command budget、170秒process deadline、10秒cleanup reserve、pre-wave順序、remaining 12 workers、logical test setを維持する。
+Unit 3後の `4097e3a3` では `remaining` が1869/1869でprocess deadlineの約2秒前に完了し、旧58.1秒の `BmsLibraryStateApplierTests` は3 fixtureの最大10.4秒まで短縮された。一方、旧 `playlist-update`、`presentation-workspace`、`settings-presentation-classwide` がdeadline時点で残った。3 routeの過去成功時のtailはそれぞれ約57.3秒、53.5秒、60.6秒であるため、1 routeだけの局所修正では別routeがcriticalになる。次の3 ownership変更を同じreviewable unitで閉じ、既存の180秒command budget、170秒process deadline、10秒cleanup reserve、pre-wave順序、remaining 12 workers、logical test setを維持する。
 
 1. Settingsはexact 6 foreground methodを新しい `SettingsForegroundInteractionTests` へ集約する。foreground fixtureとnon-foreground `SettingDialogEditCompletionTests` を1-workerの `settings-edit-foreground-classwide` で実行し、non-foreground `SettingsWindowPresentationTests` は別の1-worker `settings-window-nonactivating-classwide` で実行する。foregroundを取得するprocessはexact 1つとし、複数foreground process案は退役する。
 2. 旧95-case `BmsPlaylistUpdateTests` は external reload、persistence lifecycle、custom-folder output、migration / registration の4 owner fixtureへ分割し、各fixtureを別の1-worker / `ClassLevel` processへ割り当てる。各classは既存のclass-wide DNP、process-local `Settings.Default`、GUID temporary DB/files/outputを維持する。`Settings.Default.Save()` または共有portable config書込みが見つかった場合は並列化しない。
@@ -235,7 +235,7 @@ Unit 3後の `4097e3a3` では `remaining` が1869/1869でprocess deadlineの約
 
 ### Ownership and handoff
 
-- Worker A owns `SettingDialogEditCompletionTests.cs`、`SettingsWindowPresentationTests.cs`、`BmsPlaylistUpdateTests.cs` と新しいsettings / BMS playlist fixture/support files。既存method body、assertion、completion signal、cleanupを一度だけ移動し、共通support変更が必要なら停止してrootへ返す。
+- Worker A owns `SettingDialogEditCompletionTests.cs`、`SettingsWindowPresentationTests.cs`、旧 `BmsPlaylistUpdateTests.cs` と新しいsettings / BMS playlist fixture/support files。既存method body、assertion、completion signal、cleanupを一度だけ移動し、共通support変更が必要なら停止してrootへ返す。
 - Worker B owns `PlaylistWorkspaceViewModelTests.cs` と新しいworkspace fixture/support files。同じ巨大fileをWorker Aは編集しない。
 - 両worker完了後、integration workerが `scripts/verify-refactor.ps1`、`VerificationRunnerContractTests.cs`、`testing-strategy.md`、feature Verification map、本計画を所有する。実launch objectのexact membership、worker/scope、remaining exclusion、cross-route uniqueness、foreground exact allowlistを検証する。
 
@@ -243,16 +243,16 @@ Unit 3後の `4097e3a3` では `remaining` が1869/1869でprocess deadlineの約
 
 | Behavior / failure contract | Coverage | Decision | Shared resource / lane | Completion signal | Retired route |
 | --- | --- | --- | --- | --- | --- |
-| settings foreground / nonactivating presentation | 旧2 fixtureの全case + exact 6 foreground methods | `replace` fixture containers; foreground exact 1 process | two 1-worker `ClassLevel` testhosts; process-local Application/dispatcher/resources/settings | existing dispatcher host、window scope、task/event completion、HWND cleanup | `settings-presentation-classwide` single host |
-| playlist reload / persistence / output / migration | 旧 `BmsPlaylistUpdateTests` 95 methods | `replace` with four owner fixtures/processes | each 1-worker `ClassLevel`; existing DNP; process-local settings; GUID DB/files | existing task/event/DB commit and visible-publication receipts | `playlist-update` single-class route |
-| playlist workspace owner boundaries | 旧 `PlaylistWorkspaceViewModelTests` 147 methods | `replace` with five owner fixtures | existing `presentation-workspace`, 3 workers/ClassLevel; Playback DNP exclusive | existing dispatcher host、TCS/event/barrier、GUID files | monolithic workspace class / 2-worker assumption |
+| settings foreground / nonactivating presentation | 旧2 fixtureの全case + exact 6 foreground methods | `replace` fixture containers; `SettingsForegroundInteractionTests` + non-FG `SettingDialogEditCompletionTests` in `settings-edit-foreground-classwide`, non-FG `SettingsWindowPresentationTests` in `settings-window-nonactivating-classwide` | two 1-worker `ClassLevel` testhosts; process-local Application/dispatcher/resources/settings | existing dispatcher host、window scope、task/event completion、HWND cleanup | `settings-presentation-classwide` single host |
+| playlist reload / persistence / output / migration | 旧 `BmsPlaylistUpdateTests` 95 methods | `replace` with `BmsPlaylistExternalReloadTests`、`BmsPlaylistPersistenceLifecycleTests`、`BmsPlaylistCustomFolderOutputTests`、`BmsPlaylistMigrationAndRegistrationTests` | four 1-worker `ClassLevel` processes; existing DNP; process-local settings; GUID DB/files | existing task/event/DB commit and visible-publication receipts | `playlist-update` single-class route |
+| playlist workspace owner boundaries | 旧 `PlaylistWorkspaceViewModelTests` 147 methods | `replace` with `PlaylistWorkspaceExternalSourceTests`、`PlaylistWorkspaceActionWorkflowTests`、`PlaylistWorkspaceDetailRefreshTests`、`PlaylistWorkspacePresentationStateTests`、`PlaylistWorkspacePersistenceCommandTests` | existing `presentation-workspace`, 3 workers/ClassLevel; Playback DNP exclusive | existing dispatcher host、TCS/event/barrier、GUID files | monolithic workspace class / 2-worker assumption |
 | actual launch topology | `VerificationRunnerContractTests` + Functional | `extend` actual-consumed plan validator | no metadata-only route | launch validator + exact TRX/host exit | old settings/playlist/workspace allowlists |
 
 ### Focused verification
 
 - Worker A: new settings fixture FQNs and four BMS playlist fixture FQNs.
 - Worker B: five workspace fixture FQNs plus `LibraryFolderTreeViewModelTests` and `PlaybackPanelViewModelTests`.
-- Integration: `VerificationRunnerContractTests`、PowerShell parse、`git diff --check`。
+- Integration: `VerificationRunnerContractTests`、PowerShell parse、`git diff --check`。Focused command: `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests'`。
 - Final snapshot: WPF focused 30回とFunctional 3回を1回目から再実行し、Fullを1回実行する。
 
 ### Replan triggers
@@ -282,7 +282,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 1: lifecycle P2 closure | Complete | `5e7ccaed`。focused Quick 17/17、PowerShell parse、`git diff --check`、Release build成功。 |
 | Unit 2: Functional headroom replan | Implementation complete; stability verification pending | base HEAD `128519856d57b304bc21930843b1aecfc10eeaa4` から、settings 16 fixtureをforeground 2/state 14の2 testhostへ分離し、presentation workspaceを2-worker/ClassLevel化。実 launch plan objectを同一 validatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、fanout object identityを検証する。PowerShell parse / `git diff --check` pass。focused Quick `VerificationRunnerContractTests` 4/4 pass、33.5s command、diagnostics `artifacts/verification/tests-quick-20260824-213148`。Functional/Full/WPF30はroot担当。playlist overlapとremaining fixture分割は採用しない。 |
 | Unit 3: remaining owner fixture rebalancing | Complete; integration stability pending | `7ccca8ea` / `tests-functional-20260824-213728` のprocess deadline failureを受け、26 caseをlibrary init/mutation 13、package lifecycle/pending 7、catalog relocation 6へ分割。既存remaining process、12-worker ClassLevel、GUID resource、completion signalは維持。focused Quick 26/26 pass、Functional/Full/WPF30はroot担当。 |
-| Unit 4: critical-tail owner topology | Planned; implementation pending | `4097e3a3` でremainingは完走したがplaylist / presentation / settingsがdeadlineへ残ったため、3 routeをowner単位へ再編する。foreground exact 1 process、logical test set、deadline、pre-wave順、remaining workersは維持する。 |
+| Unit 4: critical-tail owner topology | Implementation and focused verification complete; stability pending | `4097e3a3` でremainingは完走したがplaylist / presentation / settingsがdeadlineへ残ったため、4つのBMS playlist owner shard、7-class / 3-worker workspace shard、foreground / nonactivating / stateの3 settings shardへ再編した。実際のlaunch plan objectをvalidatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、旧FQN不在、foreground exact allowlist、fanout object identityを検証する。180秒command、170秒process deadline、10秒cleanup reserve、pre-wave順、remaining 12 workers、DNP、logical test setは維持。settings 142/142、workspace 208/208、BMS playlist + runner contract 99/99 pass。Functional / Full / static reviewはUnit 5で実施する。 |
 | Unit 5: final stability gates and review | Pending | Unit 4後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
@@ -300,6 +300,11 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | `4097e3a3` | Release build + lifecycle/runner focused Quick | Pass (18/18) | 22.4s build / 70.7s Quick | `tests-quick-20260824-215800`; 0 errors; runner `F434C6C3...15DFF0`; lifecycle `87D0E075...A28997C`; tracked unchanged; residual 0 |
 | same | WPF focused filter, 30 consecutive runs | Pass (30/30) | 31.3-34.6s / run | `tests-quick-20260824-215928` through `tests-quick-20260824-221507`; all residual 0; tracked unchanged |
 | same | Functional first run | Fail: shared process deadline | 173.4s command / 171.8s canonical / 155.4s test phase | `tests-functional-20260824-221554`; remaining 1869/1869 completed; playlist-update 87/95、presentation 205/208、settings-presentation 136/142 at cutoff; tracked unchanged; residual 0; Unit 4 replan trigger met |
+| Unit 4 integration worktree | PowerShell parse + direct `New-FunctionalShardPlan` / `Assert-FunctionalShardConfiguration` probe + `git diff --check` | Pass | <1s parse/check; 3.2s plan probe | 17 launch shards / 16 fanout objects; exact final fixture names, worker/scope, remaining exclusions, old-FQN absence、foreground allowlist、fanout object identity passed; tracked files unchanged |
+| same | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests'` | Blocked by deterministic compile errors in worker-owned fixture | 25.3s command; no testhost residual | `tests-quick-20260824-230949`; `SettingsForegroundInteractionTests.cs(751,752,770,773)` cannot resolve `TestSettingsDialogPlayerFactoryPort` / `TestSettingsDialogPlaybackRuntimePort`; fixture files are outside Unit 4 integration ownership and were not edited |
+| Unit 4 fixed worktree | settings three-fixture focused Quick | Pass (142/142) | 60.1s build/test | `tests-quick-20260824-231857`; narrow foreground-owned test doubles fixed the compile errors; tests passed; no residual test process |
+| same | workspace five-fixture + LibraryFolderTree + Playback focused Quick | Pass (208/208) | 20.8s test | `tests-quick-20260824-232355`; first identical test run also passed but whitespace guard found EOF formatting, then formatting-only fix and exact rerun passed; residual 0 |
+| same | four BMS playlist fixture + `VerificationRunnerContractTests` focused Quick | Pass (99/99) | 47.6s command / 26.7s test | `tests-quick-20260824-232556`; runner exit 0 and tracked fingerprint unchanged; residual 0. Root summary wrapper alone returned failure after success because its dirty-status array comparison produced `System.Object[]`; test/runner evidence is green |
 
 ## Done when
 

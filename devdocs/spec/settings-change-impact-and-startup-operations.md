@@ -293,3 +293,15 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 - `_semaphore` を廃止して operation coordinator へ全面移行すること。
 
 これらはこの仕様の範囲外とし、進捗整合性と二重初期化防止を優先する。
+
+## Verification map
+
+設定画面の Functional ownership は、foreground interaction と non-activating presentation、process-local state を別 testhost に分離する。
+
+| behavior | canonical fixture | Functional route |
+| --- | --- | --- |
+| foreground keyboard、focus、hit-testing と LR2 advanced path commit の6 method | `SettingsForegroundInteractionTests`（`SettingsWindow_NavigationSupportsKeyboardAutomationAndResetsPageScroll`、`SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes`、`SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes`、`Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting`、`Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected`、`Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor`） | `settings-edit-foreground-classwide`, 1 worker / `ClassLevel`; `SettingDialogEditCompletionTests` の他の non-FG case と同居 |
+| non-foreground SettingsWindow presentation | `SettingsWindowPresentationTests`（foreground 6 methodは含めない） | `settings-window-nonactivating-classwide`, 1 worker / `ClassLevel` |
+| process-local settings/application state | existing exact 14 classes | `settings-state-classwide`, 1 worker / `ClassLevel` |
+
+runner は上記 route の実際の class selector、worker、scope、remaining exclusion、foreground allowlistを起動前に検証する。反復時の対象は `FullyQualifiedName~VerificationRunnerContractTests` の filtered Quick とする。

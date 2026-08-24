@@ -91,3 +91,14 @@ beatoraja Table URL インポート経路だけは、beatoraja 側が同名難�
 - beatoraja の Table URL 登録済み難易度表を先に BeMusicSeeker のプレイリストツリーへ取り込むと、beatoraja 選曲画面の難易度表順を維持しやすい。
 - beatoraja 側で難易度表をリロードする必要が少なくなり、管理を BeMusicSeeker に一元化できる。
 - ユーザーが続行した場合は `.bmt` 出力を有効化する。
+
+## Verification map
+
+beatoraja `tableURL` import と `.bmt` output の owner coverage は Functional の専用 fixtureへ分離する。
+
+| behavior | canonical fixture | Functional route |
+| --- | --- | --- |
+| Table URL の読み取り、既存一致、外部 load / `.bmt` fallback、raw URL保持、失敗集計、登録後処理 | `BmsPlaylistMigrationAndRegistrationTests` | `playlist-migration-registration`, 1 worker / `ClassLevel` |
+| manifest、managed `.bmt` file、`config_sys.json` `tableURL`同期、custom-folder outputとの連携 | `BmsPlaylistCustomFolderOutputTests` | `playlist-custom-folder-output`, 1 worker / `ClassLevel` |
+
+各 fixtureは process-local な設定とGUID付き temporary root / databaseを所有し、既存の class-wide `DoNotParallelize` と completion / cleanup signalを維持する。旧 `BmsPlaylistUpdateTests` routeは使用しない。
