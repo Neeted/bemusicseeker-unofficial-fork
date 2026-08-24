@@ -192,9 +192,25 @@ $functionalTestClassShards = @(
     },
     [pscustomobject]@{
         Name = 'owned-chart-collection'
-        Workers = 1
+        Workers = 6
+        Scope = 'ClassLevel'
         Classes = @(
-            'BeMusicSeeker.Tests.OwnedChartCollectionStateTests')
+            'BeMusicSeeker.Tests.OwnedChartCollectionProjectionTests'
+            'BeMusicSeeker.Tests.OwnedChartCollectionReferenceIndexTests'
+            'BeMusicSeeker.Tests.OwnedChartCollectionLookupMembershipTests'
+            'BeMusicSeeker.Tests.OwnedChartCollectionLibraryMutationTests'
+            'BeMusicSeeker.Tests.OwnedChartCollectionInstalledOverlayTests'
+            'BeMusicSeeker.Tests.OwnedChartCollectionRefreshTests'
+            'BeMusicSeeker.Tests.OwnedChartCollectionInlineDigestTests'
+            'BeMusicSeeker.Tests.PlaylistSummaryCountAndPresentationTests'
+            'BeMusicSeeker.Tests.PlaylistSummaryOwnedHashTests'
+            'BeMusicSeeker.Tests.PlaylistSummaryMutationAndWarmTests'
+            'BeMusicSeeker.Tests.PlaylistSummaryResolveIndexTests'
+            'BeMusicSeeker.Tests.RegularChartNavigationTests'
+            'BeMusicSeeker.Tests.RegularChartNormalLibraryRefreshTests'
+            'BeMusicSeeker.Tests.RegularChartFolderRenameTests'
+            'BeMusicSeeker.Tests.RegularChartViewBuildAndOrderingTests'
+            'BeMusicSeeker.Tests.RegularChartCommitAndLifecycleTests')
     },
     [pscustomobject]@{
         Name = 'playlist-external-custom-folder'
@@ -447,6 +463,41 @@ function Assert-FunctionalShardConfiguration {
     if ($ownedDbFileShard.Workers -ne 3 -or $ownedDbFileShard.Scope -cne 'ClassLevel') {
         throw 'Functional owned database/file shard must use three workers with ClassLevel scope.'
     }
+    $ownedChartCollectionShards = @($functionalTestClassShardsForLaunch |
+        Where-Object { $_.Name -ceq 'owned-chart-collection' })
+    if ($ownedChartCollectionShards.Count -ne 1) {
+        throw 'Functional owned chart collection tests must have exactly one dedicated shard.'
+    }
+    $ownedChartCollectionShard = $ownedChartCollectionShards[0]
+    $requiredOwnedChartCollectionClasses = @(
+        'BeMusicSeeker.Tests.OwnedChartCollectionProjectionTests'
+        'BeMusicSeeker.Tests.OwnedChartCollectionReferenceIndexTests'
+        'BeMusicSeeker.Tests.OwnedChartCollectionLookupMembershipTests'
+        'BeMusicSeeker.Tests.OwnedChartCollectionLibraryMutationTests'
+        'BeMusicSeeker.Tests.OwnedChartCollectionInstalledOverlayTests'
+        'BeMusicSeeker.Tests.OwnedChartCollectionRefreshTests'
+        'BeMusicSeeker.Tests.OwnedChartCollectionInlineDigestTests'
+        'BeMusicSeeker.Tests.PlaylistSummaryCountAndPresentationTests'
+        'BeMusicSeeker.Tests.PlaylistSummaryOwnedHashTests'
+        'BeMusicSeeker.Tests.PlaylistSummaryMutationAndWarmTests'
+        'BeMusicSeeker.Tests.PlaylistSummaryResolveIndexTests'
+        'BeMusicSeeker.Tests.RegularChartNavigationTests'
+        'BeMusicSeeker.Tests.RegularChartNormalLibraryRefreshTests'
+        'BeMusicSeeker.Tests.RegularChartFolderRenameTests'
+        'BeMusicSeeker.Tests.RegularChartViewBuildAndOrderingTests'
+        'BeMusicSeeker.Tests.RegularChartCommitAndLifecycleTests')
+    $ownedChartCollectionClasses = @($ownedChartCollectionShard.Classes)
+    if ($ownedChartCollectionClasses.Count -ne $requiredOwnedChartCollectionClasses.Count -or
+        @(Compare-Object `
+            -ReferenceObject $requiredOwnedChartCollectionClasses `
+            -DifferenceObject $ownedChartCollectionClasses `
+            -CaseSensitive).Count -ne 0) {
+        throw 'Functional owned chart collection shard must contain exactly the approved owner fixtures.'
+    }
+    if ($ownedChartCollectionShard.Workers -ne 6 -or
+        $ownedChartCollectionShard.Scope -cne 'ClassLevel') {
+        throw 'Functional owned chart collection shard must use six workers with ClassLevel scope.'
+    }
     $lr2SongDbShards = @($functionalTestClassShardsForLaunch |
         Where-Object { $_.Name -ceq 'lr2-songdb-sync' })
     if ($lr2SongDbShards.Count -ne 1) {
@@ -529,6 +580,7 @@ function Assert-FunctionalShardConfiguration {
     $allowedMultiWorkerShards = @(
         'library-chart-classwide',
         'owned-db-file-class-level',
+        'owned-chart-collection',
         'presentation-workspace')
     if (@($functionalTestClassShardsForLaunch |
         Where-Object {

@@ -297,3 +297,16 @@ beatoraja 選曲画面の難易度表表示順は `config_sys.json` の `tableUR
 | migration、registration、Table URL import、duplicate / failure contract | `BmsPlaylistMigrationAndRegistrationTests` | `playlist-persistence-migration`, 1 worker / `ClassLevel`; `BmsPlaylistPersistenceLifecycleTests` と同じ process-local host |
 
 旧 `BmsPlaylistUpdateTests` と `playlist-update` routeは退役し、4 fixtureの論理 test set と completion / cleanup signalを2つのgrouped replacementへ移す。runnerは4つの実際の class selectorをremainingから除外し、各groupのexact membership、1 worker / `ClassLevel`、他 routeとの重複がないことを起動前に検証する。
+
+### Owned chart summary verification
+
+`PlaylistSummaryAggregationTests` の18 caseは、owned chart collection と同じ既存 `owned-chart-collection` processで、次の4 owner fixtureへ置換する。各 fixtureはGUID付き temporary song database / filesystem、owned hash snapshot、digest mutation window、completion / cleanup signalを従来どおり所有し、routeは1 process・6 workers・`ClassLevel`のまま維持する。
+
+| behavior | canonical fixture | Existing case set |
+| --- | --- | --- |
+| count calculation and summary-row filter / sort presentation | `PlaylistSummaryCountAndPresentationTests` | methods 2-6, 15-18 |
+| owned hash index build and cancellation | `PlaylistSummaryOwnedHashTests` | methods 1, 7 |
+| mutation invalidation and warm / rebuild reuse | `PlaylistSummaryMutationAndWarmTests` | methods 8-11 |
+| playlist library resolve-index cache and digest mutation window | `PlaylistSummaryResolveIndexTests` | methods 12-14 |
+
+The old `PlaylistSummaryAggregationTests` selector is retired; the replacement keeps its observable counts, rows, cancellation / mutation behavior, and persistence boundary unchanged.

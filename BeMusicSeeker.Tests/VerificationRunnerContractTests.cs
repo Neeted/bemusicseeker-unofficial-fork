@@ -137,6 +137,29 @@ public sealed class VerificationRunnerContractTests
                 "BeMusicSeeker.Tests.PlaylistWorkspacePresentationStateTests",
                 "BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests"
             });
+        AssertShard(
+            FindShard(shards, "owned-chart-collection"),
+            6,
+            "ClassLevel",
+            new[]
+            {
+                "BeMusicSeeker.Tests.OwnedChartCollectionProjectionTests",
+                "BeMusicSeeker.Tests.OwnedChartCollectionReferenceIndexTests",
+                "BeMusicSeeker.Tests.OwnedChartCollectionLookupMembershipTests",
+                "BeMusicSeeker.Tests.OwnedChartCollectionLibraryMutationTests",
+                "BeMusicSeeker.Tests.OwnedChartCollectionInstalledOverlayTests",
+                "BeMusicSeeker.Tests.OwnedChartCollectionRefreshTests",
+                "BeMusicSeeker.Tests.OwnedChartCollectionInlineDigestTests",
+                "BeMusicSeeker.Tests.PlaylistSummaryCountAndPresentationTests",
+                "BeMusicSeeker.Tests.PlaylistSummaryOwnedHashTests",
+                "BeMusicSeeker.Tests.PlaylistSummaryMutationAndWarmTests",
+                "BeMusicSeeker.Tests.PlaylistSummaryResolveIndexTests",
+                "BeMusicSeeker.Tests.RegularChartNavigationTests",
+                "BeMusicSeeker.Tests.RegularChartNormalLibraryRefreshTests",
+                "BeMusicSeeker.Tests.RegularChartFolderRenameTests",
+                "BeMusicSeeker.Tests.RegularChartViewBuildAndOrderingTests",
+                "BeMusicSeeker.Tests.RegularChartCommitAndLifecycleTests"
+            });
 
         AssertShard(
             FindShard(shards, "playlist-external-custom-folder"),
@@ -392,7 +415,10 @@ public sealed class VerificationRunnerContractTests
         foreach (string retiredSelector in new[]
         {
             "BeMusicSeeker.Tests.BmsPlaylistUpdateTests",
-            "BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests"
+            "BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests",
+            "BeMusicSeeker.Tests.OwnedChartCollectionStateTests",
+            "BeMusicSeeker.Tests.PlaylistSummaryAggregationTests",
+            "BeMusicSeeker.Tests.RegularChartListOwnerTests"
         })
         {
             Assert.IsFalse(

@@ -920,6 +920,27 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 
 The fixture split is an ownership-only test topology change. It does not change `ChartFile` / `ChartOperationTarget` persistence or BMS / bmson capability boundaries; the chart abstraction behavior remains observable through the existing owner results, row snapshots, notifications, and cleanup contracts.
 
+## Verification map: owned-chart collection and playlist-summary owner fixtures
+
+The owned-chart collection contract is covered by the existing 105-case and 18-case canonical fixtures split into owner-local `ClassLevel` fixtures. The existing five regular-chart owner fixtures join the same `owned-chart-collection` route; no additional process or DNP boundary is introduced. Each replacement preserves the original GUID-owned song database / filesystem root, immutable snapshot, task / event completion, failure watchdog, and cleanup semantics.
+
+| Behavior / failure contract | Owner fixture(s) | Existing case set | Lane / route | Retired fixture |
+| --- | --- | --- | --- | --- |
+| storage-row projection, snapshot and storage-owner index | `OwnedChartCollectionProjectionTests` | `OwnedChartCollectionStateTests` methods 1-9 | `owned-chart-collection`, 6 workers / `ClassLevel` | monolithic `OwnedChartCollectionStateTests` methods 1-9 |
+| library chart-reference index resolution and mutation | `OwnedChartCollectionReferenceIndexTests` | methods 10-41 | same route and resource contract | monolithic methods 10-41 |
+| owned hash / path lookup, membership and duplicate snapshots | `OwnedChartCollectionLookupMembershipTests` | methods 42-61 | same route and resource contract | monolithic methods 42-61 |
+| library mutation delta and resource-health invalidation | `OwnedChartCollectionLibraryMutationTests` | methods 62-73 | same route and resource contract | monolithic methods 62-73 |
+| installed and install-destination overlay lookup | `OwnedChartCollectionInstalledOverlayTests` | methods 74-92 | same route and resource contract | monolithic methods 74-92 |
+| normal-library refresh and file-scan notifications | `OwnedChartCollectionRefreshTests` | methods 93-97 | same route and resource contract | monolithic methods 93-97 |
+| inline chart-info digest mutation and event validation | `OwnedChartCollectionInlineDigestTests` | methods 98-105 | same route and resource contract | monolithic methods 98-105 |
+| playlist summary count and presentation projection | `PlaylistSummaryCountAndPresentationTests` | `PlaylistSummaryAggregationTests` methods 2-6, 15-18 | same route and resource contract | monolithic methods 2-6, 15-18 |
+| owned hash index build and cancellation | `PlaylistSummaryOwnedHashTests` | methods 1, 7 | same route and resource contract | monolithic methods 1, 7 |
+| owned hash mutation and warm / rebuild lifecycle | `PlaylistSummaryMutationAndWarmTests` | methods 8-11 | same route and resource contract | monolithic methods 8-11 |
+| playlist detail resolve-index cache and digest window | `PlaylistSummaryResolveIndexTests` | methods 12-14 | same route and resource contract | monolithic methods 12-14 |
+| regular chart navigation, refresh, rename, view ordering and lifecycle | `RegularChartNavigationTests`, `RegularChartNormalLibraryRefreshTests`, `RegularChartFolderRenameTests`, `RegularChartViewBuildAndOrderingTests`, `RegularChartCommitAndLifecycleTests` | `RegularChartListOwnerTests` methods 1-76 | same route and resource contract | monolithic `RegularChartListOwnerTests` |
+
+The route has one launch process and six `ClassLevel` workers. The validator checks exact class membership, remaining exclusion, cross-route uniqueness, and absence of the retired monolith selectors.
+
 ## 維持する境界
 
 1. 永続化 storage は BMS / bmson の二本立てを維持する。
