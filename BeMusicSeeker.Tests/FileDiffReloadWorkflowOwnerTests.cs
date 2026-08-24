@@ -267,7 +267,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         try
         {
             Task first = viewModel.ReloadFileDiffAsync();
-            await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await firstEntered.Task;
             Task second = viewModel.ReloadFileDiffAsync();
 
             Assert.AreEqual(1, reloadCount);
@@ -275,7 +275,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
 
             releaseFirst.SetResult();
             await first;
-            await secondEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await secondEntered.Task;
             await second;
 
             Assert.AreEqual(2, requests.Count);

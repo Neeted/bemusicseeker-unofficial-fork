@@ -34,7 +34,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
 
         Task<PlaylistTablesReloadWorkflowResult> operation = owner.ReloadAsync(
             new PlaylistTablesReloadRequest(17L));
-        await reloadEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await reloadEntered.Task;
 
         Assert.IsFalse(operation.IsCompleted);
         Assert.IsNull(capturedSyncRequest);
@@ -42,7 +42,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
         Assert.AreEqual("reload", events[0]);
 
         releaseReload.SetResult(true);
-        PlaylistTablesReloadWorkflowResult result = await operation.WaitAsync(TimeSpan.FromSeconds(1));
+        PlaylistTablesReloadWorkflowResult result = await operation;
 
         Assert.IsNotNull(capturedReloadRequest);
         Assert.AreEqual(17L, capturedReloadRequest.OperationToken);

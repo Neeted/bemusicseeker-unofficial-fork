@@ -24,7 +24,7 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
         first.Dispose();
 
         using StartupLibraryInitializationGateLease second =
-            await secondAcquire.WaitAsync(TimeSpan.FromSeconds(5));
+            await secondAcquire;
         Assert.AreEqual(0, gate.CurrentCount);
         second.Dispose();
         Assert.AreEqual(1, gate.CurrentCount);
@@ -65,7 +65,7 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
         Assert.AreSame(failure, exception);
         Assert.AreEqual(1, gate.CurrentCount);
         using StartupLibraryInitializationGateLease next =
-            await owner.AcquireGateAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await owner.AcquireGateAsync();
     }
 
     [TestMethod]

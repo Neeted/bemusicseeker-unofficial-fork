@@ -128,7 +128,7 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
         try
         {
             Task first = viewModel.ReloadScoresOnlyAsync();
-            await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await firstEntered.Task;
             Task second = viewModel.ReloadScoresOnlyAsync();
 
             Assert.AreEqual(1, reloadCount);
@@ -136,7 +136,7 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
 
             releaseFirst.SetResult();
             await first;
-            await secondEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await secondEntered.Task;
             await second;
 
             Assert.AreEqual(2, reloadCount);

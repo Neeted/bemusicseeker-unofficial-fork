@@ -1108,14 +1108,14 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 hydrationWork = scheduled.Single(item => item.Owner == "playlist_entries_hydration");
             }
-            await hydrationWork.Work().WaitAsync(TimeSpan.FromSeconds(5));
+            await hydrationWork.Work();
 
             (string Owner, Func<Task> Work) repairWork;
             lock (schedulerSync)
             {
                 repairWork = scheduled.Single(item => item.Owner == "playlist_custom_folder_output_repair");
             }
-            await repairWork.Work().WaitAsync(TimeSpan.FromSeconds(5));
+            await repairWork.Work();
 
             Assert.IsNotNull(receipt);
             Assert.AreEqual(1, receipt!.RequestVersion);

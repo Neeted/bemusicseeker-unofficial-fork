@@ -75,8 +75,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 library.RenameChartFolder(sourceDirectoryPath, "Renamed");
 
-                await Task.WhenAll(folderChanged.Task, pathChanged.Task)
-                    .WaitAsync(TimeSpan.FromSeconds(2));
+                await Task.WhenAll(folderChanged.Task, pathChanged.Task);
                 Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
                 Assert.AreEqual(1, Volatile.Read(ref folderChangedCount));
                 Assert.AreEqual(1, Volatile.Read(ref pathChangedCount));

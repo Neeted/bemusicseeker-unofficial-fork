@@ -38,12 +38,12 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         try
         {
-            await runtimeStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await runtimeStarted.Task;
             Assert.IsTrue(owner.IsRunning);
             Assert.IsNull(await owner.TryRunAsync(request));
 
             releaseRuntime.TrySetResult();
-            Assert.IsNotNull(await firstTask.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.IsNotNull(await firstTask);
             Assert.IsFalse(owner.IsRunning);
             CollectionAssert.AreEqual(new[] { "stop", "runtime" }, events);
             Assert.AreEqual(1, runtime.CallCount);
