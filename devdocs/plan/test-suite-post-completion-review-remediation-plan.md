@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 4 critical-tail ownership integrated; stability verification pending
+Status: Unit 4b staged fanout replan approved; implementation pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -262,9 +262,50 @@ Unit 3後の `4097e3a3` では `remaining` が1869/1869でprocess deadlineの約
 - Functionalのいずれかでprocess deadlineまで15秒未満、timeout、deterministic failure、残留process/HWND、tracked file変更が生じる。
 - 追加processのSQLite / I/O contentionで別routeがcriticalになる。この場合もtimeout延長やworker削減で隠さずownershipを再調査する。
 
+## Unit 4b: staged settings and bounded fanout
+
+### Trigger evidence
+
+`018b894b` の最初のFunctionalは `artifacts/verification/tests-functional-20260824-232820` でdeadlineへ到達した。16 fanout processを0.36秒で起動し、実行中LR2を含む17 shard / worker ceiling 33となった直後、LR2の通常0.45秒のcaseが52秒、通常0.05秒前後のcaseが16-17秒へ膨張した。fanoutは3519件中593件しか完了せず、`remaining` は約97秒でtest-run headerにも到達しなかった。これはfixture固有tailではなくprocess / CPU / I/O contentionであるため、同じ17-process topologyは再試行しない。
+
+また、`settings-window-nonactivating-classwide` の `SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow` はproduction `ThemedMessageBox.ShowDialog()` で未準備のnested modalをactivateする。現在のexact 6 foreground allowlistでは別processのkeyboard/focus testと競合するため、このmethodをforeground ownerへ移し、nonactivating routeの契約を実態へ合わせる。
+
+### Design
+
+1. `SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow` のbehavior body、assertion、completion、cleanupを `SettingsForegroundInteractionTests` へ移し、foreground / activating allowlistをexact 7 methodにする。旧FQNは退役し、`SettingsWindowPresentationTests` にはactivating routeを残さない。
+2. BMS playlist 4 fixtureは次の2 processへbalanced groupingする。各processは1 worker / `ClassLevel`、各classのDNP、process-local settings、GUID DB/filesを維持する。
+   - `playlist-external-custom-folder`: `BmsPlaylistExternalReloadTests` + `BmsPlaylistCustomFolderOutputTests`（isolated span合計約11.2秒）。
+   - `playlist-persistence-migration`: `BmsPlaylistPersistenceLifecycleTests` + `BmsPlaylistMigrationAndRegistrationTests`（同約8.7秒）。
+3. exclusive portable-settings lane完了後、LR2、`settings-edit-foreground-classwide`、`settings-window-nonactivating-classwide` をexact 1回ずつ起動してentryを直ちに記録し、その後にmethod-level pre-waveを実行する。pre-wave fixtureはHWNDを作らず、settings / culture / resources / DB / filesystemはprocess-localまたはGUID ownershipである。settings routeはfanoutから除外し、同じprocess deadline、result、diagnostics、cleanup setへjoinする。
+4. pre-wave後のearly entry状態遷移を次に固定する。
+   - completed / exit 0: resultを一度だけaccountし、再起動しない。
+   - running: 同一entry / process identityをcommon monitorへ渡し、再起動しない。
+   - nonzero / canceled / invalid: fanoutを開始せずprimary failureとして失敗し、記録済み全entryをbounded cleanupする。
+   - process start後entry記録前、またはN件起動後N+1件目のlaunch exception: raw processをexact identityで回収し、記録済みentryとともにcleanupする。primary / secondary precedenceを維持する。
+5. actual shard object identity、early membership、fanout exclusion、no relaunch、unique accounting、partial-launch cleanupをbehavior validatorへ追加する。最終構成は15 launch shards / 14 fanout descriptorsで、4 BMS fixtureはexact 1 route、foregroundはexact 7 methodsとする。
+
+180秒command、170秒process deadline、10秒cleanup reserve、remaining 12 workers、presentation 3 workers、logical test set、固定waitなし、新規DNPなし、production behavior不変を維持する。
+
+### Test delta and verification
+
+| Contract | Coverage | Decision | Completion / failure signal | Retired route |
+| --- | --- | --- | --- | --- |
+| nested activating settings modal | moved ManualResync method + exact foreground allowlist | `replace`; exact 6 → 7 | existing owned window/modal receipt and cleanup | old SettingsWindow FQN / false nonactivating ownership |
+| balanced playlist process ownership | four existing owner fixtures | `replace`; four singleton process routes → two exact grouped routes | class completion / process exit / GUID cleanup | four-process topology |
+| early settings/LR2 lifecycle | actual launch plan and lifecycle probe | `extend` | process identity、exit/stream tasks、primitive ledger、shared deadline | LR2-only early ownership / settings fanout relaunch path |
+
+Focused Quickはsettings 3 fixture、4 BMS fixture、`VerificationRunnerContractTests`、`VerificationProcessLifecycleTests` を実行する。最終snapshotでFunctional 3回、WPF focused 30回、Full 1回を最初から実行する。
+
+### Replan triggers
+
+- settings nonactivating routeに別のnested activating HWNDが見つかる。
+- early process start後のraw identityをentry記録前exceptionからexact cleanupできない。
+- grouped Quickでcross-class settings/static/resource leakageが出る。
+- Functionalでstartup delay、LR2のfanout同期膨張、15秒未満のdeadline headroom、timeout、残留process/HWND、tracked mutationが一度でも出る。
+
 ## Unit 5: final stability gates and review
 
-Unit 4をcommit後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
+Unit 4bをcommit後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
 
 1. PowerShell parse、`git diff --check`、Release build、runner hash。
 2. lifecycle focused Quick。
@@ -283,7 +324,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 2: Functional headroom replan | Implementation complete; stability verification pending | base HEAD `128519856d57b304bc21930843b1aecfc10eeaa4` から、settings 16 fixtureをforeground 2/state 14の2 testhostへ分離し、presentation workspaceを2-worker/ClassLevel化。実 launch plan objectを同一 validatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、fanout object identityを検証する。PowerShell parse / `git diff --check` pass。focused Quick `VerificationRunnerContractTests` 4/4 pass、33.5s command、diagnostics `artifacts/verification/tests-quick-20260824-213148`。Functional/Full/WPF30はroot担当。playlist overlapとremaining fixture分割は採用しない。 |
 | Unit 3: remaining owner fixture rebalancing | Complete; integration stability pending | `7ccca8ea` / `tests-functional-20260824-213728` のprocess deadline failureを受け、26 caseをlibrary init/mutation 13、package lifecycle/pending 7、catalog relocation 6へ分割。既存remaining process、12-worker ClassLevel、GUID resource、completion signalは維持。focused Quick 26/26 pass、Functional/Full/WPF30はroot担当。 |
 | Unit 4: critical-tail owner topology | Implementation and focused verification complete; stability pending | `4097e3a3` でremainingは完走したがplaylist / presentation / settingsがdeadlineへ残ったため、4つのBMS playlist owner shard、7-class / 3-worker workspace shard、foreground / nonactivating / stateの3 settings shardへ再編した。実際のlaunch plan objectをvalidatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、旧FQN不在、foreground exact allowlist、fanout object identityを検証する。180秒command、170秒process deadline、10秒cleanup reserve、pre-wave順、remaining 12 workers、DNP、logical test setは維持。settings 142/142、workspace 208/208、BMS playlist + runner contract 99/99 pass。Functional / Full / static reviewはUnit 5で実施する。 |
-| Unit 5: final stability gates and review | Pending | Unit 4後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
+| Unit 4b: staged settings and bounded fanout | Planned; implementation pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。 |
+| Unit 5: final stability gates and review | Pending | Unit 4b後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
 
@@ -305,6 +347,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4 fixed worktree | settings three-fixture focused Quick | Pass (142/142) | 60.1s build/test | `tests-quick-20260824-231857`; narrow foreground-owned test doubles fixed the compile errors; tests passed; no residual test process |
 | same | workspace five-fixture + LibraryFolderTree + Playback focused Quick | Pass (208/208) | 20.8s test | `tests-quick-20260824-232355`; first identical test run also passed but whitespace guard found EOF formatting, then formatting-only fix and exact rerun passed; residual 0 |
 | same | four BMS playlist fixture + `VerificationRunnerContractTests` focused Quick | Pass (99/99) | 47.6s command / 26.7s test | `tests-quick-20260824-232556`; runner exit 0 and tracked fingerprint unchanged; residual 0. Root summary wrapper alone returned failure after success because its dirty-status array comparison produced `System.Object[]`; test/runner evidence is green |
+| `018b894b` | Functional first run | Fail: 17-shard contention / shared process deadline | 180.0s command / 178.1s canonical / 144.8s test phase | `tests-functional-20260824-232820`; 593/3519 fanout results; LR2 case latency 100-300x after fanout; most shards no TRX; tracked unchanged; residual 0 after outer check; Unit 4b replan trigger met |
 
 ## Done when
 
