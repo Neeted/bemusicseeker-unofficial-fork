@@ -20,7 +20,8 @@ redirected process は次を一つの bounded lifecycle として扱う。
 6. primary failure、cleanup failure、diagnostic write failure の優先順位
 
 - incomplete な stream task へ無期限の `.Result` / `GetAwaiter().GetResult()` を行わない。
-- process cleanup と stream drain を個別に budget 外へ積み増さない。Functional では既存の global cleanup reserve 内で閉じる。
+- Functional の restore、build、portable、fanout、出力確認、whitespace 確認は、canonical runner 開始時に作る一つの絶対 execution deadline（既定 180 秒）で判定する。host や phase ごとに deadline をリセットしない。
+- Functional が execution deadline を超えた場合は、runner-owned process cleanup と stream drain だけが、同じ canonical 開始時刻から execution deadline + 10 秒の一つの failure-cleanup cutoff まで継続できる。この追加 window は失敗 invocation の cleanup 専用で、成功を 180 秒超過から救済しない。成功は command 全体が execution deadline 内で完了した場合だけとする。
 - timeout / nonzero exit / orchestration failure を stream cleanup failure で上書きしない。成功 process の cleanup failure は成功扱いにしない。
 - process 名だけで無関係な `dotnet` / `testhost` / `vstest` を kill しない。起動した root PID と追跡した descendant だけを対象にする。
 - テスト側へ production lifecycle をコピーせず、shared helper または guarded execution probe を通す。

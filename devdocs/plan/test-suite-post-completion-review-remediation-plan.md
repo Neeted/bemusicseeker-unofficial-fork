@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 4e-A KISS Functional topology and watchdog policy implemented; focused verification complete; stability pending
+Status: Unit 4e-C canonical Functional deadline policy implemented; focused verification complete; stability pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -393,7 +393,7 @@ Unit 4d-A、4d-B、4d-Cの順で実装した。各fixture unit後にrunner exact
 - route単体のowner spanが35秒を超える、fanout startup taxが50秒超のまま15秒headroomを阻む、playlistなど別routeが新たなcritical tailになる。
 - focused / Functionalでdeterministic failure、timeout、tracked mutation、residual process/HWND、DNP交差failureが生じる。
 
-最終snapshotではFunctionalを最初から3回連続実行し、各command 180秒以内、canonical elapsed 155秒以内（process deadline headroom 15秒以上）、tracked fingerprint不変、残留test process 0を必須とする。途中修正後は成功回数をリセットする。
+最終snapshotではFunctionalを最初から3回連続実行し、各command 180秒以内、tracked fingerprint不変、残留test process 0を必須とする。timeout / failure invocation は execution deadline + 10秒の一つの failure-cleanup cutoff 内で owned process を収束させる。途中修正後は成功回数をリセットする。
 
 ## Unit 4e: KISS Functional topology and global-budget watchdog policy
 
@@ -405,7 +405,7 @@ Unit 4d-A、4d-B、4d-Cの順で実装した。各fixture unit後にrunner exact
 
 ### Unit 4e-A: four-host bounded fanout
 
-portable exclusive fixture `PlayerPanelStateSettingsCompatibilityTests` を1 worker / `ClassLevel`で単独完了後、次の4 processを待機phaseなしで起動し、同じ170秒process deadline / 10秒cleanup reserveへ合流させる。
+portable exclusive fixture `PlayerPanelStateSettingsCompatibilityTests` を1 worker / `ClassLevel`で単独完了後、次の4 processを待機phaseなしで起動し、canonical 開始時刻からの一つの execution deadline と、その +10秒の failure-cleanup cutoffへ合流させる。
 
 | Host | Workers / scope | Exact ownership |
 | --- | --- | --- |
@@ -454,6 +454,28 @@ Replan triggerは、logical testの欠落/重複、portable/Bass/foreground/proc
 - The five source groups are distinct `TestClass` fixtures (`ChartInfoMetadataSchemaExportImportTests`, `ChartInfoParserBehaviorTests`, `ChartInfoBackfillStorageTests`, `ChartInfoInlineHydrationTests`, `ChartInfoInstallFailureRetryTests`). The partial `ChartInfoMetadataOwnerTests` type and its runner absence selector are retired; KISS Functional keeps all five on `remaining` discovery with no named selector. The 134-method / 141-case ledger is unchanged, including all `DataRow` cases.
 - Focused Quick for the five fixtures plus `VerificationRunnerContractTests` passed 134 tests with 11 expected opt-in skips (145 discovered) in `tests-quick-20260825-044047`; tracked fingerprint and residual process checks were clean. Functional / Full / WPF repeat and final static review remain Unit 5 responsibilities.
 
+### Unit 4e-C: one canonical Functional deadline policy
+
+Unit 4e-A / 4e-B の実装後、Functional が 170 秒で test host を止め、10 秒を正常完了前の reserve として扱う設計を退役させる。`Invoke-CanonicalFunctionalVerification` の開始時刻から `FunctionalTimeoutSeconds` で executable deadline policy object を一度だけ作り、restore、build、built-output validation、portable、4-host fanout、repository whitespace を同じ execution deadline で判定する。failure 時だけ、その execution deadline + 10 秒の一つの cleanup cutoff を restore / build / portable / fanout の lifecycleへ渡す。cleanup window は失敗 invocation の owned PID / descendant / stream / artifact cleanup 専用で、execution deadline後に成功へ昇格させない。
+
+`Get-RemainingBudgetSeconds` は cleanup window を差し引かず、fixed start probe で zero elapsed が configured execution budget 全量を返す。host topology は `portable-settings` の後に `bass-collectible`、`serial-state-a`、`serial-state-b`、`remaining` を開始する 5-host / `1/1/1/1/ProcessorCount` / `ClassLevel` のまま変更しない。170 秒、pre-completion reserve、host ごとの deadline reset、named watchdog、worker reduction は追加しない。
+
+### Unit 4e-C evidence and replan
+
+- `tests-functional-20260825-044755`: canonical 173.7 秒で execution deadline failure、remaining host stopped、2638 results、tracked unchanged / residual 0。
+- `tests-functional-20260825-045115`: canonical 174.5 秒で同じ execution deadline failure、remaining host stopped、3255 results、tracked unchanged / residual 0。
+- 2回とも単一 host hang の evidence はなく、build / start window が subset progression を消費した結果であり、同じ process lifecycle artifact は PID ownership / cleanup を維持している。これは execution deadline を緩める根拠ではなく、canonical command budget が進捗 failure の正本であることを確認する evidence として記録する。
+- Test delta は既存 `VerificationRunnerContractTests` の `extend`。guarded actual runner seam を fixed start timestamp で呼び、execution delta = budget、failure-cleanup delta = budget + 10、zero-elapsed remaining budget、retired 170 / pre-reserve field absence、現行 5-host plan を検証する。`VerificationProcessLifecycleTests` と probe は既存 shared cutoff coverage で充足し、fixture / lane / DNP は追加しない。
+- `verification-runner-contract.ps1` の CanonicalFunctional metadata は `ExecutionDeadline = canonical-start+FunctionalTimeoutSeconds` と `FailureCleanupDeadline = execution-deadline+10-seconds` を記述し、`CanonicalFunctional_PropagatesTimeoutAndCallerOwnedDiagnostics` で確認する。ただし metadata は standalone proof ではなく、同じ Quick の guarded actual-policy test が executable behavior の正本である。
+
+Focused verificationはPowerShell parse、guarded actual deadline-policy / plan probe、`git diff --check`、および次の Quick filterで行う。Functional / Fullはrootの統合責任とし、このunitでは実行しない。
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests|FullyQualifiedName~VerificationProcessLifecycleTests'
+```
+
+Replan triggerは、execution / cleanup deadlineが別 phaseへ resetされる、successが180秒超過後に通る、failure cleanupが +10秒 cutoffを超える、restore/build/portable/fanoutで absolute deadlineの伝播が失われる、5-host topologyやlogical onceが変わる、tracked mutationまたはresidual processが発生する、もしくは同一条件の2回目の deterministic timeout / failure evidenceが出る場合とする。
+
 ## Unit 5: final stability gates and review
 
 Unit 4e implementation snapshotの統合後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
@@ -478,7 +500,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4b: staged settings and bounded fanout | Implementation complete; stability verification pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
 | Unit 4c: LR2-only early and regular-chart ownership | Implementation and focused verification complete; stability pending | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割した。actual planは15/14/14/1、LR2-only early、settings post-pre-wave fanout exact-once、old class退役、narrow supportを維持する。fixture/runner focused Quick、parse、diff check、76/76 body identityを完了。 |
 | Unit 4d: final Functional tail ownership | Blocker correction implemented; stability pending | Functional fanoutでChartInfo splitのThreadPool completion ownership premiseが破綻したため、5 source groupを単一partial `ChartInfoMetadataOwnerTests`へregroup。library/startup owner split、exact 6-worker ClassLevel route、15/14/14/1 topology、logical test set、watchdogを維持する。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
-| Unit 4e: KISS Functional / watchdog policy | Implementation and focused verification complete; stability pending | 個別testの短時間予算と15-shard性能topologyを退役。portable単独完了後、同じactual plan arrayからBass / serial A / serial B / remainingを4-host fanoutし、global 180秒budget、normal-completion plain await、exact remaining exclusionを実装。Focused Quick 18/18 pass; Functional/Full/WPF30/static reviewはroot担当。 |
+| Unit 4e: KISS Functional / watchdog policy | Implementation and focused verification complete; stability pending | 個別testの短時間予算と15-shard性能topologyを退役。portable単独完了後、同じactual plan arrayからBass / serial A / serial B / remainingを4-host fanoutし、5-host `1/1/1/1/ProcessorCount` / `ClassLevel`、one canonical execution deadline、failure-cleanup deadline = execution + 10秒、normal-completion plain await、exact remaining exclusionを実装。Unit 4e-Cでは deadline policy の executable probe と `VerificationRunnerContractTests` を extend。Focused Quick 19/19 pass; Functional/Full/WPF30/static reviewはroot担当。 |
 | Unit 5: final stability gates and review | Pending | Unit 4e implementation snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
@@ -525,6 +547,11 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | Functional after ChartInfo regroup | Fail: remaining false watchdog / global oversubscription | 169.6s canonical / 154.1s test phase | `tests-functional-20260825-030537`; LR2 103/103だが115sへ膨張、Startup progress work-startの5s sync wait failure、tracked unchanged、residual0; Unit4e trigger |
 | Unit 4e-A snapshot | PowerShell parse + direct `New-FunctionalShardPlan` / `Assert-FunctionalShardConfiguration` probe + `git diff --check` | Pass | <1s | actual executable plan: 5 hosts (`portable-settings`, `bass-collectible`, `serial-state-a`, `serial-state-b`, `remaining`), workers `1/1/1/1/12`, all `ClassLevel`, assigned 45, remaining exclusion 45, foreground 7; tracked files unchanged |
 | Unit 4e-A snapshot | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests|FullyQualifiedName~VerificationProcessLifecycleTests'` | Pass (18/18) | 58.6s command / 48.8s test | `tests-quick-20260825-042849`; build succeeded after order/exclusion validator strengthening, actual plan contract and lifecycle probes passed, fingerprint unchanged, residual test process 0 |
+| Unit 4e-C evidence | Functional first repeated failure | Fail: canonical execution deadline | 173.7s canonical | `tests-functional-20260825-044755`; remaining stopped, 2638 results, tracked unchanged, residual 0; no single-host hang evidence, build/start window consumed subset progression |
+| same | Functional exact retry | Fail: canonical execution deadline | 174.5s canonical | `tests-functional-20260825-045115`; remaining stopped, 3255 results, tracked unchanged, residual 0; repeated evidence confirms the canonical budget is the progress-failure contract |
+| Unit 4e-C snapshot | PowerShell parse + guarded fixed-start deadline policy / 5-host plan probe + `git diff --check` | Pass | <3s | executable policy returned execution delta = 180s, failure-cleanup delta = 190s, zero-elapsed remaining = 180s; plan remained 5 hosts / `1/1/1/1/12` / `ClassLevel`; tracked files unchanged |
+| Unit 4e-C snapshot | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests|FullyQualifiedName~VerificationProcessLifecycleTests'` | Pass (19/19) | 57.8s command / 48.1s test | `tests-quick-20260825-052312`; deadline policy and existing lifecycle / plan contracts passed; tracked fingerprint unchanged; residual test process 0 |
+| Unit 4e-C metadata follow-up | Same focused Quick filter after canonical deadline metadata/assertion update | Pass (19/19) | `tests-quick-20260825-052704` test TRX: 49.0s | Canonical metadata now reports execution deadline = canonical start + `FunctionalTimeoutSeconds` and failure cleanup = execution + 10s; guarded executable policy and lifecycle / plan contracts passed; tracked fingerprint unchanged; residual test process 0 |
 
 ## Done when
 

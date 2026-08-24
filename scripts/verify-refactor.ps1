@@ -26,7 +26,7 @@ $toolExecutables = @(
 $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
-$functionalCleanupReserveSeconds = 10
+$functionalFailureCleanupWindowSeconds = 10
 $monitoredCommandCleanupSeconds = 5
 . (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
 . (Join-Path $PSScriptRoot 'verification-process-lifecycle.ps1')
@@ -407,23 +407,70 @@ function Get-TrackedWorkingTreeFingerprint {
     return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes))
 }
 
-function Get-RemainingBudgetSeconds {
+function New-FunctionalDeadlinePolicy {
     param(
         [Parameter(Mandatory)]
-        [System.Diagnostics.Stopwatch]$Stopwatch,
+        [DateTime]$StartUtc,
 
         [Parameter(Mandatory)]
-        [int]$BudgetSeconds
+        [ValidateRange(1, 180)]
+        [int]$TimeoutSeconds
     )
 
-    $remaining = $BudgetSeconds `
-        - $functionalCleanupReserveSeconds `
-        - $Stopwatch.Elapsed.TotalSeconds
+    $start = if ($StartUtc.Kind -eq [DateTimeKind]::Unspecified) {
+        [DateTime]::SpecifyKind($StartUtc, [DateTimeKind]::Utc)
+    }
+    else {
+        $StartUtc.ToUniversalTime()
+    }
+    $executionDeadlineUtc = $start.AddSeconds($TimeoutSeconds)
+    [pscustomobject][ordered]@{
+        StartUtc = $start
+        TimeoutSeconds = $TimeoutSeconds
+        ExecutionDeadlineUtc = $executionDeadlineUtc
+        FailureCleanupDeadlineUtc = $executionDeadlineUtc.AddSeconds($functionalFailureCleanupWindowSeconds)
+    }
+}
+
+function Get-RemainingBudgetSeconds {
+    param(
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [int]$BudgetSeconds,
+
+        [DateTime]$DeadlineUtc,
+
+        [DateTime]$NowUtc = [DateTime]::UtcNow
+    )
+
+    if ($PSBoundParameters.ContainsKey('DeadlineUtc')) {
+        $remaining = ($DeadlineUtc.ToUniversalTime() - $NowUtc.ToUniversalTime()).TotalSeconds
+    }
+    else {
+        if ($null -eq $Stopwatch -or -not $PSBoundParameters.ContainsKey('BudgetSeconds')) {
+            throw 'A stopwatch and budget or an absolute execution deadline are required.'
+        }
+        $remaining = $BudgetSeconds - $Stopwatch.Elapsed.TotalSeconds
+    }
     if ($remaining -le 0) {
-        throw "Functional verification cannot retain the ${functionalCleanupReserveSeconds}-second cleanup reserve within the $BudgetSeconds-second command budget."
+        throw 'Functional verification reached its configured execution deadline.'
     }
 
     return [Math]::Max(1, [int][Math]::Floor($remaining))
+}
+
+function Assert-FunctionalExecutionDeadline {
+    param(
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy,
+
+        [Parameter(Mandatory)]
+        [string]$StageName
+    )
+
+    if ([DateTime]::UtcNow -ge $DeadlinePolicy.ExecutionDeadlineUtc) {
+        throw "Functional execution deadline reached before $StageName. Configured execution deadline: $($DeadlinePolicy.ExecutionDeadlineUtc.ToString('O')). Failure cleanup deadline: $($DeadlinePolicy.FailureCleanupDeadlineUtc.ToString('O'))."
+    }
 }
 
 function Invoke-MonitoredCommand {
@@ -725,9 +772,8 @@ function Invoke-FullPhaseCommand {
     if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
         $WorkingDirectory = $repoRoot
     }
-    # The descriptor's remaining time is the absolute phase budget.  Reserve the
-    # ordinary monitored-command cleanup cap inside that budget rather than adding it
-    # after the phase has expired.
+    # The descriptor's remaining time is the absolute phase budget. Keep the ordinary
+    # monitored-command cleanup cutoff inside that phase when the caller requests it.
     $phaseDeadlineUtc = [DateTime]::UtcNow.AddSeconds($remainingSeconds)
     $processDeadlineUtc = $phaseDeadlineUtc.AddSeconds(-$monitoredCommandCleanupSeconds)
     if ($processDeadlineUtc -lt [DateTime]::UtcNow) {
@@ -854,18 +900,44 @@ function Invoke-BudgetedCommand {
         [Parameter(Mandatory)]
         [string]$DiagnosticsDirectory,
 
+        [DateTime]$ProcessDeadlineUtc,
+
+        [DateTime]$PhaseDeadlineUtc,
+
+        [DateTime]$CleanupDeadlineUtc,
+
         [switch]$IsTestCommand
     )
 
-    $remainingSeconds = Get-RemainingBudgetSeconds -Stopwatch $Stopwatch -BudgetSeconds $BudgetSeconds
-    Invoke-MonitoredCommand `
-        -Label $Label `
-        -CommandPath $CommandPath `
-        -Arguments $Arguments `
-        -WorkingDirectory $repoRoot `
-        -DiagnosticsDirectory $DiagnosticsDirectory `
-        -TimeoutSeconds $remainingSeconds `
-        -IsTestCommand:$IsTestCommand
+    $remainingParameters = @{
+        Stopwatch = $Stopwatch
+        BudgetSeconds = $BudgetSeconds
+    }
+    if ($PSBoundParameters.ContainsKey('ProcessDeadlineUtc')) {
+        $remainingParameters.DeadlineUtc = $ProcessDeadlineUtc
+    }
+    $remainingSeconds = Get-RemainingBudgetSeconds @remainingParameters
+    $timeoutForDiagnostics = if ($PSBoundParameters.ContainsKey('ProcessDeadlineUtc')) {
+        $BudgetSeconds
+    }
+    else {
+        $remainingSeconds
+    }
+    $invokeParameters = @{
+        Label = $Label
+        CommandPath = $CommandPath
+        Arguments = $Arguments
+        WorkingDirectory = $repoRoot
+        DiagnosticsDirectory = $DiagnosticsDirectory
+        TimeoutSeconds = $timeoutForDiagnostics
+        IsTestCommand = $IsTestCommand
+    }
+    foreach ($deadlineName in @('ProcessDeadlineUtc', 'PhaseDeadlineUtc', 'CleanupDeadlineUtc')) {
+        if ($PSBoundParameters.ContainsKey($deadlineName)) {
+            $invokeParameters[$deadlineName] = $PSBoundParameters[$deadlineName]
+        }
+    }
+    Invoke-MonitoredCommand @invokeParameters
 }
 
 function Write-MSTestParallelRunSettings {
@@ -962,7 +1034,7 @@ function Invoke-TestLane {
 
         [DateTime]$CleanupDeadlineUtc,
 
-        [switch]$ReserveCleanupInsideTimeout,
+        [switch]$UsePhaseCleanupDeadline,
 
         [switch]$NoBuild
     )
@@ -990,7 +1062,7 @@ function Invoke-TestLane {
     if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc')) {
         $invokeParameters.PhaseDeadlineUtc = $PhaseDeadlineUtc
     }
-    if ($ReserveCleanupInsideTimeout) {
+    if ($UsePhaseCleanupDeadline) {
         $phaseDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
         $processDeadline = $phaseDeadline.AddSeconds(-$monitoredCommandCleanupSeconds)
         if ($processDeadline -lt [DateTime]::UtcNow) {
@@ -1002,18 +1074,18 @@ function Invoke-TestLane {
     Invoke-MonitoredCommand @invokeParameters
 }
 
-function Get-FunctionalPhaseRemainingSeconds {
+function Get-FunctionalExecutionRemainingSeconds {
     param(
         [Parameter(Mandatory)]
-        [DateTime]$ProcessDeadlineUtc,
+        [DateTime]$ExecutionDeadlineUtc,
 
         [Parameter(Mandatory)]
         [string]$PhaseName
     )
 
-    $remaining = ($ProcessDeadlineUtc - [DateTime]::UtcNow).TotalSeconds
+    $remaining = ($ExecutionDeadlineUtc - [DateTime]::UtcNow).TotalSeconds
     if ($remaining -le 0) {
-        throw "Functional test phase reached its process deadline before $PhaseName."
+        throw "Functional execution deadline reached before $PhaseName."
     }
 
     return [Math]::Max(1, [int][Math]::Floor($remaining))
@@ -1186,14 +1258,12 @@ function Invoke-ParallelFunctionalTestShards {
         [string]$DiagnosticsDirectory,
 
         [Parameter(Mandatory)]
-        [int]$TimeoutSeconds,
-
-        [Parameter(Mandatory)]
-        [DateTime]$ProcessDeadlineUtc,
-
-        [Parameter(Mandatory)]
-        [DateTime]$CleanupDeadlineUtc
+        [object]$DeadlinePolicy
     )
+
+    $TimeoutSeconds = [int]$DeadlinePolicy.TimeoutSeconds
+    $executionDeadlineUtc = [DateTime]$DeadlinePolicy.ExecutionDeadlineUtc
+    $failureCleanupDeadlineUtc = [DateTime]$DeadlinePolicy.FailureCleanupDeadlineUtc
 
     # Build once, validate once, and keep every descriptor as the object consumed by
     # the launch loops. There is no metadata-only fanout or second allowlist route.
@@ -1235,17 +1305,19 @@ function Invoke-ParallelFunctionalTestShards {
     $cleanupFailures = [System.Collections.Generic.List[string]]::new()
 
     try {
-        $portableTimeoutSeconds = Get-FunctionalPhaseRemainingSeconds -ProcessDeadlineUtc $ProcessDeadlineUtc -PhaseName 'portable settings'
-        Invoke-TestLane -Name 'Functional portable settings' -Filter $portableShard.Filter -DiagnosticsDirectory $portableDirectory -TimeoutSeconds $portableTimeoutSeconds -RunSettingsPath $portableRunSettingsPath -ProcessDeadlineUtc $ProcessDeadlineUtc -CleanupDeadlineUtc $CleanupDeadlineUtc -NoBuild
+        [void](Get-FunctionalExecutionRemainingSeconds -ExecutionDeadlineUtc $executionDeadlineUtc -PhaseName 'portable settings')
+        $portableTimeoutSeconds = $TimeoutSeconds
+        Invoke-TestLane -Name 'Functional portable settings' -Filter $portableShard.Filter -DiagnosticsDirectory $portableDirectory -TimeoutSeconds $portableTimeoutSeconds -RunSettingsPath $portableRunSettingsPath -ProcessDeadlineUtc $executionDeadlineUtc -CleanupDeadlineUtc $failureCleanupDeadlineUtc -NoBuild
 
         # The four hosts begin from this same validated array without a phase barrier.
         foreach ($fanoutShard in $fanoutShards) {
+            Assert-FunctionalExecutionDeadline -DeadlinePolicy $DeadlinePolicy -StageName "starting $($fanoutShard.Name)"
             $shardDirectory = Join-Path $DiagnosticsDirectory $fanoutShard.Name
             [void](Start-FunctionalShardProcess -Shard $fanoutShard -DiagnosticsDirectory $shardDirectory -Entries $entries -OwnedProcessRecords $ownedProcessRecords -PostStartFaultGuard $InternalTestGuard)
         }
 
         $hostSummary = ($shards | ForEach-Object { "$($_.Name)=$($_.Workers) workers" }) -join ', '
-        Write-Host "Functional test hosts (global timeout ${TimeoutSeconds}s; process deadline 170s; cleanup reserve ${functionalCleanupReserveSeconds}s): $hostSummary"
+        Write-Host "Functional test hosts (execution deadline $($executionDeadlineUtc.ToString('O')); failure cleanup deadline $($failureCleanupDeadlineUtc.ToString('O')); configured budget ${TimeoutSeconds}s): $hostSummary"
         while ($true) {
             $failedHost = $entries |
                 Where-Object { $_.Process.HasExited -and $_.Process.ExitCode -ne 0 } |
@@ -1258,10 +1330,10 @@ function Invoke-ParallelFunctionalTestShards {
             if ($runningEntries.Count -eq 0) {
                 break
             }
-            if ([DateTime]::UtcNow -ge $ProcessDeadlineUtc) {
+            if ([DateTime]::UtcNow -ge $executionDeadlineUtc) {
                 $timedOut = $true
                 $timedOutHostNames = @($runningEntries | ForEach-Object { $_.Name })
-                Write-Warning "Functional test hosts reached the shared 170-second process deadline before the ${functionalCleanupReserveSeconds}-second cleanup reserve. Stopping hosts: $($timedOutHostNames -join ', ')"
+                Write-Warning "Functional test hosts reached the configured execution deadline $($executionDeadlineUtc.ToString('O')). Stopping hosts: $($timedOutHostNames -join ', '). Owned-process cleanup is bounded by $($failureCleanupDeadlineUtc.ToString('O'))."
                 break
             }
             Start-Sleep -Milliseconds 100
@@ -1278,7 +1350,7 @@ function Invoke-ParallelFunctionalTestShards {
         }
         $forceCleanup = $timedOut -or $null -ne $failedHostName -or $null -ne $launchFailure
 
-        $functionalCleanup = Invoke-VerificationFunctionalCleanup -Entries $entries -CleanupDeadlineUtc $CleanupDeadlineUtc -StopRoots:$forceCleanup
+        $functionalCleanup = Invoke-VerificationFunctionalCleanup -Entries $entries -CleanupDeadlineUtc $failureCleanupDeadlineUtc -StopRoots:$forceCleanup
         foreach ($fanoutFailure in @($functionalCleanup.FanoutFailures)) {
             $cleanupFailures.Add($fanoutFailure)
         }
@@ -1328,7 +1400,7 @@ function Invoke-ParallelFunctionalTestShards {
         $primaryFailure = $launchFailure
     }
     elseif ($timedOut) {
-        $primaryFailure = [Exception]::new("Functional test hosts exceeded the shared 170-second process deadline within the ${TimeoutSeconds}-second command budget. Diagnostics: $DiagnosticsDirectory")
+        $primaryFailure = [Exception]::new("Functional test hosts exceeded the configured execution deadline $($executionDeadlineUtc.ToString('O')) within the ${TimeoutSeconds}-second command budget. Failure cleanup was bounded by $($failureCleanupDeadlineUtc.ToString('O')). Diagnostics: $DiagnosticsDirectory")
     }
     elseif ($null -ne $failedHostName) {
         $primaryFailure = [Exception]::new("Functional test host '$failedHostName' failed with exit code $failedHostExitCode. Diagnostics: $(Join-Path $DiagnosticsDirectory $failedHostName)")
@@ -1703,12 +1775,12 @@ function Invoke-CanonicalFunctionalVerification {
         [int]$TimeoutSeconds
     )
 
-    [void](New-Item -ItemType Directory -Path $DiagnosticsRoot -Force)
     $functionalStartedUtc = [DateTime]::UtcNow
-    $functionalProcessDeadlineUtc = $functionalStartedUtc.AddSeconds(
-        $TimeoutSeconds - $functionalCleanupReserveSeconds)
-    $functionalCleanupDeadlineUtc = $functionalStartedUtc.AddSeconds($TimeoutSeconds)
     $functionalStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $deadlinePolicy = New-FunctionalDeadlinePolicy `
+        -StartUtc $functionalStartedUtc `
+        -TimeoutSeconds $TimeoutSeconds
+    [void](New-Item -ItemType Directory -Path $DiagnosticsRoot -Force)
     try {
         Invoke-BudgetedCommand `
             -Stopwatch $functionalStopwatch `
@@ -1716,28 +1788,32 @@ function Invoke-CanonicalFunctionalVerification {
             -Label 'Locked restore' `
             -CommandPath 'dotnet' `
             -Arguments @('restore', $solution, '-r', 'win-x64', '--locked-mode', '-p:PublishReadyToRun=true') `
-            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
+            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore') `
+            -ProcessDeadlineUtc $deadlinePolicy.ExecutionDeadlineUtc `
+            -PhaseDeadlineUtc $deadlinePolicy.FailureCleanupDeadlineUtc `
+            -CleanupDeadlineUtc $deadlinePolicy.FailureCleanupDeadlineUtc
         Invoke-BudgetedCommand `
             -Stopwatch $functionalStopwatch `
             -BudgetSeconds $TimeoutSeconds `
             -Label 'Functional build' `
             -CommandPath 'dotnet' `
             -Arguments @('build', $solution, '/p:Configuration=Release', '/p:Platform=x64', '--no-restore') `
-            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'build')
+            -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'build') `
+            -ProcessDeadlineUtc $deadlinePolicy.ExecutionDeadlineUtc `
+            -PhaseDeadlineUtc $deadlinePolicy.FailureCleanupDeadlineUtc `
+            -CleanupDeadlineUtc $deadlinePolicy.FailureCleanupDeadlineUtc
+        Assert-FunctionalExecutionDeadline -DeadlinePolicy $deadlinePolicy -StageName 'built output validation'
         Assert-BuiltOutputs
-        [void](Get-RemainingBudgetSeconds `
-            -Stopwatch $functionalStopwatch `
-            -BudgetSeconds $TimeoutSeconds)
+        [void](Get-RemainingBudgetSeconds -DeadlineUtc $deadlinePolicy.ExecutionDeadlineUtc)
         Invoke-ParallelFunctionalTestShards `
             -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'functional') `
-            -TimeoutSeconds $TimeoutSeconds `
-            -ProcessDeadlineUtc $functionalProcessDeadlineUtc `
-            -CleanupDeadlineUtc $functionalCleanupDeadlineUtc
+            -DeadlinePolicy $deadlinePolicy
+        Assert-FunctionalExecutionDeadline -DeadlinePolicy $deadlinePolicy -StageName 'repository whitespace validation'
         Assert-RepositoryWhitespace
     }
     finally {
         $functionalStopwatch.Stop()
-        Write-Host "Canonical Functional elapsed: $([Math]::Round($functionalStopwatch.Elapsed.TotalSeconds, 1))s / ${TimeoutSeconds}s; diagnostics: $DiagnosticsRoot"
+        Write-Host "Canonical Functional elapsed: $([Math]::Round($functionalStopwatch.Elapsed.TotalSeconds, 1))s / ${TimeoutSeconds}s; execution deadline: $($deadlinePolicy.ExecutionDeadlineUtc.ToString('O')); failure cleanup deadline: $($deadlinePolicy.FailureCleanupDeadlineUtc.ToString('O')); diagnostics: $DiagnosticsRoot"
     }
 
     if ($functionalStopwatch.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
@@ -1964,7 +2040,7 @@ try {
                 -Filter 'TestCategory=ProcessIntegration' `
                 -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
                 -TimeoutSeconds $timeout `
-                -ReserveCleanupInsideTimeout `
+                -UsePhaseCleanupDeadline `
                 -NoBuild
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
@@ -1988,7 +2064,7 @@ try {
                 -Filter 'TestCategory=ReleaseAcceptance' `
                 -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
                 -TimeoutSeconds $timeout `
-                -ReserveCleanupInsideTimeout `
+                -UsePhaseCleanupDeadline `
                 -NoBuild
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `

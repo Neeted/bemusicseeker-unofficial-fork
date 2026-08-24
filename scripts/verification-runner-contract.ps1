@@ -14,7 +14,8 @@ function Get-VerificationRunnerContract {
             'repository-whitespace')
         FunctionalFilter = 'functional-filter'
         FunctionalTopology = 'existing'
-        CleanupReserve = 'existing-functional-cleanup-reserve'
+        ExecutionDeadline = 'canonical-start+FunctionalTimeoutSeconds'
+        FailureCleanupDeadline = 'execution-deadline+10-seconds'
     }
 
     $fullPhaseDescriptors = @(
@@ -216,7 +217,9 @@ function Assert-VerificationRunnerContract {
         $Contract.CanonicalFunctional.TimeoutArgument -cne 'FunctionalTimeoutSeconds' -or
         $Contract.CanonicalFunctional.DiagnosticsRootArgument -cne 'DiagnosticsRoot' -or
         $Contract.CanonicalFunctional.DiagnosticsRootOwnership -cne 'caller-owned' -or
-        $Contract.CanonicalFunctional.DiagnosticsLayout -cne 'run-root/{restore,build,functional}') {
+        $Contract.CanonicalFunctional.DiagnosticsLayout -cne 'run-root/{restore,build,functional}' -or
+        $Contract.CanonicalFunctional.ExecutionDeadline -cne 'canonical-start+FunctionalTimeoutSeconds' -or
+        $Contract.CanonicalFunctional.FailureCleanupDeadline -cne 'execution-deadline+10-seconds') {
         throw 'Canonical Functional runner contract is invalid.'
     }
 

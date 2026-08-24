@@ -39,6 +39,8 @@ public sealed class VerificationRunnerContractTests
         Assert.AreEqual("DiagnosticsRoot", GetProperty(canonical, "DiagnosticsRootArgument").GetString());
         Assert.AreEqual("caller-owned", GetProperty(canonical, "DiagnosticsRootOwnership").GetString());
         Assert.AreEqual("run-root/{restore,build,functional}", GetProperty(canonical, "DiagnosticsLayout").GetString());
+        Assert.AreEqual("canonical-start+FunctionalTimeoutSeconds", GetProperty(canonical, "ExecutionDeadline").GetString());
+        Assert.AreEqual("execution-deadline+10-seconds", GetProperty(canonical, "FailureCleanupDeadline").GetString());
         CollectionAssert.AreEqual(
             new[]
             {
@@ -49,6 +51,27 @@ public sealed class VerificationRunnerContractTests
                 "repository-whitespace"
             },
             ReadStringArray(GetProperty(canonical, "Stages")));
+    }
+
+    [TestMethod]
+    public void FunctionalDeadlinePolicy_UsesAbsoluteExecutionAndFailureCleanupCutoffs()
+    {
+        using JsonDocument result = ReadFunctionalDeadlinePolicy();
+        JsonElement policy = GetProperty(result.RootElement, "Policy");
+        DateTime startUtc = GetProperty(policy, "StartUtc").GetDateTime();
+        DateTime executionDeadlineUtc = GetProperty(policy, "ExecutionDeadlineUtc").GetDateTime();
+        DateTime failureCleanupDeadlineUtc = GetProperty(policy, "FailureCleanupDeadlineUtc").GetDateTime();
+
+        Assert.AreEqual(180, GetProperty(policy, "TimeoutSeconds").GetInt32());
+        Assert.AreEqual(startUtc.AddSeconds(180), executionDeadlineUtc);
+        Assert.AreEqual(executionDeadlineUtc.AddSeconds(10), failureCleanupDeadlineUtc);
+        Assert.AreEqual(180, GetProperty(result.RootElement, "RemainingAtStart").GetInt32());
+        CollectionAssert.AreEqual(
+            new[] { "StartUtc", "TimeoutSeconds", "ExecutionDeadlineUtc", "FailureCleanupDeadlineUtc" },
+            policy.EnumerateObject().Select(property => property.Name).ToArray());
+        Assert.IsFalse(policy.TryGetProperty("CleanupReserveSeconds", out _));
+        Assert.IsFalse(policy.TryGetProperty("ProcessDeadlineUtc", out _));
+        Assert.IsFalse(policy.TryGetProperty("PreCompletionReserveSeconds", out _));
     }
 
     [TestMethod]
@@ -447,6 +470,27 @@ public sealed class VerificationRunnerContractTests
             "$plan = New-FunctionalShardPlan",
             "Assert-FunctionalShardConfiguration -Plan $plan",
             "$plan | ConvertTo-Json -Depth 16 -Compress");
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static JsonDocument ReadFunctionalDeadlinePolicy()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string lifecyclePath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verification-process-lifecycle.ps1"));
+        string verifyScriptPath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"));
+        string command = string.Join(
+            Environment.NewLine,
+            "$ErrorActionPreference = 'Stop'",
+            $". {lifecyclePath}",
+            "$signal = [System.Threading.ManualResetEventSlim]::new($true)",
+            "$guard = [VerificationPostStartFaultGuard]::new($signal)",
+            $". {verifyScriptPath} -InternalTestGuard $guard",
+            "$startUtc = [DateTime]::new(2026, 8, 25, 4, 0, 0, [DateTimeKind]::Utc)",
+            "$policy = New-FunctionalDeadlinePolicy -StartUtc $startUtc -TimeoutSeconds 180",
+            "$remainingAtStart = Get-RemainingBudgetSeconds -DeadlineUtc $policy.ExecutionDeadlineUtc -NowUtc $startUtc",
+            "[pscustomobject]@{ Policy = $policy; RemainingAtStart = $remainingAtStart } | ConvertTo-Json -Depth 8 -Compress");
         return ReadPowerShellJson(new[] { "-Command", command });
     }
 

@@ -1,12 +1,13 @@
 # テスト運用方針
 
-最終更新: 2026-08-23
+最終更新: 2026-08-25
 
 この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。個々の test の設計、既存 coverage 調査、共通 infrastructure、Codex handoff は [test-authoring-contract.md](test-authoring-contract.md) を正本とする。
 
 ## 運用目標
 
 - 通常の機能検証は `verify-refactor.ps1 -Mode Functional` のコマンド全体を 180 秒以内で完了させる。個々の testhost や shard ごとの 180 秒ではない。
+- Functional の canonical runner は開始時に一つの execution deadline（開始時刻 + `FunctionalTimeoutSeconds`）と、その deadline + 10 秒の failure-cleanup cutoff を作る。restore、build、portable、fanout、output / whitespace success check は同じ execution deadline を使い、host / phase ごとに reset しない。+10 秒は timeout / failure 時の owned-process cleanup と stream drain 専用であり、成功を command budget 外へ延長しない。
 - Functional は、追跡対象ファイルを変更せず、実行順序や並列度によらず決定的に成功する。
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
 - リソース競合で不安定になる場合は、共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
@@ -41,7 +42,7 @@ Functional は category exclusion を適用した論理 test set を一度だけ
 
 `serial-state-a` は settings / foreground / playlist settings / native logging owner を、`serial-state-b` は LR2、compiled WPF、class-wide DNP owner を所有する。A / B の exact selector はこの Unit 4e-A plan と runner の実装本文を正本とし、その他の class は `remaining` で一度だけ実行する。4 host の専用 worker は各1で、`remaining` の `ProcessorCount` と合わせた process worker 数は最大約15に留める。
 
-起動順は portable host を単独で完了させ、その成功後に Bass、serial A、serial B、remaining を同じ validated plan array から即時 start する。全 test process は一つの 170 秒 process deadline と10秒 cleanup reserveへ合流し、testhost ごとの deadline reset はしない。partial start failure でも raw PID / creation identity の ownership を保持し、descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を維持する。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
+起動順は portable host を単独で完了させ、その成功後に Bass、serial A、serial B、remaining を同じ validated plan array から即時 start する。全 test process は canonical 開始時刻 + `FunctionalTimeoutSeconds` の一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。execution deadline 内の成功だけを成功扱いにする。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
 
 foreground input、keyboard focus、hit testing、nested modal activation が保証対象の7 methodは、すべて現行 FQN の `SettingsForegroundInteractionTests` に属し、`serial-state-a` だけが所有する。`SettingDialogEditCompletionTests` や旧 SettingsWindow owner の FQN を foreground selector に含めない。
 
