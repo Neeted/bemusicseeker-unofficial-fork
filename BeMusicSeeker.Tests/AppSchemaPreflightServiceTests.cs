@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -486,22 +486,86 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         var lockTaken = new ManualResetEventSlim(initialState: false);
         var releaseLock = new ManualResetEventSlim(initialState: false);
-        var holderTask = Task.Run(delegate
+        var holderReady = new ManualResetEventSlim(initialState: false);
+        ExceptionDispatchInfo? holderFailure = null;
+        ExceptionDispatchInfo? primaryFailure = null;
+        ExceptionDispatchInfo? cleanupFailure = null;
+        bool holderStarted = false;
+        bool holderJoined = false;
+        var holderThread = new Thread((ThreadStart)delegate
         {
-            Assert.IsTrue(LR2SongDBExtended.Lock(TimeSpan.FromSeconds(5)));
-            lockTaken.Set();
+            bool lockAcquired = false;
             try
             {
-                releaseLock.Wait(TimeSpan.FromSeconds(30));
+                try
+                {
+                    lockAcquired = LR2SongDBExtended.Lock(TimeSpan.FromSeconds(5));
+                    if (!lockAcquired)
+                    {
+                        throw new TimeoutException("The LR2SongDBExtended monitor lock holder could not acquire its lock.");
+                    }
+
+                    lockTaken.Set();
+                }
+                catch (Exception exception)
+                {
+                    holderFailure = ExceptionDispatchInfo.Capture(exception);
+                }
+                finally
+                {
+                    holderReady.Set();
+                }
+
+                if (lockAcquired && !releaseLock.Wait(TimeSpan.FromSeconds(30)))
+                {
+                    holderFailure ??= ExceptionDispatchInfo.Capture(
+                        new TimeoutException("The LR2SongDBExtended monitor lock holder was not released in time."));
+                }
+            }
+            catch (Exception exception)
+            {
+                holderFailure ??= ExceptionDispatchInfo.Capture(exception);
             }
             finally
             {
-                LR2SongDBExtended.Unlock();
+                if (lockAcquired)
+                {
+                    try
+                    {
+                        LR2SongDBExtended.Unlock();
+                    }
+                    catch (Exception exception)
+                    {
+                        holderFailure ??= ExceptionDispatchInfo.Capture(exception);
+                    }
+                }
             }
-        });
+        })
+        {
+            IsBackground = true,
+            Name = nameof(Inspect_PathOverload_DoesNotWaitForLr2SongDbExtendedMonitorLock) + ".LockHolder"
+        };
+
+        void CaptureCleanup(Action cleanup)
+        {
+            try
+            {
+                cleanup();
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure ??= ExceptionDispatchInfo.Capture(exception);
+            }
+        }
+
         try
         {
-            Assert.IsTrue(lockTaken.Wait(TimeSpan.FromSeconds(5)));
+            holderThread.Start();
+            holderStarted = true;
+            Assert.IsTrue(holderReady.Wait(TimeSpan.FromSeconds(5)), "The dedicated lock-holder thread did not start in time.");
+            holderFailure?.Throw();
+            Assert.IsTrue(lockTaken.IsSet, "The dedicated lock-holder thread did not acquire the LR2SongDBExtended monitor lock.");
+
             var service = new AppSchemaPreflightService();
             var stopwatch = Stopwatch.StartNew();
             AppSchemaPreflightResult result = service.Inspect(tempDbPath);
@@ -510,14 +574,35 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.IsFalse(result.RequiresWarning);
             Assert.IsTrue(stopwatch.Elapsed < TimeSpan.FromSeconds(2), "Inspect should not block on LR2SongDBExtended monitor lock.");
         }
+        catch (Exception exception)
+        {
+            primaryFailure = ExceptionDispatchInfo.Capture(exception);
+        }
         finally
         {
-            releaseLock.Set();
-            holderTask.Wait(TimeSpan.FromSeconds(10));
-            lockTaken.Dispose();
-            releaseLock.Dispose();
-            DeleteTempSongDbDirectory(tempDbPath);
+            CaptureCleanup(releaseLock.Set);
+            if (holderStarted)
+            {
+                CaptureCleanup(() =>
+                {
+                    holderJoined = holderThread.Join(TimeSpan.FromSeconds(10));
+                    Assert.IsTrue(holderJoined, "The dedicated lock-holder thread did not terminate in time.");
+                });
+            }
+
+            if (holderJoined || !holderStarted)
+            {
+                CaptureCleanup(lockTaken.Dispose);
+                CaptureCleanup(releaseLock.Dispose);
+                CaptureCleanup(holderReady.Dispose);
+            }
+            CaptureCleanup(() => DeleteTempSongDbDirectory(tempDbPath));
+
+            primaryFailure ??= holderFailure;
+            primaryFailure ??= cleanupFailure;
         }
+
+        primaryFailure?.Throw();
     }
 
     [TestMethod]
