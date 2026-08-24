@@ -106,22 +106,12 @@ $functionalProcessGlobalLifecycleClasses = @(
     'BeMusicSeeker.Tests.BassNativeRuntimeTests',
     'BeMusicSeeker.Tests.NLogWrapperTests')
 $functionalFeatureProcessGlobalStateClasses = @(
-    'BeMusicSeeker.Tests.AudioContractsTests',
-    'BeMusicSeeker.Tests.AudioDeviceTestWorkflowOwnerTests',
-    'BeMusicSeeker.Tests.BmsLibraryInstallEstimationServiceTests',
-    'BeMusicSeeker.Tests.CatalogMutationOwnerTests',
-    'BeMusicSeeker.Tests.ChartListVirtualViewTests',
-    'BeMusicSeeker.Tests.InstallDestinationStateOwnerTests',
     'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests',
     'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests',
-    'BeMusicSeeker.Tests.Lr2PlayHistorySchemaServiceTests',
     'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests',
     'BeMusicSeeker.Tests.MainWindowExternalShellTests',
-    'BeMusicSeeker.Tests.MainWindowViewModelStartupProgressTests',
-    'BeMusicSeeker.Tests.PlayHistoryReadModelTests',
-    'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
-    'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
-    'BeMusicSeeker.Tests.PlaylistUrlCompletionTests')
+    'BeMusicSeeker.Tests.PlayHistoryReadModelTests'
+)
 $functionalCompiledWpfClasswideClasses = @(
     'BeMusicSeeker.Tests.LoadPlaylistURIDialogTests',
     'BeMusicSeeker.Tests.MainWindowChartPresentationWpfTests',
@@ -296,9 +286,9 @@ $functionalTestClassShards = @(
     },
     [pscustomobject]@{
         # This is a Functional topology group for measured headroom and
-        # owner-local resource isolation. Five members retain class-wide
-        # DoNotParallelize safety boundaries for arbitrary Quick filters;
-        # the remaining members are isolated here by the one-worker host.
+        # owner-local resource isolation. Only the five class-wide
+        # DoNotParallelize safety owners remain in this one-worker host;
+        # all other former members return to the existing remaining route.
         Name = 'feature-process-global-state'
         Workers = 1
         Scope = 'ClassLevel'
@@ -738,22 +728,11 @@ function Assert-FunctionalShardConfiguration {
         [pscustomobject]@{
             Name = 'feature-process-global-state'
             Classes = @(
-                'BeMusicSeeker.Tests.AudioContractsTests',
-                'BeMusicSeeker.Tests.AudioDeviceTestWorkflowOwnerTests',
-                'BeMusicSeeker.Tests.BmsLibraryInstallEstimationServiceTests',
-                'BeMusicSeeker.Tests.CatalogMutationOwnerTests',
-                'BeMusicSeeker.Tests.ChartListVirtualViewTests',
-                'BeMusicSeeker.Tests.InstallDestinationStateOwnerTests',
                 'BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests',
                 'BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests',
-                'BeMusicSeeker.Tests.Lr2PlayHistorySchemaServiceTests',
                 'BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests',
                 'BeMusicSeeker.Tests.MainWindowExternalShellTests',
-                'BeMusicSeeker.Tests.MainWindowViewModelStartupProgressTests',
-                'BeMusicSeeker.Tests.PlayHistoryReadModelTests',
-                'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
-                'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
-                'BeMusicSeeker.Tests.PlaylistUrlCompletionTests')
+                'BeMusicSeeker.Tests.PlayHistoryReadModelTests')
         },
         [pscustomobject]@{
             # Keep this literal contract independent from the route declaration
@@ -790,6 +769,35 @@ function Assert-FunctionalShardConfiguration {
         }
         if ($matchingShards[0].Workers -ne 1 -or $matchingShards[0].Scope -cne 'ClassLevel') {
             throw "Functional $($requiredShard.Name) shard must use one worker with ClassLevel scope."
+        }
+    }
+
+    $requiredFeatureProcessGlobalStateRemainingClasses = @(
+        'BeMusicSeeker.Tests.AudioContractsTests',
+        'BeMusicSeeker.Tests.AudioDeviceTestWorkflowOwnerTests',
+        'BeMusicSeeker.Tests.BmsLibraryInstallEstimationServiceTests',
+        'BeMusicSeeker.Tests.CatalogMutationOwnerTests',
+        'BeMusicSeeker.Tests.ChartListVirtualViewTests',
+        'BeMusicSeeker.Tests.InstallDestinationStateOwnerTests',
+        'BeMusicSeeker.Tests.Lr2PlayHistorySchemaServiceTests',
+        'BeMusicSeeker.Tests.MainWindowViewModelStartupProgressTests',
+        'BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests',
+        'BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests',
+        'BeMusicSeeker.Tests.PlaylistUrlCompletionTests')
+    $featureRouteText = @(
+        $functionalTestClassShardsForLaunch |
+        ForEach-Object {
+            @($_.Classes)
+            $_.Filter
+        }) -join "`n"
+    foreach ($remainingFeatureClass in $requiredFeatureProcessGlobalStateRemainingClasses) {
+        if ($featureRouteText.Contains($remainingFeatureClass, [StringComparison]::Ordinal) -or
+            @($Plan.AssignedClasses).Contains($remainingFeatureClass) -or
+            @($remainingShard.ExcludedClasses).Contains($remainingFeatureClass) -or
+            $remainingShard.Filter.Contains(
+                "FullyQualifiedName!~$remainingFeatureClass",
+                [StringComparison]::Ordinal)) {
+            throw "Feature process-global class must be discovered only by remaining: $remainingFeatureClass"
         }
     }
 

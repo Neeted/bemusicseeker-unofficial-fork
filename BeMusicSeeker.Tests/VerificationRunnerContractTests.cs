@@ -258,6 +258,7 @@ public sealed class VerificationRunnerContractTests
             ReadShardNames(shards).Count(name => name.Contains("foreground", StringComparison.OrdinalIgnoreCase)));
         AssertForegroundInteractionContract(plan.RootElement, shards);
         AssertRetiredFixtureSelectorsAbsent(plan.RootElement);
+        AssertFeatureProcessGlobalStateContract(plan.RootElement, shards);
     }
 
     [TestMethod]
@@ -448,6 +449,92 @@ public sealed class VerificationRunnerContractTests
             Assert.IsFalse(
                 serializedPlan.Contains(retiredSelector, StringComparison.Ordinal),
                 $"Retired fixture selector remains in the actual launch plan: {retiredSelector}");
+        }
+    }
+
+    private static void AssertFeatureProcessGlobalStateContract(JsonElement planRoot, JsonElement shards)
+    {
+        (string Selector, Type FixtureType)[] retainedFixtures =
+        [
+            ("BeMusicSeeker.Tests.InstalledOnlyResourceOverwriteValidationTests", typeof(InstalledOnlyResourceOverwriteValidationTests)),
+            ("BeMusicSeeker.Tests.LibraryFileScanPipelineOwnerTests", typeof(LibraryFileScanPipelineOwnerTests)),
+            ("BeMusicSeeker.Tests.Lr2PlayHistorySchemaUiTests", typeof(Lr2PlayHistorySchemaUiTests)),
+            ("BeMusicSeeker.Tests.MainWindowExternalShellTests", typeof(MainWindowExternalShellTests)),
+            ("BeMusicSeeker.Tests.PlayHistoryReadModelTests", typeof(PlayHistoryReadModelTests))
+        ];
+        string[] retiredFromFeatureRoute =
+        [
+            "BeMusicSeeker.Tests.AudioContractsTests",
+            "BeMusicSeeker.Tests.AudioDeviceTestWorkflowOwnerTests",
+            "BeMusicSeeker.Tests.BmsLibraryInstallEstimationServiceTests",
+            "BeMusicSeeker.Tests.CatalogMutationOwnerTests",
+            "BeMusicSeeker.Tests.ChartListVirtualViewTests",
+            "BeMusicSeeker.Tests.InstallDestinationStateOwnerTests",
+            "BeMusicSeeker.Tests.Lr2PlayHistorySchemaServiceTests",
+            "BeMusicSeeker.Tests.MainWindowViewModelStartupProgressTests",
+            "BeMusicSeeker.Tests.PlaylistOperationNotificationOwnerTests",
+            "BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests",
+            "BeMusicSeeker.Tests.PlaylistUrlCompletionTests"
+        ];
+
+        JsonElement featureShard = FindShard(shards, "feature-process-global-state");
+        AssertShard(
+            featureShard,
+            1,
+            "ClassLevel",
+            retainedFixtures.Select(fixture => fixture.Selector).ToArray());
+
+        JsonElement remainingShard = FindShard(shards, "remaining");
+        string[] remainingExclusions = ReadStringArray(GetProperty(remainingShard, "ExcludedClasses"));
+        string serializedPlan = planRoot.GetRawText();
+        foreach ((string selector, Type fixtureType) in retainedFixtures)
+        {
+            Assert.IsTrue(
+                remainingExclusions.Contains(selector, StringComparer.Ordinal),
+                $"Retained feature owner was not excluded from remaining: {selector}");
+            Assert.IsTrue(
+                fixtureType.IsDefined(typeof(TestClassAttribute), inherit: false),
+                $"Retained feature owner is not a discovered MSTest class: {selector}");
+            Assert.IsTrue(
+                fixtureType.IsDefined(typeof(DoNotParallelizeAttribute), inherit: false),
+                $"Retained feature owner lacks its class-wide DoNotParallelize metadata: {selector}");
+        }
+
+        foreach (string selector in retiredFromFeatureRoute)
+        {
+            Assert.IsFalse(
+                serializedPlan.Contains(selector, StringComparison.Ordinal),
+                $"Non-DNP feature owner remains in a dedicated route or exclusion: {selector}");
+            Assert.IsFalse(
+                remainingExclusions.Contains(selector, StringComparer.Ordinal),
+                $"Returned feature owner remains excluded from remaining: {selector}");
+        }
+
+        Type[] retiredFixtureTypes =
+        [
+            typeof(AudioContractsTests),
+            typeof(AudioDeviceTestWorkflowOwnerTests),
+            typeof(BmsLibraryInstallEstimationServiceTests),
+            typeof(CatalogMutationOwnerTests),
+            typeof(ChartListVirtualViewTests),
+            typeof(InstallDestinationStateOwnerTests),
+            typeof(Lr2PlayHistorySchemaServiceTests),
+            typeof(MainWindowViewModelStartupProgressTests),
+            typeof(PlaylistOperationNotificationOwnerTests),
+            typeof(PlaylistUrlAcquisitionOwnershipTests),
+            typeof(PlaylistUrlCompletionTests)
+        ];
+        Assert.AreEqual(retiredFromFeatureRoute.Length, retiredFixtureTypes.Length);
+        for (int index = 0; index < retiredFromFeatureRoute.Length; index++)
+        {
+            string selector = retiredFromFeatureRoute[index];
+            Type fixtureType = retiredFixtureTypes[index];
+            Assert.IsTrue(
+                fixtureType.IsDefined(typeof(TestClassAttribute), inherit: false),
+                $"Returned feature owner is not a discovered MSTest class: {selector}");
+            Assert.IsFalse(
+                fixtureType.IsDefined(typeof(DoNotParallelizeAttribute), inherit: false),
+                $"Returned feature owner unexpectedly has class-wide DoNotParallelize metadata: {selector}");
         }
     }
 

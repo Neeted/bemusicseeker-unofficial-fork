@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Unit 4d chart-owner implementation complete; library/feature integration pending
+Status: Unit 4d implementation complete; stability verification pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -366,7 +366,13 @@ retryでは `feature-process-global-state` の非DNP 11 class 393件が完了し
 - Unit 4cのRegularChart 5 fixture 76件を同一 `owned-chart-collection` routeへ移し、routeは新11 fixtureを含むexact 16 class、6 workers / `ClassLevel` とした。実際のrunner validatorで15 launch shards、14 fanout descriptors / launches、1 LR2 early entry、remaining exclusion、cross-route uniqueness、旧FQN不在、worker/scopeを確認し、process数・LR2/prewave/180/170/10・DNPは変更していない。
 - `pwsh -NoProfile -File .\\scripts\\verify-refactor.ps1 -Mode Quick -TestFilter '<owned chart + playlist summary + RegularChart five + VerificationRunnerContractTests>'` は `tests-quick-20260825-020100` で203/203 pass、exit 0、filtered build/test 23.2s、residual test process 0、tracked fingerprint unchanged。PowerShell parse、Release build、`git diff --check`もpass。
 
-Unit 1、2、3の順で実装する。各fixture unit後にrunner exact membership、remaining exclusion、cross-route uniqueness、旧/new FQN absence、Verification mapを統合し、次unitへ進む。shared runner、validator、specは同時編集しない。14 fanout process、LR2-only early、pre-wave、logical test set、180秒command / 170秒process deadline / 10秒cleanup reserve、既存category、method/class DNP、GUID DB/root/file、dispatcher、task/event completion、failure watchdogを維持する。新process、新DNP、fixed wait、timeout延長、worker低下、production seamは追加しない。
+### Unit 4d-C feature route integration evidence
+
+- `feature-process-global-state` は `InstalledOnlyResourceOverwriteValidationTests`、`LibraryFileScanPipelineOwnerTests`、`Lr2PlayHistorySchemaUiTests`、`MainWindowExternalShellTests`、`PlayHistoryReadModelTests` のexact 5 classだけを1 worker / `ClassLevel`で保持する。`AudioContractsTests`、`AudioDeviceTestWorkflowOwnerTests`、`BmsLibraryInstallEstimationServiceTests`、`CatalogMutationOwnerTests`、`ChartListVirtualViewTests`、`InstallDestinationStateOwnerTests`、`Lr2PlayHistorySchemaServiceTests`、`MainWindowViewModelStartupProgressTests`、`PlaylistOperationNotificationOwnerTests`、`PlaylistUrlAcquisitionOwnershipTests`、`PlaylistUrlCompletionTests` のexact 11 classは専用routeとassigned / remaining exclusionから除外し、既存remainingで一度だけdiscoverする。
+- runner validatorは実際のplan objectでexact 5/11 membership、1 worker / `ClassLevel`、remaining exclusion、cross-route uniquenessを確認し、15 launch shard / 14 fanout descriptor / 14 fanout launch / 1 LR2 early topologyを維持する。`VerificationRunnerContractTests` は実テスト型の `[TestClass]` / class-wide `[DoNotParallelize]` metadataをreflectionで確認する。
+- focused Quickはfeatureのretained 5 + returned 11 fixtureと `VerificationRunnerContractTests` を対象にする。既存のprocess数、pre-wave、180/170/10 budget、logical set、completion / cleanup / watchdog contractは変更しない。
+
+Unit 4d-A、4d-B、4d-Cの順で実装した。各fixture unit後にrunner exact membership、remaining exclusion、cross-route uniqueness、旧/new FQN absence、Verification mapを統合した。shared runner、validator、specは同時編集しない。14 fanout process、LR2-only early、pre-wave、logical test set、180秒command / 170秒process deadline / 10秒cleanup reserve、既存category、method/class DNP、GUID DB/root/file、dispatcher、task/event completion、failure watchdogを維持する。新process、新DNP、fixed wait、timeout延長、worker低下、production seamは追加しない。
 
 ### Writable ownership and test delta
 
@@ -410,7 +416,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4: critical-tail owner topology | Implementation and focused verification complete; stability pending | `4097e3a3` でremainingは完走したがplaylist / presentation / settingsがdeadlineへ残ったため、4つのBMS playlist owner shard、7-class / 3-worker workspace shard、foreground / nonactivating / stateの3 settings shardへ再編した。実際のlaunch plan objectをvalidatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、旧FQN不在、foreground exact allowlist、fanout object identityを検証する。180秒command、170秒process deadline、10秒cleanup reserve、pre-wave順、remaining 12 workers、DNP、logical test setは維持。settings 142/142、workspace 208/208、BMS playlist + runner contract 99/99 pass。Functional / Full / static reviewはUnit 5で実施する。 |
 | Unit 4b: staged settings and bounded fanout | Implementation complete; stability verification pending | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
 | Unit 4c: LR2-only early and regular-chart ownership | Implementation and focused verification complete; stability pending | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割した。actual planは15/14/14/1、LR2-only early、settings post-pre-wave fanout exact-once、old class退役、narrow supportを維持する。fixture/runner focused Quick、parse、diff check、76/76 body identityを完了。 |
-| Unit 4d: final Functional tail ownership | Chart and library owner implementation complete; stability pending | chart owner routeに続き、ChartInfo 141、BmsLibraryInitialization 108、Startup 6 casesを13 owner fixtureへ分割し、library-chart-classwideをexact 14 class / 6-worker ClassLevelへ固定。old FQN退役、body ledger 134/107/6 methods一致、focused Quick 259 cases（248 passed / 11 expected skips）を完了。feature route integration、Functional / Full / WPF30 / static reviewは後続工程。 |
+| Unit 4d: final Functional tail ownership | Implementation complete; stability pending | chart owner routeに続き、ChartInfo 141、BmsLibraryInitialization 108、Startup 6 casesを13 owner fixtureへ分割し、library-chart-classwideをexact 14 class / 6-worker ClassLevelへ固定。feature-process-global-stateはexact 5 DNP class / 1-worker ClassLevelへ縮小し、非DNP 11 classをremainingへ復帰。old FQN退役、body ledger 134/107/6 methods一致、feature focused Quickを完了。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
 | Unit 5: final stability gates and review | Pending | Unit 4d implementation snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
@@ -447,6 +453,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | exact Functional retry | Fail: repeated process deadline | 175.0s canonical / 157.7s test phase | `tests-functional-20260825-012440`; build 8.9s; remaining / library / owned-chart / playlist 2 route / feature stopped、他route完了; tracked unchanged; residual test process0; Unit4d trigger met |
 | Unit 4d-A snapshot | chart-owner focused Quick (seven OwnedChartCollection, four PlaylistSummary, five RegularChart fixtures, `VerificationRunnerContractTests`) | Pass (203/203) | 23.2s filtered build/test; 30.2s command including restore | `tests-quick-20260825-020100`; actual plan validator and launch-contract tests passed; PowerShell parse, Release build (0 errors), `git diff --check`; tracked fingerprint unchanged; residual test process 0 |
 | Unit 4d-B snapshot | library/chart/startup owner fixture focused Quick + `VerificationRunnerContractTests` | Pass (259 total: 248 passed, 11 expected opt-in skips) | 27.2s command / 17.6s test | `tests-quick-20260825-022345`; actual plan validator: 15 launch / 14 fanout / 14 fanout launches / 1 LR2 early, library exact 14 classes / 6 ClassLevel workers; PowerShell parse, Release build (0 errors), `git diff --check`, old-FQN and body-ledger checks pass; tracked fingerprint unchanged; residual test process 0 |
+| Unit 4d-C snapshot | feature retained 5 + returned 11 fixtures + `VerificationRunnerContractTests` focused Quick | Pass (536/536) | 41.7s command / 14.7s test | `tests-quick-20260825-023613`; actual plan validator: feature exact 5, returned exact 11, 15 / 14 / 14 / 1 topology, 1 worker / `ClassLevel`, remaining exclusion and cross-route uniqueness; reflection DNP metadata checks passed; `git diff --check`; tracked fingerprint unchanged; residual test process 0 |
 
 ## Done when
 
