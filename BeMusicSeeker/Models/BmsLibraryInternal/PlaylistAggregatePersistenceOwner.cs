@@ -6,6 +6,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -707,7 +708,18 @@ internal sealed class PlaylistAggregatePersistenceOwner
         return repository.LoadPersistedPlaylistEntries(playlistId, activeOnly: true);
     }
 
-    internal bool TryApplyReloadedTable(
+    /// <summary>
+    /// 永続化済みの外部 reload snapshot を active table へ適用します。
+    /// </summary>
+    /// <param name="oldTable">reload 前の active table。</param>
+    /// <param name="newTable">取得・merge 済みの replacement table。</param>
+    /// <param name="persistenceDecision">永続化と collection replacement の判定。</param>
+    /// <param name="sourceEntriesRevision">snapshot 取得時の entry revision。</param>
+    /// <param name="sourceLastUpdate">snapshot 取得時の last-update 値。</param>
+    /// <param name="sourceStateFingerprint">snapshot 取得時の source fingerprint。</param>
+    /// <param name="requireCurrentTargetForApply">active target でなくなった場合に失敗にするか。</param>
+    /// <returns>snapshot が適用され、active collection が replacement を受け入れた場合は <see langword="true"/>。</returns>
+    internal async Task<bool> TryApplyReloadedTableAsync(
         BMSTable oldTable,
         BMSTable newTable,
         PlaylistReloadPersistenceDecision persistenceDecision,
@@ -762,7 +774,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
             if (persistenceDecision?.NeedsStatePersistence == true)
             {
-                bool replacementCompleted;
                 bool replacementApplied;
                 try
                 {
@@ -770,7 +781,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
                         && IsRetiredOrRemoved(oldTable);
                     if (replacementBlocked)
                     {
-                        replacementCompleted = true;
                         replacementApplied = false;
                     }
                     else
@@ -779,7 +789,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                         // Entry commits then resolve to the replacement (or fail closed if
                         // the replacement is removed) during the small UI-queue window.
                         MarkReloadRetired(oldTable);
-                        replacementApplied = ReplaceActiveTableInCollection(oldTable, newTable, out replacementCompleted);
+                        replacementApplied = await ReplaceActiveTableInCollectionAsync(oldTable, newTable).ConfigureAwait(false);
                     }
                 }
                 catch (Exception ex)
@@ -793,7 +803,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                         "Playlist table replacement failed.",
                         ex);
                 }
-                if (!replacementCompleted || !replacementApplied)
+                if (!replacementApplied)
                 {
                     if (IsActive(oldTable))
                     {
@@ -864,9 +874,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
-    private bool ReplaceActiveTableInCollection(BMSTable oldTable, BMSTable newTable, out bool replacementCompleted)
+    private async Task<bool> ReplaceActiveTableInCollectionAsync(BMSTable oldTable, BMSTable newTable)
     {
-        replacementCompleted = false;
         ObservableCollection<BMSTable> tables = activeTableCollection;
         if (tables == null)
         {
@@ -874,8 +883,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
 
         bool replaced = false;
-        object replacementGate = new();
-        int replacementAllowed = 1;
         void ReplaceCore()
         {
             int index = tables.IndexOf(oldTable);
@@ -898,114 +905,47 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
         if (uiScheduler.CanExecuteInline)
         {
-            try
+            uiScheduler.Invoke(() =>
             {
-                uiScheduler.Invoke(() =>
+                using (activeCollectionLock.GetWriterGuard())
                 {
-                    lock (replacementGate)
-                    {
-                        if (replacementAllowed != 0)
-                        {
-                            using (activeCollectionLock.GetWriterGuard())
-                            {
-                                ReplaceCore();
-                            }
-                        }
-                    }
-                });
-                replacementCompleted = true;
-                return replaced;
-            }
-            catch (Exception ex)
-            {
-                replacementCompleted = true;
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_direct_failed");
-                return false;
-            }
-        }
-
-        IUiScheduledOperation operation;
-        try
-        {
-            operation = uiScheduler.Schedule(delegate
-            {
-                lock (replacementGate)
-                {
-                    if (replacementAllowed != 0)
-                    {
-                        using (activeCollectionLock.GetWriterGuard())
-                        {
-                            ReplaceCore();
-                        }
-                    }
+                    ReplaceCore();
                 }
             });
-        }
-        catch (Exception ex)
-        {
-            replacementCompleted = true;
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_failed");
-            return false;
-        }
-        if (!operation.IsAccepted)
-        {
-            replacementCompleted = true;
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
-                "playlist_table_replace_dispatch_enqueue_rejected reason="
-                + (operation.RejectionReason ?? string.Empty));
-            return false;
-        }
-        if (operation.IsCompleted)
-        {
-            replacementCompleted = true;
             return replaced;
         }
 
-        try
+        IUiScheduledOperation operation = uiScheduler.Schedule(() =>
         {
-            bool completed = operation.Completion.Wait(TimeSpan.FromSeconds(5));
-            if (completed && operation.IsCompleted && !operation.IsAborted)
+            using (activeCollectionLock.GetWriterGuard())
             {
-                replacementCompleted = true;
-                return replaced;
+                ReplaceCore();
             }
-            lock (replacementGate)
-            {
-                replacementAllowed = 0;
-                try
-                {
-                    operation.Abort();
-                }
-                catch (InvalidOperationException)
-                {
-                }
-            }
-            if (!replaced)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
-                    "playlist_table_replace_dispatch_wait_incomplete aborted=" + operation.IsAborted);
-            }
-        }
-        catch (Exception ex) when (
-            ex is InvalidOperationException
-            || ex is ObjectDisposedException
-            || ex is ThreadInterruptedException
-            || ex is AggregateException)
+        });
+        if (operation == null || !operation.IsAccepted)
         {
-            lock (replacementGate)
-            {
-                replacementAllowed = 0;
-                try
-                {
-                    operation.Abort();
-                }
-                catch (InvalidOperationException)
-                {
-                }
-            }
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_wait_failed");
+            throw new InvalidOperationException(
+                "Playlist table replacement UI operation was rejected: "
+                + (operation?.RejectionReason ?? "unknown reason"));
         }
-        replacementCompleted = true;
+        if (operation.IsAborted)
+        {
+            throw new OperationCanceledException(
+                "Playlist table replacement UI operation was aborted.");
+        }
+
+        await operation.Completion.ConfigureAwait(false);
+        if (operation.IsAborted)
+        {
+            throw new OperationCanceledException(
+                "Playlist table replacement UI operation was aborted.");
+        }
+        if (!operation.IsCompleted)
+        {
+            throw new InvalidOperationException(
+                "Playlist table replacement UI operation completed without a completion state.");
+        }
+
         return replaced;
     }
 

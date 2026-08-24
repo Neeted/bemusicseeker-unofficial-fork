@@ -148,6 +148,31 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     {
     }
 
+    /// <summary>
+    /// Creates a playlist test double with an explicitly controlled UI-operation scheduler.
+    /// </summary>
+    /// <param name="songDbPath">The song database used by the playlist.</param>
+    /// <param name="lr2PlaylistFolderSynchronization">The LR2 folder synchronization port.</param>
+    /// <param name="uiScheduler">The scheduler whose accepted-operation lifecycle the test controls.</param>
+    internal TestBmsPlaylist(
+        string songDbPath,
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
+        IUiScheduler uiScheduler)
+        : base(
+            songDbPath,
+            null,
+            null,
+            null,
+            null,
+            CurrentPlaylistUrlOptions,
+            CurrentBeatorajaOptions,
+            CurrentCustomFolderOptions,
+            ApplicationPathPolicy.Current,
+            uiScheduler,
+            lr2PlaylistFolderSynchronization)
+    {
+    }
+
     internal TestBmsPlaylist(
         string songDbPath,
         Func<LR2Config> getLr2Config,

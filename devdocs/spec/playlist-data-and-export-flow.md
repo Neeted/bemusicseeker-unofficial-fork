@@ -79,6 +79,8 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 外部表の新規登録は、取得・永続化・UI 反映を分けて扱う。header/data の取得と parse は UI thread 外で行う。playlist collection の writer lock は重複確認、`bmt_sort` 採番、出力先算出のような短い in-memory mutation に限定する。DB への playlist / entry 永続化は writer lock 外で行い、commit 後の UI binding collection への `BMSTables.Add` は所有者の UI scheduler / collection applier 境界を通して UI dispatcher 上で短く実行する。model writer lock を保持した background thread から `ObservableCollection` を直接変更してはいけない。これは Play History など UI 側の playlist read と競合した時に、background thread が UI dispatcher を待ち、UI thread が playlist reader lock を待つ deadlock を避けるためである。
 
+既存 playlist の外部 reload replacement も同じ所有境界を使う。永続化と reload reservation を先に確定し、active collection の replacement は UI scheduler が受理した operation の `Completion` を実際に await してから成功とする。`oldTable.ReaderWriterLock`、active collection lock、UI lock を dispatcher operation の完了待ちをまたいで保持しない。scheduler の rejection、operation の abort / cancellation / fault、collection replacement 自体の失敗は reload failure として報告し、完了を推定するローカル timeout、operation の暗黙 Abort、旧 table を残したままの成功扱いへ fallback しない。reload reservation は replacement の成功・失敗にかかわらず owner の `finally` で解放する。
+
 `URLを指定して読み込む` の複数行インポートは、キュー内の URL をバッチとして取り出し、外部表 snapshot 取得を `LoadExternalTableSnapshotsAsync` で並列実行する。重複プレイリスト名は登録前に既存 playlist 名と同一バッチ内予約名を照合し、従来仕様どおりリネームせずスキップする。ただし同期的に処理全体は止めず、スキップ件数と対象名を完了時の結果ダイアログで通知する。新規登録は `RegistrateExternalTablesAsync(..., renameDuplicateName: false, ...)` にまとめ、参照更新、プレイリストサマリー更新、playlist URL completion refresh は登録済み table 群に対して一括で行う。進捗表示は外部取得件数に加えて、重複確認、登録、参照更新、完了処理の後処理フェーズを含め、外部リクエスト完了後に処理が止まって見えないようにする。
 
 更新判定は header JSON と data JSON の hash を分けて扱う。

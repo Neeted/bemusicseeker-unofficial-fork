@@ -696,6 +696,81 @@ public sealed class BmsPlaylistExternalReloadTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_AwaitsUiReplacementCompletionBeforeApplying()
+    {
+        (string tempDirectory, TestBmsPlaylist playlist, BMSTable table, ControlledUiScheduler scheduler) =
+            await CreateUiReplacementReloadFixtureAsync(UiScheduleOutcome.AcceptedPending);
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>>? reloadTask = null;
+        try
+        {
+            reloadTask =
+                playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                    [table],
+                    reason: "test_ui_replacement_completion");
+
+            await scheduler.Scheduled;
+            Assert.IsFalse(reloadTask.IsCompleted);
+            Assert.AreSame(table, playlist.BMSTables.Single());
+            Assert.AreEqual(0, scheduler.ExecutionCount);
+
+            scheduler.ReleasePending();
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await reloadTask;
+
+            Assert.AreEqual(1, results.Count);
+            Assert.IsTrue(results[0].Succeeded);
+            Assert.AreEqual(1, scheduler.ExecutionCount);
+            Assert.AreSame(results[0].ResultTable, playlist.BMSTables.Single());
+            Assert.AreNotSame(table, results[0].ResultTable);
+        }
+        finally
+        {
+            if (reloadTask != null && !reloadTask.IsCompleted)
+            {
+                try
+                {
+                    scheduler.ReleasePending();
+                    await reloadTask;
+                }
+                catch
+                {
+                }
+            }
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public Task ReloadPlaylistTargetsAsync_ReportsRejectedUiReplacement()
+        => AssertUiReplacementFailureAsync(
+            UiScheduleOutcome.Rejected,
+            typeof(InvalidOperationException),
+            "rejected");
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public Task ReloadPlaylistTargetsAsync_ReportsAbortedUiReplacement()
+        => AssertUiReplacementFailureAsync(
+            UiScheduleOutcome.Aborted,
+            typeof(OperationCanceledException),
+            "aborted");
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public Task ReloadPlaylistTargetsAsync_ReportsFaultedUiReplacement()
+        => AssertUiReplacementFailureAsync(
+            UiScheduleOutcome.Faulted,
+            typeof(InvalidOperationException),
+            "faulted");
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public async Task ReloadPlaylistTargetsAsync_SkipsRemovedTargetBeforeApply()
     {
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
@@ -774,6 +849,101 @@ public sealed class BmsPlaylistExternalReloadTests
             {
                 Directory.Delete(tempDirectory, recursive: true);
             }
+        }
+    }
+
+    private static async Task AssertUiReplacementFailureAsync(
+        UiScheduleOutcome outcome,
+        Type expectedInnerExceptionType,
+        string reason)
+    {
+        (string tempDirectory, TestBmsPlaylist playlist, BMSTable table, ControlledUiScheduler scheduler) =
+            await CreateUiReplacementReloadFixtureAsync(outcome);
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        try
+        {
+            Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>> reloadTask =
+                playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                    [table],
+                    reason: "test_ui_replacement_" + reason);
+
+            await scheduler.Scheduled;
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await reloadTask;
+
+            Assert.AreEqual(1, results.Count);
+            Assert.IsFalse(results[0].Succeeded);
+            Assert.AreSame(table, results[0].ResultTable);
+            Assert.AreSame(table, playlist.BMSTables.Single());
+            Exception failure = results[0].Exception
+                ?? throw new AssertFailedException("The UI replacement failure was not reported.");
+            Assert.IsInstanceOfType(failure, typeof(PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException));
+            Assert.IsNotNull(failure.InnerException);
+            Assert.IsInstanceOfType(failure.InnerException, expectedInnerExceptionType);
+            StringAssert.Contains(failure.InnerException!.Message, reason);
+            Assert.AreEqual(0, scheduler.ExecutionCount);
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    private static async Task<(string TempDirectory, TestBmsPlaylist Playlist, BMSTable Table, ControlledUiScheduler Scheduler)> CreateUiReplacementReloadFixtureAsync(
+        UiScheduleOutcome outcome)
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(
+                headerJsonPath,
+                CreateUtf8BomBytes(
+                    "{\r\n\"name\":\"AsyncReplacementTable\",\r\n\"symbol\":\"A\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(
+                scoreJsonPath,
+                CreateUtf8BomBytes(
+                    "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var scheduler = new ControlledUiScheduler(TestUiDispatcherHost.Dispatcher);
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
+                scheduler);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.playlist_id = 9051;
+            table.DisableExternalSync();
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                foreach (BMSTableEntry entry in table.entries ?? [])
+                {
+                    setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+            }
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            File.WriteAllBytes(
+                scoreJsonPath,
+                CreateUtf8BomBytes(
+                    "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
+            scheduler.Arm(outcome);
+            return (tempDirectory, playlist, table, scheduler);
+        }
+        catch
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+            throw;
         }
     }
 
@@ -921,6 +1091,234 @@ public sealed class BmsPlaylistExternalReloadTests
             {
                 Directory.Delete(tempDirectory, recursive: true);
             }
+        }
+    }
+
+    private enum UiScheduleOutcome
+    {
+        AcceptedPending,
+        Rejected,
+        Aborted,
+        Faulted
+    }
+
+    private sealed class ControlledUiScheduler : IUiScheduler
+    {
+        private readonly TestUiScheduler inner;
+
+        private readonly object synchronization = new();
+
+        private readonly TaskCompletionSource<IUiScheduledOperation> scheduled =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private UiScheduleOutcome? armedOutcome;
+
+        private PendingUiScheduledOperation? pendingOperation;
+
+        internal ControlledUiScheduler(Dispatcher dispatcher)
+        {
+            inner = new TestUiScheduler(() => dispatcher ?? throw new ArgumentNullException(nameof(dispatcher)));
+        }
+
+        internal Task<IUiScheduledOperation> Scheduled => scheduled.Task;
+
+        internal int ExecutionCount
+        {
+            get
+            {
+                lock (synchronization)
+                {
+                    return pendingOperation?.ExecutionCount ?? 0;
+                }
+            }
+        }
+
+        internal void Arm(UiScheduleOutcome outcome)
+        {
+            lock (synchronization)
+            {
+                if (armedOutcome.HasValue)
+                {
+                    throw new InvalidOperationException("The controlled UI scheduler is already armed.");
+                }
+                armedOutcome = outcome;
+            }
+        }
+
+        internal void ReleasePending()
+        {
+            PendingUiScheduledOperation operation;
+            lock (synchronization)
+            {
+                operation = pendingOperation
+                    ?? throw new InvalidOperationException("No pending UI operation is available.");
+            }
+
+            IUiScheduledOperation dispatch = inner.Schedule(operation.Run);
+            if (dispatch == null || !dispatch.IsAccepted)
+            {
+                operation.Fail(new InvalidOperationException(
+                    "The controlled UI scheduler could not release the pending operation."));
+            }
+        }
+
+        public bool IsAvailable => inner.IsAvailable;
+
+        public bool CanExecuteInline => inner.CanExecuteInline;
+
+        public bool CheckAccess() => inner.CheckAccess();
+
+        public IUiScheduledOperation Schedule(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            UiScheduleOutcome? outcome;
+            lock (synchronization)
+            {
+                outcome = armedOutcome;
+                armedOutcome = null;
+            }
+            if (!outcome.HasValue)
+            {
+                return inner.Schedule(action, priority);
+            }
+
+            IUiScheduledOperation operation = outcome.Value switch
+            {
+                UiScheduleOutcome.AcceptedPending => CreatePendingOperation(action),
+                UiScheduleOutcome.Rejected => new CompletedUiScheduledOperation(
+                    accepted: false,
+                    aborted: true,
+                    completion: Task.CompletedTask,
+                    rejectionReason: "controlled scheduler rejection"),
+                UiScheduleOutcome.Aborted => new CompletedUiScheduledOperation(
+                    accepted: true,
+                    aborted: true,
+                    completion: Task.FromCanceled(new CancellationToken(canceled: true)),
+                    rejectionReason: "controlled scheduler abort"),
+                UiScheduleOutcome.Faulted => new CompletedUiScheduledOperation(
+                    accepted: true,
+                    aborted: false,
+                    completion: Task.FromException(new InvalidOperationException("controlled scheduler faulted")),
+                    rejectionReason: null),
+                _ => throw new ArgumentOutOfRangeException(nameof(outcome))
+            };
+            scheduled.TrySetResult(operation);
+            return operation;
+        }
+
+        private IUiScheduledOperation CreatePendingOperation(Action action)
+        {
+            var operation = new PendingUiScheduledOperation(action);
+            lock (synchronization)
+            {
+                pendingOperation = operation;
+            }
+            return operation;
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => inner.Invoke(action, priority);
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => inner.Invoke(action, priority);
+
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => inner.InvokeAsync(action, priority);
+
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => inner.InvokeAsync(action, priority);
+    }
+
+    private sealed class PendingUiScheduledOperation : IUiScheduledOperation
+    {
+        private readonly Action action;
+
+        private readonly TaskCompletionSource<object?> completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        private int executionCount;
+
+        private int aborted;
+
+        internal PendingUiScheduledOperation(Action action)
+        {
+            this.action = action ?? throw new ArgumentNullException(nameof(action));
+        }
+
+        internal int ExecutionCount => Volatile.Read(ref executionCount);
+
+        public bool IsAccepted => true;
+
+        public bool IsCompleted => completion.Task.IsCompleted;
+
+        public bool IsAborted => Volatile.Read(ref aborted) != 0;
+
+        public string? RejectionReason => null;
+
+        public Task Completion => completion.Task;
+
+        public void Abort()
+        {
+            if (Interlocked.Exchange(ref aborted, 1) == 0)
+            {
+                completion.TrySetCanceled();
+            }
+        }
+
+        internal void Run()
+        {
+            if (IsAborted || Interlocked.Increment(ref executionCount) != 1)
+            {
+                return;
+            }
+            try
+            {
+                action();
+                completion.TrySetResult(null);
+            }
+            catch (Exception ex)
+            {
+                completion.TrySetException(ex);
+            }
+        }
+
+        internal void Fail(Exception exception)
+        {
+            completion.TrySetException(exception ?? throw new ArgumentNullException(nameof(exception)));
+        }
+    }
+
+    private sealed class CompletedUiScheduledOperation : IUiScheduledOperation
+    {
+        private readonly bool accepted;
+
+        private readonly bool aborted;
+
+        internal CompletedUiScheduledOperation(
+            bool accepted,
+            bool aborted,
+            Task completion,
+            string? rejectionReason)
+        {
+            this.accepted = accepted;
+            this.aborted = aborted;
+            Completion = completion ?? throw new ArgumentNullException(nameof(completion));
+            RejectionReason = rejectionReason;
+        }
+
+        public bool IsAccepted => accepted;
+
+        public bool IsCompleted => Completion.IsCompleted;
+
+        public bool IsAborted => aborted;
+
+        public string? RejectionReason { get; }
+
+        public Task Completion { get; }
+
+        public void Abort()
+        {
         }
     }
 

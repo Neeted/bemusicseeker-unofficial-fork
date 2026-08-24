@@ -969,14 +969,14 @@ internal sealed class PlaylistExternalSyncOwner
                     }
                 }
             }
-            if (!playlistAggregatePersistenceOwner.TryApplyReloadedTable(
+            if (!await playlistAggregatePersistenceOwner.TryApplyReloadedTableAsync(
                 table,
                 newTable,
                 persistenceDecision,
                 sourceEntriesRevision,
                 sourceLastUpdate,
                 sourceStateFingerprint,
-                requireCurrentTargetForApply))
+                requireCurrentTargetForApply).ConfigureAwait(false))
             {
                 failure = new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
                     "Playlist reload result could not be applied to the active table.");
