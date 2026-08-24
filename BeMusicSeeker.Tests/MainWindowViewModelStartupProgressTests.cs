@@ -241,7 +241,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public async Task StartupPostInitialization_StaleCallbackCannotOpenNewGenerationBarrier()
     {
-        var postEntered = new ManualResetEventSlim();
+        var postEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var fullyIdle = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner scheduler = null!;
         scheduler = new(
@@ -260,7 +260,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             new object());
         scheduler.Queue("post_initialize_gc", "test", null, () =>
         {
-            postEntered.Set();
+            postEntered.TrySetResult(true);
             return Task.CompletedTask;
         });
 
@@ -276,7 +276,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             isSchedulerGenerationCurrent: scheduler.IsCurrentGeneration);
 
         Assert.IsFalse(staleAccepted);
-        Assert.IsFalse(postEntered.IsSet);
+        Assert.IsFalse(postEntered.Task.IsCompleted);
 
         long currentGeneration = scheduler.CurrentGeneration;
         bool currentAccepted = MainWindowViewModel.IsCurrentStartupPostInitializationCallback(
@@ -287,8 +287,8 @@ public sealed class MainWindowViewModelStartupProgressTests
 
         Assert.IsTrue(currentAccepted);
         Assert.IsTrue(scheduler.MarkRequiredInitializationSchedulingComplete(currentGeneration));
-        Assert.IsTrue(postEntered.Wait(TimeSpan.FromSeconds(5)));
-        await fullyIdle.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await postEntered.Task;
+        await fullyIdle.Task;
         Assert.IsTrue(scheduler.IsFullyIdle, scheduler.DescribeWaitState());
     }
 
