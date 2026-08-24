@@ -123,7 +123,7 @@ Writable paths:
 - `settings-presentation-classwide` の16 fixtureを、foreground interactionを持つ2 fixtureとprocess-local stateを持つ14 fixtureへ分離する。両方1-worker / `ClassLevel` とし、portable settings lane後に他named shardと同時起動する。
 - `presentation-workspace` は同じ3 fixture membershipと`ClassLevel`を維持して2-workerへ変更する。class-wide `DoNotParallelize` の `PlaybackPanelViewModelTests` は他classと重ならず、`PlaylistWorkspaceViewModelTests` と `LibraryFolderTreeViewModelTests` だけが並行可能になる。
 - `playlist-update` のpre-wave overlapは、27件中25件で理論critical path短縮がなく、pre-waveの明示I/O isolationを崩すため採用しない。
-- `BmsLibraryStateApplierTests` のfixture分割は今回行わない。Unit 2後もdeadline failureが残る場合だけ、remaining owner rebalancingとして再計画する。
+- `BmsLibraryStateApplierTests` のfixture分割はUnit 2の初期案では行わない。Unit 2後もdeadline failureが残ったため、remaining owner rebalancingをUnit 3として再計画する。
 
 `settings-state-classwide` のexact 14 fixture:
 
@@ -174,7 +174,54 @@ WorkerはPowerShell parse、`git diff --check`、focused Quickまで行う。Fun
 - Functionalでactivation、HWND cleanup、culture/theme、user.config、shared settings failureが1回でも発生する。
 - Functionalが1回でもprocess deadlineへ再到達する。この場合はtimeout延長やworker追加を継ぎ足さず、remaining owner fixture分割を別unitとして再計画する。
 
-## Integration and final review
+## Unit 3: Rebalance remaining owner fixtures
+
+Owner: `implementation-worker`
+
+Writable paths:
+
+- `BeMusicSeeker.Tests/BmsLibraryStateApplierTests.cs`
+- `BeMusicSeeker.Tests/BmsLibraryPackageLifecycleTests.cs`
+- `BeMusicSeeker.Tests/BmsLibraryCatalogRelocationTests.cs`
+- `devdocs/spec/library-mutation-boundary.md`
+- `devdocs/spec/testing-strategy.md`
+- 本計画書
+
+### Context and decision
+
+Unit 2後のFunctional retryは `7ccca8eaa590cb8869b3eb272f0589c32bd60ff9` (`7ccca8ea`) で実行し、artifactは `artifacts/verification/tests-functional-20260824-213728`。shared process deadlineへ到達したため `remaining`、`playlist-update`、`presentation-workspace` はTRXを生成せず停止した。一方、`settings-presentation-classwide` は142/142、`settings-state-classwide` は119/119で完了した。tracked file fingerprintは不変で、testhost / dotnet residualは0だった。
+
+remainingの26-case `BmsLibraryStateApplierTests` は、ownerごとのClassLevel schedulingを得るため次の3 fixtureへ分ける。既存の12-worker `remaining` process、ClassLevel scope、除外filter、10秒cleanup reserve、timeout、logical test setは変更しない。
+
+- `BmsLibraryStateApplierTests`: library initialization progress と `ApplyLibraryMutationDelta(...)` の13 case。
+- `BmsLibraryPackageLifecycleTests`: pending package collection publication と durable pending-package delta の7 case。
+- `BmsLibraryCatalogRelocationTests`: catalog relocationのstorage-row、path、LR2 compatibilityの6 case。
+
+共通helperは `BmsLibraryStateApplierTestSupport` にまとめ、GUID付きtemporary song DB、filesystem cleanup、callback、scheduler、cancellation / completion signalを既存 semanticsのまま維持する。新しいnamed shard/process、worker増加、DNP、fallback、completion推測用のsleepは追加しない。
+
+### Test delta
+
+| Behavior / failure contract | Production owner / symbol | Candidate coverage | Decision | Shared resource / lane | Completion signal | Retired test / route |
+| --- | --- | --- | --- | --- | --- | --- |
+| library initialization progress と library mutation の永続化・package pruning・BMSON owner contract | `BMSLibrary` / `PackageStateMutationApplier.ApplyLibraryMutationDelta(...)` | 旧 `BmsLibraryStateApplierTests` のinit 1 + mutation 12 | `replace` fixture container; exact 13 method bodiesを保持 | existing `remaining` process, 12 workers, `ClassLevel`; per-test GUID DB/root | existing scheduler queue, callback counters, synchronous receipt and cleanup | 旧26-case single class route → `BmsLibraryStateApplierTests` 13 cases |
+| pending package publication、durable deletion、subscriber failure / cancellation | `PackageLifecycleOwner` / `PackageStateMutationApplier.ApplyPendingPackageMutationDelta(...)` | 旧 fixtureのpackage/pending 7 | `replace` fixture container; method bodies unchanged | same `remaining` process and ClassLevel; no new shared state | existing `ManualResetEventSlim`, accepted-operation `Task` and exception callback | old methods → `BmsLibraryPackageLifecycleTests` 7 cases |
+| catalog relocation storage rows、path replacement、LR2 facts and failure rollback | `CatalogMutationOwner.ApplyCatalogMutation(...)` + state applier package projection | 旧 fixtureのcatalog relocation 6 | `replace` fixture container; method bodies unchanged | same `remaining` process and ClassLevel; GUID filesystem/database | existing catalog receipt and callback failure facts | old methods → `BmsLibraryCatalogRelocationTests` 6 cases |
+
+### Focused verification
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~BmsLibraryStateApplierTests|FullyQualifiedName~BmsLibraryPackageLifecycleTests|FullyQualifiedName~BmsLibraryCatalogRelocationTests'
+```
+
+Workerは上記fixture filterのQuick、PowerShell parse、`git diff --check`を実行する。Functional / Full、および同じ条件での最終Functional 3回はrootの統合検証とする。
+
+### Replan triggers
+
+- 3 fixtureを同じremaining processで起動してもClassLevel schedulingがfixture間で行われず、splitによるcritical path短縮がない。
+- 既存method bodyの移動だけではcompile / test semanticsを維持できず、production fallback、runner topology、worker数、timeout、DNPまたは所有path外の変更が必要になる。
+- GUID resource cleanup、completion / cancellation signal、failure precedenceのいずれかを変更しないとfixtureを分離できない。
+
+## Unit 4: final stability gates and review
 
 Unit 1をcommit後、同一最終snapshotで次を実行する。途中でfailureを修正した場合は、該当stability gateを1回目から数え直す。
 
@@ -193,7 +240,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | --- | --- | --- |
 | Unit 1: lifecycle P2 closure | Complete | `5e7ccaed`。focused Quick 17/17、PowerShell parse、`git diff --check`、Release build成功。 |
 | Unit 2: Functional headroom replan | Implementation complete; stability verification pending | base HEAD `128519856d57b304bc21930843b1aecfc10eeaa4` から、settings 16 fixtureをforeground 2/state 14の2 testhostへ分離し、presentation workspaceを2-worker/ClassLevel化。実 launch plan objectを同一 validatorへ渡し、exact membership、worker/scope、remaining exclusion、cross-route uniqueness、fanout object identityを検証する。PowerShell parse / `git diff --check` pass。focused Quick `VerificationRunnerContractTests` 4/4 pass、33.5s command、diagnostics `artifacts/verification/tests-quick-20260824-213148`。Functional/Full/WPF30はroot担当。playlist overlapとremaining fixture分割は採用しない。 |
-| Unit 3: final stability gates and review | Pending | Unit 2後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
+| Unit 3: remaining owner fixture rebalancing | Complete; integration stability pending | `7ccca8ea` / `tests-functional-20260824-213728` のprocess deadline failureを受け、26 caseをlibrary init/mutation 13、package lifecycle/pending 7、catalog relocation 6へ分割。既存remaining process、12-worker ClassLevel、GUID resource、completion signalは維持。focused Quick 26/26 pass、Functional/Full/WPF30はroot担当。 |
+| Unit 4: final stability gates and review | Pending | Unit 3後snapshotでWPF 30回、Functional 3回、Full 1回を最初から実行する。 |
 
 ## Verification log
 
@@ -205,6 +253,8 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | Functional exact retry | Fail: process deadline | 176.2s command; canonical 174.0s | `tests-functional-20260824-203720`; remaining / playlist-update / presentation-workspace stopped; fingerprint unchanged; residual 0; repeated-timeout investigation threshold met |
 | Unit 2 snapshot | PowerShell parse + `git diff --check` | Pass | <1s | runner script parse clean; whitespace clean |
 | Unit 2 snapshot | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests'` | Pass (4/4) | 33.5s command / 6.3s test | `tests-quick-20260824-213148`; actual launch plan validator and contract tests passed; no residual testhost process |
+| `7ccca8ea` / Unit 2 retry | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional` | Fail: shared process deadline | 176.5s command | `tests-functional-20260824-213728`; settings-presentation-classwide 142/142 and settings-state-classwide 119/119 completed; remaining / playlist-update / presentation-workspace stopped without TRX; tracked fingerprint unchanged; residual testhost / dotnet process 0 |
+| Unit 3 snapshot | `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~BmsLibraryStateApplierTests|FullyQualifiedName~BmsLibraryPackageLifecycleTests|FullyQualifiedName~BmsLibraryCatalogRelocationTests'` | Pass (26/26) | 29.3s command / 2.8s test | `tests-quick-20260824-215349`; build succeeded; 12 workers / `ClassLevel` observed; tracked fingerprint unchanged; no residual test process |
 
 ## Done when
 

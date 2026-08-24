@@ -65,6 +65,16 @@ P0 として次の操作は共通境界を通す。
 
 操作後の warning / error は report として蓄積し、`lockCopyFile` と model lock を抜けた後に dialog service で表示する。重複 warning を避けるため、同じ mutation の中で同じ message を複数 queue しない。
 
+## Verification map
+
+`BmsLibraryStateApplierTests` の26 caseは、owner境界と remaining の `ClassLevel` 実行単位を一致させるため、次の3 fixtureへ分けて維持する。
+
+- `BmsLibraryStateApplierTests`: library initialization progress と `ApplyLibraryMutationDelta(...)` の13 case。
+- `BmsLibraryPackageLifecycleTests`: pending package collection publication と durable pending-package delta の7 case。
+- `BmsLibraryCatalogRelocationTests`: catalog relocation の storage-row、path、LR2 compatibility の6 case。
+
+3 fixtureは既存の `BmsLibraryStateApplierTestSupport` が提供する GUID付き temporary song DB、package state callback、UI scheduler、completion / cancellation signalを共有する。ただし各 testの resource rootとDBは従来どおり個別に所有し、Functional の既存 `remaining` process、12 worker、`ClassLevel` scopeから新しい laneや `DoNotParallelize`を追加せずに実行する。分割は test semantics、永続化結果、failure contract、cleanupを変更しない。
+
 ## 関連仕様
 
 - [architecture.md](architecture.md): UI / model concurrency boundary。
