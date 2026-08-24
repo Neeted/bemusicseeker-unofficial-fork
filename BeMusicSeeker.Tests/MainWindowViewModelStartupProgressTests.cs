@@ -117,6 +117,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 () => throw failure,
                 operationToken,
                 startupCustomFolderSettings: null);
+            TestUiDispatcherHost.Drain();
 
             Assert.IsFalse(initialized);
             Assert.AreEqual(1, failurePresenter.Presentations.Count);
@@ -172,6 +173,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                     operationToken,
                     startupCustomFolderSettings: null);
             }
+            TestUiDispatcherHost.Drain();
 
             Assert.IsFalse(initialized);
             Assert.AreEqual(1, failurePresenter.Presentations.Count);
@@ -410,10 +412,10 @@ public sealed class MainWindowViewModelStartupProgressTests
         Skip(owner, StartupProgressPhase.InstallableMaintenanceDeferredDone);
         Mark(owner, StartupProgressPhase.StartupBackgroundTasksDone);
 
-        await delayEntered.Task.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+        await delayEntered.Task;
         Assert.IsTrue(owner.IsOperationActive);
         releaseDelay.TrySetResult(true);
-        await inactivePublished.Task.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+        await inactivePublished.Task;
 
         Assert.IsFalse(owner.IsOperationActive);
     }
@@ -733,9 +735,59 @@ public sealed class MainWindowViewModelStartupProgressTests
                 BMSFiles = []
             };
             library.SearchTargets = [tempRootPath];
-            IDisposable writerGuard = AcquireBmsFileWriterGuard(library);
+            var writerGuardReady = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var writerThreadCompleted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseWriterGuard = new ManualResetEventSlim();
+            Exception? writerThreadFailure = null;
+            // ReaderWriterLockSlim guards are thread-affine, so the dedicated
+            // holder owns acquisition, the blocked interval, and disposal.
+            var writerThread = new Thread((ThreadStart)delegate
+            {
+                IDisposable? writerGuard = null;
+                try
+                {
+                    writerGuard = AcquireBmsFileWriterGuard(library);
+                    writerGuardReady.TrySetResult(true);
+                    releaseWriterGuard.Wait();
+                }
+                catch (Exception exception)
+                {
+                    writerThreadFailure = exception;
+                    writerGuardReady.TrySetException(exception);
+                }
+                finally
+                {
+                    try
+                    {
+                        writerGuard?.Dispose();
+                    }
+                    catch (Exception exception)
+                    {
+                        writerThreadFailure ??= exception;
+                        writerGuardReady.TrySetException(exception);
+                    }
+
+                    if (writerThreadFailure is null)
+                    {
+                        writerThreadCompleted.TrySetResult(true);
+                    }
+                    else
+                    {
+                        writerThreadCompleted.TrySetException(writerThreadFailure);
+                    }
+                }
+            })
+            {
+                IsBackground = true,
+                Name = nameof(StartupReadiness_OperableAndRequiredSchedulerStartBeforeBlockedFolderReaderCompletes)
+                    + ".WriterGuard"
+            };
             try
             {
+                writerThread.Start();
+                await writerGuardReady.Task;
                 int refreshCompletions = 0;
                 owner.LibraryFolderTree.DeferredRefreshCompleted += (_, _) => refreshCompletions++;
                 owner.LibraryFolderTree.AttachLibrary(library);
@@ -747,14 +799,14 @@ public sealed class MainWindowViewModelStartupProgressTests
                 StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
                     owner,
                     "startupBackgroundTaskScheduler");
-                using var requiredTaskStarted = new ManualResetEventSlim();
+                var requiredTaskStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 Assert.IsTrue(scheduler.Queue(
                     "startup_readiness_required_test",
                     "test",
                     null,
                     () =>
                     {
-                        requiredTaskStarted.Set();
+                        requiredTaskStarted.TrySetResult(true);
                         return Task.CompletedTask;
                     }));
 
@@ -770,18 +822,21 @@ public sealed class MainWindowViewModelStartupProgressTests
                     });
 
                 Assert.IsTrue(scheduler.IsStarted);
-                Assert.IsTrue(requiredTaskStarted.Wait(TimeSpan.FromSeconds(5)));
+                await requiredTaskStarted.Task;
                 Assert.AreEqual(0, refreshCompletions);
                 Task deferredRefreshIdle = owner.LibraryFolderTree.WaitForDeferredRefreshIdleAsync();
                 Assert.IsFalse(deferredRefreshIdle.IsCompleted);
 
-                writerGuard.Dispose();
-                writerGuard = null!;
-                await deferredRefreshIdle.WaitAsync(TimeSpan.FromSeconds(5));
+                releaseWriterGuard.Set();
+                await writerThreadCompleted.Task;
+                await deferredRefreshIdle;
             }
             finally
             {
-                writerGuard?.Dispose();
+                releaseWriterGuard.Set();
+                Assert.IsTrue(
+                    writerThread.Join(TimeSpan.FromSeconds(10)),
+                    "The dedicated BMS-file writer-lock thread did not terminate in time.");
             }
         }
         finally

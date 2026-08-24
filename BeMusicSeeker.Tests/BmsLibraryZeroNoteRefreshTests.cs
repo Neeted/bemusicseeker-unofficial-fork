@@ -20,10 +20,10 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryZeroNoteRefreshTests
 {
     [TestMethod]
-    public void RecheckZeroNoteWarnings_PublishesWarningRefreshWhenWarningsChange()
+    public async Task RecheckZeroNoteWarnings_PublishesWarningRefreshWhenWarningsChange()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
+        await WithTemporarySongDb(songDbPath =>
         {
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
             var file = new TestableBmsFile
@@ -49,14 +49,15 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.AreEqual(1, refreshNotificationChanged);
             Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+            return Task.CompletedTask;
         });
     }
 
     [TestMethod]
-    public void RecheckZeroNoteWarnings_DoesNotRaiseChartFilesZeroNoteWhenWarningsDoNotChange()
+    public async Task RecheckZeroNoteWarnings_DoesNotRaiseChartFilesZeroNoteWhenWarningsDoNotChange()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
+        await WithTemporarySongDb(async delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
@@ -68,7 +69,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             file.SetWarning(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch);
             file.SetNotes(0);
             library.BMSFiles = [file];
-            SeedChartInfoIndex(songDbPath, library, CreateChartInfo(file.hash, notes: 0));
+            await SeedChartInfoIndexAsync(songDbPath, library, CreateChartInfo(file.hash, notes: 0));
             int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs e)
             {
@@ -88,10 +89,10 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     }
 
     [TestMethod]
-    public void RecheckZeroNoteWarnings_SetsStructuredWarningWhenMismatchIsDetected()
+    public async Task RecheckZeroNoteWarnings_SetsStructuredWarningWhenMismatchIsDetected()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
+        await WithTemporarySongDb(async delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
@@ -102,7 +103,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             };
             file.SetNotes(0);
             library.BMSFiles = [file];
-            SeedChartInfoIndex(songDbPath, library, CreateChartInfo(file.hash, notes: 0));
+            await SeedChartInfoIndexAsync(songDbPath, library, CreateChartInfo(file.hash, notes: 0));
 
             library.RecheckZeroNoteWarnings();
 
@@ -113,10 +114,10 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     }
 
     [TestMethod]
-    public void ChartFilesZeroNote_UsesOwnedBmsSnapshot()
+    public async Task ChartFilesZeroNote_UsesOwnedBmsSnapshot()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
+        await WithTemporarySongDb(async songDbPath =>
         {
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
             var zeroNoteFile = new TestableBmsFile
@@ -140,7 +141,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
                     md5 = Guid.NewGuid().ToString("N")
                 }
             ];
-            SeedChartInfoIndex(
+            await SeedChartInfoIndexAsync(
                 songDbPath,
                 library,
                 CreateChartInfo(zeroNoteFile.hash, notes: 0, sha256: zeroNoteFile.sha256),
@@ -153,7 +154,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         });
     }
 
-    private static void WithTemporarySongDb(Action<string> testAction)
+    private static async Task WithTemporarySongDb(Func<string, Task> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ZeroNoteRefreshTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
@@ -161,7 +162,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            testAction(songDbPath);
+            await testAction(songDbPath);
         }
         finally
         {
@@ -202,10 +203,10 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         };
     }
 
-    private static void SeedChartInfoIndex(string songDbPath, BMSLibrary library, params LR2SongDBExtended.chart_info[] chartInfos)
+    private static async Task SeedChartInfoIndexAsync(string songDbPath, BMSLibrary library, params LR2SongDBExtended.chart_info[] chartInfos)
     {
         new BmsLibraryDbGateway(songDbPath).UpsertChartInfos(chartInfos);
-        WaitForChartInfoHydration(
+        await AwaitChartInfoHydrationAsync(
             library,
             () => InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false));
     }
@@ -217,7 +218,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         method.Invoke(library, [reason, queueFullBackfillAfterHydration]);
     }
 
-    private static void WaitForChartInfoHydration(BMSLibrary library, Action queueHydration)
+    private static async Task AwaitChartInfoHydrationAsync(BMSLibrary library, Action queueHydration)
     {
         int baselineRequestedVersion = library.ChartInfoHydrationRequestedVersion;
         var completion = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -249,9 +250,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         {
             queueHydration();
             TryComplete();
-            Assert.IsTrue(
-                completion.Task.Wait(TimeSpan.FromSeconds(10)),
-                "chart_info hydration did not publish a completed version.");
+            await completion.Task;
         }
         finally
         {

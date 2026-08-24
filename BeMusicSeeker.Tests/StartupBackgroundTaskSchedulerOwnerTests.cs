@@ -26,7 +26,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsFalse(entered.Task.IsCompleted);
 
         owner.Start();
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task;
         release.SetResult(true);
         await WaitForFullyIdleAsync(owner);
     }
@@ -95,7 +95,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         int probeBeforeCancel = Volatile.Read(ref shutdownProbeCount);
 
         Assert.IsTrue(owner.CancelQueued(reservation, "diagnostic_cancel"));
-        await idleNotified.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await idleNotified.Task;
         Assert.IsTrue(Volatile.Read(ref shutdownProbeCount) > probeBeforeCancel);
         Assert.AreEqual(1, Volatile.Read(ref discardCount));
         Assert.IsTrue(owner.IsFullyIdle);
@@ -401,7 +401,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             }));
 
         owner.Start();
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task;
         Assert.IsFalse(owner.QueueReserved(
             reservation,
             "same_receipt_after_dequeue",
@@ -438,7 +438,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         StartupBackgroundTaskReservation newReservation = Reserve(owner, "playlist_virtual_order_prewarm");
 
         owner.Start();
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task;
         Assert.IsTrue(owner.QueueReserved(
             newReservation,
             "new",
@@ -468,7 +468,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }));
         owner.Start();
 
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task;
         Assert.IsTrue(owner.IsIdle);
         Assert.IsFalse(owner.IsFullyIdle);
         release.SetResult(true);
@@ -497,7 +497,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
         owner.Start();
 
-        await postEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await postEntered.Task;
         Assert.IsTrue(owner.IsIdle);
         Assert.IsFalse(owner.IsFullyIdle);
 
@@ -506,7 +506,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             requiredEntered.TrySetResult(true);
             return Task.CompletedTask;
         });
-        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await requiredEntered.Task;
         await WaitUntilAsync(owner, () => owner.IsIdle);
         Assert.IsFalse(owner.IsFullyIdle);
 
@@ -536,12 +536,12 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.MarkPostInitializationSchedulingComplete();
         owner.Start();
 
-        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await requiredEntered.Task;
         Assert.IsFalse(postEntered.Task.IsCompleted);
         Assert.IsFalse(owner.IsIdle);
 
         requiredRelease.SetResult(true);
-        await postEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await postEntered.Task;
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -571,11 +571,11 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsFalse(postEntered.Task.IsCompleted);
 
         owner.MarkRequiredInitializationSchedulingComplete();
-        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await requiredEntered.Task;
         Assert.IsFalse(postEntered.Task.IsCompleted);
 
         requiredRelease.SetResult(true);
-        await postEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await postEntered.Task;
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -598,7 +598,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsFalse(postEntered.Task.IsCompleted);
 
         Assert.IsTrue(owner.MarkRequiredInitializationSchedulingComplete(owner.CurrentGeneration));
-        await postEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await postEntered.Task;
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -619,7 +619,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.MarkPostInitializationSchedulingComplete();
         owner.Start();
 
-        await garbageCollectionEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await garbageCollectionEntered.Task;
 
         owner.Reset(startImmediately: true);
         owner.Queue("chart_info_hydration", "required", null, () =>
@@ -635,7 +635,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsFalse(requiredEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
 
         garbageCollectionRelease.SetResult(true);
-        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await requiredEntered.Task;
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -671,7 +671,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         postRelease.SetResult(true);
         await Task.WhenAll(
             WaitForFullyIdleAsync(owner),
-            finalIdleNotification.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+            finalIdleNotification.Task);
         Assert.IsTrue(Volatile.Read(ref idleNotifications) > notificationsBeforeFinalRelease);
     }
 
@@ -694,7 +694,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, queued.BacklogCount);
 
         owner.Start();
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await entered.Task;
         StartupBackgroundWorkSnapshot running = owner.CaptureWorkSnapshot();
         Assert.AreEqual(0, running.QueuedCount);
         Assert.AreEqual(1, running.RunningCount);
@@ -728,7 +728,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
         owner.Start();
 
-        await maintenanceEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await maintenanceEntered.Task;
         CollectionAssert.AreEqual(new[] { "maintenance" }, order.ToArray());
         dependencyRelease.SetResult(true);
         await WaitForFullyIdleAsync(owner);
@@ -762,7 +762,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
 
         owner.Start();
-        await highPriorityEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await highPriorityEntered.Task;
         CollectionAssert.AreEqual(new[] { "high" }, order.ToArray());
 
         highPriorityRelease.SetResult(true);
@@ -786,7 +786,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             await firstRelease.Task.ConfigureAwait(false);
         });
         owner.Start();
-        await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await firstEntered.Task;
 
         owner.Queue("playlist_ref_apply", "latest", null, async () =>
         {
@@ -800,11 +800,11 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
 
         firstRelease.SetResult(true);
-        await latestEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await latestEntered.Task;
         Assert.IsFalse(dependentEntered.Task.IsCompleted);
 
         latestRelease.SetResult(true);
-        await dependentEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await dependentEntered.Task;
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -827,13 +827,13 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
                 await firstRelease.Task.ConfigureAwait(false);
             });
             owner.Start();
-            await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await firstEntered.Task;
             owner.Queue("playlist_entries_hydration", "latest", null, async () =>
             {
                 latestEntered.TrySetResult(true);
                 await latestRelease.Task.ConfigureAwait(false);
             });
-            await latestEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await latestEntered.Task;
 
             owner.Queue("default_after_latest", "dependent", "playlist_entries_hydration", () =>
             {
@@ -842,7 +842,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             });
 
             latestRelease.SetResult(true);
-            await dependentAfterLatestEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await dependentAfterLatestEntered.Task;
 
             firstRelease.SetResult(true);
             await WaitForFullyIdleAsync(owner);
@@ -852,7 +852,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
                 dependentAfterOlderEntered.TrySetResult(true);
                 return Task.CompletedTask;
             });
-            await dependentAfterOlderEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await dependentAfterOlderEntered.Task;
             await WaitForFullyIdleAsync(owner);
         }
         finally
@@ -946,15 +946,14 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             QueueGatedWork("default_a", isReadHydration: false);
             owner.Start();
 
-            await Task.WhenAll(threeStarted.Task, twoReadHydrationsStarted.Task)
-                .WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(threeStarted.Task, twoReadHydrationsStarted.Task);
             Assert.AreEqual(new StartupBackgroundWorkSnapshot(0, 3), owner.CaptureWorkSnapshot());
 
             QueueGatedWork("chart_info_hydration", isReadHydration: true);
             Assert.AreEqual(new StartupBackgroundWorkSnapshot(1, 3), owner.CaptureWorkSnapshot());
 
             QueueGatedWork("maintenance_hydration", isReadHydration: false);
-            await fourStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await fourStarted.Task;
             QueueGatedWork("installable_maintenance", isReadHydration: false);
             Assert.AreEqual(new StartupBackgroundWorkSnapshot(2, 4), owner.CaptureWorkSnapshot());
 
@@ -997,7 +996,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             Interlocked.Decrement(ref counters.Active);
         });
         owner.Start();
-        await oldEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await oldEntered.Task;
 
         owner.Queue("default_b", "retained", null, () =>
         {
@@ -1010,7 +1009,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         QueueGatedWork(owner, "chart_info_hydration", newRelease, counters);
         QueueGatedWork(owner, "maintenance_hydration", newRelease, counters);
         QueueGatedWork(owner, "installable_maintenance", newRelease, counters);
-        await counters.ThreeNewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await counters.ThreeNewStarted.Task;
         Assert.AreEqual(3, Volatile.Read(ref counters.NewStarted));
         Assert.AreEqual(4, Volatile.Read(ref counters.Active));
         Assert.AreEqual(4, Volatile.Read(ref counters.MaximumActive));
@@ -1047,7 +1046,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
 
         owner.Start();
-        await dependencyCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await dependencyCompleted.Task;
         await WaitUntilAsync(owner, () =>
         {
             string summary = owner.BuildSummaryLog(0L);
@@ -1058,7 +1057,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.Reset(startImmediately: true);
         Assert.IsFalse(followupEntered.Task.IsCompleted);
         followupRelease.SetResult(true);
-        await followupEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await followupEntered.Task;
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -1077,7 +1076,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
 
         owner.Start();
-        await dependentRan.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await dependentRan.Task;
         await WaitForFullyIdleAsync(owner);
 
         string summary = owner.BuildSummaryLog(12L);
@@ -1107,11 +1106,11 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             discarded.TrySetResult(true);
         });
         owner.Start();
-        await requiredEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await requiredEntered.Task;
 
         shutdownRequested = true;
         owner.RequestShutdown("window_close");
-        await discarded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await discarded.Task;
         Assert.IsTrue(discardedProbeSucceeded);
         Assert.IsFalse(owner.Queue("post_shutdown", "shutdown", null, () => Task.CompletedTask));
 
@@ -1136,12 +1135,12 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             await firstRelease.Task.ConfigureAwait(false);
         });
         owner.Start();
-        await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await firstEntered.Task;
         owner.Queue("default_a", "latest", null, () => Task.CompletedTask, reason => discarded.TrySetResult(true));
 
         shutdownRequested = true;
         owner.RequestShutdown("window_close");
-        await discarded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await discarded.Task;
         shutdownRequested = false;
         owner.Reset(startImmediately: true);
         owner.Queue("default_after_discard", "dependent", "default_a", () =>
@@ -1150,7 +1149,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             return Task.CompletedTask;
         });
         firstRelease.SetResult(true);
-        await dependentEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await dependentEntered.Task;
         await WaitForFullyIdleAsync(owner);
     }
 
@@ -1172,7 +1171,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.Queue("playlist_library_index_prewarm", "test", null, () => Task.CompletedTask);
         owner.Start();
 
-        await notified.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await notified.Task;
         Assert.IsTrue(observedIdle);
         Assert.IsTrue(idleProbeSucceeded);
         await WaitForFullyIdleAsync(owner);
@@ -1276,8 +1275,6 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     private static async Task WaitUntilAsync(StartupBackgroundTaskSchedulerOwner owner, Func<bool> predicate)
     {
         var notificationProbe = (SchedulerNotificationProbe)owner.ProgressSynchronization;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-        (long Generation, long Revision)? lastNotification = null;
         while (!predicate())
         {
             Task<(long Generation, long Revision)> notification = notificationProbe.CaptureNextNotification();
@@ -1285,15 +1282,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             {
                 return;
             }
-            try
-            {
-                lastNotification = await notification.WaitAsync(timeout.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
-            {
-                Assert.Fail(
-                    $"Scheduler state was not reached. Last notification={lastNotification?.Generation}/{lastNotification?.Revision}; {owner.DescribeWaitState()}");
-            }
+            await notification.ConfigureAwait(false);
         }
     }
 
