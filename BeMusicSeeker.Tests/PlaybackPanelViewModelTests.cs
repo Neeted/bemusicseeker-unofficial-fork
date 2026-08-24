@@ -28,25 +28,38 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaybackPanelViewModelTests
 {
     [TestMethod]
-    public void PlaybackCommands_ExecuteThroughPlaybackOwner()
+    public async Task PlaybackCommands_ExecuteThroughPlaybackOwner()
     {
         var player = new FakeBmsPlayer();
         PlaybackPanelViewModel panel = CreatePanel(player);
 
+        Task closeObserved = player.WaitForCommandAsync("Close");
         panel.StopCommand.Execute();
-        Assert.IsTrue(SpinWait.SpinUntil(() => player.CloseProcessCount == 1, 3000));
+        await closeObserved;
+
+        Task fastForwardStartObserved = player.WaitForCommandAsync("FastForwardStart");
         panel.FastForwardStartCommand.Execute();
-        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("FastForwardStart"), 3000));
+        await fastForwardStartObserved;
+
+        Task fastForwardEndObserved = player.WaitForCommandAsync("FastForwardEnd");
         panel.FastForwardEndCommand.Execute();
-        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("FastForwardEnd"), 3000));
+        await fastForwardEndObserved;
+
+        Task showEffectObserved = player.WaitForCommandAsync("ShowEffect");
         panel.ShowEffectCommand.Execute();
-        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("ShowEffect"), 3000));
+        await showEffectObserved;
+
+        Task changePlaysideObserved = player.WaitForCommandAsync("ChangePlayside");
         panel.ChangePlaysideCommand.Execute();
-        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("ChangePlayside"), 3000));
+        await changePlaysideObserved;
+
+        Task increaseHighSpeedObserved = player.WaitForCommandAsync("IncreaseHighSpeed");
         panel.IncreaseHighSpeedCommand.Execute();
-        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("IncreaseHighSpeed"), 3000));
+        await increaseHighSpeedObserved;
+
+        Task decreaseHighSpeedObserved = player.WaitForCommandAsync("DecreaseHighSpeed");
         panel.DecreaseHighSpeedCommand.Execute();
-        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("DecreaseHighSpeed"), 3000));
+        await decreaseHighSpeedObserved;
     }
 
     [TestMethod]
@@ -183,7 +196,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_CloseRefreshUsesUiBoundaryAndIgnoresReplacedPlayer()
+    public async Task PlaybackPanel_CloseRefreshUsesUiBoundaryAndIgnoresReplacedPlayer()
     {
         var first = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(10) };
         var dispatcher = new QueuedPlaybackUiDispatcher();
@@ -205,10 +218,16 @@ public sealed class PlaybackPanelViewModelTests
         first.Duration = TimeSpan.FromSeconds(30);
         panel.CloseProcess();
         var replacement = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(40) };
+        Task pendingActions = dispatcher.WaitForPendingActionsAsync(2);
         Task replacementTask = panel.ReplacePlayerAsync(replacement);
-        Assert.IsTrue(SpinWait.SpinUntil(() => dispatcher.PendingCount >= 2, 5000));
+        await Task.WhenAny(pendingActions, replacementTask);
+        if (replacementTask.IsCompleted)
+        {
+            await replacementTask;
+        }
+        await pendingActions;
         dispatcher.RunAll();
-        replacementTask.GetAwaiter().GetResult();
+        await replacementTask;
 
         Assert.AreEqual(TimeSpan.FromSeconds(40), panel.CurrentlyPlayingDuration);
     }
@@ -644,7 +663,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_ObservesAsynchronousPlayerStartFailure()
+    public async Task PlaybackPanel_ObservesAsynchronousPlayerStartFailure()
     {
         string chartPath = Path.GetTempFileName();
         var failure = new IOException("async player start failed");
@@ -671,11 +690,10 @@ public sealed class PlaybackPanelViewModelTests
             Assert.IsNotNull(panel.NowPlayingBmsFile);
             Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
 
+            Task failureNotification = dialogs.WaitForPlaybackFailureAsync();
             completion.SetException(failure);
 
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => dialogs.PlaybackFailureNotificationCount == 1 && panel.NowPlayingBmsFile == null,
-                3000));
+            await failureNotification;
             Assert.AreSame(failure, dialogs.LastPlaybackFailure);
             Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.AreEqual(1, player.CloseProcessCount);
@@ -687,7 +705,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_DefersExitUntilAsynchronousStartSucceeds()
+    public async Task PlaybackPanel_DefersExitUntilAsynchronousStartSucceeds()
     {
         var completion = new TaskCompletionSource<object>();
         var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
@@ -705,14 +723,13 @@ public sealed class PlaybackPanelViewModelTests
 
         completion.SetResult(new object());
 
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => exitCount == 1 && playStartTask.IsCompleted,
-            3000));
+        Assert.IsTrue(await playStartTask);
+        Assert.AreEqual(1, exitCount);
         Assert.AreSame(file, panel.NowPlayingBmsFile);
     }
 
     [TestMethod]
-    public void PlaybackPanel_DropsExitAfterAsynchronousStartFailure()
+    public async Task PlaybackPanel_DropsExitAfterAsynchronousStartFailure()
     {
         var completion = new TaskCompletionSource<object>();
         var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
@@ -725,9 +742,8 @@ public sealed class PlaybackPanelViewModelTests
 
         completion.SetException(failure);
 
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => panel.NowPlayingBmsFile == null && playStartTask.IsCompleted,
-            3000));
+        await Assert.ThrowsExceptionAsync<IOException>(async () => await playStartTask);
+        Assert.IsNull(panel.NowPlayingBmsFile);
         player.ExitHandler!(player, EventArgs.Empty);
 
         Assert.AreEqual(0, exitCount);
@@ -735,7 +751,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_StopsCurrentPlaybackWhenAsyncPlayerStartIsCanceled()
+    public async Task PlaybackPanel_StopsCurrentPlaybackWhenAsyncPlayerStartIsCanceled()
     {
         string chartPath = Path.GetTempFileName();
         var completion = new TaskCompletionSource<object>();
@@ -756,10 +772,28 @@ public sealed class PlaybackPanelViewModelTests
             new ChartFileOperationSynchronizer());
         try
         {
-            panel.Start();
-            completion.SetCanceled();
+            var stopped = new TaskCompletionSource<object?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            PropertyChangedEventHandler stoppedHandler = (_, args) =>
+            {
+                if (args.PropertyName == nameof(PlaybackPanelViewModel.NowPlayingBmsFile)
+                    && panel.NowPlayingBmsFile == null)
+                {
+                    stopped.TrySetResult(null);
+                }
+            };
+            panel.PropertyChanged += stoppedHandler;
+            try
+            {
+                panel.Start();
+                completion.SetCanceled();
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => panel.NowPlayingBmsFile == null, 3000));
+                await stopped.Task;
+            }
+            finally
+            {
+                panel.PropertyChanged -= stoppedHandler;
+            }
             Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
             Assert.AreEqual(-1, panel.NowPlayingRowIndex);
         }
@@ -806,7 +840,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_IgnoresLateStartFailureAfterNewGenerationBegins()
+    public async Task PlaybackPanel_IgnoresLateStartFailureAfterNewGenerationBegins()
     {
         var firstCompletion = new TaskCompletionSource<object>();
         var secondCompletion = new TaskCompletionSource<object>();
@@ -826,19 +860,18 @@ public sealed class PlaybackPanelViewModelTests
 
         firstCompletion.SetException(new IOException("stale player start failed"));
 
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => firstObservationTask.IsCompleted
-                && ReferenceEquals(panel.NowPlayingBmsFile, secondFile)
-                && dialogs.PlaybackFailureNotificationCount == 0,
-            3000));
+        await Assert.ThrowsExceptionAsync<IOException>(
+            async () => await firstObservationTask);
+        Assert.AreSame(secondFile, panel.NowPlayingBmsFile);
+        Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
         secondCompletion.SetCanceled();
-        Assert.IsTrue(SpinWait.SpinUntil(
-            () => secondObservationTask.IsCompleted && panel.NowPlayingBmsFile == null,
-            3000));
+        await Assert.ThrowsExceptionAsync<TaskCanceledException>(
+            async () => await secondObservationTask);
+        Assert.IsNull(panel.NowPlayingBmsFile);
     }
 
     [TestMethod]
-    public void PlaybackPanel_IgnoresLateStartFailureAfterStopAndReplacement()
+    public async Task PlaybackPanel_IgnoresLateStartFailureAfterStopAndReplacement()
     {
         var firstCompletion = new TaskCompletionSource<object>();
         var secondCompletion = new TaskCompletionSource<object>();
@@ -852,7 +885,7 @@ public sealed class PlaybackPanelViewModelTests
 
         panel.StopPlayback();
         firstCompletion.SetException(new IOException("stale after stop"));
-        Assert.IsTrue(SpinWait.SpinUntil(() => firstStart.IsCompleted, 3000));
+        await Assert.ThrowsExceptionAsync<IOException>(async () => await firstStart);
         Assert.IsNull(panel.NowPlayingBmsFile);
         Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
 
@@ -863,14 +896,14 @@ public sealed class PlaybackPanelViewModelTests
         panel.ReplacePlayerAsync(replacementPlayer).GetAwaiter().GetResult();
         secondCompletion.SetException(new IOException("stale after replacement"));
 
-        Assert.IsTrue(SpinWait.SpinUntil(() => secondStart.IsCompleted, 3000));
+        await Assert.ThrowsExceptionAsync<IOException>(async () => await secondStart);
         Assert.AreSame(secondFile, panel.NowPlayingBmsFile);
         Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
         panel.StopPlayback();
     }
 
     [TestMethod]
-    public void PlaybackPanel_RecoversAfterAsynchronousPlayerStartFailure()
+    public async Task PlaybackPanel_RecoversAfterAsynchronousPlayerStartFailure()
     {
         string chartPath = Path.GetTempFileName();
         var completion = new TaskCompletionSource<object>();
@@ -892,8 +925,9 @@ public sealed class PlaybackPanelViewModelTests
         try
         {
             panel.Start();
+            Task failureNotification = dialogs.WaitForPlaybackFailureAsync();
             completion.SetException(new IOException("recoverable player start failed"));
-            Assert.IsTrue(SpinWait.SpinUntil(() => panel.NowPlayingBmsFile == null, 3000));
+            await failureNotification;
 
             player.PlayStartTask = Task.CompletedTask;
             panel.Start();
@@ -944,7 +978,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_ContainsAsynchronousNotificationFailure()
+    public async Task PlaybackPanel_ContainsAsynchronousNotificationFailure()
     {
         string chartPath = Path.GetTempFileName();
         var playerFailure = new IOException("async player start failed");
@@ -968,12 +1002,10 @@ public sealed class PlaybackPanelViewModelTests
         try
         {
             panel.Start();
+            Task failureNotification = dialogs.WaitForPlaybackFailureAsync();
             completion.SetException(playerFailure);
 
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => panel.NowPlayingBmsFile == null
-                    && dialogs.PlaybackFailureNotificationCount == 1,
-                3000));
+            await failureNotification;
             Assert.AreSame(playerFailure, dialogs.LastPlaybackFailure);
         }
         finally
@@ -1061,7 +1093,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_TemporaryInstallAsyncStartFailureAndCancellationTearDown()
+    public async Task PlaybackPanel_TemporaryInstallAsyncStartFailureAndCancellationTearDown()
     {
         bool originalLr2Body = Settings.Default.UsePlayerLR2body;
         bool originalLr2Database = Settings.Default.OperationModeLR2DB;
@@ -1090,16 +1122,33 @@ public sealed class PlaybackPanelViewModelTests
                 dialogs);
 
             panel.Start();
+            Task failureNotification = dialogs.WaitForPlaybackFailureAsync();
             firstCompletion.SetException(new IOException("temporary install start failed"));
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => panel.NowPlayingBmsFile == null
-                    && dialogs.PlaybackFailureNotificationCount == 1,
-                3000));
+            await failureNotification;
 
             player.PlayStartTask = secondCompletion.Task;
-            panel.Start();
-            secondCompletion.SetCanceled();
-            Assert.IsTrue(SpinWait.SpinUntil(() => panel.NowPlayingBmsFile == null, 3000));
+            var stopped = new TaskCompletionSource<object?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            PropertyChangedEventHandler stoppedHandler = (_, args) =>
+            {
+                if (args.PropertyName == nameof(PlaybackPanelViewModel.NowPlayingBmsFile)
+                    && panel.NowPlayingBmsFile == null)
+                {
+                    stopped.TrySetResult(null);
+                }
+            };
+            panel.PropertyChanged += stoppedHandler;
+            Task closeObserved = player.WaitForCommandAsync("Close");
+            try
+            {
+                panel.Start();
+                secondCompletion.SetCanceled();
+                await Task.WhenAll(stopped.Task, closeObserved);
+            }
+            finally
+            {
+                panel.PropertyChanged -= stoppedHandler;
+            }
             Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
             Assert.AreEqual(2, player.CloseProcessCount);
         }
@@ -1248,7 +1297,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_StartNextAndPreviousFollowLiveQueueSelection()
+    public async Task PlaybackPanel_StartNextAndPreviousFollowLiveQueueSelection()
     {
         string firstPath = Path.GetTempFileName();
         string secondPath = Path.GetTempFileName();
@@ -1283,10 +1332,9 @@ public sealed class PlaybackPanelViewModelTests
 
             panel.HandleTableSelection(chartList.Rows[1]);
             Assert.AreEqual(secondPath, panel.DisplayedBmsPlayerFile.path);
+            Task playStartObserved = player.WaitForCommandAsync("PlayStart:" + secondPath);
             Assert.IsTrue(panel.HandleTableRowActivation(1, chartList.Rows[1]));
-            Assert.IsTrue(SpinWait.SpinUntil(
-                () => player.Commands.Any(command => command == "PlayStart:" + secondPath),
-                3000));
+            await playStartObserved;
             Assert.AreEqual(secondPath, panel.NowPlayingBmsFile.path);
             Assert.AreEqual(1, panel.NowPlayingRowIndex);
             Assert.AreEqual(1, chartList.SelectedIndex);
@@ -1675,9 +1723,11 @@ public sealed class PlaybackPanelViewModelTests
                 Assert.AreEqual(1, viewStartingCount);
                 Assert.AreEqual(1, viewStartedCount);
 
+                Task restartObserved = player.WaitForCommandAsync("Restart");
                 view.HandlePreviousButtonClick(1);
-                PumpDispatcherFor(TimeSpan.FromMilliseconds(700));
-                Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("Restart"), 3000));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    restartObserved,
+                    "PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart.initial-restart");
                 while (player.Commands.TryDequeue(out _))
                 {
                 }
@@ -1688,9 +1738,11 @@ public sealed class PlaybackPanelViewModelTests
                 Assert.IsFalse(player.Commands.Contains("Restart"));
                 Assert.IsFalse(replacementPlayer.Commands.Contains("Restart"));
 
+                Task replacementRestartObserved = replacementPlayer.WaitForCommandAsync("Restart");
                 view.HandlePreviousButtonClick(1);
-                PumpDispatcherFor(TimeSpan.FromMilliseconds(700));
-                Assert.IsTrue(SpinWait.SpinUntil(() => replacementPlayer.Commands.Contains("Restart"), 3000));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    replacementRestartObserved,
+                    "PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart.replacement-restart");
                 while (replacementPlayer.Commands.TryDequeue(out _))
                 {
                 }
@@ -2098,6 +2150,37 @@ public sealed class PlaybackPanelViewModelTests
 
         public ConcurrentQueue<string> Commands { get; } = new();
 
+        private readonly ConcurrentDictionary<string, int> commandCounts = new(
+            StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<
+            (string Command, int Occurrence),
+            TaskCompletionSource<object?>> commandSignals = new();
+
+        internal Task WaitForCommandAsync(string command)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(command);
+            int expectedOccurrence = commandCounts.TryGetValue(command, out int currentOccurrence)
+                ? currentOccurrence + 1
+                : 1;
+            var key = (command, expectedOccurrence);
+            if (commandCounts.TryGetValue(command, out currentOccurrence)
+                && currentOccurrence >= expectedOccurrence)
+            {
+                return Task.CompletedTask;
+            }
+
+            TaskCompletionSource<object?> signal = commandSignals.GetOrAdd(
+                key,
+                static _ => new TaskCompletionSource<object?>(
+                    TaskCreationOptions.RunContinuationsAsynchronously));
+            if (commandCounts.TryGetValue(command, out currentOccurrence)
+                && currentOccurrence >= expectedOccurrence)
+            {
+                signal.TrySetResult(null);
+            }
+            return signal.Task;
+        }
+
         public void Raise(string propertyName)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
@@ -2106,13 +2189,13 @@ public sealed class PlaybackPanelViewModelTests
         public void CloseProcess()
         {
             CloseProcessCount++;
-            Commands.Enqueue("Close");
+            RecordCommand("Close");
             BeforeClose?.Invoke();
         }
 
         public Task PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
         {
-            Commands.Enqueue("PlayStart:" + bmsFilePath);
+            RecordCommand("PlayStart:" + bmsFilePath);
             ExitHandler = onExitEventHandler;
             BeforePlayStart?.Invoke();
             if (PlayStartException != null)
@@ -2122,29 +2205,39 @@ public sealed class PlaybackPanelViewModelTests
             return PlayStartTask ?? Task.CompletedTask;
         }
 
-        public void RestartPlayingBMSfile() => Commands.Enqueue("Restart");
+        public void RestartPlayingBMSfile() => RecordCommand("Restart");
 
-        public void PausePlayingBMSfileToggle() => Commands.Enqueue("Pause");
+        public void PausePlayingBMSfileToggle() => RecordCommand("Pause");
 
-        public void FastForwardPlayingBMSfileStart() => Commands.Enqueue("FastForwardStart");
+        public void FastForwardPlayingBMSfileStart() => RecordCommand("FastForwardStart");
 
-        public void FastForwardPlayingBMSfileEnd() => Commands.Enqueue("FastForwardEnd");
+        public void FastForwardPlayingBMSfileEnd() => RecordCommand("FastForwardEnd");
 
-        public void FastBackwardPlayingBMSfileStart() => Commands.Enqueue("FastBackwardStart");
+        public void FastBackwardPlayingBMSfileStart() => RecordCommand("FastBackwardStart");
 
-        public void FastBackwardPlayingBMSfileEnd() => Commands.Enqueue("FastBackwardEnd");
+        public void FastBackwardPlayingBMSfileEnd() => RecordCommand("FastBackwardEnd");
 
-        public void ShowInfo() => Commands.Enqueue("ShowInfo");
+        public void ShowInfo() => RecordCommand("ShowInfo");
 
-        public void ShowEffect() => Commands.Enqueue("ShowEffect");
+        public void ShowEffect() => RecordCommand("ShowEffect");
 
-        public void ChangePlayside() => Commands.Enqueue("ChangePlayside");
+        public void ChangePlayside() => RecordCommand("ChangePlayside");
 
-        public void IncreaseHighSpeed() => Commands.Enqueue("IncreaseHighSpeed");
+        public void IncreaseHighSpeed() => RecordCommand("IncreaseHighSpeed");
 
-        public void DecreaseHighSpeed() => Commands.Enqueue("DecreaseHighSpeed");
+        public void DecreaseHighSpeed() => RecordCommand("DecreaseHighSpeed");
 
-        public void VolumeChanged() => Commands.Enqueue("VolumeChanged");
+        public void VolumeChanged() => RecordCommand("VolumeChanged");
+
+        private void RecordCommand(string command)
+        {
+            Commands.Enqueue(command);
+            int occurrence = commandCounts.AddOrUpdate(command, 1, static (_, count) => count + 1);
+            if (commandSignals.TryGetValue((command, occurrence), out TaskCompletionSource<object?> signal))
+            {
+                signal.TrySetResult(null);
+            }
+        }
     }
 
     private sealed class FakePlaybackDialogService : IPlaybackDialogService
@@ -2158,6 +2251,11 @@ public sealed class PlaybackPanelViewModelTests
         internal Exception? LastPlaybackFailure { get; private set; }
 
         internal int PlaybackFailureNotificationCount { get; private set; }
+
+        private readonly TaskCompletionSource<object?> playbackFailureNotification =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal Task WaitForPlaybackFailureAsync() => playbackFailureNotification.Task;
 
         internal Action? BeforePlaybackFailureNotification { get; set; }
 
@@ -2178,6 +2276,7 @@ public sealed class PlaybackPanelViewModelTests
             BeforePlaybackFailureNotification?.Invoke();
             LastPlaybackFailure = exception;
             PlaybackFailureNotificationCount++;
+            playbackFailureNotification.TrySetResult(null);
             if (PlaybackFailureException != null)
             {
                 throw PlaybackFailureException;
@@ -2202,12 +2301,42 @@ public sealed class PlaybackPanelViewModelTests
     private sealed class QueuedPlaybackUiDispatcher : IPlaybackUiDispatcher
     {
         private readonly ConcurrentQueue<Action> actions = new();
+        private readonly object pendingWaiterGate = new();
+        private readonly List<(int MinimumCount, TaskCompletionSource<object?> Completion)> pendingWaiters = [];
 
         internal int PendingCount => actions.Count;
+
+        internal Task WaitForPendingActionsAsync(int minimumCount)
+        {
+            if (minimumCount < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(minimumCount));
+            }
+            if (PendingCount >= minimumCount)
+            {
+                return Task.CompletedTask;
+            }
+
+            var completion = new TaskCompletionSource<object?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (pendingWaiterGate)
+            {
+                if (PendingCount >= minimumCount)
+                {
+                    completion.TrySetResult(null);
+                }
+                else
+                {
+                    pendingWaiters.Add((minimumCount, completion));
+                }
+            }
+            return completion.Task;
+        }
 
         public void Dispatch(Action action)
         {
             actions.Enqueue(action);
+            CompletePendingWaiters();
         }
 
         public Task DispatchAsync(Action action)
@@ -2226,6 +2355,7 @@ public sealed class PlaybackPanelViewModelTests
                     completion.TrySetException(exception);
                 }
             });
+            CompletePendingWaiters();
             return completion.Task;
         }
 
@@ -2234,6 +2364,37 @@ public sealed class PlaybackPanelViewModelTests
             while (actions.TryDequeue(out Action action))
             {
                 action();
+            }
+        }
+
+        private void CompletePendingWaiters()
+        {
+            List<TaskCompletionSource<object?>>? completed = null;
+            lock (pendingWaiterGate)
+            {
+                int pendingCount = PendingCount;
+                for (int index = pendingWaiters.Count - 1; index >= 0; index--)
+                {
+                    (int minimumCount, TaskCompletionSource<object?> completion) = pendingWaiters[index];
+                    if (pendingCount < minimumCount)
+                    {
+                        continue;
+                    }
+
+                    completed ??= [];
+                    completed.Add(completion);
+                    pendingWaiters.RemoveAt(index);
+                }
+            }
+
+            if (completed == null)
+            {
+                return;
+            }
+
+            foreach (TaskCompletionSource<object?> completion in completed)
+            {
+                completion.TrySetResult(null);
             }
         }
     }

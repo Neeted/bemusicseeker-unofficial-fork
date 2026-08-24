@@ -32,17 +32,24 @@ public sealed class LibraryFolderTreeViewModelTests
     [TestMethod]
     public async Task DeferredRefresh_DropsRequestAfterDispatcherShutdownWithoutRetry()
     {
-        Dispatcher shutdownDispatcher = null!;
-        using var dispatcherReady = new ManualResetEventSlim();
+        var dispatcherReady = new TaskCompletionSource<Dispatcher>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         Thread dispatcherThread = new(() =>
         {
-            shutdownDispatcher = Dispatcher.CurrentDispatcher;
-            dispatcherReady.Set();
-            shutdownDispatcher.InvokeShutdown();
+            try
+            {
+                Dispatcher shutdownDispatcher = Dispatcher.CurrentDispatcher;
+                dispatcherReady.TrySetResult(shutdownDispatcher);
+                shutdownDispatcher.InvokeShutdown();
+            }
+            catch (Exception exception)
+            {
+                dispatcherReady.TrySetException(exception);
+            }
         });
         dispatcherThread.SetApartmentState(ApartmentState.STA);
         dispatcherThread.Start();
-        Assert.IsTrue(dispatcherReady.Wait(TimeSpan.FromSeconds(5)));
+        Dispatcher shutdownDispatcher = await dispatcherReady.Task;
         dispatcherThread.Join();
 
         var owner = CreateTreeOwner(
@@ -52,7 +59,7 @@ public sealed class LibraryFolderTreeViewModelTests
         int refreshRequests = 0;
         owner.CacheRefreshRequested += (_, _) => refreshRequests++;
         owner.ScheduleDeferredRefresh(operationToken: 1);
-        await owner.WaitForDeferredRefreshIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await owner.WaitForDeferredRefreshIdleAsync();
         Assert.AreEqual(0, refreshRequests);
     }
 
@@ -61,22 +68,33 @@ public sealed class LibraryFolderTreeViewModelTests
     {
         Dispatcher dispatcher = null!;
         LibraryFolderTreeViewModel owner = null!;
-        using var dispatcherReady = new ManualResetEventSlim();
-        using var blockerEntered = new ManualResetEventSlim();
+        var dispatcherReady = new TaskCompletionSource<(
+            Dispatcher Dispatcher,
+            LibraryFolderTreeViewModel Owner)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockerEntered = new TaskCompletionSource<object?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseBlocker = new ManualResetEventSlim();
         Thread dispatcherThread = new(() =>
         {
-            dispatcher = Dispatcher.CurrentDispatcher;
-            owner = CreateTreeOwner(
-                _ => true,
-                _ => new ExplorerOpenResult(),
-                new WpfUiScheduler(() => dispatcher));
-            dispatcherReady.Set();
-            Dispatcher.Run();
+            try
+            {
+                dispatcher = Dispatcher.CurrentDispatcher;
+                owner = CreateTreeOwner(
+                    _ => true,
+                    _ => new ExplorerOpenResult(),
+                    new WpfUiScheduler(() => dispatcher));
+                dispatcherReady.TrySetResult((dispatcher, owner));
+                Dispatcher.Run();
+            }
+            catch (Exception exception)
+            {
+                dispatcherReady.TrySetException(exception);
+            }
         });
         dispatcherThread.SetApartmentState(ApartmentState.STA);
         dispatcherThread.Start();
-        Assert.IsTrue(dispatcherReady.Wait(TimeSpan.FromSeconds(5)));
+        (dispatcher, owner) = await dispatcherReady.Task;
 
         int refreshRequests = 0;
         int refreshCompletions = 0;
@@ -84,31 +102,32 @@ public sealed class LibraryFolderTreeViewModelTests
         owner.DeferredRefreshCompleted += (_, _) => Interlocked.Increment(ref refreshCompletions);
         dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
         {
-            blockerEntered.Set();
+            blockerEntered.TrySetResult(null);
             releaseBlocker.Wait();
         }));
-        Assert.IsTrue(blockerEntered.Wait(TimeSpan.FromSeconds(5)));
+        await blockerEntered.Task;
 
-        using var refreshOperationPosted = new ManualResetEventSlim();
+        var refreshOperationPosted = new TaskCompletionSource<object?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         DispatcherHookEventHandler operationPosted = (_, args) =>
         {
             if (args.Operation.Priority == DispatcherPriority.Background)
             {
-                refreshOperationPosted.Set();
+                refreshOperationPosted.TrySetResult(null);
             }
         };
         dispatcher.Hooks.OperationPosted += operationPosted;
 
         owner.ScheduleDeferredRefresh(operationToken: 1);
         Task refreshIdle = owner.WaitForDeferredRefreshIdleAsync();
-        Assert.IsTrue(refreshOperationPosted.Wait(TimeSpan.FromSeconds(5)));
+        await refreshOperationPosted.Task;
         Assert.IsFalse(refreshIdle.IsCompleted);
         dispatcher.Hooks.OperationPosted -= operationPosted;
         dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
         releaseBlocker.Set();
 
         Assert.IsTrue(dispatcherThread.Join(TimeSpan.FromSeconds(5)));
-        await refreshIdle.WaitAsync(TimeSpan.FromSeconds(5));
+        await refreshIdle;
         Assert.AreEqual(0, refreshRequests);
         Assert.AreEqual(0, refreshCompletions);
     }
@@ -118,24 +137,37 @@ public sealed class LibraryFolderTreeViewModelTests
     {
         Dispatcher dispatcher = null!;
         LibraryFolderTreeViewModel owner = null!;
-        using var dispatcherReady = new ManualResetEventSlim();
-        using var blockerEntered = new ManualResetEventSlim();
+        var dispatcherReady = new TaskCompletionSource<(
+            Dispatcher Dispatcher,
+            LibraryFolderTreeViewModel Owner)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockerEntered = new TaskCompletionSource<object?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseBlocker = new ManualResetEventSlim();
-        using var firstRefreshPosted = new ManualResetEventSlim();
-        using var latestRefreshCompleted = new ManualResetEventSlim();
+        var firstRefreshPosted = new TaskCompletionSource<object?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var latestRefreshCompleted = new TaskCompletionSource<object?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         Thread dispatcherThread = new(() =>
         {
-            dispatcher = Dispatcher.CurrentDispatcher;
-            owner = CreateTreeOwner(
-                _ => true,
-                _ => new ExplorerOpenResult(),
-                new WpfUiScheduler(() => dispatcher));
-            dispatcherReady.Set();
-            Dispatcher.Run();
+            try
+            {
+                dispatcher = Dispatcher.CurrentDispatcher;
+                owner = CreateTreeOwner(
+                    _ => true,
+                    _ => new ExplorerOpenResult(),
+                    new WpfUiScheduler(() => dispatcher));
+                dispatcherReady.TrySetResult((dispatcher, owner));
+                Dispatcher.Run();
+            }
+            catch (Exception exception)
+            {
+                dispatcherReady.TrySetException(exception);
+            }
         });
         dispatcherThread.SetApartmentState(ApartmentState.STA);
         dispatcherThread.Start();
-        Assert.IsTrue(dispatcherReady.Wait(TimeSpan.FromSeconds(5)));
+        (dispatcher, owner) = await dispatcherReady.Task;
 
         int refreshRequests = 0;
         int refreshCompletions = 0;
@@ -145,21 +177,21 @@ public sealed class LibraryFolderTreeViewModelTests
         {
             completedOperationToken = args.OperationToken;
             Interlocked.Increment(ref refreshCompletions);
-            latestRefreshCompleted.Set();
+            latestRefreshCompleted.TrySetResult(null);
         };
 
         dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
         {
-            blockerEntered.Set();
+            blockerEntered.TrySetResult(null);
             releaseBlocker.Wait();
         }));
-        Assert.IsTrue(blockerEntered.Wait(TimeSpan.FromSeconds(5)));
+        await blockerEntered.Task;
 
         DispatcherHookEventHandler operationPosted = (_, args) =>
         {
             if (args.Operation.Priority == DispatcherPriority.Background)
             {
-                firstRefreshPosted.Set();
+                firstRefreshPosted.TrySetResult(null);
             }
         };
         dispatcher.Hooks.OperationPosted += operationPosted;
@@ -168,12 +200,12 @@ public sealed class LibraryFolderTreeViewModelTests
         {
             owner.ScheduleDeferredRefresh(operationToken: 0);
             Task refreshIdle = owner.WaitForDeferredRefreshIdleAsync();
-            Assert.IsTrue(firstRefreshPosted.Wait(TimeSpan.FromSeconds(5)));
+            await firstRefreshPosted.Task;
             owner.ScheduleDeferredRefresh(operationToken: 42);
             releaseBlocker.Set();
 
-            Assert.IsTrue(latestRefreshCompleted.Wait(TimeSpan.FromSeconds(5)));
-            await refreshIdle.WaitAsync(TimeSpan.FromSeconds(5));
+            await latestRefreshCompleted.Task;
+            await refreshIdle;
             Assert.AreEqual(42, completedOperationToken);
             Assert.AreEqual(1, refreshCompletions);
             Assert.AreEqual(0, refreshRequests);
@@ -192,37 +224,50 @@ public sealed class LibraryFolderTreeViewModelTests
     {
         Dispatcher dispatcher = null!;
         LibraryFolderTreeViewModel owner = null!;
-        using var dispatcherReady = new ManualResetEventSlim();
-        using var blockerEntered = new ManualResetEventSlim();
+        var dispatcherReady = new TaskCompletionSource<(
+            Dispatcher Dispatcher,
+            LibraryFolderTreeViewModel Owner)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var blockerEntered = new TaskCompletionSource<object?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseBlocker = new ManualResetEventSlim();
-        using var firstRefreshPosted = new ManualResetEventSlim();
-        using var readmissionRequested = new ManualResetEventSlim();
+        var firstRefreshPosted = new TaskCompletionSource<object?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var readmissionRequested = new TaskCompletionSource<
+            LibraryFolderTreeRefreshRequestedEventArgs>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseReadmission = new ManualResetEventSlim();
-        using var latestRefreshCompleted = new ManualResetEventSlim();
+        var latestRefreshCompleted = new TaskCompletionSource<object?>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         PerformanceInteraction interaction = PerformanceInteraction.Start("startup", 7L);
         PerformanceInteraction latestInteraction = PerformanceInteraction.Start("startup", 42L);
         Thread dispatcherThread = new(() =>
         {
-            dispatcher = Dispatcher.CurrentDispatcher;
-            owner = CreateTreeOwner(
-                _ => true,
-                _ => new ExplorerOpenResult(),
-                new WpfUiScheduler(() => dispatcher));
-            dispatcherReady.Set();
-            Dispatcher.Run();
+            try
+            {
+                dispatcher = Dispatcher.CurrentDispatcher;
+                owner = CreateTreeOwner(
+                    _ => true,
+                    _ => new ExplorerOpenResult(),
+                    new WpfUiScheduler(() => dispatcher));
+                dispatcherReady.TrySetResult((dispatcher, owner));
+                Dispatcher.Run();
+            }
+            catch (Exception exception)
+            {
+                dispatcherReady.TrySetException(exception);
+            }
         });
         dispatcherThread.SetApartmentState(ApartmentState.STA);
         dispatcherThread.Start();
-        Assert.IsTrue(dispatcherReady.Wait(TimeSpan.FromSeconds(5)));
+        (dispatcher, owner) = await dispatcherReady.Task;
 
-        LibraryFolderTreeRefreshRequestedEventArgs? request = null;
         int refreshCompletions = 0;
         long completedOperationToken = -1;
         owner.CacheRefreshRequested += (_, args) =>
         {
-            request = args;
             owner.ScheduleDeferredRefresh(args.OperationToken, args.Interaction);
-            readmissionRequested.Set();
+            readmissionRequested.TrySetResult(args);
             if (!releaseReadmission.Wait(TimeSpan.FromSeconds(5)))
             {
                 throw new TimeoutException("Deferred refresh continuation was not released.");
@@ -232,21 +277,21 @@ public sealed class LibraryFolderTreeViewModelTests
         {
             completedOperationToken = args.OperationToken;
             Interlocked.Increment(ref refreshCompletions);
-            latestRefreshCompleted.Set();
+            latestRefreshCompleted.TrySetResult(null);
         };
 
-        dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
+        _ = dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
         {
-            blockerEntered.Set();
+            blockerEntered.TrySetResult(null);
             releaseBlocker.Wait();
         }));
-        Assert.IsTrue(blockerEntered.Wait(TimeSpan.FromSeconds(5)));
+        await blockerEntered.Task;
 
         DispatcherHookEventHandler operationPosted = (_, args) =>
         {
             if (args.Operation.Priority == DispatcherPriority.Background)
             {
-                firstRefreshPosted.Set();
+                firstRefreshPosted.TrySetResult(null);
             }
         };
         dispatcher.Hooks.OperationPosted += operationPosted;
@@ -255,15 +300,14 @@ public sealed class LibraryFolderTreeViewModelTests
         {
             owner.ScheduleDeferredRefresh(operationToken: 7, interaction: interaction);
             Task refreshIdle = owner.WaitForDeferredRefreshIdleAsync();
-            Assert.IsTrue(firstRefreshPosted.Wait(TimeSpan.FromSeconds(5)));
+            await firstRefreshPosted.Task;
             owner.ScheduleDeferredRefresh(operationToken: 42, interaction: latestInteraction);
             typeof(LibraryFolderTreeViewModel)
                 .GetMethod("MarkRefreshRequested", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(owner, null);
             releaseBlocker.Set();
 
-            Assert.IsTrue(readmissionRequested.Wait(TimeSpan.FromSeconds(5)));
-            Assert.IsNotNull(request);
+            LibraryFolderTreeRefreshRequestedEventArgs request = await readmissionRequested.Task;
             Assert.AreEqual(
                 LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
                 request.Origin);
@@ -273,8 +317,8 @@ public sealed class LibraryFolderTreeViewModelTests
             Assert.AreSame(refreshIdle, owner.WaitForDeferredRefreshIdleAsync());
             releaseReadmission.Set();
 
-            Assert.IsTrue(latestRefreshCompleted.Wait(TimeSpan.FromSeconds(5)));
-            await refreshIdle.WaitAsync(TimeSpan.FromSeconds(5));
+            await latestRefreshCompleted.Task;
+            await refreshIdle;
             Assert.AreEqual(42, completedOperationToken);
             Assert.AreEqual(1, refreshCompletions);
         }
@@ -283,7 +327,7 @@ public sealed class LibraryFolderTreeViewModelTests
             dispatcher.Hooks.OperationPosted -= operationPosted;
             releaseReadmission.Set();
             releaseBlocker.Set();
-            dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
+            _ = dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
             Assert.IsTrue(dispatcherThread.Join(TimeSpan.FromSeconds(5)));
         }
     }
@@ -325,7 +369,7 @@ public sealed class LibraryFolderTreeViewModelTests
 
             PerformanceInteraction interaction = PerformanceInteraction.Start("startup", 17L);
             owner.ScheduleDeferredRefresh(42L, interaction);
-            await owner.WaitForDeferredRefreshIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await owner.WaitForDeferredRefreshIdleAsync();
 
             string[] expectedStages =
             [
@@ -356,7 +400,7 @@ public sealed class LibraryFolderTreeViewModelTests
             int entryCountBeforeIndependentRefresh = stages.Count;
             owner.InvalidateLibraryFolderCache();
             owner.ScheduleDeferredRefresh(43L);
-            await owner.WaitForDeferredRefreshIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await owner.WaitForDeferredRefreshIdleAsync();
             string[] independentRefreshMarkers = stages
                 .Skip(entryCountBeforeIndependentRefresh)
                 .Where(value => value.IndexOf("stage=", StringComparison.Ordinal) >= 0)
@@ -409,7 +453,7 @@ public sealed class LibraryFolderTreeViewModelTests
     }
 
     [TestMethod]
-    public void AttachedLibrary_ExposesSortedDistinctFoldersAndInvalidatesAfterSearchRootChange()
+    public async Task AttachedLibrary_ExposesSortedDistinctFoldersAndInvalidatesAfterSearchRootChange()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_LibraryFolderTree_" + Guid.NewGuid().ToString("N"));
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -433,8 +477,10 @@ public sealed class LibraryFolderTreeViewModelTests
 
             var library = new TestBmsLibrary(songDbPath);
             library.SearchTargets = [firstRoot, secondRoot, firstRoot];
-            using var firstRefreshApplied = new ManualResetEventSlim();
-            using var secondRefreshApplied = new ManualResetEventSlim();
+            var firstRefreshApplied = new TaskCompletionSource<object?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var secondRefreshApplied = new TaskCompletionSource<object?>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = CreateTreeOwner(
                 _ => true,
                 _ => new ExplorerOpenResult(),
@@ -448,11 +494,11 @@ public sealed class LibraryFolderTreeViewModelTests
                     parentFolderPropertyChanges++;
                     if (parentFolderPropertyChanges == 1)
                     {
-                        firstRefreshApplied.Set();
+                        firstRefreshApplied.TrySetResult(null);
                     }
                     else
                     {
-                        secondRefreshApplied.Set();
+                        secondRefreshApplied.TrySetResult(null);
                     }
                 }
             };
@@ -464,7 +510,7 @@ public sealed class LibraryFolderTreeViewModelTests
 
             owner.AttachLibrary(library);
             Assert.IsTrue(owner.IsLibraryAttached);
-            Assert.IsTrue(firstRefreshApplied.Wait(TimeSpan.FromSeconds(5)));
+            await firstRefreshApplied.Task;
             CollectionAssert.AreEqual(
                 new[] { secondRoot, firstRoot },
                 owner.BMSParentFolderList.ToArray());
@@ -478,7 +524,7 @@ public sealed class LibraryFolderTreeViewModelTests
                 library.SearchTargets.ToArray());
             owner.InvalidateLibraryFolderCache();
 
-            Assert.IsTrue(secondRefreshApplied.Wait(TimeSpan.FromSeconds(5)));
+            await secondRefreshApplied.Task;
             CollectionAssert.AreEqual(
                 new[] { secondRoot, replacementRoot },
                 owner.BMSParentFolderList.ToArray());
