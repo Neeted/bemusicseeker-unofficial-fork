@@ -8,7 +8,11 @@ param(
     # This seam only lowers the canonical budget so the timeout path can be
     # verified without waiting three minutes. It cannot relax the policy limit.
     [ValidateRange(1, 180)]
-    [int]$FunctionalTimeoutSeconds = 180
+    [int]$FunctionalTimeoutSeconds = 180,
+
+    # Internal probe-only guard.  A normal CLI string cannot satisfy the typed guard
+    # checked by Invoke-MonitoredCommand; no environment variable enables this seam.
+    [object]$InternalTestGuard
 )
 
 $ErrorActionPreference = 'Stop'
@@ -567,12 +571,20 @@ function Invoke-MonitoredCommand {
 
         [DateTime]$CleanupDeadlineUtc,
 
+        [object]$PostStartFaultGuard,
+
         [switch]$IsTestCommand
     )
 
     [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
     $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $process = [System.Diagnostics.Process]::new()
+    $processStarted = $false
+    $standardOutputTask = $null
+    $standardErrorTask = $null
+    $identity = $null
+    $commandIdentity = "$CommandPath $($Arguments -join ' ')"
+    $lifecycleResult = $null
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $CommandPath
     $startInfo.WorkingDirectory = $WorkingDirectory
@@ -590,11 +602,19 @@ function Invoke-MonitoredCommand {
         if (-not $process.Start()) {
             throw "Unable to start ${Label}: $CommandPath"
         }
+        $processStarted = $true
 
         $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
         $standardErrorTask = $process.StandardError.ReadToEndAsync()
-        $commandIdentity = "$CommandPath $($Arguments -join ' ')"
         $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity $commandIdentity
+        if ($null -ne $PostStartFaultGuard) {
+            if ($PostStartFaultGuard -isnot [VerificationPostStartFaultGuard]) {
+                throw 'Post-start fault guard was not created by the internal deterministic probe.'
+            }
+            if ($PostStartFaultGuard.TryConsumeSignal()) {
+                throw "Internal post-start fault injection for $Label."
+            }
+        }
         $processDeadline = if ($PSBoundParameters.ContainsKey('ProcessDeadlineUtc')) {
             $ProcessDeadlineUtc
         }
@@ -629,52 +649,102 @@ function Invoke-MonitoredCommand {
             -TerminateProcessTree:$false
     }
     catch {
+        $primaryException = $_.Exception
         $stageStopwatch.Stop()
-        $startupCleanupDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
-        if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc') -and
-            $PhaseDeadlineUtc -lt $startupCleanupDeadlineUtc) {
-            $startupCleanupDeadlineUtc = $PhaseDeadlineUtc
-        }
-        $startupCleanupDiagnostics = [System.Collections.Generic.List[string]]::new()
-        try {
-            if ([DateTime]::UtcNow -lt $startupCleanupDeadlineUtc) {
-                foreach ($streamName in @('stdout', 'stderr')) {
-                    $writeTask = [System.IO.File]::WriteAllTextAsync(
-                        (Join-Path $DiagnosticsDirectory "$streamName.log"),
-                        [string]::Empty,
-                        [System.Text.UTF8Encoding]::new($false))
-                    [void](Wait-VerificationCleanupTask `
-                            -Task $writeTask `
-                            -OperationName "$Label $streamName startup diagnostic write (PID $($process.Id))" `
-                            -CleanupDeadlineUtc $startupCleanupDeadlineUtc `
-                            -CleanupDiagnostics $startupCleanupDiagnostics)
+        $postStartDiagnostics = [System.Collections.Generic.List[string]]::new()
+        if ($processStarted -and $null -ne $identity -and
+            $null -ne $standardOutputTask -and $null -ne $standardErrorTask) {
+            $postStartDiagnostics.Add("post-start-exception: $($primaryException.Message)")
+            $postStartCleanupDeadlineUtc = if ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc')) {
+                $CleanupDeadlineUtc
+            }
+            elseif ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc')) {
+                $PhaseDeadlineUtc
+            }
+            else {
+                [DateTime]::UtcNow.AddSeconds($monitoredCommandCleanupSeconds)
+            }
+            $postStartProcessDeadlineUtc = [DateTime]::UtcNow
+            try {
+                $lifecycleResult = Invoke-BoundedProcessLifecycle `
+                    -Process $process `
+                    -StandardOutputTask $standardOutputTask `
+                    -StandardErrorTask $standardErrorTask `
+                    -RootProcessId $identity.ProcessId `
+                    -RootProcessIdentity ("$($identity.StartTimeUtcTicks)|$($identity.ProcessId)") `
+                    -CommandIdentity $commandIdentity `
+                    -DiagnosticsDirectory $DiagnosticsDirectory `
+                    -ProcessDeadlineUtc $postStartProcessDeadlineUtc `
+                    -PhaseDeadlineUtc $postStartCleanupDeadlineUtc `
+                    -CleanupDeadlineUtc $postStartCleanupDeadlineUtc `
+                    -TerminateProcessTree `
+                    -PreserveExistingArtifactOnEmpty `
+                    -InitialCleanupDiagnostics @("post-start-exception: $($primaryException.Message)")
+                $primaryException.Data['VerificationRootProcessId'] = $identity.ProcessId
+                $primaryException.Data['VerificationRootProcessIdentity'] = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
+                $primaryException.Data['VerificationLifecycleResult'] = $lifecycleResult
+                foreach ($diagnostic in @($lifecycleResult.SecondaryDiagnostics)) {
+                    $postStartDiagnostics.Add([string]$diagnostic)
+                }
+                if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
+                    Write-Warning "$Label post-start cleanup diagnostics: $(@($lifecycleResult.SecondaryDiagnostics) -join '; ')"
                 }
             }
-            else {
-                $startupCleanupDiagnostics.Add(
-                    "$Label startup diagnostic persistence skipped after cleanup deadline; elapsed $($stageStopwatch.ElapsedMilliseconds)ms")
+            catch {
+                $postStartDiagnostics.Add("post-start-cleanup: $($_.Exception.Message)")
+                Write-Warning "$Label post-start cleanup failed: $($_.Exception.Message)"
             }
         }
-        catch {
-            Write-Warning "$Label startup diagnostics write failed: $($_.Exception.Message)"
-        }
-        try {
-            if ([DateTime]::UtcNow -lt $startupCleanupDeadlineUtc) {
-                [void](Dispose-VerificationProcessHandleBounded `
-                        -Process $process `
-                        -OperationName "$Label startup process dispose (PID $($process.Id))" `
-                        -CleanupDeadlineUtc $startupCleanupDeadlineUtc `
-                        -CleanupDiagnostics $startupCleanupDiagnostics)
+        else {
+            # A start failure has no owned process or stream task.  Preserve the old
+            # startup diagnostic route, but never use it after Process.Start succeeded.
+            $startupCleanupDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
+            if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc') -and
+                $PhaseDeadlineUtc -lt $startupCleanupDeadlineUtc) {
+                $startupCleanupDeadlineUtc = $PhaseDeadlineUtc
             }
-            else {
-                $startupCleanupDiagnostics.Add(
-                    "$Label startup process dispose skipped after cleanup deadline; elapsed $($stageStopwatch.ElapsedMilliseconds)ms")
+            try {
+                if ([DateTime]::UtcNow -lt $startupCleanupDeadlineUtc) {
+                    foreach ($streamName in @('stdout', 'stderr')) {
+                        $writeTask = [System.IO.File]::WriteAllTextAsync(
+                            (Join-Path $DiagnosticsDirectory "$streamName.log"),
+                            [string]::Empty,
+                            [System.Text.UTF8Encoding]::new($false))
+                        [void](Wait-VerificationCleanupTask `
+                                -Task $writeTask `
+                                -OperationName "$Label $streamName startup diagnostic write" `
+                                -CleanupDeadlineUtc $startupCleanupDeadlineUtc `
+                                -CleanupDiagnostics $postStartDiagnostics)
+                    }
+                }
+                else {
+                    $postStartDiagnostics.Add(
+                        "$Label startup diagnostic persistence skipped after cleanup deadline; elapsed $($stageStopwatch.ElapsedMilliseconds)ms")
+                }
+            }
+            catch {
+                $postStartDiagnostics.Add("$Label startup diagnostics write failed: $($_.Exception.Message)")
+            }
+            try {
+                if ([DateTime]::UtcNow -lt $startupCleanupDeadlineUtc) {
+                    [void](Dispose-VerificationProcessHandleBounded `
+                            -Process $process `
+                            -OperationName "$Label startup process dispose" `
+                            -CleanupDeadlineUtc $startupCleanupDeadlineUtc `
+                            -CleanupDiagnostics $postStartDiagnostics)
+                }
+            }
+            catch {
+                $postStartDiagnostics.Add("$Label process dispose failed before start: $($_.Exception.Message)")
             }
         }
-        catch {
-            Write-Warning "$Label process dispose failed after startup failure: $($_.Exception.Message)"
+        foreach ($diagnostic in @($postStartDiagnostics)) {
+            if (-not $primaryException.Data.Contains('VerificationSecondaryDiagnostics')) {
+                $primaryException.Data['VerificationSecondaryDiagnostics'] = [System.Collections.Generic.List[string]]::new()
+            }
+            [void]$primaryException.Data['VerificationSecondaryDiagnostics'].Add([string]$diagnostic)
         }
-        throw
+        throw $primaryException
     }
 
     $stageStopwatch.Stop()
@@ -2009,6 +2079,14 @@ function Invoke-FilteredQuickVerification {
     if ($filteredQuickStopwatch.Elapsed.TotalSeconds -gt $TimeoutSeconds) {
         throw "Filtered Quick verification exceeded the $TimeoutSeconds-second command budget after repository checks."
     }
+}
+
+# Dot-sourced deterministic probes use the actual caller functions but must not enter a
+# normal CLI route.  The object type is defined by verification-process-lifecycle.ps1;
+# passing a string or environment variable cannot activate this return path.
+if ($null -ne $InternalTestGuard -and
+    $InternalTestGuard -is [VerificationPostStartFaultGuard]) {
+    return
 }
 
 if ($Mode -eq 'Functional' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {

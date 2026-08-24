@@ -6,7 +6,7 @@
 
 現在進行中の計画:
 
-- `test-suite-blocking-findings-remediation-plan.md`: テスト整理後レビューで残ったrunner stream lifecycleとWPF dispatcher cleanupのBlocking findings修正計画。
+- `test-suite-post-completion-review-remediation-plan.md`: 完了後レビューで残った process lifecycle persistence、observation ownership、post-start cleanup の修正計画。旧 `test-suite-blocking-findings-remediation-plan.md` は完了履歴であり、現在進行中の計画ではない。
 
 長期参照する5文書:
 

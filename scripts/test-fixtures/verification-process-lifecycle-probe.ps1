@@ -1,7 +1,22 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('normal', 'nonzero', 'descendant-root', 'nonzero-descendant', 'stream-timeout', 'missing-result', 'fanout-order', 'expired-residual')]
+    [ValidateSet(
+        'normal',
+        'nonzero',
+        'descendant-root',
+        'nonzero-descendant',
+        'stream-timeout',
+        'asymmetric-stdout-complete',
+        'asymmetric-stderr-complete',
+        'same-pwsh-late-fault',
+        'post-start-exception',
+        'terminal-diagnostic',
+        'terminal-flush-failure',
+        'functional-shared-deadline',
+        'missing-result',
+        'fanout-order',
+        'expired-residual')]
     [string]$Scenario,
 
     [Parameter(Mandatory)]
@@ -22,6 +37,7 @@ $primitiveSequence = [long]0
 $primitiveObserverState = [pscustomobject]@{
     ResidualGate = $null
     ResidualProcessId = $null
+    ContaminationBStarted = $null
 }
 $primitiveObserver = [pscustomobject]@{
     Observe = {
@@ -34,6 +50,12 @@ $primitiveObserver = [pscustomobject]@{
                 Context = [string]$event.Context
                 UtcTicks = [long]$event.UtcTicks
             })
+        if ($Scenario -ceq 'same-pwsh-late-fault' -and
+            $event.Operation -ceq 'cleanup-transition' -and
+            $event.Context -ceq 'same-pwsh-B' -and
+            $null -ne $primitiveObserverState.ContaminationBStarted) {
+            $primitiveObserverState.ContaminationBStarted.Set()
+        }
         if ($Scenario -ceq 'expired-residual' -and
             $event.Operation -ceq 'descendant-stop' -and
             $event.RootProcessId -eq $primitiveObserverState.ResidualProcessId -and
@@ -57,6 +79,30 @@ function Write-LifecycleLedgerEntry {
         $ledgerPath,
         $entry + [Environment]::NewLine,
         [System.Text.UTF8Encoding]::new($false))
+}
+
+function Test-ProbeExactIdentityAlive {
+    param(
+        [Parameter(Mandatory)]
+        [int]$ProcessId,
+
+        [Parameter(Mandatory)]
+        [long]$CreationIdentity
+    )
+
+    try {
+        $process = [System.Diagnostics.Process]::GetProcessById($ProcessId)
+        try {
+            return -not $process.HasExited -and
+                $process.StartTime.ToUniversalTime().Ticks -eq $CreationIdentity
+        }
+        finally {
+            $process.Dispose()
+        }
+    }
+    catch [ArgumentException] {
+        return $false
+    }
 }
 
 if (-not ('VerificationLifecycleProbeTasks' -as [type])) {
@@ -86,6 +132,25 @@ public static class VerificationLifecycleProbeTasks
             }
             gate.Set();
         });
+    }
+
+    public static Task ReleaseGateWhen(ManualResetEventSlim trigger, ManualResetEventSlim gate)
+    {
+        return Task.Run(() =>
+        {
+            trigger.Wait();
+            gate.Set();
+        });
+    }
+
+    public static Task<string> FaultWhen(ManualResetEventSlim gate, string message)
+    {
+        Func<string> fault = () =>
+        {
+            gate.Wait();
+            throw new InvalidOperationException(message);
+        };
+        return Task.Run(fault);
     }
 }
 '@
@@ -177,7 +242,272 @@ if ($Scenario -ceq 'fanout-order') {
     exit 0
 }
 
-$rootScenario = if ($Scenario -ceq 'nonzero-descendant' -or $Scenario -ceq 'stream-timeout' -or $Scenario -ceq 'missing-result' -or $Scenario -ceq 'expired-residual') {
+if ($Scenario -ceq 'same-pwsh-late-fault') {
+    function Start-SamePwshLifecycleRoot {
+        param(
+            [Parameter(Mandatory)]
+            [string]$Directory
+        )
+
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = 'pwsh'
+        $startInfo.WorkingDirectory = $repositoryRoot
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in @(
+                '-NoProfile',
+                '-File',
+                $childScript,
+                '-Scenario',
+                'normal',
+                '-LedgerPath',
+                $ledgerPath)) {
+            [void]$startInfo.ArgumentList.Add($argument)
+        }
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            throw 'Unable to start the same-pwsh lifecycle root.'
+        }
+        Write-LifecycleLedgerEntry -Process $process
+        $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity 'pwsh -File verification-process-lifecycle-child.ps1 -Scenario normal'
+        return [pscustomobject]@{
+            Process = $process
+            Identity = $identity
+            StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
+            StandardErrorTask = $process.StandardError.ReadToEndAsync()
+            Directory = $Directory
+        }
+    }
+
+    $aDirectory = Join-Path $DiagnosticsDirectory 'same-pwsh-A'
+    $bDirectory = Join-Path $DiagnosticsDirectory 'same-pwsh-B'
+    [void](New-Item -ItemType Directory -Path $aDirectory -Force)
+    [void](New-Item -ItemType Directory -Path $bDirectory -Force)
+    $a = Start-SamePwshLifecycleRoot -Directory $aDirectory
+    $aGate = [System.Threading.ManualResetEventSlim]::new($false)
+    $aStdout = [System.Threading.Tasks.Task[string]]::FromResult([string]'A-complete')
+    $aStderr = [VerificationLifecycleProbeTasks]::FaultWhen($aGate, 'lifecycle-A late fault')
+    $aDeadline = [DateTime]::UtcNow.AddSeconds(1)
+    $aResult = Invoke-BoundedProcessLifecycle `
+        -Process $a.Process `
+        -StandardOutputTask $aStdout `
+        -StandardErrorTask $aStderr `
+        -RootProcessId $a.Identity.ProcessId `
+        -RootProcessIdentity ("$($a.Identity.StartTimeUtcTicks)|$($a.Identity.ProcessId)") `
+        -CommandIdentity 'same-pwsh-A' `
+        -DiagnosticsDirectory $a.Directory `
+        -ProcessDeadlineUtc ([DateTime]::UtcNow) `
+        -PhaseDeadlineUtc $aDeadline `
+        -CleanupDeadlineUtc $aDeadline `
+        -PrimitiveObserver $primitiveObserver `
+        -LifecycleName 'same-pwsh-A'
+
+    $bStarted = [System.Threading.ManualResetEventSlim]::new($false)
+    $primitiveObserverState.ContaminationBStarted = $bStarted
+    $bGate = [System.Threading.ManualResetEventSlim]::new($false)
+    $releaseA = [VerificationLifecycleProbeTasks]::ReleaseGateWhen($bStarted, $aGate)
+    $releaseB = [VerificationLifecycleProbeTasks]::ReleaseGateWhen($bStarted, $bGate)
+    $b = Start-SamePwshLifecycleRoot -Directory $bDirectory
+    $bStdout = [System.Threading.Tasks.Task[string]]::FromResult([string]'B-complete')
+    $bStderr = [VerificationLifecycleProbeTasks]::FaultWhen($bGate, 'lifecycle-B owned fault')
+    $bDeadline = [DateTime]::UtcNow.AddSeconds(3)
+    $bResult = Invoke-BoundedProcessLifecycle `
+        -Process $b.Process `
+        -StandardOutputTask $bStdout `
+        -StandardErrorTask $bStderr `
+        -RootProcessId $b.Identity.ProcessId `
+        -RootProcessIdentity ("$($b.Identity.StartTimeUtcTicks)|$($b.Identity.ProcessId)") `
+        -CommandIdentity 'same-pwsh-B' `
+        -DiagnosticsDirectory $b.Directory `
+        -ProcessDeadlineUtc ([DateTime]::UtcNow) `
+        -PhaseDeadlineUtc $bDeadline `
+        -CleanupDeadlineUtc $bDeadline `
+        -PrimitiveObserver $primitiveObserver `
+        -LifecycleName 'same-pwsh-B'
+    [void]($releaseA.Wait(2000))
+    [void]($releaseB.Wait(2000))
+    Drain-VerificationLateTaskObservations `
+        -ObservationScope $aResult.ObservationScope `
+        -PrimitiveObserver $primitiveObserver `
+        -IncludePostSeal
+    [System.IO.File]::WriteAllText(
+        $ResultPath,
+        ([ordered]@{
+                scenario = $Scenario
+                lifecycleASecondaryDiagnostics = @($aResult.SecondaryDiagnostics)
+                lifecycleBSecondaryDiagnostics = @($bResult.SecondaryDiagnostics)
+                lifecycleBContainsLifecycleADiagnostic = [bool](@($bResult.SecondaryDiagnostics) -match 'lifecycle-A')
+                lifecycleAPostSealFaultObservationCount = @($primitiveEvents.ToArray() | Where-Object { $_.Operation -ceq 'late-task-fault' -and $_.Context -eq 'stderr' }).Count
+                lifecycleAStdout = $aResult.StandardOutput
+                lifecycleBStdout = $bResult.StandardOutput
+                primitiveEvents = @($primitiveEvents.ToArray())
+                cleanupDeadlineUtcTicks = $bDeadline.Ticks
+            } | ConvertTo-Json -Depth 8 -Compress),
+        [System.Text.UTF8Encoding]::new($false))
+    exit 0
+}
+
+if ($Scenario -ceq 'post-start-exception') {
+    $postStartDirectory = Join-Path $DiagnosticsDirectory 'post-start'
+    [void](New-Item -ItemType Directory -Path $postStartDirectory -Force)
+    # Seed a nonempty artifact so a post-start failure can prove that an empty outer catch
+    # write never replaces an existing diagnostic.
+    [System.IO.File]::WriteAllText(
+        (Join-Path $postStartDirectory 'stderr.log'),
+        'existing-stderr-artifact',
+        [System.Text.UTF8Encoding]::new($false))
+    $signal = [System.Threading.ManualResetEventSlim]::new($true)
+    $guard = [VerificationPostStartFaultGuard]::new($signal)
+    . (Join-Path $repositoryRoot 'scripts' 'verify-refactor.ps1') `
+        -Mode Quick `
+        -InternalTestGuard $guard
+    $caughtException = $null
+    try {
+        Invoke-MonitoredCommand `
+            -Label 'Deterministic post-start probe' `
+            -CommandPath 'pwsh' `
+            -Arguments @(
+                '-NoProfile'
+                '-File'
+                $childScript
+                '-Scenario'
+                'descendant-root'
+                '-DescendantScriptPath'
+                $descendantScript
+                '-LedgerPath'
+                $ledgerPath) `
+            -WorkingDirectory $repositoryRoot `
+            -DiagnosticsDirectory $postStartDirectory `
+            -TimeoutSeconds 2 `
+            -PostStartFaultGuard $guard
+    }
+    catch {
+        $caughtException = $_.Exception
+    }
+    if ($null -eq $caughtException) {
+        throw 'The post-start fault probe unexpectedly completed without the guarded exception.'
+    }
+    $rootPid = if ($caughtException.Data.Contains('VerificationRootProcessId')) {
+        [int]$caughtException.Data['VerificationRootProcessId']
+    }
+    else { 0 }
+    $rootIdentity = if ($caughtException.Data.Contains('VerificationRootProcessIdentity')) {
+        [string]$caughtException.Data['VerificationRootProcessIdentity']
+    }
+    else { [string]::Empty }
+    $lifecycleResult = $caughtException.Data['VerificationLifecycleResult']
+    $residualOwnedIds = if ($null -ne $lifecycleResult) {
+        @($lifecycleResult.RemainingOwnedProcessIds)
+    }
+    else { @() }
+    $ledgerEntries = @(Get-Content -LiteralPath $ledgerPath -ErrorAction SilentlyContinue |
+            ForEach-Object { $_ | ConvertFrom-Json })
+    $ledgerResiduals = @($ledgerEntries | Where-Object {
+            Test-ProbeExactIdentityAlive -ProcessId ([int]$_.pid) -CreationIdentity ([long]$_.creationIdentity) } |
+            ForEach-Object { [int]$_.pid })
+    $artifactText = if (Test-Path -LiteralPath (Join-Path $postStartDirectory 'stderr.log') -PathType Leaf) {
+        [System.IO.File]::ReadAllText((Join-Path $postStartDirectory 'stderr.log'), [System.Text.UTF8Encoding]::new($false))
+    }
+    else { $null }
+    [System.IO.File]::WriteAllText(
+        $ResultPath,
+        ([ordered]@{
+                scenario = $Scenario
+                primaryMessage = $caughtException.Message
+                primaryType = $caughtException.GetType().FullName
+                rootProcessId = $rootPid
+                rootProcessIdentity = $rootIdentity
+                rootResidual = if ($rootPid -gt 0 -and $rootIdentity -match '^([0-9]+)\|') {
+                    Test-ProbeExactIdentityAlive -ProcessId $rootPid -CreationIdentity ([long]$Matches[1])
+                }
+                else { $false }
+                remainingOwnedProcessIds = @($residualOwnedIds)
+                ledgerProcessIds = @($ledgerEntries | ForEach-Object { [int]$_.pid })
+                ledgerResidualProcessIds = $ledgerResiduals
+                lifecycleSecondaryDiagnostics = if ($null -ne $lifecycleResult) { @($lifecycleResult.SecondaryDiagnostics) } else { @() }
+                stdoutArtifact = if (Test-Path -LiteralPath (Join-Path $postStartDirectory 'stdout.log') -PathType Leaf) { [System.IO.File]::ReadAllText((Join-Path $postStartDirectory 'stdout.log'), [System.Text.UTF8Encoding]::new($false)) } else { $null }
+                stderrArtifact = $artifactText
+                primitiveEvents = @($primitiveEvents.ToArray())
+            } | ConvertTo-Json -Depth 8 -Compress),
+        [System.Text.UTF8Encoding]::new($false))
+    exit 0
+}
+
+if ($Scenario -ceq 'functional-shared-deadline') {
+    function Start-SharedDeadlineRoot {
+        param(
+            [Parameter(Mandatory)]
+            [string]$Directory
+        )
+
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = 'pwsh'
+        $startInfo.WorkingDirectory = $repositoryRoot
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in @('-NoProfile', '-File', $childScript, '-Scenario', 'normal')) {
+            [void]$startInfo.ArgumentList.Add($argument)
+        }
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) {
+            throw 'Unable to start the shared-deadline root.'
+        }
+        $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity 'pwsh -File verification-process-lifecycle-child.ps1 -Scenario normal'
+        return [pscustomobject]@{
+            Name = [IO.Path]::GetFileName($Directory)
+            Directory = $Directory
+            Process = $process
+            ProcessId = $identity.ProcessId
+            RootProcessIdentity = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
+            CommandIdentity = 'pwsh -File verification-process-lifecycle-child.ps1 -Scenario normal'
+            StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
+            StandardErrorTask = $process.StandardError.ReadToEndAsync()
+        }
+    }
+
+    $firstDirectory = Join-Path $DiagnosticsDirectory 'shared-deadline-first'
+    $secondDirectory = Join-Path $DiagnosticsDirectory 'shared-deadline-second'
+    [void](New-Item -ItemType Directory -Path $firstDirectory -Force)
+    [void](New-Item -ItemType Directory -Path $secondDirectory -Force)
+    $first = Start-SharedDeadlineRoot -Directory $firstDirectory
+    $second = Start-SharedDeadlineRoot -Directory $secondDirectory
+    $neverReleased = [System.Threading.ManualResetEventSlim]::new($false)
+    $first.StandardOutputTask = [System.Threading.Tasks.Task[string]]::FromResult([string]'first-complete')
+    $first.StandardErrorTask = [VerificationLifecycleProbeTasks]::FaultWhen($neverReleased, 'first pending stream')
+    $sharedDeadline = [DateTime]::UtcNow.AddSeconds(1)
+    $cleanup = Invoke-VerificationFunctionalCleanup `
+        -Entries @($first, $second) `
+        -CleanupDeadlineUtc $sharedDeadline `
+        -PrimitiveObserver $primitiveObserver
+    $entryResults = @($cleanup.EntryResults)
+    [System.IO.File]::WriteAllText(
+        $ResultPath,
+        ([ordered]@{
+                scenario = $Scenario
+                sharedCleanupDeadlineUtcTicks = $sharedDeadline.Ticks
+                fanoutFailures = @($cleanup.FanoutFailures)
+                entryNames = @($entryResults | ForEach-Object { $_.Entry.Name })
+                skippedAfterDeadline = @($entryResults | ForEach-Object { [bool]$_.SkippedAfterDeadline })
+                entrySecondaryDiagnostics = @($entryResults | ForEach-Object { if ($null -ne $_.Result) { @($_.Result.SecondaryDiagnostics) } else { @($_.Error.Exception.Message) } })
+                primitiveEvents = @($primitiveEvents.ToArray())
+            } | ConvertTo-Json -Depth 8 -Compress),
+        [System.Text.UTF8Encoding]::new($false))
+    exit 0
+}
+
+$rootScenario = if ($Scenario -in @(
+        'nonzero-descendant',
+        'stream-timeout',
+        'asymmetric-stdout-complete',
+        'asymmetric-stderr-complete',
+        'missing-result',
+        'expired-residual')) {
     'descendant-root'
 }
 else {
@@ -235,16 +565,27 @@ if ($Scenario -ceq 'expired-residual') {
 }
 $sourceOutputTask = $root.StandardOutput.ReadToEndAsync()
 $sourceErrorTask = $root.StandardError.ReadToEndAsync()
+$sourceObservationScope = [VerificationProcessTaskObservationScope]::new()
 $standardOutputTask = $sourceOutputTask
 $standardErrorTask = $sourceErrorTask
-if ($Scenario -ceq 'stream-timeout') {
+if ($Scenario -in @('stream-timeout', 'asymmetric-stdout-complete', 'asymmetric-stderr-complete')) {
     # The production seam sees deterministic faulting tasks after its cleanup deadline.
     # The retained source reads remain observed independently so inherited handles do not
     # create an unobserved task fault.
-    Register-VerificationTaskObservation -Task $sourceOutputTask
-    Register-VerificationTaskObservation -Task $sourceErrorTask
+    Register-VerificationTaskObservation `
+        -Task $sourceOutputTask `
+        -ObservationScope $sourceObservationScope
+    Register-VerificationTaskObservation `
+        -Task $sourceErrorTask `
+        -ObservationScope $sourceObservationScope
     $standardOutputTask = [VerificationLifecycleProbeTasks]::FaultAfter('stdout late fault', 4500)
     $standardErrorTask = [VerificationLifecycleProbeTasks]::FaultAfter('stderr late fault', 4500)
+}
+if ($Scenario -ceq 'asymmetric-stdout-complete') {
+    $standardOutputTask = [System.Threading.Tasks.Task[string]]::FromResult([string]'stdout-asymmetric-complete')
+}
+elseif ($Scenario -ceq 'asymmetric-stderr-complete') {
+    $standardErrorTask = [System.Threading.Tasks.Task[string]]::FromResult([string]'stderr-asymmetric-complete')
 }
 if ($Scenario -ceq 'missing-result') {
     # Wait only for the sidecar ownership signal so the harness test can prove that
@@ -261,6 +602,17 @@ if ($Scenario -ceq 'missing-result') {
 }
 $commandIdentity = "pwsh -File $childScript -Scenario $rootScenario"
 $identity = Get-VerificationProcessIdentity -Process $root -CommandIdentity $commandIdentity
+if ($Scenario -eq 'terminal-diagnostic' -or $Scenario -eq 'terminal-flush-failure') {
+    # A directory at the destination makes the terminal stream replace fail without
+    # destroying a pre-existing artifact.  The final diagnostic flush must still capture
+    # that terminal failure when its sink is healthy.
+    [void](New-Item -ItemType Directory -Path (Join-Path $DiagnosticsDirectory 'stdout.log') -Force)
+}
+if ($Scenario -eq 'terminal-flush-failure') {
+    # The sink fault is deterministic and local: a directory occupies the final log path,
+    # so the result secondary diagnostics are authoritative and no empty file is created.
+    [void](New-Item -ItemType Directory -Path (Join-Path $DiagnosticsDirectory 'process-lifecycle.log') -Force)
+}
 $processBudgetSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero' -or $Scenario -ceq 'expired-residual') { 10 } else { 2 }
 $scenarioCleanupSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero') { 12 } elseif ($Scenario -ceq 'expired-residual') { 1 } else { 4 }
 $phaseDeadlineUtc = [DateTime]::UtcNow.AddSeconds($scenarioCleanupSeconds)
@@ -292,7 +644,10 @@ if ($Scenario -ceq 'stream-timeout') {
     # cleanup or using a fixed sleep.  This is a bounded probe watchdog only.
     $lateFaultDeadlineUtc = [DateTime]::UtcNow.AddSeconds(3)
     while ([DateTime]::UtcNow -lt $lateFaultDeadlineUtc) {
-        Drain-VerificationLateTaskObservations -PrimitiveObserver $primitiveObserver
+        Drain-VerificationLateTaskObservations `
+            -ObservationScope $result.ObservationScope `
+            -PrimitiveObserver $primitiveObserver `
+            -IncludePostSeal
         if (@($primitiveEvents.ToArray() | Where-Object { $_.Operation -ceq 'late-task-fault' }).Count -ge 2) {
             break
         }
@@ -319,7 +674,21 @@ $serializedResult = [ordered]@{
     cleanupTransitionCount = $result.CleanupTransitionCount
     cleanupDeadlineUtc = $result.CleanupDeadlineUtc
     cleanupDeadlineUtcTicks = $result.CleanupDeadlineUtc.Ticks
+    cleanupCutoffUtcTicks = $result.CleanupCutoffUtc.Ticks
+    terminalOperationsDeadlineUtcTicks = $result.TerminalOperationsDeadlineUtc.Ticks
     primitiveEvents = @($primitiveEvents.ToArray())
+    stdoutArtifact = if (Test-Path -LiteralPath (Join-Path $DiagnosticsDirectory 'stdout.log') -PathType Leaf) {
+        [System.IO.File]::ReadAllText((Join-Path $DiagnosticsDirectory 'stdout.log'), [System.Text.UTF8Encoding]::new($false))
+    }
+    else { $null }
+    stderrArtifact = if (Test-Path -LiteralPath (Join-Path $DiagnosticsDirectory 'stderr.log') -PathType Leaf) {
+        [System.IO.File]::ReadAllText((Join-Path $DiagnosticsDirectory 'stderr.log'), [System.Text.UTF8Encoding]::new($false))
+    }
+    else { $null }
+    lifecycleArtifact = if (Test-Path -LiteralPath (Join-Path $DiagnosticsDirectory 'process-lifecycle.log') -PathType Leaf) {
+        [System.IO.File]::ReadAllText((Join-Path $DiagnosticsDirectory 'process-lifecycle.log'), [System.Text.UTF8Encoding]::new($false))
+    }
+    else { $null }
     diagnosticsDirectory = $DiagnosticsDirectory
     ownershipLedgerPath = $ledgerPath
 } | ConvertTo-Json -Depth 8 -Compress

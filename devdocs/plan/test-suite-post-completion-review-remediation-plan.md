@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Ready for implementation
+Status: Implementation complete; integration verification pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -88,6 +88,14 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Ful
 ```
 
 Worker は PowerShell parse、`git diff --check`、focused Quick まで行い、Functional / Full / WPF反復はrootへhandoffする。
+
+### Worker implementation evidence
+
+- Implemented Unit 1 in the shared lifecycle, monitored-command caller, canonical process probe, lifecycle test fixture, testing strategy, and plan index paths listed above.
+- Added deterministic asymmetric stream, lifecycle-local late-fault, actual post-start exception, terminal diagnostic / flush failure, and Functional shared-cutoff coverage to `VerificationProcessLifecycleTests` through the existing `ProcessIntegration` probe.
+- PowerShell parse: pass for all three changed scripts; `git diff --check`: pass.
+- Focused Quick: `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~VerificationRunnerContractTests|FullyQualifiedName~VerificationProcessLifecycleTests'` — pass, 17/17, 65.6s; diagnostics: `artifacts/verification/tests-quick-20260824-201231`.
+- Functional, Full, and WPF 30-repeat verification remain integration-owned by root and were not run by this worker.
 
 ### Replan triggers
 

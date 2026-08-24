@@ -49,6 +49,10 @@ Functional の名前付き shard は、それぞれ別 testhost/process で owne
 
 runner の redirected process は、`scripts/verification-process-lifecycle.ps1` の共有 bounded lifecycle seam を通る。`Invoke-MonitoredCommand` と Functional shard は、root PID と観測できた descendant の identity だけを所有対象として、process exit、stdout / stderr の完了、cleanup、残留 PID 確認を同じ deadline 内で処理する。Functional の cleanup では、保持済み root handle の launch identity を直前に再検証して root-only termination request を全 shard root へ先に fanout し、その後に一つの絶対 cleanup deadline 内で lineage / descendant 回収を行う。通常の monitored command は成功を含む全経路で一度だけ cleanup transition に入り、transition deadline は `min(now + 5 seconds, phaseDeadline)` とする。Functional の10秒 cleanup reserve は canonical owner が絶対 process / cleanup deadline として一度だけ配分し、entry ごとの deadline reset は行わない。stream fault、cleanup、diagnostic write failure は primary process / orchestration failure を置き換えず、成功 process の cleanup-only failure は成功に隠さない。deadline 到達後は reader close、残留 snapshot、blocking I/O / wait、dispose wait を開始せず、未確認の ownership は明示的な uncertainty として診断する。process 名による global kill と未完了 stream task の無期限同期取得は行わない。
 
+## Verification map: process lifecycle
+
+`VerificationProcessLifecycleTests` は `ProcessIntegration` lane の canonical fixture であり、PowerShell の `verification-process-lifecycle-probe.ps1` を実際の `verification-process-lifecycle.ps1` / `verify-refactor.ps1` caller seamへ接続する。各 test は GUID付き temporary diagnostics directory、probe root / descendant の exact PID・creation identity ledger、primitive event ledgerを所有し、fixture間で process、stream task、artifact pathを共有しない。normal / asymmetric stream completion、lifecycle-local late-fault scope、terminal diagnostic flush、post-start caller exception、Functional fan-out の shared cutoffを同じ fixtureへ `extend` して検証する。完了signalは `Task` completion、`ManualResetEventSlim` gate、primitive observer eventであり、probe processの bounded watchdogは失敗検出専用である。新しい lane、shard、`DoNotParallelize`、production lifecycleのtest側コピー、固定sleepは追加しない。
+
 ### Quick: 反復中の対象テスト
 
 ```powershell

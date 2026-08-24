@@ -23,6 +23,9 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual(0, result.RootElement.GetProperty("exitCode").GetInt32());
         Assert.AreEqual("stdout-complete", result.RootElement.GetProperty("stdout").GetString());
         Assert.AreEqual("stderr-complete", result.RootElement.GetProperty("stderr").GetString());
+        Assert.AreEqual("stdout-complete", result.RootElement.GetProperty("stdoutArtifact").GetString());
+        Assert.AreEqual("stderr-complete", result.RootElement.GetProperty("stderrArtifact").GetString());
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("lifecycleArtifact").ValueKind);
         Assert.AreEqual(1, result.RootElement.GetProperty("cleanupTransitionCount").GetInt32());
         PrimitiveEvent[] events = ReadPrimitiveEvents(result.RootElement.GetProperty("primitiveEvents"));
         AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
@@ -95,10 +98,141 @@ public sealed class VerificationProcessLifecycleTests
             "The production seam did not observe a bounded cleanup task wait.");
         AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
         Assert.IsFalse(ContainsPrimitiveEvent(events, "reader-close"));
-        Assert.IsFalse(ContainsPrimitiveEvent(events, "persistence"));
+        Assert.IsTrue(
+            ContainsPrimitiveEvent(events, "persistence"),
+            "The bounded lifecycle must persist its final diagnostic artifact before returning.");
+        Assert.IsTrue(
+            result.RootElement.GetProperty("lifecycleArtifact").GetString()!.Contains(
+                "stream-drain-timeout",
+                StringComparison.Ordinal));
         CollectionAssert.AreEqual(
             Array.Empty<int>(),
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
+    }
+
+    [TestMethod]
+    public void CompletedStdoutArtifactSurvivesPendingStderrTimeout()
+    {
+        using JsonDocument result = RunProbe("asymmetric-stdout-complete");
+        Assert.AreEqual("stdout-asymmetric-complete", result.RootElement.GetProperty("stdout").GetString());
+        Assert.AreEqual("stdout-asymmetric-complete", result.RootElement.GetProperty("stdoutArtifact").GetString());
+        Assert.AreEqual(string.Empty, result.RootElement.GetProperty("stderrArtifact").GetString());
+        string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
+        Assert.IsTrue(ContainsDiagnostic(diagnostics, "stream-drain-timeout: stderr"));
+        Assert.IsFalse(ContainsDiagnostic(diagnostics, "stream-drain-timeout: stdout"));
+        Assert.IsTrue(
+            result.RootElement.GetProperty("lifecycleArtifact").GetString()!.Contains(
+                "stream-drain-timeout: stderr",
+                StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void CompletedStderrArtifactSurvivesPendingStdoutTimeout()
+    {
+        using JsonDocument result = RunProbe("asymmetric-stderr-complete");
+        Assert.AreEqual("stderr-asymmetric-complete", result.RootElement.GetProperty("stderr").GetString());
+        Assert.AreEqual("stderr-asymmetric-complete", result.RootElement.GetProperty("stderrArtifact").GetString());
+        Assert.AreEqual(string.Empty, result.RootElement.GetProperty("stdoutArtifact").GetString());
+        string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
+        Assert.IsTrue(ContainsDiagnostic(diagnostics, "stream-drain-timeout: stdout"));
+        Assert.IsFalse(ContainsDiagnostic(diagnostics, "stream-drain-timeout: stderr"));
+        Assert.IsTrue(
+            result.RootElement.GetProperty("lifecycleArtifact").GetString()!.Contains(
+                "stream-drain-timeout: stdout",
+                StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void LateFaultFromLifecycleAIsObservedWithoutContaminatingLifecycleB()
+    {
+        using JsonDocument result = RunProbe("same-pwsh-late-fault");
+        string[] lifecycleADiagnostics = ReadStringArray(
+            result.RootElement.GetProperty("lifecycleASecondaryDiagnostics"));
+        string[] lifecycleBDiagnostics = ReadStringArray(
+            result.RootElement.GetProperty("lifecycleBSecondaryDiagnostics"));
+        Assert.IsTrue(ContainsDiagnostic(lifecycleADiagnostics, "stream-drain-timeout: stderr"));
+        Assert.IsTrue(ContainsDiagnostic(lifecycleBDiagnostics, "lifecycle-B owned fault"));
+        Assert.IsFalse(result.RootElement.GetProperty("lifecycleBContainsLifecycleADiagnostic").GetBoolean());
+        Assert.IsTrue(
+            result.RootElement.GetProperty("lifecycleAPostSealFaultObservationCount").GetInt32() > 0,
+            "The post-seal task fault must still be observed through the lifecycle-local continuation.");
+        Assert.AreEqual("A-complete", result.RootElement.GetProperty("lifecycleAStdout").GetString());
+        Assert.AreEqual("B-complete", result.RootElement.GetProperty("lifecycleBStdout").GetString());
+    }
+
+    [TestMethod]
+    public void ActualMonitoredCallerPreservesPostStartPrimaryAndExactOwnership()
+    {
+        using JsonDocument result = RunProbe("post-start-exception");
+        Assert.IsTrue(
+            result.RootElement.GetProperty("primaryMessage").GetString()!.Contains(
+                "Internal post-start fault injection",
+                StringComparison.Ordinal));
+        Assert.IsTrue(result.RootElement.GetProperty("rootProcessId").GetInt32() > 0);
+        Assert.IsFalse(result.RootElement.GetProperty("rootResidual").GetBoolean());
+        CollectionAssert.AreEqual(
+            Array.Empty<int>(),
+            ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
+        CollectionAssert.AreEqual(
+            Array.Empty<int>(),
+            ReadIntArray(result.RootElement.GetProperty("ledgerResidualProcessIds")));
+        Assert.AreEqual(
+            "existing-stderr-artifact",
+            result.RootElement.GetProperty("stderrArtifact").GetString());
+        Assert.IsTrue(
+            ContainsDiagnostic(
+                ReadStringArray(result.RootElement.GetProperty("lifecycleSecondaryDiagnostics")),
+                "post-start-exception"));
+    }
+
+    [TestMethod]
+    public void TerminalDiagnosticIsIncludedInFinalLifecycleArtifact()
+    {
+        using JsonDocument result = RunProbe("terminal-diagnostic");
+        string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
+        Assert.IsTrue(ContainsDiagnostic(diagnostics, "artifact replace failed"));
+        Assert.IsTrue(
+            result.RootElement.GetProperty("lifecycleArtifact").GetString()!.Contains(
+                "artifact replace failed",
+                StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void FinalDiagnosticFlushFailureRemainsSecondaryAndPreservesSinkArtifact()
+    {
+        using JsonDocument result = RunProbe("terminal-flush-failure");
+        string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
+        Assert.IsTrue(ContainsDiagnostic(diagnostics, "terminal-diagnostic-flush"));
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("lifecycleArtifact").ValueKind);
+        Assert.IsTrue(ContainsDiagnostic(diagnostics, "artifact replace failed"));
+    }
+
+    [TestMethod]
+    public void FunctionalCleanupUsesOneSharedCutoffAndSkipsLaterPrimitiveWork()
+    {
+        using JsonDocument result = RunProbe("functional-shared-deadline");
+        CollectionAssert.AreEqual(
+            new[] { "shared-deadline-first", "shared-deadline-second" },
+            ReadStringArray(result.RootElement.GetProperty("entryNames")));
+        CollectionAssert.AreEqual(
+            new[] { false, true },
+            ReadBooleanArray(result.RootElement.GetProperty("skippedAfterDeadline")));
+        PrimitiveEvent[] events = ReadPrimitiveEvents(result.RootElement.GetProperty("primitiveEvents"));
+        long sharedDeadline = result.RootElement.GetProperty("sharedCleanupDeadlineUtcTicks").GetInt64();
+        foreach (PrimitiveEvent primitiveEvent in events)
+        {
+            Assert.IsTrue(
+                primitiveEvent.UtcTicks <= sharedDeadline,
+                $"Primitive {primitiveEvent.Operation} started after the shared cleanup deadline.");
+            Assert.AreNotEqual(
+                "shared-deadline-second",
+                primitiveEvent.Context,
+                "The later entry must not start a filesystem/native/wait primitive after the shared cutoff.");
+        }
+        Assert.IsTrue(
+            ContainsDiagnostic(
+                ReadStringArray(result.RootElement.GetProperty("entrySecondaryDiagnostics")),
+                "skipped after shared cleanup deadline"));
     }
 
     [TestMethod]
@@ -517,6 +651,16 @@ public sealed class VerificationProcessLifecycleTests
         foreach (JsonElement value in array.EnumerateArray())
         {
             values.Add(value.GetInt32());
+        }
+        return values.ToArray();
+    }
+
+    private static bool[] ReadBooleanArray(JsonElement array)
+    {
+        var values = new List<bool>();
+        foreach (JsonElement value in array.EnumerateArray())
+        {
+            values.Add(value.GetBoolean());
         }
         return values.ToArray();
     }

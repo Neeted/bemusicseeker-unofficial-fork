@@ -83,6 +83,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 
 public sealed class VerificationProcessSnapshotEntry
@@ -351,7 +352,7 @@ public static class VerificationProcessSnapshotNative
     }
 }
 
-public static class VerificationProcessTaskObserver
+public sealed class VerificationProcessTaskObservationScope
 {
     public sealed class LateObservation
     {
@@ -361,42 +362,86 @@ public static class VerificationProcessTaskObserver
         public string ExceptionText { get; init; } = string.Empty;
     }
 
-    private static readonly ConcurrentQueue<LateObservation> LateObservations = new();
+    private readonly object gate = new();
+    private readonly ConcurrentQueue<LateObservation> ownerObservations = new();
+    private readonly ConcurrentQueue<LateObservation> postSealObservations = new();
+    private bool sealedScope;
 
-    public static void Observe(Task completedTask)
-    {
-        if (completedTask.IsFaulted)
-        {
-            _ = completedTask.Exception;
-        }
-    }
-
-    public static Action<Task> CreateObserver(string streamName, int rootProcessId)
+    public Action<Task> CreateObserver(string streamName, int rootProcessId)
     {
         return completedTask =>
         {
-            if (completedTask.IsFaulted)
+            if (!completedTask.IsFaulted)
             {
-                LateObservations.Enqueue(new LateObservation
-                {
-                    StreamName = streamName ?? string.Empty,
-                    RootProcessId = rootProcessId,
-                    UtcTicks = DateTime.UtcNow.Ticks,
-                    ExceptionText = completedTask.Exception?.ToString() ?? "<unknown task fault>"
-                });
+                return;
             }
-            Observe(completedTask);
+
+            // Reading Exception is the only work allowed after the scope is sealed.  The
+            // callback never performs persistence, process, or reader operations.
+            AggregateException exception = completedTask.Exception;
+            var observation = new LateObservation
+            {
+                StreamName = streamName ?? string.Empty,
+                RootProcessId = rootProcessId,
+                UtcTicks = DateTime.UtcNow.Ticks,
+                ExceptionText = exception?.ToString() ?? "<unknown task fault>"
+            };
+            lock (gate)
+            {
+                if (sealedScope)
+                {
+                    postSealObservations.Enqueue(observation);
+                }
+                else
+                {
+                    ownerObservations.Enqueue(observation);
+                }
+            }
         };
     }
 
-    public static object[] DrainLateObservations()
+    public void Seal()
+    {
+        lock (gate)
+        {
+            sealedScope = true;
+        }
+    }
+
+    public object[] DrainOwnerObservations()
     {
         var observations = new List<object>();
-        while (LateObservations.TryDequeue(out LateObservation observation))
+        while (ownerObservations.TryDequeue(out LateObservation observation))
         {
             observations.Add(observation);
         }
         return observations.ToArray();
+    }
+
+    public object[] DrainPostSealObservations()
+    {
+        var observations = new List<object>();
+        while (postSealObservations.TryDequeue(out LateObservation observation))
+        {
+            observations.Add(observation);
+        }
+        return observations.ToArray();
+    }
+}
+
+public sealed class VerificationPostStartFaultGuard
+{
+    private readonly ManualResetEventSlim signal;
+    private int consumed;
+
+    public VerificationPostStartFaultGuard(ManualResetEventSlim signal)
+    {
+        this.signal = signal ?? throw new ArgumentNullException(nameof(signal));
+    }
+
+    public bool TryConsumeSignal()
+    {
+        return signal.IsSet && Interlocked.Exchange(ref consumed, 1) == 0;
     }
 }
 '@
@@ -945,6 +990,10 @@ function Invoke-VerificationFunctionalCleanup {
         [object]$PrimitiveObserver
     )
 
+    # The functional lane owns one absolute deadline for the whole fan-out.  Reserve the
+    # lifecycle terminal window once so a later entry cannot start native/filesystem/wait
+    # primitives after the shared operational cutoff.
+    $sharedOperationalCutoffUtc = $CleanupDeadlineUtc.AddMilliseconds(-250)
     $fanoutFailures = [System.Collections.Generic.List[string]]::new()
     if ($StopRoots) {
         Invoke-VerificationRootStopFanout `
@@ -956,7 +1005,7 @@ function Invoke-VerificationFunctionalCleanup {
 
     $entryResults = [System.Collections.Generic.List[object]]::new()
     foreach ($entry in $Entries) {
-        if ([DateTime]::UtcNow -ge $CleanupDeadlineUtc) {
+        if ([DateTime]::UtcNow -ge $sharedOperationalCutoffUtc) {
             $diagnostic =
                 "bounded process lifecycle skipped after shared cleanup deadline; root PID $($entry.ProcessId); ownership remains uncertain"
             $uncertaintyResult = [pscustomobject][ordered]@{
@@ -1027,6 +1076,7 @@ function Invoke-VerificationFunctionalCleanup {
 function Add-VerificationKnownResiduals {
     param(
         [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
         [object[]]$TrackedDescendants,
 
         [Parameter(Mandatory)]
@@ -1097,8 +1147,15 @@ function Stop-VerificationOwnedProcessTree {
     )
 
     $rootStopAttempted = $RootStopAlreadyRequested.IsPresent
-    $rootKnownActive = $true
-    $knownRemainingDescendants = @()
+    # Establish root activity from the retained handle at entry, including the
+    # RootStopAlreadyRequested path.  A root that already exited must not become a
+    # synthetic residual merely because the descendant wait reaches the cutoff.
+    $rootKnownActive = -not (Test-VerificationProcessExited -Process $RootProcess)
+    # Preserve the last exact lineage snapshot supplied by the caller while a fresh
+    # process-table query is still pending.  If the cutoff wins that query, those tracked
+    # identities are the only safe residual candidates; each handle stop still rechecks
+    # creation identity before acting.
+    $knownRemainingDescendants = @($Lineage | Where-Object { -not $_.IsRoot })
     $cleanupStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $recordDeadlineUncertainty = {
         Add-VerificationKnownResiduals `
@@ -1147,13 +1204,18 @@ function Stop-VerificationOwnedProcessTree {
                 $CleanupDiagnostics.Add("owned-process-stop: PID $RootProcessId has no tracked root identity; not stopped")
             }
             else {
-                [void](Stop-VerificationOwnedRootHandle `
+                $rootStopSucceeded = Stop-VerificationOwnedRootHandle `
                         -RootProcess $RootProcess `
                         -RootTracked $rootTracked `
                         -RootProcessId $RootProcessId `
                         -CleanupDiagnostics $CleanupDiagnostics `
                         -CleanupDeadlineUtc $CleanupDeadlineUtc `
-                        -PrimitiveObserver $PrimitiveObserver)
+                        -PrimitiveObserver $PrimitiveObserver
+                if ($rootStopSucceeded) {
+                    # Kill was accepted before the cutoff; do not report a stale root PID
+                    # merely because the post-kill identity poll could not start in time.
+                    $rootKnownActive = $false
+                }
             }
         }
         elseif (-not $rootActiveBeforeStop) {
@@ -1301,28 +1363,40 @@ function Register-VerificationTaskObservation {
 
         [int]$RootProcessId,
 
-        [object]$LateDiagnostics,
+        [Parameter(Mandatory)]
+        [object]$ObservationScope,
 
         [object]$PrimitiveObserver
     )
 
     # Observe a late reader fault without synchronously waiting after the cleanup deadline.
-    # The queue is drained by the lifecycle before it returns; no continuation performs
-    # blocking I/O or process operations after the deadline.
-    $observer = [VerificationProcessTaskObserver]::CreateObserver($StreamName, $RootProcessId)
+    # The continuation is scoped to this lifecycle; after scope seal it only reads
+    # Task.Exception and cannot publish a diagnostic to a later lifecycle.
+    $observer = $ObservationScope.CreateObserver($StreamName, $RootProcessId)
     [void]$Task.ContinueWith($observer, [System.Threading.Tasks.TaskScheduler]::Default)
 }
 
 function Drain-VerificationLateTaskObservations {
     param(
+        [Parameter(Mandatory)]
+        [object]$ObservationScope,
+
         [object]$LateDiagnostics,
 
-        [object]$PrimitiveObserver
+        [object]$PrimitiveObserver,
+
+        [switch]$IncludePostSeal
     )
 
-    foreach ($observation in @([VerificationProcessTaskObserver]::DrainLateObservations())) {
+    $observations = if ($IncludePostSeal) {
+        @($ObservationScope.DrainPostSealObservations())
+    }
+    else {
+        @($ObservationScope.DrainOwnerObservations())
+    }
+    foreach ($observation in $observations) {
         $message = "late-stream-fault: $($observation.StreamName); root PID $($observation.RootProcessId); $($observation.ExceptionText)"
-        if ($null -ne $LateDiagnostics) {
+        if ($null -ne $LateDiagnostics -and -not $IncludePostSeal) {
             $LateDiagnostics.Enqueue($message)
         }
         Invoke-VerificationPrimitiveObserver `
@@ -1396,11 +1470,19 @@ function Wait-VerificationCleanupTask {
 
         [int]$RootProcessId,
 
-        [object]$PrimitiveObserver
+        [object]$PrimitiveObserver,
+
+        [object]$ObservationScope
     )
 
     $waitStartedUtc = [DateTime]::UtcNow
-    Register-VerificationTaskObservation -Task $Task
+    if ($null -ne $ObservationScope) {
+        Register-VerificationTaskObservation `
+            -Task $Task `
+            -StreamName $OperationName `
+            -RootProcessId $RootProcessId `
+            -ObservationScope $ObservationScope
+    }
     while (-not $Task.IsCompleted -and [DateTime]::UtcNow -lt $CleanupDeadlineUtc) {
         $remainingMilliseconds = [Math]::Max(
             1,
@@ -1551,7 +1633,52 @@ function Close-VerificationProcessReaderBounded {
     }
 }
 
-function Get-VerificationCompletedTaskOutput {
+function Update-VerificationStreamSnapshot {
+    param(
+        [Parameter(Mandatory)]
+        [System.Threading.Tasks.Task[string]]$Task,
+
+        [Parameter(Mandatory)]
+        [string]$StreamName,
+
+        [Parameter(Mandatory)]
+        [int]$RootProcessId,
+
+        [Parameter(Mandatory)]
+        [object]$Snapshot,
+
+        [Parameter(Mandatory)]
+        [object]$CleanupDiagnostics
+    )
+
+    if ([bool]$Snapshot.Terminal) {
+        return
+    }
+    if ($Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
+        # The completion state is checked before the synchronous retrieval.  No incomplete
+        # stream task can enter this path.
+        $Snapshot.Value = $Task.GetAwaiter().GetResult()
+        $Snapshot.Terminal = $true
+        return
+    }
+    if ($Task.IsFaulted) {
+        [void]$Task.Exception
+        $CleanupDiagnostics.Add("stream-fault: ${StreamName}: $($Task.Exception.ToString())")
+        $Snapshot.Terminal = $true
+        return
+    }
+    if ($Task.IsCanceled) {
+        $CleanupDiagnostics.Add("stream-canceled: $StreamName")
+        $Snapshot.Terminal = $true
+        return
+    }
+
+    # An incomplete stream is deliberately left non-terminal while the bounded drain is
+    # still running.  Finalize-VerificationStreamSnapshot records the durable timeout only
+    # at the cutoff, independently of the other stream's completion state.
+}
+
+function Finalize-VerificationStreamSnapshot {
     param(
         [Parameter(Mandatory)]
         [System.Threading.Tasks.Task[string]]$Task,
@@ -1566,27 +1693,25 @@ function Get-VerificationCompletedTaskOutput {
         [long]$ElapsedMilliseconds,
 
         [Parameter(Mandatory)]
+        [object]$Snapshot,
+
+        [Parameter(Mandatory)]
         [object]$CleanupDiagnostics
     )
 
-    if ($Task.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) {
-        # The completion state is checked before the synchronous retrieval.  No incomplete
-        # stream task can enter this path.
-        return $Task.GetAwaiter().GetResult()
-    }
-    if ($Task.IsFaulted) {
-        [void]$Task.Exception
-        $CleanupDiagnostics.Add("stream-fault: ${StreamName}: $($Task.Exception.ToString())")
-        return [string]::Empty
-    }
-    if ($Task.IsCanceled) {
-        $CleanupDiagnostics.Add("stream-canceled: $StreamName")
-        return [string]::Empty
+    Update-VerificationStreamSnapshot `
+        -Task $Task `
+        -StreamName $StreamName `
+        -RootProcessId $RootProcessId `
+        -Snapshot $Snapshot `
+        -CleanupDiagnostics $CleanupDiagnostics
+    if ([bool]$Snapshot.Terminal) {
+        return
     }
 
     $CleanupDiagnostics.Add(
-        "stream-drain-timeout: $StreamName; root PID $RootProcessId; elapsed ${ElapsedMilliseconds}ms; did not complete before the cleanup deadline")
-    return [string]::Empty
+        "stream-drain-timeout: $StreamName; root PID $RootProcessId; elapsed ${ElapsedMilliseconds}ms; did not complete before the cleanup cutoff")
+    $Snapshot.Terminal = $true
 }
 
 function Invoke-BoundedProcessLifecycle {
@@ -1626,11 +1751,20 @@ function Invoke-BoundedProcessLifecycle {
 
         [object]$PrimitiveObserver,
 
-        [string]$LifecycleName
+        [string]$LifecycleName,
+
+        [switch]$PreserveExistingArtifactOnEmpty,
+
+        [string[]]$InitialCleanupDiagnostics
     )
 
     $cleanupDiagnostics = [System.Collections.Generic.List[string]]::new()
     $diagnosticWriteDiagnostics = [System.Collections.Generic.List[string]]::new()
+    foreach ($initialDiagnostic in @($InitialCleanupDiagnostics)) {
+        if (-not [string]::IsNullOrWhiteSpace($initialDiagnostic)) {
+            $cleanupDiagnostics.Add($initialDiagnostic)
+        }
+    }
     $lineage = [System.Collections.Generic.List[object]]::new()
     $rootStartTimeUtcTicks = $null
     $rootIdentityParts = $RootProcessIdentity -split '\|', 2
@@ -1661,8 +1795,11 @@ function Invoke-BoundedProcessLifecycle {
     $exitCode = $null
     $standardOutput = [string]::Empty
     $standardError = [string]::Empty
+    $stdoutSnapshot = [pscustomobject]@{ Value = [string]::Empty; Terminal = $false }
+    $stderrSnapshot = [pscustomobject]@{ Value = [string]::Empty; Terminal = $false }
     $remainingOwnedProcessIds = [System.Collections.Generic.List[int]]::new()
     $lateDiagnostics = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+    $observationScope = [VerificationProcessTaskObservationScope]::new()
     $lifecycleStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $phaseDeadline = if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc')) {
         $PhaseDeadlineUtc
@@ -1670,37 +1807,60 @@ function Invoke-BoundedProcessLifecycle {
     else {
         $CleanupDeadlineUtc
     }
+    $absoluteCleanupDeadlineUtc = $CleanupDeadlineUtc
+    if ($phaseDeadline -lt $absoluteCleanupDeadlineUtc) {
+        $absoluteCleanupDeadlineUtc = $phaseDeadline
+    }
+    # Keep a small, explicit reserve for terminal task completion and one final diagnostic
+    # flush.  All process, lineage, reader, and wait primitives receive the cutoff rather
+    # than the absolute deadline, so a pending stream cannot consume persistence time.
+    $terminalReserveMilliseconds = 250
+    $finalDiagnosticFlushReserveMilliseconds = 50
+    $terminalOperationsDeadlineUtc = $absoluteCleanupDeadlineUtc.AddMilliseconds(-$finalDiagnosticFlushReserveMilliseconds)
+    $operationalCutoffUtc = $terminalOperationsDeadlineUtc.AddMilliseconds(-($terminalReserveMilliseconds - $finalDiagnosticFlushReserveMilliseconds))
+    if ($operationalCutoffUtc -lt [DateTime]::UtcNow) {
+        $operationalCutoffUtc = [DateTime]::UtcNow
+    }
     $cleanupState = [pscustomobject]@{
         Started = $false
         TransitionCount = 0
         PhaseDeadlineUtc = $phaseDeadline
-        CleanupDeadlineCapUtc = $CleanupDeadlineUtc
-        DeadlineUtc = $CleanupDeadlineUtc
+        AbsoluteDeadlineUtc = $absoluteCleanupDeadlineUtc
+        CleanupDeadlineCapUtc = $operationalCutoffUtc
+        DeadlineUtc = $operationalCutoffUtc
+        TerminalOperationsDeadlineUtc = $terminalOperationsDeadlineUtc
     }
 
     Register-VerificationTaskObservation `
         -Task $StandardOutputTask `
         -StreamName 'stdout' `
         -RootProcessId $RootProcessId `
-        -LateDiagnostics $lateDiagnostics `
+        -ObservationScope $observationScope `
         -PrimitiveObserver $PrimitiveObserver
     Register-VerificationTaskObservation `
         -Task $StandardErrorTask `
         -StreamName 'stderr' `
         -RootProcessId $RootProcessId `
-        -LateDiagnostics $lateDiagnostics `
+        -ObservationScope $observationScope `
         -PrimitiveObserver $PrimitiveObserver
 
     try {
         if ([DateTime]::UtcNow -lt $cleanupState.DeadlineUtc) {
             try {
-                [void](Update-VerificationProcessLineage `
+                $initialLineageTable = @(Update-VerificationProcessLineage `
                         -Lineage $lineage `
                         -RootProcess $Process `
                         -CleanupDeadlineUtc $cleanupState.DeadlineUtc `
                         -CleanupDiagnostics $cleanupDiagnostics `
                         -PrimitiveObserver $PrimitiveObserver `
                         -ObserverContext $LifecycleName)
+                $initialRootTracked = @($lineage | Where-Object { $_.IsRoot } | Select-Object -First 1)[0]
+                if ($null -ne $initialRootTracked -and $null -ne $initialRootTracked.ExitTimeUtcTicks) {
+                    # Update-VerificationProcessLineage already observed the retained root
+                    # handle exiting before the cutoff; reuse that observation without a
+                    # second native query.
+                    $processExited = $true
+                }
             }
             catch {
                 $cleanupDiagnostics.Add("process-lineage-observation: $($_.Exception.Message)")
@@ -1749,6 +1909,11 @@ function Invoke-BoundedProcessLifecycle {
                         -CleanupDiagnostics $cleanupDiagnostics `
                         -PrimitiveObserver $PrimitiveObserver `
                         -ObserverContext $LifecycleName)
+                $currentRootTracked = @($lineage | Where-Object { $_.IsRoot } | Select-Object -First 1)[0]
+                if ($null -ne $currentRootTracked -and $null -ne $currentRootTracked.ExitTimeUtcTicks) {
+                    $processExited = $true
+                    break
+                }
             }
             catch {
                 $cleanupDiagnostics.Add("process-lineage-observation: $($_.Exception.Message)")
@@ -1919,25 +2084,41 @@ function Invoke-BoundedProcessLifecycle {
             catch [System.AggregateException] {
                 # Fault details are recorded by the non-blocking result inspection below.
             }
+            Update-VerificationStreamSnapshot `
+                -Task $StandardOutputTask `
+                -StreamName 'stdout' `
+                -RootProcessId $RootProcessId `
+                -Snapshot $stdoutSnapshot `
+                -CleanupDiagnostics $cleanupDiagnostics
+            Update-VerificationStreamSnapshot `
+                -Task $StandardErrorTask `
+                -StreamName 'stderr' `
+                -RootProcessId $RootProcessId `
+                -Snapshot $stderrSnapshot `
+                -CleanupDiagnostics $cleanupDiagnostics
             $streamsPending = -not $StandardOutputTask.IsCompleted -or -not $StandardErrorTask.IsCompleted
         }
 
         if (-not $StandardOutputTask.IsCompleted -or -not $StandardErrorTask.IsCompleted) {
             if ([DateTime]::UtcNow -lt $cleanupState.DeadlineUtc) {
-                Close-VerificationProcessReaderBounded `
-                    -Reader $Process.StandardOutput `
-                    -OperationName 'stdout-reader-close' `
-                    -RootProcessId $RootProcessId `
-                    -CleanupDeadlineUtc $cleanupState.DeadlineUtc `
-                    -CleanupDiagnostics $cleanupDiagnostics `
-                    -PrimitiveObserver $PrimitiveObserver
-                Close-VerificationProcessReaderBounded `
-                    -Reader $Process.StandardError `
-                    -OperationName 'stderr-reader-close' `
-                    -RootProcessId $RootProcessId `
-                    -CleanupDeadlineUtc $cleanupState.DeadlineUtc `
-                    -CleanupDiagnostics $cleanupDiagnostics `
-                    -PrimitiveObserver $PrimitiveObserver
+                if (-not $StandardOutputTask.IsCompleted) {
+                    Close-VerificationProcessReaderBounded `
+                        -Reader $Process.StandardOutput `
+                        -OperationName 'stdout-reader-close' `
+                        -RootProcessId $RootProcessId `
+                        -CleanupDeadlineUtc $cleanupState.DeadlineUtc `
+                        -CleanupDiagnostics $cleanupDiagnostics `
+                        -PrimitiveObserver $PrimitiveObserver
+                }
+                if (-not $StandardErrorTask.IsCompleted) {
+                    Close-VerificationProcessReaderBounded `
+                        -Reader $Process.StandardError `
+                        -OperationName 'stderr-reader-close' `
+                        -RootProcessId $RootProcessId `
+                        -CleanupDeadlineUtc $cleanupState.DeadlineUtc `
+                        -CleanupDiagnostics $cleanupDiagnostics `
+                        -PrimitiveObserver $PrimitiveObserver
+                }
             }
             else {
                 $cleanupDiagnostics.Add(
@@ -1945,20 +2126,25 @@ function Invoke-BoundedProcessLifecycle {
             }
         }
 
-        $standardOutput = Get-VerificationCompletedTaskOutput `
+        Finalize-VerificationStreamSnapshot `
             -Task $StandardOutputTask `
             -StreamName 'stdout' `
             -RootProcessId $RootProcessId `
             -ElapsedMilliseconds $lifecycleStopwatch.ElapsedMilliseconds `
+            -Snapshot $stdoutSnapshot `
             -CleanupDiagnostics $cleanupDiagnostics
-        $standardError = Get-VerificationCompletedTaskOutput `
+        Finalize-VerificationStreamSnapshot `
             -Task $StandardErrorTask `
             -StreamName 'stderr' `
             -RootProcessId $RootProcessId `
             -ElapsedMilliseconds $lifecycleStopwatch.ElapsedMilliseconds `
+            -Snapshot $stderrSnapshot `
             -CleanupDiagnostics $cleanupDiagnostics
+        $standardOutput = [string]$stdoutSnapshot.Value
+        $standardError = [string]$stderrSnapshot.Value
 
         Drain-VerificationLateTaskObservations `
+            -ObservationScope $observationScope `
             -LateDiagnostics $lateDiagnostics `
             -PrimitiveObserver $PrimitiveObserver
         $lateDiagnostic = $null
@@ -2002,9 +2188,14 @@ function Invoke-BoundedProcessLifecycle {
                         -ObserverContext $LifecycleName)
                 if ([DateTime]::UtcNow -ge $cleanupState.DeadlineUtc) {
                     $knownDescendants = @(Get-VerificationCurrentOwnedDescendants -Lineage $lineage -ProcessTable $table)
+                    $rootTrackedForResidual = @($lineage | Where-Object { $_.IsRoot } | Select-Object -First 1)[0]
+                    $rootKnownActiveForResidual = -not $processExited
+                    if ($null -ne $rootTrackedForResidual -and $null -ne $rootTrackedForResidual.ExitTimeUtcTicks) {
+                        $rootKnownActiveForResidual = $false
+                    }
                     Add-VerificationKnownResiduals `
                         -TrackedDescendants $knownDescendants `
-                        -RootKnownActive (-not $processExited) `
+                        -RootKnownActive $rootKnownActiveForResidual `
                         -RootProcessId $RootProcessId `
                         -RemainingOwnedProcessIds $remainingOwnedProcessIds `
                         -CleanupDiagnostics $cleanupDiagnostics `
@@ -2027,9 +2218,14 @@ function Invoke-BoundedProcessLifecycle {
                     }
                     else {
                         $knownDescendants = @(Get-VerificationCurrentOwnedDescendants -Lineage $lineage -ProcessTable $table)
+                        $rootTrackedForResidual = @($lineage | Where-Object { $_.IsRoot } | Select-Object -First 1)[0]
+                        $rootKnownActiveForResidual = $rootStillActive
+                        if ($null -ne $rootTrackedForResidual -and $null -ne $rootTrackedForResidual.ExitTimeUtcTicks) {
+                            $rootKnownActiveForResidual = $false
+                        }
                         Add-VerificationKnownResiduals `
                             -TrackedDescendants $knownDescendants `
-                            -RootKnownActive $rootStillActive `
+                            -RootKnownActive $rootKnownActiveForResidual `
                             -RootProcessId $RootProcessId `
                             -RemainingOwnedProcessIds $remainingOwnedProcessIds `
                             -CleanupDiagnostics $cleanupDiagnostics `
@@ -2054,25 +2250,27 @@ function Invoke-BoundedProcessLifecycle {
             -LifecycleStopwatch $lifecycleStopwatch `
             -PrimitiveObserver $PrimitiveObserver `
             -ObserverContext $LifecycleName
-        Drain-VerificationLateTaskObservations `
-            -LateDiagnostics $lateDiagnostics `
-            -PrimitiveObserver $PrimitiveObserver
-        $lateDiagnostic = $null
-        while ($lateDiagnostics.TryDequeue([ref]$lateDiagnostic)) {
-            $cleanupDiagnostics.Add($lateDiagnostic)
-            $lateDiagnostic = $null
-        }
-        $lifecycleStopwatch.Stop()
         $utf8 = [System.Text.UTF8Encoding]::new($false)
-        $writeTasks = [System.Collections.Generic.List[object]]::new()
+        $terminalOperationsDeadlineUtc = $cleanupState.TerminalOperationsDeadlineUtc
+        $absoluteCleanupDeadlineUtc = $cleanupState.AbsoluteDeadlineUtc
+        $terminalWriteTasks = [System.Collections.Generic.List[object]]::new()
         $disposeTask = $null
-        if ([DateTime]::UtcNow -lt $cleanupState.DeadlineUtc) {
+        if ([DateTime]::UtcNow -lt $terminalOperationsDeadlineUtc) {
             foreach ($stream in @(
                     [pscustomobject]@{ Name = 'stdout.log'; Value = [string]$standardOutput },
                     [pscustomobject]@{ Name = 'stderr.log'; Value = [string]$standardError })) {
-                if ([DateTime]::UtcNow -ge $cleanupState.DeadlineUtc) {
+                $artifactPath = Join-Path $DiagnosticsDirectory $stream.Name
+                $temporaryPath = "$artifactPath.$([guid]::NewGuid().ToString('N')).tmp"
+                if ($PreserveExistingArtifactOnEmpty -and
+                    [string]::IsNullOrEmpty($stream.Value) -and
+                    [System.IO.File]::Exists($artifactPath)) {
                     $diagnosticWriteDiagnostics.Add(
-                        "$($stream.Name) persistence skipped after cleanup deadline; root PID $RootProcessId; ownership remains uncertain")
+                        "$($stream.Name) empty output was not persisted after post-start exception; existing artifact was preserved")
+                    continue
+                }
+                if ([DateTime]::UtcNow -ge $terminalOperationsDeadlineUtc) {
+                    $diagnosticWriteDiagnostics.Add(
+                        "$($stream.Name) persistence skipped after terminal-operation cutoff; root PID $RootProcessId; existing artifact was preserved")
                     continue
                 }
                 try {
@@ -2081,65 +2279,63 @@ function Invoke-BoundedProcessLifecycle {
                         -Operation 'persistence' `
                         -RootProcessId $RootProcessId `
                         -Context $stream.Name
-                    if ([DateTime]::UtcNow -ge $cleanupState.DeadlineUtc) {
+                    if ([DateTime]::UtcNow -ge $terminalOperationsDeadlineUtc) {
                         $diagnosticWriteDiagnostics.Add(
-                            "$($stream.Name) persistence skipped after cleanup deadline; root PID $RootProcessId; ownership remains uncertain")
+                            "$($stream.Name) persistence skipped after terminal-operation cutoff; root PID $RootProcessId; existing artifact was preserved")
                         continue
                     }
-                    $writeTask = [System.IO.File]::WriteAllTextAsync(
-                        (Join-Path $DiagnosticsDirectory $stream.Name),
-                        $stream.Value,
-                        $utf8)
-                    [void]$writeTasks.Add([pscustomobject]@{
+                    $writeTask = [System.IO.File]::WriteAllTextAsync($temporaryPath, $stream.Value, $utf8)
+                    [void]$terminalWriteTasks.Add([pscustomobject]@{
                             Task = $writeTask
                             Name = "$($stream.Name) write"
+                            TemporaryPath = $temporaryPath
+                            DestinationPath = $artifactPath
                         })
                 }
                 catch {
-                    $diagnosticWriteDiagnostics.Add("$($stream.Name): $($_.Exception.Message)")
+                    $diagnosticWriteDiagnostics.Add(
+                        "$($stream.Name): $($_.Exception.Message); existing artifact was preserved")
                 }
             }
 
-            if (($cleanupDiagnostics.Count -gt 0 -or $diagnosticWriteDiagnostics.Count -gt 0) -and
-                [DateTime]::UtcNow -lt $cleanupState.DeadlineUtc) {
-                try {
-                    $diagnostics = @($cleanupDiagnostics) + @($diagnosticWriteDiagnostics)
-                    Invoke-VerificationPrimitiveObserver `
-                        -Observer $PrimitiveObserver `
-                        -Operation 'persistence' `
-                        -RootProcessId $RootProcessId `
-                        -Context 'process-lifecycle.log'
-                    if ([DateTime]::UtcNow -ge $cleanupState.DeadlineUtc) {
-                        throw 'process-lifecycle.log persistence skipped after cleanup deadline.'
+            foreach ($write in $terminalWriteTasks) {
+                $completed = Wait-VerificationCleanupTask `
+                    -Task $write.Task `
+                    -OperationName "$($write.Name) (root PID $RootProcessId)" `
+                    -CleanupDeadlineUtc $terminalOperationsDeadlineUtc `
+                    -CleanupDiagnostics $diagnosticWriteDiagnostics `
+                    -RootProcessId $RootProcessId `
+                    -PrimitiveObserver $PrimitiveObserver `
+                    -ObservationScope $observationScope
+                if ($completed -and [DateTime]::UtcNow -lt $terminalOperationsDeadlineUtc) {
+                    try {
+                        [System.IO.File]::Move($write.TemporaryPath, $write.DestinationPath, $true)
                     }
-                    $lifecycleWriteTask = [System.IO.File]::WriteAllLinesAsync(
-                        (Join-Path $DiagnosticsDirectory 'process-lifecycle.log'),
-                        [string[]]$diagnostics,
-                        $utf8)
-                    [void]$writeTasks.Add([pscustomobject]@{
-                            Task = $lifecycleWriteTask
-                            Name = 'process-lifecycle.log write'
-                        })
+                    catch {
+                        $diagnosticWriteDiagnostics.Add(
+                            "$($write.Name) artifact replace failed: $($_.Exception.Message); existing artifact was preserved")
+                    }
                 }
-                catch {
-                    $diagnosticWriteDiagnostics.Add("process-lifecycle.log: $($_.Exception.Message)")
+                elseif (-not $completed) {
+                    $diagnosticWriteDiagnostics.Add(
+                        "$($write.Name) artifact replace skipped after terminal-operation cutoff; existing artifact was preserved")
                 }
             }
 
-            if ([DateTime]::UtcNow -lt $cleanupState.DeadlineUtc) {
+            if ([DateTime]::UtcNow -lt $terminalOperationsDeadlineUtc) {
                 try {
                     Invoke-VerificationPrimitiveObserver `
                         -Observer $PrimitiveObserver `
                         -Operation 'dispose' `
                         -RootProcessId $RootProcessId `
                         -Context 'process handle'
-                    if ([DateTime]::UtcNow -lt $cleanupState.DeadlineUtc) {
+                    if ([DateTime]::UtcNow -lt $terminalOperationsDeadlineUtc) {
                         $disposeAction = [Action]$Process.Dispose
                         $disposeTask = [System.Threading.Tasks.Task]::Run($disposeAction)
                     }
                     else {
                         $cleanupDiagnostics.Add(
-                            "process-dispose: skipped after cleanup deadline; root PID $RootProcessId; ownership remains uncertain")
+                            "process-dispose: skipped after terminal-operation cutoff; root PID $RootProcessId; ownership remains uncertain")
                     }
                 }
                 catch {
@@ -2147,30 +2343,84 @@ function Invoke-BoundedProcessLifecycle {
                         "process-dispose: root PID $RootProcessId could not start before cleanup deadline: $($_.Exception.Message)")
                 }
             }
-
-            foreach ($write in $writeTasks) {
-                [void](Wait-VerificationCleanupTask `
-                        -Task $write.Task `
-                        -OperationName "$($write.Name) (root PID $RootProcessId)" `
-                        -CleanupDeadlineUtc $cleanupState.DeadlineUtc `
-                        -CleanupDiagnostics $diagnosticWriteDiagnostics `
-                        -RootProcessId $RootProcessId `
-                        -PrimitiveObserver $PrimitiveObserver)
-            }
             if ($null -ne $disposeTask) {
                 [void](Wait-VerificationCleanupTask `
                         -Task $disposeTask `
                         -OperationName "process-dispose (root PID $RootProcessId)" `
-                        -CleanupDeadlineUtc $cleanupState.DeadlineUtc `
+                        -CleanupDeadlineUtc $terminalOperationsDeadlineUtc `
                         -CleanupDiagnostics $cleanupDiagnostics `
                         -RootProcessId $RootProcessId `
-                        -PrimitiveObserver $PrimitiveObserver)
+                        -PrimitiveObserver $PrimitiveObserver `
+                        -ObservationScope $observationScope)
             }
         }
         else {
             $cleanupDiagnostics.Add(
-                "cleanup-terminal-operations: persistence and process disposal skipped after cleanup deadline; root PID $RootProcessId elapsed $($lifecycleStopwatch.ElapsedMilliseconds)ms")
+                "cleanup-terminal-operations: persistence and process disposal skipped after terminal-operation cutoff; root PID $RootProcessId elapsed $($lifecycleStopwatch.ElapsedMilliseconds)ms")
         }
+
+        # No task or process operation is allowed after this point.  Seal the lifecycle
+        # scope, drain owner diagnostics once, then perform exactly one final diagnostic
+        # flush.  Faults observed after seal stay in the scope-local post-seal queue.
+        $observationScope.Seal()
+        Drain-VerificationLateTaskObservations `
+            -ObservationScope $observationScope `
+            -LateDiagnostics $lateDiagnostics `
+            -PrimitiveObserver $PrimitiveObserver
+        $lateDiagnostic = $null
+        while ($lateDiagnostics.TryDequeue([ref]$lateDiagnostic)) {
+            $cleanupDiagnostics.Add($lateDiagnostic)
+            $lateDiagnostic = $null
+        }
+
+        if ($cleanupDiagnostics.Count -gt 0 -or $diagnosticWriteDiagnostics.Count -gt 0) {
+            $diagnostics = @($cleanupDiagnostics) + @($diagnosticWriteDiagnostics)
+            if ([DateTime]::UtcNow -lt $absoluteCleanupDeadlineUtc) {
+                $diagnosticPath = Join-Path $DiagnosticsDirectory 'process-lifecycle.log'
+                $diagnosticTemporaryPath = "$diagnosticPath.$([guid]::NewGuid().ToString('N')).tmp"
+                try {
+                    Invoke-VerificationPrimitiveObserver `
+                        -Observer $PrimitiveObserver `
+                        -Operation 'persistence' `
+                        -RootProcessId $RootProcessId `
+                        -Context 'process-lifecycle.log'
+                    if ([DateTime]::UtcNow -ge $absoluteCleanupDeadlineUtc) {
+                        throw 'process-lifecycle.log final diagnostic flush skipped after cleanup deadline.'
+                    }
+                    $diagnosticTask = [System.IO.File]::WriteAllLinesAsync(
+                        $diagnosticTemporaryPath,
+                        [string[]]$diagnostics,
+                        $utf8)
+                    $diagnosticWriteSucceeded = Wait-VerificationCleanupTask `
+                        -Task $diagnosticTask `
+                        -OperationName "process-lifecycle.log final diagnostic flush (root PID $RootProcessId)" `
+                        -CleanupDeadlineUtc $absoluteCleanupDeadlineUtc `
+                        -CleanupDiagnostics $diagnosticWriteDiagnostics `
+                        -RootProcessId $RootProcessId `
+                        -PrimitiveObserver $PrimitiveObserver
+                    if ($diagnosticWriteSucceeded -and [DateTime]::UtcNow -lt $absoluteCleanupDeadlineUtc) {
+                        [System.IO.File]::Move($diagnosticTemporaryPath, $diagnosticPath, $true)
+                    }
+                    elseif (-not $diagnosticWriteSucceeded) {
+                        $diagnosticWriteDiagnostics.Add(
+                            'terminal-diagnostic-flush: final write failed; existing artifact was preserved')
+                    }
+                    else {
+                        $diagnosticWriteDiagnostics.Add(
+                            'terminal-diagnostic-flush: final replace skipped after cleanup deadline; existing artifact was preserved')
+                    }
+                }
+                catch {
+                    $diagnosticWriteDiagnostics.Add(
+                        "terminal-diagnostic-flush: $($_.Exception.Message); existing artifact was preserved")
+                }
+            }
+            else {
+                $diagnosticWriteDiagnostics.Add(
+                    'terminal-diagnostic-flush: skipped after cleanup deadline; existing artifact was preserved')
+            }
+        }
+        $lifecycleStopwatch.Stop()
     }
 
     $primaryFailure = $null
@@ -2197,7 +2447,10 @@ function Invoke-BoundedProcessLifecycle {
         SecondaryDiagnostics = $secondaryDiagnostics
         RemainingOwnedProcessIds = @($remainingOwnedProcessIds)
         CleanupTransitionCount = $cleanupState.TransitionCount
-        CleanupDeadlineUtc = $cleanupState.DeadlineUtc
+        CleanupDeadlineUtc = $cleanupState.AbsoluteDeadlineUtc
+        CleanupCutoffUtc = $cleanupState.DeadlineUtc
+        TerminalOperationsDeadlineUtc = $cleanupState.TerminalOperationsDeadlineUtc
+        ObservationScope = $observationScope
         ElapsedMilliseconds = $lifecycleStopwatch.ElapsedMilliseconds
     }
 }
