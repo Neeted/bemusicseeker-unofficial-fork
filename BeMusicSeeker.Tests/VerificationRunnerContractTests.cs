@@ -124,6 +124,27 @@ public sealed class VerificationRunnerContractTests
                 "BeMusicSeeker.Tests.StartupSettingsSnapshotTests"
             });
         AssertShard(
+            FindShard(shards, "library-chart-classwide"),
+            6,
+            "ClassLevel",
+            new[]
+            {
+                "BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests",
+                "BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests",
+                "BeMusicSeeker.Tests.ChartInfoParserBehaviorTests",
+                "BeMusicSeeker.Tests.ChartInfoBackfillStorageTests",
+                "BeMusicSeeker.Tests.ChartInfoInlineHydrationTests",
+                "BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests",
+                "BeMusicSeeker.Tests.BmsLibraryInitializationLoadTests",
+                "BeMusicSeeker.Tests.BmsLibraryInitializationInstallTests",
+                "BeMusicSeeker.Tests.BmsLibraryInitializationFileScanTests",
+                "BeMusicSeeker.Tests.BmsLibraryInitializationLr2NormalFolderTests",
+                "BeMusicSeeker.Tests.BmsLibraryInitializationInlineChartInfoTests",
+                "BeMusicSeeker.Tests.StartupLibraryProfileTests",
+                "BeMusicSeeker.Tests.StartupLibraryFailureContractTests",
+                "BeMusicSeeker.Tests.StartupMainWindowTypedRouteTests"
+            });
+        AssertShard(
             FindShard(shards, "presentation-workspace"),
             3,
             "ClassLevel",
@@ -418,7 +439,10 @@ public sealed class VerificationRunnerContractTests
             "BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests",
             "BeMusicSeeker.Tests.OwnedChartCollectionStateTests",
             "BeMusicSeeker.Tests.PlaylistSummaryAggregationTests",
-            "BeMusicSeeker.Tests.RegularChartListOwnerTests"
+            "BeMusicSeeker.Tests.RegularChartListOwnerTests",
+            "BeMusicSeeker.Tests.ChartInfoMetadataTests",
+            "BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests",
+            "BeMusicSeeker.Tests.StartupLibraryConstructionOwnerTests"
         })
         {
             Assert.IsFalse(

@@ -418,3 +418,15 @@ ScoreOnly
 - `devdocs/spec/chart-file-read-pipeline.md`
 - `devdocs/plan/empty-db-first-startup-optimization-plan.md`
 - `devdocs/plan/bmson/library-scan-fast-path-resource-index-plan.md`
+
+## Verification map
+
+Startup library construction coverage is split from the retired `StartupLibraryConstructionOwnerTests` class into three owner fixtures. Each fixture preserves the existing temporary song database, profile construction, typed factory/application ports, exception propagation, method-level completion, and deterministic cleanup. The fixtures run in the existing `library-chart-classwide` process with `ClassLevel` scope and six workers; no new process, DNP, fixed wait, timeout, or production seam is introduced.
+
+| Behavior / failure contract | Owner fixture | Retired cases | Route |
+| --- | --- | --- | --- |
+| successful standalone profile construction and LR2 profile search-root behavior | `StartupLibraryProfileTests` | cases 1-2 | `library-chart-classwide`, 6 workers / `ClassLevel` |
+| search-root, factory, and application failure propagation | `StartupLibraryFailureContractTests` | cases 3-5 | same route |
+| MainWindow typed startup construction route and compiled caller contract | `StartupMainWindowTypedRouteTests` | case 6 | same route |
+
+The old `StartupLibraryConstructionOwnerTests` selector is absent from `remaining` and all named launch routes except its three replacements above.

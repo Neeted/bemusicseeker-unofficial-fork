@@ -63,3 +63,17 @@ parse timeout、parser exception、最終 parse failure は evaluator が同じ 
 - [lr2-song-db-generation.md](lr2-song-db-generation.md)
 - [chart-file-read-pipeline.md](chart-file-read-pipeline.md)
 - [chart-info-parser-compatibility-notes.md](chart-info-parser-compatibility-notes.md)
+
+## Verification map
+
+Chart-info metadata coverage is split from the retired `ChartInfoMetadataTests` monolith into owner-local `ClassLevel` fixtures in the existing `library-chart-classwide` process. The split preserves the original GUID-owned song database / filesystem roots, parser compatibility categories, dispatcher and task/event completion signals, failure watchdogs, and cleanup behavior; it adds no process, DNP, fixed wait, or production seam.
+
+| Behavior / failure contract | Owner fixture | Retired cases | Route |
+| --- | --- | --- | --- |
+| schema creation, bundle export/import, startup importer, catalog mutation | `ChartInfoMetadataSchemaExportImportTests` | `ChartInfoMetadataTests` cases 1-19 | `library-chart-classwide`, 6 workers / `ClassLevel` |
+| BMS/BMSON parser behavior and compatibility fixtures | `ChartInfoParserBehaviorTests` | cases 23-81 | same route |
+| full backfill, storage projection, digest/index publication and transaction failure | `ChartInfoBackfillStorageTests` | cases 82-96 | same route |
+| read-only lookup, deferred hydration, inline evaluator and hydration candidate state | `ChartInfoInlineHydrationTests` | cases 20-22, 97-111 | same route |
+| install, parse-failure warning/removal, retry and contention contracts | `ChartInfoInstallFailureRetryTests` | cases 112-134 | same route |
+
+The old `ChartInfoMetadataTests` selector is absent from the launch plan and remaining exclusion ledger; each replacement owns its original behavior cases exactly, including `DataRow` cases.

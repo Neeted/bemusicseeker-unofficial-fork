@@ -158,19 +158,30 @@ $functionalTestClassShards = @(
     },
     [pscustomobject]@{
         # Dedicated fixture groups have explicit worker contracts. Keep the
-        # library/chart classes in one ClassLevel testhost while using two
-        # workers; other single-worker hosts stay at one while the explicit
-        # owned database/file contract remains three. The remaining host uses
-        # every logical processor. This bounded overlap was faster and stable
-        # in repeated Functional runs; subtracting these workers would leave
-        # the remaining host under-provisioned after the external hosts exit.
+        # library/chart classes in one ClassLevel testhost while using six
+        # workers because the canonical monoliths are split into independent
+        # owner fixtures. Other single-worker hosts stay at one while the
+        # explicit owned database/file contract remains three. The remaining
+        # host uses every logical processor; the final stability gate validates
+        # this bounded overlap without changing the process topology.
         Name = 'library-chart-classwide'
-        Workers = 2
+        Workers = 6
         Scope = 'ClassLevel'
         Classes = @(
-            'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests',
-            'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests',
-            'BeMusicSeeker.Tests.ChartInfoMetadataTests')
+            'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests'
+            'BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests'
+            'BeMusicSeeker.Tests.ChartInfoParserBehaviorTests'
+            'BeMusicSeeker.Tests.ChartInfoBackfillStorageTests'
+            'BeMusicSeeker.Tests.ChartInfoInlineHydrationTests'
+            'BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests'
+            'BeMusicSeeker.Tests.BmsLibraryInitializationLoadTests'
+            'BeMusicSeeker.Tests.BmsLibraryInitializationInstallTests'
+            'BeMusicSeeker.Tests.BmsLibraryInitializationFileScanTests'
+            'BeMusicSeeker.Tests.BmsLibraryInitializationLr2NormalFolderTests'
+            'BeMusicSeeker.Tests.BmsLibraryInitializationInlineChartInfoTests'
+            'BeMusicSeeker.Tests.StartupLibraryProfileTests'
+            'BeMusicSeeker.Tests.StartupLibraryFailureContractTests'
+            'BeMusicSeeker.Tests.StartupMainWindowTypedRouteTests')
     },
     [pscustomobject]@{
         Name = 'lr2-songdb-sync'
@@ -426,9 +437,20 @@ function Assert-FunctionalShardConfiguration {
         throw 'Functional library/chart tests must have exactly one dedicated shard.'
     }
     $requiredLibraryChartClasswideClasses = @(
-        'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests',
-        'BeMusicSeeker.Tests.ChartInfoMetadataTests',
-        'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests')
+        'BeMusicSeeker.Tests.BmsLibraryZeroNoteRefreshTests'
+        'BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests'
+        'BeMusicSeeker.Tests.ChartInfoParserBehaviorTests'
+        'BeMusicSeeker.Tests.ChartInfoBackfillStorageTests'
+        'BeMusicSeeker.Tests.ChartInfoInlineHydrationTests'
+        'BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests'
+        'BeMusicSeeker.Tests.BmsLibraryInitializationLoadTests'
+        'BeMusicSeeker.Tests.BmsLibraryInitializationInstallTests'
+        'BeMusicSeeker.Tests.BmsLibraryInitializationFileScanTests'
+        'BeMusicSeeker.Tests.BmsLibraryInitializationLr2NormalFolderTests'
+        'BeMusicSeeker.Tests.BmsLibraryInitializationInlineChartInfoTests'
+        'BeMusicSeeker.Tests.StartupLibraryProfileTests'
+        'BeMusicSeeker.Tests.StartupLibraryFailureContractTests'
+        'BeMusicSeeker.Tests.StartupMainWindowTypedRouteTests')
     $libraryChartClasswideShard = $libraryChartClasswideShards[0]
     $libraryChartClasswideClasses = @($libraryChartClasswideShard.Classes)
     if ($libraryChartClasswideClasses.Count -ne $requiredLibraryChartClasswideClasses.Count -or
@@ -436,11 +458,11 @@ function Assert-FunctionalShardConfiguration {
             -ReferenceObject $requiredLibraryChartClasswideClasses `
             -DifferenceObject $libraryChartClasswideClasses `
             -CaseSensitive).Count -ne 0) {
-        throw 'Functional library/chart shard must contain exactly the approved three test classes.'
+        throw 'Functional library/chart shard must contain exactly the approved owner fixtures.'
     }
-    if ($libraryChartClasswideShard.Workers -ne 2 -or
+    if ($libraryChartClasswideShard.Workers -ne 6 -or
         $libraryChartClasswideShard.Scope -cne 'ClassLevel') {
-        throw 'Functional library/chart shard must use two workers with ClassLevel scope.'
+        throw 'Functional library/chart shard must use six workers with ClassLevel scope.'
     }
     $ownedDbFileShards = @($functionalTestClassShardsForLaunch |
         Where-Object { $_.Name -ceq 'owned-db-file-class-level' })
@@ -803,7 +825,10 @@ function Assert-FunctionalShardConfiguration {
 
     $retiredClassSelectors = @(
         'BeMusicSeeker.Tests.BmsPlaylistUpdateTests'
-        'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests')
+        'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests'
+        'BeMusicSeeker.Tests.ChartInfoMetadataTests'
+        'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests'
+        'BeMusicSeeker.Tests.StartupLibraryConstructionOwnerTests')
     $allLaunchText = @(
         $functionalTestClassShardsForLaunch |
         ForEach-Object {
