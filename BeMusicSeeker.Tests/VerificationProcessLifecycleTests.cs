@@ -78,8 +78,12 @@ public sealed class VerificationProcessLifecycleTests
     public void StreamDrainTimeoutDiagnosticIncludesContextAndOwnedCleanupCompletes()
     {
         using JsonDocument result = RunProbe("stream-timeout");
-        Assert.AreEqual(0, result.RootElement.GetProperty("exitCode").GetInt32());
+        Assert.IsTrue(
+            result.RootElement.GetProperty("processExited").GetBoolean(),
+            "The lifecycle root must be observed as exited before stream-drain cleanup is asserted.");
         Assert.IsFalse(result.RootElement.GetProperty("processTimedOut").GetBoolean());
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("primaryFailureKind").ValueKind);
+        Assert.AreEqual(0, result.RootElement.GetProperty("exitCode").GetInt32());
         string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
         Assert.IsTrue(
             AssertStreamTimeoutDiagnosticsIncludeContext(

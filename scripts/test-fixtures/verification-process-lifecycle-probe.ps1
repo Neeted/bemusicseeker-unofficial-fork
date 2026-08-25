@@ -105,6 +105,20 @@ function Test-ProbeExactIdentityAlive {
     }
 }
 
+function Wait-ProbeRootExitBounded {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Process]$Process,
+
+        [Parameter(Mandatory)]
+        [int]$TimeoutMilliseconds
+    )
+
+    if (-not $Process.WaitForExit($TimeoutMilliseconds)) {
+        throw "The lifecycle root did not exit within the bounded probe watchdog (${TimeoutMilliseconds}ms)."
+    }
+}
+
 if (-not ('VerificationLifecycleProbeTasks' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
@@ -569,15 +583,20 @@ $sourceObservationScope = [VerificationProcessTaskObservationScope]::new()
 $standardOutputTask = $sourceOutputTask
 $standardErrorTask = $sourceErrorTask
 if ($Scenario -in @('stream-timeout', 'asymmetric-stdout-complete', 'asymmetric-stderr-complete')) {
-    # The production seam sees deterministic faulting tasks after its cleanup deadline.
     # The retained source reads remain observed independently so inherited handles do not
-    # create an unobserved task fault.
+    # create an unobserved task fault.  Root exit is confirmed before the lifecycle
+    # deadline is created; the process budget remains a production contract, while this
+    # watchdog prevents process-heavy fan-out from consuming that contract before the
+    # stream-drain behavior is exercised.
     Register-VerificationTaskObservation `
         -Task $sourceOutputTask `
         -ObservationScope $sourceObservationScope
     Register-VerificationTaskObservation `
         -Task $sourceErrorTask `
         -ObservationScope $sourceObservationScope
+    Wait-ProbeRootExitBounded -Process $root -TimeoutMilliseconds 30000
+
+    # The production seam sees deterministic faulting tasks after its cleanup deadline.
     $standardOutputTask = [VerificationLifecycleProbeTasks]::FaultAfter('stdout late fault', 4500)
     $standardErrorTask = [VerificationLifecycleProbeTasks]::FaultAfter('stderr late fault', 4500)
 }
