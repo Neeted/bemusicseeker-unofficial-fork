@@ -1,6 +1,6 @@
 # テスト整理フォローアップ hardening 計画
 
-Status: Active
+Status: Complete
 
 Plan date: 2026-08-26
 
@@ -228,6 +228,15 @@ git diff --check
 - scanは既存例外を分類し、新規または無理由のunbounded waitがないことを確認する。physical cursor primitiveはゼロ件を維持する。
 - 実装と標準検証後、implementation agentをすべて完了させてworktreeを凍結し、fresh `repo-static-review` にintent、acceptance、base/head、worktree diff、検証結果を渡す。
 - blocking finding修正後は影響範囲のQuickと必要なintegration laneを再実行し、fresh reviewerへfix deltaとprevious findingを渡す。
+
+### Completion evidence
+
+- Final implementation snapshot: `26bf7a19`. Unit commits are `3f04f9c5` (Unit 1A), `e5324371` (Unit 1B), `75316b4a` / `b88d9bfb` / `26bf7a19` (Unit 2 and review fixes). No push was performed.
+- On the final snapshot, the first standalone Functional attempt reached the 180-second bound only in `remaining`; the other five hosts exited zero and the tracked-tree fingerprint was unchanged (`artifacts/verification/tests-functional-20260826-020354`). The single permitted exact retry passed all six hosts with no failures in 177.7 seconds (`remaining`: 2,603 passed / 8 skipped; `remaining-bms-library`: 652 passed / 3 skipped; the other four shards all passed), artifact `artifacts/verification/tests-functional-20260826-020740`.
+- `pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full` passed with exit code zero, artifact `artifacts/verification/tests-full-20260826-021109`. Tool restore, locked restore, Release/x64 build, all six internal Functional shards, tool smoke, current and baseline distribution publish, existing-data acceptance, update acceptance, format verification, and analyzer all passed. `ProcessIntegration` passed 54 with 2 skipped in 82.504 seconds; `ReleaseAcceptance` passed 2/2 in 15.955 seconds, including `PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput`; Roslynator reported 0 diagnostics. The tracked-tree fingerprint remained unchanged.
+- Frozen-snapshot static review first found four Unit 2 failure-contract issues in `75316b4a`; fresh review of `b88d9bfb` found one post-start metadata cleanup issue. After the corresponding fixes and focused Quick runs, fresh static review of `26bf7a19` reported no blocking finding, pre-existing/out-of-scope finding, or recommendation.
+- Changed-file scans found no retired local STA helper, raw dispatcher frame, unbounded join / process wait, synchronous redirected-stream drain, physical cursor primitive, global/name/tree process kill, or new parallelization suppression. Repository-wide physical cursor scan returned zero. The repository-wide unbounded-wait scan returned only pre-existing candidates outside Units 1A/1B/2; the ignore scan returned the one pre-existing `ChartInfoParserBehaviorTests` manual-smoke ignore.
+- Recommended Units 3–5 remain deferred as separate follow-up work: classify and harden the remaining pre-existing wait candidates, consider bounded dispatcher-host shutdown, and replace or reclassify the ignored ChartInfo parser smoke test. Optional repeat-gate/topology work remains out of scope.
 
 ## Required handoff
 
