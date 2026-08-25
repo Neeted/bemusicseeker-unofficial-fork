@@ -1,6 +1,6 @@
 # Codex エージェント運用契約
 
-最終更新: 2026-08-23
+最終更新: 2026-08-25
 
 この文書は、BeMusicSeeker で複数段階の変更を計画・実装・レビューするときの Codex 運用の正本である。目的は、ルートエージェントへ要件・判断・統合責任を残しながら、必要な作業だけを適切なモデルへ委譲し、重複調査、過剰な並列化、長い生ログによる rate limit と context の消費を抑えることである。
 
@@ -103,13 +103,13 @@ worker が `issue-resolver` を呼べるのは、次のような大きな問題�
 
 ## 6. timeout の扱い
 
-標準検証の詳細は `devdocs/spec/testing-strategy.md` を正本とする。単発の timeout では、process tree を停止し、active / last observed test、経過時間、console / TRX / blame artifact を保存したうえで、残留 process がないことを確認し、同じ command・filter・budget を一度だけ再実行する。
+標準検証の詳細は `devdocs/spec/testing-strategy.md` を正本とする。Functional の180秒は portable testhost 開始直前から全 Functional testhost の実際の `ExitTime` までだけを対象とし、script startup、restore、build、preflight、artifact回収、fingerprint、環境復元、whitespace確認は含めない。単発の timeout では、process tree を停止し、active / last observed test、経過時間、console / TRX / blame artifact を保存したうえで、残留 process がないことを確認し、同じ command・filter・budget・snapshot・条件で一度だけ再実行する。timeout 以外の deterministic failure は retry せず、初回から原因を調査する。
 
 2回目が budget 内で成功し、同じ症状の再発や artifact 上の決定的 evidence がなければ、初回を一過性のマシン負荷として記録し、本筋へ戻る。2回目も timeout / failure、同じ症状が再発、active test が停止、または artifact が共有 state・固定待ち・競合・I/O・入力規模の問題を示す場合は、本筋を止めて調査する。timeout 延長、無制限の再試行、並列度低下だけによる隠蔽は行わない。timeout 以外の deterministic failure は最初から原因を確認する。
 
 ## 7. 統合、検証、review
 
-worker 完了後、ルートは handoff と diff を軽く確認し、並列結果を統合する。許されるのは、path ownership の確認、機械的 conflict の解消、明白な欠落の確認、統合 snapshot に対する filtered Quick / Functional / 必要な opt-in lane である。worker が既に閉じた範囲を同じ深さで再実装・再調査しない。runner、lane、並列化、fixture 配置を変更した場合の3回連続 Functional は、同一の最終 snapshotで数える。途中で failure を修正した場合は修正前の pass を破棄し、1回目からやり直す。
+worker 完了後、ルートは handoff と diff を軽く確認し、並列結果を統合する。許されるのは、path ownership の確認、機械的 conflict の解消、明白な欠落の確認、統合 snapshot に対する filtered Quick / Functional / 必要な opt-in lane である。worker が既に閉じた範囲を同じ深さで再実装・再調査しない。runner、lane、並列化、fixture 配置を変更しても、Functional は同一の最終 snapshotで原則一回とする。180秒 timeout の場合だけ、同じ command・filter・budget・snapshot・条件で一度だけ retry し、二回目が180秒以内に成功し再発 / 決定的 evidence がなければ一過性 machine load として両結果を記録する。二回目も timeout / failure、同じ症状の再発、決定的 artifact がある場合は原因を調査し、Functional 3回 gate や WPF repeat gate は追加しない。
 
 実装と標準検証が完了したら、実装 thread を閉じ、worktree を凍結して `repo-static-review` を一度呼ぶ。reviewer には intent、acceptance criteria、base / head、worktree diff、verification evidence、初回 timeout と再実行結果があればその両方を渡す。reviewer 実行中、ルートは repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、重複チェックをしない。
 

@@ -28,7 +28,7 @@ redirected process は次を一つの bounded lifecycle として扱う。
 
 ## Verification
 
-- runner、lane、parallelization、fixture placement を変えた場合は、focused contract、最終 snapshot の Functional 3回連続、必要な Full を実行する。
-- 3回の途中で failure を修正した場合、修正前の pass を数えず最初からやり直す。
-- 各 run で portable 開始から全 Functional testhost 終了までの test-execution elapsed、diagnostics root、tracked fingerprint、runner-owned residual process を記録する。restore、build、postflight 等の時間は test-execution elapsed と混同しない。
+- runner、lane、parallelization、fixture placement、shared infrastructure を変えた場合は focused contract と、最終 snapshot の Functional 一回を実行する。Functional の180秒 timeout時だけ cleanup / artifactを確認し、同じ command・filter・budget・snapshot・条件で一度だけ retryする。retry が180秒以内に成功し再発 / 決定的 evidence がなければ一過性 machine load として両結果を記録する。
+- retry も timeout / failure、同じ症状の再発、決定的 artifact、または timeout 以外の deterministic failure が出た場合は原因を調査する。WPF focused repeat gate と Functional 3回 gate は追加しない。必要な Full は対象変更の acceptance 根拠がある場合に一度実行する。
+- 各 run で portable testhost 開始直前から全 Functional testhost の実際の process `ExitTime` までの test-execution elapsed、diagnostics root、tracked fingerprint、runner-owned residual process を記録する。restore、build、preflight、postflight、artifact 回収、fingerprint、環境復元、whitespace確認等の時間は test-execution elapsed と混同しない。
 - timeout 延長、worker 低下、unbounded retry で flake を隠さない。

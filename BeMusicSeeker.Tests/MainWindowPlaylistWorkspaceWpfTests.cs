@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Input;
 using System.Windows.Interop;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
@@ -315,13 +314,24 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     table.Arrange(new Rect(0d, 0d, table.Width, table.Height));
                     table.UpdateLayout();
 
-                    Assert.AreEqual(CustomTableHitKind.Cell, table.HitTestTable(new Point(20d, 30d)).Kind);
-                    RunWithWindowCursor(window, table, 20d, 30d, () =>
-                    {
-                        Point actualPoint = Mouse.GetPosition(table);
-                        Assert.AreEqual(CustomTableHitKind.Cell, table.HitTestTable(actualPoint).Kind, $"cursor={actualPoint}");
-                        RaiseCellClick(table);
-                    });
+                    CustomTableHitTestResult hit = table.HitTestTable(new Point(20d, 30d));
+                    Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
+                    Assert.AreEqual(0, hit.RowIndex);
+                    Assert.AreSame(firstRow, hit.Row);
+                    Assert.AreEqual("Url1", hit.Column?.Id);
+                    Assert.AreEqual(CustomTableCellKind.DownloadIcon, hit.Column?.CellKind);
+
+                    // Physical cursor input is forbidden in this lane, and CustomTableView has no
+                    // deterministic typed action-dispatch seam. Keep this test's reflection narrowly
+                    // scoped to the existing CellActionRequested backing subscriber until such a seam
+                    // is introduced, then retire this invocation for that typed/internal route.
+                    FieldInfo actionField = typeof(CustomTableView).GetField(
+                        nameof(CustomTableView.CellActionRequested),
+                        BindingFlags.Instance | BindingFlags.NonPublic)!;
+                    Delegate? actionSubscriber = actionField.GetValue(table) as Delegate;
+                    Assert.IsNotNull(actionSubscriber);
+                    Assert.AreEqual(1, actionSubscriber!.GetInvocationList().Length);
+                    actionSubscriber.DynamicInvoke(table, new CustomTableCellActionRequestedEventArgs(hit));
                     Assert.AreEqual(1, singleUrls.Count);
                     Assert.AreEqual(firstRow.Url, singleUrls[0]);
                     Assert.IsFalse(singleCompletion.Task.IsCompleted);
@@ -886,76 +896,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     {
         menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
         TestUiDispatcherHost.Drain();
-    }
-
-    private static void RaiseCellClick(CustomTableView table)
-    {
-        var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-        {
-            RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
-        };
-        table.RaiseEvent(args);
-    }
-
-    private static void RunWithWindowCursor(
-        MainWindow window,
-        CustomTableView table,
-        double x,
-        double y,
-        Action action)
-    {
-        using TestProcessGlobalCursorScope cursorScope = TestProcessGlobalCursorScope.Enter();
-        GetCursorPos(out NativePoint originalPosition);
-        try
-        {
-            table.Focus();
-            Assert.IsTrue(Mouse.Capture(table));
-            Point tableOrigin = table.PointToScreen(new Point(0d, 0d));
-            Point screenPoint = new(tableOrigin.X + x, tableOrigin.Y + y);
-            Assert.IsTrue(SetCursorPos((int)Math.Round(screenPoint.X), (int)Math.Round(screenPoint.Y)));
-            table.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() => { }));
-            Point adjustedOrigin = table.PointToScreen(new Point(0d, 0d));
-            Assert.IsTrue(SetCursorPos(
-                (int)Math.Round(adjustedOrigin.X + x),
-                (int)Math.Round(adjustedOrigin.Y + y)));
-            table.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() => { }));
-            if (PresentationSource.FromVisual((System.Windows.Media.Visual)window.Content) is HwndSource source)
-            {
-                Point screenPointForMessage = new(adjustedOrigin.X + x, adjustedOrigin.Y + y);
-                Point rootPoint = ((System.Windows.Media.Visual)window.Content).PointFromScreen(screenPointForMessage);
-                SendMessage(
-                    source.Handle,
-                    0x0200,
-                    IntPtr.Zero,
-                    MakeLParam((int)Math.Round(rootPoint.X), (int)Math.Round(rootPoint.Y)));
-            }
-            table.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() => { }));
-            action();
-        }
-        finally
-        {
-            Mouse.Capture(null);
-            SetCursorPos(originalPosition.X, originalPosition.Y);
-        }
-    }
-
-    [DllImport("user32.dll")]
-    private static extern bool GetCursorPos(out NativePoint point);
-
-    [DllImport("user32.dll")]
-    private static extern bool SetCursorPos(int x, int y);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SendMessage(IntPtr windowHandle, int message, IntPtr wParam, IntPtr lParam);
-
-    private static IntPtr MakeLParam(int low, int high)
-        => (IntPtr)((high << 16) | (low & 0xffff));
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint
-    {
-        public int X;
-        public int Y;
     }
 
     private static RoutedEventArgs RaiseMenuClick(MenuItem item)

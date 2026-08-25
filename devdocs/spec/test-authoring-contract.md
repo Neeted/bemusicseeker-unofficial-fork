@@ -1,6 +1,6 @@
 # テスト実装・既存 coverage 確認契約
 
-最終更新: 2026-08-23
+最終更新: 2026-08-25
 
 この文書は、BeMusicSeeker でテストを追加・変更・削除するときの実装契約である。`testing-strategy.md` は lane、時間予算、shard、共有 resource の正本、この文書は既存 coverage の調べ方、テストの形、例外的 seam、Codex handoff の正本とする。機能固有の observable behavior は各 feature spec を正とする。
 
@@ -56,7 +56,6 @@ source text、private reflection、method body 文字列、行順の assertion �
 
 - WPF application / dispatcher / window presentation: `TestUiDispatcherHost`、`TestWindowPresentationScope`
 - dispatcher 上の task 完了待ち: `TestUiDispatcherHost.AwaitTaskOnDispatcher`
-- process-global cursor: `TestProcessGlobalCursorScope`
 - test data: `TestBmsFactory` と既存の feature fixture builder
 - runner / distribution: production script の実行 seam。テスト側に同じ orchestration をコピーしない
 
@@ -66,7 +65,8 @@ source text、private reflection、method body 文字列、行順の assertion �
 
 - fixture へ新しい直接 `Dispatcher.PushFrame` を追加しない。有限 watchdog と明示的 completion signal を所有する共通 infrastructure 内だけで使う。
 - fixture へ新しい直接 `HwndSourceParameters` / `HwndSource` を追加しない。既存の presentation helper へ寄せる。避けられない場合は offscreen、nonactivating、deterministic disposal、HWND residual check を同じ owner で閉じる。
-- production `MainWindow.Show`、任意の foreground activation、physical cursor 操作を Functional へ追加しない。必要性が observable contract なら `testing-strategy.md` の明示 allowlist と lane を同じ変更で更新する。
+- test / fixture から physical OS cursor を操作・観測しない（`GetCursorPos`、`SetCursorPos`、`Mouse.GetPosition` による physical cursor 位置の判定を含む）。key / routed event、explicit hit、deterministic fake / typed action seam を使う。
+- production `MainWindow.Show`、任意の foreground activation を Functional へ追加しない。必要性が observable contract なら `testing-strategy.md` の明示 allowlist と lane を同じ変更で更新する。
 
 ### Process primitive
 
@@ -91,9 +91,9 @@ process 名だけでマシン全体の `dotnet` / `testhost` / `vstest` を停�
 - 正常完了の coordinator は対象の `Task`、event、signal、state transition を plain `await` で待ち、`.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` で同期 block しない。
 - local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限る。固定 sleep、成功推定用の正の delay、既定 timeout helper、bulk な timeout 変更は追加しない。
 
-runner、lane、parallelization、fixture placement、shared WPF / process infrastructure を変更した場合、最終 snapshot で Functional を3回連続実行する。途中で failure を修正した場合、修正前の pass を数えず1回目からやり直す。
+runner、lane、parallelization、fixture placement、shared WPF / process infrastructure を変更した場合も、最終 snapshot の Functional は原則一回とする。180秒 timeout の場合だけ、cleanup / artifact を確認して同じ command・filter・budget・snapshot・条件で一度だけ retry する。retry が180秒以内に成功し、再発や決定的 evidence がなければ一過性 machine load として両結果を記録する。retry failure、同症状の再発、決定的 artifact、または timeout 以外の deterministic failure は原因を調査する。WPF focused repeat gate は行わない。
 
-一度でも再発した flake は、単発 timeout の retry rule だけで閉じない。active / last observed test、shared state、process / window / pipe handle、settings、temp resource、worker topology を failure ledger へ残し、対象 filter を実際の shard context で反復する。反復回数と topology variation は plan で先に定め、成功回数の後付け積み増しをしない。
+同じ症状が retry 後も再発した flake は、単発 timeout の retry rule だけで閉じない。active / last observed test、shared state、process / window / pipe handle、settings、temp resource、worker topology を failure ledger へ残し、対象 filter を実際の shard context で調査する。無制限の反復、成功回数の後付け積み増し、worker 低下による隠蔽はしない。
 
 ## 5. Plan and worker handoff
 

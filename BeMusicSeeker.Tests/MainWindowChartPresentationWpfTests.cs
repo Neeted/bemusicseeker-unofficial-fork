@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -88,7 +87,8 @@ public sealed class MainWindowChartPresentationWpfTests
                 table.ItemsSource = new List<object> { row };
                 var columnSettings = new CustomTableColumnSettings();
                 columnSettings.InstallDst.Visibility = Visibility.Visible;
-                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columnSettings)];
+                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columnSettings)
+                    .Where(candidate => string.Equals(candidate.EditPropertyName, "instl_dst", StringComparison.Ordinal))];
                 table.SelectRowsByPredicate(_ => true);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
                 table.Measure(new Size(table.Width, table.Height));
@@ -97,52 +97,15 @@ public sealed class MainWindowChartPresentationWpfTests
 
                 CustomTableColumn column = table.Columns
                     .Single(candidate => string.Equals(candidate.EditPropertyName, "instl_dst", StringComparison.Ordinal));
-                ScrollBar horizontalScrollBar = table.Children
-                    .OfType<ScrollBar>()
-                    .Single(scrollBar => scrollBar.Orientation == Orientation.Horizontal);
-                double absoluteColumnLeft = table.Columns
-                    .Where(candidate => candidate.IsVisible)
-                    .OrderBy(candidate => candidate.DisplayIndex)
-                    .TakeWhile(candidate => !ReferenceEquals(candidate, column))
-                    .Sum(candidate => candidate.Width);
-                horizontalScrollBar.Value = Math.Min(
-                    horizontalScrollBar.Maximum,
-                    Math.Max(0d, absoluteColumnLeft - 100d));
-                table.UpdateLayout();
-                IReadOnlyList<CustomTableColumn> visibleColumns = table.Columns
-                    .Where(candidate => candidate.IsVisible)
-                    .OrderBy(candidate => candidate.DisplayIndex)
-                    .ToArray();
-                double columnLeft = visibleColumns
-                    .TakeWhile(candidate => !ReferenceEquals(candidate, column))
-                    .Sum(candidate => candidate.Width)
-                    - table.HorizontalOffset;
-                double columnX = columnLeft + Math.Max(3d, column.Width / 2d);
-                double columnY = table.HeaderHeight + Math.Max(3d, table.RowHeight / 2d);
-                Point editPoint = new(columnX, columnY);
-                CustomTableHitTestResult hit = table.HitTestTable(editPoint);
-                Assert.AreEqual(
-                    CustomTableHitKind.Cell,
-                    hit.Kind,
-                    $"x={columnX} y={columnY} offset={table.HorizontalOffset} surface={table.SurfaceWidth}x{table.SurfaceHeight} column={column.Id} width={column.Width} display={column.DisplayIndex} visible={string.Join(',', visibleColumns.Select(candidate => candidate.Id))}");
-                Assert.AreSame(row, hit.Row);
-                Assert.AreEqual("instl_dst", hit.Column?.EditPropertyName);
-
-                RunWithWindowCursor(window, table, columnX, columnY, () =>
-                {
-                    Point actualPoint = Mouse.GetPosition(table);
-                    CustomTableHitTestResult actualHit = table.HitTestTable(actualPoint);
-                    Assert.AreEqual(CustomTableHitKind.Cell, actualHit.Kind, $"actual={actualPoint} expected={editPoint}");
-                    RaiseCellClick(table);
-                    Assert.AreEqual(0, table.SelectedIndex);
-                    RaiseKey(table, Key.F2);
-                    Assert.AreEqual(1, beginning.Count);
-                    Assert.AreEqual(1, started.Count);
-                    Assert.IsNotNull(GetInstalledEditor(table));
-                    TextBox editor = GetInstalledEditor(table);
-                    editor!.Text = expectedText;
-                    RaiseKey(table, Key.Return);
-                });
+                Assert.AreEqual(0, table.SelectedIndex);
+                Assert.IsTrue(table.IsCurrentCell(0, column));
+                RaiseKey(table, Key.F2);
+                Assert.AreEqual(1, beginning.Count);
+                Assert.AreEqual(1, started.Count);
+                Assert.IsNotNull(GetInstalledEditor(table));
+                TextBox editor = GetInstalledEditor(table);
+                editor!.Text = expectedText;
+                RaiseKey(table, Key.Return);
 
                 Assert.AreEqual(1, beginning.Count);
                 Assert.AreEqual(1, started.Count);
@@ -160,7 +123,7 @@ public sealed class MainWindowChartPresentationWpfTests
     }
 
     [TestMethod]
-    public void CustomTableCellEditStartedSeesInstalledEditorAfterRealCellActivation()
+    public void CustomTableCellEditStartedSeesInstalledEditorAfterKeyboardActivation()
     {
         TestUiDispatcherHost.Invoke(() =>
         {
@@ -189,54 +152,45 @@ public sealed class MainWindowChartPresentationWpfTests
             };
             using HwndSource source = CreateHwndSource(table, 220, 70);
             MaterializeTable(table, 220d, 70d);
-            RunWithCursor(table, 20, 20, () =>
+            int beginningCount = 0;
+            int startedCount = 0;
+            int previewKeyCount = 0;
+            TextBox editorSeenAtStarted = null;
+            table.AddHandler(
+                UIElement.PreviewKeyDownEvent,
+                new KeyEventHandler((_, _) => previewKeyCount++),
+                handledEventsToo: true);
+            table.CellEditBeginning += (_, _) => beginningCount++;
+            table.CellEditStarted += (_, _) =>
             {
-                int beginningCount = 0;
-                int startedCount = 0;
-                int previewMouseCount = 0;
-                int previewKeyCount = 0;
-                TextBox editorSeenAtStarted = null;
-                table.AddHandler(
-                    UIElement.PreviewMouseLeftButtonDownEvent,
-                    new MouseButtonEventHandler((_, _) => previewMouseCount++),
-                    handledEventsToo: true);
-                table.AddHandler(
-                    UIElement.PreviewKeyDownEvent,
-                    new KeyEventHandler((_, _) => previewKeyCount++),
-                    handledEventsToo: true);
-                table.CellEditBeginning += (_, _) => beginningCount++;
-                table.CellEditStarted += (_, _) =>
-                {
-                    startedCount++;
-                    editorSeenAtStarted = table.Children
-                        .OfType<Canvas>()
-                        .SelectMany(canvas => canvas.Children.OfType<TextBox>())
+                startedCount++;
+                editorSeenAtStarted = table.Children
+                    .OfType<Canvas>()
+                    .SelectMany(canvas => canvas.Children.OfType<TextBox>())
                     .SingleOrDefault();
-                };
+            };
 
-                Point cursorPoint = Mouse.GetPosition(table);
-                Assert.AreEqual(CustomTableHitKind.Cell, table.HitTestTable(cursorPoint).Kind, $"cursor={cursorPoint}");
-                RaiseCellClick(table);
-                Assert.AreEqual(1, previewMouseCount);
-                Assert.AreEqual(0, table.SelectedIndex);
-                RaiseKey(table, Key.F2);
-                Assert.AreEqual(1, previewKeyCount);
+            RaiseKey(table, Key.Down);
+            Assert.AreEqual(0, table.SelectedIndex);
+            Assert.IsTrue(table.IsCurrentCell(0, column));
+            Assert.AreEqual(1, previewKeyCount);
+            RaiseKey(table, Key.F2);
+            Assert.AreEqual(2, previewKeyCount);
 
-                Assert.AreEqual(1, beginningCount);
-                Assert.AreEqual(1, startedCount);
-                Assert.IsNotNull(editorSeenAtStarted);
-                Assert.IsTrue(editorSeenAtStarted!.Width > 2d);
-                Assert.IsTrue(editorSeenAtStarted.Height > 2d);
-                Assert.AreEqual("initial", editorSeenAtStarted.Text);
+            Assert.AreEqual(1, beginningCount);
+            Assert.AreEqual(1, startedCount);
+            Assert.IsNotNull(editorSeenAtStarted);
+            Assert.IsTrue(editorSeenAtStarted!.Width > 2d);
+            Assert.IsTrue(editorSeenAtStarted.Height > 2d);
+            Assert.AreEqual("initial", editorSeenAtStarted.Text);
 
-                table.RaiseEvent(new KeyEventArgs(
-                    Keyboard.PrimaryDevice,
-                    Keyboard.PrimaryDevice.ActiveSource,
-                    0,
-                    Key.Escape)
-                {
-                    RoutedEvent = UIElement.PreviewKeyDownEvent
-                });
+            table.RaiseEvent(new KeyEventArgs(
+                Keyboard.PrimaryDevice,
+                Keyboard.PrimaryDevice.ActiveSource,
+                0,
+                Key.Escape)
+            {
+                RoutedEvent = UIElement.PreviewKeyDownEvent
             });
         });
     }
@@ -544,15 +498,6 @@ public sealed class MainWindowChartPresentationWpfTests
         table.Dispatcher.Invoke(DispatcherPriority.Render, new Action(() => { }));
     }
 
-    private static void RaiseCellClick(CustomTableView table)
-    {
-        var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
-        {
-            RoutedEvent = UIElement.PreviewMouseLeftButtonDownEvent
-        };
-        table.RaiseEvent(args);
-    }
-
     private static void RaiseKey(CustomTableView table, Key key)
     {
         table.RaiseEvent(new KeyEventArgs(
@@ -581,88 +526,4 @@ public sealed class MainWindowChartPresentationWpfTests
         return source;
     }
 
-    private static void RunWithCursor(CustomTableView table, double x, double y, Action action)
-    {
-        using TestProcessGlobalCursorScope cursorScope = TestProcessGlobalCursorScope.Enter();
-        GetCursorPos(out NativePoint originalPosition);
-        try
-        {
-            table.Focus();
-            Mouse.Capture(table);
-            Point screenPoint = table.PointToScreen(new Point(x, y));
-            Assert.IsTrue(SetCursorPos((int)Math.Round(screenPoint.X), (int)Math.Round(screenPoint.Y)));
-            if (PresentationSource.FromVisual(table) is HwndSource source)
-            {
-                SendMessage(source.Handle, 0x0200, IntPtr.Zero, MakeLParam((int)Math.Round(x), (int)Math.Round(y)));
-            }
-            table.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() => { }));
-            action();
-        }
-        finally
-        {
-            Mouse.Capture(null);
-            SetCursorPos(originalPosition.X, originalPosition.Y);
-        }
-    }
-
-    private static void RunWithWindowCursor(
-        MainWindow window,
-        CustomTableView table,
-        double x,
-        double y,
-        Action action)
-    {
-        using TestProcessGlobalCursorScope cursorScope = TestProcessGlobalCursorScope.Enter();
-        GetCursorPos(out NativePoint originalPosition);
-        try
-        {
-            table.Focus();
-            Assert.IsTrue(Mouse.Capture(table));
-            Point tableOrigin = table.PointToScreen(new Point(0d, 0d));
-            Point screenPoint = new(tableOrigin.X + x, tableOrigin.Y + y);
-            Assert.IsTrue(SetCursorPos((int)Math.Round(screenPoint.X), (int)Math.Round(screenPoint.Y)));
-            table.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() => { }));
-            Point adjustedOrigin = table.PointToScreen(new Point(0d, 0d));
-            Assert.IsTrue(SetCursorPos(
-                (int)Math.Round(adjustedOrigin.X + x),
-                (int)Math.Round(adjustedOrigin.Y + y)));
-            table.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() => { }));
-            if (PresentationSource.FromVisual((System.Windows.Media.Visual)window.Content) is HwndSource source)
-            {
-                Point screenPointForMessage = new(adjustedOrigin.X + x, adjustedOrigin.Y + y);
-                Point rootPoint = ((System.Windows.Media.Visual)window.Content).PointFromScreen(screenPointForMessage);
-                SendMessage(
-                    source.Handle,
-                    0x0200,
-                    IntPtr.Zero,
-                    MakeLParam((int)Math.Round(rootPoint.X), (int)Math.Round(rootPoint.Y)));
-            }
-            table.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() => { }));
-            action();
-        }
-        finally
-        {
-            Mouse.Capture(null);
-            SetCursorPos(originalPosition.X, originalPosition.Y);
-        }
-    }
-
-    [DllImport("user32.dll")]
-    private static extern bool GetCursorPos(out NativePoint point);
-
-    [DllImport("user32.dll")]
-    private static extern bool SetCursorPos(int x, int y);
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr SendMessage(IntPtr windowHandle, int message, IntPtr wParam, IntPtr lParam);
-
-    private static IntPtr MakeLParam(int low, int high)
-        => (IntPtr)((high << 16) | (low & 0xffff));
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePoint
-    {
-        public int X;
-        public int Y;
-    }
 }

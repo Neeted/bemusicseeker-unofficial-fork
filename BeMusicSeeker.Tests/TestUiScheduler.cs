@@ -52,41 +52,6 @@ internal sealed class TestUiScheduler : IUiScheduler
 }
 
 /// <summary>
-/// Serializes test ownership of the process-global operating-system cursor.
-/// </summary>
-internal sealed class TestProcessGlobalCursorScope : IDisposable
-{
-    private static readonly object syncRoot = new();
-
-    private bool entered;
-
-    private TestProcessGlobalCursorScope()
-    {
-        Monitor.Enter(syncRoot);
-        entered = true;
-    }
-
-    /// <summary>
-    /// Acquires exclusive cursor ownership until the returned scope is disposed.
-    /// </summary>
-    /// <returns>The exclusive process-global cursor scope.</returns>
-    internal static TestProcessGlobalCursorScope Enter() => new();
-
-    /// <summary>
-    /// Releases cursor ownership exactly once.
-    /// </summary>
-    public void Dispose()
-    {
-        if (!entered)
-        {
-            return;
-        }
-        entered = false;
-        Monitor.Exit(syncRoot);
-    }
-}
-
-/// <summary>
 /// Owns the test assembly's single WPF application and its dedicated STA dispatcher.
 /// </summary>
 internal static class TestUiDispatcherHost

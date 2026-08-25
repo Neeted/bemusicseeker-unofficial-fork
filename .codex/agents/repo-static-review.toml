@@ -33,9 +33,9 @@ follow-up review では、親が `previous reviewed snapshot`、`fix delta`、`p
 10. version 更新時に AssemblyInformationalVersion、localized update history、release notes、生成物の正本が整合しているか
 11. test が近傍の既存 coverage を比較し、`extend / replace / new` と退役 test を閉じているか。現在の method body / metadata / placement だけを固定せず observable behavior または必要な semantic contract を検証しているか
 12. test が actual executable seam を通り、production logic や runner orchestration を test 側へコピーしていないか。metadata が metadata 自身を検証していないか
-13. 共通 test infrastructure を local に再実装していないか。watchdog なしの dispatcher pump、policy 外の raw HWND / physical cursor、unbounded process / stream wait、理由のない source-artifact / reflection contract が増えていないか
+13. 共通 test infrastructure を local に再実装していないか。watchdog なしの dispatcher pump、policy 外の raw HWND、test / fixture での physical cursor 操作・観測（`GetCursorPos`、`SetCursorPos`、`Mouse.GetPosition` による physical cursor 位置の判定を含む）、unbounded process / stream wait、理由のない source-artifact / reflection contract が増えていないか
 14. docs / specs / comments と feature の Verification map が current behavior / canonical fixtureと矛盾していないか
-15. `devdocs/spec/testing-strategy.md` の lane と実行特性が一致し、Functional の command 全体 180 秒予算、tracked file 不変、timeout diagnostics、単発 timeout の同一条件1回再実行、必要な3回連続検証を shard 単位の成功で読み替えていないか。途中修正後に3回を最初から数え直しているか
+15. `devdocs/spec/testing-strategy.md` の lane と実行特性が一致し、Functional の180秒が command 全体ではなく portable testhost 開始直前から全 Functional testhost の実際の `ExitTime` までに限定され、startup / restore / build / preflight / artifact / fingerprint / environment / whitespace が除外されているか。tracked file 不変、timeout diagnostics、180秒 timeout時だけの同一 command・filter・budget・snapshot・条件による一回限りの retry、二回目の成功 / 再発 / 決定的 evidence の記録が守られているか。timeout 以外の deterministic failure を初回から調査し、runner / lane / parallelization / fixture placement の変更を3回連続や WPF repeat gateへ読み替えていないか
 16. 固定待ち、過剰な `DoNotParallelize`、共有 resource 競合を、マシン負荷を抑えるだけの worker / shard 制限で隠していないか
 
 finding は重大度順に、次の形式で返してください。

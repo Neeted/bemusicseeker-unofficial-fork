@@ -95,11 +95,11 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 ```
 
 - 実装中は関連 test filter の `Quick` を優先し、小さな修正ごとに full suite を繰り返さない。
-- 通常のコード変更は、レビュー前に原則一度 `Functional` を行う。`Functional` は portable testhost の開始から全 Functional testhost の完了までのテスト実行全体を 180 秒以内とし、個別 testhost / shard ごとに時間予算をリセットしない。script startup、restore、build、preflight、artifact保存、fingerprint、環境復元などのテスト実行前後の処理はこの180秒に含めない。
+- 通常のコード変更は、最終 snapshot で原則一度 `Functional` を行う。`Functional` は portable testhost の開始直前から、全 Functional testhost の実際の `ExitTime` までのテスト実行全体を 180 秒以内とし、個別 testhost / shard ごとに時間予算をリセットしない。script startup、restore、build、preflight、artifact保存、fingerprint、環境復元、whitespace確認などのテスト実行前後の処理はこの180秒に含めない。
 - `Full` は publish / updater / distribution、release 手順、または Full runner 自体を変更した場合と release 前に使う。settings、startup、共有 model などの変更だけを理由に、通常機能テストと release acceptance を毎回まとめて実行しない。対象に応じて filtered `Quick`、`Functional`、明示的な opt-in lane を組み合わせる。
 - review 修正後は、まず影響範囲の filtered `Quick` を行う。修正が通常機能検証の前提を変えた場合だけ最終 `Functional` を再実行し、release lane を変えた場合だけ `Full` も再実行する。
-- timeout 時は process tree を停止し、active または last observed test、経過時間、console progress / TRX / blame artifact を残し、残留 test process がないことを確認する。最初の単発 timeout は同じ command・filter・budget で一度だけ再実行し、2回目が成功して再発 evidence がなければ一過性のマシン負荷として両方の結果を記録する。2回目も timeout / failure、同じ症状の再発、または artifact が決定的問題を示す場合は原因を調査する。timeout 延長や無制限の再試行は行わない。
-- runner、lane、並列化、fixture 配置を変更した場合は、同一の最終 snapshot と条件で `Functional` を3回連続実行し、各回の portable testhost 開始から全 Functional testhost 完了までが180秒以内、tracked file が不変、残留 test process がないことを確認する。途中で failure を修正した場合は修正前の pass を数えず1回目からやり直し、HEAD、command、test-execution elapsed、diagnostics root を記録する。
+- timeout 時は process tree を停止し、active または last observed test、経過時間、console progress / TRX / blame artifact を残し、残留 test process がないことを確認する。最初の単発 timeout は同じ command・filter・budget・snapshot・条件で一度だけ再実行し、2回目が180秒以内に成功して再発 evidence がなければ一過性のマシン負荷として両方の結果を記録する。2回目も timeout / failure、同じ症状の再発、または artifact が決定的問題を示す場合は原因を調査する。timeout 延長や無制限の再試行は行わない。
+- runner、lane、並列化、fixture 配置、shared test infrastructure を変更しても、Functional の受入を3回 gateへ拡張しない。最終 snapshot で一度実行し、180秒 timeout の場合だけ process tree / artifact / 残留 process を確認したうえで、同じ command・filter・budget・snapshot・条件で一度だけ retry する。retry が180秒以内に成功し、同じ症状の再発や artifact の決定的 evidence がなければ一過性の machine load として両結果を記録する。retry も timeout / failure、同じ症状の再発、または決定的 evidenceがある場合は原因を調査する。timeout 以外の deterministic failure は初回から調査する。
 - test はマシンの CPU / I/O を安定性が許す範囲で利用し、wall-clock time を短縮する。負荷抑制だけを理由に shard / worker を制限せず、競合で不安定になる場合は共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
 - timeout 以外の deterministic failure、2回目も失敗した timeout、同じ症状が再発する flaky / 長時間化を確認した時点で、本筋を一旦止めて原因を調査する。現在の変更範囲外に見えても放置せず、並列実行、共有 state、固定待ち時間、競合、I/O、fixture / input 量、監視側の timeout 根拠を確認する。
 - test の見直しでは、可能なら同期 barrier や決定的な fake で安定化し、不要な固定待ちや過大な入力を削減する。必要な処理量として妥当な長時間 test は、実測と失敗検出能力を根拠に timeout / shard 設計を変更してよい。timeout 延長だけで不安定性を隠さない。

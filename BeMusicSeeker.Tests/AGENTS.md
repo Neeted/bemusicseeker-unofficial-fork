@@ -22,6 +22,7 @@
 - WPF application / dispatcher / presentation は `TestUiDispatcherHost` と `TestWindowPresentationScope` を使う。fixture に新しい直接 `Dispatcher.PushFrame` を追加しない。
 - dispatcher 上の task 待ちは `TestUiDispatcherHost.AwaitTaskOnDispatcher` を使い、識別可能な operation name を渡す。local pump を複製しない。
 - fixture に新しい直接 `HwndSource` / `HwndSourceParameters` を追加しない。共通 presentation policy へ寄せ、例外は offscreen / nonactivating / deterministic cleanup を明示する。
+- test / fixture から physical OS cursor を操作・観測しない（`GetCursorPos`、`SetCursorPos`、`Mouse.GetPosition` による physical cursor 位置の判定を含む）。key / routed event、explicit hit、deterministic fake / typed action seam を使う。
 - fixed `Thread.Sleep`、正常完了を推定する正の `Task.Delay`、busy wait を追加しない。deterministic signal と短い failure watchdog を使う。
 - `DoNotParallelize` は分離不能な shared resource が実在するときだけ使い、resource owner、復元、Quick を含む必要性を comment または spec へ残す。
 - process test は bounded process wait、bounded stream drain、owned PID lineage cleanup、diagnostics、primary failure precedence を一つの owner へ閉じる。process 名だけの global kill を行わない。
@@ -31,6 +32,6 @@
 ## Verification and handoff
 
 - 反復中は変更 behavior に対応する filtered Quick を使い、worker が Functional / Full を重複実行しない。
-- test infrastructure、fixture placement、lane、parallelization を変えた場合、root が最終 snapshot で Functional を3回連続実行する。途中修正後は1回目から数え直す。
+- test infrastructure、fixture placement、lane、parallelization を変えても、root は最終 snapshot で Functional を原則1回だけ実行する。180秒 timeout の場合だけ cleanup / artifact を確認して同じ command・filter・budget・snapshot・条件で一度だけ retry し、retry 成功時は再発 evidence の有無とともに両結果を記録する。retry failure、同症状の再発、決定的 artifact、または timeout 以外の deterministic failure は原因調査へ進む。WPF focused repeat gate は行わない。
 - 完了時は通常の worker handoff に加えて、`TEST COVERAGE` と `TEST SAFETY` を返す。検索した candidate fixture、`extend / replace / new`、退役 test、shared resource、lane / shard、completion signal、例外 seam、実行 filter を含める。
 - 触れた file について、少なくとも新規の `Dispatcher.PushFrame`、`HwndSourceParameters`、`Thread.Sleep`、正常完了用 `Task.Delay`、理由のない `DoNotParallelize`、production `.cs` の広域 `File.ReadAllText` が増えていないか確認する。

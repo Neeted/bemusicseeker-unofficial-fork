@@ -6,13 +6,13 @@
 
 ## 運用目標
 
-- 通常の機能検証では、portable settings の `dotnet test` 開始直前から全 testhost 完了までの test execution を 180 秒以内で完了させる。個々の testhost や shard ごとの 180 秒ではない。script startup、preflight、restore、build、output 準備、postflight はこの test budget の対象外である。
+- 通常の機能検証では、portable settings の `dotnet test` 開始直前から、portable と fanout する全 Functional testhost の実際のプロセス `ExitTime` までの test execution を 180 秒以内で完了させる。個々の testhost や shard ごとの 180 秒ではない。script startup、preflight、restore、build、output 準備、artifact 回収、fingerprint、環境復元、whitespace確認、postflight はこの test budget の対象外である。
 - Functional の canonical runner は portable settings の `dotnet test` 開始直前に一つの execution deadline（開始時刻 + `FunctionalTimeoutSeconds`）と、その deadline + 10 秒の failure-cleanup cutoff を作る。同じ deadline を portable、fanout launch、全 testhost 完了まで共有し、host / phase ごとに reset しない。+10 秒は timeout / failure 時の owned-process cleanup と stream drain 専用であり、成功判定を testhost 完了後の cleanup、fingerprint、環境復元、whitespace 確認まで延長しない。
 - Functional は、追跡対象ファイルを変更せず、実行順序や並列度によらず決定的に成功する。
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
 - リソース競合で不安定になる場合は、共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
-- timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。最初の単発 timeout は、残留 process がないことを確認して同一 command・filter・budget で一度だけ再実行してから調査要否を判断する。
-- runner、lane、並列化、fixture 配置を変更した場合は、同一の最終 snapshot で Functional を同一条件で3回連続実行し、各回の test execution が180秒以内であることを確認する。途中で failure を修正した場合は修正前の pass を数えず、1回目からやり直す。
+- timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。最初の単発 timeout は、残留 process がないことを確認して同一 command・filter・budget・snapshot・条件で一度だけ再実行してから調査要否を判断する。
+- runner、lane、並列化、fixture 配置、shared test infrastructure を変更しても、同一の最終 snapshot で Functional を原則一回だけ実行する。180秒 timeout の場合だけ process tree / artifact / 残留 process を確認し、同じ command・filter・budget・snapshot・条件で一度だけ retry する。retry が180秒以内に成功し、同じ症状の再発や artifact の決定的 evidence がなければ一過性の machine load として両結果を記録する。retry も timeout / failure、同じ症状の再発、または決定的 evidence がある場合は原因を調査する。timeout 以外の deterministic failure は初回から調査し、Functional 3回 gate や WPF focused repeat gate は追加しない。
 
 ## 標準コマンド
 
@@ -22,7 +22,7 @@
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ```
 
-この呼び出しでは、script startup、tracked-file fingerprint、solution の locked restore / build / output validation、環境復元、最終 fingerprint は test execution の 180 秒予算外である。`Invoke-CanonicalFunctionalVerification` はこれらの準備後、portable settings の `dotnet test` から全 testhost 完了までを論理的に一つの通常 test phase として所有し、`dotnet test` は restore 済みの dependency graph を使う。内部 sharding の有無にかかわらず、test execution の時間予算は一度だけ適用する。Functional からは `Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance` を除外する。
+この呼び出しでは、script startup、tracked-file fingerprint、solution の locked restore / build / output validation、環境復元、最終 fingerprint は test execution の 180 秒予算外である。`Invoke-CanonicalFunctionalVerification` はこれらの準備後、portable settings の `dotnet test` 開始直前から全 testhost の実際の `ExitTime` までを論理的に一つの通常 test phase として所有し、`dotnet test` は restore 済みの dependency graph を使う。内部 sharding の有無にかかわらず、test execution の時間予算は一度だけ適用する。Functional からは `Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance` を除外する。
 
 Quick の filter なし呼び出しもこの canonical owner を一度だけ使う。filter 付き Quick だけは明示 filter の専用 route を使い、canonical Functional の shard topology は起動しない。owner は呼び出し元が渡す diagnostics root と `FunctionalTimeoutSeconds` を受け取り、caller-owned root 配下へ restore / build / shard artifact を保存する。tracked-file fingerprint の取得と不変確認、環境復元は mode の外側で一度ずつ行い、test execution の deadline へ接続しない。
 
@@ -43,13 +43,13 @@ Functional は category exclusion を適用した論理 test set を一度だけ
 
 `serial-state-a` は settings / foreground / playlist settings / native logging owner を、`serial-state-b` は LR2、compiled WPF、class-wide DNP owner を所有する。A / B の exact selector はこの Unit 4e-A plan と runner の実装本文を正本とし、残りの論理 test setは、45 class exclusionを共有する `R` を一つの `BmsLibrary` selectorのpositive / negative predicateへ分けて一度だけ実行する。BmsLibraryのexact class allowlistは実行源にせず、論理 prefixで自動 routeする。fanout 5 host の専用 worker は Bass / A / B が各1、二つのremaining partitionが各 `ProcessorCount` で、portable完了後の最大同時 worker 数は約27である。
 
-起動順は portable host の `dotnet test` 開始直前に test execution の deadline を作り、portable host を単独で完了させ、その成功後に Bass、serial A、serial B、`remaining-bms-library`、remaining を同じ validated plan array から即時 start する。二つのremaining partitionは同じ `R` base filter、共通selectorのpositive / negative predicate、`ClassLevel` / `ProcessorCount`を持ち、互いに重ならず合計で `R` 全体を覆う。全 test process はこの一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。execution deadline 内に全 testhost が完了した場合だけを成功扱いにし、成功後の出力収集、fingerprint、環境復元は test budget 外で行う。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
+起動順は portable host の `dotnet test` 開始直前に test execution の deadline を作り、portable host を単独で完了させ、その成功後に Bass、serial A、serial B、`remaining-bms-library`、remaining を同じ validated plan array から即時 start する。二つのremaining partitionは同じ `R` base filter、共通selectorのpositive / negative predicate、`ClassLevel` / `ProcessorCount`を持ち、互いに重ならず合計で `R` 全体を覆う。全 test process はこの一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。各 testhost の成功判定は retained process handle の実際の `ExitTime` が deadline 内であることを基準とし、execution deadline 内に全 testhost が完了した場合だけを成功扱いにする。成功後の出力収集、fingerprint、環境復元は test budget 外で行う。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
 
 foreground input、keyboard focus、hit testing、nested modal activation が保証対象の7 methodは、すべて現行 FQN の `SettingsForegroundInteractionTests` に属し、`serial-state-a` だけが所有する。`SettingDialogEditCompletionTests` や旧 SettingsWindow owner の FQN を foreground selector に含めない。
 
 正常完了は対象の `Task`、signal、event、state transitionを plain `await` で待つ。coordinator は `.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` などの同期 block を行わない。local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限り、固定 sleep、成功推定用の正の delay、既定 timeout helper は追加しない。
 
-Functional の category exclusion、locked restore / build、180 秒 test execution budget、tracked-file fingerprint、Quick / Full mapping は維持する。Functional plan の変更受入は、同一 snapshot・同一条件の Functional 3回連続とし、この Unit の focused Quick では runner contract と process lifecycle contract を検証する。
+Functional の category exclusion、locked restore / build、180 秒 test execution budget、tracked-file fingerprint、Quick / Full mapping は維持する。Functional plan の変更受入も同じ最終 snapshotで原則一回とし、180秒 timeout 時だけ同じ条件で一回 retry する。retry 成功時の一過性 machine load 判定、再発 / 決定的 artifact の原因調査、WPF focused repeat gate を現行 policy とする。この Unit の focused Quick では runner contract と process lifecycle contract を検証する。
 
 ## Verification map: process lifecycle
 
@@ -157,11 +157,12 @@ Functional に含めないもの:
   - `SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected`
   - `SettingsForegroundInteractionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor`
 - `serial-state-a` is the only Functional host that owns `SettingsForegroundInteractionTests`; all seven foreground-sensitive methods remain explicit `TestWindowActivation.ForegroundInteraction` cases. `SettingDialogEditCompletionTests` and retired SettingsWindow owner FQNs are not foreground selectors. allowlist の追加、visible / foreground window が必要な受入検証、OS focus policy に依存する操作は通常の Functional へ安易に追加せず、まず Full / release acceptance の責務として分離できるか検討する。待機時間の延長や固定 sleep を foreground 成功条件にしない。
+- test / fixture から external user / OS 操作に左右される physical OS cursor の操作・観測を導入・利用しない。`GetCursorPos`、`SetCursorPos`、`Mouse.GetPosition` による physical cursor 位置の判定を禁止し、key / routed event、explicit hit、deterministic fake / typed action seam を使う。
 - 共有 WPF host は process-local な `AppearanceTheme` を退避し、ready signal を通知する前に保存せず Light theme を適用する。assembly cleanup は未起動なら何もせず、起動済みなら owner dispatcher 上で元の値へ戻してから `Application` と dispatcher を停止し、完了 signal と thread join によって終了を待つ。既存 `Application` との競合、キャッシュされた起動失敗、invoke・cleanup の例外は failure として表面化させる。testhost の `Application.ResourceAssembly` は変更しない。
 - 固定 `Thread.Sleep` や余裕時間としての長い `Task.Delay` を待機手段にしない。`TaskCompletionSource`、`ManualResetEventSlim`、channel、fake scheduler / clock など、観測対象の state transition と直接結び付く同期を使う。
 - deadlock / cancellation timeout は機能テストに含めてよいが、通常完了を固定時間で待つのではなく、短い failure watchdog と決定的な完了 signal を組み合わせる。
 - 性能閾値、応答時間分布、throughput は機能 assertion と混ぜず Performance lane へ置く。
-- 最初の単発 timeout では、process tree を停止して diagnostics を保存し、残留 test process がないことを確認したうえで、同一 command・filter・budget を一度だけ再実行する。
+- 最初の単発 timeout では、process tree を停止して diagnostics を保存し、残留 test process がないことを確認したうえで、同一 command・filter・budget・snapshot・条件で一度だけ再実行する。
 - 2回目が budget 内で成功し、同じ症状の再発または artifact 上の決定的 evidence がなければ、初回を一過性のマシン負荷として両方の結果を記録し、本筋へ戻る。
 - 2回目も timeout / failure、同じ症状の再発、active test の停止、または artifact が問題を示す場合は、本筋を一旦止め、共有 state、固定待ち、競合、I/O、入力規模、timeout 根拠を調査してから戻る。timeout 延長、無制限の再試行、並列度低下だけによる隠蔽は行わない。
 - timeout 以外の deterministic failure は、再実行で消えることを期待して先送りせず、最初の failure evidence から原因を確認する。

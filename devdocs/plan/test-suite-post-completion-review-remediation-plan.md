@@ -1,10 +1,20 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Final verification complete on `a8f1f6a4`; fresh static review pending
+Status: Policy / cursor correction in progress; historical verification retained; current-policy acceptance and fresh static review pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
 Plan date: 2026-08-24
+
+## Current policy correction (2026-08-25)
+
+この計画の過去の検証ログと退役 unit の履歴は保持するが、現在の受入条件は次へ更新する。
+
+- Functional は最終 snapshot で原則一回だけ実行する。180秒 timeout の場合に限り、process tree / 残留 process / diagnostics / artifact を確認したうえで、同じ command・filter・budget・snapshot・条件で一度だけ retry する。retry が180秒以内に成功し、同じ症状の再発や artifact の決定的 evidence がなければ一過性の machine load として両結果を記録し、retry も timeout / failure、同じ症状の再発、または決定的 evidence があれば原因を調査する。timeout 以外の deterministic failure は初回から調査する。
+- 180秒の対象は portable testhost 開始直前から、全 Functional testhost の実際の process `ExitTime` までだけとする。script startup、restore、build、preflight、postflight、artifact / stream 回収、fingerprint、環境復元、whitespace確認は対象外であり、host / shard ごとに deadline を reset しない。
+- runner、lane、parallelization、fixture placement、shared test infrastructure の変更でも Functional 3回 gate は追加しない。WPF focused repeat gate も廃止済みで、既存の3回 / WPF30 evidenceは履歴としてのみ保持する。
+- tests / fixtures では external user / OS 操作に左右される physical OS cursor の操作・観測（`GetCursorPos`、`SetCursorPos`、`Mouse.GetPosition` による physical cursor 位置の判定を含む）を導入・利用しない。key / routed event、explicit hit、deterministic fake / typed action seam を使う。既存 cursor route は2026-08-25のcursor correctionで退役済みである。
+- Full は今回の docs / test policy correction だけを理由にはしないが、先行 runner 変更 `b32df9d6` の最終 acceptance を同じ final snapshot で閉じるため一回実行する。
 
 ## Goal
 
@@ -33,11 +43,11 @@ Plan date: 2026-08-24
 - primary process / orchestration failure を cleanup / persistence failure で置換しない。primary がない cleanup-only failure は成功に隠さない。
 - production lifecycle を test 側へ複製しない。actual shared seam / caller を guarded deterministic probe から通す。
 - runner、lane、worker topology、Functional 180秒 budget、WPF fixture の production behavior は変更しない。
-- fixed sleep、timeout延長、retry、追加 `DoNotParallelize` を使わない。
+- implementation routeでは fixed sleep、timeout延長、無制限 retry、追加 `DoNotParallelize` を使わない。Functional acceptance の同一条件一回 retry は current policy correction に定めた timeout 時だけの例外とする。
 
 ## Decision list
 
-- 3件はすべて現行仕様へ直接反する P2 であり、修正対象とする。
+- 4件はすべて現行仕様へ直接反する P2 であり、修正対象とする。
 - lifecycle-local observation owner を正本とし、PID filter付き global queue は採用しない。
 - timeout 時の durable owner diagnostic は deadline 内に確定できる `stream-drain-timeout` とする。deadline 後の exact task exception は必ず観測して unobserved fault を防ぐが、別 lifecycle の result / failure へ追加しない。
 - terminal persistence のために絶対 deadline 内の reserve / cutoff を明示し、完了 stream とその時点までの diagnostics を未完了 stream から独立して保存する。deadline 後の書込み許可は採用しない。
@@ -45,6 +55,9 @@ Plan date: 2026-08-24
 - fault injection seam は既定無効の内部 parameter / guard と deterministic signal を使い、通常 CLI routeや単なる環境変数だけでは有効化できない構造にする。
 - final diagnostic flush は terminal operations とscope seal後に最後のI/Oとして一度だけ行う。cutoff前に開始したflushのfailureはowner secondary diagnosticとして返しprimaryを置換しない。cutoff後は開始せず、`terminal-diagnostic-flush` skipをresultのsecondary diagnosticに残す。sink自身が失敗した場合はartifactではなくresult/caller failure reportingを正本とし、既存artifactは空書きしない。
 - 既存 canonical fixtureを `extend` し、新 fixture / lane / DNP は追加しない。
+- Functional の最終 acceptance は一回を原則とし、180秒 timeout 時だけ同じ条件で一回 retry する。二回目の budget 内成功は再発 / 決定的 artifact がない場合に限り一過性 machine load として記録し、それ以外は原因調査へ進む。timeout 以外の deterministic failure は retry しない。
+- 180秒は portable testhost 開始直前から全 Functional testhost の実際の `ExitTime` までだけを測定し、startup / restore / build / preflight / postflight / artifact / fingerprint / environment / whitespace を含めない。Functional 3回 gate と WPF repeat gate は現行条件ではない。
+- tests / fixtures の physical OS cursor 操作・観測は禁止し、key / routed event、explicit hit、deterministic fake / typed action seam を使う。production のcursor実装は変更せず、退役したtest routeだけを本correctionの対象とする。
 
 ## Unit 1: Close lifecycle persistence, observation ownership, and post-start cleanup
 
@@ -518,18 +531,18 @@ Focused PowerShell parse / guarded actual plan probeと `git diff --check` はpa
 
 Replan triggerは、actual planが6 host / 5 fanout / logical-prefix complementを証明できない、BmsLibraryのexact allowlistや別selector constantが再導入される、portable後の同一plan fanoutが崩れる、180秒/+10秒 deadlineまたはcleanup ownershipが変わる、tracked mutation / residual processが出る、または同一条件の2回目のdeterministic timeout / failure evidenceが出る場合とする。
 
-## Unit 5: final stability gates and review
+## Unit 5: final acceptance under current policy and review
 
-Review correctionの統合後、最終behavior snapshotで次を実行する。WPF 30回の競合検出は `62f27b51` までに十分完了しているため、以後は再実行しない。途中でfailureを修正した場合は、Functional stability gateだけを1回目から数え直す。
+Review correction と current policy / cursor correction の統合後、最終 behavior snapshot で次を実行する。過去のWPF 30回の競合検出は `62f27b51` までに十分完了しているため、evidenceを保持したまま再実行しない。Functional は原則一回とし、180秒 timeout時だけ同じ条件で一回 retryする。
 
 1. PowerShell parse、`git diff --check`、Release build、runner hash。
 2. lifecycle focused Quick。
-3. WPF focused 30回は既存 `62f27b51` evidenceを一時的な競合検出gateの完了記録として維持し、今後は反復しない。
-4. Functionalを3回連続。各回のportable開始から全Functional testhost完了までのtest executionが180秒以内、tracked fingerprint不変、残留test process 0。
-5. Fullを1回。
+3. WPF focused repeat gate は退役済みとし、既存 `62f27b51` evidenceを一時的な競合検出gateの完了記録として保持するだけで、今後は実行しない。
+4. Functionalを一回。portable testhost開始直前から全Functional testhostの実際の`ExitTime`までが180秒以内、tracked fingerprint不変、残留test process 0であることを確認する。180秒 timeout時はcleanup / artifact確認後、同じ command・filter・budget・snapshot・条件で一回だけretryし、二回目の結果に応じて一過性 machine load の記録または原因調査を行う。
+5. Fullを一回。今回のdocs / test policy correctionだけを理由にはしないが、先行 runner 変更 `b32df9d6` の最終 acceptance を同じ final snapshot で閉じるため実行する。
 6. implementation threadを閉じ、snapshotを凍結してfresh `repo-static-review`を呼ぶ。
 
-Reviewer は asymmetric persistence、scope seal後のfault、actual post-start caller exception、artifact非破壊、primary/secondary precedence、deadline後のprimitive開始、test自己検証を重点確認する。
+Reviewer は asymmetric persistence、scope seal後のfault、actual post-start caller exception、artifact非破壊、primary/secondary precedence、deadline後のprimitive開始、test自己検証、physical OS cursor route の不在と key / routed event / explicit hit / deterministic seam の利用を重点確認する。
 
 ### Post-completion review correction resolution
 
@@ -551,7 +564,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4d: final Functional tail ownership | Retired by Unit 4e | Functional fanoutでChartInfo splitのThreadPool completion ownership premiseが破綻したため、5 source groupを単一partial `ChartInfoMetadataOwnerTests`へregroup。library/startup owner split、exact 6-worker ClassLevel route、15/14/14/1 topology、logical test set、watchdogを維持する。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
 | Unit 4e: KISS Functional / watchdog policy | Implementation and final verification complete; review pending | 個別testの短時間予算と15-shard性能topologyを退役し、normal-completion plain awaitとtest execution全体の単一deadlineへ統合した。初期5-host / 4-fanoutはUnit 4e-Eで退役し、最終構成はportable完了後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount`。180秒はrestore/build/preflight/postflightを除くportable開始から全Functional testhost完了までだけを測る。 |
 | Unit 4e-E: BmsLibrary logical-prefix partition | Implementation and final verification complete; review pending | `d9d33b55` の remaining timeout evidenceを受け、shared base `R`を一つの `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` selectorのpositive / negative predicateへ分割。portable first後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount` topology、45 exclusions、one canonical deadline、logical onceをactual plan validatorへ閉じた。parse / guarded plan probe / diff checkと runner contract Quick 5/5を完了。最終snapshotでFunctional 3回連続とFull 1回を完了した。 |
-| Unit 5: final stability gates and review | Final verification complete; fresh review pending | `62f27b51` のWPF 30回は一時的競合gateの完了証拠として維持し再実行しなかった。`a8f1f6a4` でFunctional 3回、Full 1回、focused ProcessIntegrationを完了し、fresh static reviewだけが残る。 |
+| Unit 5: current-policy acceptance and review | Policy / cursor correction in progress; current acceptance pending | `62f27b51` のWPF 30回と過去のFunctional 3回、Full 1回は履歴として保持し再実行しない。current policyに基づくFunctional一回（180秒 timeout時のみ同条件一回 retry）、runner変更 `b32df9d6` の最終 acceptanceとしてのFull一回、focused ProcessIntegration、fresh static reviewを残す。 |
 
 ## Verification log
 
@@ -629,6 +642,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 - late faultが別lifecycleへ混入せず、元ownerのtimeout diagnosticとfault observation contractが明確である。
 - post-start exception後のexact-owned PID residualが0で、既存artifactとprimary failureが維持される。
 - terminal operation中に確定したdiagnosticが成功したfinal logに含まれ、final flush失敗時はresult/callerのsecondary failureとして観測される。
-- WPF 30回は `62f27b51` で一時的な競合検出gateとして完了済みとし、以後は反復しない。deadline計測範囲とVerification map修正後の最終snapshotでFunctional 3回、Full 1回が成功する。
+- WPF 30回は `62f27b51` で一時的な競合検出gateとして完了済みとし、以後は反復しない。current policyの最終snapshotでFunctional一回が成功する（180秒 timeout時のみ同じ条件で一回 retryし、結果に応じて一過性 machine load の記録または原因調査を行う）。Functionalの180秒はportable testhost開始直前から全Functional testhostの実際の`ExitTime`までだけを対象とし、Fullは先行 runner 変更 `b32df9d6` の最終 acceptanceとして一回実行する。
+- tests / fixtures に physical OS cursor の操作・観測がなく、key / routed event、explicit hit、deterministic fake / typed action seamで外部 user / OS状態への依存を避けている。production のcursor実装は変更せず、退役したtest routeは履歴として保持する。
 - fresh static reviewでP0/P1とacceptanceへ直接反するP2がない。
 - verification evidence、review result、最終commitを本計画へ記録し、StatusをCompleteにする。
