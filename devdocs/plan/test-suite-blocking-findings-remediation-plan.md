@@ -6,6 +6,8 @@ Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
 Plan date: 2026-08-23
 
+Post-completion clarification (2026-08-25): Functional の180秒は portable testhost 開始から全 Functional testhost 完了までのテスト実行全体だけを対象とし、script startup、restore、build、preflight、artifact保存、fingerprint、環境復元は含めない。本計画の WPF 30回反復はテスト整理中の一時的な競合検出 gate として完了済みであり、今後の変更後検証では反復しない。
+
 ## Codex への実行指示
 
 `AGENTS.md` と `devdocs/spec/codex-agent-workflow.md` に従って Unit 0 から実行する。ルートが設計、計画、統合、最終検証を所有し、実装は bounded unit ごとに `implementation-worker` へ渡す。
@@ -16,7 +18,7 @@ Plan date: 2026-08-23
 
 ## Goal
 
-テスト整理後レビューで確認された次の2件を、Functional の180秒 command budget と既存の failure contract を維持したまま解消する。
+テスト整理後レビューで確認された次の2件を、Functional test execution 全体の180秒 budget と既存の failure contract を維持したまま解消する。
 
 1. `scripts/verify-refactor.ps1` が process timeout / failure 後に redirected stdout / stderr の EOF を無期限に待ち、runner 自身が cleanup reserve を超えて停止し得る。
 2. 4つの compiled WPF fixture が、watchdog なしのローカル `Dispatcher.PushFrame` helper で shutdown task を待ち、testhost 全体を runner timeout まで停止させ得る。
