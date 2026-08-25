@@ -289,26 +289,26 @@ beatoraja 選曲画面の難易度表表示順は `config_sys.json` の `tableUR
 
 ## Verification map
 
-プレイリスト更新と出力の behavior coverage は owner 単位の Functional fixtureへ分離する。各 fixtureは class-wide `DoNotParallelize`、process-local `Settings.Default`、GUID付き temporary database / filesystemを従来どおり所有する。
+プレイリスト更新と出力の behavior coverage は owner 単位の Functional fixtureへ分離する。canonical six-host planでは `portable-settings`（1 worker / `ClassLevel`）を先に完了させ、その後 `bass-collectible`、`serial-state-a`、`serial-state-b`、`remaining-bms-library`、`remaining` を待機 waveなしで fanout する。4つの BMS playlist fixtureは serial-state-a の exact 23 class selectorに属し、owned chart summary fixtureは exact 45 class selectorにも `BeMusicSeeker.Tests.BmsLibrary` logical prefixにも一致しないため `remaining` の `R & FullyQualifiedName!~BeMusicSeeker.Tests.BmsLibrary` logical-negative partition（`ProcessorCount` workers / `ClassLevel`）に属する。各 fixtureは class-wide `DoNotParallelize`、process-local `Settings.Default`、GUID付き temporary database / filesystemを従来どおり所有する。
 
 | behavior | canonical fixture | Functional route |
 | --- | --- | --- |
-| 外部 playlist reload、header/data hydration、deferred sync | `BmsPlaylistExternalReloadTests` | `playlist-external-custom-folder`, 1 worker / `ClassLevel`; `BmsPlaylistCustomFolderOutputTests` と同じ process-local host |
-| playlist / entry persistence、publication、backup / restore lifecycle | `BmsPlaylistPersistenceLifecycleTests` | `playlist-persistence-migration`, 1 worker / `ClassLevel`; `BmsPlaylistMigrationAndRegistrationTests` と同じ process-local host |
-| custom-folder / beatoraja output、manifest cleanup、table URL projection | `BmsPlaylistCustomFolderOutputTests` | `playlist-external-custom-folder`, 1 worker / `ClassLevel`; `BmsPlaylistExternalReloadTests` と同じ process-local host |
-| migration、registration、Table URL import、duplicate / failure contract | `BmsPlaylistMigrationAndRegistrationTests` | `playlist-persistence-migration`, 1 worker / `ClassLevel`; `BmsPlaylistPersistenceLifecycleTests` と同じ process-local host |
+| 外部 playlist reload、header/data hydration、deferred sync | `BmsPlaylistExternalReloadTests` | `serial-state-a`, 1 worker / `ClassLevel`; exact 23 class selector内、`BmsPlaylistCustomFolderOutputTests` と同じ process-local settings safety |
+| playlist / entry persistence、publication、backup / restore lifecycle | `BmsPlaylistPersistenceLifecycleTests` | `serial-state-a`, 1 worker / `ClassLevel`; exact 23 class selector内、`BmsPlaylistMigrationAndRegistrationTests` と同じ process-local settings safety |
+| custom-folder / beatoraja output、manifest cleanup、table URL projection | `BmsPlaylistCustomFolderOutputTests` | `serial-state-a`, 1 worker / `ClassLevel`; exact 23 class selector内、`BmsPlaylistExternalReloadTests` と同じ process-local settings safety |
+| migration、registration、Table URL import、duplicate / failure contract | `BmsPlaylistMigrationAndRegistrationTests` | `serial-state-a`, 1 worker / `ClassLevel`; exact 23 class selector内、`BmsPlaylistPersistenceLifecycleTests` と同じ process-local settings safety |
 
-旧 `BmsPlaylistUpdateTests` と `playlist-update` routeは退役し、4 fixtureの論理 test set と completion / cleanup signalを2つのgrouped replacementへ移す。runnerは4つの実際の class selectorをremainingから除外し、各groupのexact membership、1 worker / `ClassLevel`、他 routeとの重複がないことを起動前に検証する。
+旧 `BmsPlaylistUpdateTests` と `playlist-update` routeは退役済みである。4 fixtureの論理 test set と completion / cleanup signalは serial-state-a の既存 exact 23 class selectorへ移り、別の playlist named hostは持たない。runnerは4つの FQNを含む exact selector、shared 45-class exclusion、serial-state-a と両 remaining partitionの論理的な非重複を起動前に検証する。
 
 ### Owned chart summary verification
 
-`PlaylistSummaryAggregationTests` の18 caseは、owned chart collection と同じ既存 `owned-chart-collection` processで、次の4 owner fixtureへ置換する。各 fixtureはGUID付き temporary song database / filesystem、owned hash snapshot、digest mutation window、completion / cleanup signalを従来どおり所有し、routeは1 process・6 workers・`ClassLevel`のまま維持する。
+`PlaylistSummaryAggregationTests` の18 caseは、owned chart collection と同じ `remaining` logical-negative partitionへ、次の4 owner fixtureとして置換する。各 fixtureはGUID付き temporary song database / filesystem、owned hash snapshot、digest mutation window、completion / cleanup signalを従来どおり所有し、routeは `ProcessorCount` workers / `ClassLevel`である。旧 `owned-chart-collection` named performance shardは退役済みで、現行Functional laneでは使用しない。
 
-| behavior | canonical fixture | Existing case set |
-| --- | --- | --- |
-| count calculation and summary-row filter / sort presentation | `PlaylistSummaryCountAndPresentationTests` | methods 2-6, 15-18 |
-| owned hash index build and cancellation | `PlaylistSummaryOwnedHashTests` | methods 1, 7 |
-| mutation invalidation and warm / rebuild reuse | `PlaylistSummaryMutationAndWarmTests` | methods 8-11 |
-| playlist library resolve-index cache and digest mutation window | `PlaylistSummaryResolveIndexTests` | methods 12-14 |
+| behavior | canonical fixture | Existing case set | Functional route |
+| --- | --- | --- | --- |
+| count calculation and summary-row filter / sort presentation | `PlaylistSummaryCountAndPresentationTests` | methods 2-6, 15-18 | `remaining` logical-negative partition, `ProcessorCount` workers / `ClassLevel` |
+| owned hash index build and cancellation | `PlaylistSummaryOwnedHashTests` | methods 1, 7 | same `remaining` logical-negative partition |
+| mutation invalidation and warm / rebuild reuse | `PlaylistSummaryMutationAndWarmTests` | methods 8-11 | same `remaining` logical-negative partition |
+| playlist library resolve-index cache and digest mutation window | `PlaylistSummaryResolveIndexTests` | methods 12-14 | same `remaining` logical-negative partition |
 
-The old `PlaylistSummaryAggregationTests` selector is retired; the replacement keeps its observable counts, rows, cancellation / mutation behavior, and persistence boundary unchanged.
+The old `PlaylistSummaryAggregationTests` selector is retired; the replacement keeps its observable counts, rows, cancellation / mutation behavior, and persistence boundary unchanged. The four replacement FQNs are routed by the shared `remaining` logical-negative predicate (`R & FullyQualifiedName!~BeMusicSeeker.Tests.BmsLibrary`) and are covered once; the complementary `remaining-bms-library` positive predicate remains disjoint.

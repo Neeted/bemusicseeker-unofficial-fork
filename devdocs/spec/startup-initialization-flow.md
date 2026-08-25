@@ -421,12 +421,12 @@ ScoreOnly
 
 ## Verification map
 
-Startup library construction coverage is split from the retired `StartupLibraryConstructionOwnerTests` class into three owner fixtures. Each fixture preserves the existing temporary song database, profile construction, typed factory/application ports, exception propagation, method-level completion, and deterministic cleanup. The fixtures run in the existing `library-chart-classwide` process with `ClassLevel` scope and six workers; no new process, DNP, fixed wait, timeout, or production seam is introduced.
+Startup library construction coverage is split from the retired `StartupLibraryConstructionOwnerTests` class into three owner fixtures. The canonical Functional plan runs `portable-settings` first (1 worker / `ClassLevel`), then fans out `bass-collectible`, `serial-state-a`, `serial-state-b`, `remaining-bms-library`, and `remaining` without a waiting wave. These three fixture FQNs are outside the exact 45 class selector and do not match the `BeMusicSeeker.Tests.BmsLibrary` logical prefix, so they run once in the `remaining` logical-negative partition (`R & FullyQualifiedName!~BeMusicSeeker.Tests.BmsLibrary`, `ProcessorCount` workers / `ClassLevel`). Each fixture preserves the existing temporary song database, profile construction, typed factory/application ports, exception propagation, method-level completion, and deterministic cleanup; no new process, DNP, fixed wait, timeout, or production seam is introduced.
 
 | Behavior / failure contract | Owner fixture | Retired cases | Route |
 | --- | --- | --- | --- |
-| successful standalone profile construction and LR2 profile search-root behavior | `StartupLibraryProfileTests` | cases 1-2 | `library-chart-classwide`, 6 workers / `ClassLevel` |
-| search-root, factory, and application failure propagation | `StartupLibraryFailureContractTests` | cases 3-5 | same route |
-| MainWindow typed startup construction route and compiled caller contract | `StartupMainWindowTypedRouteTests` | case 6 | same route |
+| successful standalone profile construction and LR2 profile search-root behavior | `StartupLibraryProfileTests` | cases 1-2 | `remaining` logical-negative partition, `ProcessorCount` workers / `ClassLevel` |
+| search-root, factory, and application failure propagation | `StartupLibraryFailureContractTests` | cases 3-5 | same `remaining` logical-negative partition |
+| MainWindow typed startup construction route and compiled caller contract | `StartupMainWindowTypedRouteTests` | case 6 | same `remaining` logical-negative partition |
 
-The old `StartupLibraryConstructionOwnerTests` selector is absent from `remaining` and all named launch routes except its three replacements above.
+The old `StartupLibraryConstructionOwnerTests` selector and the historical `library-chart-classwide` named route are retired. The three replacement FQNs remain in the shared `remaining` logical-negative partition; the complementary `remaining-bms-library` positive partition stays disjoint, so the startup cases are covered exactly once by the canonical six-host plan.

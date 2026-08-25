@@ -46,12 +46,12 @@ requested state が `TITLE_SMALL | BMS_PLAYER` で BMS 面が利用できない�
 
 ## Verification map
 
-再生パネルと playlist workspace の owner coverage は既存 `presentation-workspace` testhost内で `ClassLevel` scope の3 workerに分ける。
+再生パネルと playlist workspace の owner coverage は canonical Functional six-host planで検証する。`portable-settings`（1 worker / `ClassLevel`）の完了後、`bass-collectible`、`serial-state-a`、`serial-state-b`、`remaining-bms-library`、`remaining` を待機 waveなしで fanout する。`PlaybackPanelViewModelTests` は serial-state-b の exact 20 class selectorに属し、その他のこの mapの fixtureは exact 45 class selectorにも `BeMusicSeeker.Tests.BmsLibrary` logical prefixにも一致しないため、`remaining` の `R & FullyQualifiedName!~BeMusicSeeker.Tests.BmsLibrary` logical-negative partition（`ProcessorCount` workers / `ClassLevel`）に属する。
 
 | behavior | canonical fixture | Functional route / safety |
 | --- | --- | --- |
-| playback session、player replacement、panel requested/effective state、初期同期と遷移 | `PlaybackPanelViewModelTests` | `presentation-workspace`, 3 workers / `ClassLevel`; class-wide `DoNotParallelize` を維持 |
-| library folder tree refresh、selection、explorer boundary | `LibraryFolderTreeViewModelTests` | `presentation-workspace`, 3 workers / `ClassLevel` |
-| workspace external source、action workflow、detail refresh、presentation state、persistence command | `PlaylistWorkspaceExternalSourceTests`、`PlaylistWorkspaceActionWorkflowTests`、`PlaylistWorkspaceDetailRefreshTests`、`PlaylistWorkspacePresentationStateTests`、`PlaylistWorkspacePersistenceCommandTests` | `presentation-workspace`, 3 workers / `ClassLevel` |
+| playback session、player replacement、panel requested/effective state、初期同期と遷移 | `PlaybackPanelViewModelTests` | `serial-state-b`, 1 worker / `ClassLevel`; serial-state-b exact 20 class selector内で class-wide `DoNotParallelize` を維持 |
+| library folder tree refresh、selection、explorer boundary | `LibraryFolderTreeViewModelTests` | `remaining` logical-negative partition, `ProcessorCount` workers / `ClassLevel` |
+| workspace external source、action workflow、detail refresh、presentation state、persistence command | `PlaylistWorkspaceExternalSourceTests`、`PlaylistWorkspaceActionWorkflowTests`、`PlaylistWorkspaceDetailRefreshTests`、`PlaylistWorkspacePresentationStateTests`、`PlaylistWorkspacePersistenceCommandTests` | `remaining` logical-negative partition, `ProcessorCount` workers / `ClassLevel` |
 
-旧 `PlaylistWorkspaceViewModelTests` の monolithic routeは退役する。workspace 5 fixtureのGUID付き filesystem / task completion signalと、PlaybackのDNP safety boundaryを変更せず、runnerは7 classのexact membership・remaining exclusion・他 routeとの重複なしを起動前に検証する。
+旧 `presentation-workspace` named routeと `PlaylistWorkspaceViewModelTests` の monolithic selectorは退役済みである。workspace 5 fixtureのGUID付き filesystem / task completion signalと、PlaybackのDNP safety boundaryを変更せず、runnerはserial-state-bのexact selector、shared 45-class exclusion、`remaining` のlogical-negative partition、positive / negative partitionのexact-once coverageを起動前に検証する。WPF fixtureは canonical `serial-state-b` の一回の invocationで検証し、旧WPF 30回反復の専用laneは現行Functional planに含めない。
