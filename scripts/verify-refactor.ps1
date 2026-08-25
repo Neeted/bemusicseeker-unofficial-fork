@@ -1367,6 +1367,10 @@ function Invoke-ParallelFunctionalTestShards {
     $failedHostName = $null
     $failedHostExitCode = $null
     $cleanupFailures = [System.Collections.Generic.List[string]]::new()
+    # Retain each actual process ExitTime once observed.  Polling can observe a
+    # completed host after the deadline, and that observation delay is outside the
+    # successful execution interval.
+    $retainedFunctionalExitTimesUtc = @{}
     $testExecutionStopwatch = $null
     $deadlinePolicy = $null
 
@@ -1391,7 +1395,15 @@ function Invoke-ParallelFunctionalTestShards {
 
         $portableExitTimeUtc = $null
         while ($true) {
-            $portableExitTimeUtc = Get-FunctionalProcessExitTimeUtc -Process $portableEntry.Process
+            if ($retainedFunctionalExitTimesUtc.ContainsKey($portableEntry.Name)) {
+                $portableExitTimeUtc = $retainedFunctionalExitTimesUtc[$portableEntry.Name]
+            }
+            else {
+                $portableExitTimeUtc = Get-FunctionalProcessExitTimeUtc -Process $portableEntry.Process
+                if ($null -ne $portableExitTimeUtc) {
+                    $retainedFunctionalExitTimesUtc[$portableEntry.Name] = $portableExitTimeUtc
+                }
+            }
             if ($null -ne $portableExitTimeUtc) {
                 break
             }
@@ -1435,7 +1447,15 @@ function Invoke-ParallelFunctionalTestShards {
         if (-not $timedOut -and $null -eq $failedHost) {
             while ($true) {
                 $exitObservations = @($entries | ForEach-Object {
-                        $exitTimeUtc = Get-FunctionalProcessExitTimeUtc -Process $_.Process
+                        $exitTimeUtc = if ($retainedFunctionalExitTimesUtc.ContainsKey($_.Name)) {
+                            $retainedFunctionalExitTimesUtc[$_.Name]
+                        }
+                        else {
+                            Get-FunctionalProcessExitTimeUtc -Process $_.Process
+                        }
+                        if ($null -ne $exitTimeUtc) {
+                            $retainedFunctionalExitTimesUtc[$_.Name] = $exitTimeUtc
+                        }
                         [pscustomobject]@{
                             Entry = $_
                             ExitTimeUtc = $exitTimeUtc
@@ -1528,13 +1548,41 @@ function Invoke-ParallelFunctionalTestShards {
         }
     }
 
-    $testExecutionElapsedSeconds = if ($null -ne $testExecutionStopwatch) {
-        $testExecutionStopwatch.Elapsed.TotalSeconds
+    $requiredFunctionalHostNames = @($shards | ForEach-Object { $_.Name })
+    $missingFunctionalExitTimeHostNames = @($requiredFunctionalHostNames | Where-Object {
+            -not $retainedFunctionalExitTimesUtc.ContainsKey($_)
+        })
+    $apparentFunctionalSuccess =
+        $null -eq $launchFailure -and
+        -not $timedOut -and
+        $null -eq $failedHostName -and
+        $cleanupFailures.Count -eq 0
+    $functionalExitTimeUtc = if ($apparentFunctionalSuccess -and $missingFunctionalExitTimeHostNames.Count -eq 0) {
+        @($retainedFunctionalExitTimesUtc.Values | Sort-Object)[-1]
     }
     else {
-        0
+        $null
     }
-    Write-Host "Functional test execution elapsed: $([Math]::Round($testExecutionElapsedSeconds, 1))s; diagnostics: $DiagnosticsDirectory"
+    $testExecutionElapsedSeconds = if ($timedOut -and $null -ne $deadlinePolicy) {
+        # A timeout ends the interval at the absolute execution deadline.  The
+        # cleanup window and the poll that discovers the timeout are outside it.
+        ($deadlinePolicy.ExecutionDeadlineUtc - $deadlinePolicy.StartUtc).TotalSeconds
+    }
+    elseif ($null -ne $functionalExitTimeUtc -and $null -ne $deadlinePolicy) {
+        # Use the same portable-boundary StartUtc and the latest retained process
+        # ExitTime that drives success classification; never substitute poll time.
+        ($functionalExitTimeUtc - $deadlinePolicy.StartUtc).TotalSeconds
+    }
+    else {
+        $null
+    }
+    $elapsedDisplay = if ($null -eq $testExecutionElapsedSeconds) {
+        'unavailable'
+    }
+    else {
+        "$([Math]::Round($testExecutionElapsedSeconds, 1))s"
+    }
+    Write-Host "Functional test execution elapsed: $elapsedDisplay; diagnostics: $DiagnosticsDirectory"
     $primaryFailure = $null
     if ($null -ne $launchFailure) {
         $primaryFailure = $launchFailure
@@ -1544,6 +1592,9 @@ function Invoke-ParallelFunctionalTestShards {
     }
     elseif ($null -ne $failedHostName) {
         $primaryFailure = [Exception]::new("Functional test host '$failedHostName' failed with exit code $failedHostExitCode. Diagnostics: $(Join-Path $DiagnosticsDirectory $failedHostName)")
+    }
+    elseif ($apparentFunctionalSuccess -and $null -ne $deadlinePolicy -and $missingFunctionalExitTimeHostNames.Count -gt 0) {
+        $primaryFailure = [Exception]::new("Functional test execution elapsed could not be determined because retained process ExitTime was unavailable for host(s): $($missingFunctionalExitTimeHostNames -join ', '). Diagnostics: $DiagnosticsDirectory")
     }
     if ($cleanupFailures.Count -gt 0) {
         if ($null -ne $primaryFailure) {

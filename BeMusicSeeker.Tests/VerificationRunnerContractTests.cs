@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -231,8 +232,20 @@ public sealed class VerificationRunnerContractTests
 
         Assert.AreEqual(5, GetProperty(beforeDeadline.RootElement, "FanoutAttempts").GetInt32());
         Assert.IsFalse(GetProperty(beforeDeadline.RootElement, "TimedOut").GetBoolean());
+        Assert.IsTrue(GetProperty(beforeDeadline.RootElement, "ObservationAfterDeadline").GetBoolean());
+        Assert.AreEqual(
+            2.0,
+            ReadReportedElapsedSeconds(beforeDeadline.RootElement),
+            0.05,
+            GetProperty(beforeDeadline.RootElement, "ElapsedLine").GetString());
         Assert.AreEqual(5, GetProperty(afterDeadline.RootElement, "FanoutAttempts").GetInt32());
         Assert.IsTrue(GetProperty(afterDeadline.RootElement, "TimedOut").GetBoolean());
+        Assert.IsTrue(GetProperty(afterDeadline.RootElement, "ObservationAfterDeadline").GetBoolean());
+        Assert.AreEqual(
+            10.0,
+            ReadReportedElapsedSeconds(afterDeadline.RootElement),
+            0.05,
+            GetProperty(afterDeadline.RootElement, "ElapsedLine").GetString());
     }
 
     [TestMethod]
@@ -804,10 +817,12 @@ public sealed class VerificationRunnerContractTests
             "$global:reportedPortableExit = $false",
             "$global:reportedDeadlineUtc = $null",
             "$global:fanoutAttempts = 0",
+            "$global:fanoutObservationAfterDeadline = $false",
+            "$global:reportedStartUtc = $null",
             "$actualPolicy = ${function:New-FunctionalDeadlinePolicy}",
             "$actualExit = ${function:Get-FunctionalProcessExitTimeUtc}",
-            "function New-FunctionalDeadlinePolicy { param([DateTime]$StartUtc, [int]$TimeoutSeconds) $policy = & $actualPolicy @PSBoundParameters; $global:reportedDeadlineUtc = $policy.ExecutionDeadlineUtc; return $policy }",
-            "function Get-FunctionalProcessExitTimeUtc { param([System.Diagnostics.Process]$Process) $actual = & $actualExit @PSBoundParameters; if ($null -eq $actual) { return $null }; if ($Process.Id -eq $global:portableProcessId) { if (-not $global:reportedPortableExit) { $global:reportedPortableExit = $true; return $null }; return $global:reportedDeadlineUtc.AddSeconds(-1) }; if ([DateTime]::UtcNow -lt $global:reportedDeadlineUtc) { return $null }; if ($boundary -eq 'before') { return $global:reportedDeadlineUtc.AddTicks(-1) }; return $global:reportedDeadlineUtc.AddTicks(1) }",
+            "function New-FunctionalDeadlinePolicy { param([DateTime]$StartUtc, [int]$TimeoutSeconds) $policy = & $actualPolicy @PSBoundParameters; $global:reportedStartUtc = $policy.StartUtc; $global:reportedDeadlineUtc = $policy.ExecutionDeadlineUtc; return $policy }",
+            "function Get-FunctionalProcessExitTimeUtc { param([System.Diagnostics.Process]$Process) $actual = & $actualExit @PSBoundParameters; if ($null -eq $actual) { return $null }; if ($Process.Id -eq $global:portableProcessId) { if (-not $global:reportedPortableExit) { $global:reportedPortableExit = $true; return $null }; return $global:reportedStartUtc.AddSeconds(1) }; if ([DateTime]::UtcNow -lt $global:reportedDeadlineUtc) { return $null }; $global:fanoutObservationAfterDeadline = $true; if ($boundary -eq 'before') { return $global:reportedStartUtc.AddSeconds(2) }; return $global:reportedDeadlineUtc.AddTicks(1) }",
             "$actualStart = ${function:Start-FunctionalShardProcess}",
             "function Get-TestArguments { param([string]$Filter, [string]$DiagnosticsDirectory, [string]$RunSettingsPath, [switch]$NoBuild) return @('--version') }",
             "function Invoke-BudgetedCommand { param([System.Diagnostics.Stopwatch]$Stopwatch, [int]$BudgetSeconds, [string]$Label, [string]$CommandPath, [string[]]$Arguments, [string]$DiagnosticsDirectory, [DateTime]$ProcessDeadlineUtc, [DateTime]$PhaseDeadlineUtc, [DateTime]$CleanupDeadlineUtc, [switch]$IsTestCommand) }",
@@ -816,11 +831,30 @@ public sealed class VerificationRunnerContractTests
             "function Start-FunctionalShardProcess { param([pscustomobject]$Shard, [string]$DiagnosticsDirectory, [System.Collections.IList]$Entries, [System.Collections.IList]$OwnedProcessRecords, [object]$PostStartFaultGuard, [string]$RunSettingsPath) if ($Shard.Name -cne 'portable-settings') { $global:fanoutAttempts++ }; $entry = & $actualStart @PSBoundParameters; if ($Shard.Name -ceq 'portable-settings') { $global:portableProcessId = $entry.Process.Id }; return $entry }",
             "$diagnostics = Join-Path ([IO.Path]::GetTempPath()) ('bms-verification-boundary-' + [Guid]::NewGuid().ToString('N'))",
             "$caught = $null",
-            "try { Invoke-CanonicalFunctionalVerification -DiagnosticsRoot $diagnostics -TimeoutSeconds 10 *> $null } catch { $caught = $_.Exception }",
-            "$output = [pscustomobject]@{ Boundary = $boundary; FanoutAttempts = $global:fanoutAttempts; TimedOut = $null -ne $caught -and $caught.Message.Contains('exceeded the configured execution deadline', [StringComparison]::Ordinal); ExceptionMessage = if ($null -eq $caught) { [string]::Empty } else { $caught.Message } }",
+            "$capturedOutput = [System.Collections.Generic.List[object]]::new()",
+            "try { Invoke-CanonicalFunctionalVerification -DiagnosticsRoot $diagnostics -TimeoutSeconds 10 *>&1 | ForEach-Object { [void]$capturedOutput.Add($_) } } catch { $caught = $_.Exception }",
+            "$elapsedLine = @($capturedOutput | ForEach-Object { [string]$_ } | Where-Object { $_ -like 'Functional test execution elapsed:*' } | Select-Object -Last 1)",
+            "$output = [pscustomobject]@{ Boundary = $boundary; FanoutAttempts = $global:fanoutAttempts; ObservationAfterDeadline = $global:fanoutObservationAfterDeadline; ElapsedLine = if ($elapsedLine.Count -eq 0) { [string]::Empty } else { [string]$elapsedLine[0] }; TimedOut = $null -ne $caught -and $caught.Message.Contains('exceeded the configured execution deadline', [StringComparison]::Ordinal); ExceptionMessage = if ($null -eq $caught) { [string]::Empty } else { $caught.Message } }",
             "if (Test-Path -LiteralPath $diagnostics) { Remove-Item -LiteralPath $diagnostics -Recurse -Force -ErrorAction SilentlyContinue }",
             "$output | ConvertTo-Json -Depth 8 -Compress");
         return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static double ReadReportedElapsedSeconds(JsonElement result)
+    {
+        string line = GetProperty(result, "ElapsedLine").GetString()!;
+        const string prefix = "Functional test execution elapsed: ";
+        int valueStart = line.IndexOf(prefix, StringComparison.Ordinal);
+        Assert.IsTrue(valueStart >= 0, line);
+        valueStart += prefix.Length;
+        int valueEnd = line.IndexOf('s', valueStart);
+        Assert.IsTrue(valueEnd > valueStart, line);
+        string value = line[valueStart..valueEnd];
+        Assert.IsTrue(
+            double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double seconds) ||
+            double.TryParse(value, NumberStyles.Float, CultureInfo.CurrentCulture, out seconds),
+            line);
+        return seconds;
     }
 
     private static void AssertRawFailureProbe(
