@@ -11,8 +11,8 @@
 - Functional は、追跡対象ファイルを変更せず、実行順序や並列度によらず決定的に成功する。
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
 - リソース競合で不安定になる場合は、共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
-- timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。最初の単発 timeout は、残留 process がないことを確認して同一 command・filter・budget・snapshot・条件で一度だけ再実行してから調査要否を判断する。
-- runner、lane、並列化、fixture 配置、shared test infrastructure を変更しても、同一の最終 snapshot で Functional を原則一回だけ実行する。180秒 timeout の場合だけ process tree / artifact / 残留 process を確認し、同じ command・filter・budget・snapshot・条件で一度だけ retry する。retry が180秒以内に成功し、同じ症状の再発や artifact の決定的 evidence がなければ一過性の machine load として両結果を記録する。retry も timeout / failure、同じ症状の再発、または決定的 evidence がある場合は原因を調査する。timeout 以外の deterministic failure は初回から調査し、Functional 3回 gate や WPF focused repeat gate は追加しない。
+- timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。残留 process がないことを確認し、同一 command・filter・budget・snapshot・条件で一度だけ再実行する。retry が budget 内で成功し、同じ症状の再発や決定的 artifact がなければ一過性の machine load として両結果を記録する。それ以外は原因を調査する。
+- Functional の最終 acceptance は変更種別にかかわらず、同一の最終 snapshot で一回を原則とする。timeout 時の retry は前項に従い、timeout 以外の deterministic failure は初回から調査する。
 
 ## 標準コマンド
 
@@ -36,12 +36,12 @@ Functional は category exclusion を適用した論理 test set を一度だけ
 | --- | --- | --- |
 | `portable-settings` | 1 / `ClassLevel` | `PlayerPanelStateSettingsCompatibilityTests` |
 | `bass-collectible` | 1 / `ClassLevel` | `BassCollectibleLoadContextTests` |
-| `serial-state-a` | 1 / `ClassLevel` | Unit 4e-A の exact 23 class selector |
-| `serial-state-b` | 1 / `ClassLevel` | Unit 4e-A の exact 20 class selector |
+| `serial-state-a` | 1 / `ClassLevel` | runner が検証する exact selector。settings / foreground / playlist settings / native logging owner |
+| `serial-state-b` | 1 / `ClassLevel` | runner が検証する exact selector。LR2 / compiled WPF / class-wide DNP owner |
 | `remaining-bms-library` | `ProcessorCount` / `ClassLevel` | `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` の logical-prefix positive route |
-| `remaining` | `ProcessorCount` / `ClassLevel` | 上記 selector の negative route。portable、BASS、A、B の exact 45 classを除く shared baseを logical once |
+| `remaining` | `ProcessorCount` / `ClassLevel` | dedicated selector を除く shared base の logical-negative route |
 
-`serial-state-a` は settings / foreground / playlist settings / native logging owner を、`serial-state-b` は LR2、compiled WPF、class-wide DNP owner を所有する。A / B の exact selector はこの Unit 4e-A plan と runner の実装本文を正本とし、残りの論理 test setは、45 class exclusionを共有する `R` を一つの `BmsLibrary` selectorのpositive / negative predicateへ分けて一度だけ実行する。BmsLibraryのexact class allowlistは実行源にせず、論理 prefixで自動 routeする。fanout 5 host の専用 worker は Bass / A / B が各1、二つのremaining partitionが各 `ProcessorCount` で、portable完了後の最大同時 worker 数は約27である。
+`serial-state-a` と `serial-state-b` の exact class membership は `scripts/verify-refactor.ps1` の executable plan array を正本とし、`VerificationRunnerContractTests` が selector、重複、remaining exclusion、foreground ownershipを検証する。この文書は owner の分類、logical exact-once partition、worker shape を定める。残りの論理 test set `R` は `BmsLibrary` prefix の positive / negative predicate に分けて一度だけ実行し、portable 完了後の最大同時 worker 数は `3 + 2 * ProcessorCount` である。
 
 起動順は portable host の `dotnet test` 開始直前に test execution の deadline を作り、portable host を単独で完了させ、その成功後に Bass、serial A、serial B、`remaining-bms-library`、remaining を同じ validated plan array から即時 start する。二つのremaining partitionは同じ `R` base filter、共通selectorのpositive / negative predicate、`ClassLevel` / `ProcessorCount`を持ち、互いに重ならず合計で `R` 全体を覆う。全 test process はこの一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。各 testhost の成功判定は retained process handle の実際の `ExitTime` が deadline 内であることを基準とし、execution deadline 内に全 testhost が完了した場合だけを成功扱いにする。成功時の elapsed は portable-boundary `StartUtc` から全 host の最大 retained `ExitTime` まで、timeout 時の elapsed は `StartUtc` から execution deadline までを記録し、poll / cleanup 時間を含めない。成功後の出力収集、fingerprint、環境復元は test budget 外で行う。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
 
@@ -49,11 +49,11 @@ foreground input、keyboard focus、hit testing、nested modal activation が保
 
 正常完了は対象の `Task`、signal、event、state transitionを plain `await` で待つ。coordinator は `.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` などの同期 block を行わない。local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限り、固定 sleep、成功推定用の正の delay、既定 timeout helper は追加しない。
 
-Functional の category exclusion、locked restore / build、180 秒 test execution budget、tracked-file fingerprint、Quick / Full mapping は維持する。Functional plan の変更受入も同じ最終 snapshotで原則一回とし、180秒 timeout 時だけ同じ条件で一回 retry する。retry 成功時の一過性 machine load 判定と、再発 / 決定的 artifact の原因調査を維持し、WPF focused repeat gate は退役して実行しない。この Unit の focused Quick では runner contract と process lifecycle contract を検証する。
+Functional plan の変更受入は上記の最終 acceptance 方針に従う。focused Quick では `VerificationRunnerContractTests` と `VerificationProcessLifecycleTests` を使い、category exclusion、locked restore / build、180 秒 test execution budget、tracked-file fingerprint、Quick / Full mapping を検証する。
 
 ## Verification map: process lifecycle
 
-`VerificationProcessLifecycleTests` は `ProcessIntegration` lane の canonical fixture であり、PowerShell の `verification-process-lifecycle-probe.ps1` を実際の `verification-process-lifecycle.ps1` / `verify-refactor.ps1` caller seamへ接続する。各 test は GUID付き temporary diagnostics directory、probe root / descendant の exact PID・creation identity ledger、primitive event ledgerを所有し、fixture間で process、stream task、artifact pathを共有しない。normal / asymmetric stream completion、lifecycle-local late-fault scope、terminal diagnostic flush、post-start caller exception、Functional fan-out の shared cutoffを同じ fixtureへ `extend` して検証する。完了signalは `Task` completion、`ManualResetEventSlim` gate、primitive observer eventであり、probe processの bounded watchdogは失敗検出専用である。新しい lane、shard、`DoNotParallelize`、production lifecycleのtest側コピー、固定sleepは追加しない。
+`VerificationProcessLifecycleTests` は `ProcessIntegration` lane の canonical fixture であり、PowerShell の `verification-process-lifecycle-probe.ps1` を実際の `verification-process-lifecycle.ps1` / `verify-refactor.ps1` caller seamへ接続する。各 test は GUID付き temporary diagnostics directory、probe root / descendant の exact PID・creation identity ledger、primitive event ledgerを所有し、fixture間で process、stream task、artifact pathを分離する。normal / asymmetric stream completion、lifecycle-local late-fault scope、terminal diagnostic flush、post-start caller exception、Functional fan-out の shared cutoffを同じ fixtureへ `extend` して検証する。完了signalは `Task` completion、`ManualResetEventSlim` gate、primitive observer eventであり、probe processの bounded watchdogは失敗検出専用である。lane、shard、parallelization、lifecycle owner を変える場合は、runner plan、contract test、この Verification map を同じ変更で更新する。
 
 ### Quick: 反復中の対象テスト
 
@@ -162,10 +162,7 @@ Functional に含めないもの:
 - 固定 `Thread.Sleep` や余裕時間としての長い `Task.Delay` を待機手段にしない。`TaskCompletionSource`、`ManualResetEventSlim`、channel、fake scheduler / clock など、観測対象の state transition と直接結び付く同期を使う。
 - deadlock / cancellation timeout は機能テストに含めてよいが、通常完了を固定時間で待つのではなく、短い failure watchdog と決定的な完了 signal を組み合わせる。
 - 性能閾値、応答時間分布、throughput は機能 assertion と混ぜず Performance lane へ置く。
-- 最初の単発 timeout では、process tree を停止して diagnostics を保存し、残留 test process がないことを確認したうえで、同一 command・filter・budget・snapshot・条件で一度だけ再実行する。
-- 2回目が budget 内で成功し、同じ症状の再発または artifact 上の決定的 evidence がなければ、初回を一過性のマシン負荷として両方の結果を記録し、本筋へ戻る。
-- 2回目も timeout / failure、同じ症状の再発、active test の停止、または artifact が問題を示す場合は、本筋を一旦止め、共有 state、固定待ち、競合、I/O、入力規模、timeout 根拠を調査してから戻る。timeout 延長、無制限の再試行、並列度低下だけによる隠蔽は行わない。
-- timeout 以外の deterministic failure は、再実行で消えることを期待して先送りせず、最初の failure evidence から原因を確認する。
+- 標準 runner の timeout / retry / diagnostics と deterministic failure の分類は「運用目標」に従う。test-local の failure watchdog は、runner-level retry の代わりにしない。
 
 ## Parser・実データ互換検証
 

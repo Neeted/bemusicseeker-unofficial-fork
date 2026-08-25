@@ -91,9 +91,9 @@ process 名だけでマシン全体の `dotnet` / `testhost` / `vstest` を停�
 - 正常完了の coordinator は対象の `Task`、event、signal、state transition を plain `await` で待ち、`.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` で同期 block しない。
 - local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限る。固定 sleep、成功推定用の正の delay、既定 timeout helper、bulk な timeout 変更は追加しない。
 
-runner、lane、parallelization、fixture placement、shared WPF / process infrastructure を変更した場合も、最終 snapshot の Functional は原則一回とする。180秒 timeout の場合だけ、cleanup / artifact を確認して同じ command・filter・budget・snapshot・条件で一度だけ retry する。retry が180秒以内に成功し、再発や決定的 evidence がなければ一過性 machine load として両結果を記録する。retry failure、同症状の再発、決定的 artifact、または timeout 以外の deterministic failure は原因を調査する。WPF focused repeat gate は行わない。
+runner、lane、parallelization、fixture placement、shared WPF / process infrastructure を変更した場合は、影響する focused Quick と acceptance lane を handoff へ明示する。Functional の実行回数、180秒 budget、timeout retry、failure classification は `testing-strategy.md` に従う。
 
-同じ症状が retry 後も再発した flake は、単発 timeout の retry rule だけで閉じない。active / last observed test、shared state、process / window / pipe handle、settings、temp resource、worker topology を failure ledger へ残し、対象 filter を実際の shard context で調査する。無制限の反復、成功回数の後付け積み増し、worker 低下による隠蔽はしない。
+規定の retry 後も同じ症状が再発する flake は、active / last observed test、shared state、process / window / pipe handle、settings、temp resource、worker topology を failure ledger へ残し、対象 filter を実際の shard context で調査する。
 
 ## 5. Plan and worker handoff
 
@@ -104,7 +104,7 @@ runner、lane、parallelization、fixture placement、shared WPF / process infra
 - 削除する旧 test / helper / route と replacement
 - shared mutable resource、lane / shard、`DoNotParallelize` 判断
 - normal completion signal と failure watchdog
-- focused Quick filter、必要な repeat、Functional / Full / opt-in lane
+- focused Quick filter、Functional / Full / opt-in lane
 - source text、private reflection、raw WPF / process primitive を使う場合の例外理由
 
 worker は完了時に、少なくとも次を handoff する。
@@ -122,7 +122,7 @@ worker は完了時に、少なくとも次を handoff する。
 - anti-pattern scan result
 
 ## VERIFICATION
-- exact commands / filters / repetitions
+- exact commands / filters / lanes
 - elapsed, artifacts, timeout retry evidence
 - not-run items and reason
 ```

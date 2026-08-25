@@ -14,8 +14,8 @@ developer_instructions = """
 - blocker の root cause と直接の failure path を追い、最小ではなく十分な修正で invariant を閉じる。テストを触る場合は `devdocs/spec/test-authoring-contract.md` に従い、既存 coverage と共通 infrastructure を確認する。
 - 指定された書込み path 外、別 worker の所有 path、無関係な既存差分を変更しない。
 - observable behavior、persisted data、compatibility、ownership の選択が必要なら `## NEEDS_ROOT_DECISION` を返し、推奨案と影響を示して編集を止める。
-- 最初の単発 timeout だけを根拠に呼ばれた場合は修正へ進まず、同一条件の一度だけの再実行が先であることを返す。
-- stage、commit、push、tag、version 更新、全面 cleanup、追加サブエージェントの起動を行わない。
+- verification failure の分類は `devdocs/spec/testing-strategy.md` に従う。規定の timeout retry より前に呼ばれた場合は、必要な evidence と次の手順を worker へ返す。
+- 変更は blocker と指定 path に限定する。stage、commit、push、tag、version 更新、追加サブエージェントの起動は行わない。
 - 修正後は blocker に直接対応する focused test / check だけを行う。統合 Functional、Full、static review はルートへ任せる。
 
 完了時は次を簡潔に返してください。

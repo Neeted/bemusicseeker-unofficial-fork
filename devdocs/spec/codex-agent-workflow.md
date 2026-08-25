@@ -90,7 +90,7 @@ read-heavy な探索、inventory、log analysis は並列化しやすい。write
 
 ## 5. worker と issue resolver
 
-`implementation-worker` は final plan の unit だけを実装し、反復中は対象を絞った Quick を使う。test を触る場合は `devdocs/spec/test-authoring-contract.md` と近傍の `AGENTS.md` に従い、feature spec、production symbol、failure 文言から candidate fixture を絞って読む。最初から test project 全体を通読したり、既存の共通 helper を local に複製したりしない。ルートは worker と同じ path を同時に編集せず、同じ調査や test を重複実行しない。worker の返却内容は、生ログではなく変更概要、path、verification、旧 route の replacement、残る risk の要約とし、test 変更時は `TEST COVERAGE` と `TEST SAFETY` を含める。
+`implementation-worker` は final plan の unit だけを実装し、反復中は対象を絞った Quick を使う。test を触る場合は `devdocs/spec/test-authoring-contract.md` と近傍の `AGENTS.md` に従い、feature spec、production symbol、failure 文言から candidate fixture を絞り、既存の共通 helper を優先する。ルートは worker と同じ path を同時に編集せず、統合責任を持つ。worker の返却内容は、生ログではなく変更概要、path、verification、旧 route の replacement、残る risk の要約とし、test 変更時は `TEST COVERAGE` と `TEST SAFETY` を含める。
 
 worker が `issue-resolver` を呼べるのは、次のような大きな問題に限る。
 
@@ -99,17 +99,15 @@ worker が `issue-resolver` を呼べるのは、次のような大きな問題�
 - 所有 path 外の変更なしには安全に閉じられない問題
 - 通常の局所修正で解消しない deterministic failure、同一条件の2回目の timeout / failure、または実際の差分衝突
 
-通常の symbol 検索、compile error、最初の単発 timeout、style、局所的な test failure は resolver の理由にしない。worker は編集を止め、blocker evidence、current diff、書込み可能 path、維持する invariant、試した検証を1つの resolver へ渡して結果を待つ。resolver が observable semantics の決定を必要と判断した場合は、worker と resolver の双方が編集を止めてルートへ返す。
+resolver は上記 trigger に該当する場合だけ使う。worker は編集を止め、blocker evidence、current diff、書込み可能 path、維持する invariant、試した検証を1つの resolver へ渡して結果を待つ。observable semantics の決定が必要な場合は、worker と resolver の双方がルートへ返す。
 
-## 6. timeout の扱い
+## 6. verification failure の扱い
 
-標準検証の詳細は `devdocs/spec/testing-strategy.md` を正本とする。Functional の180秒は portable testhost 開始直前から全 Functional testhost の実際の `ExitTime` までだけを対象とし、script startup、restore、build、preflight、artifact回収、fingerprint、環境復元、whitespace確認は含めない。単発の timeout では、process tree を停止し、active / last observed test、経過時間、console / TRX / blame artifact を保存したうえで、残留 process がないことを確認し、同じ command・filter・budget・snapshot・条件で一度だけ再実行する。timeout 以外の deterministic failure は retry せず、初回から原因を調査する。
-
-2回目が budget 内で成功し、同じ症状の再発や artifact 上の決定的 evidence がなければ、初回を一過性のマシン負荷として記録し、本筋へ戻る。2回目も timeout / failure、同じ症状が再発、active test が停止、または artifact が共有 state・固定待ち・競合・I/O・入力規模の問題を示す場合は、本筋を止めて調査する。timeout 延長、無制限の再試行、並列度低下だけによる隠蔽は行わない。timeout 以外の deterministic failure は最初から原因を確認する。
+標準検証の時間予算、timeout retry、failure classification、必要な diagnostics は `devdocs/spec/testing-strategy.md` を正本とする。worker は exact command / filter / snapshot と artifact を handoff し、ルートが同じ方針で再実行または原因調査を判断する。deterministic failure、規定 retry の failure、同じ症状の再発は、resolver trigger または root の再計画条件として扱う。
 
 ## 7. 統合、検証、review
 
-worker 完了後、ルートは handoff と diff を軽く確認し、並列結果を統合する。許されるのは、path ownership の確認、機械的 conflict の解消、明白な欠落の確認、統合 snapshot に対する filtered Quick / Functional / 必要な opt-in lane である。worker が既に閉じた範囲を同じ深さで再実装・再調査しない。runner、lane、並列化、fixture 配置を変更しても、Functional は同一の最終 snapshotで原則一回とする。180秒 timeout の場合だけ、同じ command・filter・budget・snapshot・条件で一度だけ retry し、二回目が180秒以内に成功し再発 / 決定的 evidence がなければ一過性 machine load として両結果を記録する。二回目も timeout / failure、同じ症状の再発、決定的 artifact がある場合は原因を調査し、Functional 3回 gate や WPF repeat gate は追加しない。
+worker 完了後、ルートは handoff と diff を確認して並列結果を統合し、`testing-strategy.md` に従って統合 snapshot の filtered Quick / Functional / 必要な opt-in lane を実行する。worker が閉じた範囲の再実装ではなく、path ownership、conflict、acceptance evidence の統合に集中する。
 
 実装と標準検証が完了したら、実装 thread を閉じ、worktree を凍結して `repo-static-review` を一度呼ぶ。reviewer には intent、acceptance criteria、base / head、worktree diff、verification evidence、初回 timeout と再実行結果があればその両方を渡す。reviewer 実行中、ルートは repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、重複チェックをしない。
 

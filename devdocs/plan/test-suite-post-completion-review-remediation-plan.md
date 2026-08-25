@@ -1,20 +1,12 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Complete (`07e174ea` correction snapshot reviewed with no blocking findings)
+Status: Complete (`07e174ea` correction snapshot reviewed with no blocking findings; historical record)
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
 Plan date: 2026-08-24
 
-## Current policy correction (2026-08-25)
-
-この計画の過去の検証ログと退役 unit の履歴は保持するが、現在の受入条件は次へ更新する。
-
-- Functional は最終 snapshot で原則一回だけ実行する。180秒 timeout の場合に限り、process tree / 残留 process / diagnostics / artifact を確認したうえで、同じ command・filter・budget・snapshot・条件で一度だけ retry する。retry が180秒以内に成功し、同じ症状の再発や artifact の決定的 evidence がなければ一過性の machine load として両結果を記録し、retry も timeout / failure、同じ症状の再発、または決定的 evidence があれば原因を調査する。timeout 以外の deterministic failure は初回から調査する。
-- 180秒の対象は portable testhost 開始直前から、全 Functional testhost の実際の process `ExitTime` までだけとする。script startup、restore、build、preflight、postflight、artifact / stream 回収、fingerprint、環境復元、whitespace確認は対象外であり、host / shard ごとに deadline を reset しない。
-- runner、lane、parallelization、fixture placement、shared test infrastructure の変更でも Functional 3回 gate は追加しない。WPF focused repeat gate も廃止済みで、既存の3回 / WPF30 evidenceは履歴としてのみ保持する。
-- tests / fixtures では external user / OS 操作に左右される physical OS cursor の操作・観測（`GetCursorPos`、`SetCursorPos`、`Mouse.GetPosition` による physical cursor 位置の判定を含む）を導入・利用しない。key / routed event、explicit hit、deterministic fake / typed action seam を使う。既存 cursor route は2026-08-25のcursor correctionで退役済みである。
-- Full は今回の docs / test policy correction だけを理由にはしないが、先行 runner 変更 `b32df9d6` の最終 acceptance を同じ final snapshot で閉じるため一回実行する。
+> **Archive note:** この文書は完了時 snapshot の実行計画と検証証跡である。現行の lane / timeout / retry は `../spec/testing-strategy.md`、test implementation は `../spec/test-authoring-contract.md`、agent workflow は `../spec/codex-agent-workflow.md` を正とする。以下の Unit、反復回数、当時の gate は履歴として読む。
 
 ## Goal
 

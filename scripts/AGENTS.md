@@ -24,11 +24,10 @@ redirected process は次を一つの bounded lifecycle として扱う。
 - Functional が execution deadline を超えた場合は、runner-owned process cleanup と stream drain だけが、execution deadline + 10 秒の一つの failure-cleanup cutoff まで継続できる。この追加 window は失敗 invocation の cleanup 専用で、deadline 後に終了した testhost を成功へ救済しない。runner の poll 時刻ではなく retained process handle の終了時刻で deadline 内完了を判定する。
 - timeout / nonzero exit / orchestration failure を stream cleanup failure で上書きしない。成功 process の cleanup failure は成功扱いにしない。
 - process 名だけで無関係な `dotnet` / `testhost` / `vstest` を kill しない。起動した root PID と追跡した descendant だけを対象にする。
-- テスト側へ production lifecycle をコピーせず、shared helper または guarded execution probe を通す。
+- production lifecycle の検証は shared helper または guarded execution probe を通し、実行側と同じ lifecycle owner を使う。
 
 ## Verification
 
-- runner、lane、parallelization、fixture placement、shared infrastructure を変えた場合は focused contract と、最終 snapshot の Functional 一回を実行する。Functional の180秒 timeout時だけ cleanup / artifactを確認し、同じ command・filter・budget・snapshot・条件で一度だけ retryする。retry が180秒以内に成功し再発 / 決定的 evidence がなければ一過性 machine load として両結果を記録する。
-- retry も timeout / failure、同じ症状の再発、決定的 artifact、または timeout 以外の deterministic failure が出た場合は原因を調査する。WPF focused repeat gate と Functional 3回 gate は追加しない。必要な Full は対象変更の acceptance 根拠がある場合に一度実行する。
+- runner、lane、parallelization、fixture placement、shared infrastructure を変えた場合は focused contract を実行し、最終 acceptance lane は `testing-strategy.md` に従って統合 owner が実行する。
 - 各 run で portable testhost 開始直前から全 Functional testhost の実際の process `ExitTime` までの test-execution elapsed、diagnostics root、tracked fingerprint、runner-owned residual process を記録する。restore、build、preflight、postflight、artifact 回収、fingerprint、環境復元、whitespace確認等の時間は test-execution elapsed と混同しない。
-- timeout 延長、worker 低下、unbounded retry で flake を隠さない。
+- timeout / failure の分類と retry は `testing-strategy.md` を正本とし、runner は判断に必要な process / artifact evidence を保持する。timeout 延長、worker 低下、unbounded retry で flake を隠さない。

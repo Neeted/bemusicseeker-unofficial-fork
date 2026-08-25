@@ -24,7 +24,7 @@
 
 - production code、test、runner、設定の bounded implementation は、原則 `.codex/agents/implementation-worker.toml` の Luna Max `implementation-worker` へ任せる。ルートは割当 path を同時に編集・重複調査せず、統合責任を持つ。
 - 書込み worker は既定1つ、同時実行は最大2つとする。writable path、生成物、schema / shared fixture、依存順が重ならず、並列化の利益が統合コストを上回る場合だけ並列化する。同じ巨大 file の別 method を同時編集しない。
-- worker が重大な correctness、安全性、compatibility、ownership 問題、または同一条件で2回目の timeout / failure を発見した場合だけ、worker 自身が `.codex/agents/issue-resolver.toml` の Sol High `issue-resolver` を一度呼ぶ。worker は編集を止めて結果を待ち、resolver から先へ再帰しない。通常の compile error、局所的な test failure、最初の単発 timeout では呼ばない。
+- worker が重大な correctness、安全性、compatibility、ownership 問題、または `testing-strategy.md` に定める retry 後の timeout / failure を発見した場合だけ、worker 自身が `.codex/agents/issue-resolver.toml` の Sol High `issue-resolver` を一度呼ぶ。worker は編集を止めて結果を待ち、resolver から先へ再帰しない。
 - worker は変更概要、path、focused verification、旧 test / route と replacement、残る risk を要約して返す。test を触った場合は、検索した既存 fixture、`extend / replace / new`、shared resource / lane、completion signal と例外 seam も `TEST COVERAGE` / `TEST SAFETY` として返す。生ログや同じ調査をルートへ持ち帰らない。完了した agent thread は結果受領後に閉じる。
 - ルートは並列結果の path ownership と handoff を軽く確認し、機械的 conflict を解消して統合 snapshot の Quick / Functional / 必要な opt-in lane を実行してよい。worker と同じ範囲を最初から再実装・全面調査しない。
 
@@ -44,7 +44,7 @@
 - `devdocs\` は開発者・保守者向け資料の正本とする。
   - `devdocs\spec\`: 現在の実装が満たす現行仕様、契約、受入条件、テスト戦略。
   - `devdocs\decisions\`: ADR、採用理由、検討した代替案、判断履歴。
-  - `devdocs\plan\`: 未完了の移行・作業計画。完了後は現行仕様へ統合するか、削除または履歴として整理する。
+  - `devdocs\plan\`: 実行中の移行・作業計画と、固有の検証証跡を残す完了記録。完了後の恒久契約は現行仕様へ統合し、重複する本文は削除または履歴として整理する。
 - 設計判断が現行の実装契約になった場合、正本を `devdocs\spec\` に統合し、旧配置には移動案内だけを残す。内容を複数箇所で重複管理しない。
 - 仕様を変えるコード変更では、対応する `devdocs\spec\` とテストを同じ変更で更新する。
 
@@ -95,14 +95,10 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 ```
 
 - 実装中は関連 test filter の `Quick` を優先し、小さな修正ごとに full suite を繰り返さない。
-- 通常のコード変更は、最終 snapshot で原則一度 `Functional` を行う。`Functional` は portable testhost の開始直前から、全 Functional testhost の実際の `ExitTime` までのテスト実行全体を 180 秒以内とし、個別 testhost / shard ごとに時間予算をリセットしない。script startup、restore、build、preflight、artifact保存、fingerprint、環境復元、whitespace確認などのテスト実行前後の処理はこの180秒に含めない。
-- `Full` は publish / updater / distribution、release 手順、または Full runner 自体を変更した場合と release 前に使う。settings、startup、共有 model などの変更だけを理由に、通常機能テストと release acceptance を毎回まとめて実行しない。対象に応じて filtered `Quick`、`Functional`、明示的な opt-in lane を組み合わせる。
-- review 修正後は、まず影響範囲の filtered `Quick` を行う。修正が通常機能検証の前提を変えた場合だけ最終 `Functional` を再実行し、release lane を変えた場合だけ `Full` も再実行する。
-- timeout 時は process tree を停止し、active または last observed test、経過時間、console progress / TRX / blame artifact を残し、残留 test process がないことを確認する。最初の単発 timeout は同じ command・filter・budget・snapshot・条件で一度だけ再実行し、2回目が180秒以内に成功して再発 evidence がなければ一過性のマシン負荷として両方の結果を記録する。2回目も timeout / failure、同じ症状の再発、または artifact が決定的問題を示す場合は原因を調査する。timeout 延長や無制限の再試行は行わない。
-- runner、lane、並列化、fixture 配置、shared test infrastructure を変更しても、Functional の受入を3回 gateへ拡張しない。最終 snapshot で一度実行し、180秒 timeout の場合だけ process tree / artifact / 残留 process を確認したうえで、同じ command・filter・budget・snapshot・条件で一度だけ retry する。retry が180秒以内に成功し、同じ症状の再発や artifact の決定的 evidence がなければ一過性の machine load として両結果を記録する。retry も timeout / failure、同じ症状の再発、または決定的 evidenceがある場合は原因を調査する。timeout 以外の deterministic failure は初回から調査する。
-- test はマシンの CPU / I/O を安定性が許す範囲で利用し、wall-clock time を短縮する。負荷抑制だけを理由に shard / worker を制限せず、競合で不安定になる場合は共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
-- timeout 以外の deterministic failure、2回目も失敗した timeout、同じ症状が再発する flaky / 長時間化を確認した時点で、本筋を一旦止めて原因を調査する。現在の変更範囲外に見えても放置せず、並列実行、共有 state、固定待ち時間、競合、I/O、fixture / input 量、監視側の timeout 根拠を確認する。
-- test の見直しでは、可能なら同期 barrier や決定的な fake で安定化し、不要な固定待ちや過大な入力を削減する。必要な処理量として妥当な長時間 test は、実測と失敗検出能力を根拠に timeout / shard 設計を変更してよい。timeout 延長だけで不安定性を隠さない。
+- 最終 acceptance の lane、Functional の実行回数・180秒予算・timeout retry・failure classification は `devdocs\spec\testing-strategy.md` に従う。通常のコード変更では、最終 snapshot の `Functional` を原則一回実行する。
+- `Full` は publish / updater / distribution、release 手順、Full runner の変更、release 前の受入に使う。その他の変更は filtered `Quick`、`Functional`、必要な opt-in lane を組み合わせる。
+- review 修正後は影響範囲の filtered `Quick` を先に行い、通常機能検証または release lane の前提が変わった場合だけ該当する統合 lane を再実行する。
+- deterministic failure や再発する flaky / 長時間化は、共有 state、fixture ownership、待機、競合、I/O、input 量、timeout 根拠を調査する。timeout 延長や worker / shard 低下だけで症状を隠さない。
 - test-only の修正で閉じる場合は、現在の unit と同じ invariant を検証するものなら同じ commit、横断的または既存の test infrastructure 問題なら独立 commit とする。修正と該当 test の検証後、本筋へ戻る。
 - script が環境上利用できない場合だけ個別 command へ分解し、未実施項目と理由を明示する。標準入口を黙って省略しない。
 - prose / Markdown / TOML だけの変更では、構文、参照、UTF-8 / LF、whitespace、`git diff --check` を確認する。build 手順や agent behavior を変える設定変更は、必要な追加検証も行う。

@@ -1,14 +1,14 @@
 # テスト整理後 Blocking Findings 修正計画
 
-Status: Complete
+Status: Complete (historical record)
 
 Review base: `7835539a21091b47c67dc13866ad4fcdae759ccc`
 
 Plan date: 2026-08-23
 
-Post-completion clarification (2026-08-25): Functional の180秒は portable testhost 開始直前から全 Functional testhost の実際の `ExitTime` までのテスト実行全体だけを対象とし、script startup、restore、build、preflight、artifact保存・回収、fingerprint、環境復元、whitespace確認は含めない。Functional acceptance は最終 snapshot で原則一回とし、180秒 timeout の場合だけ process tree / 残留 process / diagnostics / artifact を確認後、同じ command・filter・budget・snapshot・条件で一度だけ retry する。二回目が180秒以内に成功し再発 / 決定的 evidence がなければ一過性 machine load として両結果を記録し、二回目も timeout / failure、同じ症状の再発、または決定的 artifact があれば原因を調査する。timeout 以外の deterministic failure は初回から調査する。runner / lane / parallelization / fixture placement / shared infrastructure の変更でも Functional 3回 gate は追加しない。本計画の WPF 30回反復はテスト整理中の一時的な競合検出 gate として完了済みであり、今後の変更後検証では反復しない。tests / fixtures では `GetCursorPos`、`SetCursorPos`、`Mouse.GetPosition` によるphysical cursor位置の判定など、physical OS cursorの操作・観測を導入・利用せず、key / routed event、explicit hit、deterministic fake / typed action seamを使う。productionのcursor実装は変更せず、退役したtest routeと過去evidenceは履歴として保持する。
+> **Archive note:** この文書は完了時 snapshot の実行計画と検証証跡である。現行の lane / timeout / retry は `../spec/testing-strategy.md`、test implementation は `../spec/test-authoring-contract.md`、agent workflow は `../spec/codex-agent-workflow.md` を正とする。以下の Unit、反復回数、当時の gate は履歴として読む。
 
-## Codex への実行指示
+## 当時の Codex 実行指示
 
 `AGENTS.md` と `devdocs/spec/codex-agent-workflow.md` に従って Unit 0 から実行する。ルートが設計、計画、統合、最終検証を所有し、実装は bounded unit ごとに `implementation-worker` へ渡す。
 
