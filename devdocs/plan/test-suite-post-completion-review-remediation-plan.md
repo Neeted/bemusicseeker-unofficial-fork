@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Policy / cursor correction in progress; historical verification retained; current-policy acceptance and fresh static review pending
+Status: Final verification complete on `319cbccd`; fresh static review pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -550,6 +550,9 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 - Review P2の4つのVerification mapが退役済みnamed shardを正本としていた指摘は妥当だった。`76b0ccfa` で現行6-host plan、exact serial selector、shared `R`のBmsLibrary positive / negative partitionへ統一した。
 - WPF 30回反復は `62f27b51` の一時的な競合検出gateで完了済みとし、ユーザー判断により今回も今後も再実行しない。通常のWPF coverageはcanonical Functionalの一回のinvocationに含める。
 - 最初のFull `tests-full-20260825-093908` は、12-worker ProcessIntegrationでstream-timeout probeが固定2秒root budgetを先に消費し、本来のstream-drain contractではなくprocess timeout routeへ入って失敗した。shared path / PID競合ではなくprocess-heavy並列時のfixture開始条件だったため、worker / parallelismを減らさず、`a8f1f6a4` でroot exitを30秒の外部process containment内に同期してから4秒stream-cleanup deadlineを開始した。production lifecycleのtimeout時 `ExitCode = null` contractは変更していない。
+- `e638d132` のfresh static reviewで、deadline直前に終了したhostをpoll観測時刻でfalse timeoutにし得る指摘は妥当だった。`b32df9d6` でretained process handleの実際の`ExitTime`を正本にし、deadline直前 / 直後の実process境界probeを追加した。
+- 同reviewのraw-process failure contract不足も妥当だった。`b32df9d6` でportable nonzero、portable post-start exception、partial fanout post-start exceptionをactual canonical callerから発生させ、fanout抑止、primary precedence、raw PID ledger、exact cleanup residual 0を検証した。
+- `scripts/AGENTS.md`が旧command-wide 180秒契約を残していた指摘も妥当で、`8712f94c`でtest-execution-only契約へ同期した。さらに`319cbccd`でFunctional 3回gateを原則1回・180秒timeout時だけ同一条件1回retryへ退役し、tests / fixturesのphysical OS cursor操作・観測を全廃・禁止した。
 
 ## Progress
 
@@ -564,7 +567,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4d: final Functional tail ownership | Retired by Unit 4e | Functional fanoutでChartInfo splitのThreadPool completion ownership premiseが破綻したため、5 source groupを単一partial `ChartInfoMetadataOwnerTests`へregroup。library/startup owner split、exact 6-worker ClassLevel route、15/14/14/1 topology、logical test set、watchdogを維持する。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
 | Unit 4e: KISS Functional / watchdog policy | Implementation and final verification complete; review pending | 個別testの短時間予算と15-shard性能topologyを退役し、normal-completion plain awaitとtest execution全体の単一deadlineへ統合した。初期5-host / 4-fanoutはUnit 4e-Eで退役し、最終構成はportable完了後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount`。180秒はrestore/build/preflight/postflightを除くportable開始から全Functional testhost完了までだけを測る。 |
 | Unit 4e-E: BmsLibrary logical-prefix partition | Implementation and final verification complete; review pending | `d9d33b55` の remaining timeout evidenceを受け、shared base `R`を一つの `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` selectorのpositive / negative predicateへ分割。portable first後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount` topology、45 exclusions、one canonical deadline、logical onceをactual plan validatorへ閉じた。parse / guarded plan probe / diff checkと runner contract Quick 5/5を完了。最終snapshotでFunctional 3回連続とFull 1回を完了した。 |
-| Unit 5: current-policy acceptance and review | Policy / cursor correction in progress; current acceptance pending | `62f27b51` のWPF 30回と過去のFunctional 3回、Full 1回は履歴として保持し再実行しない。current policyに基づくFunctional一回（180秒 timeout時のみ同条件一回 retry）、runner変更 `b32df9d6` の最終 acceptanceとしてのFull一回、focused ProcessIntegration、fresh static reviewを残す。 |
+| Unit 5: current-policy acceptance and review | Final verification complete; fresh review pending | `62f27b51` のWPF 30回と過去のFunctional 3回は履歴として保持し再実行しなかった。`319cbccd`でcursor-free WPF Quick、runner / lifecycle Quick、Functionalを実行し、初回180秒timeout後の同一条件retryは164.3秒で成功したため両結果を一過性machine loadとして記録した。Fullも同snapshotで成功し、fresh static reviewだけを残す。 |
 
 ## Verification log
 
@@ -634,6 +637,12 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | Functional consecutive pass 2/3 on final snapshot | Pass | 155.8s test execution | `tests-functional-20260825-100230`; all six hosts completed; fingerprint unchanged; residual 0 |
 | same | Functional consecutive pass 3/3 on final snapshot | Pass | 155.5s test execution | `tests-functional-20260825-100532`; all six hosts completed; fingerprint unchanged; residual 0 |
 | same | Full | Pass | 155.3s Functional test execution | `tests-full-20260825-100834`; publish, existing-data, update, ProcessIntegration 50 pass + 2 skip, ReleaseAcceptance 2/2, format, analyzer 0 diagnostics passed; fingerprint unchanged; residual test / `wscript` process 0 |
+| `b32df9d6` | runner / lifecycle focused Quick after retained-`ExitTime` and raw failure-contract correction | Pass (24/24) | 58.0s test | `tests-quick-20260825-105221`; actual exit-time boundary、portable nonzero / post-start、partial fanout cleanup passed; fingerprint unchanged; residual test process 0 |
+| `319cbccd` | cursor-free WPF fixture focused Quick | Pass (14/14) | 22.2s phase / 8.2s test | `tests-quick-20260825-113700`; keyboard current-cell activation and deterministic explicit-hit event dispatch passed; fingerprint unchanged; physical cursor primitive audit 0 |
+| same | runner / lifecycle focused Quick | Pass (24/24) | 85.6s phase / 71.4s test | `tests-quick-20260825-113754`; retained `ExitTime` boundary、raw process failure / cleanup、deadline / lifecycle contracts passed; fingerprint unchanged; residual test process 0 |
+| same | Functional initial invocation under current policy | Fail: 180s test-execution timeout; one exact retry permitted | 180.0s test execution | `tests-functional-20260825-114002`; only `remaining` unfinished、other five hosts exit 0、tracked fingerprint unchanged、owned residual process 0、stdout progress retained |
+| same | Functional exact retry | Pass; initial timeout classified as transient machine load | 164.3s test execution | `tests-functional-20260825-114413`; all six hosts completed、same command / budget / snapshot / conditions、no repeated symptom or deterministic failure evidence、fingerprint unchanged、residual 0 |
+| same | Full | Pass | embedded Functional 162.9s test execution | `tests-full-20260825-114736`; publish、existing-data、update、ProcessIntegration 54 pass + 2 skip、ReleaseAcceptance 2/2、format、analyzer 0 diagnostics passed; fingerprint unchanged; residual test process 0 |
 
 ## Done when
 
