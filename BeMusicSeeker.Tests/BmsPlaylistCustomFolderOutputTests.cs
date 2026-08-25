@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -467,7 +466,13 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void PlaylistPropertyDialogApplyPostSaveUpdates_UsesOpenCustomFolderSettingsSnapshot()
     {
-        RunOnStaDispatcherThread(PlaylistPropertyDialogApplyPostSaveUpdatesCoreAsync);
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Task operation = PlaylistPropertyDialogApplyPostSaveUpdatesCoreAsync();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                operation,
+                nameof(PlaylistPropertyDialogApplyPostSaveUpdates_UsesOpenCustomFolderSettingsSnapshot));
+        });
     }
 
     [TestMethod]
@@ -2955,47 +2960,4 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    private static void RunOnStaDispatcherThread(Func<Task> action)
-    {
-        if (action == null)
-        {
-            throw new ArgumentNullException(nameof(action));
-        }
-        Exception? failure = null;
-        var thread = new Thread(() =>
-        {
-            Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
-            SynchronizationContext.SetSynchronizationContext(
-                new DispatcherSynchronizationContext(dispatcher));
-            try
-            {
-                Task task = action();
-                var frame = new DispatcherFrame();
-                _ = task.ContinueWith(
-                    _ => dispatcher.BeginInvoke(
-                        DispatcherPriority.ContextIdle,
-                        (Action)(() => frame.Continue = false)),
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
-                Dispatcher.PushFrame(frame);
-                task.GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                failure = ex;
-            }
-            finally
-            {
-                dispatcher.InvokeShutdown();
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (failure != null)
-        {
-            ExceptionDispatchInfo.Capture(failure).Throw();
-        }
-    }
 }

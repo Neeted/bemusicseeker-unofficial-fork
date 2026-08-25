@@ -103,7 +103,10 @@ Replan triggers:
 
 ### Implementation evidence
 
-- Pending.
+- Replaced the canonical playlist dialog snapshot test's local STA thread, raw dispatcher frame, and unbounded thread join with `TestUiDispatcherHost.Invoke` and `AwaitTaskOnDispatcher`. The existing core task remains the completion signal, with the shared helper's five-second watchdog and an identifiable operation name.
+- Removed the test-only STA helper and its dedicated exception-dispatch import; retained `System.Threading` for the fixture's existing `Interlocked` assertions. The core observable assertions, dialog disposal, four `Settings.Default` restores, `DispatcherHelper.UIDispatcher` restore, temporary-directory cleanup, class-wide `DoNotParallelize`, and `serial-state-a` ownership remain unchanged.
+- Focused Quick passed on the retry after retaining the fixture's shared `System.Threading` import used by existing `Interlocked` assertions: 1/1 test passed, runner elapsed 35.2s (test elapsed 4.8529s), artifact `artifacts/verification/tests-quick-20260826-000747/functional/results.trx`. The initial attempt stopped at compile with those pre-existing `Interlocked` references; no test execution occurred.
+- Targeted changed-file scans found no local STA helper, raw `Dispatcher.PushFrame`, unbounded `Join`, or physical cursor primitive; `git diff --check` passed.
 
 ## Unit 1B: application composition dispatcher and worker lifecycle
 
