@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Final verification complete on `319cbccd`; fresh static review pending
+Status: Review corrections and final verification complete on `489b38af`; fresh correction review pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -567,7 +567,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4d: final Functional tail ownership | Retired by Unit 4e | Functional fanoutでChartInfo splitのThreadPool completion ownership premiseが破綻したため、5 source groupを単一partial `ChartInfoMetadataOwnerTests`へregroup。library/startup owner split、exact 6-worker ClassLevel route、15/14/14/1 topology、logical test set、watchdogを維持する。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
 | Unit 4e: KISS Functional / watchdog policy | Implementation and final verification complete; review pending | 個別testの短時間予算と15-shard性能topologyを退役し、normal-completion plain awaitとtest execution全体の単一deadlineへ統合した。初期5-host / 4-fanoutはUnit 4e-Eで退役し、最終構成はportable完了後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount`。180秒はrestore/build/preflight/postflightを除くportable開始から全Functional testhost完了までだけを測る。 |
 | Unit 4e-E: BmsLibrary logical-prefix partition | Implementation and final verification complete; review pending | `d9d33b55` の remaining timeout evidenceを受け、shared base `R`を一つの `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` selectorのpositive / negative predicateへ分割。portable first後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount` topology、45 exclusions、one canonical deadline、logical onceをactual plan validatorへ閉じた。parse / guarded plan probe / diff checkと runner contract Quick 5/5を完了。最終snapshotでFunctional 3回連続とFull 1回を完了した。 |
-| Unit 5: current-policy acceptance and review | Final verification complete; fresh review pending | `62f27b51` のWPF 30回と過去のFunctional 3回は履歴として保持し再実行しなかった。`319cbccd`でcursor-free WPF Quick、runner / lifecycle Quick、Functionalを実行し、初回180秒timeout後の同一条件retryは164.3秒で成功したため両結果を一過性machine loadとして記録した。Fullも同snapshotで成功し、fresh static reviewだけを残す。 |
+| Unit 5: current-policy acceptance and review | Review corrections and final verification complete; fresh correction review pending | `62f27b51` のWPF 30回と過去のFunctional 3回は履歴として保持し再実行しなかった。`319cbccd`でcursor-free WPF Quick、runner / lifecycle Quick、Functionalを実行し、初回180秒timeout後の同一条件retryは164.3秒で成功したため両結果を一過性machine loadとして記録した。初回fresh reviewの2件のacceptance-direct P2を`489b38af`で修正し、成功時elapsedを最大retained process `ExitTime`、timeout時elapsedをexecution deadlineから算出する境界テストを追加した。最終snapshotのFunctionalは初回166.0秒で成功し、Fullも成功した。 |
 
 ## Verification log
 
@@ -643,6 +643,15 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | Functional initial invocation under current policy | Fail: 180s test-execution timeout; one exact retry permitted | 180.0s test execution | `tests-functional-20260825-114002`; only `remaining` unfinished、other five hosts exit 0、tracked fingerprint unchanged、owned residual process 0、stdout progress retained |
 | same | Functional exact retry | Pass; initial timeout classified as transient machine load | 164.3s test execution | `tests-functional-20260825-114413`; all six hosts completed、same command / budget / snapshot / conditions、no repeated symptom or deterministic failure evidence、fingerprint unchanged、residual 0 |
 | same | Full | Pass | embedded Functional 162.9s test execution | `tests-full-20260825-114736`; publish、existing-data、update、ProcessIntegration 54 pass + 2 skip、ReleaseAcceptance 2/2、format、analyzer 0 diagnostics passed; fingerprint unchanged; residual test process 0 |
+| `489b38af` correction worktree | runner / lifecycle focused Quick | Pass (24/24) | 96.8s command | `tests-quick-20260825-120940`; retained process `ExitTime` success elapsed 2.0s、timeout deadline elapsed 10.0s、timeout classification、process cleanup contracts passed; PowerShell parse and `git diff --check` passed; Functional / Full / WPF repeat were not run by the worker |
+| `489b38af` | Functional current-policy acceptance | Pass on first invocation; no retry | 166.0s test execution | `tests-functional-20260825-122226`; all six hosts completed inside the shared 180s execution deadline; restore/build/postflight excluded; tracked fingerprint unchanged |
+| same | Full | Pass | embedded Functional 166.4s test execution | `tests-full-20260825-122600`; publish、existing-data、update、ProcessIntegration 54 pass + 2 skip、ReleaseAcceptance 2/2、format、analyzer 0 diagnostics passed; tracked fingerprint unchanged; WPF repeat not run |
+
+## Static review log
+
+- Fresh review of `e638d132..0e350b30` found two acceptance-direct P2 findings: successful Functional elapsed used the poll-observation stopwatch instead of the retained process `ExitTime`, and `testing-strategy.md` still described the retired WPF repeat gate as current policy. No P0 / P1, pre-existing / out-of-scope finding, or recommendation was reported.
+- `489b38af` fixes both findings. Successful elapsed is the maximum retained host `ExitTime` minus the portable-boundary `StartUtc`; timeout elapsed is the absolute execution deadline minus that same `StartUtc`; apparent success fails closed when a required retained `ExitTime` is unavailable. The canonical boundary probe deterministically verifies poll-after-deadline success at 2.0s and timeout at the 10.0s probe deadline. The spec now states that the WPF repeat gate is retired and is not run.
+- A fresh correction review of `489b38af` remains the only open acceptance item.
 
 ## Done when
 
