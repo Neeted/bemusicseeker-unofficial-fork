@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Review corrections and final verification complete on `489b38af`; fresh correction review pending
+Status: Complete (`07e174ea` correction snapshot reviewed with no blocking findings)
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -565,9 +565,9 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4b: staged settings and bounded fanout | Retired by Unit 4e | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
 | Unit 4c: LR2-only early and regular-chart ownership | Retired by Unit 4e | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割した。actual planは15/14/14/1、LR2-only early、settings post-pre-wave fanout exact-once、old class退役、narrow supportを維持する。fixture/runner focused Quick、parse、diff check、76/76 body identityを完了。 |
 | Unit 4d: final Functional tail ownership | Retired by Unit 4e | Functional fanoutでChartInfo splitのThreadPool completion ownership premiseが破綻したため、5 source groupを単一partial `ChartInfoMetadataOwnerTests`へregroup。library/startup owner split、exact 6-worker ClassLevel route、15/14/14/1 topology、logical test set、watchdogを維持する。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
-| Unit 4e: KISS Functional / watchdog policy | Implementation and final verification complete; review pending | 個別testの短時間予算と15-shard性能topologyを退役し、normal-completion plain awaitとtest execution全体の単一deadlineへ統合した。初期5-host / 4-fanoutはUnit 4e-Eで退役し、最終構成はportable完了後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount`。180秒はrestore/build/preflight/postflightを除くportable開始から全Functional testhost完了までだけを測る。 |
-| Unit 4e-E: BmsLibrary logical-prefix partition | Implementation and final verification complete; review pending | `d9d33b55` の remaining timeout evidenceを受け、shared base `R`を一つの `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` selectorのpositive / negative predicateへ分割。portable first後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount` topology、45 exclusions、one canonical deadline、logical onceをactual plan validatorへ閉じた。parse / guarded plan probe / diff checkと runner contract Quick 5/5を完了。最終snapshotでFunctional 3回連続とFull 1回を完了した。 |
-| Unit 5: current-policy acceptance and review | Review corrections and final verification complete; fresh correction review pending | `62f27b51` のWPF 30回と過去のFunctional 3回は履歴として保持し再実行しなかった。`319cbccd`でcursor-free WPF Quick、runner / lifecycle Quick、Functionalを実行し、初回180秒timeout後の同一条件retryは164.3秒で成功したため両結果を一過性machine loadとして記録した。初回fresh reviewの2件のacceptance-direct P2を`489b38af`で修正し、成功時elapsedを最大retained process `ExitTime`、timeout時elapsedをexecution deadlineから算出する境界テストを追加した。最終snapshotのFunctionalは初回166.0秒で成功し、Fullも成功した。 |
+| Unit 4e: KISS Functional / watchdog policy | Complete | 個別testの短時間予算と15-shard性能topologyを退役し、normal-completion plain awaitとtest execution全体の単一deadlineへ統合した。初期5-host / 4-fanoutはUnit 4e-Eで退役し、最終構成はportable完了後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount`。180秒はrestore/build/preflight/postflightを除くportable開始から全Functional testhost完了までだけを測る。 |
+| Unit 4e-E: BmsLibrary logical-prefix partition | Complete | `d9d33b55` の remaining timeout evidenceを受け、shared base `R`を一つの `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` selectorのpositive / negative predicateへ分割。portable first後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount` topology、45 exclusions、one canonical deadline、logical onceをactual plan validatorへ閉じた。parse / guarded plan probe / diff checkと runner contract Quick 5/5を完了。過去のFunctional 3回連続 evidenceは履歴として保持し、現行policyでは反復しない。 |
+| Unit 5: current-policy acceptance and review | Complete | `62f27b51` のWPF 30回と過去のFunctional 3回は履歴として保持し再実行しなかった。`319cbccd`でcursor-free WPF Quick、runner / lifecycle Quick、Functionalを実行し、初回180秒timeout後の同一条件retryは164.3秒で成功したため両結果を一過性machine loadとして記録した。初回fresh reviewの2件のacceptance-direct P2を`489b38af`で修正し、成功時elapsedを最大retained process `ExitTime`、timeout時elapsedをexecution deadlineから算出する境界テストを追加した。最終snapshotのFunctionalは初回166.0秒で成功し、Fullも成功した。fresh correction reviewはblocking findingなし。 |
 
 ## Verification log
 
@@ -651,7 +651,7 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 
 - Fresh review of `e638d132..0e350b30` found two acceptance-direct P2 findings: successful Functional elapsed used the poll-observation stopwatch instead of the retained process `ExitTime`, and `testing-strategy.md` still described the retired WPF repeat gate as current policy. No P0 / P1, pre-existing / out-of-scope finding, or recommendation was reported.
 - `489b38af` fixes both findings. Successful elapsed is the maximum retained host `ExitTime` minus the portable-boundary `StartUtc`; timeout elapsed is the absolute execution deadline minus that same `StartUtc`; apparent success fails closed when a required retained `ExitTime` is unavailable. The canonical boundary probe deterministically verifies poll-after-deadline success at 2.0s and timeout at the 10.0s probe deadline. The spec now states that the WPF repeat gate is retired and is not run.
-- A fresh correction review of `489b38af` remains the only open acceptance item.
+- Fresh correction review of `0e350b30..07e174ea` confirmed both prior findings are closed. It reported no P0 / P1、acceptance-direct P2、pre-existing / out-of-scope finding、or recommendation. The reviewer checked the supplied Quick / Functional / Full artifacts without re-running tests.
 
 ## Done when
 

@@ -4,9 +4,7 @@
 
 `BeMusicSeeker_refactoring_plans/`は完了済みのMVVM / .NET 10 / performance engineeringについて、現在の維持方針と最終状態だけを持つ。個別unitやcommit履歴はGit historyへ委ねる。
 
-現在進行中の計画:
-
-- `test-suite-post-completion-review-remediation-plan.md`: 完了後レビューで残った process lifecycle persistence、observation ownership、post-start cleanup の修正計画。旧 `test-suite-blocking-findings-remediation-plan.md` は完了履歴であり、現在進行中の計画ではない。
+現在進行中の計画はない。`test-suite-post-completion-review-remediation-plan.md` と `test-suite-blocking-findings-remediation-plan.md` は完了履歴であり、現行のテスト契約は `../spec/testing-strategy.md` と `../spec/test-authoring-contract.md` を正本とする。
 
 長期参照する5文書:
 
