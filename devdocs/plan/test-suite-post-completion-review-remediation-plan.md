@@ -1,6 +1,6 @@
 # テスト整理完了後レビュー P2 修正計画
 
-Status: Review corrections in progress; Functional test-only budget clarified; WPF repeat retired
+Status: Final verification complete on `a8f1f6a4`; fresh static review pending
 
 Review base: `30d25e792ec4b58c552db7651e8d615fe54c11d1`
 
@@ -531,6 +531,13 @@ Review correctionの統合後、最終behavior snapshotで次を実行する。W
 
 Reviewer は asymmetric persistence、scope seal後のfault、actual post-start caller exception、artifact非破壊、primary/secondary precedence、deadline後のprimitive開始、test自己検証を重点確認する。
 
+### Post-completion review correction resolution
+
+- Review P1の「Functional 180秒はscript開始からpostflightまでのcommand全体を含むべき」という指摘は、元の要件と異なるため採用しない。ただしrepository側もその解釈を一時的に仕様化していたため、`f5e884bf` で portable `dotnet test` 起動直前から全Functional testhost終了までだけを測る実装・executable contract・仕様へ補正した。restore、build、runsettings / artifact準備、stream / artifact回収、fingerprint、環境復元、whitespace確認は180秒に含めない。
+- Review P2の4つのVerification mapが退役済みnamed shardを正本としていた指摘は妥当だった。`76b0ccfa` で現行6-host plan、exact serial selector、shared `R`のBmsLibrary positive / negative partitionへ統一した。
+- WPF 30回反復は `62f27b51` の一時的な競合検出gateで完了済みとし、ユーザー判断により今回も今後も再実行しない。通常のWPF coverageはcanonical Functionalの一回のinvocationに含める。
+- 最初のFull `tests-full-20260825-093908` は、12-worker ProcessIntegrationでstream-timeout probeが固定2秒root budgetを先に消費し、本来のstream-drain contractではなくprocess timeout routeへ入って失敗した。shared path / PID競合ではなくprocess-heavy並列時のfixture開始条件だったため、worker / parallelismを減らさず、`a8f1f6a4` でroot exitを30秒の外部process containment内に同期してから4秒stream-cleanup deadlineを開始した。production lifecycleのtimeout時 `ExitCode = null` contractは変更していない。
+
 ## Progress
 
 | Unit | Status | Notes |
@@ -542,9 +549,9 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | Unit 4b: staged settings and bounded fanout | Retired by Unit 4e | `018b894b` の17-shard contention failureとnested activating modalの誤分類を受け、foreground exact 7、playlist 2 grouped process、LR2 + settings early ownership、partial-launch cleanupへ再計画。実際のlaunch object validator、early state/accounting、raw process ownership cleanupを実装。Focused Quick / Functional / WPF30 / Fullの最終安定性確認はUnit 5で実施する。 |
 | Unit 4c: LR2-only early and regular-chart ownership | Retired by Unit 4e | repeat timeoutとLR2 isolated 25.9s evidenceを受け、settingsをfanoutへ戻し、RegularChart 76件をremaining内5 ownerへ分割した。actual planは15/14/14/1、LR2-only early、settings post-pre-wave fanout exact-once、old class退役、narrow supportを維持する。fixture/runner focused Quick、parse、diff check、76/76 body identityを完了。 |
 | Unit 4d: final Functional tail ownership | Retired by Unit 4e | Functional fanoutでChartInfo splitのThreadPool completion ownership premiseが破綻したため、5 source groupを単一partial `ChartInfoMetadataOwnerTests`へregroup。library/startup owner split、exact 6-worker ClassLevel route、15/14/14/1 topology、logical test set、watchdogを維持する。Functional / Full / WPF30 / static reviewはUnit 5で実施する。 |
-| Unit 4e: KISS Functional / watchdog policy | Review correction in progress | 個別testの短時間予算と15-shard性能topologyを退役し、normal-completion plain awaitとtest execution全体の単一deadlineへ統合した。初期5-host / 4-fanoutはUnit 4e-Eで退役し、最終構成はportable完了後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount`。180秒はrestore/build/preflight/postflightを除くportable開始から全Functional testhost完了までだけを測る。 |
-| Unit 4e-E: BmsLibrary logical-prefix partition | Implementation and final stability complete; review pending | `d9d33b55` の remaining timeout evidenceを受け、shared base `R`を一つの `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` selectorのpositive / negative predicateへ分割。portable first後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount` topology、45 exclusions、one canonical deadline、logical onceをactual plan validatorへ閉じた。parse / guarded plan probe / diff checkと runner contract Quick 5/5を完了。Unit 5でFunctional 3回連続とFull 1回を完了した。 |
-| Unit 5: final stability gates and review | Review corrections in progress | `62f27b51` のWPF 30回は一時的競合gateの完了証拠として維持し再実行しない。deadline計測範囲とVerification map修正後の最終snapshotでFunctional 3回、Full 1回、fresh static reviewを行う。 |
+| Unit 4e: KISS Functional / watchdog policy | Implementation and final verification complete; review pending | 個別testの短時間予算と15-shard性能topologyを退役し、normal-completion plain awaitとtest execution全体の単一deadlineへ統合した。初期5-host / 4-fanoutはUnit 4e-Eで退役し、最終構成はportable完了後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount`。180秒はrestore/build/preflight/postflightを除くportable開始から全Functional testhost完了までだけを測る。 |
+| Unit 4e-E: BmsLibrary logical-prefix partition | Implementation and final verification complete; review pending | `d9d33b55` の remaining timeout evidenceを受け、shared base `R`を一つの `FullyQualifiedName~BeMusicSeeker.Tests.BmsLibrary` selectorのpositive / negative predicateへ分割。portable first後の6-host / 5-fanout `1/1/1/ProcessorCount/ProcessorCount` topology、45 exclusions、one canonical deadline、logical onceをactual plan validatorへ閉じた。parse / guarded plan probe / diff checkと runner contract Quick 5/5を完了。最終snapshotでFunctional 3回連続とFull 1回を完了した。 |
+| Unit 5: final stability gates and review | Final verification complete; fresh review pending | `62f27b51` のWPF 30回は一時的競合gateの完了証拠として維持し再実行しなかった。`a8f1f6a4` でFunctional 3回、Full 1回、focused ProcessIntegrationを完了し、fresh static reviewだけが残る。 |
 
 ## Verification log
 
@@ -603,6 +610,17 @@ Reviewer は asymmetric persistence、scope seal後のfault、actual post-start 
 | same | Functional consecutive pass 2/3 | Pass | 162.3s canonical / 145.4s test phase | `tests-functional-20260825-074253`; all six hosts completed; fingerprint unchanged; residual 0 |
 | same | Functional consecutive pass 3/3 | Pass | 177.7s canonical / 160.9s test phase | `tests-functional-20260825-074549`; all six hosts completed; fingerprint unchanged; residual 0 |
 | same | Full | Pass | 626.5s total; canonical Functional 178.1s / 180s | `tests-full-20260825-080702`; Functional logical set, publish, existing-data, update, ProcessIntegration 49 pass + 2 skip, ReleaseAcceptance 2/2, format, analyzer 0 diagnostics passed; fingerprint unchanged; residual `testhost` / `vstest.console` 0 |
+| `f5e884bf` integration worktree | runner / lifecycle focused Quick | Pass (20/20) | 61.3s command / 51.2s test | `tests-quick-20260825-092209`; guarded actual runner proves restore/build before deadline, portable raw-process start at deadline boundary, five-host fanout after portable exit, stopwatch stop before cleanup/postflight; fingerprint unchanged; residual 0 |
+| `72dfb829` | Functional first run after test-only boundary correction | Fail: test execution deadline; exact retry required | 180.1s test execution | `tests-functional-20260825-092535`; only `remaining` unfinished; restore 8.4s and build 25.1s were outside deadline; fingerprint unchanged; residual 0 |
+| same | Functional exact retry, consecutive pass 1/3 | Pass | 172.6s test execution | `tests-functional-20260825-092926`; all six hosts completed; fingerprint unchanged; residual 0 |
+| same | Functional consecutive pass 2/3 | Pass | 163.3s test execution | `tests-functional-20260825-093255`; all six hosts completed; fingerprint unchanged; residual 0 |
+| same | Functional consecutive pass 3/3 | Pass | 155.8s test execution | `tests-functional-20260825-093607`; all six hosts completed; fingerprint unchanged; residual 0 |
+| same | Full before ProcessIntegration fixture correction | Fail after Functional/publish/update pass | 149.3s Functional test execution | `tests-full-20260825-093908`; ProcessIntegration `StreamDrainTimeoutDiagnosticIncludesContextAndOwnedCleanupCompletes` observed `ExitCode = null` after the process-heavy fanout consumed its fixed root budget; fingerprint unchanged; residual 0 |
+| `a8f1f6a4` | ProcessIntegration focused Quick after deterministic fixture correction | Pass (50 + 2 expected skips) | 70.3s command / 58.9s test | `tests-quick-20260825-095730`; 12 workers / `ClassLevel`; stream-timeout probe 9s; fingerprint unchanged; residual 0 |
+| same | Functional consecutive pass 1/3 on final snapshot | Pass | 162.1s test execution | `tests-functional-20260825-095904`; all six hosts completed; fingerprint unchanged; residual 0 |
+| same | Functional consecutive pass 2/3 on final snapshot | Pass | 155.8s test execution | `tests-functional-20260825-100230`; all six hosts completed; fingerprint unchanged; residual 0 |
+| same | Functional consecutive pass 3/3 on final snapshot | Pass | 155.5s test execution | `tests-functional-20260825-100532`; all six hosts completed; fingerprint unchanged; residual 0 |
+| same | Full | Pass | 155.3s Functional test execution | `tests-full-20260825-100834`; publish, existing-data, update, ProcessIntegration 50 pass + 2 skip, ReleaseAcceptance 2/2, format, analyzer 0 diagnostics passed; fingerprint unchanged; residual test / `wscript` process 0 |
 
 ## Done when
 
