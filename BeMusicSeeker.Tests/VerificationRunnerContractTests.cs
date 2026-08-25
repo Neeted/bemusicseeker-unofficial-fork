@@ -171,6 +171,71 @@ public sealed class VerificationRunnerContractTests
     }
 
     [TestMethod]
+    public void CanonicalFunctional_PortableNonzeroSuppressesFanoutAndCleansRawOwnership()
+    {
+        using JsonDocument result = ReadFunctionalRawFailureProbe("portable-nonzero");
+
+        AssertRawFailureProbe(
+            result,
+            expectedFailure: "portable-settings",
+            expectedFanoutAttempts: 0,
+            expectedSuccessfulStarts: 1,
+            expectedRawRecords: 1,
+            expectedEntriesBeforeConvert: 1,
+            expectedEntriesAfterConvert: 1);
+        Assert.IsTrue(
+            GetProperty(result.RootElement, "ExceptionMessage").GetString()!.Contains("exit code", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public void CanonicalFunctional_PortablePostStartExceptionSuppressesFanoutAndCleansRawOwnership()
+    {
+        using JsonDocument result = ReadFunctionalRawFailureProbe("portable-post-start-exception");
+
+        AssertRawFailureProbe(
+            result,
+            expectedFailure: "portable-settings",
+            expectedFanoutAttempts: 0,
+            expectedSuccessfulStarts: 0,
+            expectedRawRecords: 1,
+            expectedEntriesBeforeConvert: 0,
+            expectedEntriesAfterConvert: 1);
+        Assert.IsTrue(
+            GetProperty(result.RootElement, "ExceptionMessage").GetString()!.Contains("post-start fault injection", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public void CanonicalFunctional_PartialFanoutPostStartExceptionPreservesPrimaryAndCleansAllOwnedProcesses()
+    {
+        using JsonDocument result = ReadFunctionalRawFailureProbe("partial-fanout-post-start-exception");
+
+        AssertRawFailureProbe(
+            result,
+            expectedFailure: "serial-state-a",
+            expectedFanoutAttempts: 2,
+            expectedSuccessfulStarts: 2,
+            expectedRawRecords: 3,
+            expectedEntriesBeforeConvert: 2,
+            expectedEntriesAfterConvert: 3);
+        Assert.IsTrue(
+            GetProperty(result.RootElement, "ExceptionMessage").GetString()!.Contains("post-start fault injection", StringComparison.OrdinalIgnoreCase));
+        Assert.IsTrue(
+            GetProperty(result.RootElement, "ExceptionMessage").GetString()!.Contains("serial-state-a", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void CanonicalFunctional_UsesRetainedExitTimeAcrossFanoutDeadlineBoundary()
+    {
+        using JsonDocument beforeDeadline = ReadFunctionalDeadlineBoundaryProbe("before");
+        using JsonDocument afterDeadline = ReadFunctionalDeadlineBoundaryProbe("after");
+
+        Assert.AreEqual(5, GetProperty(beforeDeadline.RootElement, "FanoutAttempts").GetInt32());
+        Assert.IsFalse(GetProperty(beforeDeadline.RootElement, "TimedOut").GetBoolean());
+        Assert.AreEqual(5, GetProperty(afterDeadline.RootElement, "FanoutAttempts").GetInt32());
+        Assert.IsTrue(GetProperty(afterDeadline.RootElement, "TimedOut").GetBoolean());
+    }
+
+    [TestMethod]
     public void FunctionalShardPlan_UsesExecutablePlanForExactHostOwnership()
     {
         using JsonDocument plan = ReadFunctionalShardPlan();
@@ -676,6 +741,120 @@ public sealed class VerificationRunnerContractTests
             "try { Invoke-CanonicalFunctionalVerification -DiagnosticsRoot $diagnostics -TimeoutSeconds 30 *> $null } finally { if (Test-Path -LiteralPath $diagnostics) { Remove-Item -LiteralPath $diagnostics -Recurse -Force } }",
             "$events | ConvertTo-Json -Depth 8 -Compress");
         return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static JsonDocument ReadFunctionalRawFailureProbe(string scenario)
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string lifecyclePath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verification-process-lifecycle.ps1"));
+        string verifyScriptPath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"));
+        string command = string.Join(
+            Environment.NewLine,
+            "$ErrorActionPreference = 'Stop'",
+            $"$scenario = {QuotePowerShellLiteral(scenario)}",
+            ". " + lifecyclePath,
+            "$signal = [System.Threading.ManualResetEventSlim]::new($scenario -eq 'portable-post-start-exception')",
+            "$guard = [VerificationPostStartFaultGuard]::new($signal)",
+            ". " + verifyScriptPath + " -InternalTestGuard $guard",
+            "$global:probeArgument = if ($scenario -eq 'portable-nonzero') { @('test', (Join-Path $repoRoot '__missing-functional-probe__.csproj'), '--no-restore') } else { @('--version') }",
+            "$global:startAttempts = [System.Collections.Generic.List[string]]::new()",
+            "$global:startReturns = [System.Collections.Generic.List[string]]::new()",
+            "$global:rawProcessIds = [System.Collections.Generic.List[int]]::new()",
+            "$global:rawCommandIdentities = [System.Collections.Generic.List[string]]::new()",
+            "$global:convertBefore = $null",
+            "$global:convertAfter = $null",
+            "$global:cleanupSnapshot = $null",
+            "$actualStart = ${function:Start-FunctionalShardProcess}",
+            "$actualConvert = ${function:Convert-FunctionalRawOwnershipRecordsToEntries}",
+            "$actualCleanup = ${function:Invoke-VerificationFunctionalCleanup}",
+            "function Get-TestArguments { param([string]$Filter, [string]$DiagnosticsDirectory, [string]$RunSettingsPath, [switch]$NoBuild) return @($global:probeArgument) }",
+            "function Invoke-BudgetedCommand { param([System.Diagnostics.Stopwatch]$Stopwatch, [int]$BudgetSeconds, [string]$Label, [string]$CommandPath, [string[]]$Arguments, [string]$DiagnosticsDirectory, [DateTime]$ProcessDeadlineUtc, [DateTime]$PhaseDeadlineUtc, [DateTime]$CleanupDeadlineUtc, [switch]$IsTestCommand) }",
+            "function Assert-BuiltOutputs { }",
+            "function Assert-RepositoryWhitespace { }",
+            "function Start-FunctionalShardProcess { param([pscustomobject]$Shard, [string]$DiagnosticsDirectory, [System.Collections.IList]$Entries, [System.Collections.IList]$OwnedProcessRecords, [object]$PostStartFaultGuard, [string]$RunSettingsPath) [void]$global:startAttempts.Add($Shard.Name); try { $entry = & $actualStart @PSBoundParameters; [void]$global:startReturns.Add($Shard.Name); foreach ($record in @($OwnedProcessRecords)) { if (-not $global:rawProcessIds.Contains([int]$record.ProcessId)) { [void]$global:rawProcessIds.Add([int]$record.ProcessId) }; if (-not $global:rawCommandIdentities.Contains([string]$record.CommandIdentity)) { [void]$global:rawCommandIdentities.Add([string]$record.CommandIdentity) } }; if ($scenario -eq 'partial-fanout-post-start-exception' -and $Shard.Name -ceq 'bass-collectible') { [void]$signal.Set() }; return $entry } catch { foreach ($record in @($OwnedProcessRecords)) { if (-not $global:rawProcessIds.Contains([int]$record.ProcessId)) { [void]$global:rawProcessIds.Add([int]$record.ProcessId) }; if (-not $global:rawCommandIdentities.Contains([string]$record.CommandIdentity)) { [void]$global:rawCommandIdentities.Add([string]$record.CommandIdentity) } }; throw } }",
+            "function Convert-FunctionalRawOwnershipRecordsToEntries { param([System.Collections.IList]$Entries, [System.Collections.IList]$OwnedProcessRecords, [object]$CleanupFailures) $global:convertBefore = [pscustomobject]@{ RawRecords = @($OwnedProcessRecords).Count; Entries = @($Entries).Count }; $result = & $actualConvert @PSBoundParameters; $global:convertAfter = [pscustomobject]@{ RawRecords = @($OwnedProcessRecords).Count; Entries = @($Entries).Count }; return $result }",
+            "function Invoke-VerificationFunctionalCleanup { param([object[]]$Entries, [DateTime]$CleanupDeadlineUtc, [switch]$StopRoots, [object]$PrimitiveObserver) $result = & $actualCleanup @PSBoundParameters; $global:cleanupSnapshot = [pscustomobject]@{ Entries = @($result.EntryResults).Count; RemainingOwnedProcessIds = @($result.EntryResults | ForEach-Object { @($_.Result.RemainingOwnedProcessIds) }); ResultErrors = @($result.EntryResults | Where-Object { $null -ne $_.Error }).Count; FanoutFailures = @($result.FanoutFailures).Count }; return $result }",
+            "$diagnostics = Join-Path ([IO.Path]::GetTempPath()) ('bms-verification-raw-' + [Guid]::NewGuid().ToString('N'))",
+            "$caught = $null",
+            "try { Invoke-CanonicalFunctionalVerification -DiagnosticsRoot $diagnostics -TimeoutSeconds 10 *> $null } catch { $caught = $_.Exception }",
+            "$residualProcessIds = @($global:rawProcessIds | Sort-Object -Unique | Where-Object { $null -ne (Get-Process -Id $_ -ErrorAction SilentlyContinue) })",
+            "$output = [pscustomobject]@{ Scenario = $scenario; Caught = $null -ne $caught; ExceptionMessage = if ($null -eq $caught) { [string]::Empty } else { $caught.Message }; StartAttempts = @($global:startAttempts); StartReturns = @($global:startReturns); RawProcessIds = @($global:rawProcessIds); RawCommandIdentities = @($global:rawCommandIdentities); RawRecordsBeforeConvert = if ($null -eq $global:convertBefore) { -1 } else { $global:convertBefore.RawRecords }; EntriesBeforeConvert = if ($null -eq $global:convertBefore) { -1 } else { $global:convertBefore.Entries }; EntriesAfterConvert = if ($null -eq $global:convertAfter) { -1 } else { $global:convertAfter.Entries }; CleanupEntries = if ($null -eq $global:cleanupSnapshot) { -1 } else { $global:cleanupSnapshot.Entries }; CleanupRemainingOwnedProcessIds = if ($null -eq $global:cleanupSnapshot) { @() } else { @($global:cleanupSnapshot.RemainingOwnedProcessIds) }; CleanupResultErrors = if ($null -eq $global:cleanupSnapshot) { -1 } else { $global:cleanupSnapshot.ResultErrors }; CleanupFanoutFailures = if ($null -eq $global:cleanupSnapshot) { -1 } else { $global:cleanupSnapshot.FanoutFailures }; ResidualProcessIds = $residualProcessIds }",
+            "if (Test-Path -LiteralPath $diagnostics) { Remove-Item -LiteralPath $diagnostics -Recurse -Force -ErrorAction SilentlyContinue }",
+            "$output | ConvertTo-Json -Depth 12 -Compress");
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static JsonDocument ReadFunctionalDeadlineBoundaryProbe(string boundary)
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string lifecyclePath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verification-process-lifecycle.ps1"));
+        string verifyScriptPath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"));
+        string command = string.Join(
+            Environment.NewLine,
+            "$ErrorActionPreference = 'Stop'",
+            $"$boundary = {QuotePowerShellLiteral(boundary)}",
+            ". " + lifecyclePath,
+            "$signal = [System.Threading.ManualResetEventSlim]::new($false)",
+            "$guard = [VerificationPostStartFaultGuard]::new($signal)",
+            ". " + verifyScriptPath + " -InternalTestGuard $guard",
+            "$global:reportedPortableExit = $false",
+            "$global:reportedDeadlineUtc = $null",
+            "$global:fanoutAttempts = 0",
+            "$actualPolicy = ${function:New-FunctionalDeadlinePolicy}",
+            "$actualExit = ${function:Get-FunctionalProcessExitTimeUtc}",
+            "function New-FunctionalDeadlinePolicy { param([DateTime]$StartUtc, [int]$TimeoutSeconds) $policy = & $actualPolicy @PSBoundParameters; $global:reportedDeadlineUtc = $policy.ExecutionDeadlineUtc; return $policy }",
+            "function Get-FunctionalProcessExitTimeUtc { param([System.Diagnostics.Process]$Process) $actual = & $actualExit @PSBoundParameters; if ($null -eq $actual) { return $null }; if ($Process.Id -eq $global:portableProcessId) { if (-not $global:reportedPortableExit) { $global:reportedPortableExit = $true; return $null }; return $global:reportedDeadlineUtc.AddSeconds(-1) }; if ([DateTime]::UtcNow -lt $global:reportedDeadlineUtc) { return $null }; if ($boundary -eq 'before') { return $global:reportedDeadlineUtc.AddTicks(-1) }; return $global:reportedDeadlineUtc.AddTicks(1) }",
+            "$actualStart = ${function:Start-FunctionalShardProcess}",
+            "function Get-TestArguments { param([string]$Filter, [string]$DiagnosticsDirectory, [string]$RunSettingsPath, [switch]$NoBuild) return @('--version') }",
+            "function Invoke-BudgetedCommand { param([System.Diagnostics.Stopwatch]$Stopwatch, [int]$BudgetSeconds, [string]$Label, [string]$CommandPath, [string[]]$Arguments, [string]$DiagnosticsDirectory, [DateTime]$ProcessDeadlineUtc, [DateTime]$PhaseDeadlineUtc, [DateTime]$CleanupDeadlineUtc, [switch]$IsTestCommand) }",
+            "function Assert-BuiltOutputs { }",
+            "function Assert-RepositoryWhitespace { }",
+            "function Start-FunctionalShardProcess { param([pscustomobject]$Shard, [string]$DiagnosticsDirectory, [System.Collections.IList]$Entries, [System.Collections.IList]$OwnedProcessRecords, [object]$PostStartFaultGuard, [string]$RunSettingsPath) if ($Shard.Name -cne 'portable-settings') { $global:fanoutAttempts++ }; $entry = & $actualStart @PSBoundParameters; if ($Shard.Name -ceq 'portable-settings') { $global:portableProcessId = $entry.Process.Id }; return $entry }",
+            "$diagnostics = Join-Path ([IO.Path]::GetTempPath()) ('bms-verification-boundary-' + [Guid]::NewGuid().ToString('N'))",
+            "$caught = $null",
+            "try { Invoke-CanonicalFunctionalVerification -DiagnosticsRoot $diagnostics -TimeoutSeconds 10 *> $null } catch { $caught = $_.Exception }",
+            "$output = [pscustomobject]@{ Boundary = $boundary; FanoutAttempts = $global:fanoutAttempts; TimedOut = $null -ne $caught -and $caught.Message.Contains('exceeded the configured execution deadline', [StringComparison]::Ordinal); ExceptionMessage = if ($null -eq $caught) { [string]::Empty } else { $caught.Message } }",
+            "if (Test-Path -LiteralPath $diagnostics) { Remove-Item -LiteralPath $diagnostics -Recurse -Force -ErrorAction SilentlyContinue }",
+            "$output | ConvertTo-Json -Depth 8 -Compress");
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static void AssertRawFailureProbe(
+        JsonDocument result,
+        string expectedFailure,
+        int expectedFanoutAttempts,
+        int expectedSuccessfulStarts,
+        int expectedRawRecords,
+        int expectedEntriesBeforeConvert,
+        int expectedEntriesAfterConvert)
+    {
+        JsonElement root = result.RootElement;
+        Assert.IsTrue(GetProperty(root, "Caught").GetBoolean(), root.GetRawText());
+        Assert.IsTrue(
+            GetProperty(root, "ExceptionMessage").GetString()!.Contains(expectedFailure, StringComparison.Ordinal),
+            root.GetRawText());
+        string[] attempts = ReadStringArray(GetProperty(root, "StartAttempts"));
+        Assert.AreEqual(expectedFanoutAttempts + 1, attempts.Length);
+        Assert.AreEqual(expectedFanoutAttempts, attempts.Count(name => !name.Equals("portable-settings", StringComparison.Ordinal)));
+        Assert.AreEqual(expectedSuccessfulStarts, GetArrayLengthOrZero(GetProperty(root, "StartReturns")), root.GetRawText());
+        Assert.AreEqual(expectedRawRecords, GetArrayLengthOrZero(GetProperty(root, "RawProcessIds")), root.GetRawText());
+        Assert.AreEqual(expectedRawRecords, GetProperty(root, "RawRecordsBeforeConvert").GetInt32());
+        Assert.AreEqual(expectedEntriesBeforeConvert, GetProperty(root, "EntriesBeforeConvert").GetInt32());
+        Assert.AreEqual(expectedEntriesAfterConvert, GetProperty(root, "EntriesAfterConvert").GetInt32());
+        Assert.AreEqual(expectedEntriesAfterConvert, GetProperty(root, "CleanupEntries").GetInt32());
+        Assert.AreEqual(0, GetArrayLengthOrZero(GetProperty(root, "CleanupRemainingOwnedProcessIds")), root.GetRawText());
+        Assert.AreEqual(0, GetProperty(root, "CleanupResultErrors").GetInt32());
+        Assert.AreEqual(0, GetProperty(root, "CleanupFanoutFailures").GetInt32());
+        Assert.AreEqual(0, GetArrayLengthOrZero(GetProperty(root, "ResidualProcessIds")), root.GetRawText());
+    }
+
+    private static int GetArrayLengthOrZero(JsonElement element)
+    {
+        return element.ValueKind is JsonValueKind.Null ? 0 : element.GetArrayLength();
     }
 
     private static JsonDocument ReadPowerShellJson(IReadOnlyList<string> arguments)

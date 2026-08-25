@@ -531,6 +531,29 @@ function Assert-FunctionalExecutionDeadline {
     }
 }
 
+function Get-FunctionalProcessExitTimeUtc {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Process]$Process
+    )
+
+    try {
+        if (-not $Process.HasExited) {
+            return $null
+        }
+
+        # ExitTime is read from the retained handle after HasExited has refreshed the
+        # process state.  It is the only timestamp that can classify an exit observed
+        # after the polling deadline without turning a late exit into a success.
+        return $Process.ExitTime.ToUniversalTime()
+    }
+    catch {
+        # A process can disappear between HasExited and ExitTime.  Treat an unavailable
+        # timestamp as still running; the absolute deadline will then fail closed.
+        return $null
+    }
+}
+
 function Invoke-MonitoredCommand {
     param(
         [Parameter(Mandatory)]
@@ -1192,6 +1215,14 @@ function Start-FunctionalShardProcess {
             Entry = $null
         }
         [void]$OwnedProcessRecords.Add($ownershipRecord)
+        if ($null -ne $PostStartFaultGuard) {
+            if ($PostStartFaultGuard -isnot [VerificationPostStartFaultGuard]) {
+                throw 'Post-start fault guard was not created by the internal deterministic probe.'
+            }
+            if ($PostStartFaultGuard.TryConsumeSignal()) {
+                throw "Internal post-start fault injection for $($Shard.Name)."
+            }
+        }
         $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity $commandIdentity
         $ownershipRecord.RootProcessIdentity = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
         $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
@@ -1210,14 +1241,6 @@ function Start-FunctionalShardProcess {
         }
         $ownershipRecord.Entry = $entry
         [void]$Entries.Add($entry)
-        if ($null -ne $PostStartFaultGuard) {
-            if ($PostStartFaultGuard -isnot [VerificationPostStartFaultGuard]) {
-                throw 'Post-start fault guard was not created by the internal deterministic probe.'
-            }
-            if ($PostStartFaultGuard.TryConsumeSignal()) {
-                throw "Internal post-start fault injection for $($Shard.Name)."
-            }
-        }
         return $entry
     }
     catch {
@@ -1366,7 +1389,12 @@ function Invoke-ParallelFunctionalTestShards {
             -PostStartFaultGuard $InternalTestGuard `
             -RunSettingsPath $portableRunSettingsPath
 
-        while (-not $portableEntry.Process.HasExited) {
+        $portableExitTimeUtc = $null
+        while ($true) {
+            $portableExitTimeUtc = Get-FunctionalProcessExitTimeUtc -Process $portableEntry.Process
+            if ($null -ne $portableExitTimeUtc) {
+                break
+            }
             if ([DateTime]::UtcNow -ge $executionDeadlineUtc) {
                 $timedOut = $true
                 $timedOutHostNames = @($portableEntry.Name)
@@ -1376,12 +1404,19 @@ function Invoke-ParallelFunctionalTestShards {
             Start-Sleep -Milliseconds 100
         }
 
-        if (-not $timedOut -and $portableEntry.Process.HasExited -and $portableEntry.Process.ExitCode -ne 0) {
-            $failedHost = $portableEntry
+        if (-not $timedOut -and $null -ne $portableExitTimeUtc) {
+            if ($portableExitTimeUtc -gt $executionDeadlineUtc) {
+                $timedOut = $true
+                $timedOutHostNames = @($portableEntry.Name)
+                Write-Warning "Functional portable test host exited at $($portableExitTimeUtc.ToString('O')), after the configured execution deadline $($executionDeadlineUtc.ToString('O')). Owned-process cleanup is bounded by $($failureCleanupDeadlineUtc.ToString('O'))."
+            }
+            elseif ($portableEntry.Process.ExitCode -ne 0) {
+                $failedHost = $portableEntry
+            }
         }
 
         # The five hosts begin from this same validated array without a phase barrier.
-        if (-not $timedOut -and $null -eq $failedHost) {
+        if (-not $timedOut -and $null -eq $failedHost -and $null -ne $portableExitTimeUtc) {
             foreach ($fanoutShard in $fanoutShards) {
                 Assert-FunctionalExecutionDeadline -DeadlinePolicy $deadlinePolicy -StageName "starting $($fanoutShard.Name)"
                 $shardDirectory = Join-Path $DiagnosticsDirectory $fanoutShard.Name
@@ -1399,30 +1434,38 @@ function Invoke-ParallelFunctionalTestShards {
         Write-Host "Functional test hosts (execution deadline $($executionDeadlineUtc.ToString('O')); failure cleanup deadline $($failureCleanupDeadlineUtc.ToString('O')); configured budget ${TimeoutSeconds}s): $hostSummary"
         if (-not $timedOut -and $null -eq $failedHost) {
             while ($true) {
-                $failedHost = $entries |
-                    Where-Object { $_.Process.HasExited -and $_.Process.ExitCode -ne 0 } |
-                    Select-Object -First 1
+                $exitObservations = @($entries | ForEach-Object {
+                        $exitTimeUtc = Get-FunctionalProcessExitTimeUtc -Process $_.Process
+                        [pscustomobject]@{
+                            Entry = $_
+                            ExitTimeUtc = $exitTimeUtc
+                        }
+                    })
+                $failedHost = $exitObservations |
+                    Where-Object {
+                        $null -ne $_.ExitTimeUtc -and
+                        $_.ExitTimeUtc -le $executionDeadlineUtc -and
+                        $_.Entry.Process.ExitCode -ne 0
+                    } |
+                    Select-Object -ExpandProperty Entry -First 1
                 if ($null -ne $failedHost) {
                     break
                 }
 
-                $runningEntries = @($entries | Where-Object { -not $_.Process.HasExited })
-                if ($runningEntries.Count -eq 0) {
+                $notCompletedWithinDeadline = @($exitObservations | Where-Object {
+                        $null -eq $_.ExitTimeUtc -or $_.ExitTimeUtc -gt $executionDeadlineUtc
+                    })
+                if ($notCompletedWithinDeadline.Count -eq 0) {
                     break
                 }
                 if ([DateTime]::UtcNow -ge $executionDeadlineUtc) {
                     $timedOut = $true
-                    $timedOutHostNames = @($runningEntries | ForEach-Object { $_.Name })
-                    Write-Warning "Functional test hosts reached the configured execution deadline $($executionDeadlineUtc.ToString('O')). Stopping hosts: $($timedOutHostNames -join ', '). Owned-process cleanup is bounded by $($failureCleanupDeadlineUtc.ToString('O'))."
+                    $timedOutHostNames = @($notCompletedWithinDeadline | ForEach-Object { $_.Entry.Name })
+                    Write-Warning "Functional test hosts did not all exit within the configured execution deadline $($executionDeadlineUtc.ToString('O')). Stopping hosts: $($timedOutHostNames -join ', '). Owned-process cleanup is bounded by $($failureCleanupDeadlineUtc.ToString('O'))."
                     break
                 }
                 Start-Sleep -Milliseconds 100
             }
-        }
-
-        if (-not $timedOut -and [DateTime]::UtcNow -ge $executionDeadlineUtc) {
-            $timedOut = $true
-            $timedOutHostNames = @($entries | ForEach-Object { $_.Name })
         }
     }
     catch {
