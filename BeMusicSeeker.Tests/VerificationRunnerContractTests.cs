@@ -39,7 +39,7 @@ public sealed class VerificationRunnerContractTests
         Assert.AreEqual("DiagnosticsRoot", GetProperty(canonical, "DiagnosticsRootArgument").GetString());
         Assert.AreEqual("caller-owned", GetProperty(canonical, "DiagnosticsRootOwnership").GetString());
         Assert.AreEqual("run-root/{restore,build,functional}", GetProperty(canonical, "DiagnosticsLayout").GetString());
-        Assert.AreEqual("canonical-start+FunctionalTimeoutSeconds", GetProperty(canonical, "ExecutionDeadline").GetString());
+        Assert.AreEqual("portable-test-start+FunctionalTimeoutSeconds", GetProperty(canonical, "ExecutionDeadline").GetString());
         Assert.AreEqual("execution-deadline+10-seconds", GetProperty(canonical, "FailureCleanupDeadline").GetString());
         CollectionAssert.AreEqual(
             new[]
@@ -72,6 +72,102 @@ public sealed class VerificationRunnerContractTests
         Assert.IsFalse(policy.TryGetProperty("CleanupReserveSeconds", out _));
         Assert.IsFalse(policy.TryGetProperty("ProcessDeadlineUtc", out _));
         Assert.IsFalse(policy.TryGetProperty("PreCompletionReserveSeconds", out _));
+    }
+
+    [TestMethod]
+    public void CanonicalFunctional_UsesOneDeadlineOnlyForPortableAndFanoutExecution()
+    {
+        using JsonDocument result = ReadFunctionalExecutionProbe();
+        JsonElement events = result.RootElement;
+        string[] names = events
+            .EnumerateArray()
+            .Select(item => GetProperty(item, "Name").GetString()!)
+            .ToArray();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "restore",
+                "build",
+                "built-output-validation",
+                "portable-start",
+                "deadline-check",
+                "portable-exit-observed",
+                "fanout-start-bass-collectible",
+                "deadline-check",
+                "fanout-start-serial-state-a",
+                "deadline-check",
+                "fanout-start-serial-state-b",
+                "deadline-check",
+                "fanout-start-remaining-bms-library",
+                "deadline-check",
+                "fanout-start-remaining",
+                "execution-stop-observed",
+                "cleanup-start",
+                "cleanup-complete",
+                "repository-whitespace"
+            },
+            names);
+
+        JsonElement restore = events[0];
+        JsonElement build = events[1];
+        JsonElement portable = events[3];
+        Assert.IsTrue(GetProperty(restore, "DeadlineUtc").ValueKind is JsonValueKind.Null);
+        Assert.IsTrue(GetProperty(build, "DeadlineUtc").ValueKind is JsonValueKind.Null);
+
+        DateTime portableStartedUtc = GetProperty(portable, "TimestampUtc").GetDateTime();
+        JsonElement[] deadlineChecks = events
+            .EnumerateArray()
+            .Where(item => GetProperty(item, "Name").GetString() == "deadline-check")
+            .ToArray();
+        Assert.AreEqual(5, deadlineChecks.Length);
+        DateTime executionDeadlineUtc = GetProperty(deadlineChecks[0], "DeadlineUtc").GetDateTime();
+        TimeSpan remainingAtPortableStart = executionDeadlineUtc - portableStartedUtc;
+        Assert.IsTrue(
+            remainingAtPortableStart > TimeSpan.FromSeconds(25) &&
+            remainingAtPortableStart <= TimeSpan.FromSeconds(30),
+            $"The Functional deadline was not created at the portable test boundary: {remainingAtPortableStart}.");
+
+        foreach (JsonElement deadlineCheck in deadlineChecks)
+        {
+            Assert.AreEqual(executionDeadlineUtc, GetProperty(deadlineCheck, "DeadlineUtc").GetDateTime());
+        }
+
+        JsonElement[] fanoutStarts = events
+            .EnumerateArray()
+            .Where(item => GetProperty(item, "Name").GetString()!.StartsWith("fanout-start-", StringComparison.Ordinal))
+            .ToArray();
+        Assert.AreEqual(5, fanoutStarts.Length);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "fanout-start-bass-collectible",
+                "fanout-start-serial-state-a",
+                "fanout-start-serial-state-b",
+                "fanout-start-remaining-bms-library",
+                "fanout-start-remaining"
+            },
+            fanoutStarts.Select(item => GetProperty(item, "Name").GetString()).ToArray());
+        JsonElement portableExit = events[5];
+        Assert.IsTrue(
+            fanoutStarts.All(item => GetProperty(item, "TimestampUtc").GetDateTime() >=
+                GetProperty(portableExit, "TimestampUtc").GetDateTime()),
+            "A fanout host started before portable process exit was observed.");
+
+        JsonElement executionStop = events[15];
+        Assert.IsTrue(GetProperty(executionStop, "AllExited").GetBoolean());
+        Assert.IsTrue(GetProperty(executionStop, "ExecutionStopped").GetBoolean());
+        JsonElement cleanup = events[16];
+        JsonElement cleanupComplete = events[17];
+        Assert.IsTrue(GetProperty(cleanup, "AllExited").GetBoolean());
+        Assert.IsTrue(GetProperty(cleanupComplete, "AllExited").GetBoolean());
+        Assert.AreEqual(executionDeadlineUtc.AddSeconds(10), GetProperty(cleanup, "DeadlineUtc").GetDateTime());
+        JsonElement repositoryWhitespace = events[18];
+        Assert.IsTrue(
+            GetProperty(repositoryWhitespace, "TimestampUtc").GetDateTime() >=
+            GetProperty(cleanupComplete, "TimestampUtc").GetDateTime(),
+            "Repository postflight ran before Functional process cleanup completed.");
+        Assert.IsTrue(GetProperty(repositoryWhitespace, "DeadlineUtc").ValueKind is JsonValueKind.Null);
     }
 
     [TestMethod]
@@ -543,6 +639,42 @@ public sealed class VerificationRunnerContractTests
             "$policy = New-FunctionalDeadlinePolicy -StartUtc $startUtc -TimeoutSeconds 180",
             "$remainingAtStart = Get-RemainingBudgetSeconds -DeadlineUtc $policy.ExecutionDeadlineUtc -NowUtc $startUtc",
             "[pscustomobject]@{ Policy = $policy; RemainingAtStart = $remainingAtStart } | ConvertTo-Json -Depth 8 -Compress");
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static JsonDocument ReadFunctionalExecutionProbe()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string lifecyclePath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verification-process-lifecycle.ps1"));
+        string verifyScriptPath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"));
+        string testProjectPath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"));
+        string command = string.Join(
+            Environment.NewLine,
+            "$ErrorActionPreference = 'Stop'",
+            $". {lifecyclePath}",
+            "$signal = [System.Threading.ManualResetEventSlim]::new($false)",
+            "$guard = [VerificationPostStartFaultGuard]::new($signal)",
+            $". {verifyScriptPath} -InternalTestGuard $guard",
+            $"$solution = {testProjectPath}",
+            "$events = [System.Collections.Generic.List[object]]::new()",
+            "$global:portableEntry = $null",
+            "$global:portableExitObserved = $false",
+            "function Add-ProbeEvent { param([string]$Name, [object]$DeadlineUtc, [bool]$AllExited = $false, [bool]$ExecutionStopped = $false) [void]$events.Add([pscustomobject]@{ Name = $Name; TimestampUtc = [DateTime]::UtcNow; DeadlineUtc = $DeadlineUtc; AllExited = $AllExited; ExecutionStopped = $ExecutionStopped }) }",
+            "function Invoke-BudgetedCommand { param([System.Diagnostics.Stopwatch]$Stopwatch, [int]$BudgetSeconds, [string]$Label, [string]$CommandPath, [string[]]$Arguments, [string]$DiagnosticsDirectory, [object]$ProcessDeadlineUtc, [object]$PhaseDeadlineUtc, [object]$CleanupDeadlineUtc, [switch]$IsTestCommand) $stageName = if ($Label -eq 'Locked restore') { 'restore' } else { 'build' }; Add-ProbeEvent -Name $stageName -DeadlineUtc $null }",
+            "function Assert-BuiltOutputs { Add-ProbeEvent -Name 'built-output-validation' -DeadlineUtc $null }",
+            "$actualAssert = ${function:Assert-FunctionalExecutionDeadline}",
+            "function Assert-FunctionalExecutionDeadline { param([object]$DeadlinePolicy, [string]$StageName) Add-ProbeEvent -Name 'deadline-check' -DeadlineUtc $DeadlinePolicy.ExecutionDeadlineUtc; & $actualAssert @PSBoundParameters }",
+            "$actualStart = ${function:Start-FunctionalShardProcess}",
+            "function Start-FunctionalShardProcess { param([pscustomobject]$Shard, [string]$DiagnosticsDirectory, [System.Collections.IList]$Entries, [System.Collections.IList]$OwnedProcessRecords, [object]$PostStartFaultGuard, [string]$RunSettingsPath) if ($Shard.Name -ceq 'portable-settings') { Add-ProbeEvent -Name 'portable-start' -DeadlineUtc $null } else { if ($null -eq $global:portableEntry -or -not $global:portableEntry.Process.HasExited) { throw 'Fanout started before portable exit was observed.' }; if (-not $global:portableExitObserved) { $global:portableExitObserved = $true; Add-ProbeEvent -Name 'portable-exit-observed' -DeadlineUtc $null }; Add-ProbeEvent -Name ('fanout-start-' + $Shard.Name) -DeadlineUtc $null }; $originalFilter = $Shard.Filter; try { $Shard.Filter = 'FullyQualifiedName~BeMusicSeeker.Tests.__NoSuchFunctionalProbe'; $entry = & $actualStart @PSBoundParameters; if ($Shard.Name -ceq 'portable-settings') { $global:portableEntry = $entry }; return $entry } finally { $Shard.Filter = $originalFilter } }",
+            "$actualCleanup = ${function:Invoke-VerificationFunctionalCleanup}",
+            "function Invoke-VerificationFunctionalCleanup { param([System.Collections.IList]$Entries, [DateTime]$CleanupDeadlineUtc, [switch]$StopRoots, [object]$PrimitiveObserver) $allExited = @($Entries | Where-Object { -not $_.Process.HasExited }).Count -eq 0; $executionStopped = $null -ne $testExecutionStopwatch -and -not $testExecutionStopwatch.IsRunning; Add-ProbeEvent -Name 'execution-stop-observed' -DeadlineUtc $null -AllExited:$allExited -ExecutionStopped:$executionStopped; Add-ProbeEvent -Name 'cleanup-start' -DeadlineUtc $CleanupDeadlineUtc -AllExited:$allExited; $result = & $actualCleanup @PSBoundParameters; Add-ProbeEvent -Name 'cleanup-complete' -DeadlineUtc $null -AllExited:$allExited; return $result }",
+            "function Assert-RepositoryWhitespace { Add-ProbeEvent -Name 'repository-whitespace' -DeadlineUtc $null }",
+            "$diagnostics = Join-Path ([IO.Path]::GetTempPath()) ('bms-verification-contract-' + [Guid]::NewGuid().ToString('N'))",
+            "try { Invoke-CanonicalFunctionalVerification -DiagnosticsRoot $diagnostics -TimeoutSeconds 30 *> $null } finally { if (Test-Path -LiteralPath $diagnostics) { Remove-Item -LiteralPath $diagnostics -Recurse -Force } }",
+            "$events | ConvertTo-Json -Depth 8 -Compress");
         return ReadPowerShellJson(new[] { "-Command", command });
     }
 

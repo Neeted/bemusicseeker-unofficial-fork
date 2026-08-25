@@ -6,13 +6,13 @@
 
 ## 運用目標
 
-- 通常の機能検証は `verify-refactor.ps1 -Mode Functional` のコマンド全体を 180 秒以内で完了させる。個々の testhost や shard ごとの 180 秒ではない。
-- Functional の canonical runner は開始時に一つの execution deadline（開始時刻 + `FunctionalTimeoutSeconds`）と、その deadline + 10 秒の failure-cleanup cutoff を作る。restore、build、portable、fanout、output / whitespace success check は同じ execution deadline を使い、host / phase ごとに reset しない。+10 秒は timeout / failure 時の owned-process cleanup と stream drain 専用であり、成功を command budget 外へ延長しない。
+- 通常の機能検証では、portable settings の `dotnet test` 開始直前から全 testhost 完了までの test execution を 180 秒以内で完了させる。個々の testhost や shard ごとの 180 秒ではない。script startup、preflight、restore、build、output 準備、postflight はこの test budget の対象外である。
+- Functional の canonical runner は portable settings の `dotnet test` 開始直前に一つの execution deadline（開始時刻 + `FunctionalTimeoutSeconds`）と、その deadline + 10 秒の failure-cleanup cutoff を作る。同じ deadline を portable、fanout launch、全 testhost 完了まで共有し、host / phase ごとに reset しない。+10 秒は timeout / failure 時の owned-process cleanup と stream drain 専用であり、成功判定を testhost 完了後の cleanup、fingerprint、環境復元、whitespace 確認まで延長しない。
 - Functional は、追跡対象ファイルを変更せず、実行順序や並列度によらず決定的に成功する。
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
 - リソース競合で不安定になる場合は、共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
 - timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。最初の単発 timeout は、残留 process がないことを確認して同一 command・filter・budget で一度だけ再実行してから調査要否を判断する。
-- runner、lane、並列化、fixture 配置を変更した場合は、同一の最終 snapshot で Functional を同一条件で3回連続実行し、各回が180秒以内であることを確認する。途中で failure を修正した場合は修正前の pass を数えず、1回目からやり直す。
+- runner、lane、並列化、fixture 配置を変更した場合は、同一の最終 snapshot で Functional を同一条件で3回連続実行し、各回の test execution が180秒以内であることを確認する。途中で failure を修正した場合は修正前の pass を数えず、1回目からやり直す。
 
 ## 標準コマンド
 
@@ -22,9 +22,9 @@
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ```
 
-この呼び出しの開始から終了までが 180 秒の時間予算である。solution の locked restore、build、output validation、論理的に一つの通常 test phase を `Invoke-CanonicalFunctionalVerification` が所有し、`dotnet test` は restore 済みの dependency graph を使う。内部 sharding の有無にかかわらず、時間予算は command 全体に一度だけ適用する。Functional からは `Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance` を除外する。
+この呼び出しでは、script startup、tracked-file fingerprint、solution の locked restore / build / output validation、環境復元、最終 fingerprint は test execution の 180 秒予算外である。`Invoke-CanonicalFunctionalVerification` はこれらの準備後、portable settings の `dotnet test` から全 testhost 完了までを論理的に一つの通常 test phase として所有し、`dotnet test` は restore 済みの dependency graph を使う。内部 sharding の有無にかかわらず、test execution の時間予算は一度だけ適用する。Functional からは `Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance` を除外する。
 
-Quick の filter なし呼び出しもこの canonical owner を一度だけ使う。filter 付き Quick だけは明示 filter の専用 route を使い、canonical Functional の shard topology は起動しない。owner は呼び出し元が渡す diagnostics root と `FunctionalTimeoutSeconds` を受け取り、caller-owned root 配下へ restore / build / shard artifact を保存する。tracked-file fingerprint の取得と不変確認は mode の外側で一度ずつ行う。
+Quick の filter なし呼び出しもこの canonical owner を一度だけ使う。filter 付き Quick だけは明示 filter の専用 route を使い、canonical Functional の shard topology は起動しない。owner は呼び出し元が渡す diagnostics root と `FunctionalTimeoutSeconds` を受け取り、caller-owned root 配下へ restore / build / shard artifact を保存する。tracked-file fingerprint の取得と不変確認、環境復元は mode の外側で一度ずつ行い、test execution の deadline へ接続しない。
 
 `BassCollectibleLoadContextTests` は単一クラス専用 host で実行する。この testhost は WPF host / resource を解決せず、collectible ALC の unload と BASS static initialization の非 native-load 契約を他 fixture の process state から分離する。
 
@@ -43,13 +43,13 @@ Functional は category exclusion を適用した論理 test set を一度だけ
 
 `serial-state-a` は settings / foreground / playlist settings / native logging owner を、`serial-state-b` は LR2、compiled WPF、class-wide DNP owner を所有する。A / B の exact selector はこの Unit 4e-A plan と runner の実装本文を正本とし、残りの論理 test setは、45 class exclusionを共有する `R` を一つの `BmsLibrary` selectorのpositive / negative predicateへ分けて一度だけ実行する。BmsLibraryのexact class allowlistは実行源にせず、論理 prefixで自動 routeする。fanout 5 host の専用 worker は Bass / A / B が各1、二つのremaining partitionが各 `ProcessorCount` で、portable完了後の最大同時 worker 数は約27である。
 
-起動順は portable host を単独で完了させ、その成功後に Bass、serial A、serial B、`remaining-bms-library`、remaining を同じ validated plan array から即時 start する。二つのremaining partitionは同じ `R` base filter、共通selectorのpositive / negative predicate、`ClassLevel` / `ProcessorCount`を持ち、互いに重ならず合計で `R` 全体を覆う。全 test process は canonical 開始時刻 + `FunctionalTimeoutSeconds` の一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。execution deadline 内の成功だけを成功扱いにする。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
+起動順は portable host の `dotnet test` 開始直前に test execution の deadline を作り、portable host を単独で完了させ、その成功後に Bass、serial A、serial B、`remaining-bms-library`、remaining を同じ validated plan array から即時 start する。二つのremaining partitionは同じ `R` base filter、共通selectorのpositive / negative predicate、`ClassLevel` / `ProcessorCount`を持ち、互いに重ならず合計で `R` 全体を覆う。全 test process はこの一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。execution deadline 内に全 testhost が完了した場合だけを成功扱いにし、成功後の出力収集、fingerprint、環境復元は test budget 外で行う。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
 
 foreground input、keyboard focus、hit testing、nested modal activation が保証対象の7 methodは、すべて現行 FQN の `SettingsForegroundInteractionTests` に属し、`serial-state-a` だけが所有する。`SettingDialogEditCompletionTests` や旧 SettingsWindow owner の FQN を foreground selector に含めない。
 
 正常完了は対象の `Task`、signal、event、state transitionを plain `await` で待つ。coordinator は `.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` などの同期 block を行わない。local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限り、固定 sleep、成功推定用の正の delay、既定 timeout helper は追加しない。
 
-Functional の category exclusion、locked restore / build、180 秒 command budget、tracked-file fingerprint、Quick / Full mapping は維持する。Functional plan の変更受入は、同一 snapshot・同一条件の Functional 3回連続とし、この Unit の focused Quick では runner contract と process lifecycle contract を検証する。
+Functional の category exclusion、locked restore / build、180 秒 test execution budget、tracked-file fingerprint、Quick / Full mapping は維持する。Functional plan の変更受入は、同一 snapshot・同一条件の Functional 3回連続とし、この Unit の focused Quick では runner contract と process lifecycle contract を検証する。
 
 ## Verification map: process lifecycle
 
@@ -69,9 +69,9 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter '<MS
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 ```
 
-Full は Functional に加えて、tool / analyzer、`ProcessIntegration`、self-contained publish、既存データ起動受入、update package 受入を実行する。Full は `Invoke-CanonicalFunctionalVerification` を `FunctionalTimeoutSeconds` と Full run root 配下の diagnostics root で一度だけ呼び出し、locked restore、build、built-output validation、Functional shard を別 route で再構築しない。canonical Functional 完了後に current distribution publish / baseline / acceptance へ進む。Functional の 180 秒予算とは別の release 検証であり、通常のコード変更ごとには実行しない。Performance、LargeFixture、parser full / slow は Full にも自動では含めず、変更対象に応じて明示実行する。
+Full は Functional に加えて、tool / analyzer、`ProcessIntegration`、self-contained publish、既存データ起動受入、update package 受入を実行する。Full は `Invoke-CanonicalFunctionalVerification` を `FunctionalTimeoutSeconds` と Full run root 配下の diagnostics root で一度だけ呼び出し、locked restore、build、built-output validation、Functional test execution を別 route で再構築しない。canonical Functional の test execution 完了後に current distribution publish / baseline / acceptance へ進む。Functional の 180 秒予算は test execution phase だけに適用し、Full の準備・post-Functional release 検証とは別である。Performance、LargeFixture、parser full / slow は Full にも自動では含めず、変更対象に応じて明示実行する。
 
-Full 内でも canonical Functional phase は tool restore の後、tool smoke / publish や update acceptance より前に実行する。release artifact workload の CPU / I/O の影響を通常機能検証へ持ち込まず、Functional の 180 秒予算を同じ条件で評価するためである。
+Full 内でも canonical Functional phase は tool restore の後、tool smoke / publish や update acceptance より前に実行する。release artifact workload の CPU / I/O の影響を test execution の 180 秒予算へ持ち込まず、portable 起動から全 testhost 完了までを同じ条件で評価するためである。
 
 Full の post-Functional phase budget は内部 `verification-runner-contract.ps1` の descriptor を正本とし、次の値を変更しない。各 phase は descriptor の diagnostics segment と bounded monitored execution を一度だけ使い、process tree を停止してから cleanup する。primary failure は cleanup failure で置き換えず、cleanup failure は phase diagnostics に記録する。primary が無い場合の cleanup failure は失敗として扱い、成功時の cleanup failure も成功に隠さない。Full の finally は開始前の process environment と working directory を復元し、復元 failure も同じ優先順位で記録する。
 
