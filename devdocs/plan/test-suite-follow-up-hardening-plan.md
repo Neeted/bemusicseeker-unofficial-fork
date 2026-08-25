@@ -201,7 +201,10 @@ Replan triggers:
 
 ### Implementation evidence
 
-- Pending.
+- Replaced the two synchronous `ReadToEnd` / unbounded `WaitForExit` calls with one file-local async `RunValidatorProcess` owner. It starts both redirected reads immediately after the exact root PID is captured, applies 60-second process, 5-second stream, and 5-second cleanup bounds, and uses `Kill(entireProcessTree: true)` followed only when necessary by a remaining-budget `taskkill.exe /PID <captured-root> /T /F`; no name or global process lookup is used.
+- Process start/setup, exit timeout, stream drain/fault, and nonzero exit remain the captured primary exception. Cleanup, post-cleanup stream observation, handle disposal, and GUID-child staging deletion are secondary diagnostics; cleanup-only failure fails. Completed output and incomplete/faulted stream state include stream name, PID, failure elapsed, stream bound, and cleanup result, while late stream faults have an explicit observing continuation. The primary exception is rethrown through `ExceptionDispatchInfo` without a replacement wrapper.
+- GUID staging creation and copies now live inside the cleanup owner, and deletion remains limited to that GUID child. The existing positive validation and complete forbidden-path assertions are unchanged. Coverage remains an `extend` of the canonical `ReleaseAcceptance` fixture with no new fixture, DNP, shared root, lane, runner, or spec change; process/task completion replaces the retired synchronous routes.
+- Focused roots-supplied Quick: `$env:BMS_SCD_APP_PUBLISH_ROOT=(Resolve-Path .\artifacts\publish\app).Path; $env:BMS_SCD_UPDATER_PUBLISH_ROOT=(Resolve-Path .\artifacts\publish\updater).Path; pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName=BeMusicSeeker.Tests.UpdaterDeploymentBoundaryTests.PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput'`. Result: 1/1 passed; TRX case duration 5.5499140 seconds, `dotnet test` total 7.0530 seconds, runner 35.585 seconds; artifact `artifacts/verification/tests-quick-20260826-005959/functional/results.trx`. Root retains Full / ReleaseAcceptance integration ownership.
 
 ## Integration, review, and acceptance
 

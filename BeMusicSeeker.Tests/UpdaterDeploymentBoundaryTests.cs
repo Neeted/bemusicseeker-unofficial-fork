@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -146,7 +149,7 @@ public sealed class UpdaterDeploymentBoundaryTests
 
     [TestMethod]
     [TestCategory("ReleaseAcceptance")]
-    public void PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput()
+    public async Task PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput()
     {
         string repositoryRoot = FindRepositoryRoot();
         string validatorPath = Path.Combine(repositoryRoot, "scripts", "portable-package-layout.ps1");
@@ -155,59 +158,56 @@ public sealed class UpdaterDeploymentBoundaryTests
         string appPublishDirectory = ResolveSelfContainedPublishDirectory("BMS_SCD_APP_PUBLISH_ROOT", "app");
         string updaterPublishDirectory = ResolveSelfContainedPublishDirectory("BMS_SCD_UPDATER_PUBLISH_ROOT", "updater");
         string stagingDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ReleaseLayoutTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(stagingDirectory);
-        foreach (string sourcePath in Directory.EnumerateFiles(appPublishDirectory, "*", SearchOption.AllDirectories))
-        {
-            string relativePath = Path.GetRelativePath(appPublishDirectory, sourcePath);
-            string topLevelName = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
-            if (topLevelName.Equals("config", StringComparison.OrdinalIgnoreCase)
-                || topLevelName.Equals("data", StringComparison.OrdinalIgnoreCase)
-                || topLevelName.Equals("log", StringComparison.OrdinalIgnoreCase)
-                || topLevelName.Equals("logs", StringComparison.OrdinalIgnoreCase)
-                || topLevelName.Equals("update_backup", StringComparison.OrdinalIgnoreCase)
-                || topLevelName.Equals("update_work", StringComparison.OrdinalIgnoreCase)
-                || topLevelName.Equals("imported_metadata", StringComparison.OrdinalIgnoreCase)
-                || relativePath.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)
-                || relativePath.StartsWith("BeMusicSeeker.Updater.", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            string destinationPath = Path.Combine(stagingDirectory, relativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-            File.Copy(sourcePath, destinationPath);
-        }
-        string updaterPath = Path.Combine(updaterPublishDirectory, "BeMusicSeeker.Updater.exe");
-        Assert.IsTrue(File.Exists(updaterPath), "The self-contained updater publish output must exist.");
-        File.Copy(updaterPath, Path.Combine(stagingDirectory, "BeMusicSeeker.Updater.exe"));
-
-        ProcessStartInfo CreateValidatorStartInfo(string? command = null)
-        {
-            var startInfo = new ProcessStartInfo
-            {
-                FileName = "pwsh",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-            startInfo.ArgumentList.Add("-NoProfile");
-            startInfo.ArgumentList.Add("-NonInteractive");
-            startInfo.ArgumentList.Add("-Command");
-            startInfo.ArgumentList.Add(command
-                ?? $". '{EscapePowerShellLiteral(validatorPath)}'; "
-                    + $"Assert-PortableStagingLayout -targetStagingDirectory '{EscapePowerShellLiteral(stagingDirectory)}' -requiresMetadataArchive:$false");
-            return startInfo;
-        }
-
+        ExceptionDispatchInfo? primaryFailure = null;
+        string? stagingCleanupFailure = null;
         try
         {
-            using Process process = Process.Start(CreateValidatorStartInfo())
-                ?? throw new AssertFailedException("pwsh could not be started for package layout validation.");
-            string output = process.StandardOutput.ReadToEnd();
-            string error = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-            Assert.AreEqual(0, process.ExitCode, output + Environment.NewLine + error);
+            Directory.CreateDirectory(stagingDirectory);
+            foreach (string sourcePath in Directory.EnumerateFiles(appPublishDirectory, "*", SearchOption.AllDirectories))
+            {
+                string relativePath = Path.GetRelativePath(appPublishDirectory, sourcePath);
+                string topLevelName = relativePath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
+                if (topLevelName.Equals("config", StringComparison.OrdinalIgnoreCase)
+                    || topLevelName.Equals("data", StringComparison.OrdinalIgnoreCase)
+                    || topLevelName.Equals("log", StringComparison.OrdinalIgnoreCase)
+                    || topLevelName.Equals("logs", StringComparison.OrdinalIgnoreCase)
+                    || topLevelName.Equals("update_backup", StringComparison.OrdinalIgnoreCase)
+                    || topLevelName.Equals("update_work", StringComparison.OrdinalIgnoreCase)
+                    || topLevelName.Equals("imported_metadata", StringComparison.OrdinalIgnoreCase)
+                    || relativePath.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)
+                    || relativePath.StartsWith("BeMusicSeeker.Updater.", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string destinationPath = Path.Combine(stagingDirectory, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+                File.Copy(sourcePath, destinationPath);
+            }
+            string updaterPath = Path.Combine(updaterPublishDirectory, "BeMusicSeeker.Updater.exe");
+            Assert.IsTrue(File.Exists(updaterPath), "The self-contained updater publish output must exist.");
+            File.Copy(updaterPath, Path.Combine(stagingDirectory, "BeMusicSeeker.Updater.exe"));
+
+            ProcessStartInfo CreateValidatorStartInfo(string? command = null)
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = "pwsh",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                startInfo.ArgumentList.Add("-NoProfile");
+                startInfo.ArgumentList.Add("-NonInteractive");
+                startInfo.ArgumentList.Add("-Command");
+                startInfo.ArgumentList.Add(command
+                    ?? $". '{EscapePowerShellLiteral(validatorPath)}'; "
+                        + $"Assert-PortableStagingLayout -targetStagingDirectory '{EscapePowerShellLiteral(stagingDirectory)}' -requiresMetadataArchive:$false");
+                return startInfo;
+            }
+
+            await RunValidatorProcess(CreateValidatorStartInfo(), "positive package layout validation");
 
             string[] forbiddenPaths =
             {
@@ -322,20 +322,334 @@ public sealed class UpdaterDeploymentBoundaryTests
                 + "} "
                 + "}";
 
-            using Process rejectedProcess = Process.Start(CreateValidatorStartInfo(negativeValidatorCommand))
-                ?? throw new AssertFailedException("pwsh could not be started for the negative package layout validation.");
-            string rejectedOutput = rejectedProcess.StandardOutput.ReadToEnd();
-            string rejectedError = rejectedProcess.StandardError.ReadToEnd();
-            rejectedProcess.WaitForExit();
-            Assert.AreEqual(0, rejectedProcess.ExitCode, rejectedOutput + Environment.NewLine + rejectedError);
+            await RunValidatorProcess(
+                CreateValidatorStartInfo(negativeValidatorCommand),
+                "negative package layout validation");
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = ExceptionDispatchInfo.Capture(exception);
         }
         finally
         {
-            if (Directory.Exists(stagingDirectory))
+            try
             {
-                Directory.Delete(stagingDirectory, recursive: true);
+                if (Directory.Exists(stagingDirectory))
+                {
+                    Directory.Delete(stagingDirectory, recursive: true);
+                }
+            }
+            catch (Exception exception)
+            {
+                stagingCleanupFailure =
+                    $"staging directory cleanup failed for '{stagingDirectory}': "
+                    + $"{exception.GetType().Name}: {exception.Message}";
             }
         }
+
+        if (primaryFailure is not null)
+        {
+            if (!string.IsNullOrWhiteSpace(stagingCleanupFailure))
+            {
+                primaryFailure.SourceException.Data["Secondary staging cleanup failure"] = stagingCleanupFailure;
+                Console.Error.WriteLine("Secondary cleanup failure: " + stagingCleanupFailure);
+            }
+
+            primaryFailure.Throw();
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(stagingCleanupFailure))
+        {
+            Assert.Fail(stagingCleanupFailure);
+        }
+    }
+
+    private static async Task RunValidatorProcess(ProcessStartInfo startInfo, string operation)
+    {
+        TimeSpan processTimeout = TimeSpan.FromSeconds(60);
+        TimeSpan streamTimeout = TimeSpan.FromSeconds(5);
+        TimeSpan cleanupTimeout = TimeSpan.FromSeconds(5);
+        var process = new Process { StartInfo = startInfo };
+        Task<string>? stdoutTask = null;
+        Task<string>? stderrTask = null;
+        int? processId = null;
+        ExceptionDispatchInfo? primaryFailure = null;
+        TimeSpan failureElapsed = TimeSpan.Zero;
+        bool stdoutCompletedAtFailure = false;
+        bool stderrCompletedAtFailure = false;
+        string cleanupResult = "not attempted because the process did not start";
+        var secondaryFailures = new List<string>();
+        var stopwatch = Stopwatch.StartNew();
+
+        try
+        {
+            if (!process.Start())
+            {
+                throw new AssertFailedException($"{operation} process setup failed: Process.Start returned false.");
+            }
+
+            processId = process.Id;
+            stdoutTask = process.StandardOutput.ReadToEndAsync();
+            stderrTask = process.StandardError.ReadToEndAsync();
+            ObserveLateStreamFault(stdoutTask);
+            ObserveLateStreamFault(stderrTask);
+
+            try
+            {
+                await process.WaitForExitAsync().WaitAsync(processTimeout);
+            }
+            catch (TimeoutException exception)
+            {
+                throw new AssertFailedException(
+                    $"{operation} exceeded its {processTimeout.TotalSeconds:F0}-second process bound "
+                    + $"(PID {processId}, elapsed {stopwatch.Elapsed.TotalSeconds:F1}s).",
+                    exception);
+            }
+
+            try
+            {
+                await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(streamTimeout);
+            }
+            catch (TimeoutException exception)
+            {
+                throw new AssertFailedException(
+                    $"{operation} exceeded its {streamTimeout.TotalSeconds:F0}-second redirected-stream bound "
+                    + $"after exit (PID {processId}, elapsed {stopwatch.Elapsed.TotalSeconds:F1}s).",
+                    exception);
+            }
+            catch (Exception exception)
+            {
+                throw new AssertFailedException(
+                    $"{operation} redirected stream failed for PID {processId}: {exception.Message}",
+                    exception);
+            }
+
+            if (process.ExitCode != 0)
+            {
+                throw new AssertFailedException(
+                    $"{operation} exited with code {process.ExitCode} "
+                    + $"(PID {processId}, elapsed {stopwatch.Elapsed.TotalSeconds:F1}s).");
+            }
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = ExceptionDispatchInfo.Capture(exception);
+            failureElapsed = stopwatch.Elapsed;
+            stdoutCompletedAtFailure = stdoutTask?.IsCompletedSuccessfully == true;
+            stderrCompletedAtFailure = stderrTask?.IsCompletedSuccessfully == true;
+        }
+        finally
+        {
+            if (processId is not null)
+            {
+                (bool succeeded, string diagnostic) cleanup = await CleanupOwnedProcess(
+                    process,
+                    processId.Value,
+                    cleanupTimeout);
+                cleanupResult = cleanup.diagnostic;
+                if (!cleanup.succeeded)
+                {
+                    secondaryFailures.Add("Process cleanup failure: " + cleanup.diagnostic);
+                }
+            }
+
+            Task[] streams = new Task?[] { stdoutTask, stderrTask }.OfType<Task>().ToArray();
+            try
+            {
+                if (streams.Length > 0)
+                {
+                    await Task.WhenAll(streams).WaitAsync(streamTimeout);
+                }
+            }
+            catch (TimeoutException)
+            {
+                secondaryFailures.Add(
+                    $"Redirected streams remained incomplete after the {streamTimeout.TotalSeconds:F0}-second cleanup observation bound.");
+            }
+            catch (Exception exception)
+            {
+                secondaryFailures.Add(
+                    $"Redirected stream failure observed after cleanup: {exception.GetType().Name}: {exception.Message}");
+            }
+
+            try
+            {
+                process.Dispose();
+            }
+            catch (Exception exception)
+            {
+                secondaryFailures.Add("Process handle cleanup failure: " + exception.Message);
+            }
+        }
+
+        if (primaryFailure is null && secondaryFailures.Count == 0)
+        {
+            return;
+        }
+
+        if (primaryFailure is null)
+        {
+            failureElapsed = stopwatch.Elapsed;
+            stdoutCompletedAtFailure = stdoutTask?.IsCompletedSuccessfully == true;
+            stderrCompletedAtFailure = stderrTask?.IsCompletedSuccessfully == true;
+        }
+
+        string diagnostic = string.Join(
+            Environment.NewLine,
+            new[]
+            {
+                "Process cleanup: " + cleanupResult,
+                DescribeValidatorStream(
+                    "stdout", stdoutTask, stdoutCompletedAtFailure, processId, failureElapsed,
+                    streamTimeout, cleanupResult),
+                DescribeValidatorStream(
+                    "stderr", stderrTask, stderrCompletedAtFailure, processId, failureElapsed,
+                    streamTimeout, cleanupResult)
+            }.Concat(secondaryFailures));
+        if (primaryFailure is not null)
+        {
+            primaryFailure.SourceException.Data["Secondary validator diagnostics"] = diagnostic;
+            Console.Error.WriteLine(diagnostic);
+            primaryFailure.Throw();
+            return;
+        }
+
+        Assert.Fail(diagnostic);
+    }
+
+    private static async Task<(bool Succeeded, string Diagnostic)> CleanupOwnedProcess(
+        Process process,
+        int processId,
+        TimeSpan timeout)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        string managedFailure;
+        try
+        {
+            if (process.HasExited)
+            {
+                return (true, $"root PID {processId} had already exited");
+            }
+
+            process.Kill(entireProcessTree: true);
+            TimeSpan managedWait = Remaining(stopwatch, timeout) - TimeSpan.FromSeconds(1);
+            if (managedWait <= TimeSpan.Zero)
+            {
+                throw new TimeoutException("No time remained for managed process-tree observation.");
+            }
+
+            await process.WaitForExitAsync().WaitAsync(managedWait);
+            return (true, $"root PID {processId} and its owned descendants exited after managed tree termination");
+        }
+        catch (Exception exception)
+        {
+            managedFailure = $"managed tree termination for root PID {processId} failed or remained active: "
+                + $"{exception.GetType().Name}: {exception.Message}";
+        }
+
+        try
+        {
+            if (process.HasExited)
+            {
+                return (false, managedFailure + $"; root PID {processId} exited before exact-PID fallback could confirm descendants");
+            }
+
+            var taskkillInfo = new ProcessStartInfo
+            {
+                FileName = "taskkill.exe",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            foreach (string argument in new[] { "/PID", processId.ToString(), "/T", "/F" })
+            {
+                taskkillInfo.ArgumentList.Add(argument);
+            }
+
+            using var taskkill = new Process { StartInfo = taskkillInfo };
+            if (!taskkill.Start())
+            {
+                throw new InvalidOperationException("PID-scoped taskkill.exe fallback did not start.");
+            }
+
+            TimeSpan remaining = Remaining(stopwatch, timeout);
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new TimeoutException("The cleanup bound expired before exact-PID fallback observation.");
+            }
+
+            try
+            {
+                await taskkill.WaitForExitAsync().WaitAsync(remaining);
+            }
+            catch (TimeoutException)
+            {
+                if (!taskkill.HasExited)
+                {
+                    taskkill.Kill(entireProcessTree: true);
+                }
+
+                throw;
+            }
+
+            if (taskkill.ExitCode != 0)
+            {
+                throw new InvalidOperationException($"taskkill.exe returned exit code {taskkill.ExitCode}.");
+            }
+
+            remaining = Remaining(stopwatch, timeout);
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new TimeoutException("The cleanup bound expired before residual root confirmation.");
+            }
+
+            await process.WaitForExitAsync().WaitAsync(remaining);
+            return (true, managedFailure + $"; exact-PID taskkill fallback terminated root PID {processId} and its owned descendants");
+        }
+        catch (Exception exception)
+        {
+            return (false, managedFailure + $"; exact-PID fallback for root PID {processId} failed: "
+                + $"{exception.GetType().Name}: {exception.Message}");
+        }
+    }
+
+    private static void ObserveLateStreamFault(Task streamTask)
+    {
+        _ = streamTask.ContinueWith(
+            static task => _ = task.Exception,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+    }
+
+    private static string DescribeValidatorStream(
+        string name,
+        Task<string>? streamTask,
+        bool completedAtFailure,
+        int? processId,
+        TimeSpan elapsed,
+        TimeSpan bound,
+        string cleanupResult)
+    {
+        string context = $"PID {processId?.ToString() ?? "<unknown>"}, elapsed {elapsed.TotalSeconds:F1}s, "
+            + $"{bound.TotalSeconds:F0}-second bound; cleanup: {cleanupResult}";
+        if (streamTask?.IsCompletedSuccessfully == true)
+        {
+            string timing = completedAtFailure ? "completed" : "completed after cleanup";
+            return $"{name} {timing} ({context}): "
+                + (string.IsNullOrEmpty(streamTask.Result) ? "<empty>" : streamTask.Result);
+        }
+
+        string state = streamTask is null
+            ? "was not started"
+            : streamTask.IsFaulted
+                ? "failed: " + streamTask.Exception!.GetBaseException().Message
+                : streamTask.IsCanceled ? "was canceled" : "remained incomplete";
+        return $"{name} stream {state} ({context}).";
+    }
+
+    private static TimeSpan Remaining(Stopwatch stopwatch, TimeSpan timeout)
+    {
+        TimeSpan remaining = timeout - stopwatch.Elapsed;
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
     }
 
     private static string EscapePowerShellLiteral(string value)
