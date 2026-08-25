@@ -150,7 +150,11 @@ Replan triggers:
 
 ### Implementation evidence
 
-- Pending.
+- Replaced both application-composition tests' local STA dispatcher wrapper with `TestUiDispatcherHost.Invoke`, removing the test-owned dispatcher thread and its unbounded join. The playlist summary refresh test keeps its synchronous state assertions on the shared dispatcher.
+- Replaced the worker-selection test's raw `DispatcherFrame` / `DispatcherTimer` wait with a `TaskCompletionSource<bool>` using `RunContinuationsAsynchronously` as the `IsPlaylistSummaryMode` `PropertyChanged` terminal signal. The handler records the notification thread and exact count, and is removed in `finally`. The worker task is awaited first, followed by the property-observation task, through `TestUiDispatcherHost.AwaitTaskOnDispatcher` with method-qualified operation names so worker faults surface before notification watchdog failures.
+- Retained summary mode, requested mode, worker/UI thread separation, UI-thread notification, and exactly-once notification assertions; retained shared WPF host, `serial-state-a` one-worker ownership, and existing DNP policy. Removed only the now-unused exception-dispatch import.
+- Focused Quick passed: both tests passed, runner elapsed 32.8s, test elapsed 2.4576s, artifact `artifacts/verification/tests-quick-20260826-001302/functional/results.trx`.
+- Changed-file anti-pattern scans found no local STA helper, raw `Dispatcher.PushFrame`, `DispatcherTimer`, unbounded `Join`, or physical cursor primitive; `git diff --check` passed.
 
 ## Unit 2: portable validator process lifecycle
 

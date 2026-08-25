@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1230,7 +1229,7 @@ public sealed class ApplicationCompositionTests
     [TestMethod]
     public void MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter()
     {
-        RunOnStaDispatcherThread(() =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var composition = new ApplicationComposition(
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -1251,9 +1250,8 @@ public sealed class ApplicationCompositionTests
     [TestMethod]
     public void PlaylistTreeSelectionFromWorkerAppliesOnUiDispatcher()
     {
-        RunOnStaDispatcherThread(() =>
+        TestUiDispatcherHost.Invoke(() =>
         {
-            Dispatcher uiDispatcher = Dispatcher.CurrentDispatcher;
             var composition = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
                 settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -1265,82 +1263,48 @@ public sealed class ApplicationCompositionTests
             int workerThreadId = 0;
             int propertyChangedThreadId = 0;
             int propertyChangedCount = 0;
-            var frame = new DispatcherFrame();
-            workspace.PropertyChanged += (_, e) =>
+            var propertyChanged = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            System.ComponentModel.PropertyChangedEventHandler propertyChangedHandler = (_, e) =>
             {
                 if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode))
                 {
                     propertyChangedThreadId = Thread.CurrentThread.ManagedThreadId;
                     propertyChangedCount++;
-                    frame.Continue = false;
+                    propertyChanged.TrySetResult(true);
                 }
             };
-
-            Task worker = Task.Factory.StartNew(
-                () =>
-                {
-                    workerThreadId = Thread.CurrentThread.ManagedThreadId;
-                    workspace.RequestSummarySelection();
-                },
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default);
-            bool timedOut = false;
-            var timeout = new DispatcherTimer(
-                TimeSpan.FromSeconds(5),
-                DispatcherPriority.Send,
-                (_, _) =>
-                {
-                    timedOut = true;
-                    frame.Continue = false;
-                },
-                uiDispatcher);
-
-            Dispatcher.PushFrame(frame);
-            timeout.Stop();
-            worker.GetAwaiter().GetResult();
-
-            Assert.IsFalse(timedOut, "Playlist summary terminal presentation was not published.");
-            Assert.IsTrue(workspace.IsPlaylistSummaryMode);
-            Assert.IsTrue(workspace.IsPlaylistSummaryModeRequested);
-            Assert.AreNotEqual(uiThreadId, workerThreadId);
-            Assert.AreEqual(uiThreadId, propertyChangedThreadId);
-            Assert.AreEqual(1, propertyChangedCount);
-        });
-    }
-
-    private static void RunOnStaDispatcherThread(Action action)
-    {
-        Exception? exception = null;
-        var thread = new Thread(() =>
-        {
+            workspace.PropertyChanged += propertyChangedHandler;
             try
             {
-                action();
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
+                Task worker = Task.Factory.StartNew(
+                    () =>
+                    {
+                        workerThreadId = Thread.CurrentThread.ManagedThreadId;
+                        workspace.RequestSummarySelection();
+                    },
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    worker,
+                    nameof(PlaylistTreeSelectionFromWorkerAppliesOnUiDispatcher) + ".worker");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    propertyChanged.Task,
+                    nameof(PlaylistTreeSelectionFromWorkerAppliesOnUiDispatcher) + ".property-changed");
+
+                Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+                Assert.IsTrue(workspace.IsPlaylistSummaryModeRequested);
+                Assert.AreNotEqual(uiThreadId, workerThreadId);
+                Assert.AreEqual(uiThreadId, propertyChangedThreadId);
+                Assert.AreEqual(1, propertyChangedCount);
             }
             finally
             {
-                Dispatcher dispatcher = Dispatcher.FromThread(Thread.CurrentThread);
-                if (dispatcher != null && !dispatcher.HasShutdownStarted)
-                {
-                    dispatcher.InvokeShutdown();
-                }
+                workspace.PropertyChanged -= propertyChangedHandler;
             }
-        })
-        {
-            IsBackground = true
-        };
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (exception != null)
-        {
-            ExceptionDispatchInfo.Capture(exception).Throw();
-        }
+        });
     }
 
     [TestMethod]
