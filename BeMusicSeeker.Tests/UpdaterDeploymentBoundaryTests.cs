@@ -375,6 +375,7 @@ public sealed class UpdaterDeploymentBoundaryTests
         var process = new Process { StartInfo = startInfo };
         Task<string>? stdoutTask = null;
         Task<string>? stderrTask = null;
+        bool processStarted = false;
         int? processId = null;
         DateTime? processStartTime = null;
         var streamDeadline = new Stopwatch();
@@ -393,13 +394,51 @@ public sealed class UpdaterDeploymentBoundaryTests
                 throw new AssertFailedException($"{operation} process setup failed: Process.Start returned false.");
             }
 
-            processId = process.Id;
-            processStartTime = process.StartTime;
+            // The retained Process handle owns cleanup even when metadata access
+            // fails immediately after a successful start.
+            processStarted = true;
             streamDeadline.Restart();
             stdoutTask = process.StandardOutput.ReadToEndAsync();
             stderrTask = process.StandardError.ReadToEndAsync();
             ObserveLateStreamFault(stdoutTask);
             ObserveLateStreamFault(stderrTask);
+
+            Exception? metadataFailure = null;
+            try
+            {
+                processId = process.Id;
+            }
+            catch (Exception exception)
+            {
+                metadataFailure = new AssertFailedException(
+                    $"{operation} process setup failed: PID capture failed: {exception.Message}",
+                    exception);
+            }
+
+            try
+            {
+                processStartTime = process.StartTime;
+            }
+            catch (Exception exception)
+            {
+                AssertFailedException startTimeFailure = new(
+                    $"{operation} process setup failed: StartTime capture failed: {exception.Message}",
+                    exception);
+                if (metadataFailure is null)
+                {
+                    metadataFailure = startTimeFailure;
+                }
+                else
+                {
+                    secondaryFailures.Add(
+                        $"Process metadata capture failure: {startTimeFailure.Message}");
+                }
+            }
+
+            if (metadataFailure is not null)
+            {
+                throw metadataFailure;
+            }
 
             try
             {
@@ -449,13 +488,13 @@ public sealed class UpdaterDeploymentBoundaryTests
         }
         finally
         {
-            if (processId is not null)
+            if (processStarted)
             {
                 try
                 {
                     (bool succeeded, string diagnostic) cleanup = await CleanupOwnedProcess(
                         process,
-                        processId.Value,
+                        processId,
                         processStartTime,
                         cleanupTimeout);
                     cleanupResult = cleanup.diagnostic;
@@ -467,7 +506,8 @@ public sealed class UpdaterDeploymentBoundaryTests
                 catch (Exception exception)
                 {
                     cleanupResult =
-                        $"root PID {processId} cleanup owner threw {exception.GetType().Name}: {exception.Message}";
+                        $"root PID {processId?.ToString() ?? "<unknown>"} cleanup owner threw "
+                        + $"{exception.GetType().Name}: {exception.Message}";
                     secondaryFailures.Add("Process cleanup failure: " + cleanupResult);
                 }
             }
@@ -559,12 +599,12 @@ public sealed class UpdaterDeploymentBoundaryTests
     /// </summary>
     private static async Task<(bool Succeeded, string Diagnostic)> CleanupOwnedProcess(
         Process process,
-        int processId,
+        int? processId,
         DateTime? processStartTime,
         TimeSpan timeout)
     {
         var stopwatch = Stopwatch.StartNew();
-        (bool exited, bool identityMatches, string diagnostic) initial = ObserveRootProcess(
+        (bool exited, string diagnostic) initial = ObserveRootProcess(
             process,
             processId,
             processStartTime);
@@ -572,45 +612,47 @@ public sealed class UpdaterDeploymentBoundaryTests
         {
             return (
                 true,
-                $"root PID {processId} had already exited; childless validator contract makes root exit sufficient");
-        }
-
-        if (!initial.identityMatches)
-        {
-            return (false, initial.diagnostic);
+                $"root PID {processId?.ToString() ?? "<unknown>"} had already exited; "
+                + "childless validator contract makes root exit sufficient");
         }
 
         string? terminationFailure = null;
         try
         {
             process.Kill(entireProcessTree: false);
-            TimeSpan remaining = Remaining(stopwatch, timeout);
-            if (remaining <= TimeSpan.Zero)
-            {
-                terminationFailure =
-                    $"root-only termination for PID {processId} consumed the {timeout.TotalSeconds:F0}-second cleanup bound";
-            }
-            else
-            {
-                try
-                {
-                    await process.WaitForExitAsync().WaitAsync(remaining);
-                }
-                catch (Exception exception)
-                {
-                    terminationFailure =
-                        $"root-only termination observation for PID {processId} failed: "
-                        + $"{exception.GetType().Name}: {exception.Message}";
-                }
-            }
         }
         catch (Exception exception)
         {
             terminationFailure =
-                $"root-only termination for PID {processId} failed: {exception.GetType().Name}: {exception.Message}";
+                $"root-only termination for PID {processId?.ToString() ?? "<unknown>"} failed: "
+                + $"{exception.GetType().Name}: {exception.Message}";
         }
 
-        (bool exited, bool identityMatches, string diagnostic) residual = ObserveRootProcess(
+        TimeSpan remaining = Remaining(stopwatch, timeout);
+        if (remaining <= TimeSpan.Zero)
+        {
+            terminationFailure ??=
+                $"root-only termination for PID {processId?.ToString() ?? "<unknown>"} "
+                + $"consumed the {timeout.TotalSeconds:F0}-second cleanup bound";
+        }
+        else
+        {
+            try
+            {
+                await process.WaitForExitAsync().WaitAsync(remaining);
+            }
+            catch (Exception exception)
+            {
+                string waitFailure =
+                    $"root-only termination observation for PID {processId?.ToString() ?? "<unknown>"} failed: "
+                    + $"{exception.GetType().Name}: {exception.Message}";
+                terminationFailure = terminationFailure is null
+                    ? waitFailure
+                    : terminationFailure + "; " + waitFailure;
+            }
+        }
+
+        (bool exited, string diagnostic) residual = ObserveRootProcess(
             process,
             processId,
             processStartTime);
@@ -619,69 +661,101 @@ public sealed class UpdaterDeploymentBoundaryTests
             return (
                 true,
                 terminationFailure is null
-                    ? $"root PID {processId} exited after root-only termination"
-                    : terminationFailure + $"; residual confirmation found root PID {processId} exited");
+                    ? $"root PID {processId?.ToString() ?? "<unknown>"} exited after root-only termination"
+                    : terminationFailure + $"; residual confirmation found root PID {processId?.ToString() ?? "<unknown>"} exited");
         }
 
         string failure = terminationFailure
-            ?? $"root PID {processId} remained active after root-only termination";
+            ?? $"root PID {processId?.ToString() ?? "<unknown>"} remained active after root-only termination";
         return (
             false,
-            failure + "; " + residual.diagnostic);
+            initial.diagnostic + "; " + failure + "; " + residual.diagnostic);
     }
 
-    private static (bool Exited, bool IdentityMatches, string Diagnostic) ObserveRootProcess(
+    private static (bool Exited, string Diagnostic) ObserveRootProcess(
         Process process,
-        int processId,
+        int? processId,
         DateTime? processStartTime)
     {
+        var diagnostics = new List<string>();
+        bool hasExited;
         try
         {
-            process.Refresh();
-            if (process.HasExited)
-            {
-                return (true, true, $"root PID {processId} has exited");
-            }
-
-            if (processStartTime is not DateTime capturedStartTime)
-            {
-                return (
-                    false,
-                    false,
-                    $"root PID {processId} cleanup could not confirm ownership because StartTime was not captured");
-            }
-
-            int observedProcessId = process.Id;
-            if (observedProcessId != processId)
-            {
-                return (
-                    false,
-                    false,
-                    $"root process identity changed from PID {processId} to PID {observedProcessId}");
-            }
-
-            DateTime observedStartTime = process.StartTime;
-            if (observedStartTime != capturedStartTime)
-            {
-                return (
-                    false,
-                    false,
-                    $"root PID {processId} start identity changed from {capturedStartTime:O} to {observedStartTime:O}");
-            }
-
-            return (
-                false,
-                true,
-                $"root PID {processId} with start identity {capturedStartTime:O} remains active");
+            hasExited = process.HasExited;
         }
         catch (Exception exception)
         {
-            return (
-                false,
-                false,
-                $"root PID {processId} residual identity could not be confirmed: "
-                + $"{exception.GetType().Name}: {exception.Message}");
+            hasExited = false;
+            diagnostics.Add(
+                $"retained handle HasExited could not be observed: {exception.GetType().Name}: {exception.Message}");
         }
+
+        if (hasExited)
+        {
+            return (true, $"root PID {processId?.ToString() ?? "<unknown>"} has exited");
+        }
+
+        if (processId is int capturedProcessId)
+        {
+            try
+            {
+                int observedProcessId = process.Id;
+                if (observedProcessId != capturedProcessId)
+                {
+                    diagnostics.Add(
+                        $"root process identity changed from PID {capturedProcessId} to PID {observedProcessId}");
+                }
+                else
+                {
+                    diagnostics.Add($"PID identity matched {capturedProcessId}");
+                }
+            }
+            catch (Exception exception)
+            {
+                diagnostics.Add(
+                    $"PID identity evidence could not be observed: {exception.GetType().Name}: {exception.Message}");
+            }
+        }
+        else
+        {
+            diagnostics.Add("PID was not captured");
+        }
+
+        if (processStartTime is DateTime capturedStartTime)
+        {
+            try
+            {
+                DateTime observedStartTime = process.StartTime;
+                if (observedStartTime != capturedStartTime)
+                {
+                    diagnostics.Add(
+                        $"root start identity changed from {capturedStartTime:O} to {observedStartTime:O}");
+                }
+                else
+                {
+                    diagnostics.Add($"StartTime identity matched {capturedStartTime:O}");
+                }
+            }
+            catch (Exception exception)
+            {
+                diagnostics.Add(
+                    $"StartTime identity evidence could not be observed: "
+                    + $"{exception.GetType().Name}: {exception.Message}");
+            }
+        }
+        else
+        {
+            diagnostics.Add("StartTime was not captured");
+        }
+
+        string rootLabel = $"root PID {processId?.ToString() ?? "<unknown>"}";
+        string diagnostic = rootLabel + " remains active";
+        if (diagnostics.Count > 0)
+        {
+            diagnostic += "; identity evidence: " + string.Join("; ", diagnostics);
+        }
+
+        return (false, diagnostic);
     }
 
     private static void ObserveLateStreamFault(Task streamTask)
