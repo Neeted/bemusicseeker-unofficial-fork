@@ -351,8 +351,10 @@ public sealed class UpdaterDeploymentBoundaryTests
         {
             if (!string.IsNullOrWhiteSpace(stagingCleanupFailure))
             {
-                primaryFailure.SourceException.Data["Secondary staging cleanup failure"] = stagingCleanupFailure;
-                Console.Error.WriteLine("Secondary cleanup failure: " + stagingCleanupFailure);
+                TryAttachSecondaryDiagnostic(
+                    primaryFailure.SourceException,
+                    "Secondary staging cleanup failure",
+                    stagingCleanupFailure);
             }
 
             primaryFailure.Throw();
@@ -374,6 +376,8 @@ public sealed class UpdaterDeploymentBoundaryTests
         Task<string>? stdoutTask = null;
         Task<string>? stderrTask = null;
         int? processId = null;
+        DateTime? processStartTime = null;
+        var streamDeadline = new Stopwatch();
         ExceptionDispatchInfo? primaryFailure = null;
         TimeSpan failureElapsed = TimeSpan.Zero;
         bool stdoutCompletedAtFailure = false;
@@ -390,6 +394,8 @@ public sealed class UpdaterDeploymentBoundaryTests
             }
 
             processId = process.Id;
+            processStartTime = process.StartTime;
+            streamDeadline.Restart();
             stdoutTask = process.StandardOutput.ReadToEndAsync();
             stderrTask = process.StandardError.ReadToEndAsync();
             ObserveLateStreamFault(stdoutTask);
@@ -407,9 +413,18 @@ public sealed class UpdaterDeploymentBoundaryTests
                     exception);
             }
 
+            int exitCode = process.ExitCode;
+            if (exitCode != 0)
+            {
+                throw new AssertFailedException(
+                    $"{operation} exited with code {exitCode} "
+                    + $"(PID {processId}, elapsed {stopwatch.Elapsed.TotalSeconds:F1}s).");
+            }
+
             try
             {
-                await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(streamTimeout);
+                await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(
+                    Remaining(streamDeadline!, streamTimeout));
             }
             catch (TimeoutException exception)
             {
@@ -424,13 +439,6 @@ public sealed class UpdaterDeploymentBoundaryTests
                     $"{operation} redirected stream failed for PID {processId}: {exception.Message}",
                     exception);
             }
-
-            if (process.ExitCode != 0)
-            {
-                throw new AssertFailedException(
-                    $"{operation} exited with code {process.ExitCode} "
-                    + $"(PID {processId}, elapsed {stopwatch.Elapsed.TotalSeconds:F1}s).");
-            }
         }
         catch (Exception exception)
         {
@@ -443,14 +451,24 @@ public sealed class UpdaterDeploymentBoundaryTests
         {
             if (processId is not null)
             {
-                (bool succeeded, string diagnostic) cleanup = await CleanupOwnedProcess(
-                    process,
-                    processId.Value,
-                    cleanupTimeout);
-                cleanupResult = cleanup.diagnostic;
-                if (!cleanup.succeeded)
+                try
                 {
-                    secondaryFailures.Add("Process cleanup failure: " + cleanup.diagnostic);
+                    (bool succeeded, string diagnostic) cleanup = await CleanupOwnedProcess(
+                        process,
+                        processId.Value,
+                        processStartTime,
+                        cleanupTimeout);
+                    cleanupResult = cleanup.diagnostic;
+                    if (!cleanup.succeeded)
+                    {
+                        secondaryFailures.Add("Process cleanup failure: " + cleanup.diagnostic);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupResult =
+                        $"root PID {processId} cleanup owner threw {exception.GetType().Name}: {exception.Message}";
+                    secondaryFailures.Add("Process cleanup failure: " + cleanupResult);
                 }
             }
 
@@ -459,13 +477,14 @@ public sealed class UpdaterDeploymentBoundaryTests
             {
                 if (streams.Length > 0)
                 {
-                    await Task.WhenAll(streams).WaitAsync(streamTimeout);
+                    await Task.WhenAll(streams).WaitAsync(
+                        Remaining(streamDeadline, streamTimeout));
                 }
             }
             catch (TimeoutException)
             {
                 secondaryFailures.Add(
-                    $"Redirected streams remained incomplete after the {streamTimeout.TotalSeconds:F0}-second cleanup observation bound.");
+                    $"Redirected streams remained incomplete at the absolute {streamTimeout.TotalSeconds:F0}-second stream cutoff.");
             }
             catch (Exception exception)
             {
@@ -495,22 +514,35 @@ public sealed class UpdaterDeploymentBoundaryTests
             stderrCompletedAtFailure = stderrTask?.IsCompletedSuccessfully == true;
         }
 
-        string diagnostic = string.Join(
-            Environment.NewLine,
-            new[]
-            {
-                "Process cleanup: " + cleanupResult,
-                DescribeValidatorStream(
-                    "stdout", stdoutTask, stdoutCompletedAtFailure, processId, failureElapsed,
-                    streamTimeout, cleanupResult),
-                DescribeValidatorStream(
-                    "stderr", stderrTask, stderrCompletedAtFailure, processId, failureElapsed,
-                    streamTimeout, cleanupResult)
-            }.Concat(secondaryFailures));
+        string diagnostic;
+        try
+        {
+            diagnostic = string.Join(
+                Environment.NewLine,
+                new[]
+                {
+                    "Process cleanup: " + cleanupResult,
+                    DescribeValidatorStream(
+                        "stdout", stdoutTask, stdoutCompletedAtFailure, processId, failureElapsed,
+                        streamTimeout, cleanupResult),
+                    DescribeValidatorStream(
+                        "stderr", stderrTask, stderrCompletedAtFailure, processId, failureElapsed,
+                        streamTimeout, cleanupResult)
+                }.Concat(secondaryFailures));
+        }
+        catch (Exception exception)
+        {
+            diagnostic =
+                $"Validator diagnostics construction failed: {exception.GetType().Name}: {exception.Message}";
+        }
+
         if (primaryFailure is not null)
         {
-            primaryFailure.SourceException.Data["Secondary validator diagnostics"] = diagnostic;
-            Console.Error.WriteLine(diagnostic);
+            TryAttachSecondaryDiagnostic(
+                primaryFailure.SourceException,
+                "Secondary validator diagnostics",
+                diagnostic,
+                secondaryFailures);
             primaryFailure.Throw();
             return;
         }
@@ -518,106 +550,165 @@ public sealed class UpdaterDeploymentBoundaryTests
         Assert.Fail(diagnostic);
     }
 
+    /// <summary>
+    /// Cleans up the validator root under its childless-command contract. The
+    /// validator commands dot-source the PowerShell script and use only in-process
+    /// PowerShell/.NET filesystem operations; they must not launch child processes.
+    /// Therefore a root exit is the complete owned lifecycle, and this helper
+    /// intentionally performs no descendant discovery or process-name fallback.
+    /// </summary>
     private static async Task<(bool Succeeded, string Diagnostic)> CleanupOwnedProcess(
         Process process,
         int processId,
+        DateTime? processStartTime,
         TimeSpan timeout)
     {
         var stopwatch = Stopwatch.StartNew();
-        string managedFailure;
-        try
+        (bool exited, bool identityMatches, string diagnostic) initial = ObserveRootProcess(
+            process,
+            processId,
+            processStartTime);
+        if (initial.exited)
         {
-            if (process.HasExited)
-            {
-                return (true, $"root PID {processId} had already exited");
-            }
-
-            process.Kill(entireProcessTree: true);
-            TimeSpan managedWait = Remaining(stopwatch, timeout) - TimeSpan.FromSeconds(1);
-            if (managedWait <= TimeSpan.Zero)
-            {
-                throw new TimeoutException("No time remained for managed process-tree observation.");
-            }
-
-            await process.WaitForExitAsync().WaitAsync(managedWait);
-            return (true, $"root PID {processId} and its owned descendants exited after managed tree termination");
-        }
-        catch (Exception exception)
-        {
-            managedFailure = $"managed tree termination for root PID {processId} failed or remained active: "
-                + $"{exception.GetType().Name}: {exception.Message}";
+            return (
+                true,
+                $"root PID {processId} had already exited; childless validator contract makes root exit sufficient");
         }
 
+        if (!initial.identityMatches)
+        {
+            return (false, initial.diagnostic);
+        }
+
+        string? terminationFailure = null;
         try
         {
-            if (process.HasExited)
-            {
-                return (false, managedFailure + $"; root PID {processId} exited before exact-PID fallback could confirm descendants");
-            }
-
-            var taskkillInfo = new ProcessStartInfo
-            {
-                FileName = "taskkill.exe",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            foreach (string argument in new[] { "/PID", processId.ToString(), "/T", "/F" })
-            {
-                taskkillInfo.ArgumentList.Add(argument);
-            }
-
-            using var taskkill = new Process { StartInfo = taskkillInfo };
-            if (!taskkill.Start())
-            {
-                throw new InvalidOperationException("PID-scoped taskkill.exe fallback did not start.");
-            }
-
+            process.Kill(entireProcessTree: false);
             TimeSpan remaining = Remaining(stopwatch, timeout);
             if (remaining <= TimeSpan.Zero)
             {
-                throw new TimeoutException("The cleanup bound expired before exact-PID fallback observation.");
+                terminationFailure =
+                    $"root-only termination for PID {processId} consumed the {timeout.TotalSeconds:F0}-second cleanup bound";
             }
-
-            try
+            else
             {
-                await taskkill.WaitForExitAsync().WaitAsync(remaining);
-            }
-            catch (TimeoutException)
-            {
-                if (!taskkill.HasExited)
+                try
                 {
-                    taskkill.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync().WaitAsync(remaining);
                 }
-
-                throw;
+                catch (Exception exception)
+                {
+                    terminationFailure =
+                        $"root-only termination observation for PID {processId} failed: "
+                        + $"{exception.GetType().Name}: {exception.Message}";
+                }
             }
-
-            if (taskkill.ExitCode != 0)
-            {
-                throw new InvalidOperationException($"taskkill.exe returned exit code {taskkill.ExitCode}.");
-            }
-
-            remaining = Remaining(stopwatch, timeout);
-            if (remaining <= TimeSpan.Zero)
-            {
-                throw new TimeoutException("The cleanup bound expired before residual root confirmation.");
-            }
-
-            await process.WaitForExitAsync().WaitAsync(remaining);
-            return (true, managedFailure + $"; exact-PID taskkill fallback terminated root PID {processId} and its owned descendants");
         }
         catch (Exception exception)
         {
-            return (false, managedFailure + $"; exact-PID fallback for root PID {processId} failed: "
+            terminationFailure =
+                $"root-only termination for PID {processId} failed: {exception.GetType().Name}: {exception.Message}";
+        }
+
+        (bool exited, bool identityMatches, string diagnostic) residual = ObserveRootProcess(
+            process,
+            processId,
+            processStartTime);
+        if (residual.exited)
+        {
+            return (
+                true,
+                terminationFailure is null
+                    ? $"root PID {processId} exited after root-only termination"
+                    : terminationFailure + $"; residual confirmation found root PID {processId} exited");
+        }
+
+        string failure = terminationFailure
+            ?? $"root PID {processId} remained active after root-only termination";
+        return (
+            false,
+            failure + "; " + residual.diagnostic);
+    }
+
+    private static (bool Exited, bool IdentityMatches, string Diagnostic) ObserveRootProcess(
+        Process process,
+        int processId,
+        DateTime? processStartTime)
+    {
+        try
+        {
+            process.Refresh();
+            if (process.HasExited)
+            {
+                return (true, true, $"root PID {processId} has exited");
+            }
+
+            if (processStartTime is not DateTime capturedStartTime)
+            {
+                return (
+                    false,
+                    false,
+                    $"root PID {processId} cleanup could not confirm ownership because StartTime was not captured");
+            }
+
+            int observedProcessId = process.Id;
+            if (observedProcessId != processId)
+            {
+                return (
+                    false,
+                    false,
+                    $"root process identity changed from PID {processId} to PID {observedProcessId}");
+            }
+
+            DateTime observedStartTime = process.StartTime;
+            if (observedStartTime != capturedStartTime)
+            {
+                return (
+                    false,
+                    false,
+                    $"root PID {processId} start identity changed from {capturedStartTime:O} to {observedStartTime:O}");
+            }
+
+            return (
+                false,
+                true,
+                $"root PID {processId} with start identity {capturedStartTime:O} remains active");
+        }
+        catch (Exception exception)
+        {
+            return (
+                false,
+                false,
+                $"root PID {processId} residual identity could not be confirmed: "
                 + $"{exception.GetType().Name}: {exception.Message}");
         }
     }
 
     private static void ObserveLateStreamFault(Task streamTask)
     {
+        // A deadline may expire before a redirected reader faults. Observe that
+        // late fault explicitly without changing the primary lifecycle failure.
         _ = streamTask.ContinueWith(
             static task => _ = task.Exception,
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+    }
+
+    private static void TryAttachSecondaryDiagnostic(
+        Exception primaryException,
+        string key,
+        string diagnostic,
+        ICollection<string>? fallbackDiagnostics = null)
+    {
+        try
+        {
+            primaryException.Data[key] = diagnostic;
+        }
+        catch (Exception exception)
+        {
+            fallbackDiagnostics?.Add(
+                $"Secondary diagnostic attachment failed for '{key}': "
+                + $"{exception.GetType().Name}: {exception.Message}");
+        }
     }
 
     private static string DescribeValidatorStream(

@@ -14,7 +14,7 @@ Implementation base: `aa5a23f81984be21528d726d133c0cf17f885d48`
 
 1. playlist dialog と application composition の test-local STA dispatcher owner を、assembly 共通の `TestUiDispatcherHost` へ移す。
 2. worker 起点の UI 更新を worker task と対象 state transition の両方で待ち、watchdog 後の無制限同期 block をなくす。
-3. portable package validator の process exit、redirected stream drain、owned process-tree cleanup、staging cleanup を bounded lifecycle owner に閉じる。
+3. portable package validator の process exit、redirected stream drain、childless root cleanup、staging cleanup を bounded lifecycle owner に閉じる。
 
 ## Context
 
@@ -42,7 +42,7 @@ Implementation base: `aa5a23f81984be21528d726d133c0cf17f885d48`
 - Unit 1B は既存 `serial-state-a` / 1-worker ownerを維持し、新しいparallelization attributeを追加しない。
 - Unit 2 は既存 `ReleaseAcceptance` testを `extend` し、対象file内の二つのvalidator invocationだけを所有するprivate narrow helperを使う。既存の別fixture private helperを横断共通化しない。
 - Unit 2 の publish rootsはread-only、stagingはGUID-owned childとし、class-wide DNPは追加しない。
-- Unit 2 のsetup、validator process、stream drain、owned tree cleanup、staging cleanupを同じ failure ledgerで扱い、primary/secondary precedenceを明示する。
+- Unit 2 のsetup、validator process、stream drain、root-only cleanup、staging cleanupを同じ failure ledgerで扱い、primary/secondary precedenceを明示する。
 
 ## Unit 0: freeze と test delta
 
@@ -173,16 +173,17 @@ Read-only references:
 
 Observable outcome:
 
-- positive / negative validator processはstart直後にstdout / stderrの `ReadToEndAsync()` を同時開始し、process exit、stream drain、owned process-tree cleanupをそれぞれboundedにする。
-- timeout時は開始したroot PIDとowned descendantsだけを停止する。completed streamはdiagnosticに残し、未完了streamはstream名、PID、elapsed、cleanup resultを明示する。
-- process timeout、start / setup failure、nonzero exit、stream drain failureをprimaryとし、process / staging cleanup failureはsecondary evidenceにする。primaryがないcleanup-only failureはfailureとする。
+- positive / negative validator processはstart直後にstdout / stderrの `ReadToEndAsync()` を同時開始し、process exit、stream drain、childless validator root cleanupをboundedにする。root exit直後に `ExitCode` を取得し、nonzero exitをstream drainより先にprimaryとして確定する。
+- stdout / stderrは同一のabsolute 5秒 stream cutoffを共有し、cleanup後の観測はそのdeadlineまでのremainingだけを使う。late stream faultは明示的にobserveし、nonzero exit時のstream timeout / faultはsecondary evidenceにする。exit zero時だけstream drain failureをprimaryにする。
+- timeout時はretained process handleとcaptured PID / StartTime identityでvalidator rootだけを停止し、root residualを同一の5秒 cleanup deadline内に確認する。validator commandはdot-sourceとin-process PowerShell/.NET filesystem操作に限定したchildless contractであり、root already exitedは成功とする。
+- process timeout、start / setup failure、nonzero exit、exit-zero stream drain failureをprimaryとし、process / staging cleanup failureはsecondary evidenceにする。primaryがないcleanup-only failureはfailureとする。
 - GUID staging directoryはsetup途中のfailureでもcleanupされ、positive / forbidden-path assertionsを維持する。
 
 ### Test delta
 
 | Behavior / failure contract | Production owner / symbol | Candidate coverage | Decision | Shared resource / lane | Completion signal / watchdog | Retired route |
 | --- | --- | --- | --- | --- | --- | --- |
-| self-contained publish outputとforbidden path policyをactual validatorで検証 | `scripts/portable-package-layout.ps1` | `UpdaterDeploymentBoundaryTests.PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput` | extend | readonly publish roots、GUID staging / `ReleaseAcceptance`; DNPなし | process exit + stdout/stderr tasks / process 60秒、stream 5秒、cleanup 5秒 | two sequential sync `ReadToEnd` + unbounded `WaitForExit` routes |
+| self-contained publish outputとforbidden path policyをactual validatorで検証 | `scripts/portable-package-layout.ps1` | `UpdaterDeploymentBoundaryTests.PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput` | extend | readonly publish roots、GUID staging / `ReleaseAcceptance`; DNPなし | root exit + captured exit code、stdout/stderr tasks、root residual / process 60秒、single absolute stream 5秒、cleanup 5秒 | two sequential sync `ReadToEnd` + unbounded `WaitForExit` + tree/taskkill fallback routes |
 
 Focused verification:
 
@@ -194,17 +195,18 @@ publish rootsが無い環境でinconclusive / unavailableの場合は理由を�
 
 Replan triggers:
 
-- root processからowned descendantを限定できず、process名killまたは広いmachine state操作が必要になる。
+- validator commandが外部 child processを起動するよう変更され、childless root contractではowned descendantを限定できなくなる。
 - 60 / 5 / 5秒の既存boundsでvalidator contractを閉じられず、release runner budget変更が必要になる。
-- primary exceptionを保ったままprocess-tree cleanupとstaging cleanupの両方をboundedにできない。
+- primary exceptionを保ったままroot-only cleanupとstaging cleanupの両方をboundedにできない。
 - helperを複数の異なるprocess lifecycleへ一般化する必要が生じる。
 
 ### Implementation evidence
 
-- Replaced the two synchronous `ReadToEnd` / unbounded `WaitForExit` calls with one file-local async `RunValidatorProcess` owner. It starts both redirected reads immediately after the exact root PID is captured, applies 60-second process, 5-second stream, and 5-second cleanup bounds, and uses `Kill(entireProcessTree: true)` followed only when necessary by a remaining-budget `taskkill.exe /PID <captured-root> /T /F`; no name or global process lookup is used.
-- Process start/setup, exit timeout, stream drain/fault, and nonzero exit remain the captured primary exception. Cleanup, post-cleanup stream observation, handle disposal, and GUID-child staging deletion are secondary diagnostics; cleanup-only failure fails. Completed output and incomplete/faulted stream state include stream name, PID, failure elapsed, stream bound, and cleanup result, while late stream faults have an explicit observing continuation. The primary exception is rethrown through `ExceptionDispatchInfo` without a replacement wrapper.
-- GUID staging creation and copies now live inside the cleanup owner, and deletion remains limited to that GUID child. The existing positive validation and complete forbidden-path assertions are unchanged. Coverage remains an `extend` of the canonical `ReleaseAcceptance` fixture with no new fixture, DNP, shared root, lane, runner, or spec change; process/task completion replaces the retired synchronous routes.
-- Focused roots-supplied Quick: `$env:BMS_SCD_APP_PUBLISH_ROOT=(Resolve-Path .\artifacts\publish\app).Path; $env:BMS_SCD_UPDATER_PUBLISH_ROOT=(Resolve-Path .\artifacts\publish\updater).Path; pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName=BeMusicSeeker.Tests.UpdaterDeploymentBoundaryTests.PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput'`. Result: 1/1 passed; TRX case duration 5.5499140 seconds, `dotnet test` total 7.0530 seconds, runner 35.585 seconds; artifact `artifacts/verification/tests-quick-20260826-005959/functional/results.trx`. Root retains Full / ReleaseAcceptance integration ownership.
+- Replaced the two synchronous `ReadToEnd` / unbounded `WaitForExit` calls with one file-local async `RunValidatorProcess` owner. It starts both redirected reads immediately after capturing the retained root handle, PID, and StartTime; captures `ExitCode` immediately after root exit; applies a 60-second process bound and one absolute 5-second stream cutoff; and keeps the 5-second cleanup bound on a root-only `Kill(entireProcessTree: false)` plus remaining-budget residual confirmation. The helper is intentionally limited to the validator's childless dot-sourced PowerShell/.NET filesystem contract and has no descendant discovery, taskkill, name lookup, or global process operation.
+- Nonzero exit is established as primary before stream drain. For exit zero, stream timeout/fault becomes primary; after a primary is established, cleanup, remaining stream observation, handle disposal, and GUID-child staging deletion are secondary diagnostics, while cleanup-only failure still fails. Completed output and incomplete/faulted stream state retain stream name, PID, elapsed, bound, and cleanup result; late stream faults are explicitly observed. Secondary `Exception.Data` attachment is best-effort and the captured primary is always rethrown through `ExceptionDispatchInfo` without `Console.Error` or a replacement wrapper.
+- GUID staging creation and copies remain inside the existing cleanup owner, and deletion remains limited to that GUID child. The existing positive validation and complete forbidden-path assertions are unchanged. Coverage remains an `extend` of the canonical `ReleaseAcceptance` fixture with no new fixture, DNP, shared root, lane, runner, or spec change; process/task completion replaces the retired synchronous and tree-kill routes.
+- Static review of frozen snapshot `75316b4a` identified four P2 issues: root-only success without a childless invariant, nonzero exit replaced by stream failure, two independent stream bounds, and `Console.Error` / diagnostic attachment able to replace the primary. This remediation records the childless validator contract, ExitCode-first precedence, a single absolute stream deadline, retained PID/StartTime residual confirmation, and guarded secondary diagnostics. Focused roots-supplied Quick after this remediation is recorded below; root retains Full / ReleaseAcceptance integration ownership.
+- Focused roots-supplied Quick after review remediation: `$env:BMS_SCD_APP_PUBLISH_ROOT=(Resolve-Path .\artifacts\publish\app).Path; $env:BMS_SCD_UPDATER_PUBLISH_ROOT=(Resolve-Path .\artifacts\publish\updater).Path; pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName=BeMusicSeeker.Tests.UpdaterDeploymentBoundaryTests.PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput'`. Result: 1/1 passed; test elapsed 7.2097s, runner elapsed 25s; artifact `artifacts/verification/tests-quick-20260826-014315/functional/results.trx`. No timeout or retry; Full / ReleaseAcceptance integration remains root-owned.
 
 ## Integration, review, and acceptance
 
