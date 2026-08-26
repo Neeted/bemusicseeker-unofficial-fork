@@ -2,9 +2,10 @@ review_model = "gpt-5.6-sol"
 
 [agents]
 enabled = true
-# Run at most two independent implementation workers while keeping one slot
-# available for a worker-owned issue resolver. Close completed threads before
-# starting the review agent.
+# plan-clarifier and test-contract-designer are sequential read-only leaves.
+# Close them before implementation, then run at most two independent workers
+# while keeping one slot available for a worker-owned issue resolver. Close all
+# implementation threads before starting repo-static-review.
 max_concurrent_threads_per_session = 3
 # Root (depth 0) -> implementation-worker (1) -> issue-resolver (2).
 # V1 enforces this; V2 ignores it, so the role prompts enforce the same boundary.
