@@ -13,7 +13,7 @@ It summarizes the features, behavior, and cautions added or changed in this fork
 - [Introduction](#introduction)
 - [Initial Setup](#initial-setup)
 - [Settings Dialog](#settings-dialog)
-  - [Right-click](#right-click)
+  - [Right-click settings](#right-click-settings)
 - [Startup / Reload / Progress Display](#startup--reload--progress-display)
 - [Screen Layout](#screen-layout)
 - [Library List](#library-list)
@@ -129,7 +129,7 @@ Once the first build is complete, later launches mainly use differential updates
 
 ## Settings Dialog
 
-The settings dialog is saved when `OK` is pressed. Depending on the changed settings, the result may be immediate application, next-use application, score-only reload, library reload, reinitialization, or a restart request. The `Right-click` category is read the next time a context menu is opened.
+The settings dialog is saved when `OK` is pressed. Depending on the changed settings, the result may be immediate application, next-use application, score-only reload, library reload, reinitialization, or a restart request. The `Right-click settings` category is read the next time a context menu is opened.
 
 ### General
 
@@ -253,11 +253,11 @@ In LR2 linked mode, playlists can be output as LR2 custom folders. This tab dete
 
 For URL completion, see [URL1/URL2 Completion](#url1url2-completion).
 
-### Right-click
+### Right-click settings
 
-The `Right-click` category edits Web actions and Program actions separately for chart context menus. Each list supports `Add`, `Delete`, `Up`, `Down`, and `Enabled`, and lets you edit the item name and order.
+The `Right-click settings` category configures `Open web pages` and `Open with a program` entries for chart context menus. Each list supports `Add`, `Delete`, `Up`, `Down`, and `Enabled`, and lets you edit the item name and order.
 
-For Web actions, edit the URL template and target chart kind (BMS, bmson, or both). Templates can contain `{md5}` or `{sha256}`. An action is hidden when the chart does not have a hash required by its template. The initial configuration contains these five enabled items in this order:
+For `Open web pages`, edit the URL template and target chart kind (BMS, bmson, or both). Templates can contain `{md5}` or `{sha256}`. An entry is hidden when the chart does not have a hash required by its template. The initial configuration contains these five enabled items in this order:
 
 | Order | Name | URL template | Target |
 | --- | --- | --- | --- |
@@ -267,11 +267,11 @@ For Web actions, edit the URL template and target chart kind (BMS, bmson, or bot
 | 4 | rianIR | `https://rianir.link/ranking?sha256={sha256}` | BMS / bmson |
 | 5 | STELLAVERSE IR | `https://ir.stellabms.xyz/charts/{md5}` | BMS / bmson |
 
-For owned charts, add Program actions to the `Open with program` submenu. Configure the name, order, enabled state, executable, and arguments. New actions use `{filePath}` as their default arguments. When browsing for an executable, a blank name is filled from the filename without its extension; an existing name is not overwritten. `{filePath}` is resolved as one argument token, so paths containing spaces remain safe, while additional options can be entered in the arguments field.
+For owned charts, add entries to the `Open with program` submenu. Configure the name, order, enabled state, executable, and arguments. New entries use `{filePath}` as their default arguments. When browsing for an executable, a blank name is filled from the filename without its extension; an existing name is not overwritten. `{filePath}` is resolved as one argument token, so paths containing spaces remain safe, while additional options can be entered in the arguments field.
 
-The same saved configuration is used by the normal list, unowned playlist rows, and Play Log. Hash-only rows expose Web actions only; Program actions are available only when a local chart is resolved. A missing executable or chart, or a launch failure, shows an error.
+The same saved configuration is used by the normal list, unowned playlist rows, and Play Log. Hash-only rows expose `Open web pages` entries only; `Open with program` is available only when a local chart is resolved. A missing executable or chart, or a launch failure, shows an error.
 
-Opening this category does not change the saved setting. `OK` / `Save` validates and commits the complete draft; `Cancel` or closing the window discards it. If the persisted setting has a problem, the page reports the error and offers `Restore defaults`, after which the settings can be saved.
+Opening this category does not change the saved setting. `OK` / `Save` validates and commits the complete draft; `Cancel` or closing the window discards it. `Restore defaults` is available at any time and becomes effective when the settings are saved.
 
 ### Install
 
@@ -426,13 +426,13 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 
 Open / external pages:
 
-- Web actions: Enabled items from `Settings > Right-click` are shown in their configured order. The defaults are BMS-IR, Mocha, MinIR, rianIR, and STELLAVERSE IR; BMS-IR is BMS-only. Each action is hidden when its URL template requires a missing MD5 or SHA-256.
+- `Open web pages`: Enabled items from `Settings > Right-click settings` are shown in their configured order. The defaults are BMS-IR, Mocha, MinIR, rianIR, and STELLAVERSE IR; BMS-IR is BMS-only. Each entry is hidden when its URL template requires a missing MD5 or SHA-256.
 - `Open main URL` / `Open diff URL`: Opens the main URL / diff URL obtained from a playlist or URL completion. When multiple rows are selected, these actions are shown as `Import selected main URLs` / `Import selected diff URLs`; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.
 - `Find source via external API`: In playlist detail, sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. It does not use `URL1` / `URL2`, so rows with empty URLs can still be targets when an MD5 is available.
 - `Open in Explorer`: Opens the folder containing the chart file in Explorer.
 - `Open install destination`: Opens the folder recorded as `INSTL DST` or as the install destination.
 - `Open with association`: Opens the chart file using the OS file association.
-- `Open with program`: Runs a program configured in `Settings > Right-click` for a locally resolved chart.
+- `Open with program`: Runs a program configured in `Settings > Right-click settings` for a locally resolved chart.
 - `Open text file`: Opens document candidates such as readme files in the same folder from a submenu.
 - `Open in chart viewer`: Registers or displays the chart in the chart viewer.
 
@@ -469,7 +469,7 @@ Screen-specific:
 - `Remove from list`: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.
 - `Remove metadata parse failure record`: Shown on the parse errors screen. Deletes the saved parse failure record and returns the item to the set of files to be parsed again.
 
-In playlist detail for unowned charts, configured Web actions, `Open main URL`, `Open diff URL`, `Find source via external API`, `Open in chart viewer`, `Update ranking data`, and `Remove entry` remain available where their row capabilities allow them. Each Web action is shown only when its required MD5 or SHA-256 is available.
+In playlist detail for unowned charts, configured `Open web pages` entries, `Open main URL`, `Open diff URL`, `Find source via external API`, `Open in chart viewer`, `Update ranking data`, and `Remove entry` remain available where their row capabilities allow them. Each entry is shown only when its required MD5 or SHA-256 is available.
 
 Operations that modify actual files are implemented with behavior close to Windows Explorer so that they are less likely to fail because of read-only attributes and similar conditions. However, deletion and overwrite operations may not be reversible, so check the target before executing them.
 
@@ -607,7 +607,7 @@ Playlist detail lists the charts included in the selected playlist. You can chec
 The `URL1` / `URL2` columns can open main URLs and diff URLs. Even when URLs are not included in the playlist itself, if URL completion is enabled, they may be completed at runtime from external mappings.
 When clicking a `URL1` / `URL2` column attempts automatic install, progress is shown in the status bar even for a single URL.
 
-For a single row, running `Open main URL` / `Open diff URL` from the context menu always opens the URL in the browser regardless of the setting value. Unowned-row Web actions follow `Settings > Right-click` and are shown only when their required hash is available.
+For a single row, running `Open main URL` / `Open diff URL` from the context menu always opens the URL in the browser regardless of the setting value. Unowned-row `Open web pages` entries follow `Settings > Right-click settings` and are shown only when their required hash is available.
 
 When multiple rows are selected, right-click and run `Import selected main URLs` / `Import selected diff URLs`. After confirmation, BeMusicSeeker takes `URL1` or `URL2` from the selected rows, removes exact duplicate URLs, downloads them in order, and passes only successfully retrieved supported files to the install queue. This bulk import tries automatic install regardless of the setting value; URLs that need to open in a browser are skipped without opening them. Progress is shown in the status bar, and the download phase can be canceled. After cancellation, no new URL is started, and files retrieved up to that point are still passed to the install queue. The result dialog summarizes downloaded, skipped, size-blocked, failed, and cancellation-skipped counts.
 
@@ -969,7 +969,7 @@ The drop-down menu at the top-right of the Play Log view switches the display ta
 
 ### Context Menu
 
-The play-log context menu uses the same configured Web actions, order, and chart-kind rules as the normal list. Hash-only rows expose Web actions; rows resolved to a local chart can use `Open with program`. Explorer, chart viewer, and MD5 / SHA256 copy operations remain available.
+The play-log context menu uses the same configured `Open web pages` entries, order, and chart-kind rules as the normal list. Hash-only rows expose those entries; rows resolved to a local chart can use `Open with program`. Explorer, chart viewer, and MD5 / SHA256 copy operations remain available.
 
 Play-log rows that resolve to owned charts can be dragged onto a non-externally-synced playlist body or folder to add them. If the selection includes unresolved rows, that drag is not accepted as a playlist add operation.
 

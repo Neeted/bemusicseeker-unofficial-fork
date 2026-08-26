@@ -54,6 +54,33 @@ public sealed class RightClickActionSettingsEditorTests
     }
 
     [TestMethod]
+    public void RestoreDefaultsReplacesValidDraftWithoutMutatingBackingRawValue()
+    {
+        const string originalJson = """
+        {"webActions":[{"id":"custom","name":"Custom","urlTemplate":"https://example.test/{md5}","enabled":true,"chartKind":"All"}],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"{filePath}","enabled":true}]}
+        """;
+        var settings = new BeMusicSeeker.Properties.Settings
+        {
+            RightClickActionsJson = originalJson
+        };
+        var editor = new RightClickActionSettingsEditor(originalJson);
+
+        Assert.AreEqual(1, editor.WebActions.Count);
+        Assert.AreEqual(1, editor.ProgramActions.Count);
+        Assert.IsFalse(editor.IsDirty);
+
+        editor.RestoreDefaults();
+
+        Assert.AreEqual(5, editor.WebActions.Count);
+        Assert.AreEqual(0, editor.ProgramActions.Count);
+        Assert.IsTrue(editor.IsDirty);
+        Assert.IsFalse(editor.IsInvalidPersistedSettings);
+        Assert.IsTrue(editor.TryPrepareSave(out string restoredJson, out string error), error);
+        Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, restoredJson);
+        Assert.AreEqual(originalJson, settings.RightClickActionsJson);
+    }
+
+    [TestMethod]
     public void WebActionsSupportOrderDeletionEnabledStateAndBuiltInNameOverride()
     {
         var editor = new RightClickActionSettingsEditor(RightClickActionSettingsDefaults.SerializedJson);

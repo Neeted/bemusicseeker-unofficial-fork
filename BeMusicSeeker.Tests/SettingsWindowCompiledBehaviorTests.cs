@@ -67,8 +67,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     typeof(InstallSettingsPage),
                     typeof(BackupSettingsPage),
                     typeof(AdvancedSettingsPage),
-                    typeof(AboutSettingsPage),
-                    typeof(RightClickSettingsPage)
+                    typeof(RightClickSettingsPage),
+                    typeof(AboutSettingsPage)
                 };
                 Assert.AreEqual(pageTypes.Length, navigation.Items.Count);
                 for (int index = 0; index < pageTypes.Length; index++)
@@ -451,6 +451,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
 
                 var dangerButtons = new List<Button>();
                 var advancedDangerButtons = new List<Button>();
+                int advancedNavigationIndex = navigation.Items.IndexOf(window.FindName("navigationAdvanced"));
                 for (int index = 0; index < navigation.Items.Count; index++)
                 {
                     navigation.SelectedIndex = index;
@@ -462,7 +463,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                         .Where(button => ReferenceEquals(button.Style, pageDangerButtonStyle))
                         .ToList();
                     dangerButtons.AddRange(pageDangerButtons);
-                    if (index == 8)
+                    if (index == advancedNavigationIndex)
                     {
                         advancedDangerButtons.AddRange(pageDangerButtons);
                     }
@@ -471,7 +472,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(2, dangerButtons.Count);
                 Assert.AreEqual(2, advancedDangerButtons.Count);
 
-                navigation.SelectedIndex = 9;
+                navigation.SelectedItem = window.FindName("navigationAbout");
                 Materialize(window);
                 var aboutPage = (AboutSettingsPage)content.Content;
                 Button projectButton = FindLogicalDescendants<Button>(aboutPage)

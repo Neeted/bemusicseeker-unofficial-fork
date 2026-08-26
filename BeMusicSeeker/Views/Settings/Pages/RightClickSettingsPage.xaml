@@ -24,7 +24,6 @@
     <Button HorizontalAlignment="Left"
             Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_restore_defaults, Mode=OneWay}"
             Command="{x:Null}"
-            IsEnabled="{Binding RightClickActionSettingsEditor.IsInvalidPersistedSettings}"
             Click="restoreDefaultsButtonClicked"
             AutomationProperties.AutomationId="RightClickRestoreDefaults" />
 

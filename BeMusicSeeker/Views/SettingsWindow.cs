@@ -219,8 +219,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             new InstallSettingsPage(),
             new BackupSettingsPage(),
             new AdvancedSettingsPage(),
-            new AboutSettingsPage(),
-            new RightClickSettingsPage()
+            new RightClickSettingsPage(),
+            new AboutSettingsPage()
         ];
         settingsPageContent.Content = categoryPages[0];
     }

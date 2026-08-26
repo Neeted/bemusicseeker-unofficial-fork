@@ -42,7 +42,7 @@ public partial class RightClickSettingsPage : UserControl
 
     private void moveProgramActionDownButtonClicked(object sender, RoutedEventArgs e) => GetEditor().MoveSelectedProgramActionDown();
 
-    private void restoreDefaultsButtonClicked(object sender, RoutedEventArgs e) => GetEditor().ResetToDefaults();
+    private void restoreDefaultsButtonClicked(object sender, RoutedEventArgs e) => GetEditor().RestoreDefaults();
 
     private void browseProgramExecutableButtonClicked(object sender, RoutedEventArgs e)
     {

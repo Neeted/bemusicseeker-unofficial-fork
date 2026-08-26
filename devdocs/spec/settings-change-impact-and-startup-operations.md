@@ -20,7 +20,7 @@
 - 設定ウィンドウは表示ごとに生成し、同時に複数表示しない。既存ウィンドウの表示中に open request を受けた場合は、そのウィンドウを前面へ戻す。
 - 設定ウィンドウは標準の WPF title bar を持ち、リサイズ可能とする。titleは設定画面自身を表すlocalized resourceを使い、Advanced categoryのlocalized labelと共有しない。位置、サイズ、選択カテゴリ、scroll位置は永続化しない。
 - title bar は独自chromeへ置換しない。source initialization 後に current theme の semantic brushからnative caption属性を更新し、表示中のtheme変更へ追従する。DWM非対応時やnative失敗時はsystem fallbackを維持し、設定画面の表示やclose lifecycleを失敗させない。theme購読はclose時に解除する。
-- 現行の10カテゴリと順序を維持し、各カテゴリ本文を parameterless `UserControl` が1つずつ所有する。すべてのカテゴリは同じ `SettingsDialogViewModel` を inherited `DataContext` として共有し、カテゴリ固有の ViewModel や category state persistence は追加しない。
+- 現行の11カテゴリと順序（Advanced → Right-click settings → About）を維持し、各カテゴリ本文を parameterless `UserControl` が1つずつ所有する。すべてのカテゴリは同じ `SettingsDialogViewModel` を inherited `DataContext` として共有し、カテゴリ固有の ViewModel や category state persistence は追加しない。
 - `SettingsWindow` は navigation、選択カテゴリheader、単一の本文 `ScrollViewer`、下部action、close lifecycle と operation gate を所有する。これらは固定し、選択されたカテゴリ本文だけを縦scrollする。カテゴリ切替時は本文scrollを先頭へ戻す。
 - Playlist / Install / Backup / Advanced / About は、`SettingsSection`、`SettingsField`、`SettingsOptionRow`、`SettingsPathPicker`、`SettingsListEditor`、`SettingsStatusBanner` の平坦なpresentationで構成し、`GroupBox` / `Expander` や入れ子cardを使用しない。collection editorは横scrollを無効にし、操作可能な最小list高とaccessible nameを持つ。
 - Backup はplaylist backup / restoreとLR2 scheduled backupだけを所有する。LR2 play-history schema uninstallとapplication-data uninstallはAdvancedのDanger zoneだけに表示し、既存owner、確認順序、operation gate、failure presentation、cache reload、terminal close契約を変更しない。
@@ -211,11 +211,11 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 
 #### `RightClickActionsJson`
 
-`RightClickActionsJson` は Startup-only / Next-use の設定である。設定画面の `右クリック` カテゴリを開くだけでは保存済み値を変更せず、Web / Program の draft はページ内に保持する。`Save` は全アクションを検証して一度にシリアライズし、既存の settings edit session へ原子的に引き渡す。`Cancel` または native close は draft を破棄し、保存済み raw 値を変更しない。
+`RightClickActionsJson` は Startup-only / Next-use の設定である。設定画面の `右クリック設定` カテゴリを開くだけでは保存済み値を変更せず、`Webページを開く` / `プログラムから開く` の draft はページ内に保持する。`Save` は全アクションを検証して一度にシリアライズし、既存の settings edit session へ原子的に引き渡す。`Cancel` または native close は draft を破棄し、保存済み raw 値を変更しない。
 
-保存後は次に通常一覧、未所持プレイリスト行、または Play History のコンテキストメニューを開いた時点で現在の保存値を読み取る。保存を理由に library reload、score reload、file diff、Play History の再構築、または外部プログラムの起動は行わない。hash-only の行は Web action だけ、local chart に解決できる行は Program action も対象となる。
+保存後は次に通常一覧、未所持プレイリスト行、または Play History のコンテキストメニューを開いた時点で現在の保存値を読み取る。保存を理由に library reload、score reload、file diff、Play History の再構築、または外部プログラムの起動は行わない。hash-only の行は `Webページを開く` だけ、local chart に解決できる行は `プログラムから開く` も対象となる。
 
-保存済み raw 値が invalid の場合、runtime は action を公開せず、設定画面は診断と明示的な `既定値へ戻す` / `Restore defaults` のみを recovery として提示する。reset draft を保存するまで invalid 値を自動補正したり有効部分だけを採用したりしない。明示的な empty aggregate は empty のまま保存され、default actions を再投入しない。
+保存済み raw 値が invalid の場合、runtime は action を公開せず、設定画面は診断と常時使用できる `既定値へ戻す` / `Restore defaults` を recovery として提示する。復元は draft だけを置き換え、Save するまで invalid 値を自動補正したり有効部分だけを採用したりしない。明示的な empty aggregate は empty のまま保存され、default actions を再投入しない。
 
 ### Folder/File Diff
 

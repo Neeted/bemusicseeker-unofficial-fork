@@ -62,7 +62,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
-    public void SettingsWindow_RightClickCategoryIsEleventhAndExecutablePickerUpdatesSelectedDraft()
+    public void SettingsWindow_RightClickCategoryIsTenthAndExecutablePickerUpdatesSelectedDraft()
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
@@ -93,6 +93,9 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(11, navigation.Items.Count);
                 var rightClickNavigation = (ListBoxItem)window.FindName("navigationRightClick");
                 Assert.AreEqual("SettingsCategoryRightClick", AutomationProperties.GetAutomationId(rightClickNavigation));
+                Assert.AreEqual(9, navigation.Items.IndexOf(rightClickNavigation));
+                var aboutNavigation = (ListBoxItem)window.FindName("navigationAbout");
+                Assert.AreEqual(10, navigation.Items.IndexOf(aboutNavigation));
 
                 owner.SettingDialog.RightClickActionSettingsEditor.AddProgramAction();
                 window.HandleBrowseRightClickProgramExecutable();
@@ -106,6 +109,101 @@ public sealed class SettingsWindowPresentationTests
                     .RightClickActionSettingsEditor.SelectedProgramAction;
                 Assert.AreEqual(@"C:\Tools\Chart Viewer.exe", selected.ExecutablePath);
                 Assert.AreEqual("Chart Viewer", selected.Name);
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void SettingsWindow_RightClickRestoreDefaultsIsEnabledForValidDraftAndDoesNotPrompt()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            const string originalJson = "{\"webActions\":[{\"id\":\"custom\",\"name\":\"Custom\",\"urlTemplate\":\"https://example.test/{md5}\",\"enabled\":true,\"chartKind\":\"All\"}],\"programActions\":[{\"id\":\"viewer\",\"name\":\"Viewer\",\"executablePath\":\"C:\\\\Tools\\\\viewer.exe\",\"argumentTemplate\":\"{filePath}\",\"enabled\":true}]}";
+            var settings = new Settings
+            {
+                RightClickActionsJson = originalJson,
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true
+            };
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+            var dialogs = new RecordingSettingsRouteDialogService();
+            var window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
+            dialogs.ExpectedOwner = window;
+            try
+            {
+                window.Measure(new Size(820, 760));
+                window.Arrange(new Rect(0, 0, 820, 760));
+                window.UpdateLayout();
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                navigation.SelectedItem = window.FindName("navigationRightClick");
+                PumpDispatcher(window.Dispatcher);
+                var page = (RightClickSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                Button restoreButton = FindDescendants<Button>(page).Single(button =>
+                    AutomationProperties.GetAutomationId(button) == "RightClickRestoreDefaults");
+
+                Assert.IsTrue(restoreButton.IsEnabled);
+                restoreButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, restoreButton));
+                PumpDispatcher(window.Dispatcher);
+
+                RightClickActionSettingsEditor editor = owner.SettingDialog.RightClickActionSettingsEditor;
+                Assert.AreEqual(5, editor.WebActions.Count);
+                Assert.AreEqual(0, editor.ProgramActions.Count);
+                Assert.IsTrue(editor.IsDirty);
+                Assert.IsFalse(editor.IsInvalidPersistedSettings);
+                Assert.IsTrue(editor.TryPrepareSave(out string restoredJson, out string error), error);
+                Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, restoredJson);
+                Assert.AreEqual(originalJson, settings.RightClickActionsJson);
+                Assert.AreEqual(0, dialogs.ConfirmationRequests.Count);
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void SettingsWindow_RightClickRestoreDefaultsIsDiscardedByNativeClose()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            const string originalJson = "{\"webActions\":[{\"id\":\"custom\",\"name\":\"Custom\",\"urlTemplate\":\"https://example.test/{md5}\",\"enabled\":true,\"chartKind\":\"All\"}],\"programActions\":[{\"id\":\"viewer\",\"name\":\"Viewer\",\"executablePath\":\"C:\\\\Tools\\\\viewer.exe\",\"argumentTemplate\":\"{filePath}\",\"enabled\":true}]}";
+            var settings = new Settings
+            {
+                RightClickActionsJson = originalJson,
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true
+            };
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+            var presentation = new RecordingPresentationPort();
+            owner.SettingDialog.AttachPresentationPort(presentation);
+            var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            presentation.CloseAction = window.CloseFromPresentation;
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+                owner.SettingDialog.RightClickActionSettingsEditor.RestoreDefaults();
+                Assert.IsTrue(owner.SettingDialog.RightClickActionSettingsEditor.IsDirty);
+
+                window.Close();
+                TestUiDispatcherHost.Drain();
+
+                Assert.AreEqual(1, presentation.CloseRequestCount);
+                Assert.AreEqual(originalJson, settings.RightClickActionsJson);
+                Assert.IsFalse(owner.SettingDialog.RightClickActionSettingsEditor.IsDirty);
+                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
             }
             finally
             {
@@ -463,7 +561,8 @@ public sealed class SettingsWindowPresentationTests
                 };
 
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 9;
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                navigation.SelectedItem = window.FindName("navigationAbout");
                 PumpDispatcher(window.Dispatcher);
                 var page = (AboutSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 var version = (TextBlock)page.FindName("textBlockVerNum");
@@ -925,8 +1024,8 @@ public sealed class SettingsWindowPresentationTests
             "Resources.Install",
             "Resources.Backup",
             "Resources.Advanced_settings",
-            "Resources.About_this_app",
-            "Resources.RightClick_actions"
+            "Resources.RightClick_actions",
+            "Resources.About_this_app"
         ];
 
         Assert.AreEqual(11, items.Count);
@@ -1252,6 +1351,7 @@ public sealed class SettingsWindowPresentationTests
                 typeof(InstallSettingsPage),
                 typeof(BackupSettingsPage),
                 typeof(AdvancedSettingsPage),
+                typeof(RightClickSettingsPage),
                 typeof(AboutSettingsPage)
             ];
 

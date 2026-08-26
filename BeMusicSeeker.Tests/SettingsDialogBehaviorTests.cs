@@ -41,6 +41,47 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     [TestMethod]
+    public async Task RightClickRestoreDefaultsIsDraftOnlyUntilSave()
+    {
+        const string originalJson = """
+        {"webActions":[{"id":"custom","name":"Custom","urlTemplate":"https://example.test/{md5}","enabled":true,"chartKind":"All"}],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"{filePath}","enabled":true}]}
+        """;
+
+        Settings cancelSettings = CreateStandaloneSettings(
+            @"C:\settings-behavior\right-click-cancel",
+            @"C:\settings-behavior\right-click-cancel");
+        cancelSettings.RightClickActionsJson = originalJson;
+        using (SettingsDialogHarness cancelHarness = SettingsDialogHarness.Create(cancelSettings))
+        {
+            cancelHarness.Dialog.RightClickActionSettingsEditor.RestoreDefaults();
+
+            Assert.IsTrue(cancelHarness.Dialog.RightClickActionSettingsEditor.IsDirty);
+            Assert.AreEqual(originalJson, cancelHarness.Session.Values.RightClickActionsJson);
+
+            cancelHarness.Dialog.CancelCommand.Execute();
+
+            Assert.AreEqual(originalJson, cancelHarness.Session.Values.RightClickActionsJson);
+            Assert.AreEqual(0, cancelHarness.Session.SaveCount);
+            Assert.IsFalse(cancelHarness.Dialog.RightClickActionSettingsEditor.IsDirty);
+        }
+
+        Settings saveSettings = CreateStandaloneSettings(
+            @"C:\settings-behavior\right-click-save",
+            @"C:\settings-behavior\right-click-save");
+        saveSettings.RightClickActionsJson = originalJson;
+        using (SettingsDialogHarness saveHarness = SettingsDialogHarness.Create(saveSettings))
+        {
+            saveHarness.Dialog.RightClickActionSettingsEditor.RestoreDefaults();
+
+            await saveHarness.Dialog.SaveSettings();
+
+            Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, saveHarness.Session.Values.RightClickActionsJson);
+            Assert.AreEqual(1, saveHarness.Session.SaveCount);
+            Assert.IsFalse(saveHarness.Dialog.RightClickActionSettingsEditor.IsDirty);
+        }
+    }
+
+    [TestMethod]
     public async Task SettingDialogOperationModeChange_ConfirmsAndRestartsAfterInitialization()
     {
         using (SettingsDialogHarness inactiveHarness = SettingsDialogHarness.Create(

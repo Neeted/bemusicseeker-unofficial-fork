@@ -2087,16 +2087,16 @@ public class Resources
     public static string RightClick_builtin_rianir => ResourceManager.GetString("RightClick_builtin_rianir", resourceCulture);
     public static string RightClick_builtin_stellaverse => ResourceManager.GetString("RightClick_builtin_stellaverse", resourceCulture);
 
-    /// <summary>外部アクションの起動失敗を表示します。</summary>
+    /// <summary>選択した項目を開けない場合の失敗を表示します。</summary>
     public static string RightClick_external_launch_failed_format => ResourceManager.GetString("RightClick_external_launch_failed_format", resourceCulture);
 
-    /// <summary>選択した外部アクションが stale または利用不能であることを表示します。</summary>
+    /// <summary>選択した項目が stale または利用不能であることを表示します。</summary>
     public static string RightClick_external_action_unavailable => ResourceManager.GetString("RightClick_external_action_unavailable", resourceCulture);
 
-    /// <summary>不正な右クリック設定による起動拒否を表示します。</summary>
+    /// <summary>不正な右クリック設定によって項目を開けないことを表示します。</summary>
     public static string RightClick_external_settings_invalid => ResourceManager.GetString("RightClick_external_settings_invalid", resourceCulture);
 
-    /// <summary>Webアクションの起動失敗を表示します。</summary>
+    /// <summary>Webページを開けない場合の失敗を表示します。</summary>
     public static string RightClick_external_web_launch_failed => ResourceManager.GetString("RightClick_external_web_launch_failed", resourceCulture);
 
     /// <summary>設定されたプログラム実行ファイルが見つからない場合を表示します。</summary>
