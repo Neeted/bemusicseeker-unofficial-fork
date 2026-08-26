@@ -1619,6 +1619,24 @@ internal sealed class Settings : ApplicationSettingsBase
     }
 
     /// <summary>
+    /// 右クリック外部 action の web/program 定義を一つの atomic JSON として取得または設定します。
+    /// </summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue(RightClickActionSettingsDefaults.SerializedJson)]
+    public string RightClickActionsJson
+    {
+        get
+        {
+            return (string)this["RightClickActionsJson"];
+        }
+        set
+        {
+            this["RightClickActionsJson"] = value;
+        }
+    }
+
+    /// <summary>
     /// 推定先への通常インストール後に、元の保留パッケージフォルダを残り物ごと削除するかどうかを取得または設定します。
     /// </summary>
     /// <remarks>

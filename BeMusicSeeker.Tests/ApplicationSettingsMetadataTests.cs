@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Xml.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -121,6 +122,11 @@ public sealed class ApplicationSettingsMetadataTests
         AssertConfigSettingTypedValue(runtimeProperties, configValues, nameof(Settings.UpdateLr2IrRankingCacheOnStartup), false);
         AssertConfigSettingTypedValue(runtimeProperties, configValues, nameof(Settings.PlayHistoryDisplayTargetSetsJson), string.Empty);
         AssertConfigSettingTypedValue(runtimeProperties, configValues, nameof(Settings.PlayHistorySelectedDisplayTargetIdentity), string.Empty);
+        AssertConfigSettingTypedValue(
+            runtimeProperties,
+            configValues,
+            nameof(Settings.RightClickActionsJson),
+            RightClickActionSettingsDefaults.SerializedJson);
         AssertRuntimeSettingTypedValue(runtimeProperties, nameof(Settings.ScanBmsFilesOnStartup), true);
         Assert.IsFalse(configValues.ContainsKey(nameof(Settings.ScanBmsFilesOnStartup)), "ScanBmsFilesOnStartup is runtime-only.");
 

@@ -11,7 +11,9 @@ internal enum ChartOperationSourceScope
     PendingPackage,
     NewlyInstalledPackage,
     PlaylistOwned,
-    PlaylistMissing
+    PlaylistMissing,
+    /// <summary>Exact chart row resolved from play history.</summary>
+    PlayHistory
 }
 
 [Flags]

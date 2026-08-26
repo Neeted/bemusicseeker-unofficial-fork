@@ -39,6 +39,14 @@ LR2 root picker は、現在値と同じrootを再選択した場合も、候補
 標準配置から外れた既存の child path は raw value のまま互換維持し、通常画面では read-only status として表示する。advanced dialog の song/config path は親ViewModelにbindingせずdialog-local draftとし、直接入力とpickerの両方で同じlocal valueを編集する。pickerは現在のtyped valueをinitial directoryに使い、accepted candidateを同じeditorへ反映するが親draftは更新しない。Done / Enterは両editorの現在textを必ず再検証し、songとparse可能なconfigのtuple全体が有効な場合だけatomicに親draftへ反映する。advanced picker が missing / unreadable / malformed file を返した場合は、そのchildの以前のlocal valueと親draftを保持してfailureを表示する。Cancel / Esc / native closeはlocal draftを捨てるだけで親draftを変更しない。Doneは永続化せず、親設定画面の Save だけが user.config を保存する。modalとpicker requestのownerは同じ `SettingsWindow` とする。
 手動編集入口は標準配置・custom配置のどちらでも常に表示し、LR2 linked modeのときだけ有効にする。初期raw値がmissing / malformedで未編集でもDoneは受理せず、dialogを開いたまま拒否されたeditorへfocusを戻す。
 
+### 右クリックアクション
+
+| Tab | UI | Dialog | Kind | Target | Filter | Default FileName | Default Extension | Default Extension Source | Selection Result |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 右クリック | プログラム実行ファイル参照 | `UiFilePickerRequest` | File open | selected right-click program executable | `*.exe`, all files | current executable basename or empty | `exe` when a current basename is present | Computed from FileName | selected program-action draft; a blank name is filled from the accepted executable basename |
+
+The page owns only the selected row draft. A cancelled picker leaves that row unchanged, and an accepted path never writes `Settings.RightClickActionsJson` directly. The picker is single-select, requires an existing file and path, and uses the hosting `SettingsWindow` as owner.
+
 `config.xm?` は LR2 互換上の意図的な filter で、`config.xml` と `config.xmh` を許可する。既定拡張子は `FileName=config.xml` から算出されるため `xml` になる。
 
 DB 系の filter は exact filename ではなく `*.db` を使う。表示上は `song.db` / `score.db` を案内するが、LR2 の空 DB や backup DB など、ファイル名が完全一致しない `.db` も選択できるようにする。

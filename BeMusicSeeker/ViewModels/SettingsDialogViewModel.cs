@@ -98,6 +98,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly ISettingsEditSession settingsEditSession;
 
+    private readonly RightClickActionSettingsEditor rightClickActionSettingsEditor;
+
     private readonly Action<Exception> reportApplyFailure;
 
     private readonly IUiDialogService schemaDialogs;
@@ -812,6 +814,9 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public bool IsOperationModeChanged => tempOperationModeLR2DB != OperationModeLR2DB;
 
+    /// <summary>Gets the dialog-local right-click action editor.</summary>
+    public RightClickActionSettingsEditor RightClickActionSettingsEditor => rightClickActionSettingsEditor;
+
     public bool CanSaveSettings => CheckValidationForSave();
 
     private void RaiseValidationStateChanged()
@@ -819,6 +824,11 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(CanSaveSettings));
         RaisePropertyChanged(nameof(TableListUriValidationMessage));
         RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUriValidationMessage));
+    }
+
+    private void RightClickActionSettingsEditorPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        RaiseValidationStateChanged();
     }
 
     private void SetOperationModeSelection(bool value)
@@ -4277,6 +4287,12 @@ public partial class SettingsDialogViewModel : ViewModel
             playHistoryPort.RefreshDisplayTargetCatalog(queueRefreshWhenSelectionChanges: false);
         });
         this.settingsEditSession.Reload();
+        rightClickActionSettingsEditor = new RightClickActionSettingsEditor(ApplicationSettings.RightClickActionsJson);
+        rightClickActionSettingsEditor.PropertyChanged += RightClickActionSettingsEditorPropertyChanged;
+        resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
+        {
+            rightClickActionSettingsEditor.RefreshLocalizedDisplayNames();
+        });
         RefreshParsedLr2ConfigState(showSelectionError: false, useLr2Mode: ApplicationSettings.OperationModeLR2DB);
         RefreshStandaloneBmsRootPathsFromSettings();
         RefreshBeatorajaDerivedSettings();
@@ -6559,6 +6575,10 @@ public partial class SettingsDialogViewModel : ViewModel
         tempPlayerWASAPIParam = ApplicationSettings.PlayerWASAPIParam;
         tempLanguage = ApplicationSettings.Lang;
         tempLanguageDisplayName = ApplicationSettings.LangDisplayName;
+        if (!rightClickActionSettingsEditor.IsInvalidPersistedSettings)
+        {
+            rightClickActionSettingsEditor.AcceptSavedSnapshot(ApplicationSettings.RightClickActionsJson);
+        }
         stepStopwatch.Restart();
         if (scope.HasFlag(SettingsSnapshotRefreshScope.PlayHistoryDisplayPreset))
         {
@@ -6597,6 +6617,7 @@ public partial class SettingsDialogViewModel : ViewModel
     internal bool HasPendingSettingChanges()
     {
         return HasSettingValueChanges()
+            || rightClickActionSettingsEditor.IsDirty
             || tempOperationModeLR2DB != operationModeLR2DB
             || HasSearchRootSettingsChanged()
             || HasCustomFolderAdditionalOutputBaseDirsChanged()
@@ -6607,7 +6628,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool HasSettingValueChanges()
     {
-        return HasPathSettingValueChanged(tempLR2RootPath, ApplicationSettings.LR2RootPath, value => IsLR2RootPathValid(value) || IsLR2PlayerRootPathValid(value))
+        return rightClickActionSettingsEditor.IsDirty
+            || HasPathSettingValueChanged(tempLR2RootPath, ApplicationSettings.LR2RootPath, value => IsLR2RootPathValid(value) || IsLR2PlayerRootPathValid(value))
             || HasPathSettingValueChanged(tempLR2SongDBPath, ApplicationSettings.LR2SongDBPath, IsLR2SongDBPathValid)
             || HasPathSettingValueChanged(tempLR2ConfigXmlPath, ApplicationSettings.LR2ConfigXmlPath, IsLR2ConfigXmlPathValid)
             || tempUseBeatorajaScoreDb != ApplicationSettings.UseBeatorajaScoreDb
@@ -7095,6 +7117,20 @@ public partial class SettingsDialogViewModel : ViewModel
                 ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
     }
 
+    private bool CheckRightClickActionSettings(out string errMsg)
+    {
+        if (rightClickActionSettingsEditor.TryPrepareSave(out _, out string editorError))
+        {
+            errMsg = string.Empty;
+            return true;
+        }
+
+        errMsg = FormatSettingValidationMessage(
+            BeMusicSeeker.Properties.Resources.RightClick_actions,
+            editorError);
+        return false;
+    }
+
     public bool CheckValidation()
     {
         return CheckValidation(out string errMsg);
@@ -7107,6 +7143,11 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public bool CheckValidationForSave(out string errMsg)
     {
+        if (!CheckRightClickActionSettings(out errMsg))
+        {
+            return false;
+        }
+
         if (!HasValidationRelevantSettingChanges())
         {
             errMsg = string.Empty;
@@ -7117,6 +7158,11 @@ public partial class SettingsDialogViewModel : ViewModel
 
     internal bool CheckValidationBeforeSave(out string errMsg)
     {
+        if (!CheckRightClickActionSettings(out errMsg))
+        {
+            return false;
+        }
+
         if (HasValidationRelevantSettingChanges())
         {
             return CheckValidation(out errMsg);
@@ -7268,7 +7314,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool HasValidationRelevantSettingChanges()
     {
-        return tempOperationModeLR2DB != operationModeLR2DB
+        return rightClickActionSettingsEditor.IsDirty
+            || tempOperationModeLR2DB != operationModeLR2DB
             || HasSearchRootSettingsChanged()
             || HasCustomFolderOutputBaseSettingsChanged()
             || HasPlayHistoryFolderDisplayPresetDraftsChanged()
@@ -7308,6 +7355,11 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         bool result = true;
         errMsg = string.Empty;
+        if (!CheckRightClickActionSettings(out string rightClickError))
+        {
+            errMsg += rightClickError + Environment.NewLine;
+            result = false;
+        }
         if (OperationModeLR2DB)
         {
             if (!IsLR2SongDBPathValid() || !IsLR2ConfigXmlPathValid())
@@ -7477,6 +7529,15 @@ public partial class SettingsDialogViewModel : ViewModel
     private async Task SaveSettingsCore(bool runPostSaveActions, bool validate)
     {
         var totalStopwatch = Stopwatch.StartNew();
+        bool rightClickSettingsChanged = rightClickActionSettingsEditor.IsDirty;
+        if (!rightClickActionSettingsEditor.TryPrepareSave(out string rightClickJson, out _))
+        {
+            LogSettingsPerformance(
+                "settings_save",
+                totalStopwatch,
+                "rightClickSettingsValid=false");
+            return;
+        }
         bool userConfigSaved = false;
         bool lr2ConfigSaved = false;
         long userConfigSaveMs = 0L;
@@ -7494,6 +7555,10 @@ public partial class SettingsDialogViewModel : ViewModel
         if (!validate || CheckValidationForSave())
         {
             validationPassed = true;
+            if (rightClickSettingsChanged)
+            {
+                ApplicationSettings.RightClickActionsJson = rightClickJson;
+            }
             settingValueChanges = HasSettingValueChanges();
             operationModeChanged = tempOperationModeLR2DB != operationModeLR2DB;
             searchRootsChanged = HasSearchRootSettingsChanged();
@@ -7538,6 +7603,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 ApplicationSettings.OperationModeLR2DB = operationModeLR2DB;
             }
             bool userConfigNeedsSave = settingValueChanges
+                || rightClickSettingsChanged
                 || operationModeChanged
                 || standaloneSearchRootsChanged
                 || customFolderAdditionalOutputBaseDirsChanged
@@ -7651,6 +7717,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     public void ResetSettings()
     {
+        rightClickActionSettingsEditor.DiscardChanges();
         operationModeLR2DB = tempOperationModeLR2DB;
         ApplicationSettings.LR2ConfigXmlPath = tempLR2ConfigXmlPath;
         ApplicationSettings.OperationModeLR2DB = tempOperationModeLR2DB;
@@ -8018,6 +8085,7 @@ public partial class SettingsDialogViewModel : ViewModel
             workspacePort.PlaylistCatalogChanged -= playlistCatalogChangedHandler;
             statePort.LibraryOperationAvailabilityChanged -= libraryOperationAvailabilityChangedHandler;
             statePort.Lr2PlayHistorySchemaStatusChanged -= lr2PlayHistorySchemaStatusChangedHandler;
+            rightClickActionSettingsEditor.PropertyChanged -= RightClickActionSettingsEditorPropertyChanged;
             resourceServiceEventListener.Dispose();
         }
     }

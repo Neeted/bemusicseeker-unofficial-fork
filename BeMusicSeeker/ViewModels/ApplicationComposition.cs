@@ -72,6 +72,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly IExternalShellGateway externalShellGateway;
 
+    private readonly IExternalProgramLaunchGateway externalProgramLaunchGateway;
+
     private readonly IExternalPlayerProcessGateway externalPlayerProcessGateway;
 
     private readonly IUpdaterProcessGateway updaterProcessGateway;
@@ -103,7 +105,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IExternalPlayerProcessGateway externalPlayerProcessGateway = null,
         IUpdaterProcessGateway updaterProcessGateway = null,
         IAudioDeviceCatalog audioDeviceCatalog = null,
-        IScoreViewerRegistrationGateway scoreViewerRegistrationGateway = null)
+        IScoreViewerRegistrationGateway scoreViewerRegistrationGateway = null,
+        IExternalProgramLaunchGateway externalProgramLaunchGateway = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -113,6 +116,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? throw new ArgumentNullException(nameof(cultureCatalog));
         this.applicationPathSnapshot = applicationPathSnapshot ?? ApplicationPathPolicy.Current;
         this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
+        this.externalProgramLaunchGateway = externalProgramLaunchGateway ?? ExternalProgramLaunchGatewayPolicy.Current;
         this.externalPlayerProcessGateway = externalPlayerProcessGateway ?? ExternalPlayerProcessGatewayPolicy.Current;
         this.updaterProcessGateway = updaterProcessGateway ?? UpdaterProcessGatewayPolicy.Current;
         this.scoreViewerRegistrationGateway = scoreViewerRegistrationGateway ?? new AppScoreViewerRegistrationGateway();
@@ -183,6 +187,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     internal ApplicationPathSnapshot ApplicationPathSnapshot => applicationPathSnapshot;
 
     internal IExternalShellGateway ExternalShellGateway => externalShellGateway;
+
+    internal IExternalProgramLaunchGateway ExternalProgramLaunchGateway => externalProgramLaunchGateway;
 
 
     internal MainChartListViewModel CreateMainChartListViewModel(
@@ -436,7 +442,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             libraryFolderTreeLogWarning,
             externalShellGateway,
             this.applicationPathSnapshot,
-            this.updaterProcessGateway);
+            this.updaterProcessGateway,
+            settingsProvider: () => this.settingsEditSession.Values,
+            externalProgramLaunchGateway: this.externalProgramLaunchGateway);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -638,7 +646,9 @@ internal sealed class MainWindowChildComposition
         Action<string> libraryFolderTreeLogWarning = null,
         IExternalShellGateway externalShellGateway = null,
         ApplicationPathSnapshot applicationPathSnapshot = null,
-        IUpdaterProcessGateway updaterProcessGateway = null)
+        IUpdaterProcessGateway updaterProcessGateway = null,
+        Func<BeMusicSeeker.Properties.Settings> settingsProvider = null,
+        IExternalProgramLaunchGateway externalProgramLaunchGateway = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -666,7 +676,9 @@ internal sealed class MainWindowChildComposition
             libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();
         MaintenanceTree = new MaintenanceTreeViewModel();
-        PlayHistory = new PlayHistoryWorkflowOwner(mainViewLog);
+        PlayHistory = new PlayHistoryWorkflowOwner(
+            mainViewLog,
+            settingsProvider: settingsProvider);
         PendingPackageWorkflow = new PendingPackageWorkflowOwner(
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
             chartFileOperations,
@@ -764,9 +776,13 @@ internal sealed class MainWindowChildComposition
             PlaybackPanel,
             selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)),
             selectedChartMutationPendingDeleteDialogPort ?? throw new ArgumentNullException(nameof(selectedChartMutationPendingDeleteDialogPort)));
+        Func<string, bool> externalActionFileExists = selectedChartExternalActionFileExists ?? LongPathFileSystem.FileExists;
         SelectedChartExternalActions = new SelectedChartExternalActionWorkflowOwner(
-            selectedChartExternalActionFileExists ?? LongPathFileSystem.FileExists,
-            externalShellGateway);
+            externalActionFileExists,
+            externalShellGateway,
+            settingsProvider: settingsProvider,
+            externalProgramLaunchGateway: externalProgramLaunchGateway
+                ?? new WindowsExternalProgramLaunchGateway(externalActionFileExists));
         SelectedChartResourceHealth = new SelectedChartResourceHealthWorkflowOwner(
             selectedChartResourceHealthLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthLibraryProvider)),
             selectedChartResourceHealthDialogService ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthDialogService)));

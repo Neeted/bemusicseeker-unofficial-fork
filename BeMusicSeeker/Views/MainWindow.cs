@@ -2454,6 +2454,220 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return false;
     }
 
+    private sealed class ConfiguredExternalActionMenuTag
+    {
+        internal ConfiguredExternalActionMenuTag(ConfiguredExternalActionKind kind, string actionId)
+        {
+            Kind = kind;
+            ActionId = actionId ?? string.Empty;
+        }
+
+        internal ConfiguredExternalActionKind Kind { get; }
+
+        internal string ActionId { get; }
+    }
+
+    private static void RemoveGeneratedConfiguredActionItems(ContextMenu contextMenu)
+    {
+        for (int index = contextMenu.Items.Count - 1; index >= 0; index--)
+        {
+            if (contextMenu.Items[index] is MenuItem menuItem
+                && (menuItem.Tag is ConfiguredExternalActionMenuTag
+                    || menuItem.Name == "tableContextMenuItemOpenProgramActions"
+                    || menuItem.Name == "playHistoryContextMenuItemOpenProgramActions"))
+            {
+                contextMenu.Items.RemoveAt(index);
+            }
+        }
+    }
+
+    private static int FindContextMenuItemIndex(ContextMenu contextMenu, string name)
+    {
+        for (int index = 0; index < contextMenu.Items.Count; index++)
+        {
+            if (contextMenu.Items[index] is FrameworkElement item
+                && string.Equals(item.Name, name, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static MenuItem CreateConfiguredExternalActionMenuItem(
+        ConfiguredExternalActionKind kind,
+        string actionId,
+        string header,
+        string name = null)
+    {
+        return new MenuItem
+        {
+            Name = name ?? string.Empty,
+            Header = header ?? string.Empty,
+            Tag = new ConfiguredExternalActionMenuTag(kind, actionId)
+        };
+    }
+
+    private void MaterializeConfiguredExternalActions(
+        ContextMenu contextMenu,
+        RightClickActionResolution resolution,
+        MainWindowSelectedChartExternalActionsTerminal terminal,
+        bool includePrograms,
+        string programAnchorName,
+        string webAnchorName,
+        string programParentName)
+    {
+        RemoveGeneratedConfiguredActionItems(contextMenu);
+        if (!terminal.HasConfiguredActions)
+        {
+            return;
+        }
+
+        resolution ??= new RightClickActionResolution([], []);
+        int webIndex = FindContextMenuItemIndex(contextMenu, webAnchorName);
+        if (webIndex < 0)
+        {
+            webIndex = 0;
+        }
+        foreach (ResolvedRightClickWebAction action in resolution.WebActions)
+        {
+            MenuItem menuItem = CreateConfiguredExternalActionMenuItem(
+                ConfiguredExternalActionKind.Web,
+                action.Id,
+                terminal.GetDisplayName(action),
+                "configuredWebAction_" + SanitizeMenuName(action.Id));
+            menuItem.Click += configuredExternalActionMenuItemClick;
+            contextMenu.Items.Insert(webIndex++, menuItem);
+        }
+
+        if (!includePrograms || resolution.ProgramActions.Count == 0)
+        {
+            return;
+        }
+
+        int programIndex = FindContextMenuItemIndex(contextMenu, programAnchorName);
+        if (programIndex < 0)
+        {
+            return;
+        }
+        MenuItem parent = new()
+        {
+            Name = programParentName,
+            Header = BeMusicSeeker.Properties.Resources.RightClick_open_with_program,
+            IsEnabled = true,
+            Visibility = Visibility.Visible
+        };
+        foreach (ResolvedRightClickProgramAction action in resolution.ProgramActions)
+        {
+            MenuItem child = CreateConfiguredExternalActionMenuItem(
+                ConfiguredExternalActionKind.Program,
+                action.Id,
+                action.Name,
+                "configuredProgramAction_" + SanitizeMenuName(action.Id));
+            child.Click += configuredExternalActionMenuItemClick;
+            parent.Items.Add(child);
+        }
+        contextMenu.Items.Insert(programIndex + 1, parent);
+    }
+
+    private static string SanitizeMenuName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "unnamed";
+        }
+        StringBuilder builder = new();
+        foreach (char character in value)
+        {
+            builder.Append(char.IsLetterOrDigit(character) ? character : '_');
+        }
+        return builder.ToString();
+    }
+
+    private void configuredExternalActionMenuItemClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem { Tag: ConfiguredExternalActionMenuTag tag }
+            || !TryGetContextMenuRow(e.Source, out object row)
+            || base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
+
+        RightClickActionResolutionInput input = null;
+        if (row is PlayHistoryRow)
+        {
+            viewModel.PlayHistory.TryCreateRightClickActionResolutionInput(
+                row,
+                LongPathFileSystem.FileExists,
+                out input);
+        }
+        else if (GridRowResolver.TryGetChartOperationTarget(
+                     row,
+                     GetCurrentChartOperationSourceScope(),
+                     out ChartOperationTarget target))
+        {
+            selectedChartContextMenuTerminals.SelectedChartExternalActions.TryCreateResolutionInput(
+                target,
+                out input);
+        }
+        if (input == null)
+        {
+            e.Handled = true;
+            ShowConfiguredExternalActionFailure(
+                ExternalConfiguredActionResult.Failure(
+                    ExternalConfiguredActionFailureKind.ActionUnavailable,
+                    BeMusicSeeker.Properties.Resources.RightClick_external_action_unavailable));
+            return;
+        }
+
+        ExternalConfiguredActionResult result = selectedChartContextMenuTerminals
+            .SelectedChartExternalActions
+            .ExecuteConfiguredAction(input, tag.Kind, tag.ActionId);
+        // A generated item owns the routed click even when the current row or
+        // settings became stale.  The terminal reports the failure below;
+        // allowing the event to bubble would risk invoking a legacy handler.
+        e.Handled = true;
+        if (!result.Succeeded)
+        {
+            ShowConfiguredExternalActionFailure(result);
+        }
+    }
+
+    internal static string GetConfiguredExternalActionFailureMessage(ExternalConfiguredActionResult result)
+    {
+        return result?.FailureKind switch
+        {
+            ExternalConfiguredActionFailureKind.InvalidSettings => BeMusicSeeker.Properties.Resources.RightClick_external_settings_invalid,
+            ExternalConfiguredActionFailureKind.ActionUnavailable => BeMusicSeeker.Properties.Resources.RightClick_external_action_unavailable,
+            ExternalConfiguredActionFailureKind.WebLaunchFailed => BeMusicSeeker.Properties.Resources.RightClick_external_web_launch_failed,
+            ExternalConfiguredActionFailureKind.ProgramExecutableMissing => BeMusicSeeker.Properties.Resources.RightClick_external_program_executable_missing,
+            ExternalConfiguredActionFailureKind.ProgramChartMissing => BeMusicSeeker.Properties.Resources.RightClick_external_program_chart_missing,
+            ExternalConfiguredActionFailureKind.ProgramLaunchFailed => BeMusicSeeker.Properties.Resources.RightClick_external_program_launch_failed,
+            _ => BeMusicSeeker.Properties.Resources.RightClick_external_action_unavailable
+        };
+    }
+
+    private void ShowConfiguredExternalActionFailure(ExternalConfiguredActionResult result)
+    {
+        string detail = string.IsNullOrWhiteSpace(result.Diagnostic)
+            ? result.FailureKind.ToString()
+            : result.Diagnostic;
+        NLogWrapper.FileLogger?.Warn(
+            result.Exception,
+            "configured_external_action failure kind=" + result.FailureKind + " detail=" + detail);
+        if (!IsLoaded)
+        {
+            return;
+        }
+        UiDialogRoute.ShowMessageBox(
+            this,
+            GetConfiguredExternalActionFailureMessage(result),
+            BeMusicSeeker.Properties.Resources.Error,
+            MessageBoxButton.OK,
+            MessageBoxImage.Hand,
+            MessageBoxResult.OK);
+    }
+
     private bool TryGetPlayHistoryContextMenuAction(
         object source,
         PlayHistoryContextMenuActionKind actionKind,
@@ -5627,21 +5841,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         IReadOnlyList<ChartOperationTarget> selectedTargets = contextMenuState.SelectedTargets;
         bool hasBmsonSelection = contextMenuState.HasBmsonSelection;
         bool hasBmsSelection = contextMenuState.HasBmsSelection;
+        bool useConfiguredExternalActions = selectedChartContextMenuTerminals.SelectedChartExternalActions.HasConfiguredActions;
+        RightClickActionResolutionInput configuredTargetInput = null;
+        RightClickActionResolution configuredResolution = useConfiguredExternalActions
+            && selectedChartContextMenuTerminals.SelectedChartExternalActions.TryCreateResolutionInput(
+                rowTarget,
+                out configuredTargetInput)
+                    ? selectedChartContextMenuTerminals.SelectedChartExternalActions.ResolveConfiguredActions(configuredTargetInput)
+                    : null;
+        MaterializeConfiguredExternalActions(
+            contextMenu,
+            configuredResolution,
+            selectedChartContextMenuTerminals.SelectedChartExternalActions,
+            includePrograms: rowTarget?.IsPlaylistMissing != true,
+            programAnchorName: "tableContextMenuItemOpenBMSFile",
+            webAnchorName: "tableContextMenuItemOpenURL",
+            programParentName: "tableContextMenuItemOpenProgramActions");
         bool canOpenExplorer = selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
             rowTarget,
             SelectedChartExternalActionKind.OpenExplorer);
         bool canOpenFile = selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
             rowTarget,
             SelectedChartExternalActionKind.OpenFile);
-        bool canOpenLr2Ir = selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
-            rowTarget,
-            SelectedChartExternalActionKind.OpenLr2Ir);
-        bool canOpenMocha = selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
-            rowTarget,
-            SelectedChartExternalActionKind.OpenMocha);
-        bool canOpenMinIr = selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
-            rowTarget,
-            SelectedChartExternalActionKind.OpenMinIr);
         bool canOpenInstallDestination = mainWindowViewModel.PendingPackages.CanOpenInstallDestination(
             rowTarget,
             selectedTargets,
@@ -5665,9 +5886,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MenuItem menuItem15 = null;
         MenuItem menuItem16 = null;
         MenuItem menuItem17 = null;
-        MenuItem menuItemOpenLr2Ir = null;
-        MenuItem menuItemOpenMocha = null;
-        MenuItem menuItemOpenMinIr = null;
         MenuItem menuItemOpenInstallDestination = null;
         MenuItem menuItemOpenDocument = null;
         MenuItem menuItem18 = null;
@@ -5680,15 +5898,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             switch (item.Name)
             {
-                case "tableContextMenuItemOpenLR2IR":
-                    menuItemOpenLr2Ir = item as MenuItem;
-                    break;
-                case "tableContextMenuItemOpenMocha":
-                    menuItemOpenMocha = item as MenuItem;
-                    break;
-                case "tableContextMenuItemOpenMinIR":
-                    menuItemOpenMinIr = item as MenuItem;
-                    break;
                 case "tableContextMenuItemOpenURL":
                     menuItem = item as MenuItem;
                     break;
@@ -5850,21 +6059,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             menuItem18.Visibility = hasScoreViewerTarget ? Visibility.Visible : Visibility.Collapsed;
             menuItem18.IsEnabled = selectedChartContextMenuTerminals.ScoreViewer.CanRegisterScoreViewer(selectedTargets);
         }
-        if (menuItemOpenLr2Ir != null)
-        {
-            menuItemOpenLr2Ir.Visibility = canOpenLr2Ir ? Visibility.Visible : Visibility.Collapsed;
-            menuItemOpenLr2Ir.IsEnabled = canOpenLr2Ir;
-        }
-        if (menuItemOpenMocha != null)
-        {
-            menuItemOpenMocha.Visibility = canOpenMocha ? Visibility.Visible : Visibility.Collapsed;
-            menuItemOpenMocha.IsEnabled = canOpenMocha;
-        }
-        if (menuItemOpenMinIr != null)
-        {
-            menuItemOpenMinIr.Visibility = canOpenMinIr ? Visibility.Visible : Visibility.Collapsed;
-            menuItemOpenMinIr.IsEnabled = canOpenMinIr;
-        }
         if (menuItem7 != null)
         {
             bool hasRankingTarget = selectedChartContextMenuTerminals.RankingCache.HasRankingTarget(selectedTargets);
@@ -5980,11 +6174,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             if (!hasBmsSelection)
             {
-                if (menuItemOpenLr2Ir != null)
-                {
-                    menuItemOpenLr2Ir.Visibility = Visibility.Collapsed;
-                    menuItemOpenLr2Ir.IsEnabled = false;
-                }
                 if (menuItem18 != null)
                 {
                     menuItem18.Visibility = Visibility.Collapsed;
@@ -6121,16 +6310,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
         GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget rowTarget);
+        bool useConfiguredExternalActions = selectedChartContextMenuTerminals.SelectedChartExternalActions.HasConfiguredActions;
+        RightClickActionResolutionInput configuredTargetInput = null;
+        RightClickActionResolution configuredResolution = useConfiguredExternalActions
+            && selectedChartContextMenuTerminals.SelectedChartExternalActions.TryCreateResolutionInput(
+                rowTarget,
+                out configuredTargetInput)
+                    ? selectedChartContextMenuTerminals.SelectedChartExternalActions.ResolveConfiguredActions(configuredTargetInput)
+                    : null;
+        MaterializeConfiguredExternalActions(
+            contextMenu,
+            configuredResolution,
+            selectedChartContextMenuTerminals.SelectedChartExternalActions,
+            includePrograms: false,
+            programAnchorName: "tableContextMenuItemOpenBMSFile",
+            webAnchorName: "tableContextMenuItemOpenURL",
+            programParentName: "tableContextMenuItemOpenProgramActions");
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
-        bool canOpenLr2Ir = selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
-            rowTarget,
-            SelectedChartExternalActionKind.OpenLr2Ir);
-        bool canOpenMocha = selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
-            rowTarget,
-            SelectedChartExternalActionKind.OpenMocha);
-        bool canOpenMinIr = selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
-            rowTarget,
-            SelectedChartExternalActionKind.OpenMinIr);
         bool canOpenScoreViewer = selectedChartContextMenuTerminals.ScoreViewer.HasScoreViewerTarget([rowTarget]);
         bool canUpdateRanking = selectedChartContextMenuTerminals.RankingCache.CanRequestRanking([rowTarget]);
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
@@ -6142,18 +6338,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             switch (item.Name)
             {
-                case "tableContextMenuItemOpenLR2IR":
-                    item.Visibility = canOpenLr2Ir ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = canOpenLr2Ir;
-                    break;
-                case "tableContextMenuItemOpenMocha":
-                    item.Visibility = canOpenMocha ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = canOpenMocha;
-                    break;
-                case "tableContextMenuItemOpenMinIR":
-                    item.Visibility = canOpenMinIr ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = canOpenMinIr;
-                    break;
                 case "tableContextMenuItemOpenURL":
                     if (item is MenuItem openUrlMenuItem)
                     {
@@ -6188,7 +6372,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
             }
         }
-        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenMocha=" + canOpenMocha + " canOpenMinIr=" + canOpenMinIr + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
     }
 
     private void playHistoryContextMenuOpened(object sender, RoutedEventArgs e)
@@ -6206,21 +6390,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
         CancelRelatedDocumentRequest();
         _lastOpenedContextMenu = contextMenu;
+        bool useConfiguredExternalActions = selectedChartContextMenuTerminals.SelectedChartExternalActions.HasConfiguredActions;
+        RightClickActionResolutionInput configuredInput = null;
+        if (useConfiguredExternalActions
+            && base.DataContext is MainWindowViewModel configuredViewModel)
+        {
+            configuredViewModel.PlayHistory.TryCreateRightClickActionResolutionInput(
+                row,
+                LongPathFileSystem.FileExists,
+                out configuredInput);
+        }
+        RightClickActionResolution configuredResolution = useConfiguredExternalActions && configuredInput != null
+            ? selectedChartContextMenuTerminals.SelectedChartExternalActions.ResolveConfiguredActions(configuredInput)
+            : null;
+        MaterializeConfiguredExternalActions(
+            contextMenu,
+            configuredResolution,
+            selectedChartContextMenuTerminals.SelectedChartExternalActions,
+            includePrograms: configuredInput?.LocalFilePath != null,
+            programAnchorName: "playHistoryContextMenuItemOpenAssociated",
+            webAnchorName: null,
+            programParentName: "playHistoryContextMenuItemOpenProgramActions");
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
             switch (item.Name)
             {
-                case "playHistoryContextMenuItemOpenBMSIR":
-                    item.Visibility = state.CanOpenBmsIr ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanOpenBmsIr;
-                    break;
-                case "playHistoryContextMenuItemOpenMocha":
-                case "playHistoryContextMenuItemOpenMinIR":
-                    item.Visibility = state.CanOpenRepository ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanOpenRepository;
-                    break;
                 case "playHistoryContextMenuSeparatorLocal":
                     item.Visibility = state.HasExternalLinkItem && state.HasLocalChartItem ? Visibility.Visible : Visibility.Collapsed;
+                    break;
+                case "playHistoryContextMenuItemOpenAssociated":
+                    item.Visibility = state.CanOpenAssociated ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state.CanOpenAssociated && LongPathFileSystem.FileExists(state.ChartPath);
                     break;
                 case "playHistoryContextMenuItemOpenExplorer":
                     item.Visibility = state.CanOpenExplorer ? Visibility.Visible : Visibility.Collapsed;
@@ -6243,66 +6443,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
             }
         }
-    }
-
-    private void playHistoryContextMenuItemOpenBMSIRClick(object sender, RoutedEventArgs e)
-    {
-        if (!TryGetPlayHistoryContextMenuAction(
-                e.Source,
-                PlayHistoryContextMenuActionKind.OpenBmsIr,
-                out PlayHistoryContextMenuAction action)
-            || string.IsNullOrWhiteSpace(action.Url))
-        {
-            return;
-        }
-
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-
-        viewModel.ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(action.Url));
-        e.Handled = true;
-    }
-
-    private void playHistoryContextMenuItemOpenMochaClick(object sender, RoutedEventArgs e)
-    {
-        if (!TryGetPlayHistoryContextMenuAction(
-                e.Source,
-                PlayHistoryContextMenuActionKind.OpenMocha,
-                out PlayHistoryContextMenuAction action)
-            || string.IsNullOrWhiteSpace(action.Url))
-        {
-            return;
-        }
-
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-
-        viewModel.ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(action.Url));
-        e.Handled = true;
-    }
-
-    private void playHistoryContextMenuItemOpenMinIRClick(object sender, RoutedEventArgs e)
-    {
-        if (!TryGetPlayHistoryContextMenuAction(
-                e.Source,
-                PlayHistoryContextMenuActionKind.OpenMinIr,
-                out PlayHistoryContextMenuAction action)
-            || string.IsNullOrWhiteSpace(action.Url))
-        {
-            return;
-        }
-
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-
-        viewModel.ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(action.Url));
-        e.Handled = true;
     }
 
     private void playHistoryContextMenuItemCopyHashClick(object sender, RoutedEventArgs e)
@@ -6348,6 +6488,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
         viewModel.ExternalShellGateway.OpenFileAndSelect(action.Path);
         e.Handled = true;
+    }
+
+    private void playHistoryContextMenuItemOpenAssociatedClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (!TryGetPlayHistoryContextMenuAction(
+                e.Source,
+                PlayHistoryContextMenuActionKind.OpenAssociated,
+                out _)
+            || !TryGetContextMenuRow(e.Source, out object row)
+            || base.DataContext is not MainWindowViewModel viewModel
+            || !viewModel.PlayHistory.TryCreateAssociatedChartOperationTarget(
+                row,
+                out ChartOperationTarget target)
+            || !selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
+                target,
+                SelectedChartExternalActionKind.OpenFile))
+        {
+            return;
+        }
+
+        selectedChartContextMenuTerminals.SelectedChartExternalActions.Execute(
+            target,
+            SelectedChartExternalActionKind.OpenFile);
     }
 
     private async void playHistoryContextMenuItemRegisterScoreViewerClick(object sender, RoutedEventArgs e)
@@ -6430,59 +6594,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 SelectedChartExternalActionKind.OpenFile))
         {
             selectedChartContextMenuTerminals.SelectedChartExternalActions.Execute(target, SelectedChartExternalActionKind.OpenFile);
-            e.Handled = true;
-        }
-    }
-
-    private void tableContextMenuItemOpenLR2IRClick(object sender, RoutedEventArgs e)
-    {
-        if (!TryGetContextMenuRow(e.Source, out object row)
-            || base.DataContext is not MainWindowViewModel viewModel
-            || !GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
-        {
-            return;
-        }
-        if (selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
-                target,
-                SelectedChartExternalActionKind.OpenLr2Ir))
-        {
-            selectedChartContextMenuTerminals.SelectedChartExternalActions.Execute(target, SelectedChartExternalActionKind.OpenLr2Ir);
-            e.Handled = true;
-        }
-    }
-
-    private void tableContextMenuItemOpenMochaClick(object sender, RoutedEventArgs e)
-    {
-        if (!TryGetContextMenuRow(e.Source, out object row)
-            || row is PlayHistoryRow
-            || base.DataContext is not MainWindowViewModel viewModel
-            || !GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
-        {
-            return;
-        }
-        if (selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
-                target,
-                SelectedChartExternalActionKind.OpenMocha))
-        {
-            selectedChartContextMenuTerminals.SelectedChartExternalActions.Execute(target, SelectedChartExternalActionKind.OpenMocha);
-            e.Handled = true;
-        }
-    }
-
-    private void tableContextMenuItemOpenMinIRClick(object sender, RoutedEventArgs e)
-    {
-        if (!TryGetContextMenuRow(e.Source, out object row)
-            || row is PlayHistoryRow
-            || base.DataContext is not MainWindowViewModel viewModel
-            || !GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
-        {
-            return;
-        }
-        if (selectedChartContextMenuTerminals.SelectedChartExternalActions.CanExecute(
-                target,
-                SelectedChartExternalActionKind.OpenMinIr))
-        {
-            selectedChartContextMenuTerminals.SelectedChartExternalActions.Execute(target, SelectedChartExternalActionKind.OpenMinIr);
             e.Handled = true;
         }
     }

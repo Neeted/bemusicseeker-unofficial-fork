@@ -8,6 +8,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -92,7 +93,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         owner.Execute(target, SelectedChartExternalActionKind.OpenLr2Ir);
 
         CollectionAssert.AreEqual(
-            new[] { "https://bms-ir.org/new/song?songmd5=ABCDEFABCDEFABCDEFABCDEFABCDEFAB&view=both" },
+            new[] { "https://bms-ir.org/new/song?songmd5=abcdefabcdefabcdefabcdefabcdefab&view=both" },
             urls);
     }
 
@@ -162,7 +163,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void Execute_UrlLauncherFailureIsNotSuppressed()
+    public void Execute_UrlLauncherFailureReturnsTypedResult()
     {
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
             urlLauncher: _ => throw new InvalidOperationException("browser failed"));
@@ -171,8 +172,114 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
             ChartOperationCapabilities.OpenRepositoryBySha256,
             sha256: new string('b', 64));
 
-        Assert.ThrowsException<InvalidOperationException>(() =>
-            owner.Execute(target, SelectedChartExternalActionKind.OpenMocha));
+        Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
+        ExternalConfiguredActionResult result = owner.ExecuteConfiguredAction(
+            input,
+            ConfiguredExternalActionKind.Web,
+            RightClickActionSettingsDefaults.MochaId);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ExternalConfiguredActionFailureKind.WebLaunchFailed, result.FailureKind);
+        Assert.IsInstanceOfType(result.Exception, typeof(InvalidOperationException));
+    }
+
+    [TestMethod]
+    public void Execute_ConfiguredProgramRechecksActionAndPassesResolvedTokens()
+    {
+        Settings settings = new();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+            new RightClickActionSettings(
+                [],
+                [new RightClickProgramActionDefinition(
+                    "player",
+                    "Player",
+                    @"C:\Tools\player.exe",
+                    "--chart \"{filePath}\"",
+                    enabled: true)]));
+        TestExternalProgramLaunchGateway programGateway = new();
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            settingsProvider: () => settings,
+            externalProgramLaunchGateway: programGateway);
+        ChartOperationTarget target = CreateTarget(
+            @"C:\Songs\folder name\alpha.bms",
+            ChartOperationCapabilities.OpenFile);
+
+        Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
+        RightClickActionResolution resolution = owner.ResolveConfiguredActions(input);
+        Assert.AreEqual(1, resolution.ProgramActions.Count);
+        CollectionAssert.AreEqual(
+            new[] { "--chart", @"C:\Songs\folder name\alpha.bms" },
+            resolution.ProgramActions[0].Arguments.ToArray());
+
+        ExternalConfiguredActionResult result = owner.ExecuteConfiguredAction(
+            input,
+            ConfiguredExternalActionKind.Program,
+            "player");
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNotNull(programGateway.Request);
+        Assert.AreEqual(@"C:\Tools\player.exe", programGateway.Request.ExecutablePath);
+        CollectionAssert.AreEqual(
+            new[] { "--chart", @"C:\Songs\folder name\alpha.bms" },
+            programGateway.Request.Arguments.ToArray());
+    }
+
+    [TestMethod]
+    public void Execute_ConfiguredProgramMapsGatewayMissingExecutableToTypedFailure()
+    {
+        Settings settings = new();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+            new RightClickActionSettings(
+                [],
+                [new RightClickProgramActionDefinition(
+                    "player",
+                    "Player",
+                    @"C:\Tools\player.exe",
+                    "{filePath}",
+                    enabled: true)]));
+        TestExternalProgramLaunchGateway programGateway = new()
+        {
+            Result = ExternalProgramLaunchResult.Failure(
+                ExternalProgramLaunchFailureKind.MissingExecutable,
+                "raw executable detail")
+        };
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            settingsProvider: () => settings,
+            externalProgramLaunchGateway: programGateway);
+        ChartOperationTarget target = CreateTarget(
+            @"C:\Songs\alpha.bms",
+            ChartOperationCapabilities.OpenFile);
+
+        Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
+        ExternalConfiguredActionResult result = owner.ExecuteConfiguredAction(
+            input,
+            ConfiguredExternalActionKind.Program,
+            "player");
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ExternalConfiguredActionFailureKind.ProgramExecutableMissing, result.FailureKind);
+        Assert.AreEqual("raw executable detail", result.Diagnostic);
+    }
+
+    [TestMethod]
+    public void Execute_InvalidSettingsReturnsTypedFailureWithInternalDiagnosticOnly()
+    {
+        Settings settings = new() { RightClickActionsJson = "{invalid" };
+        SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
+            settingsProvider: () => settings);
+        ChartOperationTarget target = CreateTarget(
+            @"C:\Songs\alpha.bms",
+            ChartOperationCapabilities.OpenFile);
+
+        Assert.IsTrue(owner.TryCreateResolutionInput(target, out RightClickActionResolutionInput input));
+        ExternalConfiguredActionResult result = owner.ExecuteConfiguredAction(
+            input,
+            ConfiguredExternalActionKind.Web,
+            RightClickActionSettingsDefaults.BmsIrId);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(ExternalConfiguredActionFailureKind.InvalidSettings, result.FailureKind);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(result.Diagnostic));
     }
 
     [TestMethod]
@@ -373,7 +480,9 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Action<string>? associatedFileLauncher = null,
         Action<string>? urlLauncher = null,
         Func<string, string>? directoryNameResolver = null,
-        Func<string, string, IEnumerable<string>>? relatedDocumentFileEnumerator = null)
+        Func<string, string, IEnumerable<string>>? relatedDocumentFileEnumerator = null,
+        Func<BeMusicSeeker.Properties.Settings>? settingsProvider = null,
+        IExternalProgramLaunchGateway? externalProgramLaunchGateway = null)
     {
         var gateway = new TestExternalShellGateway(
             explorerOpen ?? (_ => new ExplorerOpenResult()),
@@ -383,7 +492,9 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
             fileExists ?? (_ => true),
             gateway,
             directoryNameResolver,
-            relatedDocumentFileEnumerator);
+            relatedDocumentFileEnumerator,
+            settingsProvider,
+            externalProgramLaunchGateway);
     }
 
     private sealed class TestExternalShellGateway : IExternalShellGateway
@@ -422,6 +533,19 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         {
             failureReason = string.Empty;
             return true;
+        }
+    }
+
+    private sealed class TestExternalProgramLaunchGateway : IExternalProgramLaunchGateway
+    {
+        internal ExternalProgramLaunchRequest Request { get; private set; }
+
+        internal ExternalProgramLaunchResult Result { get; set; } = ExternalProgramLaunchResult.Success;
+
+        public ExternalProgramLaunchResult Launch(ExternalProgramLaunchRequest request)
+        {
+            Request = request;
+            return Result;
         }
     }
 

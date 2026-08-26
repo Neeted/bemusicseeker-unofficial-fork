@@ -106,7 +106,9 @@ UI refresh では raw rows がある場合に projection index を作る。proje
 | `PlayExscore` / `Judges` / `PlaytimeSeconds` | finalized actual play delta から作る実プレイ結果。beatoraja update history row では空欄。 |
 | `Option` / `OpHistory` | LR2 option snapshot / option history。beatoraja update history row では空欄。 |
 
-空 hash の raw row や chart 解決できない row は失敗として捨てず、diagnostic または unresolved row として扱う。Play history view の context menu は chart row 用 menu を広く出さず、resolved MD5 がある row は BMS-IR、resolved SHA-256 がある row は Mocha / MinIR と hash copy、所持 chart に解決できる row は Explorer / 譜面ビューアを出す。unresolved row には chart 操作 menu を出さない。
+空 hash の raw row や chart 解決できない row は失敗として捨てず、diagnostic または unresolved row として扱う。Play history view の context menu は chart row 用 menu を広く出さず、valid な MD5 がある row は BMS-IR、valid な SHA-256 がある row は Mocha / MinIR と hash copy、所持 chart に解決できる row は Explorer / 譜面ビューアと設定済み program submenu を出す。所持 chart に解決できる row では、既存の `関連付けで開く` を表示し、その直後に設定済み `プログラムから開く` submenu を置く。unresolved row でも hash-only の設定済み web action は出せるが、local path を必要とする program action は出さない。URL template の capability や enabled/order は通常一覧、playlist missing、play history で同じ resolver を通る。
+
+Play history の外部 action は右クリックした一行だけを入力にする。メニュー表示時とクリック時に row の hash / resolved chart を再取得し、クリック時に設定と action ID を再解決するため、選択変更や設定変更による stale menu は別 row を起動しない。`関連付けで開く` と program action は同じ exact row を shared selected-chart terminal へ渡す。外部 program は resolved chart が現在も local absolute path を持つ場合だけ `UseShellExecute=false` の one-shot gateway へ渡し、missing executable/chart や gateway failure は明示的な localized error として扱う。hash-only row、missing row、invalid settings は program submenu を持たず、invalid settings は settings page の診断/reset に委ねる。
 
 所持 chart に解決できる play history row は、外部同期ではない playlist の本体または folder へ drag & drop した場合だけ playlist entry 追加の入力にできる。この操作はユーザーの明示的な playlist 編集であり、play history read / projection 自体が playlist 正本、playlist entries、LR2 custom folder、beatoraja `.bmt` 出力を変更するわけではない。playlist drop では `PlayHistoryRow.ResolvedChart` が non-null の行だけを追加候補とし、未解決 row が選択に含まれる場合は drop 全体を拒否する。unresolved row を別 hash や score 情報から推測して追加する fallback は持たない。
 

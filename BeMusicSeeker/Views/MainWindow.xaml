@@ -143,9 +143,6 @@
         <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
       </Style>
       <ContextMenu x:Key="tableContextMenu" x:Shared="False" HasDropShadow="True" Opened="tableContextMenuOpened">
-        <MenuItem Name="tableContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="tableContextMenuItemOpenLR2IRClick" />
-        <MenuItem Name="tableContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="tableContextMenuItemOpenMochaClick" />
-        <MenuItem Name="tableContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
         <MenuItem Name="tableContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="tableContextMenuItemOpenURLClick" />
         <MenuItem Name="tableContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="tableContextMenuItemOpenURLdiffClick" />
         <MenuItem Name="tableContextMenuItemFindExternalPackage" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Find_external_package_from_playlist_md5, Mode=OneWay}" Click="tableContextMenuItemFindExternalPackageClick" />
@@ -229,9 +226,6 @@
         <MenuItem Name="tableContextMenuItemRemoveChartInfoParseFailure" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_chart_info_parse_failure_record, Mode=OneWay}" Click="tableContextMenuItemRemoveChartInfoParseFailureClick" />
       </ContextMenu>
       <ContextMenu x:Key="tableContextMenuPlaylistMissing" x:Shared="False" HasDropShadow="True" Opened="tableContextMenuPlaylistMissingOpened">
-        <MenuItem Name="tableContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="tableContextMenuItemOpenLR2IRClick" />
-        <MenuItem Name="tableContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="tableContextMenuItemOpenMochaClick" />
-        <MenuItem Name="tableContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
         <MenuItem Name="tableContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="tableContextMenuItemOpenURLClick" />
         <MenuItem Name="tableContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="tableContextMenuItemOpenURLdiffClick" />
         <MenuItem Name="tableContextMenuItemFindExternalPackage" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Find_external_package_from_playlist_md5, Mode=OneWay}" Click="tableContextMenuItemFindExternalPackageClick" />
@@ -243,10 +237,8 @@
         <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist_entry, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
       </ContextMenu>
       <ContextMenu x:Key="playHistoryContextMenu" x:Shared="False" HasDropShadow="True" Opened="playHistoryContextMenuOpened">
-        <MenuItem Name="playHistoryContextMenuItemOpenBMSIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="playHistoryContextMenuItemOpenBMSIRClick" />
-        <MenuItem Name="playHistoryContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="playHistoryContextMenuItemOpenMochaClick" />
-        <MenuItem Name="playHistoryContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="playHistoryContextMenuItemOpenMinIRClick" />
         <Separator Name="playHistoryContextMenuSeparatorLocal" />
+        <MenuItem Name="playHistoryContextMenuItemOpenAssociated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_association, Mode=OneWay}" Click="playHistoryContextMenuItemOpenAssociatedClick" />
         <MenuItem Name="playHistoryContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="playHistoryContextMenuItemOpenExplorerClick" />
         <MenuItem Name="playHistoryContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="playHistoryContextMenuItemRegisterScoreViewerClick" />
         <Separator Name="playHistoryContextMenuSeparatorHash" />

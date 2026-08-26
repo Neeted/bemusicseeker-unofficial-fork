@@ -219,7 +219,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             new InstallSettingsPage(),
             new BackupSettingsPage(),
             new AdvancedSettingsPage(),
-            new AboutSettingsPage()
+            new AboutSettingsPage(),
+            new RightClickSettingsPage()
         ];
         settingsPageContent.Content = categoryPages[0];
     }
@@ -557,6 +558,40 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         if (result.Status == UiDialogStatus.Accepted)
         {
             settingDialogViewModel.SetFilePathFromPicker(propertyName, result.FileName);
+        }
+    }
+
+    /// <summary>Owns the executable picker route for the right-click program-action page.</summary>
+    internal void HandleBrowseRightClickProgramExecutable()
+    {
+        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
+        RightClickProgramActionEditorRow selectedAction = settingDialogViewModel
+            .RightClickActionSettingsEditor
+            .SelectedProgramAction;
+        if (selectedAction == null)
+        {
+            return;
+        }
+
+        UiFilePickerResult result = dialogService
+            .PickFileAsync(new UiFilePickerRequest(
+                BeMusicSeeker.Properties.Resources.RightClick_executable_picker_title,
+                string.IsNullOrWhiteSpace(selectedAction.ExecutablePath)
+                    ? string.Empty
+                    : Path.GetFileName(selectedAction.ExecutablePath),
+                PathToDirectoryOrSelf(selectedAction.ExecutablePath),
+                BeMusicSeeker.Properties.Resources.RightClick_executable_filter,
+                defaultExtension: null,
+                multiselect: false,
+                ensureFileExists: true,
+                ensurePathExists: true,
+                owner: Window.GetWindow(this)))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfPickerFailed(result.Status, result.Error, "right-click program executable picker");
+        if (result.Status == UiDialogStatus.Accepted)
+        {
+            selectedAction.SetExecutablePathFromPicker(result.FileName);
         }
     }
 

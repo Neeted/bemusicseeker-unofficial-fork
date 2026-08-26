@@ -389,10 +389,57 @@ public sealed class MainWindowPlayHistoryWpfTests
                 TestUiDispatcherHost.Drain();
 
                 Assert.AreEqual(contextRequestsBeforeUnresolved + 1, contextRequests);
-                Assert.AreSame(unresolvedTagSentinel, playHistoryMenu.Tag);
-                Assert.IsNull(playHistoryMenu.PlacementTarget);
-                Assert.IsFalse(viewModel.PlayHistory.TryCreateContextMenuState(unresolved, out _));
+                Assert.IsInstanceOfType(playHistoryMenu.Tag, typeof(CustomTableContextMenuContext));
+                Assert.AreSame(unresolved, ((CustomTableContextMenuContext)playHistoryMenu.Tag).Row);
+                Assert.AreSame(table, playHistoryMenu.PlacementTarget);
+                Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(unresolved, out _));
                 Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(resolved, out _));
+            });
+    }
+
+    [TestMethod]
+    public void PlayHistoryResolvedRowPlacesAssociatedOpenBeforeProgramActions()
+    {
+        Settings settings = new();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+            new RightClickActionSettings(
+                [],
+                [new RightClickProgramActionDefinition(
+                    "player",
+                    "Player",
+                    @"C:\Tools\player.exe",
+                    "{filePath}",
+                    enabled: true)]));
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            settings,
+            (viewModel, window) =>
+            {
+                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryConfiguredActions");
+                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                PlayHistoryRow resolved = CreateResolvedPlayHistoryRow(
+                    typeof(MainWindow).Assembly.Location);
+                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                window.Resources["playHistoryContextMenu"] = playHistoryMenu;
+                table.ItemsSource = new List<object> { resolved };
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, resolved));
+
+                RaiseKey(table, Key.Apps);
+                TestUiDispatcherHost.Drain();
+
+                MenuItem associated = FindMenuItem(
+                    playHistoryMenu,
+                    "playHistoryContextMenuItemOpenAssociated");
+                MenuItem program = FindMenuItem(
+                    playHistoryMenu,
+                    "playHistoryContextMenuItemOpenProgramActions");
+                Assert.AreEqual(Visibility.Visible, associated.Visibility);
+                Assert.IsTrue(associated.IsEnabled);
+                Assert.AreEqual(Resources.Open_association, associated.Header);
+                Assert.AreEqual(
+                    playHistoryMenu.Items.IndexOf(associated) + 1,
+                    playHistoryMenu.Items.IndexOf(program));
+                Assert.AreEqual(Resources.RightClick_open_with_program, program.Header);
             });
     }
 
@@ -453,7 +500,14 @@ public sealed class MainWindowPlayHistoryWpfTests
         return source;
     }
 
-    private static PlayHistoryRow CreateResolvedPlayHistoryRow()
+    private static MenuItem FindMenuItem(ContextMenu menu, string name)
+    {
+        return menu.Items
+            .OfType<MenuItem>()
+            .Single(item => string.Equals(item.Name, name, StringComparison.Ordinal));
+    }
+
+    private static PlayHistoryRow CreateResolvedPlayHistoryRow(string path = null)
     {
         const string hash = "cccccccccccccccccccccccccccccccc";
         string sha256 = new string('d', 64);
@@ -466,7 +520,7 @@ public sealed class MainWindowPlayHistoryWpfTests
             "",
             "",
             "",
-            @"C:\BMS\play-history-resolved.bms",
+            path ?? @"C:\BMS\play-history-resolved.bms",
             "",
             "Folder",
             "",

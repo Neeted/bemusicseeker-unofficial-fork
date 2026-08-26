@@ -78,7 +78,11 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
                 viewModel.SelectedChartExternalActions.Execute,
                 viewModel.SelectedChartExternalActions.CanQueryRelatedDocuments,
                 viewModel.SelectedChartExternalActions.QueryRelatedDocumentsAsync,
-                viewModel.SelectedChartExternalActions.OpenRelatedDocument));
+                viewModel.SelectedChartExternalActions.OpenRelatedDocument,
+                viewModel.SelectedChartExternalActions.CreateResolutionInput,
+                viewModel.SelectedChartExternalActions.ResolveConfiguredActions,
+                viewModel.SelectedChartExternalActions.ExecuteConfiguredAction,
+                viewModel.SelectedChartExternalActions.GetDisplayName));
     }
 }
 
@@ -260,20 +264,37 @@ internal sealed class MainWindowSelectedChartExternalActionsTerminal
     private readonly Func<ChartOperationTarget, bool> canQueryRelatedDocuments;
     private readonly Func<ChartOperationTarget, CancellationToken, Task<RelatedDocumentQueryReceipt>> queryRelatedDocuments;
     private readonly Action<string> openRelatedDocument;
+    private readonly Func<ChartOperationTarget, RightClickActionResolutionInput> createResolutionInput;
+    private readonly Func<RightClickActionResolutionInput, RightClickActionResolution> resolveConfiguredActions;
+    private readonly Func<RightClickActionResolutionInput, ConfiguredExternalActionKind, string, ExternalConfiguredActionResult> executeConfiguredAction;
+    private readonly Func<ResolvedRightClickWebAction, string> getDisplayName;
 
     internal MainWindowSelectedChartExternalActionsTerminal(
         Func<ChartOperationTarget, SelectedChartExternalActionKind, bool> canExecute,
         Action<ChartOperationTarget, SelectedChartExternalActionKind> execute,
         Func<ChartOperationTarget, bool> canQueryRelatedDocuments,
         Func<ChartOperationTarget, CancellationToken, Task<RelatedDocumentQueryReceipt>> queryRelatedDocuments,
-        Action<string> openRelatedDocument)
+        Action<string> openRelatedDocument,
+        Func<ChartOperationTarget, RightClickActionResolutionInput> createResolutionInput = null,
+        Func<RightClickActionResolutionInput, RightClickActionResolution> resolveConfiguredActions = null,
+        Func<RightClickActionResolutionInput, ConfiguredExternalActionKind, string, ExternalConfiguredActionResult> executeConfiguredAction = null,
+        Func<ResolvedRightClickWebAction, string> getDisplayName = null)
     {
         this.canExecute = canExecute ?? throw new ArgumentNullException(nameof(canExecute));
         this.execute = execute ?? throw new ArgumentNullException(nameof(execute));
         this.canQueryRelatedDocuments = canQueryRelatedDocuments ?? throw new ArgumentNullException(nameof(canQueryRelatedDocuments));
         this.queryRelatedDocuments = queryRelatedDocuments ?? throw new ArgumentNullException(nameof(queryRelatedDocuments));
         this.openRelatedDocument = openRelatedDocument ?? throw new ArgumentNullException(nameof(openRelatedDocument));
+        this.createResolutionInput = createResolutionInput;
+        this.resolveConfiguredActions = resolveConfiguredActions;
+        this.executeConfiguredAction = executeConfiguredAction;
+        this.getDisplayName = getDisplayName;
     }
+
+    /// <summary>shared configured-action delegates が接続済みか。</summary>
+    internal bool HasConfiguredActions => createResolutionInput != null
+        && resolveConfiguredActions != null
+        && executeConfiguredAction != null;
 
     internal bool CanExecute(ChartOperationTarget target, SelectedChartExternalActionKind action)
         => canExecute(target, action);
@@ -291,4 +312,37 @@ internal sealed class MainWindowSelectedChartExternalActionsTerminal
 
     internal void OpenRelatedDocument(string path)
         => openRelatedDocument(path);
+
+    /// <summary>exact row target を immutable resolver input へ変換します。</summary>
+    internal bool TryCreateResolutionInput(
+        ChartOperationTarget target,
+        out RightClickActionResolutionInput input)
+    {
+        if (createResolutionInput == null)
+        {
+            input = null;
+            return false;
+        }
+
+        input = createResolutionInput(target);
+        return input != null;
+    }
+
+    /// <summary>menu-open 時点の settings と input から action 候補を取得します。</summary>
+    internal RightClickActionResolution ResolveConfiguredActions(RightClickActionResolutionInput input)
+        => resolveConfiguredActions?.Invoke(input) ?? new RightClickActionResolution([], []);
+
+    /// <summary>click 時点で action ID を再解決し、typed terminal result を返します。</summary>
+    internal ExternalConfiguredActionResult ExecuteConfiguredAction(
+        RightClickActionResolutionInput input,
+        ConfiguredExternalActionKind actionKind,
+        string actionId)
+        => executeConfiguredAction?.Invoke(input, actionKind, actionId)
+            ?? ExternalConfiguredActionResult.Failure(
+                ExternalConfiguredActionFailureKind.ActionUnavailable,
+                string.Empty);
+
+    /// <summary>built-in resource または custom literal の menu 名を取得します。</summary>
+    internal string GetDisplayName(ResolvedRightClickWebAction action)
+        => getDisplayName?.Invoke(action) ?? action?.Name ?? action?.Id ?? string.Empty;
 }

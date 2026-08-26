@@ -62,6 +62,59 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
+    public void SettingsWindow_RightClickCategoryIsEleventhAndExecutablePickerUpdatesSelectedDraft()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            {
+                RightClickActionsJson = string.Empty,
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true
+            });
+            var dialogs = new RecordingSettingsRouteDialogService
+            {
+                FileResult = new UiFilePickerResult(
+                    UiDialogStatus.Accepted,
+                    fileNames: [@"C:\Tools\Chart Viewer.exe"])
+            };
+            var window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
+            dialogs.ExpectedOwner = window;
+            try
+            {
+                window.Measure(new Size(820, 760));
+                window.Arrange(new Rect(0, 0, 820, 760));
+                window.UpdateLayout();
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                Assert.AreEqual(11, navigation.Items.Count);
+                var rightClickNavigation = (ListBoxItem)window.FindName("navigationRightClick");
+                Assert.AreEqual("SettingsCategoryRightClick", AutomationProperties.GetAutomationId(rightClickNavigation));
+
+                owner.SettingDialog.RightClickActionSettingsEditor.AddProgramAction();
+                window.HandleBrowseRightClickProgramExecutable();
+
+                Assert.AreEqual(1, dialogs.FileRequests.Count);
+                UiFilePickerRequest request = dialogs.FileRequests[0];
+                Assert.AreSame(window, request.Owner);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.RightClick_executable_filter, request.Filter);
+                Assert.AreEqual(string.Empty, request.FileName);
+                RightClickProgramActionEditorRow selected = owner.SettingDialog
+                    .RightClickActionSettingsEditor.SelectedProgramAction;
+                Assert.AreEqual(@"C:\Tools\Chart Viewer.exe", selected.ExecutablePath);
+                Assert.AreEqual("Chart Viewer", selected.Name);
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
     public void ReleaseNotesWindow_UsesOwnedModalPresentationContract()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -856,7 +909,7 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
-    public void SettingsWindow_NavigationHasTenLocalizedCategoriesInStableOrder()
+    public void SettingsWindow_NavigationHasElevenLocalizedCategoriesInStableOrder()
     {
         XDocument document = LoadSettingsWindowXaml();
         XElement navigation = FindNamedElement(document, "settingsNavigation");
@@ -872,10 +925,11 @@ public sealed class SettingsWindowPresentationTests
             "Resources.Install",
             "Resources.Backup",
             "Resources.Advanced_settings",
-            "Resources.About_this_app"
+            "Resources.About_this_app",
+            "Resources.RightClick_actions"
         ];
 
-        Assert.AreEqual(10, items.Count);
+        Assert.AreEqual(11, items.Count);
         CollectionAssert.AreEqual(
             expectedResourcePaths,
             items.Select(item => ExtractResourcePath(item.Attribute("Content")?.Value)).ToArray());

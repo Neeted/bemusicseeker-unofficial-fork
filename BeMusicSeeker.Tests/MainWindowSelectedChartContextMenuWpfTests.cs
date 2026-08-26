@@ -381,15 +381,60 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     [TestMethod]
     public void CompiledSelectedChartExternalActionsUseEligibilityAndExactRowTargets()
     {
-        var calls = new List<(ChartOperationTarget Target, SelectedChartExternalActionKind Action)>();
+        var legacyCalls = new List<(ChartOperationTarget Target, SelectedChartExternalActionKind Action)>();
+        var configuredCalls = new List<(string Md5, ConfiguredExternalActionKind Kind, string Id)>();
+        var createdTargets = new List<ChartOperationTarget>();
         bool eligible = true;
+        string md5 = "33333333333333333333333333333333";
+        string chartPath = @"C:\wave6e-external\chart.bms";
+        string[] configuredIds = ["first-web", "second-web", "third-web"];
+        RightClickActionResolution configuredResolution = new(
+            configuredIds.Select(id => new ResolvedRightClickWebAction(
+                new RightClickWebActionDefinition(
+                    id,
+                    id,
+                    "https://example.test/" + id + "/{md5}",
+                    enabled: true,
+                    ExternalChartKind.BmsOnly),
+                "https://example.test/" + id + "/" + md5)),
+            [new ResolvedRightClickProgramAction(
+                new RightClickProgramActionDefinition(
+                    "program",
+                    "Player",
+                    @"C:\Tools\player.exe",
+                    "{filePath}",
+                    enabled: true),
+                [chartPath])]);
         MainWindowSelectedChartExternalActionsTerminal external = new(
-            (_, _) => eligible,
-            (target, action) => calls.Add((target, action)),
+            (_, action) => eligible
+                && (action is SelectedChartExternalActionKind.OpenExplorer or SelectedChartExternalActionKind.OpenFile),
+            (target, action) => legacyCalls.Add((target, action)),
             _ => false,
             (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable),
-            _ => { });
-        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "33333333333333333333333333333333", @"C:\wave6e-external\chart.bms");
+            _ => { },
+            createResolutionInput: target =>
+            {
+                createdTargets.Add(target);
+                return new RightClickActionResolutionInput(
+                    target.Chart.Md5,
+                    null,
+                    target.Chart.Path,
+                    ExternalChartKind.BmsOnly);
+            },
+            resolveConfiguredActions: _ => configuredResolution,
+            executeConfiguredAction: (input, actionKind, actionId) =>
+            {
+                if (!eligible)
+                {
+                    return ExternalConfiguredActionResult.Failure(
+                        ExternalConfiguredActionFailureKind.ActionUnavailable,
+                        Resources.RightClick_external_action_unavailable);
+                }
+                configuredCalls.Add((input.Md5, actionKind, actionId));
+                return ExternalConfiguredActionResult.Success;
+            },
+            getDisplayName: action => action.Name);
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, md5, chartPath);
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             new Settings(),
@@ -401,14 +446,12 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
                 ContextMenu menu = (ContextMenu)window.FindResource("tableContextMenu");
                 menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                OpenContextMenu(menu);
 
                 var expected = new[]
                 {
                     ("tableContextMenuItemOpenExplorer", SelectedChartExternalActionKind.OpenExplorer),
-                    ("tableContextMenuItemOpenBMSFile", SelectedChartExternalActionKind.OpenFile),
-                    ("tableContextMenuItemOpenLR2IR", SelectedChartExternalActionKind.OpenLr2Ir),
-                    ("tableContextMenuItemOpenMocha", SelectedChartExternalActionKind.OpenMocha),
-                    ("tableContextMenuItemOpenMinIR", SelectedChartExternalActionKind.OpenMinIr)
+                    ("tableContextMenuItemOpenBMSFile", SelectedChartExternalActionKind.OpenFile)
                 };
                 foreach ((string name, SelectedChartExternalActionKind action) in expected)
                 {
@@ -416,18 +459,40 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     Assert.IsTrue(args.Handled);
                 }
 
-                Assert.AreEqual(expected.Length, calls.Count);
+                Assert.AreEqual(expected.Length, legacyCalls.Count);
                 for (int index = 0; index < expected.Length; index++)
                 {
-                    Assert.AreSame(row.Chart, calls[index].Target.Chart);
-                    Assert.AreEqual(expected[index].Item2, calls[index].Action);
+                    Assert.AreSame(row.Chart, legacyCalls[index].Target.Chart);
+                    Assert.AreEqual(expected[index].Item2, legacyCalls[index].Action);
                 }
 
+                foreach (string id in configuredIds)
+                {
+                    RoutedEventArgs args = RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_" + id.Replace("-", "_", StringComparison.Ordinal)));
+                    Assert.IsTrue(args.Handled);
+                }
+                MenuItem programParent = FindMenuItem(menu, "tableContextMenuItemOpenProgramActions");
+                Assert.AreEqual(
+                    menu.Items.IndexOf(FindMenuItem(menu, "tableContextMenuItemOpenBMSFile")) + 1,
+                    menu.Items.IndexOf(programParent));
+                Assert.AreEqual(Resources.RightClick_open_with_program, programParent.Header);
+                RoutedEventArgs programArgs = RaiseMenuClick(FindMenuItem(programParent, "configuredProgramAction_program"));
+                Assert.IsTrue(programArgs.Handled);
+
+                Assert.AreEqual(configuredIds.Length + 1, configuredCalls.Count);
+                CollectionAssert.AreEqual(
+                    configuredIds,
+                    configuredCalls.Where(call => call.Kind == ConfiguredExternalActionKind.Web).Select(call => call.Id).ToArray());
+                Assert.IsTrue(configuredCalls.All(call => call.Md5 == md5));
+                Assert.AreEqual(ConfiguredExternalActionKind.Program, configuredCalls[^1].Kind);
+                Assert.AreEqual("program", configuredCalls[^1].Id);
+                Assert.IsTrue(createdTargets.All(target => ReferenceEquals(target.Chart, row.Chart)));
+
                 eligible = false;
-                int callCountBeforeRejected = calls.Count;
-                RoutedEventArgs rejectedArgs = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemOpenMocha"));
-                Assert.IsFalse(rejectedArgs.Handled);
-                Assert.AreEqual(callCountBeforeRejected, calls.Count);
+                int callCountBeforeRejected = configuredCalls.Count;
+                RoutedEventArgs rejectedArgs = RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_first_web"));
+                Assert.IsTrue(rejectedArgs.Handled);
+                Assert.AreEqual(callCountBeforeRejected, configuredCalls.Count);
             },
             selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
     }

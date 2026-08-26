@@ -3165,4 +3165,41 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="About_original_site_link" xml:space="preserve"><value>オリジナルサイト</value></data>
   <data name="About_version_format" xml:space="preserve"><value>バージョン: {0}</value></data>
   <data name="About_build_format" xml:space="preserve"><value>ビルド: {0}</value></data>
+  <data name="RightClick_actions" xml:space="preserve"><value>右クリックアクション</value></data>
+  <data name="RightClick_web_actions" xml:space="preserve"><value>Webアクション</value></data>
+  <data name="RightClick_web_actions_description" xml:space="preserve"><value>譜面のハッシュを使って開くWebページを保存順に設定します。</value></data>
+  <data name="RightClick_program_actions" xml:space="preserve"><value>プログラムアクション</value></data>
+  <data name="RightClick_open_with_program" xml:space="preserve"><value>プログラムから開く</value></data>
+  <data name="RightClick_program_actions_description" xml:space="preserve"><value>譜面ファイルを外部プログラムへ渡すアクションを保存順に設定します。</value></data>
+  <data name="RightClick_add" xml:space="preserve"><value>追加</value></data>
+  <data name="RightClick_delete" xml:space="preserve"><value>削除</value></data>
+  <data name="RightClick_move_up" xml:space="preserve"><value>上へ</value></data>
+  <data name="RightClick_move_down" xml:space="preserve"><value>下へ</value></data>
+  <data name="RightClick_restore_defaults" xml:space="preserve"><value>既定値へ戻す</value></data>
+  <data name="RightClick_name" xml:space="preserve"><value>名前</value></data>
+  <data name="RightClick_url" xml:space="preserve"><value>URLテンプレート</value></data>
+  <data name="RightClick_chart_kind" xml:space="preserve"><value>対象の譜面種別</value></data>
+  <data name="RightClick_enabled" xml:space="preserve"><value>有効</value></data>
+  <data name="RightClick_chart_kind_bms" xml:space="preserve"><value>BMS</value></data>
+  <data name="RightClick_chart_kind_bmson" xml:space="preserve"><value>bmson</value></data>
+  <data name="RightClick_chart_kind_both" xml:space="preserve"><value>BMSとbmson</value></data>
+  <data name="RightClick_executable" xml:space="preserve"><value>実行ファイル</value></data>
+  <data name="RightClick_arguments" xml:space="preserve"><value>引数テンプレート</value></data>
+  <data name="RightClick_executable_picker_title" xml:space="preserve"><value>プログラム実行ファイルを選択</value></data>
+  <data name="RightClick_executable_filter" xml:space="preserve"><value>実行ファイル (*.exe)|*.exe|すべてのファイル (*.*)|*.*</value></data>
+  <data name="RightClick_settings_invalid" xml:space="preserve"><value>右クリックアクション設定を読み取れません。</value></data>
+  <data name="RightClick_settings_invalid_format" xml:space="preserve"><value>保存済みの右クリックアクション設定が不正です。既定値へ戻してから保存してください。詳細: {0}</value></data>
+  <data name="RightClick_settings_validation_error_format" xml:space="preserve"><value>右クリックアクション設定を保存できません。詳細: {0}</value></data>
+  <data name="RightClick_builtin_bms_ir" xml:space="preserve"><value>BMS-IR</value></data>
+  <data name="RightClick_builtin_mocha" xml:space="preserve"><value>Mocha</value></data>
+  <data name="RightClick_builtin_minir" xml:space="preserve"><value>MinIR</value></data>
+  <data name="RightClick_builtin_rianir" xml:space="preserve"><value>rianIR</value></data>
+  <data name="RightClick_builtin_stellaverse" xml:space="preserve"><value>STELLAVERSE IR</value></data>
+  <data name="RightClick_external_launch_failed_format" xml:space="preserve"><value>外部アクションを実行できませんでした。詳細: {0}</value></data>
+  <data name="RightClick_external_action_unavailable" xml:space="preserve"><value>選択した外部アクションは利用できません。</value></data>
+  <data name="RightClick_external_settings_invalid" xml:space="preserve"><value>右クリックアクション設定が不正なため、外部アクションを実行できません。</value></data>
+  <data name="RightClick_external_web_launch_failed" xml:space="preserve"><value>Webアクションを開けませんでした。</value></data>
+  <data name="RightClick_external_program_executable_missing" xml:space="preserve"><value>設定されたプログラムの実行ファイルが見つかりません。</value></data>
+  <data name="RightClick_external_program_chart_missing" xml:space="preserve"><value>対象の譜面ファイルが見つかりません。</value></data>
+  <data name="RightClick_external_program_launch_failed" xml:space="preserve"><value>プログラムを起動できませんでした。</value></data>
 </root>

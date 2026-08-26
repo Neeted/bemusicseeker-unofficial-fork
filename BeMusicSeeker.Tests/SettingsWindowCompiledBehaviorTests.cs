@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -66,7 +67,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     typeof(InstallSettingsPage),
                     typeof(BackupSettingsPage),
                     typeof(AdvancedSettingsPage),
-                    typeof(AboutSettingsPage)
+                    typeof(AboutSettingsPage),
+                    typeof(RightClickSettingsPage)
                 };
                 Assert.AreEqual(pageTypes.Length, navigation.Items.Count);
                 for (int index = 0; index < pageTypes.Length; index++)
@@ -80,6 +82,100 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges(),
                         $"Materializing page index {index} changed the settings draft.");
                 }
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void RightClickPageBindsTheChildEditorWithoutMutatingSettingsOnOpen()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            {
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true,
+                RightClickActionsJson = string.Empty
+            });
+            var window = new SettingsWindow
+            {
+                DataContext = owner.SettingDialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                Materialize(window);
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                navigation.SelectedItem = window.FindName("navigationRightClick");
+                Materialize(window);
+
+                Assert.IsInstanceOfType<RightClickSettingsPage>(content.Content);
+                Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
+                var page = (RightClickSettingsPage)content.Content;
+                ListBox webActions = (ListBox)page.FindName("webActionsListBox");
+                ListBox programActions = (ListBox)page.FindName("programActionsListBox");
+                Assert.AreEqual(0, webActions.Items.Count);
+                Assert.AreEqual(0, programActions.Items.Count);
+                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
+                Assert.IsNotNull(owner.SettingDialog.RightClickActionSettingsEditor);
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void RightClickPageShowsBuiltInNameInEditorWithoutCreatingAnOverride()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            {
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true,
+                RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
+            });
+            var window = new SettingsWindow
+            {
+                DataContext = owner.SettingDialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                Materialize(window);
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                navigation.SelectedItem = window.FindName("navigationRightClick");
+                Materialize(window);
+
+                var page = (RightClickSettingsPage)content.Content;
+                TextBox nameEditor = FindLogicalDescendants<TextBox>(page)
+                    .Single(textBox => string.Equals(
+                        GetBindingPath(textBox, TextBox.TextProperty),
+                        "RightClickActionSettingsEditor.SelectedWebAction.Name",
+                        StringComparison.Ordinal));
+                nameEditor.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+
+                RightClickWebActionEditorRow first = owner.SettingDialog.RightClickActionSettingsEditor.WebActions[0];
+                Assert.AreEqual(Resources.RightClick_builtin_bms_ir, nameEditor.Text);
+                Assert.AreEqual(Resources.RightClick_builtin_bms_ir, first.Name);
+                Assert.IsNull(first.NameOverride);
+                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
             }
             finally
             {

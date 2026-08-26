@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -23,26 +25,17 @@ public sealed partial class PlayHistoryWorkflowOwner
         switch (actionKind)
         {
             case PlayHistoryContextMenuActionKind.OpenBmsIr:
-                string bmsIrUrl = GetBmsIrSongUrl(state.Md5);
-                if (string.IsNullOrWhiteSpace(bmsIrUrl))
-                {
-                    return false;
-                }
-                action = PlayHistoryContextMenuAction.ForUrl(bmsIrUrl);
-                return true;
+                return TryCreateConfiguredWebAction(state, RightClickActionSettingsDefaults.BmsIrId, out action);
             case PlayHistoryContextMenuActionKind.OpenMocha:
-                if (!state.CanOpenRepository)
-                {
-                    return false;
-                }
-                action = PlayHistoryContextMenuAction.ForUrl(GetMochaSongUrl(state.Sha256));
-                return true;
+                return TryCreateConfiguredWebAction(state, RightClickActionSettingsDefaults.MochaId, out action);
             case PlayHistoryContextMenuActionKind.OpenMinIr:
-                if (!state.CanOpenRepository)
+                return TryCreateConfiguredWebAction(state, RightClickActionSettingsDefaults.MinIrId, out action);
+            case PlayHistoryContextMenuActionKind.OpenAssociated:
+                if (!state.CanOpenAssociated)
                 {
                     return false;
                 }
-                action = PlayHistoryContextMenuAction.ForUrl(GetMinIrSongUrl(state.Sha256));
+                action = PlayHistoryContextMenuAction.ForPath(state.ChartPath);
                 return true;
             case PlayHistoryContextMenuActionKind.OpenExplorer:
                 if (!state.CanOpenExplorer)
@@ -83,22 +76,51 @@ public sealed partial class PlayHistoryWorkflowOwner
         return true;
     }
 
-    private static string GetBmsIrSongUrl(string md5)
+    internal bool TryCreateRightClickActionResolutionInput(
+        object row,
+        Func<string, bool> fileExists,
+        out RightClickActionResolutionInput input)
     {
-        if (!PlayHistoryContextMenuState.IsValidBmsIrHash(md5))
+        input = null;
+        if (!TryCreateContextMenuState(row, out PlayHistoryContextMenuState state))
         {
-            return null;
+            return false;
         }
-        return "https://bms-ir.org/new/song?songmd5=" + md5.Trim() + "&view=both";
+        input = state.CreateResolutionInput(fileExists);
+        return true;
     }
 
-    private static string GetMochaSongUrl(string sha256)
+    /// <summary>Creates an exact local chart target for play-history associated-open actions.</summary>
+    internal bool TryCreateAssociatedChartOperationTarget(
+        object row,
+        out ChartOperationTarget target)
     {
-        return string.IsNullOrWhiteSpace(sha256) ? null : "https://mocha-repository.info/song.php?sha256=" + sha256;
+        target = null;
+        return TryCreateContextMenuState(row, out PlayHistoryContextMenuState state)
+            && (target = state.CreateAssociatedOpenTarget()) != null;
     }
 
-    private static string GetMinIrSongUrl(string sha256)
+    private bool TryCreateConfiguredWebAction(
+        PlayHistoryContextMenuState state,
+        string actionId,
+        out PlayHistoryContextMenuAction action)
     {
-        return string.IsNullOrWhiteSpace(sha256) ? null : "https://www.gaftalk.com/minir/#/viewer/song/" + sha256 + "/0";
+        action = null;
+        RightClickActionSettingsParseResult parsed = rightClickActionSettingsStore.Load();
+        if (!parsed.Succeeded)
+        {
+            return false;
+        }
+        RightClickActionResolution resolution = RightClickActionResolver.Resolve(
+            parsed.Settings,
+            state.CreateResolutionInput(_ => false));
+        ResolvedRightClickWebAction resolved = resolution.WebActions.FirstOrDefault(
+            candidate => string.Equals(candidate.Id, actionId, StringComparison.Ordinal));
+        if (resolved == null)
+        {
+            return false;
+        }
+        action = PlayHistoryContextMenuAction.ForUrl(resolved.Url);
+        return true;
     }
 }

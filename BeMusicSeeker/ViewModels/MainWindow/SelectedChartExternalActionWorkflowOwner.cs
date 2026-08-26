@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -14,6 +16,80 @@ internal enum SelectedChartExternalActionKind
     OpenLr2Ir,
     OpenMocha,
     OpenMinIr
+}
+
+/// <summary>
+/// Kind carried by a generated context-menu action. The stable action ID is
+/// resolved again at click time so stale menu entries cannot launch another row.
+/// </summary>
+internal enum ConfiguredExternalActionKind
+{
+    /// <summary>browser/shell URL action。</summary>
+    Web,
+    /// <summary>local chart file を渡す program action。</summary>
+    Program
+}
+
+/// <summary>
+/// Typed failure categories for configured web/program actions.
+/// </summary>
+internal enum ExternalConfiguredActionFailureKind
+{
+    /// <summary>成功または failure なし。</summary>
+    None,
+    /// <summary>persisted settings が strict parse に失敗した。</summary>
+    InvalidSettings,
+    /// <summary>action または exact row が stale になった。</summary>
+    ActionUnavailable,
+    /// <summary>shell gateway が URL を開けなかった。</summary>
+    WebLaunchFailed,
+    /// <summary>設定された program executable が click 時点で存在しなかった。</summary>
+    ProgramExecutableMissing,
+    /// <summary>program に渡す local chart が click 時点で存在しなかった。</summary>
+    ProgramChartMissing,
+    /// <summary>program gateway が chart を起動できなかった。</summary>
+    ProgramLaunchFailed
+}
+
+/// <summary>
+/// Immutable result returned by configured external-action execution.
+/// </summary>
+internal sealed class ExternalConfiguredActionResult
+{
+    private ExternalConfiguredActionResult(
+        bool succeeded,
+        ExternalConfiguredActionFailureKind failureKind,
+        string diagnostic,
+        Exception exception)
+    {
+        Succeeded = succeeded;
+        FailureKind = failureKind;
+        Diagnostic = diagnostic ?? string.Empty;
+        Exception = exception;
+    }
+
+    /// <summary>external action が成功したか。</summary>
+    internal bool Succeeded { get; }
+
+    /// <summary>失敗時の typed category。</summary>
+    internal ExternalConfiguredActionFailureKind FailureKind { get; }
+
+    /// <summary>terminal/UI へ渡す診断。</summary>
+    internal string Diagnostic { get; }
+
+    /// <summary>gateway が返した例外。通常の stale/missing では null。</summary>
+    internal Exception Exception { get; }
+
+    internal static ExternalConfiguredActionResult Success { get; } =
+        new(true, ExternalConfiguredActionFailureKind.None, string.Empty, null);
+
+    internal static ExternalConfiguredActionResult Failure(
+        ExternalConfiguredActionFailureKind failureKind,
+        string diagnostic,
+        Exception exception = null)
+    {
+        return new(false, failureKind, diagnostic, exception);
+    }
 }
 
 internal enum RelatedDocumentQueryStatus
@@ -57,11 +133,10 @@ internal sealed class RelatedDocumentQueryReceipt
 
 internal sealed class SelectedChartExternalActionWorkflowOwner
 {
-    private static readonly Regex Md5HashRegex = new("^[a-f0-9]{32}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex Sha256HashRegex = new("^[a-f0-9]{64}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
     private readonly Func<string, bool> fileExists;
     private readonly IExternalShellGateway externalShellGateway;
+    private readonly IExternalProgramLaunchGateway externalProgramLaunchGateway;
+    private readonly RightClickActionSettingsStore rightClickActionSettingsStore;
     private readonly Func<string, string> directoryNameResolver;
     private readonly Func<string, string, IEnumerable<string>> relatedDocumentFileEnumerator;
 
@@ -69,15 +144,22 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         Func<string, bool> fileExists,
         IExternalShellGateway externalShellGateway,
         Func<string, string> directoryNameResolver = null,
-        Func<string, string, IEnumerable<string>> relatedDocumentFileEnumerator = null)
+        Func<string, string, IEnumerable<string>> relatedDocumentFileEnumerator = null,
+        Func<Settings> settingsProvider = null,
+        IExternalProgramLaunchGateway externalProgramLaunchGateway = null)
     {
         this.fileExists = fileExists ?? throw new ArgumentNullException(nameof(fileExists));
         this.externalShellGateway = externalShellGateway
             ?? throw new ArgumentNullException(nameof(externalShellGateway));
+        this.externalProgramLaunchGateway = externalProgramLaunchGateway
+            ?? ExternalProgramLaunchGatewayPolicy.Current;
+        rightClickActionSettingsStore = new RightClickActionSettingsStore(settingsProvider);
         this.directoryNameResolver = directoryNameResolver ?? DirectoryExt.GetDirectoryNameSimple;
         this.relatedDocumentFileEnumerator = relatedDocumentFileEnumerator
             ?? ((directory, pattern) => LongPathFileSystem.EnumerateFiles(directory, pattern));
     }
+
+    internal bool HasConfiguredActions => true;
 
     internal bool CanQueryRelatedDocuments(ChartOperationTarget target)
     {
@@ -143,6 +225,176 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         externalShellGateway.Open(ExternalShellRequest.OpenAssociatedFile(path));
     }
 
+    /// <summary>
+    /// Converts one exact row target into the immutable context consumed by the
+    /// shared right-click resolver. A local path is supplied only for an owned,
+    /// existing chart; hash-only and playlist-missing targets never get a path.
+    /// </summary>
+    internal bool TryCreateResolutionInput(
+        ChartOperationTarget target,
+        out RightClickActionResolutionInput input)
+    {
+        input = null;
+        if (target?.Chart == null)
+        {
+            return false;
+        }
+
+        string localFilePath = target.IsOwned
+            && !target.IsPlaylistMissing
+            && target.HasCapability(ChartOperationCapabilities.OpenFile)
+            && !string.IsNullOrWhiteSpace(target.Chart.Path)
+            && fileExists(target.Chart.Path)
+                ? target.Chart.Path
+                : null;
+        input = new RightClickActionResolutionInput(
+            target.Chart.Md5,
+            GetRepositorySha256(target),
+            localFilePath,
+            target.Chart.Kind == ChartFileKind.Bmson
+                ? ExternalChartKind.BmsonOnly
+                : ExternalChartKind.BmsOnly);
+        return true;
+    }
+
+    internal RightClickActionResolutionInput CreateResolutionInput(ChartOperationTarget target)
+    {
+        return TryCreateResolutionInput(target, out RightClickActionResolutionInput input)
+            ? input
+            : null;
+    }
+
+    /// <summary>
+    /// Resolves enabled configured actions in persisted order. Invalid settings
+    /// intentionally produce an empty menu; the settings page owns diagnosis and
+    /// reset presentation.
+    /// </summary>
+    internal RightClickActionResolution ResolveConfiguredActions(RightClickActionResolutionInput input)
+    {
+        if (input == null)
+        {
+            return new RightClickActionResolution([], []);
+        }
+
+        RightClickActionSettingsParseResult parsed = rightClickActionSettingsStore.Load();
+        return parsed.Succeeded
+            ? RightClickActionResolver.Resolve(parsed.Settings, input)
+            : new RightClickActionResolution([], []);
+    }
+
+    internal RightClickActionResolution ResolveConfiguredActions(ChartOperationTarget target)
+    {
+        return TryCreateResolutionInput(target, out RightClickActionResolutionInput input)
+            ? ResolveConfiguredActions(input)
+            : new RightClickActionResolution([], []);
+    }
+
+    /// <summary>
+    /// Re-reads settings and re-resolves the supplied exact context before a
+    /// generated menu action is launched.
+    /// </summary>
+    internal ExternalConfiguredActionResult ExecuteConfiguredAction(
+        RightClickActionResolutionInput input,
+        ConfiguredExternalActionKind actionKind,
+        string actionId)
+    {
+        if (input == null || string.IsNullOrWhiteSpace(actionId))
+        {
+            return ExternalConfiguredActionResult.Failure(
+                ExternalConfiguredActionFailureKind.ActionUnavailable,
+                string.Empty);
+        }
+
+        RightClickActionSettingsParseResult parsed = rightClickActionSettingsStore.Load();
+        if (!parsed.Succeeded)
+        {
+            return ExternalConfiguredActionResult.Failure(
+                ExternalConfiguredActionFailureKind.InvalidSettings,
+                parsed.Error?.ToString());
+        }
+
+        RightClickActionResolution resolution = RightClickActionResolver.Resolve(parsed.Settings, input);
+        if (actionKind == ConfiguredExternalActionKind.Web)
+        {
+            ResolvedRightClickWebAction action = resolution.WebActions.FirstOrDefault(
+                candidate => string.Equals(candidate.Id, actionId, StringComparison.Ordinal));
+            if (action == null)
+            {
+                return ExternalConfiguredActionResult.Failure(
+                    ExternalConfiguredActionFailureKind.ActionUnavailable,
+                    string.Empty);
+            }
+
+            try
+            {
+                externalShellGateway.Open(ExternalShellRequest.OpenUrl(action.Url));
+                return ExternalConfiguredActionResult.Success;
+            }
+            catch (Exception exception)
+            {
+                return ExternalConfiguredActionResult.Failure(
+                    ExternalConfiguredActionFailureKind.WebLaunchFailed,
+                    exception.Message,
+                    exception);
+            }
+        }
+
+        ResolvedRightClickProgramAction program = resolution.ProgramActions.FirstOrDefault(
+            candidate => string.Equals(candidate.Id, actionId, StringComparison.Ordinal));
+        if (program == null || string.IsNullOrWhiteSpace(input.LocalFilePath))
+        {
+            return ExternalConfiguredActionResult.Failure(
+                ExternalConfiguredActionFailureKind.ActionUnavailable,
+                string.Empty);
+        }
+
+        ExternalProgramLaunchResult launch = externalProgramLaunchGateway.Launch(
+            new ExternalProgramLaunchRequest(
+                program.Id,
+                program.ExecutablePath,
+                input.LocalFilePath,
+                program.Arguments));
+        return launch.Succeeded
+            ? ExternalConfiguredActionResult.Success
+            : ExternalConfiguredActionResult.Failure(
+                MapProgramLaunchFailure(launch.FailureKind),
+                launch.Diagnostic,
+                launch.Exception);
+    }
+
+    private static ExternalConfiguredActionFailureKind MapProgramLaunchFailure(
+        ExternalProgramLaunchFailureKind failureKind)
+    {
+        return failureKind switch
+        {
+            ExternalProgramLaunchFailureKind.InvalidExecutablePath => ExternalConfiguredActionFailureKind.ProgramExecutableMissing,
+            ExternalProgramLaunchFailureKind.MissingExecutable => ExternalConfiguredActionFailureKind.ProgramExecutableMissing,
+            ExternalProgramLaunchFailureKind.MissingChart => ExternalConfiguredActionFailureKind.ProgramChartMissing,
+            _ => ExternalConfiguredActionFailureKind.ProgramLaunchFailed
+        };
+    }
+
+    internal string GetDisplayName(ResolvedRightClickWebAction action)
+    {
+        if (action == null)
+        {
+            return string.Empty;
+        }
+        if (!string.IsNullOrWhiteSpace(action.Name))
+        {
+            return action.Name;
+        }
+        return action.Id switch
+        {
+            RightClickActionSettingsDefaults.BmsIrId => BeMusicSeeker.Properties.Resources.RightClick_builtin_bms_ir,
+            RightClickActionSettingsDefaults.MochaId => BeMusicSeeker.Properties.Resources.RightClick_builtin_mocha,
+            RightClickActionSettingsDefaults.MinIrId => BeMusicSeeker.Properties.Resources.RightClick_builtin_minir,
+            RightClickActionSettingsDefaults.RianIrId => BeMusicSeeker.Properties.Resources.RightClick_builtin_rianir,
+            RightClickActionSettingsDefaults.StellaverseIrId => BeMusicSeeker.Properties.Resources.RightClick_builtin_stellaverse,
+            _ => action.Id
+        };
+    }
+
     internal bool CanExecute(ChartOperationTarget target, SelectedChartExternalActionKind action)
     {
         if (target?.Chart == null)
@@ -157,12 +409,11 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
             case SelectedChartExternalActionKind.OpenFile:
                 return TryGetExistingPath(target, ChartOperationCapabilities.OpenFile, out _);
             case SelectedChartExternalActionKind.OpenLr2Ir:
-                return target.HasCapability(ChartOperationCapabilities.UseLr2Ir)
-                    && IsValidMd5(target.Chart.Md5?.Trim());
+                return HasConfiguredWebAction(target, RightClickActionSettingsDefaults.BmsIrId);
             case SelectedChartExternalActionKind.OpenMocha:
+                return HasConfiguredWebAction(target, RightClickActionSettingsDefaults.MochaId);
             case SelectedChartExternalActionKind.OpenMinIr:
-                return target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256)
-                    && IsValidSha256(GetRepositorySha256(target));
+                return HasConfiguredWebAction(target, RightClickActionSettingsDefaults.MinIrId);
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action, null);
         }
@@ -196,21 +447,34 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
                 }
                 return;
             case SelectedChartExternalActionKind.OpenLr2Ir:
-                string md5 = target.Chart.Md5?.Trim();
-                externalShellGateway.Open(ExternalShellRequest.OpenUrl(
-                    "https://bms-ir.org/new/song?songmd5=" + md5 + "&view=both"));
+                ExecuteBuiltInWeb(target, RightClickActionSettingsDefaults.BmsIrId);
                 return;
             case SelectedChartExternalActionKind.OpenMocha:
+                ExecuteBuiltInWeb(target, RightClickActionSettingsDefaults.MochaId);
+                return;
             case SelectedChartExternalActionKind.OpenMinIr:
-                string sha256 = GetRepositorySha256(target);
-                sha256 = sha256.Trim().ToLowerInvariant();
-                string url = action == SelectedChartExternalActionKind.OpenMocha
-                    ? "https://mocha-repository.info/song.php?sha256=" + sha256
-                    : "https://www.gaftalk.com/minir/#/viewer/song/" + sha256 + "/0";
-                externalShellGateway.Open(ExternalShellRequest.OpenUrl(url));
+                ExecuteBuiltInWeb(target, RightClickActionSettingsDefaults.MinIrId);
                 return;
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), action, null);
+        }
+    }
+
+    private bool HasConfiguredWebAction(ChartOperationTarget target, string actionId)
+    {
+        if (!TryCreateResolutionInput(target, out RightClickActionResolutionInput input))
+        {
+            return false;
+        }
+        return ResolveConfiguredActions(input).WebActions.Any(
+            action => string.Equals(action.Id, actionId, StringComparison.Ordinal));
+    }
+
+    private void ExecuteBuiltInWeb(ChartOperationTarget target, string actionId)
+    {
+        if (TryCreateResolutionInput(target, out RightClickActionResolutionInput input))
+        {
+            ExecuteConfiguredAction(input, ConfiguredExternalActionKind.Web, actionId);
         }
     }
 
@@ -219,8 +483,9 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
         ChartOperationCapabilities capability,
         out string path)
     {
-        path = target.Chart.Path;
-        return target.HasCapability(capability)
+        path = target?.Chart?.Path;
+        return target != null
+            && target.HasCapability(capability)
             && !string.IsNullOrWhiteSpace(path)
             && fileExists(path);
     }
@@ -236,16 +501,6 @@ internal sealed class SelectedChartExternalActionWorkflowOwner
     private static string GetRepositorySha256(ChartOperationTarget target)
     {
         return FirstNonEmpty(target.Chart.Sha256, target.Chart.ChartInfo?.sha256);
-    }
-
-    private static bool IsValidMd5(string value)
-    {
-        return !string.IsNullOrWhiteSpace(value) && Md5HashRegex.IsMatch(value);
-    }
-
-    private static bool IsValidSha256(string value)
-    {
-        return !string.IsNullOrWhiteSpace(value) && Sha256HashRegex.IsMatch(value.Trim());
     }
 
     private static string FirstNonEmpty(params string[] values)

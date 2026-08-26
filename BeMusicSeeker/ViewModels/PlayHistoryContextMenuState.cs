@@ -1,3 +1,4 @@
+using System;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -12,14 +13,22 @@ internal sealed class PlayHistoryContextMenuState
         string sha256,
         string chartPath,
         string chartTitle,
-        bool canOpenScoreViewer)
+        ChartFile resolvedChart,
+        bool canOpenScoreViewer,
+        bool hasResolvedChart,
+        ExternalChartKind chartKind)
     {
         Md5 = md5 ?? string.Empty;
         Sha256 = sha256 ?? string.Empty;
         ChartPath = chartPath ?? string.Empty;
         ChartTitle = chartTitle ?? string.Empty;
+        this.resolvedChart = resolvedChart;
         CanOpenScoreViewer = canOpenScoreViewer;
+        HasResolvedChart = hasResolvedChart;
+        ChartKind = chartKind;
     }
+
+    private readonly ChartFile resolvedChart;
 
     internal string Md5 { get; }
 
@@ -35,7 +44,16 @@ internal sealed class PlayHistoryContextMenuState
 
     internal bool CanOpenExplorer => !string.IsNullOrWhiteSpace(ChartPath);
 
+    /// <summary>Gets whether the resolved play-history row can use the associated-file terminal.</summary>
+    internal bool CanOpenAssociated => HasResolvedChart
+        && !string.IsNullOrWhiteSpace(ChartPath)
+        && System.IO.Path.IsPathFullyQualified(ChartPath);
+
     internal bool CanOpenScoreViewer { get; }
+
+    internal bool HasResolvedChart { get; }
+
+    internal ExternalChartKind ChartKind { get; }
 
     internal bool CanCopyMd5 => !string.IsNullOrWhiteSpace(Md5);
 
@@ -43,7 +61,7 @@ internal sealed class PlayHistoryContextMenuState
 
     internal bool HasExternalLinkItem => CanOpenBmsIr || CanOpenRepository;
 
-    internal bool HasLocalChartItem => CanOpenExplorer || CanOpenScoreViewer;
+    internal bool HasLocalChartItem => CanOpenAssociated || CanOpenScoreViewer;
 
     internal bool HasHashCopyItem => CanCopyMd5 || CanCopySha256;
 
@@ -58,12 +76,26 @@ internal sealed class PlayHistoryContextMenuState
         }
 
         ChartFile chart = playHistoryRow.ResolvedChart;
-        string md5 = chart?.Kind == ChartFileKind.Bms ? GridRowResolver.GetHash(playHistoryRow) : null;
-        string sha256 = GridRowResolver.GetRepositorySha256(playHistoryRow);
+        string md5 = chart?.Kind == ChartFileKind.Bmson
+            ? null
+            : FirstNonEmpty(GridRowResolver.GetHash(playHistoryRow), playHistoryRow.Md5, playHistoryRow.RawHash);
+        string sha256 = FirstNonEmpty(
+            GridRowResolver.GetRepositorySha256(playHistoryRow),
+            playHistoryRow.Sha256,
+            chart?.Sha256,
+            chart?.ChartInfo?.sha256);
         bool canOpenScoreViewer = chart?.Kind == ChartFileKind.Bms
             && !string.IsNullOrWhiteSpace(chart.Md5)
             && !string.IsNullOrWhiteSpace(chart.Path);
-        state = new PlayHistoryContextMenuState(md5, sha256, chart?.Path, chart?.Title, canOpenScoreViewer);
+        state = new PlayHistoryContextMenuState(
+            md5,
+            sha256,
+            chart?.Path,
+            chart?.Title,
+            chart,
+            canOpenScoreViewer,
+            chart != null,
+            chart?.Kind == ChartFileKind.Bmson ? ExternalChartKind.BmsonOnly : ExternalChartKind.BmsOnly);
         if (state.HasVisibleItem)
         {
             return true;
@@ -88,6 +120,48 @@ internal sealed class PlayHistoryContextMenuState
         return !string.IsNullOrWhiteSpace(md5)
             && System.Text.RegularExpressions.Regex.IsMatch(md5.Trim(), "^[A-F0-9]{32}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
     }
+
+    internal RightClickActionResolutionInput CreateResolutionInput(Func<string, bool> fileExists)
+    {
+        string localPath = HasResolvedChart
+            && !string.IsNullOrWhiteSpace(ChartPath)
+            && System.IO.Path.IsPathFullyQualified(ChartPath)
+            && fileExists != null
+            && fileExists(ChartPath)
+                ? ChartPath
+                : null;
+        return new RightClickActionResolutionInput(Md5, Sha256, localPath, ChartKind);
+    }
+
+    /// <summary>Builds the exact chart operation target used by the associated-open terminal.</summary>
+    internal ChartOperationTarget CreateAssociatedOpenTarget()
+    {
+        if (!CanOpenAssociated || resolvedChart == null)
+        {
+            return null;
+        }
+
+        return new ChartOperationTarget(
+            resolvedChart,
+            playlistEntry: null,
+            ChartOperationSourceScope.PlayHistory,
+            isOwned: true,
+            isPending: false,
+            isPlaylistMissing: false,
+            ChartOperationCapabilities.OpenFile | ChartOperationCapabilities.OpenFolder);
+    }
+
+    private static string FirstNonEmpty(params string[] values)
+    {
+        foreach (string value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+        return null;
+    }
 }
 
 internal enum PlayHistoryContextMenuActionKind
@@ -95,6 +169,7 @@ internal enum PlayHistoryContextMenuActionKind
     OpenBmsIr,
     OpenMocha,
     OpenMinIr,
+    OpenAssociated,
     OpenExplorer,
     RegisterScoreViewer,
     CopyMd5,

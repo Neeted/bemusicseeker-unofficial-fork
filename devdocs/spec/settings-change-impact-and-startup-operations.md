@@ -209,6 +209,14 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 - user.config へ保存するだけで、現在の library / score / custom folder / LR2 config に即時整合処理をかけない。
 - Cancel 時は snapshot 差分がある設定だけを戻し、無変更なら閉じるだけにする。
 
+#### `RightClickActionsJson`
+
+`RightClickActionsJson` は Startup-only / Next-use の設定である。設定画面の `右クリック` カテゴリを開くだけでは保存済み値を変更せず、Web / Program の draft はページ内に保持する。`Save` は全アクションを検証して一度にシリアライズし、既存の settings edit session へ原子的に引き渡す。`Cancel` または native close は draft を破棄し、保存済み raw 値を変更しない。
+
+保存後は次に通常一覧、未所持プレイリスト行、または Play History のコンテキストメニューを開いた時点で現在の保存値を読み取る。保存を理由に library reload、score reload、file diff、Play History の再構築、または外部プログラムの起動は行わない。hash-only の行は Web action だけ、local chart に解決できる行は Program action も対象となる。
+
+保存済み raw 値が invalid の場合、runtime は action を公開せず、設定画面は診断と明示的な `既定値へ戻す` / `Restore defaults` のみを recovery として提示する。reset draft を保存するまで invalid 値を自動補正したり有効部分だけを採用したりしない。明示的な empty aggregate は empty のまま保存され、default actions を再投入しない。
+
 ### Folder/File Diff
 
 対象例:

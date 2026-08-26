@@ -32,6 +32,59 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ContextMenusRetireFixedExternalWebItems()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+
+        foreach (string retiredName in new[]
+        {
+            "tableContextMenuItemOpenLR2IR",
+            "tableContextMenuItemOpenMocha",
+            "tableContextMenuItemOpenMinIR",
+            "playHistoryContextMenuItemOpenBMSIR",
+            "playHistoryContextMenuItemOpenMocha",
+            "playHistoryContextMenuItemOpenMinIR"
+        })
+        {
+            Assert.AreEqual(0, CountOccurrences(xaml, "Name=\"" + retiredName + "\""), retiredName);
+        }
+
+        StringAssert.Contains(xaml, "Name=\"tableContextMenuItemOpenBMSFile\"");
+        StringAssert.Contains(xaml, "Name=\"playHistoryContextMenuItemOpenExplorer\"");
+        StringAssert.Contains(xaml, "Name=\"playHistoryContextMenuItemOpenAssociated\"");
+        StringAssert.Contains(xaml, "Path=Resources.Open_association, Mode=OneWay");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_program_actions));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_open_with_program));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_launch_failed_format));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_settings_invalid));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_web_launch_failed));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_program_executable_missing));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_program_chart_missing));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.RightClick_external_program_launch_failed));
+    }
+
+    [TestMethod]
+    public void ConfiguredExternalActionFailureUsesTypedLocalizedMessage()
+    {
+        foreach ((ExternalConfiguredActionFailureKind kind, string expected) in new[]
+        {
+            (ExternalConfiguredActionFailureKind.InvalidSettings, Resources.RightClick_external_settings_invalid),
+            (ExternalConfiguredActionFailureKind.ActionUnavailable, Resources.RightClick_external_action_unavailable),
+            (ExternalConfiguredActionFailureKind.WebLaunchFailed, Resources.RightClick_external_web_launch_failed),
+            (ExternalConfiguredActionFailureKind.ProgramExecutableMissing, Resources.RightClick_external_program_executable_missing),
+            (ExternalConfiguredActionFailureKind.ProgramChartMissing, Resources.RightClick_external_program_chart_missing),
+            (ExternalConfiguredActionFailureKind.ProgramLaunchFailed, Resources.RightClick_external_program_launch_failed)
+        })
+        {
+            string message = MainWindow.GetConfiguredExternalActionFailureMessage(
+                ExternalConfiguredActionResult.Failure(kind, "raw parser or exception detail"));
+
+            Assert.AreEqual(expected, message, kind.ToString());
+            Assert.IsFalse(message.Contains("raw parser or exception detail", StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
     public void InstallPackageTreeHeaders_BindToPackageDisplayTitle()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
@@ -87,6 +140,24 @@ public sealed class MainWindowContextMenuResourceTests
             PlayHistoryContextMenuActionKind.OpenBmsIr,
             out PlayHistoryContextMenuAction rejectedAction));
         Assert.IsNull(rejectedAction);
+    }
+
+    [TestMethod]
+    public void PlayHistoryContextMenuOwnerCreatesAssociatedTargetForResolvedRow()
+    {
+        PlayHistoryRow row = CreateResolvedPlayHistoryRow();
+        PlayHistoryWorkflowOwner owner = new();
+
+        Assert.IsTrue(owner.TryCreateContextMenuAction(
+            row,
+            PlayHistoryContextMenuActionKind.OpenAssociated,
+            out PlayHistoryContextMenuAction associatedAction));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(associatedAction.Path));
+        Assert.IsTrue(owner.TryCreateAssociatedChartOperationTarget(
+            row,
+            out ChartOperationTarget target));
+        Assert.AreEqual(ChartOperationSourceScope.PlayHistory, target.SourceScope);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
     }
 
     [TestMethod]

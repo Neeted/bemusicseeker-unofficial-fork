@@ -2053,6 +2053,61 @@ public class Resources
     public static string About_version_format => ResourceManager.GetString("About_version_format", resourceCulture);
     public static string About_build_format => ResourceManager.GetString("About_build_format", resourceCulture);
 
+    public static string RightClick_actions => ResourceManager.GetString("RightClick_actions", resourceCulture);
+    public static string RightClick_web_actions => ResourceManager.GetString("RightClick_web_actions", resourceCulture);
+    public static string RightClick_web_actions_description => ResourceManager.GetString("RightClick_web_actions_description", resourceCulture);
+    public static string RightClick_program_actions => ResourceManager.GetString("RightClick_program_actions", resourceCulture);
+
+    /// <summary>コンテキストメニューからプログラムを開く項目名を表示します。</summary>
+    public static string RightClick_open_with_program => ResourceManager.GetString("RightClick_open_with_program", resourceCulture);
+
+    public static string RightClick_program_actions_description => ResourceManager.GetString("RightClick_program_actions_description", resourceCulture);
+    public static string RightClick_add => ResourceManager.GetString("RightClick_add", resourceCulture);
+    public static string RightClick_delete => ResourceManager.GetString("RightClick_delete", resourceCulture);
+    public static string RightClick_move_up => ResourceManager.GetString("RightClick_move_up", resourceCulture);
+    public static string RightClick_move_down => ResourceManager.GetString("RightClick_move_down", resourceCulture);
+    public static string RightClick_restore_defaults => ResourceManager.GetString("RightClick_restore_defaults", resourceCulture);
+    public static string RightClick_name => ResourceManager.GetString("RightClick_name", resourceCulture);
+    public static string RightClick_url => ResourceManager.GetString("RightClick_url", resourceCulture);
+    public static string RightClick_chart_kind => ResourceManager.GetString("RightClick_chart_kind", resourceCulture);
+    public static string RightClick_enabled => ResourceManager.GetString("RightClick_enabled", resourceCulture);
+    public static string RightClick_chart_kind_bms => ResourceManager.GetString("RightClick_chart_kind_bms", resourceCulture);
+    public static string RightClick_chart_kind_bmson => ResourceManager.GetString("RightClick_chart_kind_bmson", resourceCulture);
+    public static string RightClick_chart_kind_both => ResourceManager.GetString("RightClick_chart_kind_both", resourceCulture);
+    public static string RightClick_executable => ResourceManager.GetString("RightClick_executable", resourceCulture);
+    public static string RightClick_arguments => ResourceManager.GetString("RightClick_arguments", resourceCulture);
+    public static string RightClick_executable_picker_title => ResourceManager.GetString("RightClick_executable_picker_title", resourceCulture);
+    public static string RightClick_executable_filter => ResourceManager.GetString("RightClick_executable_filter", resourceCulture);
+    public static string RightClick_settings_invalid => ResourceManager.GetString("RightClick_settings_invalid", resourceCulture);
+    public static string RightClick_settings_invalid_format => ResourceManager.GetString("RightClick_settings_invalid_format", resourceCulture);
+    public static string RightClick_settings_validation_error_format => ResourceManager.GetString("RightClick_settings_validation_error_format", resourceCulture);
+    public static string RightClick_builtin_bms_ir => ResourceManager.GetString("RightClick_builtin_bms_ir", resourceCulture);
+    public static string RightClick_builtin_mocha => ResourceManager.GetString("RightClick_builtin_mocha", resourceCulture);
+    public static string RightClick_builtin_minir => ResourceManager.GetString("RightClick_builtin_minir", resourceCulture);
+    public static string RightClick_builtin_rianir => ResourceManager.GetString("RightClick_builtin_rianir", resourceCulture);
+    public static string RightClick_builtin_stellaverse => ResourceManager.GetString("RightClick_builtin_stellaverse", resourceCulture);
+
+    /// <summary>外部アクションの起動失敗を表示します。</summary>
+    public static string RightClick_external_launch_failed_format => ResourceManager.GetString("RightClick_external_launch_failed_format", resourceCulture);
+
+    /// <summary>選択した外部アクションが stale または利用不能であることを表示します。</summary>
+    public static string RightClick_external_action_unavailable => ResourceManager.GetString("RightClick_external_action_unavailable", resourceCulture);
+
+    /// <summary>不正な右クリック設定による起動拒否を表示します。</summary>
+    public static string RightClick_external_settings_invalid => ResourceManager.GetString("RightClick_external_settings_invalid", resourceCulture);
+
+    /// <summary>Webアクションの起動失敗を表示します。</summary>
+    public static string RightClick_external_web_launch_failed => ResourceManager.GetString("RightClick_external_web_launch_failed", resourceCulture);
+
+    /// <summary>設定されたプログラム実行ファイルが見つからない場合を表示します。</summary>
+    public static string RightClick_external_program_executable_missing => ResourceManager.GetString("RightClick_external_program_executable_missing", resourceCulture);
+
+    /// <summary>起動対象の譜面ファイルが見つからない場合を表示します。</summary>
+    public static string RightClick_external_program_chart_missing => ResourceManager.GetString("RightClick_external_program_chart_missing", resourceCulture);
+
+    /// <summary>プログラム起動の一般的な失敗を表示します。</summary>
+    public static string RightClick_external_program_launch_failed => ResourceManager.GetString("RightClick_external_program_launch_failed", resourceCulture);
+
     internal Resources()
     {
     }
