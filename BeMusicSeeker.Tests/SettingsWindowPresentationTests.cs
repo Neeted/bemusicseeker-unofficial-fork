@@ -2460,6 +2460,7 @@ public sealed class SettingsWindowPresentationTests
         XDocument appDocument = LoadAppXaml();
         XDocument windowDocument = LoadSettingsWindowXaml();
         XDocument canonicalDocument = LoadCanonicalControlsXaml();
+        XDocument canonicalDialogDocument = LoadCanonicalDialogStylesXaml();
         XDocument controlsDocument = LoadSettingsControlsXaml();
         XElement operationGrid = FindNamedElement(windowDocument, "settingDialogOperationGrid");
         XElement navigation = FindNamedElement(windowDocument, "settingsNavigation");
@@ -2484,12 +2485,40 @@ public sealed class SettingsWindowPresentationTests
             .Select(dictionary => dictionary.Attribute("Source")?.Value)
             .Where(source => source != null)
             .ToArray();
-        CollectionAssert.Contains(
-            appResourceSources,
-            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml");
-        CollectionAssert.Contains(
-            appResourceSources,
-            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");
+        Assert.AreEqual(
+            1,
+            appResourceSources.Count(source => string.Equals(
+                source,
+                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                StringComparison.OrdinalIgnoreCase)),
+            "App must expose the canonical dialog facade exactly once.");
+        Assert.IsFalse(
+            appResourceSources.Any(source => string.Equals(
+                source,
+                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml",
+                StringComparison.OrdinalIgnoreCase)),
+            "App must not rely on a sibling canonical control dictionary.");
+        Assert.IsTrue(
+            canonicalDialogDocument.Descendants(PresentationName("ResourceDictionary"))
+                .Any(dictionary => string.Equals(
+                    dictionary.Attribute("Source")?.Value,
+                    "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml",
+                    StringComparison.OrdinalIgnoreCase)),
+            "The canonical dialog facade must own its canonical control dependency.");
+        Assert.IsTrue(
+            controlsDocument.Descendants(PresentationName("ResourceDictionary"))
+                .Any(dictionary => string.Equals(
+                    dictionary.Attribute("Source")?.Value,
+                    "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                    StringComparison.OrdinalIgnoreCase)),
+            "SettingsControls must own the canonical dialog facade dependency.");
+        Assert.IsFalse(
+            controlsDocument.Descendants(PresentationName("ResourceDictionary"))
+                .Any(dictionary => string.Equals(
+                    dictionary.Attribute("Source")?.Value,
+                    "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml",
+                    StringComparison.OrdinalIgnoreCase)),
+            "SettingsControls must not bypass the canonical dialog facade.");
 
         foreach (string styleKey in new[]
         {
@@ -3771,6 +3800,11 @@ public sealed class SettingsWindowPresentationTests
         return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Themes", "CanonicalControls.xaml"));
     }
 
+    private static XDocument LoadCanonicalDialogStylesXaml()
+    {
+        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Themes", "CanonicalDialogStyles.xaml"));
+    }
+
     private static XDocument[] LoadSettingsPageXamls()
     {
         string directory = Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "Settings", "Pages");
@@ -3789,18 +3823,6 @@ public sealed class SettingsWindowPresentationTests
         });
         host.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
-            Source = new Uri(
-                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml",
-                UriKind.RelativeOrAbsolute)
-        });
-        host.Resources.MergedDictionaries.Add(new ResourceDictionary
-        {
-            Source = new Uri(
-                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
-                UriKind.RelativeOrAbsolute)
-        });
-        host.Resources.MergedDictionaries.Add(new ResourceDictionary
-        {
             Source = new Uri("/BeMusicSeeker;component/BeMusicSeeker/Views/Settings/SettingsControls.xaml", UriKind.RelativeOrAbsolute)
         });
         return host;
@@ -3810,9 +3832,6 @@ public sealed class SettingsWindowPresentationTests
     {
         Application application = Application.Current;
         Assert.IsNotNull(application);
-        AddCanonicalResourceIfMissing(
-            application,
-            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml");
         AddCanonicalResourceIfMissing(
             application,
             "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");

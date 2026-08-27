@@ -10,6 +10,13 @@
         ShowInTaskbar="False"
         Background="{DynamicResource App.DialogBackgroundBrush}"
         Foreground="{DynamicResource App.TextBrush}">
+  <views:ThemedWindow.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </views:ThemedWindow.Resources>
   <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
     <StackPanel MinWidth="420">
       <TextBlock Margin="0,0,0,12"

@@ -130,6 +130,7 @@ internal static class ThemedMessageBox
         {
             dialog.Owner = owner;
         }
+        EnsureCanonicalDialogResources(dialog);
         dialog.SetResourceReference(Control.BackgroundProperty, "App.DialogBackgroundBrush");
         dialog.SetResourceReference(Control.ForegroundProperty, "App.TextBrush");
 
@@ -230,6 +231,19 @@ internal static class ThemedMessageBox
         root.Child = layout;
         dialog.Content = root;
         return dialog;
+    }
+
+    private static void EnsureCanonicalDialogResources(FrameworkElement element)
+    {
+        if (element.TryFindResource("App.Canonical.DialogContentStyle") is null)
+        {
+            element.Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri(
+                    "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                    UriKind.RelativeOrAbsolute),
+            });
+        }
     }
 
     private static string GetButtonStyleKey(MessageBoxButton button, MessageBoxResult result)

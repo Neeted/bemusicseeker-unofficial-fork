@@ -5,6 +5,13 @@
              xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
              x:Name="initialSetupLanguageDialog">
   <Grid Name="initialSetupLanguageDialogRootGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
+    <FrameworkElement.Resources>
+      <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+          <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
+        </ResourceDictionary.MergedDictionaries>
+      </ResourceDictionary>
+    </FrameworkElement.Resources>
     <Rectangle Style="{StaticResource App.Canonical.DialogOverlayStyle}" />
     <Border Style="{StaticResource App.Canonical.DialogContentStyle}" Width="520" VerticalAlignment="Center" HorizontalAlignment="Center">
       <DockPanel LastChildFill="True">

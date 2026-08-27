@@ -7,6 +7,9 @@
     dictionaries.  These aliases keep Settings' existing resource names and
     its local implicit adoption without leaking a type-key style to MainWindow.
   -->
+  <ResourceDictionary.MergedDictionaries>
+    <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
+  </ResourceDictionary.MergedDictionaries>
   <Style x:Key="SettingsTrackRepeatButtonStyle"
          TargetType="{x:Type RepeatButton}"
          BasedOn="{StaticResource App.Canonical.TrackRepeatButtonStyle}" />

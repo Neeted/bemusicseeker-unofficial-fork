@@ -5,7 +5,13 @@
         xmlns:views="clr-namespace:BeMusicSeeker.Views"
         Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_lr2_advanced_title, Mode=OneWay}"
         Width="680" SizeToContent="Height" MaxHeight="620" WindowStartupLocation="CenterOwner" ShowInTaskbar="False">
-  <views:ThemedWindow.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries></ResourceDictionary></views:ThemedWindow.Resources>
+  <views:ThemedWindow.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="SettingsControls.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </views:ThemedWindow.Resources>
   <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
     <Grid Margin="24"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
       <StackPanel>

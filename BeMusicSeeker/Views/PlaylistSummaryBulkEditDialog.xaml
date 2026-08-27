@@ -3,6 +3,9 @@
   <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
     <FrameworkElement.Resources>
       <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+          <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
+        </ResourceDictionary.MergedDictionaries>
         <Style TargetType="{x:Type GroupBox}" BasedOn="{StaticResource {x:Type GroupBox}}">
           <Setter Property="Margin" Value="0,0,0,8" />
           <Setter Property="Padding" Value="10,8,10,10" />

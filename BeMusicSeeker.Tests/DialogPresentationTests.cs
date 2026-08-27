@@ -9,12 +9,20 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class DialogPresentationTests
 {
+    private const string CanonicalControlsSource =
+        "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml";
+    private const string CanonicalDialogStylesSource =
+        "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml";
+    private const string SettingsControlsSource =
+        "/BeMusicSeeker;component/BeMusicSeeker/Views/Settings/SettingsControls.xaml";
+
     [DataTestMethod]
     [DataRow("BeMusicSeeker/Views/SettingsWindow.xaml", false, true)]
     [DataRow("BeMusicSeeker/Views/ReleaseNotesWindow.xaml", false, false)]
-    [DataRow("BeMusicSeeker/Views/Settings/Lr2AdvancedPathsDialog.xaml", false, false)]
+    [DataRow("BeMusicSeeker/Views/Settings/Lr2AdvancedPathsDialog.xaml", false, true)]
     [DataRow("BeMusicSeeker/Views/UpdateAvailableDialog.xaml", false, false)]
     [DataRow("BeMusicSeeker/Views/PendingDeleteConfirmDialog.xaml", false, false)]
     [DataRow("BeMusicSeeker/Views/PlayHistoryFolderDisplayPresetEditDialog.xaml", false, false)]
@@ -40,11 +48,38 @@ public sealed class DialogPresentationTests
             StringAssert.Contains(source, "App.Canonical.DialogContentStyle", relativePath);
             StringAssert.Contains(source, "App.Canonical.DialogPrimaryActionStyle", relativePath);
             StringAssert.Contains(source, "App.Canonical.DialogQuietActionStyle", relativePath);
+            StringAssert.Contains(source, CanonicalDialogStylesSource, relativePath);
+            Assert.IsFalse(
+                source.Contains(CanonicalControlsSource, StringComparison.OrdinalIgnoreCase),
+                relativePath + " must not depend on a sibling canonical control dictionary.");
             return;
         }
 
         XDocument document = XDocument.Load(path, LoadOptions.SetLineInfo);
         XElement root = document.Root!;
+        string[] resourceSources = root
+            .Descendants()
+            .Where(element => element.Name.LocalName == "ResourceDictionary")
+            .Select(element => (string?)element.Attribute("Source"))
+            .Where(source => source != null)
+            .Select(source => source!)
+            .ToArray();
+        string[] expectedFacadeSources = allowsSettingsControlAliases
+            ? resourceSources.Where(IsSettingsControlsSource).ToArray()
+            : resourceSources.Where(IsCanonicalDialogStylesSource).ToArray();
+        Assert.AreEqual(
+            1,
+            expectedFacadeSources.Length,
+            $"{relativePath} must import its canonical facade exactly once.");
+        if (allowsSettingsControlAliases)
+        {
+            Assert.IsFalse(
+                resourceSources.Any(IsCanonicalDialogStylesSource),
+                $"{relativePath} must use SettingsControls as its only canonical facade.");
+        }
+        Assert.IsFalse(
+            resourceSources.Any(IsCanonicalControlsSource),
+            $"{relativePath} must not depend on sibling dictionary ordering for canonical controls.");
 
         if (hasOverlay)
         {
@@ -109,6 +144,62 @@ public sealed class DialogPresentationTests
     }
 
     [TestMethod]
+    public void CanonicalDependentDictionaries_MaterializeWithoutSiblingDictionaryOrder()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current;
+            Assert.IsNotNull(application);
+
+            ResourceDictionary[] applicationCanonicalResources = application.Resources.MergedDictionaries
+                .Where(IsCanonicalResource)
+                .ToArray();
+            foreach (ResourceDictionary resource in applicationCanonicalResources)
+            {
+                application.Resources.MergedDictionaries.Remove(resource);
+            }
+
+            try
+            {
+                AssertStandaloneResourceDictionary(
+                    CanonicalDialogStylesSource,
+                    CanonicalControlsSource,
+                    new object[]
+                    {
+                        "App.Canonical.DialogOverlayStyle",
+                        "App.Canonical.DialogContentStyle",
+                        "App.Canonical.DialogPrimaryActionStyle",
+                        "App.Canonical.DialogQuietActionStyle",
+                        "App.Canonical.ButtonStyle",
+                        "App.Canonical.PrimaryButtonStyle",
+                        "App.Canonical.ListBoxStyle"
+                    });
+                AssertStandaloneResourceDictionary(
+                    SettingsControlsSource,
+                    CanonicalDialogStylesSource,
+                    new object[]
+                    {
+                        "SettingsButtonStyle",
+                        "SettingsTextBoxStyle",
+                        "SettingsListBoxStyle",
+                        "App.Canonical.DialogContentStyle",
+                        "App.Canonical.PrimaryButtonStyle",
+                        typeof(Button),
+                        typeof(TextBox),
+                        typeof(ListBox)
+                    });
+            }
+            finally
+            {
+                foreach (ResourceDictionary resource in applicationCanonicalResources)
+                {
+                    application.Resources.MergedDictionaries.Add(resource);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void ApplicationResources_ExposeCanonicalControlsWithoutImplicitMainWindowAdoption()
     {
         TestUiDispatcherHost.Invoke(() =>
@@ -116,24 +207,15 @@ public sealed class DialogPresentationTests
             Application application = Application.Current;
             Assert.IsNotNull(application);
 
-            var canonicalControls = new ResourceDictionary
-            {
-                Source = new Uri(
-                    "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml",
-                    UriKind.RelativeOrAbsolute)
-            };
             var canonicalDialogs = new ResourceDictionary
             {
                 Source = new Uri(
-                    "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                    CanonicalDialogStylesSource,
                     UriKind.RelativeOrAbsolute)
             };
-            bool controlsAdded = false;
             bool dialogsAdded = false;
             try
             {
-                application.Resources.MergedDictionaries.Add(canonicalControls);
-                controlsAdded = true;
                 application.Resources.MergedDictionaries.Add(canonicalDialogs);
                 dialogsAdded = true;
 
@@ -168,13 +250,17 @@ public sealed class DialogPresentationTests
                 });
 
                 Style settingsButtonStyle = (Style)settingsHost.Resources["SettingsButtonStyle"];
-                Assert.AreSame(canonicalButtonStyle, settingsButtonStyle.BasedOn,
-                    "Settings must adopt the application canonical Button style.");
+                Assert.IsNotNull(settingsButtonStyle.BasedOn,
+                    "Settings must derive its Button style from a canonical Button style.");
+                Assert.AreEqual(typeof(Button), settingsButtonStyle.BasedOn.TargetType,
+                    "Settings must derive its Button style from a Button style.");
 
                 Style settingsTextBoxAlias = (Style)settingsHost.Resources["SettingsTextBoxStyle"];
                 Style settingsTextBoxStyle = (Style)settingsHost.Resources[typeof(TextBox)];
-                Assert.AreSame(canonicalTextBoxStyle, settingsTextBoxAlias.BasedOn,
-                    "Settings must adopt the application canonical TextBox style.");
+                Assert.IsNotNull(settingsTextBoxAlias.BasedOn,
+                    "Settings must derive its TextBox style from a canonical TextBox style.");
+                Assert.AreEqual(typeof(TextBox), settingsTextBoxAlias.BasedOn.TargetType,
+                    "Settings must derive its TextBox style from a TextBox style.");
                 Assert.AreSame(settingsTextBoxAlias, settingsTextBoxStyle.BasedOn,
                     "Settings' implicit TextBox adoption must remain a local alias over the canonical style.");
             }
@@ -185,12 +271,62 @@ public sealed class DialogPresentationTests
                     application.Resources.MergedDictionaries.Remove(canonicalDialogs);
                 }
 
-                if (controlsAdded)
-                {
-                    application.Resources.MergedDictionaries.Remove(canonicalControls);
-                }
             }
         });
+    }
+
+    private static void AssertStandaloneResourceDictionary(
+        string source,
+        string dependencySource,
+        object[] requiredKeys)
+    {
+        var resourceDictionary = new ResourceDictionary
+        {
+            Source = new Uri(source, UriKind.RelativeOrAbsolute)
+        };
+        Assert.IsTrue(
+            resourceDictionary.MergedDictionaries.Any(resource =>
+                string.Equals(resource.Source?.OriginalString, dependencySource, StringComparison.OrdinalIgnoreCase)),
+            source + " must own its canonical dependency " + dependencySource + ".");
+
+        var host = new Grid();
+        host.Resources.MergedDictionaries.Add(resourceDictionary);
+        foreach (object key in requiredKeys)
+        {
+            Assert.IsNotNull(
+                host.TryFindResource(key),
+                source + " must materialize resource '" + key + "' without an application sibling.");
+        }
+    }
+
+    private static bool IsCanonicalResource(ResourceDictionary resource)
+    {
+        return string.Equals(
+            resource.Source?.OriginalString,
+            CanonicalControlsSource,
+            StringComparison.OrdinalIgnoreCase)
+            || string.Equals(
+                resource.Source?.OriginalString,
+                CanonicalDialogStylesSource,
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCanonicalDialogStylesSource(string source)
+    {
+        return string.Equals(
+            source,
+            CanonicalDialogStylesSource,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsCanonicalControlsSource(string source)
+    {
+        return string.Equals(source, CanonicalControlsSource, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsSettingsControlsSource(string source)
+    {
+        return source.EndsWith("SettingsControls.xaml", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FindRepositoryRoot()

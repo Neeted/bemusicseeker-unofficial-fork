@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.MergedDictionaries>
+    <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml" />
+  </ResourceDictionary.MergedDictionaries>
   <!-- Dialog roles are explicit so each native window or overlay can opt in without
        changing the visual system of an unadopted MainWindow control. -->
   <Style x:Key="App.Canonical.DialogOverlayStyle" TargetType="{x:Type Rectangle}" BasedOn="{x:Null}">

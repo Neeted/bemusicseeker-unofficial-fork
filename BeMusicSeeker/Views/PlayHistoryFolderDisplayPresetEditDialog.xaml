@@ -14,6 +14,13 @@
         ShowInTaskbar="False"
         Background="{DynamicResource App.DialogBackgroundBrush}"
         Foreground="{DynamicResource App.TextBrush}">
+  <views:ThemedWindow.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
+      </ResourceDictionary.MergedDictionaries>
+    </ResourceDictionary>
+  </views:ThemedWindow.Resources>
   <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
     <DockPanel Margin="12" LastChildFill="True">
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">

@@ -3,6 +3,9 @@
   <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
     <FrameworkElement.Resources>
       <ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+          <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
+        </ResourceDictionary.MergedDictionaries>
         <v:objectToBoolConverter x:Key="objectToBoolConverter" />
         <v:notOperatorBoolConverter x:Key="notOperatorBoolConverter" />
         <v:folderSortKeyConverter x:Key="folderSortKeyConverter" />
