@@ -113,7 +113,7 @@ BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は
 
 `TreeViewItem.TreeArrow.*` と Simple Styles 用の `NormalBrush` / `MouseOverBrush` / `PressedBrush` などもテーマ辞書側で定義している。既存 control template がこれらを参照するため、ライト/ダーク両方で定義を持つ。
 
-ScrollBar は `SimpleScrollBar` を `ScrollBar.*` key に接続し、標準 `ScrollBar` の implicit style としても適用する。CustomTableView の縦横スクロールバーも標準 `ScrollBar` を使うため、この style 経由でテーマ色になる。
+ScrollBar の共有描画 primitive は `App.Canonical.VerticalScrollBarTemplate` / `App.Canonical.HorizontalScrollBarTemplate` とし、`App.Canonical.ScrollBarStyle` がそれぞれの向き、`PART_Track`、line/page command、thumb、終端 affordance、disabled state を所有する。`SimpleScrollBar` は既存 consumer との互換 alias としてこの canonical template を解決し、標準 `ScrollBar` の implicit style としても適用する。CustomTableView の縦横スクロールバーも標準 `ScrollBar` を使うため、MainWindow と同じ primitive / theme key 経由で描画される。既存の `PART_VerticalScrollBar` / `PART_HorizontalScrollBar`、`CanContentScroll`、offset / viewport / maximum、Automation peer の contract は各 ScrollViewer template で維持する。
 
 ## 標準 Control / Menu
 
@@ -136,6 +136,8 @@ canonical resource の依存関係は `App -> CanonicalDialogStyles -> Canonical
 - `ContextMenu`
 - `MenuItem`
 - `Separator`
+
+Playlist Property の上部カテゴリ navigation は、`App.Canonical.TopNavigationStyle`、`App.Canonical.TopNavigationItemStyle`、`App.Canonical.TopNavigationContentStyle` の keyed role で構成する。navigation は General / Folder / Custom Folder の single-selection ListBox として WPF の Selection / SelectionItem Automation peer および標準 keyboard route を維持し、選択 item は下端 indicator、hover / focus / disabled state を表示する。本文は navigation と別の content host とし、canonical role は未採用の application-wide implicit style へ漏らさない。
 
 `SimpleMenuItem` は `SystemColors.*` ではなく、`App.PopupBackgroundBrush` / `App.TextBrush` / `App.ControlHoverBrush` / `App.MenuSelectedBackgroundBrush` / `App.MenuSelectedTextBrush` / `App.DisabledTextBrush` / `App.BorderBrush` を使う。MainWindow の column header など局所 `MenuItem` style は implicit style を `BasedOn` で継承する。
 

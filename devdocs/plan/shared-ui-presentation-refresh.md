@@ -106,6 +106,13 @@ Verification:
 - base-red or targeted mutants for canonical mismatch, Line/Page/horizontal/disabled behavior, and top-nav focus/Automation
 - `git diff --check`
 
+Unit A evidence (working-tree implementation):
+
+- `APPUI-SB-01/02`: the canonical vertical/horizontal templates are consumed by `App.Canonical.ScrollBarStyle` and the `SimpleScrollBar` compatibility/implicit route. The materialized ScrollViewer, Settings, and CustomTableView fixtures cover `PART_*`, `PART_Track`, orientation, visibility, offset/viewport/maximum, line/page commands, Automation, `CanContentScroll`, theme switching, and disabled presentation.
+- `APPUI-PROP-01/02` primitive seam: the keyed top-navigation fixture covers three categories, General initial selection, separate content host, bottom indicator, focus border, single-selection/SelectionItem Automation, Left/Right/Home/End keyboard movement, and disabled presentation. Property consumer adoption remains Unit C.
+- Focused head-pass artifacts: Settings `tests-quick-20260828-014242`, Chart `tests-quick-20260828-015107`, canonical ScrollViewer `tests-quick-20260828-015326`, and top navigation `tests-quick-20260828-015559`.
+- The Chart WPF host explicitly merges the compiled app dictionaries in application order (`Simple Styles.xaml`, then `CanonicalDialogStyles.xaml`) so the test exercises the same compatibility route as the application.
+
 ### Unit B — native/layout/Release Notes repairs
 
 Observable outcome:
@@ -160,4 +167,3 @@ Verification:
 - Each worker receives only its Contract IDs and may alter fixture mechanics but not expected semantics.
 - Replan if canonical adoption requires application-level implicit resources that break standalone dictionary closure, if Property needs ViewModel/persisted navigation state, or if any fix needs changing Release Notes menu semantics, outer overlay size, Bulk minimum, field inventory, availability, or modal lifecycle.
 - After integration, run combined focused Quick, exact repository-executable UI inspection, one Functional verification, and a fresh read-only static review against this packet.
-

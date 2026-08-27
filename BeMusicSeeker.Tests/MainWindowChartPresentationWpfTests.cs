@@ -306,11 +306,25 @@ public sealed class MainWindowChartPresentationWpfTests
                     Columns = [CreateScrollBarContractColumn(120d)],
                     ItemsSource = new List<object> { new object() }
                 };
+                var resourceHost = new Grid();
+                resourceHost.Resources.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri(
+                        "/BeMusicSeeker;component/Simple Styles.xaml",
+                        UriKind.RelativeOrAbsolute)
+                });
+                resourceHost.Resources.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri(
+                        "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                        UriKind.RelativeOrAbsolute)
+                });
+                resourceHost.Children.Add(table);
                 resourceHostWindow = new Window
                 {
                     Width = tableWidth,
                     Height = tableHeight,
-                    Content = table
+                    Content = resourceHost
                 };
                 ScrollBar verticalScrollBar = table.Children
                     .OfType<ScrollBar>()
@@ -323,8 +337,6 @@ public sealed class MainWindowChartPresentationWpfTests
                 Assert.IsNull(table.FocusVisualStyle);
                 Assert.IsTrue(table.UseLayoutRounding);
                 Assert.IsTrue(table.SnapsToDevicePixels);
-                Assert.AreEqual(15d, verticalScrollBar.Width);
-                Assert.AreEqual(15d, horizontalScrollBar.Height);
                 object trackBackground = table.FindResource(trackBackgroundResourceKey);
                 Assert.AreSame(trackBackground, table.Background);
                 Assert.AreSame(trackBackground, corner.Background);
@@ -341,6 +353,8 @@ public sealed class MainWindowChartPresentationWpfTests
                 MaterializeScrollBarContractTable(table, tableWidth, tableHeight);
                 Assert.IsNotNull(verticalScrollBar.Template);
                 Assert.IsNotNull(horizontalScrollBar.Template);
+                AssertScrollBarPresentation(verticalScrollBar, Orientation.Vertical);
+                AssertScrollBarPresentation(horizontalScrollBar, Orientation.Horizontal);
                 Assert.AreEqual(Visibility.Collapsed, verticalScrollBar.Visibility);
                 Assert.AreEqual(Visibility.Collapsed, horizontalScrollBar.Visibility);
                 Assert.AreEqual(Visibility.Collapsed, corner.Visibility);
@@ -482,6 +496,46 @@ public sealed class MainWindowChartPresentationWpfTests
         table.Measure(new Size(width, height));
         table.Arrange(new Rect(0d, 0d, width, height));
         table.UpdateLayout();
+    }
+
+    private static void AssertScrollBarPresentation(ScrollBar scrollBar, Orientation orientation)
+    {
+        scrollBar.ApplyTemplate();
+        Assert.IsNotNull(scrollBar.Template);
+        var track = (Track)scrollBar.Template.FindName("PART_Track", scrollBar);
+        Assert.IsNotNull(track);
+        Assert.AreEqual(orientation, scrollBar.Orientation);
+        Assert.AreEqual(orientation, track.Orientation);
+        if (orientation == Orientation.Vertical)
+        {
+            Assert.AreSame(
+                ScrollBar.LineUpCommand,
+                ((RepeatButton)scrollBar.Template.FindName("LineUpButton", scrollBar)).Command);
+            Assert.AreSame(
+                ScrollBar.LineDownCommand,
+                ((RepeatButton)scrollBar.Template.FindName("LineDownButton", scrollBar)).Command);
+            Assert.AreSame(
+                ScrollBar.PageUpCommand,
+                ((RepeatButton)track.DecreaseRepeatButton).Command);
+            Assert.AreSame(
+                ScrollBar.PageDownCommand,
+                ((RepeatButton)track.IncreaseRepeatButton).Command);
+        }
+        else
+        {
+            Assert.AreSame(
+                ScrollBar.LineLeftCommand,
+                ((RepeatButton)scrollBar.Template.FindName("LineLeftButton", scrollBar)).Command);
+            Assert.AreSame(
+                ScrollBar.LineRightCommand,
+                ((RepeatButton)scrollBar.Template.FindName("LineRightButton", scrollBar)).Command);
+            Assert.AreSame(
+                ScrollBar.PageLeftCommand,
+                ((RepeatButton)track.DecreaseRepeatButton).Command);
+            Assert.AreSame(
+                ScrollBar.PageRightCommand,
+                ((RepeatButton)track.IncreaseRepeatButton).Command);
+        }
     }
 
     private static void FlushResourceUpdates(CustomTableView table)

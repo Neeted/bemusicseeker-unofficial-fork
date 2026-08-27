@@ -5,6 +5,15 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -543,42 +552,206 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void SimpleScrollViewer_FillsScrollBarCorner()
+    public void CanonicalScrollViewer_MaterializesSharedScrollBarsAndPreservesBehavior()
     {
-        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Simple Styles.xaml"));
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var host = new Grid();
+            host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
+                "/BeMusicSeeker;component/Themes/Light.xaml"));
+            host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
+                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml"));
 
-        StringAssert.Contains(styles, "<Border Grid.Column=\"1\" Grid.Row=\"1\" Background=\"{DynamicResource ScrollBar.TrackBackgroundBrush}\" />");
-        StringAssert.Contains(styles, "Name=\"PART_HorizontalScrollBar\" Visibility=\"{TemplateBinding ScrollViewer.ComputedHorizontalScrollBarVisibility}\" Grid.Column=\"0\" Grid.Row=\"1\" Height=\"15\"");
-        StringAssert.Contains(styles, "Name=\"PART_VerticalScrollBar\" Visibility=\"{TemplateBinding ScrollViewer.ComputedVerticalScrollBarVisibility}\" Grid.Column=\"1\" Grid.Row=\"0\" Width=\"15\"");
-        StringAssert.Contains(styles, "<Thumb Style=\"{DynamicResource SimpleThumbStyle}\" />");
-        StringAssert.Contains(styles, "HorizontalAlignment=\"Center\"");
-        Assert.IsFalse(styles.Contains("HorizontalContentAlignment=\"Right\""));
-        Assert.IsFalse(styles.Contains("TargetName=\"PART_Thumb\""));
-        string simpleTreeView = styles.Substring(styles.IndexOf("x:Key=\"SimpleTreeView\"", StringComparison.Ordinal), 900);
-        StringAssert.Contains(simpleTreeView, "BorderThickness=\"{TemplateBinding Control.BorderThickness}\"");
-        StringAssert.Contains(simpleTreeView, "BorderBrush=\"{TemplateBinding Control.BorderBrush}\"");
-        StringAssert.Contains(simpleTreeView, "Padding=\"{TemplateBinding Control.Padding}\"");
+            var scroller = new ScrollViewer
+            {
+                Width = 180,
+                Height = 120,
+                Content = new Border { Width = 600, Height = 420 },
+                Style = (Style)host.Resources["App.Canonical.ScrollViewerStyle"],
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                CanContentScroll = false
+            };
+            host.Children.Add(scroller);
+            var window = new Window
+            {
+                Width = 220,
+                Height = 160,
+                Content = host
+            };
+
+            windowTest.ShowAndWaitForContentRendered(window);
+            scroller.ApplyTemplate();
+            var canonicalStyle = (Style)host.Resources["App.Canonical.ScrollBarStyle"];
+            var vertical = (ScrollBar)scroller.Template.FindName("PART_VerticalScrollBar", scroller);
+            var horizontal = (ScrollBar)scroller.Template.FindName("PART_HorizontalScrollBar", scroller);
+            Assert.IsNotNull(vertical);
+            Assert.IsNotNull(horizontal);
+            Assert.AreSame(canonicalStyle, vertical.Style);
+            Assert.AreSame(canonicalStyle, horizontal.Style);
+            Assert.AreEqual(Orientation.Vertical, vertical.Orientation);
+            Assert.AreEqual(Orientation.Horizontal, horizontal.Orientation);
+            Assert.AreEqual(Visibility.Visible, vertical.Visibility);
+            Assert.AreEqual(Visibility.Visible, horizontal.Visibility);
+            Assert.AreEqual(scroller.ViewportHeight, vertical.ViewportSize, 0.01d);
+            Assert.AreEqual(scroller.ViewportWidth, horizontal.ViewportSize, 0.01d);
+            Assert.AreEqual(scroller.ScrollableHeight, vertical.Maximum, 0.01d);
+            Assert.AreEqual(scroller.ScrollableWidth, horizontal.Maximum, 0.01d);
+
+            vertical.ApplyTemplate();
+            horizontal.ApplyTemplate();
+            var verticalTrack = (Track)vertical.Template.FindName("PART_Track", vertical);
+            var horizontalTrack = (Track)horizontal.Template.FindName("PART_Track", horizontal);
+            Assert.IsNotNull(verticalTrack);
+            Assert.IsNotNull(horizontalTrack);
+            Assert.AreEqual(Orientation.Vertical, verticalTrack.Orientation);
+            Assert.AreEqual(Orientation.Horizontal, horizontalTrack.Orientation);
+            Assert.AreSame(
+                ScrollBar.LineUpCommand,
+                ((RepeatButton)vertical.Template.FindName("LineUpButton", vertical)).Command);
+            Assert.AreSame(
+                ScrollBar.LineDownCommand,
+                ((RepeatButton)vertical.Template.FindName("LineDownButton", vertical)).Command);
+            Assert.AreSame(
+                ScrollBar.PageUpCommand,
+                ((RepeatButton)verticalTrack.DecreaseRepeatButton).Command);
+            Assert.AreSame(
+                ScrollBar.PageDownCommand,
+                ((RepeatButton)verticalTrack.IncreaseRepeatButton).Command);
+            Assert.AreSame(
+                ScrollBar.LineLeftCommand,
+                ((RepeatButton)horizontal.Template.FindName("LineLeftButton", horizontal)).Command);
+            Assert.AreSame(
+                ScrollBar.LineRightCommand,
+                ((RepeatButton)horizontal.Template.FindName("LineRightButton", horizontal)).Command);
+            Assert.AreSame(
+                ScrollBar.PageLeftCommand,
+                ((RepeatButton)horizontalTrack.DecreaseRepeatButton).Command);
+            Assert.AreSame(
+                ScrollBar.PageRightCommand,
+                ((RepeatButton)horizontalTrack.IncreaseRepeatButton).Command);
+
+            Border corner = FindVisualDescendants<Border>(scroller)
+                .Single(border => Grid.GetRow(border) == 1 && Grid.GetColumn(border) == 1);
+            Assert.IsNotNull(corner.Background);
+            var scrollPeer = new ScrollViewerAutomationPeer(scroller);
+            var scrollProvider = (IScrollProvider)scrollPeer.GetPattern(PatternInterface.Scroll);
+            Assert.IsNotNull(scrollProvider);
+            Assert.IsTrue(scrollProvider.VerticallyScrollable);
+            Assert.IsTrue(scrollProvider.HorizontallyScrollable);
+            Assert.IsFalse(scroller.CanContentScroll);
+            double initialVerticalOffset = scroller.VerticalOffset;
+            double initialHorizontalOffset = scroller.HorizontalOffset;
+            scrollProvider.Scroll(ScrollAmount.SmallIncrement, ScrollAmount.SmallIncrement);
+            TestUiDispatcherHost.Drain();
+            Assert.IsTrue(scroller.VerticalOffset > initialVerticalOffset);
+            Assert.IsTrue(scroller.HorizontalOffset > initialHorizontalOffset);
+            Assert.AreEqual(scroller.VerticalOffset, vertical.Value, 0.01d);
+            Assert.AreEqual(scroller.HorizontalOffset, horizontal.Value, 0.01d);
+
+            vertical.IsEnabled = false;
+            TestUiDispatcherHost.Drain();
+            Assert.IsTrue(vertical.Opacity < 1d);
+        });
     }
 
     [TestMethod]
-    public void SimpleScrollBar_UsesNativeHorizontalTrack()
+    public void CanonicalTopNavigation_UsesSingleSelectionAndStandardAutomation()
     {
-        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Simple Styles.xaml"));
-        string verticalTemplate = ExtractBetween(styles, "<ControlTemplate x:Key=\"SimpleVerticalScrollBarTemplate\"", "<ControlTemplate x:Key=\"SimpleHorizontalScrollBarTemplate\"");
-        string horizontalTemplate = ExtractBetween(styles, "<ControlTemplate x:Key=\"SimpleHorizontalScrollBarTemplate\"", "<Style x:Key=\"SimpleScrollBar\"");
-        string scrollBarStyle = ExtractBetween(styles, "<Style x:Key=\"SimpleScrollBar\"", "<Style TargetType=\"{x:Type ScrollBar}\"");
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var host = new StackPanel();
+            host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
+                "/BeMusicSeeker;component/Themes/Light.xaml"));
+            host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
+                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml"));
+            var navigation = new ListBox
+            {
+                Width = 360,
+                Height = 56,
+                ItemsSource = new[] { "General", "Folder", "Custom Folder" },
+                SelectedIndex = 0,
+                Style = (Style)host.Resources["App.Canonical.TopNavigationStyle"]
+            };
+            var content = new ContentControl
+            {
+                Height = 80,
+                Content = new TextBlock { Text = "General content" },
+                Style = (Style)host.Resources["App.Canonical.TopNavigationContentStyle"]
+            };
+            host.Children.Add(navigation);
+            host.Children.Add(content);
+            var window = new Window
+            {
+                Width = 420,
+                Height = 180,
+                Content = host
+            };
 
-        StringAssert.Contains(verticalTemplate, "<Track Name=\"PART_Track\" Grid.Row=\"1\" Orientation=\"Vertical\" IsDirectionReversed=\"True\">");
-        StringAssert.Contains(horizontalTemplate, "<Track Name=\"PART_Track\" Grid.Column=\"1\" Orientation=\"Horizontal\">");
-        StringAssert.Contains(horizontalTemplate, "Command=\"ScrollBar.LineLeftCommand\"");
-        StringAssert.Contains(horizontalTemplate, "Command=\"ScrollBar.LineRightCommand\"");
-        StringAssert.Contains(horizontalTemplate, "Command=\"ScrollBar.PageLeftCommand\"");
-        StringAssert.Contains(horizontalTemplate, "Command=\"ScrollBar.PageRightCommand\"");
-        StringAssert.Contains(horizontalTemplate, "<Thumb Style=\"{DynamicResource SimpleHorizontalThumbStyle}\" />");
-        StringAssert.Contains(scrollBarStyle, "<Setter Property=\"Template\" Value=\"{StaticResource SimpleVerticalScrollBarTemplate}\" />");
-        StringAssert.Contains(scrollBarStyle, "<Setter Property=\"Template\" Value=\"{StaticResource SimpleHorizontalScrollBarTemplate}\" />");
-        Assert.IsFalse(horizontalTemplate.Contains("RotateTransform"));
-        Assert.IsFalse(scrollBarStyle.Contains("LayoutTransform"));
+            windowTest.ShowAndWaitForContentRendered(
+                window,
+                TestWindowActivation.ForegroundInteraction);
+            navigation.ApplyTemplate();
+            navigation.UpdateLayout();
+            Assert.AreEqual(SelectionMode.Single, navigation.SelectionMode);
+            Assert.AreEqual(0, navigation.SelectedIndex);
+            StackPanel itemPanel = FindVisualDescendants<StackPanel>(navigation)
+                .Single(panel => panel.Children.OfType<ListBoxItem>().Count() == navigation.Items.Count);
+            Assert.AreEqual(Orientation.Horizontal, itemPanel.Orientation);
+            var items = navigation.Items
+                .Cast<object>()
+                .Select((_, index) => (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(index))
+                .ToArray();
+            Assert.IsTrue(items.All(item => item is not null));
+            foreach (ListBoxItem item in items)
+            {
+                item.ApplyTemplate();
+                Assert.IsNotNull(item.Template.FindName("SelectionIndicator", item));
+                Assert.IsNotNull(item.Template.FindName("FocusBorder", item));
+                Assert.IsTrue(item.Focusable);
+            }
+            Assert.AreEqual(
+                KeyboardNavigationMode.Continue,
+                KeyboardNavigation.GetDirectionalNavigation(navigation));
+            Assert.AreEqual(
+                Visibility.Visible,
+                ((Border)items[0].Template.FindName("SelectionIndicator", items[0])).Visibility);
+            Assert.AreEqual(
+                Visibility.Collapsed,
+                ((Border)items[1].Template.FindName("SelectionIndicator", items[1])).Visibility);
+
+            var navigationPeer = new ListBoxAutomationPeer(navigation);
+            var selectionProvider = (ISelectionProvider)navigationPeer.GetPattern(PatternInterface.Selection);
+            Assert.IsNotNull(selectionProvider);
+            Assert.IsFalse(selectionProvider.CanSelectMultiple);
+            Assert.AreEqual(1, selectionProvider.GetSelection().Length);
+            AutomationPeer folderPeer = navigationPeer.GetChildren()
+                .Single(peer => peer.GetName() == "Folder");
+            var folderSelection = (ISelectionItemProvider)folderPeer.GetPattern(PatternInterface.SelectionItem);
+            Assert.IsNotNull(folderSelection);
+            folderSelection.Select();
+            TestUiDispatcherHost.Drain();
+            Assert.AreEqual(1, navigation.SelectedIndex);
+            Assert.IsTrue(folderSelection.IsSelected);
+
+            Assert.IsTrue(items[1].Focus());
+            RaiseKey(items[1], Key.Left);
+            Assert.AreEqual(0, navigation.SelectedIndex);
+            RaiseKey(items[0], Key.Right);
+            Assert.AreEqual(1, navigation.SelectedIndex);
+            RaiseKey(items[1], Key.End);
+            Assert.AreEqual(2, navigation.SelectedIndex);
+            RaiseKey(items[2], Key.Home);
+            Assert.AreEqual(0, navigation.SelectedIndex);
+
+            items[2].IsEnabled = false;
+            TestUiDispatcherHost.Drain();
+            var disabledNavigationChrome = (Border)items[2].Template.FindName("NavigationItemChrome", items[2]);
+            Assert.IsTrue(disabledNavigationChrome.Opacity < 1d);
+            content.ApplyTemplate();
+            Assert.IsFalse(content.Focusable);
+            Assert.IsNotNull(content.Template.FindName("TopNavigationContentChrome", content));
+        });
     }
 
     [TestMethod]
@@ -1386,6 +1559,43 @@ public sealed class MainWindowContextMenuResourceTests
         int endIndex = text.IndexOf(end, startIndex + start.Length, StringComparison.Ordinal);
         Assert.IsTrue(endIndex > startIndex, "End marker was not found.");
         return text.Substring(startIndex, endIndex - startIndex);
+    }
+
+    private static ResourceDictionary CreateResourceDictionary(string source)
+    {
+        return new ResourceDictionary
+        {
+            Source = new Uri(source, UriKind.RelativeOrAbsolute)
+        };
+    }
+
+    private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (T descendant in FindVisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+    private static void RaiseKey(UIElement target, Key key)
+    {
+        PresentationSource source = PresentationSource.FromVisual(target);
+        Assert.IsNotNull(source);
+        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+        {
+            RoutedEvent = Keyboard.KeyDownEvent
+        });
+        TestUiDispatcherHost.Drain();
     }
 
 }

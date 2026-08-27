@@ -161,86 +161,7 @@
       </Setter.Value>
     </Setter>
   </Style>
-  <Style x:Key="SimpleRepeatButton" TargetType="{x:Type RepeatButton}" BasedOn="{x:Null}">
-    <Setter Property="Background" Value="{DynamicResource ScrollBar.ButtonBackgroundBrush}" />
-    <Setter Property="BorderBrush" Value="{DynamicResource ScrollBar.ButtonBorderBrush}" />
-    <Setter Property="BorderThickness" Value="0" />
-    <Setter Property="Focusable" Value="False" />
-    <Setter Property="IsTabStop" Value="False" />
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type RepeatButton}">
-          <Grid>
-            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" />
-            <ContentPresenter Name="ContentPresenter" HorizontalAlignment="Center" VerticalAlignment="Center" Content="{TemplateBinding ContentControl.Content}" ContentTemplate="{TemplateBinding ContentControl.ContentTemplate}" ContentTemplateSelector="{TemplateBinding ContentControl.ContentTemplateSelector}" />
-          </Grid>
-          <ControlTemplate.Triggers>
-            <Trigger Property="UIElement.IsKeyboardFocused" Value="True">
-              <Setter Value="{DynamicResource ScrollBar.ButtonBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
-            </Trigger>
-            <Trigger Property="UIElement.IsMouseOver" Value="True">
-              <Setter Value="{DynamicResource ScrollBar.ButtonHoverBackgroundBrush}" TargetName="Border" Property="Border.Background" />
-            </Trigger>
-            <Trigger Property="IsPressed" Value="True">
-              <Setter Value="{DynamicResource ScrollBar.ButtonPressedBackgroundBrush}" TargetName="Border" Property="Border.Background" />
-              <Setter Value="{DynamicResource ScrollBar.ButtonBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" TargetName="Border" Property="Border.Background" />
-              <Setter Value="{DynamicResource ScrollBar.ButtonBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
-              <Setter Value="{DynamicResource DisabledForegroundBrush}" Property="Foreground" />
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
-  <Style x:Key="SimpleThumbStyle" TargetType="{x:Type Thumb}" BasedOn="{x:Null}">
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type Thumb}">
-          <Grid Name="Grid" Margin="0,0,0,0">
-            <Rectangle Name="Rectangle" HorizontalAlignment="Center" VerticalAlignment="Stretch" Width="9" Height="Auto" RadiusX="1" RadiusY="1" Fill="{DynamicResource ScrollBar.ThumbBackgroundBrush}" Stroke="{DynamicResource ScrollBar.ThumbBorderBrush}" StrokeThickness="0" />
-          </Grid>
-          <ControlTemplate.Triggers>
-            <Trigger Property="UIElement.IsFocused" Value="True" />
-            <Trigger Property="UIElement.IsMouseOver" Value="True">
-              <Setter TargetName="Rectangle" Property="Shape.Fill" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter TargetName="Rectangle" Property="Shape.Fill" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
-            </Trigger>
-            <Trigger Property="Thumb.IsDragging" Value="True">
-              <Setter TargetName="Rectangle" Property="Shape.Fill" Value="{DynamicResource ScrollBar.ThumbDraggingBackgroundBrush}" />
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
-  <Style x:Key="SimpleHorizontalThumbStyle" TargetType="{x:Type Thumb}" BasedOn="{x:Null}">
-    <Setter Property="Template">
-      <Setter.Value>
-        <ControlTemplate TargetType="{x:Type Thumb}">
-          <Grid Name="Grid" Margin="0,0,0,0">
-            <Rectangle Name="Rectangle" HorizontalAlignment="Stretch" VerticalAlignment="Center" Width="Auto" Height="9" RadiusX="1" RadiusY="1" Fill="{DynamicResource ScrollBar.ThumbBackgroundBrush}" Stroke="{DynamicResource ScrollBar.ThumbBorderBrush}" StrokeThickness="0" />
-          </Grid>
-          <ControlTemplate.Triggers>
-            <Trigger Property="UIElement.IsFocused" Value="True" />
-            <Trigger Property="UIElement.IsMouseOver" Value="True">
-              <Setter TargetName="Rectangle" Property="Shape.Fill" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter TargetName="Rectangle" Property="Shape.Fill" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
-            </Trigger>
-            <Trigger Property="Thumb.IsDragging" Value="True">
-              <Setter TargetName="Rectangle" Property="Shape.Fill" Value="{DynamicResource ScrollBar.ThumbDraggingBackgroundBrush}" />
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </Setter.Value>
-    </Setter>
-  </Style>
+  <!-- SimpleSlider keeps this transparent track route; scrollbar tracks use the canonical primitive below. -->
   <Style x:Key="SimpleScrollRepeatButtonStyle" TargetType="{x:Type RepeatButton}">
     <Setter Property="Background" Value="#00FFFFFF" />
     <Setter Property="BorderBrush" Value="#00FFFFFF" />
@@ -250,72 +171,25 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type RepeatButton}">
           <Grid>
-            <Rectangle Fill="{TemplateBinding Control.Background}" Stroke="{TemplateBinding Control.BorderBrush}" StrokeThickness="{TemplateBinding Control.BorderThickness}" />
+            <Rectangle Fill="{TemplateBinding Control.Background}"
+                       Stroke="{TemplateBinding Control.BorderBrush}"
+                       StrokeThickness="{TemplateBinding Control.BorderThickness}" />
           </Grid>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
   </Style>
-  <ControlTemplate x:Key="SimpleVerticalScrollBarTemplate" TargetType="{x:Type ScrollBar}">
-    <Grid Name="GridRoot" Width="15" Background="{TemplateBinding Control.Background}">
-      <Grid.RowDefinitions>
-        <RowDefinition MaxHeight="15" />
-        <RowDefinition Height="0.00001*" />
-        <RowDefinition MaxHeight="15" />
-      </Grid.RowDefinitions>
-      <RepeatButton Name="DecreaseRepeat" Style="{DynamicResource SimpleRepeatButton}" Command="ScrollBar.LineUpCommand">
-        <Path Name="DecreaseArrow" Width="8" Height="8" HorizontalAlignment="Center" VerticalAlignment="Center" Stretch="Uniform" Fill="{TemplateBinding Control.Foreground}" StrokeThickness="0" SnapsToDevicePixels="True" Data="M0,6 L4,2 L8,6 Z" />
-      </RepeatButton>
-      <Track Name="PART_Track" Grid.Row="1" Orientation="Vertical" IsDirectionReversed="True">
-        <Track.Thumb>
-          <Thumb Style="{DynamicResource SimpleThumbStyle}" />
-        </Track.Thumb>
-        <Track.IncreaseRepeatButton>
-          <RepeatButton Name="PageUp" Style="{DynamicResource SimpleScrollRepeatButtonStyle}" Command="ScrollBar.PageDownCommand" />
-        </Track.IncreaseRepeatButton>
-        <Track.DecreaseRepeatButton>
-          <RepeatButton Name="PageDown" Style="{DynamicResource SimpleScrollRepeatButtonStyle}" Command="ScrollBar.PageUpCommand" />
-        </Track.DecreaseRepeatButton>
-      </Track>
-      <RepeatButton Name="IncreaseRepeat" Grid.Row="2" Style="{DynamicResource SimpleRepeatButton}" Command="ScrollBar.LineDownCommand">
-        <Path Name="IncreaseArrow" Width="8" Height="8" HorizontalAlignment="Center" VerticalAlignment="Center" Stretch="Uniform" Fill="{TemplateBinding Control.Foreground}" StrokeThickness="0" SnapsToDevicePixels="True" Data="M0,2 L4,6 L8,2 Z" />
-      </RepeatButton>
-    </Grid>
-  </ControlTemplate>
-  <ControlTemplate x:Key="SimpleHorizontalScrollBarTemplate" TargetType="{x:Type ScrollBar}">
-    <Grid Name="GridRoot" Height="15" Background="{TemplateBinding Control.Background}">
-      <Grid.ColumnDefinitions>
-        <ColumnDefinition MaxWidth="15" />
-        <ColumnDefinition Width="0.00001*" />
-        <ColumnDefinition MaxWidth="15" />
-      </Grid.ColumnDefinitions>
-      <RepeatButton Name="DecreaseRepeat" Style="{DynamicResource SimpleRepeatButton}" Command="ScrollBar.LineLeftCommand">
-        <Path Name="DecreaseArrow" Width="8" Height="8" HorizontalAlignment="Center" VerticalAlignment="Center" Stretch="Uniform" Fill="{TemplateBinding Control.Foreground}" StrokeThickness="0" SnapsToDevicePixels="True" Data="M6,0 L2,4 L6,8 Z" />
-      </RepeatButton>
-      <Track Name="PART_Track" Grid.Column="1" Orientation="Horizontal">
-        <Track.Thumb>
-          <Thumb Style="{DynamicResource SimpleHorizontalThumbStyle}" />
-        </Track.Thumb>
-        <Track.DecreaseRepeatButton>
-          <RepeatButton Name="PageLeft" Style="{DynamicResource SimpleScrollRepeatButtonStyle}" Command="ScrollBar.PageLeftCommand" />
-        </Track.DecreaseRepeatButton>
-        <Track.IncreaseRepeatButton>
-          <RepeatButton Name="PageRight" Style="{DynamicResource SimpleScrollRepeatButtonStyle}" Command="ScrollBar.PageRightCommand" />
-        </Track.IncreaseRepeatButton>
-      </Track>
-      <RepeatButton Name="IncreaseRepeat" Grid.Column="2" Style="{DynamicResource SimpleRepeatButton}" Command="ScrollBar.LineRightCommand">
-        <Path Name="IncreaseArrow" Width="8" Height="8" HorizontalAlignment="Center" VerticalAlignment="Center" Stretch="Uniform" Fill="{TemplateBinding Control.Foreground}" StrokeThickness="0" SnapsToDevicePixels="True" Data="M2,0 L6,4 L2,8 Z" />
-      </RepeatButton>
-    </Grid>
-  </ControlTemplate>
   <Style x:Key="SimpleScrollBar" TargetType="{x:Type ScrollBar}">
     <Setter Property="Stylus.IsFlicksEnabled" Value="False" />
     <Setter Property="Background" Value="{DynamicResource ScrollBar.TrackBackgroundBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource ScrollBar.ArrowBrush}" />
-    <Setter Property="Template" Value="{StaticResource SimpleVerticalScrollBarTemplate}" />
+    <Setter Property="Width" Value="15" />
+    <Setter Property="Template" Value="{DynamicResource App.Canonical.VerticalScrollBarTemplate}" />
     <Style.Triggers>
       <Trigger Property="ScrollBar.Orientation" Value="Horizontal">
-        <Setter Property="Template" Value="{StaticResource SimpleHorizontalScrollBarTemplate}" />
+        <Setter Property="Width" Value="Auto" />
+        <Setter Property="Height" Value="15" />
+        <Setter Property="Template" Value="{DynamicResource App.Canonical.HorizontalScrollBarTemplate}" />
       </Trigger>
     </Style.Triggers>
   </Style>

@@ -420,6 +420,7 @@ public sealed class SettingsForegroundInteractionTests
                     Content = new Border { Width = 800, Height = 800 },
                     Width = 180,
                     Height = 100,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Visible,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Visible
                 };
                 var textBox = new TextBox { Text = "settings" };
@@ -465,15 +466,50 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.AreNotEqual(sentinel, verticalScrollBar.Tag);
                 verticalScrollBar.ApplyTemplate();
                 Assert.IsNotNull(verticalScrollBar.Template.FindName("PART_Track", verticalScrollBar));
+                var horizontalScrollBar = (ScrollBar)pageScroller.Template.FindName("PART_HorizontalScrollBar", pageScroller);
+                Assert.IsNotNull(horizontalScrollBar);
+                AssertEffectiveTemplateRole(horizontalScrollBar.Style, canonicalScrollBarStyle, nameof(ScrollBar));
+                Assert.AreEqual(Orientation.Vertical, verticalScrollBar.Orientation);
+                Assert.AreEqual(Orientation.Horizontal, horizontalScrollBar.Orientation);
+                Assert.AreEqual(pageScroller.ViewportHeight, verticalScrollBar.ViewportSize, 0.01d);
+                Assert.AreEqual(pageScroller.ViewportWidth, horizontalScrollBar.ViewportSize, 0.01d);
+                Assert.AreEqual(pageScroller.ScrollableHeight, verticalScrollBar.Maximum, 0.01d);
+                Assert.AreEqual(pageScroller.ScrollableWidth, horizontalScrollBar.Maximum, 0.01d);
+                horizontalScrollBar.ApplyTemplate();
+                var horizontalTrack = (Track)horizontalScrollBar.Template.FindName("PART_Track", horizontalScrollBar);
+                Assert.IsNotNull(horizontalTrack);
+                Assert.AreEqual(Orientation.Horizontal, horizontalTrack.Orientation);
+                Assert.AreSame(
+                    ScrollBar.LineLeftCommand,
+                    ((RepeatButton)horizontalScrollBar.Template.FindName("LineLeftButton", horizontalScrollBar)).Command);
+                Assert.AreSame(
+                    ScrollBar.LineRightCommand,
+                    ((RepeatButton)horizontalScrollBar.Template.FindName("LineRightButton", horizontalScrollBar)).Command);
+                Assert.AreSame(
+                    ScrollBar.PageLeftCommand,
+                    ((RepeatButton)horizontalTrack.DecreaseRepeatButton).Command);
+                Assert.AreSame(
+                    ScrollBar.PageRightCommand,
+                    ((RepeatButton)horizontalTrack.IncreaseRepeatButton).Command);
                 var scrollPeer = new ScrollViewerAutomationPeer(pageScroller);
                 var scrollProvider = (IScrollProvider)scrollPeer.GetPattern(PatternInterface.Scroll);
                 Assert.IsNotNull(scrollProvider);
                 Assert.IsTrue(scrollProvider.VerticallyScrollable);
+                Assert.IsTrue(scrollProvider.HorizontallyScrollable);
+                Assert.IsFalse(pageScroller.CanContentScroll);
                 double initialOffset = pageScroller.VerticalOffset;
+                double initialHorizontalOffset = pageScroller.HorizontalOffset;
                 scrollProvider.Scroll(ScrollAmount.NoAmount, ScrollAmount.SmallIncrement);
                 PumpDispatcher(window.Dispatcher);
                 Assert.IsTrue(pageScroller.VerticalOffset > initialOffset);
                 Assert.AreEqual(pageScroller.VerticalOffset, verticalScrollBar.Value, 0.01d);
+                scrollProvider.Scroll(ScrollAmount.SmallIncrement, ScrollAmount.NoAmount);
+                PumpDispatcher(window.Dispatcher);
+                Assert.IsTrue(pageScroller.HorizontalOffset > initialHorizontalOffset);
+                Assert.AreEqual(pageScroller.HorizontalOffset, horizontalScrollBar.Value, 0.01d);
+                verticalScrollBar.IsEnabled = false;
+                PumpDispatcher(window.Dispatcher);
+                Assert.IsTrue(verticalScrollBar.Opacity < 1d);
 
                 textBox.ApplyTemplate();
                 var textContentHost = (ScrollViewer)textBox.Template.FindName("PART_ContentHost", textBox);
@@ -593,6 +629,99 @@ public sealed class SettingsForegroundInteractionTests
                 primaryButton.IsEnabled = false;
                 AssertBrushColor(host, "App.AccentBrush", primaryButton.Background);
                 AssertBrushColor(host, "App.AccentForegroundBrush", primaryButton.Foreground);
+
+                // Keep the navigation primitive in its own presentation scope. The
+                // existing control-system assertions intentionally use a crowded
+                // host, and adding a second tall fixture there changes Expander
+                // layout/selection behavior without exercising the navigation role.
+                Grid topNavigationHost = CreateSettingsControlHost();
+                var topNavigation = new ListBox
+                {
+                    Width = 360,
+                    Height = 56,
+                    ItemsSource = new[] { "General", "Folder", "Custom Folder" },
+                    SelectedIndex = 0,
+                    Style = (Style)topNavigationHost.Resources["App.Canonical.TopNavigationStyle"]
+                };
+                var topNavigationContent = new ContentControl
+                {
+                    Height = 80,
+                    Content = new TextBlock { Text = "General content" },
+                    Style = (Style)topNavigationHost.Resources["App.Canonical.TopNavigationContentStyle"]
+                };
+                var topNavigationPanel = new StackPanel();
+                topNavigationPanel.Children.Add(topNavigation);
+                topNavigationPanel.Children.Add(topNavigationContent);
+                topNavigationHost.Children.Add(topNavigationPanel);
+                var topNavigationWindow = new Window
+                {
+                    Content = topNavigationHost,
+                    Width = 420,
+                    Height = 180
+                };
+                windowTest.ShowAndWaitForContentRendered(
+                    topNavigationWindow,
+                    TestWindowActivation.ForegroundInteraction);
+
+                topNavigation.ApplyTemplate();
+                topNavigationWindow.UpdateLayout();
+                Assert.AreEqual(SelectionMode.Single, topNavigation.SelectionMode);
+                Assert.AreEqual(
+                    KeyboardNavigationMode.Continue,
+                    KeyboardNavigation.GetDirectionalNavigation(topNavigation));
+                StackPanel topNavigationItems = FindDescendant<StackPanel>(topNavigation);
+                Assert.AreEqual(Orientation.Horizontal, topNavigationItems.Orientation);
+                var topNavigationItemsByIndex = topNavigation.Items
+                    .Cast<object>()
+                    .Select((_, index) => (ListBoxItem)topNavigation.ItemContainerGenerator.ContainerFromIndex(index))
+                    .ToArray();
+                Assert.IsTrue(topNavigationItemsByIndex.All(item => item is not null));
+                foreach (ListBoxItem item in topNavigationItemsByIndex)
+                {
+                    item.ApplyTemplate();
+                    Assert.IsTrue(item.Focusable);
+                    Assert.IsNotNull(item.Template.FindName("SelectionIndicator", item));
+                    Assert.IsNotNull(item.Template.FindName("FocusBorder", item));
+                }
+                Assert.AreEqual(
+                    Visibility.Visible,
+                    ((Border)topNavigationItemsByIndex[0].Template.FindName("SelectionIndicator", topNavigationItemsByIndex[0])).Visibility);
+                Assert.AreEqual(
+                    Visibility.Collapsed,
+                    ((Border)topNavigationItemsByIndex[1].Template.FindName("SelectionIndicator", topNavigationItemsByIndex[1])).Visibility);
+                Assert.IsTrue(topNavigationItemsByIndex[0].Focus());
+                PumpDispatcher(topNavigationWindow.Dispatcher);
+                Assert.AreEqual(
+                    Visibility.Visible,
+                    ((Border)topNavigationItemsByIndex[0].Template.FindName("FocusBorder", topNavigationItemsByIndex[0])).Visibility);
+                RaiseKey(topNavigationItemsByIndex[0], Key.End);
+                PumpDispatcher(topNavigationWindow.Dispatcher);
+                Assert.AreEqual(2, topNavigation.SelectedIndex);
+                Assert.IsTrue(topNavigationItemsByIndex[2].IsKeyboardFocusWithin);
+                RaiseKey(topNavigationItemsByIndex[2], Key.Home);
+                PumpDispatcher(topNavigationWindow.Dispatcher);
+                Assert.AreEqual(0, topNavigation.SelectedIndex);
+                Assert.IsTrue(topNavigationItemsByIndex[0].IsKeyboardFocusWithin);
+                var topNavigationPeer = new ListBoxAutomationPeer(topNavigation);
+                var topNavigationSelection = (ISelectionProvider)topNavigationPeer.GetPattern(PatternInterface.Selection);
+                Assert.IsNotNull(topNavigationSelection);
+                Assert.IsFalse(topNavigationSelection.CanSelectMultiple);
+                Assert.AreEqual(1, topNavigationSelection.GetSelection().Length);
+                AutomationPeer topFolderPeer = topNavigationPeer.GetChildren()
+                    .Single(peer => peer.GetName() == "Folder");
+                var topFolderSelection = (ISelectionItemProvider)topFolderPeer.GetPattern(PatternInterface.SelectionItem);
+                Assert.IsNotNull(topFolderSelection);
+                topFolderSelection.Select();
+                PumpDispatcher(topNavigationWindow.Dispatcher);
+                Assert.AreEqual(1, topNavigation.SelectedIndex);
+                Assert.IsTrue(topFolderSelection.IsSelected);
+                topNavigationItemsByIndex[2].IsEnabled = false;
+                PumpDispatcher(topNavigationWindow.Dispatcher);
+                var disabledNavigationChrome = (Border)topNavigationItemsByIndex[2].Template.FindName("NavigationItemChrome", topNavigationItemsByIndex[2]);
+                Assert.IsTrue(disabledNavigationChrome.Opacity < 1d);
+                topNavigationContent.ApplyTemplate();
+                Assert.IsFalse(topNavigationContent.Focusable);
+                Assert.IsNotNull(topNavigationContent.Template.FindName("TopNavigationContentChrome", topNavigationContent));
             }
             finally
             {
