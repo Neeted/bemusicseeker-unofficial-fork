@@ -22,8 +22,9 @@
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
   <Grid x:Name="settingDialogRootGrid" IsEnabled="{Binding IsEditCompletionEnabled}">
-    <Grid x:Name="settingDialogOperationGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
-      <Grid Background="{DynamicResource App.DialogBackgroundBrush}" SnapsToDevicePixels="True">
+    <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
+      <Grid x:Name="settingDialogOperationGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
+        <Grid Background="{DynamicResource App.DialogBackgroundBrush}" SnapsToDevicePixels="True">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="216" />
           <ColumnDefinition Width="1" />
@@ -94,6 +95,7 @@
           </StackPanel>
         </Grid>
       </Grid>
-    </Grid>
+      </Grid>
+    </Border>
   </Grid>
 </views:ThemedWindow>

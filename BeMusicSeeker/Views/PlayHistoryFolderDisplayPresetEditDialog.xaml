@@ -14,24 +14,26 @@
         ShowInTaskbar="False"
         Background="{DynamicResource App.DialogBackgroundBrush}"
         Foreground="{DynamicResource App.TextBrush}">
-  <DockPanel Margin="12" LastChildFill="True">
+  <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
+    <DockPanel Margin="12" LastChildFill="True">
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-      <Button MinWidth="72" Height="24" Margin="0,0,8,0" Content="OK" Click="SaveAndClose" />
-      <Button MinWidth="72" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" IsCancel="True" />
+      <Button MinWidth="72" Height="24" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" Click="SaveAndClose" />
+      <Button MinWidth="72" Height="24" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" IsCancel="True" />
     </StackPanel>
     <TextBlock DockPanel.Dock="Top" TextWrapping="Wrap" Margin="0,0,0,10" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_desc, Mode=OneWay}" />
     <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-      <Label DockPanel.Dock="Left" Height="28" Padding="0,4,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_name, Mode=OneWay}" />
-      <TextBox Height="24" VerticalContentAlignment="Center" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+      <Label Style="{StaticResource App.Canonical.LabelStyle}" DockPanel.Dock="Left" Height="28" Padding="0,4,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_name, Mode=OneWay}" />
+      <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}" Height="24" VerticalContentAlignment="Center" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
     </DockPanel>
-    <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_playlists, Mode=OneWay}">
-      <ListBox ItemsSource="{Binding PlaylistOptions}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto">
+    <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_playlists, Mode=OneWay}">
+      <ListBox Style="{StaticResource App.Canonical.ListBoxStyle}" ItemsSource="{Binding PlaylistOptions}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto">
         <ListBox.ItemTemplate>
           <DataTemplate>
-            <CheckBox MinHeight="20" IsChecked="{Binding IsSelected, Mode=TwoWay}" Content="{Binding DisplayName}" />
+            <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" MinHeight="20" IsChecked="{Binding IsSelected, Mode=TwoWay}" Content="{Binding DisplayName}" />
           </DataTemplate>
         </ListBox.ItemTemplate>
       </ListBox>
     </GroupBox>
-  </DockPanel>
+    </DockPanel>
+  </Border>
 </views:ThemedWindow>

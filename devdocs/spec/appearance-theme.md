@@ -245,7 +245,11 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 
 これらは HWND 作成時に title bar theme を attach し、表示中の theme 変更を live 反映し、close 時に detach する。owner、modal `ShowDialog` / `DialogResult`、close/cancel、各 view model や worker の lifetime ownership は従来どおり各 dialog が保持する。`ProgressDialog` の `HideCloseButton` と busy 中の close 抑止も変更しない。
 
+上記の native dialog と code-only MessageBox は、描画面を `App.Canonical.DialogContentStyle` で明示的に採用し、button の affirmative / quiet / danger role は `App.Canonical.Dialog*ActionStyle` で表現する。入力 control、一覧、group、label、scroll viewer も対応する `App.Canonical.*Style` を各 view で明示する。`SettingsWindow` の既存 `Settings*` button / control key は SettingsControls の canonical `BasedOn` alias として維持する。これにより、canonical resource の導入で未採用の MainWindow や別画面へ implicit style が波及せず、owner、modal result、既定値、cancel、close、gate、永続化、lifetime の既存契約も変更しない。
+
 `InitialSetupLanguageDialog`、`PlaylistPropertyDialog`、`LoadPlaylistURIDialog` などアプリ内 overlay の主要な描画面は、引き続き `App.DialogOverlayBrush` / `App.DialogBackgroundBrush` / `App.DialogBorderBrush` / `App.TextBrush` を参照する。
+
+これらの overlay は `App.Canonical.DialogOverlayStyle` と `App.Canonical.DialogContentStyle` を明示的に採用し、overlay 内の action / input control も同じ canonical role を使用する。overlay の routed event、command、binding、validation、選択状態は従来どおり保持する。OS 標準 picker と `EmergencyDialog` はこのアプリ内 dialog canonicalization の対象外である。
 
 OS 標準の `OpenFileDialog` / `SaveFileDialog` / folder picker は Windows 管理 UI のためテーマ対象外。
 

@@ -12,7 +12,7 @@
         ShowInTaskbar="False"
         Background="{DynamicResource App.DialogBackgroundBrush}"
         Foreground="{DynamicResource App.TextBrush}">
-  <Border Padding="14" Background="{DynamicResource App.DialogBackgroundBrush}">
+  <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
     <StackPanel>
       <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,0,0,8" />
       <Grid Margin="0,0,0,12">
@@ -30,8 +30,8 @@
         <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LatestVersionText}" />
       </Grid>
 
-      <GroupBox Header="{Binding PackageLabel}" Margin="0,0,0,10">
-        <ListBox ItemsSource="{Binding Packages}"
+      <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding PackageLabel}" Margin="0,0,0,10">
+        <ListBox Style="{StaticResource App.Canonical.ListBoxStyle}" ItemsSource="{Binding Packages}"
                  SelectedItem="{Binding SelectedPackage, Mode=TwoWay}"
                  BorderThickness="0"
                  Background="{DynamicResource App.ControlBackgroundBrush}"
@@ -64,9 +64,9 @@
       </TextBlock>
 
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-        <Button Width="112" Margin="0,0,8,0" Content="{Binding UpdateButtonLabel}" IsEnabled="{Binding CanStartUpdate}" IsDefault="True" Click="ApplyButtonClick" />
-        <Button Width="112" Margin="0,0,8,0" Content="{Binding ReleasePageButtonLabel}" Click="OpenReleasePageButtonClick" />
-        <Button Width="72" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" IsCancel="True" />
+        <Button Width="112" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="{Binding UpdateButtonLabel}" IsEnabled="{Binding CanStartUpdate}" IsDefault="True" Click="ApplyButtonClick" />
+        <Button Width="112" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding ReleasePageButtonLabel}" Click="OpenReleasePageButtonClick" />
+        <Button Width="72" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" IsCancel="True" />
       </StackPanel>
     </StackPanel>
   </Border>

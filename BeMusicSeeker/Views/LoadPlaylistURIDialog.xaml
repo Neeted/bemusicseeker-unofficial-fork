@@ -4,18 +4,18 @@
     <FrameworkElement.Resources>
       <ResourceDictionary />
     </FrameworkElement.Resources>
-    <Rectangle Fill="{DynamicResource App.DialogOverlayBrush}" Opacity="0.5" />
-    <Border Width="560" Height="220" CornerRadius="10" Background="{DynamicResource App.DialogBackgroundBrush}" BorderBrush="{DynamicResource App.DialogBorderBrush}" BorderThickness="1" Padding="10">
-      <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" Background="{DynamicResource App.DialogBackgroundBrush}">
+    <Rectangle Style="{StaticResource App.Canonical.DialogOverlayStyle}" />
+    <Border Style="{StaticResource App.Canonical.DialogContentStyle}" Width="560" Height="220">
+      <Border Style="{StaticResource App.Canonical.DialogSurfaceStyle}">
         <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
           <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,2,0,0">
-            <Button x:Name="openLocalFileButton" Content="Open" MinWidth="50" Margin="5,3" Click="OpenLocalFile" />
-            <Button Content="OK" MinWidth="50" Margin="5,3" Click="SaveAndClose" />
-            <Button Content="Cancel" MinWidth="50" Margin="5,3" Click="CancelAndClose" />
+            <Button x:Name="openLocalFileButton" Style="{StaticResource App.Canonical.DialogActionStyle}" Content="Open" MinWidth="50" Margin="5,3" Click="OpenLocalFile" />
+            <Button Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" MinWidth="50" Margin="5,3" Click="SaveAndClose" />
+            <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" MinWidth="50" Margin="5,3" Click="CancelAndClose" />
           </StackPanel>
           <StackPanel Margin="5,5,5,0">
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_PlaylistURI, Mode=OneWay}" />
-            <TextBox Name="textBoxURIInput" Height="128" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" />
+            <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}" Name="textBoxURIInput" Height="128" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" />
           </StackPanel>
         </DockPanel>
       </Border>

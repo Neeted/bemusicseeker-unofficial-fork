@@ -20,7 +20,8 @@
 
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
-  <FlowDocumentScrollViewer Margin="20" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" MinHeight="320" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsToolBarVisible="False">
+  <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
+    <FlowDocumentScrollViewer Margin="20" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" MinHeight="320" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsToolBarVisible="False">
 <FlowDocument FontSize="12" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" PagePadding="12">
 <FrameworkContentElement.Resources>
 <ResourceDictionary>
@@ -454,5 +455,6 @@
 </ListItem>
 </List>
 </FlowDocument>
-</FlowDocumentScrollViewer>
+    </FlowDocumentScrollViewer>
+  </Border>
 </views:ThemedWindow>

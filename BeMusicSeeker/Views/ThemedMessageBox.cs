@@ -133,13 +133,8 @@ internal static class ThemedMessageBox
         dialog.SetResourceReference(Control.BackgroundProperty, "App.DialogBackgroundBrush");
         dialog.SetResourceReference(Control.ForegroundProperty, "App.TextBrush");
 
-        var root = new Border
-        {
-            Padding = new Thickness(14),
-            BorderThickness = new Thickness(1),
-        };
-        root.SetResourceReference(Border.BackgroundProperty, "App.DialogBackgroundBrush");
-        root.SetResourceReference(Border.BorderBrushProperty, "App.DialogBorderBrush");
+        var root = new Border();
+        root.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.DialogContentStyle");
 
         var layout = new Grid();
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -197,6 +192,7 @@ internal static class ThemedMessageBox
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             CanContentScroll = false,
         };
+        messageScroll.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.ScrollViewerStyle");
         Grid.SetRow(messageScroll, 0);
         Grid.SetColumn(messageScroll, 1);
         layout.Children.Add(messageScroll);
@@ -220,6 +216,9 @@ internal static class ThemedMessageBox
                 IsDefault = pair.Key == initialResult || (initialResult == MessageBoxResult.None && IsAffirmative(pair.Key)),
                 IsCancel = pair.Key == MessageBoxResult.Cancel || (button == MessageBoxButton.YesNo && pair.Key == MessageBoxResult.No),
             };
+            dialogButton.SetResourceReference(
+                FrameworkElement.StyleProperty,
+                GetButtonStyleKey(button, pair.Key));
             dialogButton.Click += delegate
             {
                 setResult(pair.Key);
@@ -231,6 +230,21 @@ internal static class ThemedMessageBox
         root.Child = layout;
         dialog.Content = root;
         return dialog;
+    }
+
+    private static string GetButtonStyleKey(MessageBoxButton button, MessageBoxResult result)
+    {
+        if (result == MessageBoxResult.Cancel || (button == MessageBoxButton.YesNo && result == MessageBoxResult.No))
+        {
+            return "App.Canonical.DialogQuietActionStyle";
+        }
+
+        if (IsAffirmative(result))
+        {
+            return "App.Canonical.DialogPrimaryActionStyle";
+        }
+
+        return "App.Canonical.DialogActionStyle";
     }
 
     private static IEnumerable<KeyValuePair<MessageBoxResult, string>> GetButtons(MessageBoxButton button)
