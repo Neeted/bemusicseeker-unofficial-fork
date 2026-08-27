@@ -1,7 +1,7 @@
 # Shared UI presentation refresh
 
-Status: approved for implementation  
-Base revision: `e65682392595e5c1af16d838f5c61ef25942107b`  
+Status: approved for implementation
+Base revision: `e65682392595e5c1af16d838f5c61ef25942107b`
 Test Contract Packet: `APP-UI-SHARED-PRESENTATION-03`
 
 ## Goal
@@ -177,6 +177,7 @@ Static-review amendment evidence:
 - The first fresh review found no production P0/P1, but rejected five acceptance-direct test-contract issues: non-allowlisted foreground interaction, durable literal Load URI geometry, concrete Property navigation control types, scrollbar style identity, and incomplete binding-direction coverage.
 - The amendment removes those implementation constraints while retaining observable behavior and adds effective TwoWay/OneWay binding-direction checks. A temporary OneWay `is_external_sync` mutant failed the intended oracle and was restored (`tests-quick-20260828-043448`).
 - Amendment head Quick `tests-quick-20260828-043649`: 65/65 passed; `git diff --check` passed.
+- Second fresh-review amendment replaces Property navigation ListBox/Selector/page-name/template assumptions with public Selection/SelectionItem Automation, single-selection, selected-content, scroll-reset, and draft/reopen observations. ScrollViewer/ScrollBar checks retain materialized behavior and transitions without template/resource identity gates. A temporary wrong-initial-category mutant failed the semantic navigation oracle and was restored (`tests-quick-20260828-051042`); restored head Quick `tests-quick-20260828-051324`: 104/104 passed.
 
 ## Dependency, parallelism, and review
 

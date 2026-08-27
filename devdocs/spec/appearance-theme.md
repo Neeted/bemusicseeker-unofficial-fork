@@ -137,7 +137,7 @@ canonical resource の依存関係は `App -> CanonicalDialogStyles -> Canonical
 - `MenuItem`
 - `Separator`
 
-Playlist Property の上部カテゴリ navigation は、`App.Canonical.TopNavigationStyle`、`App.Canonical.TopNavigationItemStyle`、`App.Canonical.TopNavigationContentStyle` の keyed role で構成する。navigation は General / Folder / Custom Folder の single-selection ListBox として WPF の Selection / SelectionItem Automation peer および標準 keyboard route を維持し、選択 item は下端 indicator、hover / focus / disabled state を表示する。本文は navigation と別の content host とし、canonical role は未採用の application-wide implicit style へ漏らさない。
+Playlist Property の上部カテゴリ navigation は、`App.Canonical.TopNavigationStyle`、`App.Canonical.TopNavigationItemStyle`、`App.Canonical.TopNavigationContentStyle` の keyed role で構成する。navigation は General / Folder / Custom Folder の single-select top-navigation role として public な Selection / SelectionItem Automation pattern および標準 keyboard route を維持し、選択 item は下端 indicator、hover / focus / disabled state を表示する。本文は navigation と別の content host とし、canonical role は未採用の application-wide implicit style へ漏らさない。WPF の selector、item container、template type はこの role の契約ではない。
 
 `SimpleMenuItem` は `SystemColors.*` ではなく、`App.PopupBackgroundBrush` / `App.TextBrush` / `App.ControlHoverBrush` / `App.MenuSelectedBackgroundBrush` / `App.MenuSelectedTextBrush` / `App.DisabledTextBrush` / `App.BorderBrush` を使う。MainWindow の column header など局所 `MenuItem` style は implicit style を `BasedOn` で継承する。
 

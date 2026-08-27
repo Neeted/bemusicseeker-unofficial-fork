@@ -273,62 +273,35 @@ public sealed class PlaylistSummaryBulkEditTests
                 windowTest.ShowAndWaitForContentRendered(view);
                 view.UpdateLayout();
 
-                Selector navigation = (Selector)view.FindName("propertyNavigation")
+                FrameworkElement navigation = (FrameworkElement)view.FindName("propertyNavigation")
                     ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
-                FrameworkElement generalPage = (FrameworkElement)view.FindName("generalPage");
-                FrameworkElement folderPage = (FrameworkElement)view.FindName("folderPage");
-                FrameworkElement customPage = (FrameworkElement)view.FindName("customPage");
                 var contentScrollViewer = (ScrollViewer)view.FindName("propertyContentScrollViewer");
-                Assert.IsNotNull(generalPage);
-                Assert.IsNotNull(folderPage);
-                Assert.IsNotNull(customPage);
                 Assert.IsNotNull(contentScrollViewer);
-                Assert.AreEqual(3, navigation.Items.Count);
-                Assert.AreEqual(0, navigation.SelectedIndex);
-                Assert.AreEqual(Visibility.Visible, generalPage.Visibility);
-                Assert.AreEqual(Visibility.Collapsed, folderPage.Visibility);
-                Assert.AreEqual(Visibility.Collapsed, customPage.Visibility);
+                PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation);
+                AssertSelectedPropertyCategory(navigationState, 0);
 
                 FrameworkElement contentHost = (FrameworkElement)view.FindName("propertyContent")
                     ?? throw new AssertFailedException("Playlist property content host was not materialized.");
                 Assert.AreNotSame(navigation, contentHost);
 
-                AutomationPeer navigationPeer = UIElementAutomationPeer.CreatePeerForElement(navigation)
-                    ?? throw new AssertFailedException("Playlist property navigation automation was not materialized.");
-                ISelectionProvider selectionProvider = (ISelectionProvider)navigationPeer.GetPattern(PatternInterface.Selection)
-                    ?? throw new AssertFailedException("Playlist property navigation does not expose Selection automation.");
-                Assert.IsFalse(selectionProvider.CanSelectMultiple);
-                Assert.AreEqual(1, selectionProvider.GetSelection().Length);
-                AutomationPeer[] navigationItems = navigationPeer.GetChildren()?.ToArray()
-                    ?? throw new AssertFailedException("Playlist property navigation items were not exposed to Automation.");
-                Assert.AreEqual(navigation.Items.Count, navigationItems.Length);
-                ISelectionItemProvider[] selectionItems = navigationItems
-                    .Select(item => item.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider
-                        ?? throw new AssertFailedException("A top-navigation item lacks SelectionItem automation."))
-                    .ToArray();
-                Assert.IsTrue(navigationItems.All(item => !string.IsNullOrWhiteSpace(item.GetName())));
-                Assert.AreEqual(1, selectionItems.Count(item => item.IsSelected));
-
-                ISelectionItemProvider alternateSelection = selectionItems.First(item => !item.IsSelected);
-                alternateSelection.Select();
-                TestUiDispatcherHost.Drain();
-                Assert.AreNotEqual(0, navigation.SelectedIndex);
-                Assert.IsTrue(alternateSelection.IsSelected);
-                Assert.AreEqual(1, selectionProvider.GetSelection().Length);
-
                 TextBox nameEditor = FindBoundElement<TextBox>(
                     view,
                     TextBox.TextProperty,
                     nameof(PlaylistPropertyPresentationFixture.name));
+                Assert.IsTrue(nameEditor.IsVisible, "The initially selected category must expose the name field.");
                 nameEditor.Text = "draft playlist";
                 nameEditor.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
                 TestUiDispatcherHost.Drain();
 
-                navigation.SelectedIndex = 2;
+                navigationState.ItemProviders[2].Select();
                 TestUiDispatcherHost.Drain();
-                Assert.AreEqual(Visibility.Collapsed, generalPage.Visibility);
-                Assert.AreEqual(Visibility.Collapsed, folderPage.Visibility);
-                Assert.AreEqual(Visibility.Visible, customPage.Visibility);
+                AssertSelectedPropertyCategory(navigationState, 2);
+                Assert.IsFalse(nameEditor.IsVisible, "Unselected category fields must not remain visible.");
+                TextBox outputDirectoryEditor = FindBoundElement<TextBox>(
+                    view,
+                    TextBox.TextProperty,
+                    nameof(PlaylistPropertyPresentationFixture.output_dir));
+                Assert.IsTrue(outputDirectoryEditor.IsVisible, "The selected Custom Folder category must expose its fields.");
                 contentScrollViewer.UpdateLayout();
                 Assert.IsTrue(
                     contentScrollViewer.ScrollableHeight > 0,
@@ -337,12 +310,15 @@ public sealed class PlaylistSummaryBulkEditTests
                 TestUiDispatcherHost.Drain();
                 Assert.IsTrue(contentScrollViewer.VerticalOffset > 0);
 
-                navigation.SelectedIndex = 1;
+                navigationState.ItemProviders[1].Select();
                 TestUiDispatcherHost.Drain();
+                AssertSelectedPropertyCategory(navigationState, 1);
                 Assert.AreEqual(0, contentScrollViewer.VerticalOffset);
-                navigation.SelectedIndex = 0;
+                Assert.IsFalse(outputDirectoryEditor.IsVisible, "The deselected Custom Folder fields must be hidden.");
+                navigationState.ItemProviders[0].Select();
                 TestUiDispatcherHost.Drain();
-                Assert.AreEqual(Visibility.Visible, generalPage.Visibility);
+                AssertSelectedPropertyCategory(navigationState, 0);
+                Assert.IsTrue(nameEditor.IsVisible, "Returning to General must restore its observable fields.");
                 Assert.AreEqual("draft playlist", nameEditor.Text);
                 Assert.AreEqual("draft playlist", fixture.name);
                 Assert.AreEqual(0, contentScrollViewer.VerticalOffset);
@@ -537,20 +513,17 @@ public sealed class PlaylistSummaryBulkEditTests
                         $"Missing semantic tooltip binding for {binding.ConverterParameter}.");
                 }
 
-                Selector navigation = (Selector)view.FindName("propertyNavigation");
-                UIElement customNavigationItem = navigation.ItemContainerGenerator.ContainerFromIndex(2) as UIElement
-                    ?? throw new AssertFailedException("Custom Folder navigation item was not materialized.");
-                AssertEffectiveOneWayBinding(
-                    customNavigationItem,
-                    UIElement.IsEnabledProperty,
-                    "Custom Folder navigation availability");
-                Assert.IsTrue(customNavigationItem.IsEnabled);
+                FrameworkElement navigation = (FrameworkElement)view.FindName("propertyNavigation")
+                    ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
+                PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation);
+                AutomationPeer customNavigationItem = navigationState.Items[2];
+                Assert.IsTrue(customNavigationItem.IsEnabled(), "Custom Folder navigation must initially be available.");
                 fixture.OperationModeLR2DB = false;
                 TestUiDispatcherHost.Drain();
-                Assert.IsFalse(customNavigationItem.IsEnabled);
+                Assert.IsFalse(customNavigationItem.IsEnabled(), "Custom Folder navigation must follow OperationModeLR2DB.");
                 fixture.OperationModeLR2DB = true;
                 TestUiDispatcherHost.Drain();
-                Assert.IsTrue(customNavigationItem.IsEnabled);
+                Assert.IsTrue(customNavigationItem.IsEnabled(), "Custom Folder navigation must recover when the mode returns.");
 
                 TextBox pageUrl = FindBoundElement<TextBox>(
                     view,
@@ -1017,6 +990,42 @@ public sealed class PlaylistSummaryBulkEditTests
             isEffectiveOneWay,
             $"{propertyName} must use an effective OneWay binding; actual mode was {mode}.");
     }
+
+    private static PropertyNavigationObservation ObservePropertyNavigation(FrameworkElement navigation)
+    {
+        AutomationPeer navigationPeer = UIElementAutomationPeer.CreatePeerForElement(navigation)
+            ?? throw new AssertFailedException("Playlist property navigation automation was not materialized.");
+        ISelectionProvider selectionProvider = navigationPeer.GetPattern(PatternInterface.Selection) as ISelectionProvider
+            ?? throw new AssertFailedException("Playlist property navigation does not expose Selection automation.");
+        Assert.IsFalse(selectionProvider.CanSelectMultiple);
+        AutomationPeer[] navigationItems = navigationPeer.GetChildren()?.ToArray()
+            ?? throw new AssertFailedException("Playlist property navigation items were not exposed to Automation.");
+        Assert.AreEqual(3, navigationItems.Length, "Playlist property navigation must expose three category peers.");
+        ISelectionItemProvider[] selectionItems = navigationItems
+            .Select(item => item.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider
+                ?? throw new AssertFailedException("A property navigation item lacks SelectionItem automation."))
+            .ToArray();
+        Assert.IsTrue(navigationItems.All(item => !string.IsNullOrWhiteSpace(item.GetName())));
+        Assert.AreEqual(1, selectionItems.Count(item => item.IsSelected));
+        Assert.AreEqual(1, selectionProvider.GetSelection().Length);
+        return new PropertyNavigationObservation(selectionProvider, navigationItems, selectionItems);
+    }
+
+    private static void AssertSelectedPropertyCategory(
+        PropertyNavigationObservation navigation,
+        int expectedIndex,
+        string message = null)
+    {
+        string assertionMessage = message ?? $"Property navigation category {expectedIndex} must be selected.";
+        Assert.AreEqual(1, navigation.SelectionProvider.GetSelection().Length, assertionMessage);
+        Assert.AreEqual(1, navigation.ItemProviders.Count(item => item.IsSelected), assertionMessage);
+        Assert.IsTrue(navigation.ItemProviders[expectedIndex].IsSelected, assertionMessage);
+    }
+
+    private sealed record PropertyNavigationObservation(
+        ISelectionProvider SelectionProvider,
+        AutomationPeer[] Items,
+        ISelectionItemProvider[] ItemProviders);
 
     private static T FindBoundElement<T>(
         DependencyObject root,

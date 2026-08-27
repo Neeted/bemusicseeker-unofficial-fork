@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
@@ -613,7 +615,6 @@ public sealed class DialogPresentationTests
         AssertCanonicalListBoxRoles(presentationRoot);
         AssertCanonicalControlRole<GroupBox>(presentationRoot, "GroupBox", "App.Canonical.GroupBoxStyle");
         AssertCanonicalControlRole<Label>(presentationRoot, "Label", "App.Canonical.LabelStyle");
-        AssertCanonicalControlRole<ScrollViewer>(presentationRoot, "ScrollViewer", "App.Canonical.ScrollViewerStyle");
 
         if (fixture.RequiresOverlayRole)
         {
@@ -891,18 +892,14 @@ public sealed class DialogPresentationTests
     {
         const string listBoxStyleKey = "App.Canonical.ListBoxStyle";
         const string topNavigationStyleKey = "App.Canonical.TopNavigationStyle";
+        FrameworkElement propertyNavigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
         ListBox[] listBoxes = FindVisualDescendants<ListBox>(presentationRoot)
             .Where(item => item.TemplatedParent == null)
             .ToArray();
-        foreach (ListBox listBox in listBoxes)
+        foreach (ListBox listBox in listBoxes.Where(item => !ReferenceEquals(item, propertyNavigation)))
         {
-            bool isPropertyNavigation = string.Equals(
-                listBox.Name,
-                "propertyNavigation",
-                StringComparison.Ordinal);
             Style topNavigationStyle = listBox.TryFindResource(topNavigationStyleKey) as Style;
-            bool isTopNavigation = isPropertyNavigation
-                || topNavigationStyle != null && StyleChainContains(listBox.Style, topNavigationStyle);
+            bool isTopNavigation = topNavigationStyle != null && StyleChainContains(listBox.Style, topNavigationStyle);
             string canonicalStyleKey = isTopNavigation ? topNavigationStyleKey : listBoxStyleKey;
             Style resolvedStyle = RequireStyle(listBox, canonicalStyleKey);
             AssertCanonicalControlRole(
@@ -910,18 +907,99 @@ public sealed class DialogPresentationTests
                 isTopNavigation ? "top-navigation ListBox" : "ListBox",
                 canonicalStyleKey,
                 resolvedStyle);
-            if (isPropertyNavigation)
-            {
-                Assert.AreEqual(
-                    SelectionMode.Single,
-                    listBox.SelectionMode,
-                    "Playlist property top navigation must keep single selection semantics.");
-                Assert.AreEqual(
-                    KeyboardNavigationMode.Continue,
-                    KeyboardNavigation.GetDirectionalNavigation(listBox),
-                    "Playlist property top navigation must expose directional keyboard navigation.");
-            }
         }
+
+        if (propertyNavigation != null)
+        {
+            AssertPropertyNavigationRole(presentationRoot);
+        }
+    }
+
+    private static void AssertPropertyNavigationRole(FrameworkElement presentationRoot)
+    {
+        FrameworkElement navigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
+        if (navigation == null)
+        {
+            return;
+        }
+
+        AutomationPeer navigationPeer = UIElementAutomationPeer.CreatePeerForElement(navigation)
+            ?? throw new AssertFailedException("Playlist property navigation must expose a public Automation peer.");
+        ISelectionProvider selectionProvider = navigationPeer.GetPattern(PatternInterface.Selection) as ISelectionProvider
+            ?? throw new AssertFailedException("Playlist property navigation must expose Selection automation.");
+        Assert.IsFalse(selectionProvider.CanSelectMultiple);
+        AutomationPeer[] itemPeers = navigationPeer.GetChildren()?.ToArray()
+            ?? throw new AssertFailedException("Playlist property navigation items must be exposed to Automation.");
+        Assert.AreEqual(3, itemPeers.Length, "Playlist property navigation must expose three category peers.");
+        ISelectionItemProvider[] itemProviders = itemPeers
+            .Select(peer => peer.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider
+                ?? throw new AssertFailedException("A property navigation item lacks SelectionItem automation."))
+            .ToArray();
+        Assert.IsTrue(itemPeers.All(peer => !string.IsNullOrWhiteSpace(peer.GetName())));
+        Assert.AreEqual(1, itemProviders.Count(item => item.IsSelected));
+        Assert.IsTrue(itemProviders[0].IsSelected, "Property navigation must open on General.");
+
+        FrameworkElement contentHost = presentationRoot.FindName("propertyContent") as FrameworkElement
+            ?? throw new AssertFailedException("Playlist property content host must remain a separate framework element.");
+        string initialContent = GetVisiblePropertyFieldRoleSignature(contentHost);
+        Assert.IsTrue(initialContent.Length > 0, "The selected property category must expose observable content.");
+
+        itemProviders[1].Select();
+        TestUiDispatcherHost.Drain();
+        Assert.AreEqual(1, itemProviders.Count(item => item.IsSelected));
+        Assert.IsTrue(itemProviders[1].IsSelected);
+        Assert.AreNotEqual(
+            initialContent,
+            GetVisiblePropertyFieldRoleSignature(contentHost),
+            "Selecting a property category must update its observable content.");
+
+        itemProviders[0].Select();
+        TestUiDispatcherHost.Drain();
+        Assert.IsTrue(itemProviders[0].IsSelected);
+        Assert.AreEqual(1, selectionProvider.GetSelection().Length);
+    }
+
+    private static string GetVisiblePropertyFieldRoleSignature(FrameworkElement root)
+    {
+        return string.Join(
+            "|",
+            FindVisualDescendants<FrameworkElement>(root)
+                .Where(element => element.IsVisible && element.ActualWidth > 0d && element.ActualHeight > 0d)
+                .Select(UIElementAutomationPeer.CreatePeerForElement)
+                .Where(peer => peer != null)
+                .Select(peer => peer.GetAutomationControlType())
+                .Where(controlType => controlType is AutomationControlType.Edit
+                    or AutomationControlType.ComboBox
+                    or AutomationControlType.CheckBox
+                    or AutomationControlType.RadioButton
+                    or AutomationControlType.List)
+                .Select(GetPropertyFieldRole)
+                .OrderBy(name => name, StringComparer.Ordinal));
+    }
+
+    private static string GetPropertyFieldRole(AutomationControlType controlType)
+    {
+        if (ReferenceEquals(controlType, AutomationControlType.Edit))
+        {
+            return "Edit";
+        }
+
+        if (ReferenceEquals(controlType, AutomationControlType.ComboBox))
+        {
+            return "ComboBox";
+        }
+
+        if (ReferenceEquals(controlType, AutomationControlType.CheckBox))
+        {
+            return "CheckBox";
+        }
+
+        if (ReferenceEquals(controlType, AutomationControlType.RadioButton))
+        {
+            return "RadioButton";
+        }
+
+        return "List";
     }
 
     private static void AssertCanonicalControlRole<T>(

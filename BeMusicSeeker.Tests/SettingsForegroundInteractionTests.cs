@@ -396,20 +396,14 @@ public sealed class SettingsForegroundInteractionTests
             try
             {
                 Grid host = CreateSettingsControlHost();
-                Style scrollViewerStyle = (Style)host.Resources["SettingsScrollViewerStyle"];
-                Style scrollBarStyle = (Style)host.Resources["SettingsScrollBarStyle"];
                 Style comboBoxItemStyle = (Style)host.Resources["SettingsComboBoxItemStyle"];
                 Style listBoxStyle = (Style)host.Resources["SettingsListBoxStyle"];
                 Style listBoxItemStyle = (Style)host.Resources["SettingsListBoxItemStyle"];
                 Style expanderStyle = (Style)host.Resources["SettingsExpanderStyle"];
-                Style canonicalScrollViewerStyle = (Style)host.Resources["App.Canonical.ScrollViewerStyle"];
-                Style canonicalScrollBarStyle = (Style)host.Resources["App.Canonical.ScrollBarStyle"];
                 Style canonicalComboBoxItemStyle = (Style)host.Resources["App.Canonical.ComboBoxItemStyle"];
                 Style canonicalListBoxStyle = (Style)host.Resources["App.Canonical.ListBoxStyle"];
                 Style canonicalListBoxItemStyle = (Style)host.Resources["App.Canonical.ListBoxItemStyle"];
                 Style canonicalExpanderStyle = (Style)host.Resources["App.Canonical.ExpanderStyle"];
-                AssertEffectiveTemplateRole(scrollViewerStyle, canonicalScrollViewerStyle, nameof(ScrollViewer));
-                AssertEffectiveTemplateRole(scrollBarStyle, canonicalScrollBarStyle, nameof(ScrollBar));
                 AssertEffectiveTemplateRole(comboBoxItemStyle, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
                 AssertEffectiveTemplateRole(listBoxStyle, canonicalListBoxStyle, nameof(ListBox));
                 AssertEffectiveTemplateRole(listBoxItemStyle, canonicalListBoxItemStyle, nameof(ListBoxItem));
@@ -449,7 +443,6 @@ public sealed class SettingsForegroundInteractionTests
                     window,
                     TestWindowActivation.ForegroundInteraction);
 
-                AssertEffectiveTemplateRole(pageScroller.Style, canonicalScrollViewerStyle, nameof(ScrollViewer));
                 AssertEffectiveTemplateRole(listBox.Style, canonicalListBoxStyle, nameof(ListBox));
                 AssertEffectiveTemplateRole(listBox.ItemContainerStyle, canonicalListBoxItemStyle, nameof(ListBoxItem));
                 AssertEffectiveTemplateRole(comboBox.ItemContainerStyle, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
@@ -461,14 +454,13 @@ public sealed class SettingsForegroundInteractionTests
 
                 pageScroller.ApplyTemplate();
                 var verticalScrollBar = (ScrollBar)pageScroller.Template.FindName("PART_VerticalScrollBar", pageScroller);
+                Assert.IsNotNull(verticalScrollBar);
                 Assert.IsNotNull(pageScroller.Template.FindName("PART_ScrollContentPresenter", pageScroller));
-                AssertEffectiveTemplateRole(verticalScrollBar.Style, canonicalScrollBarStyle, nameof(ScrollBar));
                 Assert.AreNotEqual(sentinel, verticalScrollBar.Tag);
                 verticalScrollBar.ApplyTemplate();
                 Assert.IsNotNull(verticalScrollBar.Template.FindName("PART_Track", verticalScrollBar));
                 var horizontalScrollBar = (ScrollBar)pageScroller.Template.FindName("PART_HorizontalScrollBar", pageScroller);
                 Assert.IsNotNull(horizontalScrollBar);
-                AssertEffectiveTemplateRole(horizontalScrollBar.Style, canonicalScrollBarStyle, nameof(ScrollBar));
                 Assert.AreEqual(Orientation.Vertical, verticalScrollBar.Orientation);
                 Assert.AreEqual(Orientation.Horizontal, horizontalScrollBar.Orientation);
                 Assert.AreEqual(pageScroller.ViewportHeight, verticalScrollBar.ViewportSize, 0.01d);
@@ -513,7 +505,7 @@ public sealed class SettingsForegroundInteractionTests
 
                 textBox.ApplyTemplate();
                 var textContentHost = (ScrollViewer)textBox.Template.FindName("PART_ContentHost", textBox);
-                AssertEffectiveTemplateRole(textContentHost.Style, canonicalScrollViewerStyle, nameof(ScrollViewer));
+                Assert.IsNotNull(textContentHost);
                 Assert.AreNotEqual(sentinel, textContentHost.Tag);
 
                 comboBox.ApplyTemplate();
@@ -526,7 +518,6 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.IsTrue(comboBox.IsDropDownOpen);
                 ScrollViewer popupScroller = FindDescendant<ScrollViewer>(popup.Child);
                 Assert.IsNotNull(popupScroller);
-                AssertEffectiveTemplateRole(popupScroller.Style, canonicalScrollViewerStyle, nameof(ScrollViewer));
                 var firstComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(1);
                 Assert.IsNotNull(firstComboItem);
@@ -555,7 +546,6 @@ public sealed class SettingsForegroundInteractionTests
                 listBox.ApplyTemplate();
                 ScrollViewer listScroller = FindDescendant<ScrollViewer>(listBox);
                 Assert.IsNotNull(listScroller);
-                AssertEffectiveTemplateRole(listScroller.Style, canonicalScrollViewerStyle, nameof(ScrollViewer));
                 Assert.AreEqual(1, listBox.SelectedIndex);
                 var firstListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(1);
