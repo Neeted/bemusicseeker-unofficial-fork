@@ -214,3 +214,15 @@ assertion because bounds containment is its explicit observable contract.
 - Targeted negative control for the legacy fixed-height Progress implementation: `artifacts/verification/tests-quick-20260827-135609/functional/results.trx` — 1/1 intended failure from rendered sub-label overflow; the mutation was reverted.
 - Targeted negative control after removing the scoped canonical content role: `artifacts/verification/tests-quick-20260827-135708/functional/results.trx` — 12/13 passed and the intended Progress data row failed with the semantic locator assertion; the mutation was reverted.
 - No deviation from the approved packet. Functional and fresh static review are the root-owned Unit 4 follow-up.
+
+### Review-fix oracle-hardening evidence
+
+- Prior final Functional artifact: `tests-functional-20260827-141350`.
+- Fresh static review found the overlay-descendant, authority-owned button-role, and application implicit-style oracle gaps still pending at that snapshot.
+- Current review-fix head-pass: `artifacts/verification/tests-quick-20260827-144650/functional/results.trx` — 14/14 DialogPresentationTests passed.
+- Overlay-style removal negative control: `artifacts/verification/tests-quick-20260827-144731/functional/results.trx` — 13/14 passed; the intended InitialSetupLanguageDialog row failed because no canonical overlay descendant remained. The mutation was reverted.
+- Primary-to-quiet button-role negative control: `artifacts/verification/tests-quick-20260827-144813/functional/results.trx` — 13/14 passed; the intended InitialSetupLanguageDialog row failed against its authority-owned primary expectation. The mutation was reverted.
+- Application-level implicit Button-style negative control: `artifacts/verification/tests-quick-20260827-144917/functional/results.trx` — 13/14 passed; the intended ReleaseNotesWindow row failed when the canonical style was injected into Application resources, and the prior resource was restored in `finally`. The mutation was reverted.
+- Focused bounded Quick: `artifacts/verification/tests-quick-20260827-145037/functional/results.trx` — 45/45 passed for DialogPresentationTests, SettingsForegroundInteractionTests, WpfTestApplicationHostTests, UiDialogCoordinatorWpfTests, ThemedMessageBoxTests, and NativeWindowThemeContractTests.
+- The fixture metadata now assigns an authority-owned semantic role to every materialized production Button, requires canonical overlay adoption only for the four overlay surfaces, and probes an unadopted runtime Button outside the sentinel scope. SettingsWindow cleanup uses the existing `CloseForOwnerShutdown` helper.
+- Fresh static review remains root-owned and is not claimed complete by this worker.
