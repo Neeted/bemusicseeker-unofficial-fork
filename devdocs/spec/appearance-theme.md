@@ -117,7 +117,9 @@ ScrollBar は `SimpleScrollBar` を `ScrollBar.*` key に接続し、標準 `Scr
 
 ## 標準 Control / Menu
 
-`Simple Styles.xaml` は主要な標準 WPF control に implicit style を定義している。動的生成された control でも、アプリ内の visual tree 上にあればテーマ resource が適用される。
+`App.xaml` は `Themes/CanonicalControls.xaml` と `Themes/CanonicalDialogStyles.xaml` を application-level ResourceDictionary としてマージする。canonical control / dialog role は `App.Canonical.*` の明示 key で所有し、application-wide の type-key implicit style として新たに公開しない。これにより、canonical resource を導入しても、明示的に採用していない MainWindow の control へ Settings / dialog 用 template が波及しない。
+
+`Simple Styles.xaml` に残る既存の互換用 implicit style は、今回の canonical owner とは別の既存 route として扱う。SettingsControls は `SettingsButtonStyle` などの互換 key と Settings-local の implicit default を保持し、それぞれを対応する `App.Canonical.*` style に `BasedOn` で明示的に接続する。設定画面と今後の custom dialog は、この application-level canonical object を明示 adoption して同じ semantic role を共有する。canonical dictionary を SettingsControls や各 dialog へ複製してはならない。
 
 対応済みの主な control:
 
@@ -209,9 +211,9 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 
 `SettingsField.Header` は装飾用containerではなく、内包する実際の `TextBox` / `ComboBox` / `ListBox` / `Slider` Automation peerのfallback accessible nameとして公開する。fallbackはSettingsField自身をSourceとするone-way bindingで付与し、そのBindingExpressionのidentityでownershipを追跡する。editorにcaller-ownedのlocal値または別bindingがある場合は、表示値がfallbackと同じでも上書きせず、Header変更を挟まない即時detachを含めcaller値をclearしない。Header変更時もSettingsField自身が所有するbindingだけを更新する。最初の5カテゴリはpage attachだけでdraftを変更しない。再生カテゴリは選択中playerの詳細だけをvisual treeへ提示し、radio操作は選択flagだけを変更して非選択playerの隠れたpath/settingsを変更しない。
 
-設定ウィンドウと10個の category control は `Views/Settings/SettingsControls.xaml` の closed control system を共有し、Button、TextBox、ComboBox / ComboBoxItem、CheckBox、RadioButton、Slider、ScrollViewer / ScrollBar、ListBox / ListBoxItem、Expander、navigation の template と state を明示する。辞書は application scope へ公開せず、既存の `App.*` semantic resource だけを参照する。内部 popup、item container、content host、scrollbarにもSettings styleを明示し、application-level implicit styleへ解決を漏らさない。標準 control の keyboard / Automation peer を維持し、`PART_ContentHost`、`PART_Popup`、`PART_Track`、ScrollViewer parts、Expander `HeaderSite` を欠落させない。
+設定ウィンドウと10個の category control は `Views/Settings/SettingsControls.xaml` の compatibility alias / Settings-local adoption を共有する。Button、TextBox、ComboBox / ComboBoxItem、CheckBox、RadioButton、Slider、ScrollViewer / ScrollBar、ListBox / ListBoxItem、Expander、navigation の generic template と state は application-level `App.Canonical.*` resource が所有し、Settings 側は既存 key を同じ canonical object へ `BasedOn` で接続する。内部 popup、item container、content host、scrollbar も canonical explicit resource を解決し、未採用の application implicit styleへ漏らさない。標準 control の keyboard / Automation peer を維持し、`PART_ContentHost`、`PART_Popup`、`PART_EditableTextBox`、`PART_Track`、ScrollViewer parts、Expander `HeaderSite` を欠落させない。
 
-設定内の非編集 `ComboBox` は選択内容、中央部、矢印を含む表示面全体で dropdown を開ける。編集可能 `ComboBox` は `PART_EditableTextBox` を前面の入力面として維持し、文字入力、caret、keyboard、Automation と `PART_Popup` の標準経路を保持する。popup 幅は表示済み control の `ActualWidth` へ binding しない。
+設定内の非編集 `ComboBox` は選択内容、中央部、矢印を含む表示面全体で dropdown を開ける。編集可能 `ComboBox` は `PART_EditableTextBox` を前面の入力面として維持し、文字入力、caret、keyboard、Automation と `PART_Popup` の標準経路を保持する。editable / noneditable とも、popup の presentation root 幅は open 時点の ComboBox `ActualWidth` と同じ DIP 値でなければならない。close 後に ComboBox を resize して再 open した場合も、新しい `ActualWidth` へ追随する。固定幅、item 内容幅、`MinWidth` のみ、または最初の open 時の幅を cache する実装は契約違反とする。
 
 通常の `SettingsStatusBanner` は compact な表示と caller が渡した structured content を維持する。Audio device の利用不可理由とテスト結果のような長い文字列だけは keyed multiline style を使用し、利用可能な本文幅で折り返して高さを自動拡張する。折り返し後も message 全文を Automation Name、semantic status を ItemStatus、更新を Polite live region として公開し、装飾 icon は Automation tree に出さない。
 

@@ -49,6 +49,12 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingsForegroundInteractionTests
 {
+    [TestInitialize]
+    public void MaterializeCanonicalApplicationResources()
+    {
+        TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
+    }
+
     [TestMethod]
     public void SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow()
     {
@@ -311,6 +317,7 @@ public sealed class SettingsForegroundInteractionTests
                 selectionProvider.Expand();
                 PumpDispatcher(window.Dispatcher);
                 Assert.IsTrue(selectionPopup.IsOpen);
+                AssertPopupWidth(selectionCombo, selectionPopup);
                 RaiseKey(selectionCombo, Key.Down);
                 RaiseKey(selectionCombo, Key.Enter);
                 PumpDispatcher(window.Dispatcher);
@@ -323,6 +330,27 @@ public sealed class SettingsForegroundInteractionTests
                 editableProvider.Expand();
                 PumpDispatcher(window.Dispatcher);
                 Assert.IsTrue(editablePopup.IsOpen);
+                AssertPopupWidth(editableCombo, editablePopup);
+                editableProvider.Collapse();
+                PumpDispatcher(window.Dispatcher);
+                Assert.IsFalse(editablePopup.IsOpen);
+
+                selectionCombo.Width = 240;
+                editableCombo.Width = 268;
+                PumpDispatcher(window.Dispatcher);
+
+                selectionProvider.Expand();
+                PumpDispatcher(window.Dispatcher);
+                Assert.IsTrue(selectionPopup.IsOpen);
+                AssertPopupWidth(selectionCombo, selectionPopup);
+                selectionProvider.Collapse();
+                PumpDispatcher(window.Dispatcher);
+                Assert.IsFalse(selectionPopup.IsOpen);
+
+                editableProvider.Expand();
+                PumpDispatcher(window.Dispatcher);
+                Assert.IsTrue(editablePopup.IsOpen);
+                AssertPopupWidth(editableCombo, editablePopup);
                 editableProvider.Collapse();
                 PumpDispatcher(window.Dispatcher);
                 Assert.IsFalse(editablePopup.IsOpen);
@@ -374,6 +402,18 @@ public sealed class SettingsForegroundInteractionTests
                 Style listBoxStyle = (Style)host.Resources["SettingsListBoxStyle"];
                 Style listBoxItemStyle = (Style)host.Resources["SettingsListBoxItemStyle"];
                 Style expanderStyle = (Style)host.Resources["SettingsExpanderStyle"];
+                Style canonicalScrollViewerStyle = (Style)application.FindResource("App.Canonical.ScrollViewerStyle");
+                Style canonicalScrollBarStyle = (Style)application.FindResource("App.Canonical.ScrollBarStyle");
+                Style canonicalComboBoxItemStyle = (Style)application.FindResource("App.Canonical.ComboBoxItemStyle");
+                Style canonicalListBoxStyle = (Style)application.FindResource("App.Canonical.ListBoxStyle");
+                Style canonicalListBoxItemStyle = (Style)application.FindResource("App.Canonical.ListBoxItemStyle");
+                Style canonicalExpanderStyle = (Style)application.FindResource("App.Canonical.ExpanderStyle");
+                Assert.AreSame(canonicalScrollViewerStyle, scrollViewerStyle.BasedOn);
+                Assert.AreSame(canonicalScrollBarStyle, scrollBarStyle.BasedOn);
+                Assert.AreSame(canonicalComboBoxItemStyle, comboBoxItemStyle.BasedOn);
+                Assert.AreSame(canonicalListBoxStyle, listBoxStyle.BasedOn);
+                Assert.AreSame(canonicalListBoxItemStyle, listBoxItemStyle.BasedOn);
+                Assert.AreSame(canonicalExpanderStyle, expanderStyle.BasedOn);
 
                 var pageScroller = new ScrollViewer
                 {
@@ -410,8 +450,8 @@ public sealed class SettingsForegroundInteractionTests
 
                 AssertLocalImplicitStyle(pageScroller.Style, scrollViewerStyle, nameof(ScrollViewer));
                 AssertLocalImplicitStyle(listBox.Style, listBoxStyle, nameof(ListBox));
-                Assert.AreSame(listBoxItemStyle, listBox.ItemContainerStyle);
-                Assert.AreSame(comboBoxItemStyle, comboBox.ItemContainerStyle);
+                Assert.AreSame(canonicalListBoxItemStyle, listBox.ItemContainerStyle);
+                Assert.AreSame(canonicalComboBoxItemStyle, comboBox.ItemContainerStyle);
                 AssertLocalImplicitStyle(expander.Style, expanderStyle, nameof(Expander));
                 foreach (FrameworkElement element in new FrameworkElement[] { pageScroller, comboBox, listBox, expander })
                 {
@@ -421,7 +461,7 @@ public sealed class SettingsForegroundInteractionTests
                 pageScroller.ApplyTemplate();
                 var verticalScrollBar = (ScrollBar)pageScroller.Template.FindName("PART_VerticalScrollBar", pageScroller);
                 Assert.IsNotNull(pageScroller.Template.FindName("PART_ScrollContentPresenter", pageScroller));
-                Assert.AreSame(scrollBarStyle, verticalScrollBar.Style);
+                Assert.AreSame(canonicalScrollBarStyle, verticalScrollBar.Style);
                 Assert.AreNotEqual(sentinel, verticalScrollBar.Tag);
                 verticalScrollBar.ApplyTemplate();
                 Assert.IsNotNull(verticalScrollBar.Template.FindName("PART_Track", verticalScrollBar));
@@ -437,7 +477,7 @@ public sealed class SettingsForegroundInteractionTests
 
                 textBox.ApplyTemplate();
                 var textContentHost = (ScrollViewer)textBox.Template.FindName("PART_ContentHost", textBox);
-                Assert.AreSame(scrollViewerStyle, textContentHost.Style);
+                Assert.AreSame(canonicalScrollViewerStyle, textContentHost.Style);
                 Assert.AreNotEqual(sentinel, textContentHost.Tag);
 
                 comboBox.ApplyTemplate();
@@ -450,13 +490,13 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.IsTrue(comboBox.IsDropDownOpen);
                 ScrollViewer popupScroller = FindDescendant<ScrollViewer>(popup.Child);
                 Assert.IsNotNull(popupScroller);
-                Assert.AreSame(scrollViewerStyle, popupScroller.Style);
+                Assert.AreSame(canonicalScrollViewerStyle, popupScroller.Style);
                 var firstComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(1);
                 Assert.IsNotNull(firstComboItem);
                 Assert.IsNotNull(secondComboItem);
-                Assert.AreSame(comboBoxItemStyle, firstComboItem.Style);
-                Assert.AreSame(comboBoxItemStyle, secondComboItem.Style);
+                Assert.AreSame(canonicalComboBoxItemStyle, firstComboItem.Style);
+                Assert.AreSame(canonicalComboBoxItemStyle, secondComboItem.Style);
                 Assert.AreNotEqual(sentinel, firstComboItem.Tag);
                 firstComboItem.ApplyTemplate();
                 Assert.IsNotNull(firstComboItem.Template.FindName("ItemChrome", firstComboItem));
@@ -479,14 +519,14 @@ public sealed class SettingsForegroundInteractionTests
                 listBox.ApplyTemplate();
                 ScrollViewer listScroller = FindDescendant<ScrollViewer>(listBox);
                 Assert.IsNotNull(listScroller);
-                Assert.AreSame(scrollViewerStyle, listScroller.Style);
+                Assert.AreSame(canonicalScrollViewerStyle, listScroller.Style);
                 Assert.AreEqual(1, listBox.SelectedIndex);
                 var firstListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(1);
                 Assert.IsNotNull(firstListItem);
                 Assert.IsNotNull(secondListItem);
-                Assert.AreSame(listBoxItemStyle, firstListItem.Style);
-                Assert.AreSame(listBoxItemStyle, secondListItem.Style);
+                Assert.AreSame(canonicalListBoxItemStyle, firstListItem.Style);
+                Assert.AreSame(canonicalListBoxItemStyle, secondListItem.Style);
                 Assert.AreNotEqual(sentinel, secondListItem.Tag);
                 Assert.IsTrue(secondListItem.IsSelected);
                 secondListItem.ApplyTemplate();
@@ -1170,6 +1210,32 @@ public sealed class SettingsForegroundInteractionTests
         return host;
     }
 
+    private static void EnsureCanonicalApplicationResources()
+    {
+        Application application = Application.Current;
+        Assert.IsNotNull(application);
+        AddCanonicalResourceIfMissing(
+            application,
+            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml");
+        AddCanonicalResourceIfMissing(
+            application,
+            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");
+    }
+
+    private static void AddCanonicalResourceIfMissing(Application application, string source)
+    {
+        if (application.Resources.MergedDictionaries.Any(dictionary =>
+            string.Equals(dictionary.Source?.OriginalString, source, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        application.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri(source, UriKind.RelativeOrAbsolute)
+        });
+    }
+
     private static T FindDescendant<T>(DependencyObject root) where T : DependencyObject
     {
         if (root == null)
@@ -1231,6 +1297,18 @@ public sealed class SettingsForegroundInteractionTests
         dispatcher.Invoke(DispatcherPriority.Input, new Action(() => { }));
         dispatcher.Invoke(DispatcherPriority.Render, new Action(() => { }));
         dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+    }
+
+    private static void AssertPopupWidth(ComboBox comboBox, Popup popup)
+    {
+        Assert.IsNotNull(popup.Child, "The open ComboBox popup must materialize its presentation root.");
+        Assert.IsInstanceOfType<FrameworkElement>(popup.Child);
+        var popupRoot = (FrameworkElement)popup.Child;
+        Assert.AreEqual(
+            comboBox.ActualWidth,
+            popupRoot.ActualWidth,
+            0.01d,
+            "The popup presentation root width must match the open ComboBox ActualWidth.");
     }
 
     private static void PumpUntil(Dispatcher dispatcher, Func<bool> predicate, string failureMessage)

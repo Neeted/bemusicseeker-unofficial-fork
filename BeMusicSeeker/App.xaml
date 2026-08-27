@@ -5,6 +5,8 @@
       <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="/Simple Styles.xaml" />
         <ResourceDictionary Source="/Themes/Light.xaml" />
+        <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml" />
+        <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </Application.Resources>

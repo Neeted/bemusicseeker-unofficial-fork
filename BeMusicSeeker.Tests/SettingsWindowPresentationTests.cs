@@ -43,6 +43,12 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingsWindowPresentationTests
 {
+    [TestInitialize]
+    public void MaterializeCanonicalApplicationResources()
+    {
+        TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
+    }
+
     [TestMethod]
     public void SettingsWindow_IsStandardResizableWindow()
     {
@@ -2391,9 +2397,11 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
-    public void SettingsWindow_UsesClosedExplicitControlSystem()
+    public void SettingsWindow_UsesApplicationCanonicalControlSystemWithExplicitSettingsAdoption()
     {
+        XDocument appDocument = LoadAppXaml();
         XDocument windowDocument = LoadSettingsWindowXaml();
+        XDocument canonicalDocument = LoadCanonicalControlsXaml();
         XDocument controlsDocument = LoadSettingsControlsXaml();
         XElement operationGrid = FindNamedElement(windowDocument, "settingDialogOperationGrid");
         XElement navigation = FindNamedElement(windowDocument, "settingsNavigation");
@@ -2407,26 +2415,133 @@ public sealed class SettingsWindowPresentationTests
             .Single(dictionary => dictionary.Attribute("Source")?.Value == "Settings/SettingsControls.xaml");
         Assert.IsNotNull(mergedDictionary);
         Assert.IsFalse(operationGrid.Elements(PresentationName("FrameworkElement.Resources")).Any(),
-            "Settings-wide control styles must live in the window-local merged dictionary.");
+            "Settings-specific control aliases must remain in the Settings resource dictionary.");
         Assert.AreEqual("0,16", navigation.Attribute("Padding")?.Value);
         Assert.AreEqual("26", header.Attribute("FontSize")?.Value);
         Assert.AreEqual("{StaticResource SettingsPrimaryButtonStyle}", saveButton.Attribute("Style")?.Value);
         Assert.AreEqual("{StaticResource SettingsQuietButtonStyle}", cancelButton.Attribute("Style")?.Value);
 
+        string[] appResourceSources = appDocument
+            .Descendants(PresentationName("ResourceDictionary"))
+            .Select(dictionary => dictionary.Attribute("Source")?.Value)
+            .Where(source => source != null)
+            .ToArray();
+        CollectionAssert.Contains(
+            appResourceSources,
+            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml");
+        CollectionAssert.Contains(
+            appResourceSources,
+            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");
+
         foreach (string styleKey in new[]
         {
-            "SettingsButtonStyle",
-            "SettingsPrimaryButtonStyle",
-            "SettingsQuietButtonStyle",
-            "SettingsDangerButtonStyle",
-            "SettingsIconButtonStyle",
-            "settingsNavigationItemStyle"
+            "App.Canonical.ButtonStyle",
+            "App.Canonical.PrimaryButtonStyle",
+            "App.Canonical.QuietButtonStyle",
+            "App.Canonical.DangerButtonStyle",
+            "App.Canonical.IconButtonStyle",
+            "App.Canonical.TextBoxStyle",
+            "App.Canonical.ComboBoxStyle",
+            "App.Canonical.ComboBoxItemStyle",
+            "App.Canonical.CheckBoxStyle",
+            "App.Canonical.RadioButtonStyle",
+            "App.Canonical.SliderStyle",
+            "App.Canonical.ScrollBarStyle",
+            "App.Canonical.ScrollViewerStyle",
+            "App.Canonical.ListBoxItemStyle",
+            "App.Canonical.ListBoxStyle",
+            "App.Canonical.ExpanderHeaderToggleStyle",
+            "App.Canonical.ExpanderStyle",
+            "App.Canonical.GroupBoxStyle",
+            "App.Canonical.LabelStyle"
         })
         {
-            Assert.IsNotNull(FindKeyedStyle(controlsDocument, styleKey), styleKey);
+            Assert.IsNotNull(FindKeyedStyle(canonicalDocument, styleKey), styleKey);
         }
 
-        XElement primaryStyle = FindKeyedStyle(controlsDocument, "SettingsPrimaryButtonStyle");
+        foreach ((string settingsKey, string canonicalKey) in new[]
+        {
+            ("SettingsButtonStyle", "App.Canonical.ButtonStyle"),
+            ("SettingsPrimaryButtonStyle", "App.Canonical.PrimaryButtonStyle"),
+            ("SettingsQuietButtonStyle", "App.Canonical.QuietButtonStyle"),
+            ("SettingsDangerButtonStyle", "App.Canonical.DangerButtonStyle"),
+            ("SettingsIconButtonStyle", "App.Canonical.IconButtonStyle"),
+            ("SettingsTextBoxStyle", "App.Canonical.TextBoxStyle"),
+            ("SettingsComboBoxStyle", "App.Canonical.ComboBoxStyle"),
+            ("SettingsComboBoxItemStyle", "App.Canonical.ComboBoxItemStyle"),
+            ("SettingsCheckBoxStyle", "App.Canonical.CheckBoxStyle"),
+            ("SettingsRadioButtonStyle", "App.Canonical.RadioButtonStyle"),
+            ("SettingsSliderStyle", "App.Canonical.SliderStyle"),
+            ("SettingsScrollBarStyle", "App.Canonical.ScrollBarStyle"),
+            ("SettingsScrollViewerStyle", "App.Canonical.ScrollViewerStyle"),
+            ("SettingsListBoxItemStyle", "App.Canonical.ListBoxItemStyle"),
+            ("SettingsListBoxStyle", "App.Canonical.ListBoxStyle"),
+            ("SettingsExpanderHeaderToggleStyle", "App.Canonical.ExpanderHeaderToggleStyle"),
+            ("SettingsExpanderStyle", "App.Canonical.ExpanderStyle"),
+            ("SettingsGroupBoxStyle", "App.Canonical.GroupBoxStyle"),
+            ("SettingsLabelStyle", "App.Canonical.LabelStyle"),
+            ("settingsNavigationItemStyle", "App.Canonical.ListBoxItemStyle")
+        })
+        {
+            XElement settingsStyle = FindKeyedStyle(controlsDocument, settingsKey);
+            Assert.AreEqual(
+                "{StaticResource " + canonicalKey + "}",
+                settingsStyle.Attribute("BasedOn")?.Value,
+                settingsKey + " must adopt the application canonical style.");
+        }
+
+        foreach ((string targetType, string settingsKey) in new[]
+        {
+            ("{x:Type Button}", "SettingsButtonStyle"),
+            ("{x:Type TextBox}", "SettingsTextBoxStyle"),
+            ("{x:Type ComboBox}", "SettingsComboBoxStyle"),
+            ("{x:Type ComboBoxItem}", "SettingsComboBoxItemStyle"),
+            ("{x:Type CheckBox}", "SettingsCheckBoxStyle"),
+            ("{x:Type RadioButton}", "SettingsRadioButtonStyle"),
+            ("{x:Type Slider}", "SettingsSliderStyle"),
+            ("{x:Type ScrollBar}", "SettingsScrollBarStyle"),
+            ("{x:Type ScrollViewer}", "SettingsScrollViewerStyle"),
+            ("{x:Type ListBoxItem}", "SettingsListBoxItemStyle"),
+            ("{x:Type ListBox}", "SettingsListBoxStyle"),
+            ("{x:Type Expander}", "SettingsExpanderStyle"),
+            ("{x:Type GroupBox}", "SettingsGroupBoxStyle"),
+            ("{x:Type Label}", "SettingsLabelStyle")
+        })
+        {
+            XElement implicitStyle = FindImplicitStyle(controlsDocument, targetType);
+            Assert.AreEqual(
+                "{StaticResource " + settingsKey + "}",
+                implicitStyle.Attribute("BasedOn")?.Value,
+                targetType + " must be explicitly adopted only by Settings.");
+        }
+
+        Assert.IsFalse(canonicalDocument
+            .Descendants(PresentationName("Style"))
+            .Any(style => style.Attribute(XamlName("Key")) == null),
+            "Canonical styles must remain explicit resources rather than application implicit type styles.");
+
+        foreach (string targetType in new[]
+        {
+            "{x:Type Button}",
+            "{x:Type TextBox}",
+            "{x:Type ComboBox}",
+            "{x:Type CheckBox}",
+            "{x:Type RadioButton}",
+            "{x:Type Slider}",
+            "{x:Type ScrollBar}",
+            "{x:Type ScrollViewer}",
+            "{x:Type ListBox}",
+            "{x:Type Expander}",
+            "{x:Type GroupBox}",
+            "{x:Type Label}"
+        })
+        {
+            Assert.IsFalse(controlsDocument.Descendants(PresentationName("ControlTemplate"))
+                .Any(template => template.Attribute("TargetType")?.Value == targetType),
+                targetType + " template must be owned by the application canonical dictionary.");
+        }
+
+        XElement primaryStyle = FindKeyedStyle(canonicalDocument, "App.Canonical.PrimaryButtonStyle");
         AssertStyleSetter(primaryStyle, "Background", "{DynamicResource App.AccentBrush}");
         AssertStyleSetter(primaryStyle, "Foreground", "{DynamicResource App.AccentForegroundBrush}");
         AssertStyleTriggerSetter(primaryStyle, "IsMouseOver", "Background", "{DynamicResource App.AccentHoverBrush}");
@@ -2446,25 +2561,32 @@ public sealed class SettingsWindowPresentationTests
         ];
         foreach (string targetType in explicitTemplateTargets)
         {
-            Assert.IsTrue(controlsDocument.Descendants(PresentationName("ControlTemplate"))
+            Assert.IsTrue(canonicalDocument.Descendants(PresentationName("ControlTemplate"))
                 .Any(template => template.Attribute("TargetType")?.Value == targetType), targetType);
         }
 
         CollectionAssert.IsSubsetOf(
-            new[] { "PART_ContentHost", "PART_Popup", "PART_Track" },
-            controlsDocument.Descendants()
+            new[] { "PART_ContentHost", "PART_EditableTextBox", "PART_Popup", "PART_Track" },
+            canonicalDocument.Descendants()
                 .Select(element => element.Attribute(XamlName("Name"))?.Value)
                 .Where(name => name != null)
                 .Distinct(StringComparer.Ordinal)
                 .ToArray());
         foreach (string stateProperty in new[] { "IsKeyboardFocused", "IsKeyboardFocusWithin", "IsEnabled" })
         {
-            Assert.IsTrue(controlsDocument.Descendants(PresentationName("Trigger"))
+            Assert.IsTrue(canonicalDocument.Descendants(PresentationName("Trigger"))
                 .Any(trigger => trigger.Attribute("Property")?.Value == stateProperty), stateProperty);
         }
 
+        XElement comboPopup = canonicalDocument.Descendants(PresentationName("Popup"))
+            .Single(popup => popup.Attribute(XamlName("Name"))?.Value == "PART_Popup");
+        Assert.IsTrue(comboPopup.Attribute("Width")?.Value.Contains("ActualWidth", StringComparison.Ordinal) == true);
+        XElement comboPopupRoot = comboPopup.Elements(PresentationName("Border")).Single();
+        Assert.IsTrue(comboPopupRoot.Attribute("Width")?.Value.Contains("ActualWidth", StringComparison.Ordinal) == true);
+
         string settingsVisualText = windowDocument.ToString(SaveOptions.DisableFormatting)
-            + controlsDocument.ToString(SaveOptions.DisableFormatting);
+            + controlsDocument.ToString(SaveOptions.DisableFormatting)
+            + canonicalDocument.ToString(SaveOptions.DisableFormatting);
         foreach (string legacyKey in new[]
         {
             "NormalBrush",
@@ -3576,9 +3698,19 @@ public sealed class SettingsWindowPresentationTests
         return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingsWindow.xaml"));
     }
 
+    private static XDocument LoadAppXaml()
+    {
+        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "App.xaml"));
+    }
+
     private static XDocument LoadSettingsControlsXaml()
     {
         return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "Settings", "SettingsControls.xaml"));
+    }
+
+    private static XDocument LoadCanonicalControlsXaml()
+    {
+        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Themes", "CanonicalControls.xaml"));
     }
 
     private static XDocument[] LoadSettingsPageXamls()
@@ -3599,9 +3731,47 @@ public sealed class SettingsWindowPresentationTests
         });
         host.Resources.MergedDictionaries.Add(new ResourceDictionary
         {
+            Source = new Uri(
+                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml",
+                UriKind.RelativeOrAbsolute)
+        });
+        host.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri(
+                "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml",
+                UriKind.RelativeOrAbsolute)
+        });
+        host.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
             Source = new Uri("/BeMusicSeeker;component/BeMusicSeeker/Views/Settings/SettingsControls.xaml", UriKind.RelativeOrAbsolute)
         });
         return host;
+    }
+
+    private static void EnsureCanonicalApplicationResources()
+    {
+        Application application = Application.Current;
+        Assert.IsNotNull(application);
+        AddCanonicalResourceIfMissing(
+            application,
+            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml");
+        AddCanonicalResourceIfMissing(
+            application,
+            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");
+    }
+
+    private static void AddCanonicalResourceIfMissing(Application application, string source)
+    {
+        if (application.Resources.MergedDictionaries.Any(dictionary =>
+            string.Equals(dictionary.Source?.OriginalString, source, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        application.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri(source, UriKind.RelativeOrAbsolute)
+        });
     }
 
     private static T FindDescendant<T>(DependencyObject root) where T : DependencyObject
@@ -3758,10 +3928,15 @@ public sealed class SettingsWindowPresentationTests
 
     private static XElement FindKeyedStyle(XDocument document, string key)
     {
-        XElement style = document.Descendants(PresentationName("Style"))
-            .SingleOrDefault(candidate => candidate.Attribute(XamlName("Key"))?.Value == key);
-        return style ?? LoadSettingsControlsXaml().Descendants(PresentationName("Style"))
+        return document.Descendants(PresentationName("Style"))
             .Single(candidate => candidate.Attribute(XamlName("Key"))?.Value == key);
+    }
+
+    private static XElement FindImplicitStyle(XDocument document, string targetType)
+    {
+        return document.Descendants(PresentationName("Style"))
+            .Single(candidate => candidate.Attribute(XamlName("Key")) == null
+                && candidate.Attribute("TargetType")?.Value == targetType);
     }
 
     private static void AssertStyleSetter(XElement style, string property, string value)
