@@ -402,18 +402,18 @@ public sealed class SettingsForegroundInteractionTests
                 Style listBoxStyle = (Style)host.Resources["SettingsListBoxStyle"];
                 Style listBoxItemStyle = (Style)host.Resources["SettingsListBoxItemStyle"];
                 Style expanderStyle = (Style)host.Resources["SettingsExpanderStyle"];
-                Style canonicalScrollViewerStyle = (Style)application.FindResource("App.Canonical.ScrollViewerStyle");
-                Style canonicalScrollBarStyle = (Style)application.FindResource("App.Canonical.ScrollBarStyle");
-                Style canonicalComboBoxItemStyle = (Style)application.FindResource("App.Canonical.ComboBoxItemStyle");
-                Style canonicalListBoxStyle = (Style)application.FindResource("App.Canonical.ListBoxStyle");
-                Style canonicalListBoxItemStyle = (Style)application.FindResource("App.Canonical.ListBoxItemStyle");
-                Style canonicalExpanderStyle = (Style)application.FindResource("App.Canonical.ExpanderStyle");
-                Assert.AreSame(canonicalScrollViewerStyle, scrollViewerStyle.BasedOn);
-                Assert.AreSame(canonicalScrollBarStyle, scrollBarStyle.BasedOn);
-                Assert.AreSame(canonicalComboBoxItemStyle, comboBoxItemStyle.BasedOn);
-                Assert.AreSame(canonicalListBoxStyle, listBoxStyle.BasedOn);
-                Assert.AreSame(canonicalListBoxItemStyle, listBoxItemStyle.BasedOn);
-                Assert.AreSame(canonicalExpanderStyle, expanderStyle.BasedOn);
+                Style canonicalScrollViewerStyle = (Style)host.Resources["App.Canonical.ScrollViewerStyle"];
+                Style canonicalScrollBarStyle = (Style)host.Resources["App.Canonical.ScrollBarStyle"];
+                Style canonicalComboBoxItemStyle = (Style)host.Resources["App.Canonical.ComboBoxItemStyle"];
+                Style canonicalListBoxStyle = (Style)host.Resources["App.Canonical.ListBoxStyle"];
+                Style canonicalListBoxItemStyle = (Style)host.Resources["App.Canonical.ListBoxItemStyle"];
+                Style canonicalExpanderStyle = (Style)host.Resources["App.Canonical.ExpanderStyle"];
+                AssertEffectiveTemplateRole(scrollViewerStyle, canonicalScrollViewerStyle, nameof(ScrollViewer));
+                AssertEffectiveTemplateRole(scrollBarStyle, canonicalScrollBarStyle, nameof(ScrollBar));
+                AssertEffectiveTemplateRole(comboBoxItemStyle, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
+                AssertEffectiveTemplateRole(listBoxStyle, canonicalListBoxStyle, nameof(ListBox));
+                AssertEffectiveTemplateRole(listBoxItemStyle, canonicalListBoxItemStyle, nameof(ListBoxItem));
+                AssertEffectiveTemplateRole(expanderStyle, canonicalExpanderStyle, nameof(Expander));
 
                 var pageScroller = new ScrollViewer
                 {
@@ -448,11 +448,11 @@ public sealed class SettingsForegroundInteractionTests
                     window,
                     TestWindowActivation.ForegroundInteraction);
 
-                AssertLocalImplicitStyle(pageScroller.Style, scrollViewerStyle, nameof(ScrollViewer));
-                AssertLocalImplicitStyle(listBox.Style, listBoxStyle, nameof(ListBox));
-                Assert.AreSame(canonicalListBoxItemStyle, listBox.ItemContainerStyle);
-                Assert.AreSame(canonicalComboBoxItemStyle, comboBox.ItemContainerStyle);
-                AssertLocalImplicitStyle(expander.Style, expanderStyle, nameof(Expander));
+                AssertEffectiveTemplateRole(pageScroller.Style, canonicalScrollViewerStyle, nameof(ScrollViewer));
+                AssertEffectiveTemplateRole(listBox.Style, canonicalListBoxStyle, nameof(ListBox));
+                AssertEffectiveTemplateRole(listBox.ItemContainerStyle, canonicalListBoxItemStyle, nameof(ListBoxItem));
+                AssertEffectiveTemplateRole(comboBox.ItemContainerStyle, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
+                AssertEffectiveTemplateRole(expander.Style, canonicalExpanderStyle, nameof(Expander));
                 foreach (FrameworkElement element in new FrameworkElement[] { pageScroller, comboBox, listBox, expander })
                 {
                     Assert.AreNotEqual(sentinel, element.Tag, element.GetType().Name);
@@ -461,7 +461,7 @@ public sealed class SettingsForegroundInteractionTests
                 pageScroller.ApplyTemplate();
                 var verticalScrollBar = (ScrollBar)pageScroller.Template.FindName("PART_VerticalScrollBar", pageScroller);
                 Assert.IsNotNull(pageScroller.Template.FindName("PART_ScrollContentPresenter", pageScroller));
-                Assert.AreSame(canonicalScrollBarStyle, verticalScrollBar.Style);
+                AssertEffectiveTemplateRole(verticalScrollBar.Style, canonicalScrollBarStyle, nameof(ScrollBar));
                 Assert.AreNotEqual(sentinel, verticalScrollBar.Tag);
                 verticalScrollBar.ApplyTemplate();
                 Assert.IsNotNull(verticalScrollBar.Template.FindName("PART_Track", verticalScrollBar));
@@ -477,7 +477,7 @@ public sealed class SettingsForegroundInteractionTests
 
                 textBox.ApplyTemplate();
                 var textContentHost = (ScrollViewer)textBox.Template.FindName("PART_ContentHost", textBox);
-                Assert.AreSame(canonicalScrollViewerStyle, textContentHost.Style);
+                AssertEffectiveTemplateRole(textContentHost.Style, canonicalScrollViewerStyle, nameof(ScrollViewer));
                 Assert.AreNotEqual(sentinel, textContentHost.Tag);
 
                 comboBox.ApplyTemplate();
@@ -490,13 +490,13 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.IsTrue(comboBox.IsDropDownOpen);
                 ScrollViewer popupScroller = FindDescendant<ScrollViewer>(popup.Child);
                 Assert.IsNotNull(popupScroller);
-                Assert.AreSame(canonicalScrollViewerStyle, popupScroller.Style);
+                AssertEffectiveTemplateRole(popupScroller.Style, canonicalScrollViewerStyle, nameof(ScrollViewer));
                 var firstComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(1);
                 Assert.IsNotNull(firstComboItem);
                 Assert.IsNotNull(secondComboItem);
-                Assert.AreSame(canonicalComboBoxItemStyle, firstComboItem.Style);
-                Assert.AreSame(canonicalComboBoxItemStyle, secondComboItem.Style);
+                AssertEffectiveTemplateRole(firstComboItem.Style, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
+                AssertEffectiveTemplateRole(secondComboItem.Style, canonicalComboBoxItemStyle, nameof(ComboBoxItem));
                 Assert.AreNotEqual(sentinel, firstComboItem.Tag);
                 firstComboItem.ApplyTemplate();
                 Assert.IsNotNull(firstComboItem.Template.FindName("ItemChrome", firstComboItem));
@@ -519,14 +519,14 @@ public sealed class SettingsForegroundInteractionTests
                 listBox.ApplyTemplate();
                 ScrollViewer listScroller = FindDescendant<ScrollViewer>(listBox);
                 Assert.IsNotNull(listScroller);
-                Assert.AreSame(canonicalScrollViewerStyle, listScroller.Style);
+                AssertEffectiveTemplateRole(listScroller.Style, canonicalScrollViewerStyle, nameof(ScrollViewer));
                 Assert.AreEqual(1, listBox.SelectedIndex);
                 var firstListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(1);
                 Assert.IsNotNull(firstListItem);
                 Assert.IsNotNull(secondListItem);
-                Assert.AreSame(canonicalListBoxItemStyle, firstListItem.Style);
-                Assert.AreSame(canonicalListBoxItemStyle, secondListItem.Style);
+                AssertEffectiveTemplateRole(firstListItem.Style, canonicalListBoxItemStyle, nameof(ListBoxItem));
+                AssertEffectiveTemplateRole(secondListItem.Style, canonicalListBoxItemStyle, nameof(ListBoxItem));
                 Assert.AreNotEqual(sentinel, secondListItem.Tag);
                 Assert.IsTrue(secondListItem.IsSelected);
                 secondListItem.ApplyTemplate();
@@ -1216,9 +1216,6 @@ public sealed class SettingsForegroundInteractionTests
         Assert.IsNotNull(application);
         AddCanonicalResourceIfMissing(
             application,
-            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml");
-        AddCanonicalResourceIfMissing(
-            application,
             "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");
     }
 
@@ -1331,11 +1328,35 @@ public sealed class SettingsForegroundInteractionTests
         });
     }
 
-    private static void AssertLocalImplicitStyle(Style actualStyle, Style localBaseStyle, string controlName)
+    private static void AssertEffectiveTemplateRole(Style? actualStyle, Style? canonicalStyle, string controlName)
     {
-        Assert.IsNotNull(actualStyle, controlName + " must resolve an implicit Settings-local style.");
-        Assert.AreSame(localBaseStyle, actualStyle.BasedOn,
-            controlName + " implicit style must be based on the closed Settings style, not an application resource.");
+        Assert.IsNotNull(actualStyle, controlName + " must resolve a style.");
+        Assert.IsNotNull(canonicalStyle, controlName + " must resolve its canonical style in the same host.");
+
+        object? actualTemplate = ResolveEffectiveStyleValue(actualStyle!, Control.TemplateProperty);
+        object? canonicalTemplate = ResolveEffectiveStyleValue(canonicalStyle!, Control.TemplateProperty);
+        Assert.IsNotNull(actualTemplate, controlName + " must resolve an effective control template.");
+        Assert.IsNotNull(canonicalTemplate, controlName + " canonical style must resolve an effective control template.");
+        Assert.AreSame(
+            canonicalTemplate,
+            actualTemplate,
+            controlName + " must resolve the host-local canonical template role through its style chain.");
+    }
+
+    private static object? ResolveEffectiveStyleValue(Style style, DependencyProperty property)
+    {
+        for (Style? current = style; current != null; current = current.BasedOn)
+        {
+            Setter? setter = current.Setters
+                .OfType<Setter>()
+                .LastOrDefault(candidate => candidate.Property == property);
+            if (setter != null)
+            {
+                return setter.Value;
+            }
+        }
+
+        return null;
     }
 
     private static void AssertBrushColor(FrameworkElement resourceOwner, string resourceKey, Brush actual)
