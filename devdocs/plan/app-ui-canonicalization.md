@@ -1,6 +1,6 @@
 # App-wide UI canonicalization plan
 
-Status: in progress
+Status: complete (`APP-UI-CANON-01-REVIEW-FIX-01`)
 
 Base revision: `b53e792d7d64da9a05af22180d0553de12415a28`
 
@@ -182,3 +182,35 @@ Replan if visual adoption requires converting overlays to windows, changing coor
 - Exact foreground method count is not increased for ComboBox coverage.
 - Completion is tied to Loaded/ContentRendered, Popup.Opened/IsOpen, dispatcher DataBind completion, or the existing typed task/result seam.
 - Source/XAML text is not the oracle unless an application resource key itself is the public adoption seam; broad snapshots and exact translation-copy assertions are not added.
+
+## Completion record
+
+- Review-fix amendment: `APP-UI-CANON-01-REVIEW-FIX-01` (focused implementation unit complete; Unit 4 integration/review remains root-owned).
+
+### Approved review-fix Test Contract Packet
+
+The packet authority is the root-approved review-fix request. The following
+contracts freeze the observable outcome, allowed variation, and negative
+control before implementation details are considered:
+
+| Contract ID | Required outcome | Allowed variation | Plausible wrong implementation |
+| --- | --- | --- | --- |
+| `UI-DLG-001A-PROGRESS-FIT` | `ProgressDialog(showSubLabel:true, showCancelButton:true)` lays out body, sub-label, progress, and enabled/hit-testable cancel inside the client/content bounds; rendered height satisfies its minimum. | Content text, wrapping, and non-semantic row mechanics may vary; no fixed height is required. | Retain the legacy fixed height so a long sub-label clips or overlaps the progress row. |
+| `UI-DS-001A-HOST` / `UI-DLG-001A-RUNTIME` | The 13 required production dialog/window surfaces are constructed through production constructors/factories and apply the canonical role plus effective canonical template on the same WPF host. | Native-window versus overlay form, feature layout, dimensions, role aliases, and visual-tree implementation may vary. | Keep a legacy/local template, copy Settings templates, or inspect a disconnected fixture instead of the production visual tree. |
+| `UI-DS-001B-SENTINEL` | A host-level sentinel style remains isolated from the dialog subtree while canonical roles are applied to dialog controls. | Sentinel content and test wrapper mechanics may vary. | Let dialog resource adoption leak into the outer host or rely on an application-wide implicit type style. |
+| `UI-DLG-001A-MSGBOX-SEAM` | The presentation test uses the same narrow construction builder as `ShowWithStatus`; the close/result route remains unchanged. | The internal method name and callback mechanics may vary. | Reconstruct a test-only message box or maintain a second builder that can drift from production. |
+
+The runtime test intentionally does not use cross-load dictionary identity,
+source text, geometry snapshots, child order, copied source, or broad snapshot
+assertions as an oracle. The Progress test is the only content-fit geometry
+assertion because bounds containment is its explicit observable contract.
+
+### Coverage and evidence
+
+- `DialogPresentationTests.CustomDialogScope_UsesAppliedCanonicalRolesAndKeepsOuterSentinelIsolated` is a `replace` of the former source/XML oracle and covers exactly the 13 surfaces listed in the Decisions section. Its production fixture uses `TestUiDispatcherHost`; completion is `ContentRendered` through the existing `TestWindowPresentationScope` signal.
+- `DialogPresentationTests.ProgressDialog_WithSubLabelAndCancel_RendersContentInsideItsClientBounds` is `new` coverage for `UI-DLG-001A-PROGRESS-FIT`. `SettingsWindowPresentationTests.SettingsWindow_UsesApplicationCanonicalControlSystemWithExplicitSettingsAdoption` and its source/XAML-only helpers are retired; the remaining foreground, sentinel, interaction, and measured-popup tests stay in place.
+- Focused Dialog-only Quick: `artifacts/verification/tests-quick-20260827-141027/functional/results.trx` — 14/14 passed (13 data rows plus the Progress fit test).
+- Required bounded Quick: `artifacts/verification/tests-quick-20260827-141108/functional/results.trx` — 109/109 passed for `DialogPresentationTests|SettingsWindowPresentationTests|SettingsForegroundInteractionTests|WpfTestApplicationHostTests|UiDialogCoordinatorWpfTests|ThemedMessageBoxTests|NativeWindowThemeContractTests`.
+- Targeted negative control for the legacy fixed-height Progress implementation: `artifacts/verification/tests-quick-20260827-135609/functional/results.trx` — 1/1 intended failure from rendered sub-label overflow; the mutation was reverted.
+- Targeted negative control after removing the scoped canonical content role: `artifacts/verification/tests-quick-20260827-135708/functional/results.trx` — 12/13 passed and the intended Progress data row failed with the semantic locator assertion; the mutation was reverted.
+- No deviation from the approved packet. Functional and fresh static review are the root-owned Unit 4 follow-up.

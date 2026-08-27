@@ -48,14 +48,10 @@ public partial class ProgressDialog : ThemedWindow, IComponentConnector
         settings ??= ProgressDialogSettings.WithLabelOnly;
         if (settings.ShowSubLabel)
         {
-            base.Height = 140.0;
-            base.MinHeight = 140.0;
             SubTextLabel.Visibility = Visibility.Visible;
         }
         else
         {
-            base.Height = 110.0;
-            base.MinHeight = 110.0;
             SubTextLabel.Visibility = Visibility.Collapsed;
         }
         CancelButton.Visibility = ((!settings.ShowCancelButton) ? Visibility.Collapsed : Visibility.Visible);

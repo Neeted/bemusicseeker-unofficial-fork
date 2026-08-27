@@ -117,9 +117,9 @@ ScrollBar は `SimpleScrollBar` を `ScrollBar.*` key に接続し、標準 `Scr
 
 ## 標準 Control / Menu
 
-`App.xaml` は `Themes/CanonicalControls.xaml` と `Themes/CanonicalDialogStyles.xaml` を application-level ResourceDictionary としてマージする。canonical control / dialog role は `App.Canonical.*` の明示 key で所有し、application-wide の type-key implicit style として新たに公開しない。これにより、canonical resource を導入しても、明示的に採用していない MainWindow の control へ Settings / dialog 用 template が波及しない。
+canonical resource の依存関係は `App -> CanonicalDialogStyles -> CanonicalControls` とする。`App.xaml` は `Themes/CanonicalDialogStyles.xaml` を application-level ResourceDictionary としてマージし、dialog facade が `CanonicalControls.xaml` を所有する。canonical control / dialog role は `App.Canonical.*` の明示 key で所有し、application-wide の type-key implicit style として新たに公開しない。これにより、canonical resource を導入しても、明示的に採用していない MainWindow の control へ Settings / dialog 用 template が波及しない。
 
-`Simple Styles.xaml` に残る既存の互換用 implicit style は、今回の canonical owner とは別の既存 route として扱う。SettingsControls は `SettingsButtonStyle` などの互換 key と Settings-local の implicit default を保持し、それぞれを対応する `App.Canonical.*` style に `BasedOn` で明示的に接続する。設定画面と今後の custom dialog は、この application-level canonical object を明示 adoption して同じ semantic role を共有する。canonical dictionary を SettingsControls や各 dialog へ複製してはならない。
+`Simple Styles.xaml` に残る既存の互換用 implicit style は、今回の canonical owner とは別の既存 route として扱う。`SettingsWindow` と `Lr2AdvancedPathsDialog` は `SettingsControls -> CanonicalDialogStyles -> CanonicalControls` の順で Settings compatibility alias を解決し、それ以外の custom dialog は `CanonicalDialogStyles -> CanonicalControls` を直接採用する。SettingsControls は `SettingsButtonStyle` などの互換 key と Settings-local の implicit default を保持し、それぞれを対応する `App.Canonical.*` style に `BasedOn` で明示的に接続する。設定画面と custom dialog は、同一 host の実際の visual tree で canonical role と effective template が同等であることを満たす。別個にロードした ResourceDictionary の CLR object identity を契約にしてはならず、canonical dictionary を SettingsControls や各 dialog へ複製してはならない。
 
 対応済みの主な control:
 
@@ -245,7 +245,7 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 
 これらは HWND 作成時に title bar theme を attach し、表示中の theme 変更を live 反映し、close 時に detach する。owner、modal `ShowDialog` / `DialogResult`、close/cancel、各 view model や worker の lifetime ownership は従来どおり各 dialog が保持する。`ProgressDialog` の `HideCloseButton` と busy 中の close 抑止も変更しない。
 
-上記の native dialog と code-only MessageBox は、描画面を `App.Canonical.DialogContentStyle` で明示的に採用し、button の affirmative / quiet / danger role は `App.Canonical.Dialog*ActionStyle` で表現する。入力 control、一覧、group、label、scroll viewer も対応する `App.Canonical.*Style` を各 view で明示する。`SettingsWindow` の既存 `Settings*` button / control key は SettingsControls の canonical `BasedOn` alias として維持する。これにより、canonical resource の導入で未採用の MainWindow や別画面へ implicit style が波及せず、owner、modal result、既定値、cancel、close、gate、永続化、lifetime の既存契約も変更しない。
+上記の native dialog と code-only MessageBox は、描画面を `App.Canonical.DialogContentStyle` で明示的に採用し、button の affirmative / quiet / danger role は `App.Canonical.Dialog*ActionStyle` で表現する。入力 control、一覧、group、label、scroll viewer も対応する `App.Canonical.*Style` を各 view で明示する。`SettingsWindow` と `Lr2AdvancedPathsDialog` の既存 `Settings*` button / control key は SettingsControls の canonical `BasedOn` alias として維持する。検証は同一 host に実コンストラクタで生成した view の適用済み role / effective template と外側 sentinel の隔離を対象とし、別 load 間の CLR identity、座標、子順、source text を要求しない。これにより、canonical resource の導入で未採用の MainWindow や別画面へ implicit style が波及せず、owner、modal result、既定値、cancel、close、gate、永続化、lifetime の既存契約も変更しない。
 
 `InitialSetupLanguageDialog`、`PlaylistPropertyDialog`、`LoadPlaylistURIDialog` などアプリ内 overlay の主要な描画面は、引き続き `App.DialogOverlayBrush` / `App.DialogBackgroundBrush` / `App.DialogBorderBrush` / `App.TextBrush` を参照する。
 

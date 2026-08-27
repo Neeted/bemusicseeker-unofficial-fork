@@ -43,7 +43,7 @@ internal static class ThemedMessageBox
     {
         MessageBoxResult result = NormalizeDefaultResult(button, defaultResult);
         bool wasButtonSelected = false;
-        Window dialog = CreateDialog(owner, messageBoxText, caption, button, icon, result, warningMessageBoxText, delegate (MessageBoxResult selected)
+        Window dialog = BuildDialogForPresentation(owner, messageBoxText, caption, button, icon, result, warningMessageBoxText, delegate (MessageBoxResult selected)
         {
             result = selected;
             wasButtonSelected = true;
@@ -112,7 +112,28 @@ internal static class ThemedMessageBox
         };
     }
 
-    private static Window CreateDialog(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult initialResult, string warningMessageBoxText, Action<MessageBoxResult> setResult)
+    /// <summary>
+    /// Builds the same themed dialog window used by <see cref="ShowWithStatus"/> before it enters the modal route.
+    /// The internal seam lets presentation tests inspect the production visual tree without reconstructing it.
+    /// </summary>
+    /// <param name="owner">owner window, if one exists.</param>
+    /// <param name="messageBoxText">message text.</param>
+    /// <param name="caption">dialog title.</param>
+    /// <param name="button">button configuration.</param>
+    /// <param name="icon">message icon.</param>
+    /// <param name="initialResult">initial default result used for keyboard defaults.</param>
+    /// <param name="warningMessageBoxText">optional warning text shown below the message.</param>
+    /// <param name="setResult">callback that receives the selected result.</param>
+    /// <returns>The constructed production dialog before it is shown.</returns>
+    internal static Window BuildDialogForPresentation(
+        Window owner,
+        string messageBoxText,
+        string caption,
+        MessageBoxButton button,
+        MessageBoxImage icon,
+        MessageBoxResult initialResult,
+        string warningMessageBoxText,
+        Action<MessageBoxResult> setResult)
     {
         var dialog = new ThemedWindow
         {
