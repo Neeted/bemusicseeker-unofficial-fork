@@ -124,6 +124,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private readonly MainWindowProgressStatusBarTerminals progressStatusBarTerminals;
 
+    private readonly IUiDialogService playlistWorkspaceDialogService;
+
     private MainWindowViewModel subscribedViewModel;
 
     private long lastNormalLibraryFirstVisibleRequestId;
@@ -288,10 +290,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="settingsWindowCreated">
     /// 設定ウィンドウの既存構成後、ダイアログ coordinator へ返す直前に呼び出す任意の処理。
     /// </param>
+    /// <param name="playlistWorkspaceDialogService">
+    /// playlist Property/Bulk modal routes が使う coordinator。未指定時は既定の production coordinator を使用します。
+    /// </param>
 #nullable enable
     internal MainWindow(
         MainWindowViewModel viewModel,
-        Action<SettingsWindow>? settingsWindowCreated)
+        Action<SettingsWindow>? settingsWindowCreated,
+        IUiDialogService? playlistWorkspaceDialogService = null)
         : this(
             viewModel,
             settingsWindowCreated,
@@ -314,7 +320,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             null,
             null,
             null,
-            null)
+            null,
+            null,
+            playlistWorkspaceDialogService)
     {
     }
 
@@ -392,6 +400,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="playbackTerminal">main-table playback selection and activation terminal。</param>
     /// <param name="playlistWorkspaceTerminals">playlist workspace mutation terminals。</param>
     /// <param name="progressStatusBarTerminals">compiled status-bar action terminals。</param>
+    /// <param name="playlistWorkspaceDialogService">playlist Property/Bulk modal route の coordinator。未指定時は既定 coordinator を使用します。</param>
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
@@ -415,7 +424,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowPlaybackTerminal? playbackTerminal = null,
         MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null,
         MainWindowProgressStatusBarTerminals? progressStatusBarTerminals = null,
-        MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null)
+        MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
+        IUiDialogService? playlistWorkspaceDialogService = null)
     {
         if (viewModel == null)
         {
@@ -452,6 +462,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 () => newlyInstalledTreeViewItem.IsExpanded = true);
         this.progressStatusBarTerminals = progressStatusBarTerminals
             ?? MainWindowProgressStatusBarTerminals.Create(viewModel);
+        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService
+            ?? new UiDialogCoordinator();
         DataContext = viewModel;
         InitializeComponent();
         viewModel.SettingDialog.AttachPresentationPort(this);
@@ -4052,7 +4064,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PlaybackOverlayVisibility = Visibility.Visible;
         try
         {
-            UiWindowDialogResult<object> result = await new UiDialogCoordinator()
+            UiWindowDialogResult<object> result = await playlistWorkspaceDialogService
                 .ShowWindowAsync(new UiWindowDialogRequest<PlaylistPropertyDialog, object>(
                     () =>
                     {
@@ -4158,7 +4170,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PlaybackOverlayVisibility = Visibility.Visible;
         try
         {
-            UiWindowDialogResult<object> result = await new UiDialogCoordinator()
+            UiWindowDialogResult<object> result = await playlistWorkspaceDialogService
                 .ShowWindowAsync(new UiWindowDialogRequest<PlaylistSummaryBulkEditDialog, object>(
                     () =>
                     {

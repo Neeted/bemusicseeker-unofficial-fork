@@ -1074,9 +1074,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             IsLR2BackupEnabled = false
         };
         var lifetime = new RecordingApplicationLifetime();
+        UiDialogCoordinator actualRouteDialogService = CreateActualRouteDialogService(windowTest);
         var composition = new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
-            playlistWorkspaceDialogService: CreateActualRouteDialogService(windowTest),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: lifetime,
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -1121,7 +1121,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 "MainWindowPlaylistWorkspaceWpfTests.main-window-initialization");
             Assert.IsTrue(viewModel.IsInitializationCompleted);
 
-            window = new MainWindow(viewModel);
+            window = new MainWindow(
+                viewModel,
+                settingsWindowCreated: null,
+                playlistWorkspaceDialogService: actualRouteDialogService);
             RoutedEventHandler ensureNonActivatingPosition = (_, _) =>
                 window.Dispatcher.BeginInvoke(
                     DispatcherPriority.Render,
