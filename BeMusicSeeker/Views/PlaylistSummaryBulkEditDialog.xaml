@@ -53,7 +53,7 @@
     <Border Style="{StaticResource App.Canonical.DialogContentStyle}" Width="560" Height="470" SnapsToDevicePixels="True">
       <DockPanel LastChildFill="True">
         <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
-          <Button MinWidth="72" HorizontalAlignment="Right" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" Click="CloseDialog" />
+          <Button MinWidth="72" HorizontalAlignment="Right" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistSummaryClose" Click="CloseDialog" />
         </Grid>
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
           <TextBlock FontSize="15" FontWeight="SemiBold" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_edit, Mode=OneWay}" />
@@ -64,7 +64,7 @@
           <StackPanel>
             <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_custom_folder_output, Mode=OneWay}" IsEnabled="{Binding IsCustomFolderOutputEnabled}">
               <DockPanel>
-                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" DockPanel.Dock="Bottom" HorizontalAlignment="Right" MinWidth="140" Margin="0,8,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_custom_folder_output, Mode=OneWay}" IsEnabled="{Binding CanApplyCustomFolderOutput}" Click="ApplyCustomFolderOutput" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" DockPanel.Dock="Bottom" HorizontalAlignment="Right" MinWidth="140" Margin="0,8,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_custom_folder_output, Mode=OneWay}" IsEnabled="{Binding CanApplyCustomFolderOutput}" AutomationProperties.AutomationId="PlaylistSummaryApplyCustomFolderOutput" Click="ApplyCustomFolderOutput" />
                 <UniformGrid Columns="2" Margin="4,0,4,0">
                   <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs_tooltip, Mode=OneWay}" IsChecked="{Binding OutputAllSongsFolder, Mode=TwoWay}" />
                   <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" IsThreeState="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user_tooltip, Mode=OneWay}" IsChecked="{Binding OutputUserFolder, Mode=TwoWay}" />
@@ -90,12 +90,12 @@
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Grid.Column="1" Width="190" Margin="0,0,8,0" ItemsSource="{Binding OutputBaseOptions}" SelectedItem="{Binding OutputBaseOption, Mode=TwoWay}" DisplayMemberPath="Label" />
-                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_output_base, Mode=OneWay}" IsEnabled="{Binding CanApplyOutputBase}" Click="ApplyOutputBase" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_output_base, Mode=OneWay}" IsEnabled="{Binding CanApplyOutputBase}" AutomationProperties.AutomationId="PlaylistSummaryApplyOutputBase" Click="ApplyOutputBase" />
               </Grid>
             </GroupBox>
             <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_external_property_initialization, Mode=OneWay}">
               <DockPanel>
-                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" DockPanel.Dock="Bottom" HorizontalAlignment="Right" MinWidth="140" Margin="0,8,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_external_property_initialization, Mode=OneWay}" IsEnabled="{Binding CanApplyExternalPropertyInitialization}" Click="ApplyExternalPropertyInitialization" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" DockPanel.Dock="Bottom" HorizontalAlignment="Right" MinWidth="140" Margin="0,8,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_external_property_initialization, Mode=OneWay}" IsEnabled="{Binding CanApplyExternalPropertyInitialization}" AutomationProperties.AutomationId="PlaylistSummaryApplyExternalPropertyInitialization" Click="ApplyExternalPropertyInitialization" />
                 <UniformGrid Columns="2" Margin="4,0,4,0">
                   <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_playlist_name, Mode=OneWay}" IsChecked="{Binding InitializeNameFromExternal, Mode=TwoWay}" />
                   <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_initialize_symbol, Mode=OneWay}" IsChecked="{Binding InitializeSymbolFromExternal, Mode=TwoWay}" />
@@ -112,7 +112,7 @@
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Grid.Column="1" Width="150" Margin="0,0,8,0" ItemsSource="{Binding BulkBooleanOptions}" SelectedItem="{Binding RootFolderOption, Mode=TwoWay}" DisplayMemberPath="Label" />
-                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_root_folder, Mode=OneWay}" IsEnabled="{Binding CanApplyRootFolder}" Click="ApplyRootFolder" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_root_folder, Mode=OneWay}" IsEnabled="{Binding CanApplyRootFolder}" AutomationProperties.AutomationId="PlaylistSummaryApplyRootFolder" Click="ApplyRootFolder" />
               </Grid>
             </GroupBox>
             <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_external_sync, Mode=OneWay}">
@@ -123,7 +123,7 @@
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Grid.Column="1" Width="150" Margin="0,0,8,0" ItemsSource="{Binding BulkBooleanOptions}" SelectedItem="{Binding ExternalSyncOption, Mode=TwoWay}" DisplayMemberPath="Label" />
-                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_external_sync, Mode=OneWay}" IsEnabled="{Binding CanApplyExternalSync}" Click="ApplyExternalSync" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_external_sync, Mode=OneWay}" IsEnabled="{Binding CanApplyExternalSync}" AutomationProperties.AutomationId="PlaylistSummaryApplyExternalSync" Click="ApplyExternalSync" />
               </Grid>
             </GroupBox>
             <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_bmt_output, Mode=OneWay}">
@@ -134,7 +134,7 @@
                   <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <ComboBox Style="{StaticResource App.Canonical.ComboBoxStyle}" Grid.Column="1" Width="150" Margin="0,0,8,0" ItemsSource="{Binding BulkBooleanOptions}" SelectedItem="{Binding BmtOutputOption, Mode=TwoWay}" DisplayMemberPath="Label" />
-                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_bmt_output, Mode=OneWay}" IsEnabled="{Binding CanApplyBmtOutput}" Click="ApplyBmtOutput" />
+                <Button Style="{StaticResource App.Canonical.DialogActionStyle}" Grid.Column="2" MinWidth="140" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_bulk_apply_bmt_output, Mode=OneWay}" IsEnabled="{Binding CanApplyBmtOutput}" AutomationProperties.AutomationId="PlaylistSummaryApplyBmtOutput" Click="ApplyBmtOutput" />
               </Grid>
             </GroupBox>
           </StackPanel>

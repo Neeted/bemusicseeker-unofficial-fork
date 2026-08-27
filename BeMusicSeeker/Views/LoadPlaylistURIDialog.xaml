@@ -13,9 +13,9 @@
       <Border Style="{StaticResource App.Canonical.DialogSurfaceStyle}">
         <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
           <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,2,0,0">
-            <Button x:Name="openLocalFileButton" Style="{StaticResource App.Canonical.DialogActionStyle}" Content="Open" MinWidth="50" Margin="5,3" Click="OpenLocalFile" />
-            <Button Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" MinWidth="50" Margin="5,3" Click="SaveAndClose" />
-            <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" MinWidth="50" Margin="5,3" Click="CancelAndClose" />
+            <Button x:Name="openLocalFileButton" Style="{StaticResource App.Canonical.DialogActionStyle}" Content="Open" MinWidth="50" Margin="5,3" AutomationProperties.AutomationId="LoadPlaylistUriOpenLocalFile" Click="OpenLocalFile" />
+            <Button Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" MinWidth="50" Margin="5,3" AutomationProperties.AutomationId="LoadPlaylistUriAccept" Click="SaveAndClose" />
+            <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" MinWidth="50" Margin="5,3" AutomationProperties.AutomationId="LoadPlaylistUriCancel" Click="CancelAndClose" />
           </StackPanel>
           <StackPanel Margin="5,5,5,0">
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_PlaylistURI, Mode=OneWay}" />

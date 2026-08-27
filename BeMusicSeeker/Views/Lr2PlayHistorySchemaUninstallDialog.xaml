@@ -24,8 +24,8 @@
   <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
     <DockPanel Margin="12" LastChildFill="True">
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
-      <Button MinWidth="72" Height="24" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogDangerActionStyle}" Content="OK" IsDefault="True" Click="SaveAndClose" />
-      <Button MinWidth="72" Height="24" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" IsCancel="True" />
+      <Button MinWidth="72" Height="24" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogDangerActionStyle}" Content="OK" IsDefault="True" AutomationProperties.AutomationId="Lr2PlayHistorySchemaUninstall" Click="SaveAndClose" />
+      <Button MinWidth="72" Height="24" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" IsCancel="True" AutomationProperties.AutomationId="Lr2PlayHistorySchemaCancel" />
     </StackPanel>
     <StackPanel>
       <TextBlock TextWrapping="Wrap" Margin="0,0,0,10" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_uninstall_desc, Mode=OneWay}" />

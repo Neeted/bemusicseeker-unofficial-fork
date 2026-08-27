@@ -136,8 +136,8 @@
           </Grid.ColumnDefinitions>
           <Label Style="{StaticResource App.Canonical.LabelStyle}" Grid.Column="0" ContentStringFormat="Update: {0:yyyy/MM/dd}" Content="{Binding last_update}" />
           <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" MinWidth="64" Margin="0,0,8,0" Click="SaveAndClose" />
-            <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" MinWidth="64" Click="CancelAndClose" />
+            <Button Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" MinWidth="64" Margin="0,0,8,0" AutomationProperties.AutomationId="PlaylistPropertyAccept" Click="SaveAndClose" />
+            <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" MinWidth="64" AutomationProperties.AutomationId="PlaylistPropertyCancel" Click="CancelAndClose" />
           </StackPanel>
         </Grid>
         <TabControl DockPanel.Dock="Top">
@@ -219,8 +219,8 @@
                     <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" Name="checkBoxFolderNatueralSort" Margin="0,0,0,2" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Auto, Mode=OneWay}" IsChecked="{Binding is_auto_folder_sort}" Checked="folderNaturalSort" />
                   </StackPanel>
                   <StackPanel DockPanel.Dock="Right" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="10">
-                    <Button Style="{StaticResource App.Canonical.DialogActionStyle}" FontFamily="Marlett" Content="5" Margin="0,0,0,2" Padding="2,1,1,1" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBoxFolderNatueralSort}" Click="folderListUp" />
-                    <Button Style="{StaticResource App.Canonical.DialogActionStyle}" FontFamily="Marlett" Content="6" Margin="0,2,0,0" Padding="2,1,1,1" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBoxFolderNatueralSort}" Click="folderListDown" />
+                    <Button Style="{StaticResource App.Canonical.DialogActionStyle}" FontFamily="Marlett" Content="5" Margin="0,0,0,2" Padding="2,1,1,1" AutomationProperties.AutomationId="PlaylistPropertyFolderMoveUp" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBoxFolderNatueralSort}" Click="folderListUp" />
+                    <Button Style="{StaticResource App.Canonical.DialogActionStyle}" FontFamily="Marlett" Content="6" Margin="0,2,0,0" Padding="2,1,1,1" AutomationProperties.AutomationId="PlaylistPropertyFolderMoveDown" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBoxFolderNatueralSort}" Click="folderListDown" />
                   </StackPanel>
                 </DockPanel>
               </GroupBox>

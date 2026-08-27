@@ -22,7 +22,7 @@
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <ProgressBar Name="ProgressBar" Grid.Column="0" IsIndeterminate="True" Height="22" />
-        <Button Name="CancelButton" Grid.Column="1" Margin="3,0,0,0" Width="70" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" Visibility="Collapsed" HorizontalAlignment="Right" Click="OnCancelButtonClick" />
+        <Button Name="CancelButton" Grid.Column="1" Margin="3,0,0,0" Width="70" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" AutomationProperties.AutomationId="ProgressDialogCancel" Visibility="Collapsed" HorizontalAlignment="Right" Click="OnCancelButtonClick" />
       </Grid>
     </Grid>
   </Border>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 
@@ -238,6 +239,7 @@ internal static class ThemedMessageBox
                 IsDefault = pair.Key == initialResult || (initialResult == MessageBoxResult.None && IsAffirmative(pair.Key)),
                 IsCancel = pair.Key == MessageBoxResult.Cancel || (button == MessageBoxButton.YesNo && pair.Key == MessageBoxResult.No),
             };
+            AutomationProperties.SetAutomationId(dialogButton, $"ThemedMessageBox{pair.Key}");
             dialogButton.SetResourceReference(
                 FrameworkElement.StyleProperty,
                 GetButtonStyleKey(button, pair.Key));

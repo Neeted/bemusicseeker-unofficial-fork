@@ -71,9 +71,9 @@
       </TextBlock>
 
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-        <Button Width="112" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="{Binding UpdateButtonLabel}" IsEnabled="{Binding CanStartUpdate}" IsDefault="True" Click="ApplyButtonClick" />
-        <Button Width="112" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding ReleasePageButtonLabel}" Click="OpenReleasePageButtonClick" />
-        <Button Width="72" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" IsCancel="True" />
+        <Button Width="112" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="{Binding UpdateButtonLabel}" IsEnabled="{Binding CanStartUpdate}" IsDefault="True" AutomationProperties.AutomationId="UpdateApply" Click="ApplyButtonClick" />
+        <Button Width="112" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding ReleasePageButtonLabel}" AutomationProperties.AutomationId="UpdateOpenReleasePage" Click="OpenReleasePageButtonClick" />
+        <Button Width="72" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" IsCancel="True" AutomationProperties.AutomationId="UpdateClose" />
       </StackPanel>
     </StackPanel>
   </Border>

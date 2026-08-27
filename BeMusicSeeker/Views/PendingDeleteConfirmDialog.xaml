@@ -27,8 +27,8 @@
                 IsChecked="True"
                 Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Confirm_DeletePendingFolderWhenNoBms, Mode=OneWay}" />
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-        <Button Width="72" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" IsDefault="True" Click="OkButtonClick">OK</Button>
-        <Button Width="72" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" IsCancel="True">Cancel</Button>
+        <Button Width="72" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" IsDefault="True" AutomationProperties.AutomationId="PendingDeleteConfirm" Click="OkButtonClick">OK</Button>
+        <Button Width="72" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" IsCancel="True" AutomationProperties.AutomationId="PendingDeleteCancel">Cancel</Button>
       </StackPanel>
     </StackPanel>
   </Border>

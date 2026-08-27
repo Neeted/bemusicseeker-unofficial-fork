@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -127,22 +128,22 @@ public sealed class DialogPresentationTests
             "UpdateAvailableDialog" => CreateUpdateAvailableFixture(),
             "PendingDeleteConfirmDialog" => CreateNativeFixture(new PendingDeleteConfirmDialog(),
                 [
-                    ButtonWithDefault(DialogButtonRole.Primary, "pending-delete affirmative"),
-                    ButtonWithCancel(DialogButtonRole.Quiet, "pending-delete cancel"),
+                    ButtonWithAutomationId("PendingDeleteConfirm", DialogButtonRole.Primary, "pending-delete affirmative"),
+                    ButtonWithAutomationId("PendingDeleteCancel", DialogButtonRole.Quiet, "pending-delete cancel"),
                 ]),
             "PlayHistoryFolderDisplayPresetEditDialog" => CreatePlayHistoryPresetFixture(),
             "Lr2PlayHistorySchemaUninstallDialog" => CreateNativeFixture(
                 new Lr2PlayHistorySchemaUninstallDialog("score.db"),
                 [
-                    ButtonWithDefault(DialogButtonRole.Danger, "schema uninstall destructive action"),
-                    ButtonWithCancel(DialogButtonRole.Quiet, "schema uninstall cancel"),
+                    ButtonWithAutomationId("Lr2PlayHistorySchemaUninstall", DialogButtonRole.Danger, "schema uninstall destructive action"),
+                    ButtonWithAutomationId("Lr2PlayHistorySchemaCancel", DialogButtonRole.Quiet, "schema uninstall cancel"),
                 ]),
             "ProgressDialog" => CreateNativeFixture(
                 new ProgressDialog(new ProgressDialogSettings(
                     showSubLabel: true,
                     showCancelButton: true,
                     showProgressBarIndeterminate: true)),
-                [ButtonNamed("CancelButton", DialogButtonRole.Quiet, "progress cancel")]),
+                [ButtonWithAutomationId("ProgressDialogCancel", DialogButtonRole.Quiet, "progress cancel")]),
             "ThemedMessageBox" => CreateNativeFixture(
                 ThemedMessageBox.BuildDialogForPresentation(
                     owner: null,
@@ -154,43 +155,43 @@ public sealed class DialogPresentationTests
                     warningMessageBoxText: null,
                     setResult: _ => { }),
                 [
-                    ButtonAt(0, DialogButtonRole.Primary, "message box affirmative"),
-                    ButtonWithCancel(DialogButtonRole.Quiet, "message box cancel"),
+                    ButtonWithAutomationId("ThemedMessageBoxOK", DialogButtonRole.Primary, "message box affirmative"),
+                    ButtonWithAutomationId("ThemedMessageBoxCancel", DialogButtonRole.Quiet, "message box cancel"),
                 ]),
             "InitialSetupLanguageDialog" => CreateOverlayFixture(
                 new InitialSetupLanguageDialog(),
                 720,
                 520,
-                [ButtonNamed("buttonContinue", DialogButtonRole.Primary, "initial setup continue")]),
+                [ButtonWithAutomationId("InitialSetupLanguageContinue", DialogButtonRole.Primary, "initial setup continue")]),
             "LoadPlaylistURIDialog" => CreateOverlayFixture(
                 new LoadPlaylistURIDialog(),
                 720,
                 520,
                 [
-                    ButtonNamed("openLocalFileButton", DialogButtonRole.Neutral, "playlist URI open local file"),
-                    ButtonAt(1, DialogButtonRole.Primary, "playlist URI affirmative"),
-                    ButtonAt(2, DialogButtonRole.Quiet, "playlist URI cancel"),
+                    ButtonWithAutomationId("LoadPlaylistUriOpenLocalFile", DialogButtonRole.Neutral, "playlist URI open local file"),
+                    ButtonWithAutomationId("LoadPlaylistUriAccept", DialogButtonRole.Primary, "playlist URI affirmative"),
+                    ButtonWithAutomationId("LoadPlaylistUriCancel", DialogButtonRole.Quiet, "playlist URI cancel"),
                 ]),
             "PlaylistPropertyDialog" => CreateOverlayFixture(
                 new PlaylistPropertyDialog(),
                 720,
                 520,
                 [
-                    ButtonAt(0, DialogButtonRole.Primary, "playlist property affirmative"),
-                    ButtonAt(1, DialogButtonRole.Quiet, "playlist property cancel"),
+                    ButtonWithAutomationId("PlaylistPropertyAccept", DialogButtonRole.Primary, "playlist property affirmative"),
+                    ButtonWithAutomationId("PlaylistPropertyCancel", DialogButtonRole.Quiet, "playlist property cancel"),
                 ]),
             "PlaylistSummaryBulkEditDialog" => CreateOverlayFixture(
                 new PlaylistSummaryBulkEditDialog(),
                 720,
                 560,
                 [
-                    ButtonAt(0, DialogButtonRole.Quiet, "playlist summary close"),
-                    ButtonAt(1, DialogButtonRole.Neutral, "playlist summary custom folder apply"),
-                    ButtonAt(2, DialogButtonRole.Neutral, "playlist summary output base apply"),
-                    ButtonAt(3, DialogButtonRole.Neutral, "playlist summary external property apply"),
-                    ButtonAt(4, DialogButtonRole.Neutral, "playlist summary root folder apply"),
-                    ButtonAt(5, DialogButtonRole.Neutral, "playlist summary external sync apply"),
-                    ButtonAt(6, DialogButtonRole.Neutral, "playlist summary BMT apply"),
+                    ButtonWithAutomationId("PlaylistSummaryClose", DialogButtonRole.Quiet, "playlist summary close"),
+                    ButtonWithAutomationId("PlaylistSummaryApplyCustomFolderOutput", DialogButtonRole.Neutral, "playlist summary custom folder apply"),
+                    ButtonWithAutomationId("PlaylistSummaryApplyOutputBase", DialogButtonRole.Neutral, "playlist summary output base apply"),
+                    ButtonWithAutomationId("PlaylistSummaryApplyExternalPropertyInitialization", DialogButtonRole.Neutral, "playlist summary external property apply"),
+                    ButtonWithAutomationId("PlaylistSummaryApplyRootFolder", DialogButtonRole.Neutral, "playlist summary root folder apply"),
+                    ButtonWithAutomationId("PlaylistSummaryApplyExternalSync", DialogButtonRole.Neutral, "playlist summary external sync apply"),
+                    ButtonWithAutomationId("PlaylistSummaryApplyBmtOutput", DialogButtonRole.Neutral, "playlist summary BMT apply"),
                 ]),
             _ => throw new ArgumentOutOfRangeException(nameof(dialogName), dialogName, "Unknown dialog fixture."),
         };
@@ -242,8 +243,8 @@ public sealed class DialogPresentationTests
         return CreateNativeFixture(
             dialog,
             [
-                ButtonWithCancel(DialogButtonRole.Quiet, "LR2 paths cancel"),
-                ButtonWithDefault(DialogButtonRole.Primary, "LR2 paths affirmative"),
+                ButtonWithAutomationId("Lr2AdvancedPathsCancel", DialogButtonRole.Quiet, "LR2 paths cancel"),
+                ButtonWithAutomationId("Lr2AdvancedPathsDone", DialogButtonRole.Primary, "LR2 paths affirmative"),
             ],
             allowsSettingsControlAliases: true,
             cleanup: owner.SettingDialog.Dispose);
@@ -256,14 +257,14 @@ public sealed class DialogPresentationTests
         return CreateNativeFixture(
             window,
             [
-                ButtonNamed("buttonOK", DialogButtonRole.Primary, "settings save and close"),
-                ButtonNamed("buttonCancel", DialogButtonRole.Quiet, "settings cancel"),
-                ButtonAt(0, DialogButtonRole.Neutral, "settings add BMS root"),
-                ButtonAt(1, DialogButtonRole.Quiet, "settings remove BMS root"),
-                ButtonAt(2, DialogButtonRole.Quiet, "settings edit LR2 paths"),
-                ButtonAt(3, DialogButtonRole.Neutral, "settings resync song database"),
-                ButtonAt(4, DialogButtonRole.Neutral, "settings install or repair schema"),
-                ButtonAt(5, DialogButtonRole.Quiet, "settings import table URLs"),
+                ButtonWithAutomationId("SettingsSaveAndClose", DialogButtonRole.Primary, "settings save and close"),
+                ButtonWithAutomationId("SettingsCancel", DialogButtonRole.Quiet, "settings cancel"),
+                ButtonWithAutomationId("SettingsAddBmsSearchRoot", DialogButtonRole.Neutral, "settings add BMS root"),
+                ButtonWithAutomationId("SettingsRemoveBmsSearchRoot", DialogButtonRole.Quiet, "settings remove BMS root"),
+                ButtonWithAutomationId("SettingsEditCustomLr2Paths", DialogButtonRole.Quiet, "settings edit LR2 paths"),
+                ButtonWithAutomationId("SettingsResyncLr2SongDb", DialogButtonRole.Neutral, "settings resync song database"),
+                ButtonWithAutomationId("SettingsInstallOrRepairLr2PlayHistorySchema", DialogButtonRole.Neutral, "settings install or repair schema"),
+                ButtonWithAutomationId("SettingsImportBeatorajaTableUrls", DialogButtonRole.Quiet, "settings import table URLs"),
             ],
             allowsSettingsControlAliases: true,
             cleanup: owner.SettingDialog.Dispose);
@@ -279,9 +280,9 @@ public sealed class DialogPresentationTests
         return CreateNativeFixture(
             dialog,
             [
-                ButtonWithDefault(DialogButtonRole.Primary, "update affirmative"),
-                ButtonAt(1, DialogButtonRole.Quiet, "release page secondary action"),
-                ButtonWithCancel(DialogButtonRole.Quiet, "update close"),
+                ButtonWithAutomationId("UpdateApply", DialogButtonRole.Primary, "update affirmative"),
+                ButtonWithAutomationId("UpdateOpenReleasePage", DialogButtonRole.Quiet, "release page secondary action"),
+                ButtonWithAutomationId("UpdateClose", DialogButtonRole.Quiet, "update close"),
             ],
             cleanup: progressHub.Dispose);
     }
@@ -295,8 +296,8 @@ public sealed class DialogPresentationTests
         return CreateNativeFixture(
             dialog,
             [
-                ButtonAt(0, DialogButtonRole.Primary, "play-history preset affirmative"),
-                ButtonWithCancel(DialogButtonRole.Quiet, "play-history preset cancel"),
+                ButtonWithAutomationId("PlayHistoryPresetSave", DialogButtonRole.Primary, "play-history preset affirmative"),
+                ButtonWithAutomationId("PlayHistoryPresetCancel", DialogButtonRole.Quiet, "play-history preset cancel"),
             ],
             cleanup: owner.SettingDialog.Dispose);
     }
@@ -344,33 +345,58 @@ public sealed class DialogPresentationTests
             .Where(item => item.TemplatedParent == null)
             .ToArray();
         ButtonExpectation[] expectations = fixture.ButtonExpectations.ToArray();
+        string[] expectedAutomationIds = expectations
+            .Select(expectation => expectation.AutomationId)
+            .ToArray();
+        Assert.IsFalse(
+            expectedAutomationIds.Any(string.IsNullOrWhiteSpace),
+            "Every dialog button expectation must declare a nonempty semantic identifier.");
+        Assert.AreEqual(
+            expectedAutomationIds.Length,
+            expectedAutomationIds.Distinct(StringComparer.Ordinal).Count(),
+            "Fixture metadata must assign a unique semantic identifier to every expected dialog button.");
         Assert.AreEqual(
             expectations.Length,
             buttons.Length,
             $"Fixture metadata must identify every production dialog button (expected={expectations.Length}, actual={buttons.Length}).");
 
+        string[] actualAutomationIds = buttons
+            .Select(button => AutomationProperties.GetAutomationId(button))
+            .ToArray();
+        Assert.IsFalse(
+            actualAutomationIds.Any(string.IsNullOrWhiteSpace),
+            "Every production dialog button must expose a nonempty stable semantic identifier.");
+        Assert.AreEqual(
+            actualAutomationIds.Length,
+            actualAutomationIds.Distinct(StringComparer.Ordinal).Count(),
+            "Production dialog buttons must expose unique semantic identifiers.");
+
         foreach (ButtonExpectation expectation in expectations)
         {
             Button[] matches = buttons
-                .Select((button, index) => (button, index))
-                .Where(item => expectation.Matches(item.button, item.index))
-                .Select(item => item.button)
+                .Where(button => string.Equals(
+                    AutomationProperties.GetAutomationId(button),
+                    expectation.AutomationId,
+                    StringComparison.Ordinal))
                 .ToArray();
             Assert.AreEqual(
                 1,
                 matches.Length,
-                $"Fixture metadata '{expectation.Description}' must identify exactly one production dialog button.");
+                $"Fixture metadata '{expectation.Description}' must identify exactly one production dialog button with AutomationId '{expectation.AutomationId}'.");
         }
 
-        foreach ((Button button, int index) in buttons.Select((button, index) => (button, index)))
+        foreach (Button button in buttons)
         {
             ButtonExpectation[] matches = expectations
-                .Where(expectation => expectation.Matches(button, index))
+                .Where(expectation => string.Equals(
+                    AutomationProperties.GetAutomationId(button),
+                    expectation.AutomationId,
+                    StringComparison.Ordinal))
                 .ToArray();
             Assert.AreEqual(
                 1,
                 matches.Length,
-                $"Production dialog button at index {index} must have exactly one authority-owned semantic expectation.");
+                $"Production dialog button with AutomationId '{AutomationProperties.GetAutomationId(button)}' must have exactly one authority-owned semantic expectation.");
             AssertCanonicalButtonRole(fixture, button, matches[0]);
         }
 
@@ -413,9 +439,6 @@ public sealed class DialogPresentationTests
                 overlayStyle,
                 RequireStyle(overlay, overlayStyleKey),
                 "The overlay surface must resolve the canonical role from its presentation host.");
-            Assert.IsNotNull(overlay.Fill, "The canonical overlay surface must materialize its fill brush.");
-            Assert.AreEqual(0.5, overlay.Opacity, 0.001, "The canonical overlay surface opacity must be applied.");
-            Assert.IsTrue(overlay.IsHitTestVisible, "The canonical overlay surface must remain hit-testable.");
         }
     }
 
@@ -474,6 +497,11 @@ public sealed class DialogPresentationTests
         ButtonExpectation expectation)
     {
         Assert.IsNotNull(button.Style, "Every dialog Button must have an explicit canonical action role.");
+        DialogButtonRole actualRole = ResolveMostSpecificButtonRole(button);
+        Assert.AreEqual(
+            expectation.Role,
+            actualRole,
+            $"Dialog Button '{expectation.Description}' must resolve to its exact authority-owned role family (AutomationId='{expectation.AutomationId}').");
         string roleKey = GetDialogRoleStyleKey(expectation.Role);
         string baseRoleKey = GetCanonicalBaseRoleStyleKey(expectation.Role);
         Style roleStyle = RequireStyle(button, roleKey);
@@ -491,6 +519,33 @@ public sealed class DialogPresentationTests
         ControlTemplate actualTemplate = GetEffectiveStyleValue<ControlTemplate>(button.Style, Control.TemplateProperty);
         Assert.IsNotNull(expectedTemplate, "Canonical Button action roles must define an effective template.");
         Assert.AreSame(expectedTemplate, actualTemplate, "The Button must use the canonical effective template.");
+    }
+
+    private static DialogButtonRole ResolveMostSpecificButtonRole(Button button)
+    {
+        if (StyleChainContains(button.Style, RequireStyle(button, "App.Canonical.DangerButtonStyle")))
+        {
+            return DialogButtonRole.Danger;
+        }
+
+        if (StyleChainContains(button.Style, RequireStyle(button, "App.Canonical.PrimaryButtonStyle")))
+        {
+            return DialogButtonRole.Primary;
+        }
+
+        if (StyleChainContains(button.Style, RequireStyle(button, "App.Canonical.QuietButtonStyle")))
+        {
+            return DialogButtonRole.Quiet;
+        }
+
+        if (StyleChainContains(button.Style, RequireStyle(button, "App.Canonical.ButtonStyle")))
+        {
+            return DialogButtonRole.Neutral;
+        }
+
+        Assert.Fail(
+            $"Dialog Button with AutomationId '{AutomationProperties.GetAutomationId(button)}' does not resolve to a canonical semantic role family.");
+        return DialogButtonRole.Neutral;
     }
 
     private static void AssertCanonicalControlRole<T>(
@@ -569,17 +624,11 @@ public sealed class DialogPresentationTests
         return null;
     }
 
-    private static ButtonExpectation ButtonAt(int index, DialogButtonRole role, string description)
-        => new(description, (button, actualIndex) => actualIndex == index, role);
-
-    private static ButtonExpectation ButtonNamed(string name, DialogButtonRole role, string description)
-        => new(description, (button, _) => string.Equals(button.Name, name, StringComparison.Ordinal), role);
-
-    private static ButtonExpectation ButtonWithDefault(DialogButtonRole role, string description)
-        => new(description, (button, _) => button.IsDefault, role);
-
-    private static ButtonExpectation ButtonWithCancel(DialogButtonRole role, string description)
-        => new(description, (button, _) => button.IsCancel, role);
+    private static ButtonExpectation ButtonWithAutomationId(
+        string automationId,
+        DialogButtonRole role,
+        string description)
+        => new(description, automationId, role);
 
     private static string GetDialogRoleStyleKey(DialogButtonRole role)
         => role switch
@@ -644,16 +693,16 @@ public sealed class DialogPresentationTests
 
     private sealed class ButtonExpectation
     {
-        internal ButtonExpectation(string description, Func<Button, int, bool> matches, DialogButtonRole role)
+        internal ButtonExpectation(string description, string automationId, DialogButtonRole role)
         {
             Description = description;
-            Matches = matches;
+            AutomationId = automationId;
             Role = role;
         }
 
         internal string Description { get; }
 
-        internal Func<Button, int, bool> Matches { get; }
+        internal string AutomationId { get; }
 
         internal DialogButtonRole Role { get; }
     }

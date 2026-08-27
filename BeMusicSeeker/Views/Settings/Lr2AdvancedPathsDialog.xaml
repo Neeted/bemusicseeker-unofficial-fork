@@ -22,8 +22,8 @@
       <settings:SettingsStatusBanner Icon="!" Status="Warning" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_lr2_advanced_persistence_note, Mode=OneWay}" />
     </StackPanel>
       <StackPanel Grid.Row="1" Margin="0,16,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
-        <Button MinWidth="96" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" IsCancel="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="CancelClick" />
-        <Button MinWidth="96" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" IsDefault="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_done, Mode=OneWay}" Click="DoneClick" />
+        <Button MinWidth="96" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" IsCancel="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" AutomationProperties.AutomationId="Lr2AdvancedPathsCancel" Click="CancelClick" />
+        <Button MinWidth="96" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" IsDefault="True" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_done, Mode=OneWay}" AutomationProperties.AutomationId="Lr2AdvancedPathsDone" Click="DoneClick" />
       </StackPanel>
     </Grid>
   </Border>
