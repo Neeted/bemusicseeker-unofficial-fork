@@ -122,10 +122,10 @@ Implementation evidence:
 
 ## Integration and acceptance
 
-- Run the combined focused Quick scope after both units.
-- Launch the exact repository executable and inspect Settings edge framing, LR2 uninstall containment, both playlist modal windows, minimum-size scrolling, modal owner disablement, and date display. Cancel without persisting inspection changes and close the process.
-- Run one final `verify-refactor.ps1 -Mode Functional` on the integrated snapshot.
-- Freeze the worktree and request a fresh static review against this packet.
+- Combined focused Quick passed 125/125 on the first integrated snapshot (`artifacts/verification/tests-quick-20260827-183229/functional`). The shutdown-handshake amendment then passed its final 116/116 focused scope (`artifacts/verification/tests-quick-20260827-200333/functional`).
+- Exact repository-executable inspection confirmed Settings client-edge framing, complete LR2 uninstall content, resizable owned Property/Bulk modal windows, Property horizontal navigation and `Update: yyyy/MM/dd` display, and all six scroll-reachable Bulk sections. Inspection was cancelled without persisting changes and the repository process was closed.
+- Final post-amendment Functional verification passed with 4,073 executed tests, 0 failures, and 11 not executed out of 4,084 discovered tests (`artifacts/verification/tests-functional-20260827-201027`).
+- The final committed snapshot is frozen for fresh static review against `APP-UI-NATIVE-MODAL-02` and the review-amendment findings.
 
 ## Replan triggers
 
