@@ -6,12 +6,15 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Settings;
@@ -616,6 +619,11 @@ public sealed class DialogPresentationTests
         AssertCanonicalControlRole<GroupBox>(presentationRoot, "GroupBox", "App.Canonical.GroupBoxStyle");
         AssertCanonicalControlRole<Label>(presentationRoot, "Label", "App.Canonical.LabelStyle");
 
+        if (fixture.HostWindow is PlaylistSummaryBulkEditDialog)
+        {
+            AssertCanonicalDialogScrollViewer(presentationRoot);
+        }
+
         if (fixture.RequiresOverlayRole)
         {
             AssertCanonicalOverlaySurface(presentationRoot);
@@ -915,6 +923,48 @@ public sealed class DialogPresentationTests
         }
     }
 
+    private static void AssertCanonicalDialogScrollViewer(FrameworkElement presentationRoot)
+    {
+        ScrollViewer viewer = FindVisualDescendants<ScrollViewer>(presentationRoot)
+            .SingleOrDefault(candidate => candidate.Visibility == Visibility.Visible && candidate.ScrollableHeight > 0d)
+            ?? throw new AssertFailedException("The canonical dialog must expose a visible overflowing ScrollViewer.");
+        viewer.ApplyTemplate();
+        viewer.UpdateLayout();
+        ScrollBar verticalScrollBar = viewer.Template.FindName("PART_VerticalScrollBar", viewer) as ScrollBar
+            ?? throw new AssertFailedException("The canonical dialog ScrollViewer must materialize a vertical scrollbar.");
+        Assert.AreEqual(Visibility.Visible, verticalScrollBar.Visibility);
+        Assert.IsTrue(verticalScrollBar.ActualWidth > 0d && verticalScrollBar.ActualHeight > 0d);
+        Assert.AreEqual(Orientation.Vertical, verticalScrollBar.Orientation);
+        verticalScrollBar.ApplyTemplate();
+        Track track = verticalScrollBar.Template.FindName("PART_Track", verticalScrollBar) as Track
+            ?? throw new AssertFailedException("The canonical dialog scrollbar must materialize PART_Track.");
+        Assert.AreEqual(Orientation.Vertical, track.Orientation);
+        RepeatButton lineUp = verticalScrollBar.Template.FindName("LineUpButton", verticalScrollBar) as RepeatButton
+            ?? throw new AssertFailedException("The canonical dialog scrollbar must expose LineUpButton.");
+        RepeatButton lineDown = verticalScrollBar.Template.FindName("LineDownButton", verticalScrollBar) as RepeatButton
+            ?? throw new AssertFailedException("The canonical dialog scrollbar must expose LineDownButton.");
+        RepeatButton pageUp = track.DecreaseRepeatButton as RepeatButton
+            ?? throw new AssertFailedException("The canonical dialog scrollbar must expose its page-up button.");
+        RepeatButton pageDown = track.IncreaseRepeatButton as RepeatButton
+            ?? throw new AssertFailedException("The canonical dialog scrollbar must expose its page-down button.");
+        Assert.AreSame(ScrollBar.LineUpCommand, lineUp.Command);
+        Assert.AreSame(ScrollBar.LineDownCommand, lineDown.Command);
+        Assert.AreSame(ScrollBar.PageUpCommand, pageUp.Command);
+        Assert.AreSame(ScrollBar.PageDownCommand, pageDown.Command);
+        Assert.AreEqual(viewer.ViewportHeight, verticalScrollBar.ViewportSize, 0.01d);
+        Assert.AreEqual(viewer.ScrollableHeight, verticalScrollBar.Maximum, 0.01d);
+
+        IScrollProvider scrollProvider = new ScrollViewerAutomationPeer(viewer).GetPattern(PatternInterface.Scroll) as IScrollProvider
+            ?? throw new AssertFailedException("The canonical dialog ScrollViewer must expose Scroll automation.");
+        Assert.IsTrue(scrollProvider.VerticallyScrollable);
+        double initialOffset = viewer.VerticalOffset;
+        scrollProvider.Scroll(ScrollAmount.NoAmount, ScrollAmount.SmallIncrement);
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        Assert.IsTrue(viewer.VerticalOffset > initialOffset, "The canonical dialog scrollbar must perform an actual offset transition.");
+        Assert.AreEqual(viewer.VerticalOffset, verticalScrollBar.Value, 0.01d);
+    }
+
     private static void AssertPropertyNavigationRole(FrameworkElement presentationRoot)
     {
         FrameworkElement navigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
@@ -923,84 +973,155 @@ public sealed class DialogPresentationTests
             return;
         }
 
+        FrameworkElement contentHost = presentationRoot.FindName("propertyContent") as FrameworkElement
+            ?? throw new AssertFailedException("Playlist property content host must remain a separate framework element.");
+        PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
+        AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.General);
+        Assert.AreEqual(PropertyNavigationCategory.General, IdentifyVisiblePropertyCategory(contentHost));
+        navigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
+        TestUiDispatcherHost.Drain();
+        AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.Folder);
+        Assert.AreEqual(PropertyNavigationCategory.Folder, IdentifyVisiblePropertyCategory(contentHost));
+        navigationState.ItemsByCategory[PropertyNavigationCategory.General].Provider.Select();
+        TestUiDispatcherHost.Drain();
+        AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.General);
+    }
+
+    private static PropertyNavigationObservation ObservePropertyNavigation(
+        FrameworkElement navigation,
+        FrameworkElement contentHost)
+    {
         AutomationPeer navigationPeer = UIElementAutomationPeer.CreatePeerForElement(navigation)
             ?? throw new AssertFailedException("Playlist property navigation must expose a public Automation peer.");
         ISelectionProvider selectionProvider = navigationPeer.GetPattern(PatternInterface.Selection) as ISelectionProvider
             ?? throw new AssertFailedException("Playlist property navigation must expose Selection automation.");
         Assert.IsFalse(selectionProvider.CanSelectMultiple);
-        AutomationPeer[] itemPeers = navigationPeer.GetChildren()?.ToArray()
+        AutomationPeer[] navigationItems = navigationPeer.GetChildren()?.ToArray()
             ?? throw new AssertFailedException("Playlist property navigation items must be exposed to Automation.");
-        Assert.AreEqual(3, itemPeers.Length, "Playlist property navigation must expose three category peers.");
-        ISelectionItemProvider[] itemProviders = itemPeers
-            .Select(peer => peer.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider
-                ?? throw new AssertFailedException("A property navigation item lacks SelectionItem automation."))
+        Assert.AreEqual(3, navigationItems.Length, "Playlist property navigation must expose three category peers.");
+        PropertyNavigationItem[] selectionItems = navigationItems
+            .Select(CreatePropertyNavigationItem)
             .ToArray();
-        Assert.IsTrue(itemPeers.All(peer => !string.IsNullOrWhiteSpace(peer.GetName())));
-        Assert.AreEqual(1, itemProviders.Count(item => item.IsSelected));
-        Assert.IsTrue(itemProviders[0].IsSelected, "Property navigation must open on General.");
-
-        FrameworkElement contentHost = presentationRoot.FindName("propertyContent") as FrameworkElement
-            ?? throw new AssertFailedException("Playlist property content host must remain a separate framework element.");
-        string initialContent = GetVisiblePropertyFieldRoleSignature(contentHost);
-        Assert.IsTrue(initialContent.Length > 0, "The selected property category must expose observable content.");
-
-        itemProviders[1].Select();
-        TestUiDispatcherHost.Drain();
-        Assert.AreEqual(1, itemProviders.Count(item => item.IsSelected));
-        Assert.IsTrue(itemProviders[1].IsSelected);
-        Assert.AreNotEqual(
-            initialContent,
-            GetVisiblePropertyFieldRoleSignature(contentHost),
-            "Selecting a property category must update its observable content.");
-
-        itemProviders[0].Select();
-        TestUiDispatcherHost.Drain();
-        Assert.IsTrue(itemProviders[0].IsSelected);
+        Assert.IsTrue(selectionItems.All(item => !string.IsNullOrWhiteSpace(item.Peer.GetName())));
+        Assert.AreEqual(1, selectionItems.Count(item => item.Provider.IsSelected));
         Assert.AreEqual(1, selectionProvider.GetSelection().Length);
+        Assert.AreEqual(
+            PropertyNavigationCategory.General,
+            IdentifyVisiblePropertyCategory(contentHost),
+            "Property navigation must initially expose the General content role.");
+
+        var itemsByCategory = new Dictionary<PropertyNavigationCategory, PropertyNavigationItem>();
+        foreach (PropertyNavigationItem item in selectionItems)
+        {
+            PropertyNavigationCategory category;
+            try
+            {
+                item.Provider.Select();
+                TestUiDispatcherHost.Drain();
+                category = IdentifyVisiblePropertyCategory(contentHost);
+            }
+            catch (ElementNotEnabledException)
+            {
+                Assert.AreEqual(
+                    Resources.Custom_folder,
+                    item.Peer.GetName(),
+                    "Only the authority-defined Custom Folder navigation item may be disabled.");
+                category = PropertyNavigationCategory.CustomFolder;
+            }
+
+            Assert.IsTrue(
+                itemsByCategory.TryAdd(category, item),
+                $"Multiple navigation items expose the {category} property content.");
+        }
+
+        Assert.AreEqual(3, itemsByCategory.Count, "Property navigation categories must map to unique observable content roles.");
+        itemsByCategory[PropertyNavigationCategory.General].Provider.Select();
+        TestUiDispatcherHost.Drain();
+        return new PropertyNavigationObservation(selectionProvider, itemsByCategory);
     }
 
-    private static string GetVisiblePropertyFieldRoleSignature(FrameworkElement root)
+    private static PropertyNavigationItem CreatePropertyNavigationItem(AutomationPeer peer)
+        => new(
+            peer,
+            peer.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider
+                ?? throw new AssertFailedException("A property navigation item lacks SelectionItem automation."));
+
+    private static void AssertSelectedPropertyCategory(
+        PropertyNavigationObservation navigation,
+        PropertyNavigationCategory expectedCategory,
+        string message = null)
     {
-        return string.Join(
-            "|",
-            FindVisualDescendants<FrameworkElement>(root)
-                .Where(element => element.IsVisible && element.ActualWidth > 0d && element.ActualHeight > 0d)
-                .Select(UIElementAutomationPeer.CreatePeerForElement)
-                .Where(peer => peer != null)
-                .Select(peer => peer.GetAutomationControlType())
-                .Where(controlType => controlType is AutomationControlType.Edit
-                    or AutomationControlType.ComboBox
-                    or AutomationControlType.CheckBox
-                    or AutomationControlType.RadioButton
-                    or AutomationControlType.List)
-                .Select(GetPropertyFieldRole)
-                .OrderBy(name => name, StringComparer.Ordinal));
+        string assertionMessage = message ?? $"Property navigation category {expectedCategory} must be selected.";
+        Assert.AreEqual(1, navigation.SelectionProvider.GetSelection().Length, assertionMessage);
+        Assert.AreEqual(1, navigation.ItemsByCategory.Values.Count(item => item.Provider.IsSelected), assertionMessage);
+        Assert.IsTrue(navigation.ItemsByCategory[expectedCategory].Provider.IsSelected, assertionMessage);
     }
 
-    private static string GetPropertyFieldRole(AutomationControlType controlType)
+    private static PropertyNavigationCategory IdentifyVisiblePropertyCategory(FrameworkElement contentHost)
     {
-        if (ReferenceEquals(controlType, AutomationControlType.Edit))
+        var visibleCategories = new List<PropertyNavigationCategory>();
+        if (HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.name)))
         {
-            return "Edit";
+            visibleCategories.Add(PropertyNavigationCategory.General);
         }
 
-        if (ReferenceEquals(controlType, AutomationControlType.ComboBox))
+        if (HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.folder_sort_key))
+            || HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.folder_order)))
         {
-            return "ComboBox";
+            visibleCategories.Add(PropertyNavigationCategory.Folder);
         }
 
-        if (ReferenceEquals(controlType, AutomationControlType.CheckBox))
+        if (HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.output_dir)))
         {
-            return "CheckBox";
+            visibleCategories.Add(PropertyNavigationCategory.CustomFolder);
         }
 
-        if (ReferenceEquals(controlType, AutomationControlType.RadioButton))
-        {
-            return "RadioButton";
-        }
-
-        return "List";
+        Assert.AreEqual(
+            1,
+            visibleCategories.Count,
+            "Exactly one authority-backed Property category content role must be visible.");
+        return visibleCategories[0];
     }
+
+    private static bool HasVisibleBinding(DependencyObject root, string path)
+    {
+        return FindVisualDescendants<FrameworkElement>(root)
+            .Any(element => element.IsVisible
+                && element.ActualWidth > 0d
+                && element.ActualHeight > 0d
+                && HasBindingPath(element, path));
+    }
+
+    private static bool HasBindingPath(FrameworkElement element, string path)
+    {
+        LocalValueEnumerator localValues = element.GetLocalValueEnumerator();
+        while (localValues.MoveNext())
+        {
+            if (localValues.Current.Value is BindingExpressionBase expression
+                && expression.ParentBindingBase is Binding binding
+                && string.Equals(binding.Path?.Path, path, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private enum PropertyNavigationCategory
+    {
+        General,
+        Folder,
+        CustomFolder,
+    }
+
+    private sealed record PropertyNavigationItem(
+        AutomationPeer Peer,
+        ISelectionItemProvider Provider);
+
+    private sealed record PropertyNavigationObservation(
+        ISelectionProvider SelectionProvider,
+        IReadOnlyDictionary<PropertyNavigationCategory, PropertyNavigationItem> ItemsByCategory);
 
     private static void AssertCanonicalControlRole<T>(
         T control,

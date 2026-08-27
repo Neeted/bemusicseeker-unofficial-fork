@@ -417,9 +417,31 @@ public sealed class SettingsForegroundInteractionTests
                     HorizontalScrollBarVisibility = ScrollBarVisibility.Visible,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Visible
                 };
-                var textBox = new TextBox { Text = "settings" };
-                var comboBox = new ComboBox { ItemsSource = new[] { "First", "Second" }, SelectedIndex = 0 };
-                var listBox = new ListBox { ItemsSource = new[] { "First", "Second" }, SelectedIndex = 1, Height = 64 };
+                var textBox = new TextBox
+                {
+                    Text = new string('x', 240),
+                    Width = 140,
+                    Height = 48,
+                    TextWrapping = TextWrapping.NoWrap,
+                    HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                };
+                var comboBox = new ComboBox
+                {
+                    ItemsSource = new[] { "First", "Second" }
+                        .Concat(Enumerable.Range(2, 10).Select(index => $"Combo item {index}"))
+                        .ToArray(),
+                    SelectedIndex = 0,
+                    MaxDropDownHeight = 64
+                };
+                var listBox = new ListBox
+                {
+                    ItemsSource = new[] { "First", "Second" }
+                        .Concat(Enumerable.Range(2, 10).Select(index => $"List item {index}"))
+                        .ToArray(),
+                    SelectedIndex = 1,
+                    Height = 64
+                };
                 var expander = new Expander { Header = "Details", Content = new TextBlock { Text = "Content" } };
                 var slider = new Slider { Minimum = 0, Maximum = 10, TickFrequency = 1, TickPlacement = TickPlacement.TopLeft, Width = 180 };
                 var primaryButton = new Button { Content = "Save", Style = (Style)host.Resources["SettingsPrimaryButtonStyle"] };
@@ -507,6 +529,7 @@ public sealed class SettingsForegroundInteractionTests
                 var textContentHost = (ScrollViewer)textBox.Template.FindName("PART_ContentHost", textBox);
                 Assert.IsNotNull(textContentHost);
                 Assert.AreNotEqual(sentinel, textContentHost.Tag);
+                AssertMaterializedScrollViewerConsumer(textContentHost, Orientation.Horizontal, "TextBox content host");
 
                 comboBox.ApplyTemplate();
                 var popup = (Popup)comboBox.Template.FindName("PART_Popup", comboBox);
@@ -518,6 +541,8 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.IsTrue(comboBox.IsDropDownOpen);
                 ScrollViewer popupScroller = FindDescendant<ScrollViewer>(popup.Child);
                 Assert.IsNotNull(popupScroller);
+                Assert.AreNotEqual(sentinel, popupScroller.Tag);
+                AssertMaterializedScrollViewerConsumer(popupScroller, Orientation.Vertical, "ComboBox popup");
                 var firstComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(1);
                 Assert.IsNotNull(firstComboItem);
@@ -546,6 +571,8 @@ public sealed class SettingsForegroundInteractionTests
                 listBox.ApplyTemplate();
                 ScrollViewer listScroller = FindDescendant<ScrollViewer>(listBox);
                 Assert.IsNotNull(listScroller);
+                Assert.AreNotEqual(sentinel, listScroller.Tag);
+                AssertMaterializedScrollViewerConsumer(listScroller, Orientation.Vertical, "ListBox content");
                 Assert.AreEqual(1, listBox.SelectedIndex);
                 var firstListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(1);
@@ -705,10 +732,40 @@ public sealed class SettingsForegroundInteractionTests
                 PumpDispatcher(topNavigationWindow.Dispatcher);
                 Assert.AreEqual(1, topNavigation.SelectedIndex);
                 Assert.IsTrue(topFolderSelection.IsSelected);
+                Assert.IsTrue(topNavigationItemsByIndex[1].Focus());
+                PumpDispatcher(topNavigationWindow.Dispatcher);
+                RaiseKey(topNavigationItemsByIndex[1], Key.Right);
+                PumpDispatcher(topNavigationWindow.Dispatcher);
+                Assert.AreEqual(2, topNavigation.SelectedIndex);
+                Assert.IsTrue(topNavigationItemsByIndex[2].IsKeyboardFocusWithin);
+                RaiseKey(topNavigationItemsByIndex[2], Key.Left);
+                PumpDispatcher(topNavigationWindow.Dispatcher);
+                Assert.AreEqual(1, topNavigation.SelectedIndex);
+                Assert.IsTrue(topNavigationItemsByIndex[1].IsKeyboardFocusWithin);
                 topNavigationItemsByIndex[2].IsEnabled = false;
                 PumpDispatcher(topNavigationWindow.Dispatcher);
                 var disabledNavigationChrome = (Border)topNavigationItemsByIndex[2].Template.FindName("NavigationItemChrome", topNavigationItemsByIndex[2]);
                 Assert.IsTrue(disabledNavigationChrome.Opacity < 1d);
+                AutomationPeer disabledNavigationPeer = topNavigationPeer.GetChildren()
+                    .Single(peer => peer.GetName() == "Custom Folder");
+                var disabledNavigationSelection = (ISelectionItemProvider)disabledNavigationPeer.GetPattern(PatternInterface.SelectionItem);
+                Assert.IsNotNull(disabledNavigationSelection);
+                int selectedBeforeDisabledAttempt = topNavigation.SelectedIndex;
+                bool selectionRejected = false;
+                try
+                {
+                    disabledNavigationSelection.Select();
+                }
+                catch (ElementNotEnabledException)
+                {
+                    selectionRejected = true;
+                }
+
+                PumpDispatcher(topNavigationWindow.Dispatcher);
+                Assert.AreEqual(selectedBeforeDisabledAttempt, topNavigation.SelectedIndex);
+                Assert.IsTrue(
+                    selectionRejected || !disabledNavigationSelection.IsSelected,
+                    "A disabled top-navigation item must reject or ignore public Automation selection.");
                 topNavigationContent.ApplyTemplate();
                 Assert.IsFalse(topNavigationContent.Focusable);
                 Assert.IsNotNull(topNavigationContent.Template.FindName("TopNavigationContentChrome", topNavigationContent));
@@ -1460,6 +1517,121 @@ public sealed class SettingsForegroundInteractionTests
             canonicalTemplate,
             actualTemplate,
             controlName + " must resolve the host-local canonical template role through its style chain.");
+    }
+
+    private static void AssertMaterializedScrollViewerConsumer(
+        ScrollViewer viewer,
+        Orientation expectedOrientation,
+        string consumerName)
+    {
+        viewer.ApplyTemplate();
+        viewer.UpdateLayout();
+        Assert.IsTrue(
+            expectedOrientation == Orientation.Vertical
+                ? viewer.ScrollableHeight > 0d
+                : viewer.ScrollableWidth > 0d,
+            consumerName + " must expose overflow for scrollbar adoption coverage.");
+
+        string partName = expectedOrientation == Orientation.Vertical
+            ? "PART_VerticalScrollBar"
+            : "PART_HorizontalScrollBar";
+        ScrollBar scrollbar = viewer.Template.FindName(partName, viewer) as ScrollBar
+            ?? throw new AssertFailedException(consumerName + " must materialize its expected scrollbar part.");
+        Assert.AreEqual(Visibility.Visible, scrollbar.Visibility, consumerName + " scrollbar must be visible for overflow.");
+        Assert.IsTrue(scrollbar.ActualWidth > 0d && scrollbar.ActualHeight > 0d, consumerName + " scrollbar must render.");
+        Assert.AreEqual(expectedOrientation, scrollbar.Orientation, consumerName + " scrollbar orientation.");
+
+        scrollbar.ApplyTemplate();
+        Track track = scrollbar.Template.FindName("PART_Track", scrollbar) as Track
+            ?? throw new AssertFailedException(consumerName + " scrollbar must materialize PART_Track.");
+        Assert.AreEqual(expectedOrientation, track.Orientation, consumerName + " scrollbar track orientation.");
+
+        RepeatButton lineStart;
+        RepeatButton lineEnd;
+        RoutedCommand lineStartCommand;
+        RoutedCommand lineEndCommand;
+        RoutedCommand pageStartCommand;
+        RoutedCommand pageEndCommand;
+        if (expectedOrientation == Orientation.Vertical)
+        {
+            lineStart = scrollbar.Template.FindName("LineUpButton", scrollbar) as RepeatButton
+                ?? throw new AssertFailedException(consumerName + " vertical scrollbar must expose LineUpButton.");
+            lineEnd = scrollbar.Template.FindName("LineDownButton", scrollbar) as RepeatButton
+                ?? throw new AssertFailedException(consumerName + " vertical scrollbar must expose LineDownButton.");
+            lineStartCommand = ScrollBar.LineUpCommand;
+            lineEndCommand = ScrollBar.LineDownCommand;
+            pageStartCommand = ScrollBar.PageUpCommand;
+            pageEndCommand = ScrollBar.PageDownCommand;
+        }
+        else
+        {
+            lineStart = scrollbar.Template.FindName("LineLeftButton", scrollbar) as RepeatButton
+                ?? throw new AssertFailedException(consumerName + " horizontal scrollbar must expose LineLeftButton.");
+            lineEnd = scrollbar.Template.FindName("LineRightButton", scrollbar) as RepeatButton
+                ?? throw new AssertFailedException(consumerName + " horizontal scrollbar must expose LineRightButton.");
+            lineStartCommand = ScrollBar.LineLeftCommand;
+            lineEndCommand = ScrollBar.LineRightCommand;
+            pageStartCommand = ScrollBar.PageLeftCommand;
+            pageEndCommand = ScrollBar.PageRightCommand;
+        }
+
+        Assert.AreSame(lineStartCommand, lineStart.Command, consumerName + " line-start command route.");
+        Assert.AreSame(lineEndCommand, lineEnd.Command, consumerName + " line-end command route.");
+        RepeatButton pageStart = track.DecreaseRepeatButton as RepeatButton
+            ?? throw new AssertFailedException(consumerName + " scrollbar must expose its page-start button.");
+        RepeatButton pageEnd = track.IncreaseRepeatButton as RepeatButton
+            ?? throw new AssertFailedException(consumerName + " scrollbar must expose its page-end button.");
+        Assert.AreSame(pageStartCommand, pageStart.Command, consumerName + " page-start command route.");
+        Assert.AreSame(pageEndCommand, pageEnd.Command, consumerName + " page-end command route.");
+
+        IScrollProvider scrollProvider = (new ScrollViewerAutomationPeer(viewer).GetPattern(PatternInterface.Scroll) as IScrollProvider)
+            ?? throw new AssertFailedException(consumerName + " must expose Scroll automation.");
+        Assert.IsTrue(
+            expectedOrientation == Orientation.Vertical
+                ? scrollProvider.VerticallyScrollable
+                : scrollProvider.HorizontallyScrollable,
+            consumerName + " must expose the expected scroll Automation direction.");
+        double initialOffset = expectedOrientation == Orientation.Vertical
+            ? viewer.VerticalOffset
+            : viewer.HorizontalOffset;
+        scrollProvider.Scroll(
+            expectedOrientation == Orientation.Vertical ? ScrollAmount.NoAmount : ScrollAmount.SmallIncrement,
+            expectedOrientation == Orientation.Vertical ? ScrollAmount.SmallIncrement : ScrollAmount.NoAmount);
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        double transitionedOffset = expectedOrientation == Orientation.Vertical
+            ? viewer.VerticalOffset
+            : viewer.HorizontalOffset;
+        Assert.IsTrue(transitionedOffset > initialOffset, consumerName + " must perform an actual scroll transition.");
+        Assert.AreEqual(transitionedOffset, scrollbar.Value, 0.01d, consumerName + " scrollbar value must follow its viewer offset.");
+        Assert.AreEqual(
+            expectedOrientation == Orientation.Vertical ? viewer.ViewportHeight : viewer.ViewportWidth,
+            scrollbar.ViewportSize,
+            0.01d,
+            consumerName + " scrollbar viewport must follow its viewer viewport.");
+        Assert.AreEqual(
+            expectedOrientation == Orientation.Vertical ? viewer.ScrollableHeight : viewer.ScrollableWidth,
+            scrollbar.Maximum,
+            0.01d,
+            consumerName + " scrollbar maximum must follow its viewer extent.");
+
+        InvokeScrollButton(lineEnd, consumerName + " line-end");
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        Assert.IsTrue(
+            (expectedOrientation == Orientation.Vertical ? viewer.VerticalOffset : viewer.HorizontalOffset) >= transitionedOffset,
+            consumerName + " line-end command must route to its viewer.");
+        InvokeScrollButton(pageStart, consumerName + " page-start");
+        TestUiDispatcherHost.Drain();
+    }
+
+    private static void InvokeScrollButton(RepeatButton button, string description)
+    {
+        AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(button)
+            ?? throw new AssertFailedException(description + " button must expose an Automation peer.");
+        IInvokeProvider invokeProvider = peer.GetPattern(PatternInterface.Invoke) as IInvokeProvider
+            ?? throw new AssertFailedException(description + " button must expose Invoke automation.");
+        invokeProvider.Invoke();
     }
 
     private static object? ResolveEffectiveStyleValue(Style style, DependencyProperty property)

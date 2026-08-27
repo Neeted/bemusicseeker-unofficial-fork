@@ -57,19 +57,15 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
                         FrameworkElement contentHost = (FrameworkElement)dialog.FindName("propertyContent")
                             ?? throw new AssertFailedException("Playlist property content host was not materialized.");
-                        PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation);
-                        AssertSelectedPropertyCategory(navigationState, 0);
-                        string initialContent = GetVisiblePropertyFieldRoleSignature(contentHost);
-                        Assert.IsTrue(
-                            initialContent.Length > 0,
-                            "The initially selected property category must expose an observable field surface.");
-                        navigationState.ItemProviders[1].Select();
+                        PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
+                        AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.General);
+                        Assert.AreEqual(
+                            PropertyNavigationCategory.General,
+                            IdentifyVisiblePropertyCategory(contentHost));
+                        navigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
                         TestUiDispatcherHost.Drain();
-                        AssertSelectedPropertyCategory(navigationState, 1);
-                        Assert.AreNotEqual(
-                            initialContent,
-                            GetVisiblePropertyFieldRoleSignature(contentHost),
-                            "Selecting a property category must update the observable content surface.");
+                        AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.Folder);
+                        Assert.AreEqual(PropertyNavigationCategory.Folder, IdentifyVisiblePropertyCategory(contentHost));
                         RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
                     });
                 Assert.AreSame(fixture.Window, first.Owner);
@@ -84,17 +80,23 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     fixture.Window,
                     summary,
                     row,
-                    "MainWindowPlaylistWorkspaceWpfTests.property-reopen");
+                    "MainWindowPlaylistWorkspaceWpfTests.property-reopen",
+                    (dialog, _) =>
+                    {
+                        FrameworkElement reopenedNavigation = (FrameworkElement)dialog.FindName("propertyNavigation")
+                            ?? throw new AssertFailedException("Reopened playlist property navigation was not materialized.");
+                        FrameworkElement reopenedContent = (FrameworkElement)dialog.FindName("propertyContent")
+                            ?? throw new AssertFailedException("Reopened playlist property content host was not materialized.");
+                        PropertyNavigationObservation reopenedNavigationState = ObservePropertyNavigation(reopenedNavigation, reopenedContent);
+                        AssertSelectedPropertyCategory(
+                            reopenedNavigationState,
+                            PropertyNavigationCategory.General,
+                            "A reopened property dialog must select General without restoring navigation state.");
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                    });
                 Assert.AreSame(fixture.Window, reopened.Owner);
                 Assert.IsFalse(reopened.OwnerEnabled);
                 Assert.AreNotSame(first.DataContext, reopened.DataContext);
-                FrameworkElement reopenedNavigation = (FrameworkElement)reopened.Window.FindName("propertyNavigation")
-                    ?? throw new AssertFailedException("Reopened playlist property navigation was not materialized.");
-                PropertyNavigationObservation reopenedNavigationState = ObservePropertyNavigation(reopenedNavigation);
-                AssertSelectedPropertyCategory(
-                    reopenedNavigationState,
-                    0,
-                    "A reopened property dialog must select General without restoring navigation state.");
                 Assert.AreEqual(1, reopened.DataContextDetachCount);
                 Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
                 fixture.ModalPreparation.AssertLatest(reopened.Window, expectedCount: 2);
@@ -1354,7 +1356,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             ?? throw new AssertFailedException($"Button '{automationId}' was not materialized.");
     }
 
-    private static PropertyNavigationObservation ObservePropertyNavigation(FrameworkElement navigation)
+    private static PropertyNavigationObservation ObservePropertyNavigation(
+        FrameworkElement navigation,
+        FrameworkElement contentHost)
     {
         AutomationPeer navigationPeer = UIElementAutomationPeer.CreatePeerForElement(navigation)
             ?? throw new AssertFailedException("Playlist property navigation automation was not materialized.");
@@ -1364,74 +1368,129 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         AutomationPeer[] navigationItems = navigationPeer.GetChildren()?.ToArray()
             ?? throw new AssertFailedException("Playlist property navigation items were not exposed to Automation.");
         Assert.AreEqual(3, navigationItems.Length, "Playlist property navigation must expose three category peers.");
-        ISelectionItemProvider[] selectionItems = navigationItems
-            .Select(item => item.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider
-                ?? throw new AssertFailedException("A property navigation item lacks SelectionItem automation."))
+        PropertyNavigationItem[] selectionItems = navigationItems
+            .Select(CreatePropertyNavigationItem)
             .ToArray();
-        Assert.IsTrue(navigationItems.All(item => !string.IsNullOrWhiteSpace(item.GetName())));
-        Assert.AreEqual(1, selectionItems.Count(item => item.IsSelected));
+        Assert.IsTrue(selectionItems.All(item => !string.IsNullOrWhiteSpace(item.Peer.GetName())));
+        Assert.AreEqual(1, selectionItems.Count(item => item.Provider.IsSelected));
         Assert.AreEqual(1, selectionProvider.GetSelection().Length);
-        return new PropertyNavigationObservation(selectionProvider, navigationItems, selectionItems);
+        Assert.AreEqual(
+            PropertyNavigationCategory.General,
+            IdentifyVisiblePropertyCategory(contentHost),
+            "Property navigation must initially expose the General content role.");
+
+        var itemsByCategory = new Dictionary<PropertyNavigationCategory, PropertyNavigationItem>();
+        foreach (PropertyNavigationItem item in selectionItems)
+        {
+            PropertyNavigationCategory category;
+            try
+            {
+                item.Provider.Select();
+                TestUiDispatcherHost.Drain();
+                category = IdentifyVisiblePropertyCategory(contentHost);
+            }
+            catch (ElementNotEnabledException)
+            {
+                Assert.AreEqual(
+                    Resources.Custom_folder,
+                    item.Peer.GetName(),
+                    "Only the authority-defined Custom Folder navigation item may be disabled.");
+                category = PropertyNavigationCategory.CustomFolder;
+            }
+
+            Assert.IsTrue(
+                itemsByCategory.TryAdd(category, item),
+                $"Multiple navigation items expose the {category} property content.");
+        }
+
+        Assert.AreEqual(3, itemsByCategory.Count, "Property navigation categories must map to unique observable content roles.");
+        itemsByCategory[PropertyNavigationCategory.General].Provider.Select();
+        TestUiDispatcherHost.Drain();
+        return new PropertyNavigationObservation(selectionProvider, itemsByCategory);
     }
+
+    private static PropertyNavigationItem CreatePropertyNavigationItem(AutomationPeer peer)
+        => new(
+            peer,
+            peer.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider
+                ?? throw new AssertFailedException("A property navigation item lacks SelectionItem automation."));
 
     private static void AssertSelectedPropertyCategory(
         PropertyNavigationObservation navigation,
-        int expectedIndex,
+        PropertyNavigationCategory expectedCategory,
         string message = null)
     {
-        string assertionMessage = message ?? $"Property navigation category {expectedIndex} must be selected.";
+        string assertionMessage = message ?? $"Property navigation category {expectedCategory} must be selected.";
         Assert.AreEqual(1, navigation.SelectionProvider.GetSelection().Length, assertionMessage);
-        Assert.AreEqual(1, navigation.ItemProviders.Count(item => item.IsSelected), assertionMessage);
-        Assert.IsTrue(navigation.ItemProviders[expectedIndex].IsSelected, assertionMessage);
+        Assert.AreEqual(1, navigation.ItemsByCategory.Values.Count(item => item.Provider.IsSelected), assertionMessage);
+        Assert.IsTrue(navigation.ItemsByCategory[expectedCategory].Provider.IsSelected, assertionMessage);
     }
 
-    private static string GetVisiblePropertyFieldRoleSignature(FrameworkElement root)
+    private static PropertyNavigationCategory IdentifyVisiblePropertyCategory(FrameworkElement contentHost)
     {
-        return string.Join(
-            "|",
-            FindDescendants<FrameworkElement>(root)
-                .Where(element => element.IsVisible && element.ActualWidth > 0d && element.ActualHeight > 0d)
-                .Select(UIElementAutomationPeer.CreatePeerForElement)
-                .Where(peer => peer != null)
-                .Select(peer => peer.GetAutomationControlType())
-                .Where(controlType => controlType is AutomationControlType.Edit
-                    or AutomationControlType.ComboBox
-                    or AutomationControlType.CheckBox
-                    or AutomationControlType.RadioButton
-                    or AutomationControlType.List)
-                .Select(GetPropertyFieldRole)
-                .OrderBy(name => name, StringComparer.Ordinal));
+        var visibleCategories = new List<PropertyNavigationCategory>();
+        if (HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.name)))
+        {
+            visibleCategories.Add(PropertyNavigationCategory.General);
+        }
+
+        if (HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.folder_sort_key))
+            || HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.folder_order)))
+        {
+            visibleCategories.Add(PropertyNavigationCategory.Folder);
+        }
+
+        if (HasVisibleBinding(contentHost, nameof(PlaylistPropertyDialogViewModel.output_dir)))
+        {
+            visibleCategories.Add(PropertyNavigationCategory.CustomFolder);
+        }
+
+        Assert.AreEqual(
+            1,
+            visibleCategories.Count,
+            "Exactly one authority-backed Property category content role must be visible.");
+        return visibleCategories[0];
     }
 
-    private static string GetPropertyFieldRole(AutomationControlType controlType)
+    private static bool HasVisibleBinding(DependencyObject root, string path)
     {
-        if (ReferenceEquals(controlType, AutomationControlType.Edit))
-        {
-            return "Edit";
-        }
-
-        if (ReferenceEquals(controlType, AutomationControlType.ComboBox))
-        {
-            return "ComboBox";
-        }
-
-        if (ReferenceEquals(controlType, AutomationControlType.CheckBox))
-        {
-            return "CheckBox";
-        }
-
-        if (ReferenceEquals(controlType, AutomationControlType.RadioButton))
-        {
-            return "RadioButton";
-        }
-
-        return "List";
+        return FindDescendants<FrameworkElement>(root)
+            .Any(element => element.IsVisible
+                && element.ActualWidth > 0d
+                && element.ActualHeight > 0d
+                && HasBindingPath(element, path));
     }
+
+    private static bool HasBindingPath(FrameworkElement element, string path)
+    {
+        LocalValueEnumerator localValues = element.GetLocalValueEnumerator();
+        while (localValues.MoveNext())
+        {
+            if (localValues.Current.Value is BindingExpressionBase expression
+                && expression.ParentBindingBase is Binding binding
+                && string.Equals(binding.Path?.Path, path, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private enum PropertyNavigationCategory
+    {
+        General,
+        Folder,
+        CustomFolder,
+    }
+
+    private sealed record PropertyNavigationItem(
+        AutomationPeer Peer,
+        ISelectionItemProvider Provider);
 
     private sealed record PropertyNavigationObservation(
         ISelectionProvider SelectionProvider,
-        AutomationPeer[] Items,
-        ISelectionItemProvider[] ItemProviders);
+        IReadOnlyDictionary<PropertyNavigationCategory, PropertyNavigationItem> ItemsByCategory);
 
     private static MenuItem FindMenuItemByHeaderBindingPath(
         ItemsControl root,
