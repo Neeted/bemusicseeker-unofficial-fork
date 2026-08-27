@@ -42,15 +42,23 @@
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_songDB, Mode=OneWay}"><StackPanel><TextBox IsReadOnly="True" Text="{Binding LR2SongDBPath}" /><settings:SettingsStatusBanner Icon="{Binding Lr2SongDbPathStatusIcon}" Status="{Binding Lr2SongDbPathStatusKind}" Content="{Binding Lr2SongDbPathStatusText}" /></StackPanel></settings:SettingsField>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_configXml, Mode=OneWay}"><StackPanel><TextBox IsReadOnly="True" Text="{Binding LR2ConfigXmlPath}" /><settings:SettingsStatusBanner Icon="{Binding Lr2ConfigPathStatusIcon}" Status="{Binding Lr2ConfigPathStatusKind}" Content="{Binding Lr2ConfigPathStatusText}" /></StackPanel></settings:SettingsField>
         <Button x:Name="buttonEditCustomLr2Paths" HorizontalAlignment="Left" Style="{StaticResource SettingsQuietButtonStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_edit_custom_lr2_paths, Mode=OneWay}" Click="editCustomLr2PathsButtonClick" />
-        <settings:SettingsField Margin="0,12,0,14" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_label, Mode=OneWay}">
+      </StackPanel>
+    </settings:SettingsSection>
+
+    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}">
+      <StackPanel IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
+        <Button HorizontalAlignment="Left" Margin="0,0,8,8" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" IsEnabled="{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
+      </StackPanel>
+    </settings:SettingsSection>
+
+    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_label, Mode=OneWay}">
+      <StackPanel IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
+        <settings:SettingsField Margin="0,0,0,14" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_play_history_schema_label, Mode=OneWay}">
           <StackPanel>
             <settings:SettingsStatusBanner Content="{Binding Lr2PlayHistorySchemaStatusText, Mode=OneWay}" ToolTip="{Binding Lr2PlayHistorySchemaDetailText, Mode=OneWay}">
               <settings:SettingsStatusBanner.Style><Style TargetType="{x:Type settings:SettingsStatusBanner}" BasedOn="{StaticResource {x:Type settings:SettingsStatusBanner}}"><Setter Property="Icon" Value="i" /><Setter Property="Status" Value="Information" /><Style.Triggers><DataTrigger Binding="{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Value="True"><Setter Property="Icon" Value="!" /><Setter Property="Status" Value="Warning" /><Setter Property="Foreground" Value="{DynamicResource App.WarningTextBrush}" /></DataTrigger></Style.Triggers></Style></settings:SettingsStatusBanner.Style>
             </settings:SettingsStatusBanner>
-            <WrapPanel>
-              <Button Margin="0,0,8,8" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" IsEnabled="{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
-              <Button Margin="0,0,8,8" Content="{Binding Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
-            </WrapPanel>
+            <Button HorizontalAlignment="Left" Margin="0,0,8,8" Content="{Binding Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
           </StackPanel>
         </settings:SettingsField>
       </StackPanel>

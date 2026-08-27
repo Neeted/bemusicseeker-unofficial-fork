@@ -1168,6 +1168,64 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
+    public void GeneralPathStatusBanners_OwnOneVisualGlyphAndExposeMessageAutomation()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            var window = new SettingsWindow
+            {
+                DataContext = owner.SettingDialog,
+                Width = 820,
+                Height = 600
+            };
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                string[] statusProperties =
+                [
+                    nameof(SettingsDialogViewModel.Lr2SongDbPathStatusText),
+                    nameof(SettingsDialogViewModel.Lr2ConfigPathStatusText)
+                ];
+
+                foreach (string statusProperty in statusProperties)
+                {
+                    SettingsStatusBanner banner = FindDescendants<SettingsStatusBanner>(page).Single(candidate =>
+                        candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path == statusProperty);
+                    string message = banner.Content as string;
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(message), statusProperty);
+                    Assert.IsFalse(message.StartsWith("✓", StringComparison.Ordinal),
+                        statusProperty + " must leave the visual success glyph to the banner icon.");
+                    Assert.IsFalse(message.StartsWith("!", StringComparison.Ordinal),
+                        statusProperty + " must leave the visual warning glyph to the banner icon.");
+
+                    SettingsStatusIcon icon = FindDescendants<SettingsStatusIcon>(banner).Single();
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(icon.Text), statusProperty);
+                    Assert.AreEqual(banner.Icon, icon.Text, statusProperty);
+
+                    AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(banner);
+                    Assert.IsNotNull(peer, statusProperty);
+                    Assert.AreEqual(message, peer.GetName(), statusProperty);
+                    Assert.AreEqual(banner.Status, peer.GetItemStatus(), statusProperty);
+                    Assert.IsNull(UIElementAutomationPeer.CreatePeerForElement(icon), statusProperty);
+                    Assert.IsFalse(EnumerateAutomationDescendants(peer)
+                        .OfType<UIElementAutomationPeer>()
+                        .Any(child => ReferenceEquals(child.Owner, icon)), statusProperty);
+                    Assert.IsFalse(EnumerateAutomationDescendants(peer).Any(child => child.GetName() == banner.Icon), statusProperty);
+                }
+            }
+            finally
+            {
+                if (window.IsVisible)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void Lr2SchemaBanners_ActualPagesRevertSeverityAndAutomationStatusAfterRepairBecomesUnavailable()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>

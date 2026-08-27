@@ -25,6 +25,12 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingsWindowCompiledBehaviorTests
 {
+    [TestInitialize]
+    public void MaterializeCanonicalApplicationResources()
+    {
+        TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
+    }
+
     [TestMethod]
     public void EverySettingsNavigationPageMaterializesWithoutCreatingPendingChanges()
     {
@@ -328,6 +334,141 @@ public sealed class SettingsWindowCompiledBehaviorTests
     }
 
     [TestMethod]
+    public void GeneralLr2MaintenanceActionsHaveDistinctSemanticSectionOwners()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            var window = new SettingsWindow
+            {
+                DataContext = owner.SettingDialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                Materialize(window);
+                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                Button resyncButton = FindLogicalDescendants<Button>(page).Single(button =>
+                    GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Lr2_song_db_sync_data_resync");
+                SettingsStatusBanner schemaBanner = FindLogicalDescendants<SettingsStatusBanner>(page).Single(banner =>
+                    GetBindingPath(banner, ContentControl.ContentProperty) == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaStatusText));
+                Button schemaButton = FindLogicalDescendants<Button>(page).Single(button =>
+                    GetBindingPath(button, ContentControl.ContentProperty) == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaInstallOrRepairButtonText));
+
+                SettingsSection resyncSection = FindNearestSettingsSection(resyncButton);
+                SettingsSection schemaSection = FindNearestSettingsSection(schemaBanner);
+                Assert.IsNotNull(resyncSection);
+                Assert.IsNotNull(schemaSection);
+                Assert.AreNotSame(resyncSection, schemaSection);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(resyncSection.Header?.ToString()));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(schemaSection.Header?.ToString()));
+                Assert.AreNotEqual(resyncSection.Header?.ToString(), schemaSection.Header?.ToString());
+                Assert.AreSame(schemaSection, FindNearestSettingsSection(schemaButton));
+                Assert.AreEqual("Resources.Lr2_song_db_sync_data_resync",
+                    GetBindingPath(resyncSection, HeaderedContentControl.HeaderProperty));
+                Assert.AreEqual("Resources.Lr2_play_history_schema_label",
+                    GetBindingPath(schemaSection, HeaderedContentControl.HeaderProperty));
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void AudioMeasurementControlsShareDedicatedLocalizedSemanticSection()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            string previousCulture = Resources.Culture?.Name ?? "ja-JP";
+            MainWindowViewModel owner = null;
+            try
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                owner = MainWindowViewModelTestFactory.Create();
+                var window = new SettingsWindow
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaybackPanel = owner.PlaybackPanel
+                };
+                Materialize(window);
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                navigation.SelectedItem = window.FindName("navigationAudio");
+                Materialize(window);
+                var page = (AudioSettingsPage)content.Content;
+                SettingsField latencyField = FindLogicalDescendants<SettingsField>(page).Single(field =>
+                    GetBindingPath(field, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_latency");
+                Button testButton = FindLogicalDescendants<Button>(page).Single(button =>
+                    GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Device_setting_test");
+                SettingsSection measurementSection = FindNearestSettingsSection(testButton);
+                SettingsSection latencySection = FindNearestSettingsSection(latencyField);
+                SettingsSection advancedSection = FindLogicalDescendants<SettingsSection>(page).Single(section =>
+                    GetBindingPath(section, HeaderedContentControl.HeaderProperty) == "Resources.Settings_audio_advanced");
+                SettingsSection volumeSection = FindLogicalDescendants<SettingsSection>(page).Single(section =>
+                    GetBindingPath(section, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_volume");
+
+                Assert.AreSame(measurementSection, latencySection);
+                Assert.AreNotSame(advancedSection, measurementSection);
+                Assert.AreNotSame(volumeSection, measurementSection);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(measurementSection.Header?.ToString()));
+                Assert.AreEqual("レイテンシ", latencyField.Header);
+                Assert.AreEqual("Resources.Device_setting_test",
+                    GetBindingPath(measurementSection, HeaderedContentControl.HeaderProperty));
+            }
+            finally
+            {
+                owner?.SettingDialog.Dispose();
+                ResourceService.Current.ChangeCulture(previousCulture);
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlayHistoryPresetEditorUsesItsOwnLocalizedSectionOutsideMd5Mapping()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            var window = new SettingsWindow
+            {
+                DataContext = owner.SettingDialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                Materialize(window);
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                navigation.SelectedItem = window.FindName("navigationPlaylist");
+                Materialize(window);
+                var page = (PlaylistSettingsPage)content.Content;
+                ListBox presetList = (ListBox)page.FindName("playHistoryPresetList");
+                SettingsListEditor presetEditor = FindLogicalDescendants<SettingsListEditor>(page).Single(editor =>
+                    FindLogicalDescendants<ListBox>(editor).Any(list => ReferenceEquals(list, presetList)));
+                SettingsSection presetSection = FindNearestSettingsSection(presetEditor);
+                SettingsSection md5Section = FindLogicalDescendants<SettingsSection>(page).Single(section =>
+                    GetBindingPath(section, HeaderedContentControl.HeaderProperty) == "Resources.Playlist_md5_url_mapping_tsv_uri");
+
+                Assert.IsNotNull(presetSection);
+                Assert.AreNotSame(md5Section, presetSection);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(presetSection.Header?.ToString()));
+                Assert.AreEqual("Resources.Play_history_folder_display_preset",
+                    GetBindingPath(presetSection, HeaderedContentControl.HeaderProperty));
+                Assert.IsTrue(string.IsNullOrWhiteSpace(presetEditor.Header?.ToString()),
+                    "The preset section owns the heading; the nested list editor must not duplicate it.");
+                Assert.IsTrue(string.IsNullOrWhiteSpace(presetEditor.Description?.ToString()),
+                    "The preset section owns the description; the nested list editor must not duplicate it.");
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
     public void StandaloneBmsRootsUseLocalizedListAddAndRemoveBindings()
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
@@ -507,6 +648,50 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         return BindingOperations.GetBinding(target, property)?.Path?.Path
             ?? BindingOperations.GetBindingExpression(target, property)?.ParentBinding.Path?.Path;
+    }
+
+    private static SettingsSection FindNearestSettingsSection(DependencyObject element)
+    {
+        for (DependencyObject current = element; current != null;)
+        {
+            if (current is SettingsSection section)
+            {
+                return section;
+            }
+
+            DependencyObject parent = current is Visual or System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(current)
+                : null;
+            current = parent ?? LogicalTreeHelper.GetParent(current);
+        }
+
+        return null;
+    }
+
+    private static void EnsureCanonicalApplicationResources()
+    {
+        Application application = Application.Current;
+        Assert.IsNotNull(application);
+        AddCanonicalResourceIfMissing(
+            application,
+            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalControls.xaml");
+        AddCanonicalResourceIfMissing(
+            application,
+            "/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml");
+    }
+
+    private static void AddCanonicalResourceIfMissing(Application application, string source)
+    {
+        if (application.Resources.MergedDictionaries.Any(dictionary =>
+            string.Equals(dictionary.Source?.OriginalString, source, StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        application.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri(source, UriKind.RelativeOrAbsolute)
+        });
     }
 
     private static void AssertHashOptionDisplayNames(

@@ -3141,8 +3141,8 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Settings_bms_directories_description" xml:space="preserve"><value>検索対象のフォルダーを追加、削除、またはドラッグ＆ドロップで登録します。</value></data>
   <data name="Settings_list_drag_drop_hint" xml:space="preserve"><value>フォルダーをこの一覧へドロップして追加できます。</value></data>
   <data name="Settings_lr2_paths_description" xml:space="preserve"><value>通常は LR2 のルートから標準パスを自動検出します。既存のカスタムパスはそのまま保持されます。</value></data>
-  <data name="Settings_path_detected" xml:space="preserve"><value>✓ ファイルを検出しました。</value></data>
-  <data name="Settings_path_missing" xml:space="preserve"><value>! ファイルが見つかりません。</value></data>
+  <data name="Settings_path_detected" xml:space="preserve"><value>ファイルを検出しました。</value></data>
+  <data name="Settings_path_missing" xml:space="preserve"><value>ファイルが見つかりません。</value></data>
   <data name="Settings_edit_custom_lr2_paths" xml:space="preserve"><value>カスタムパスを編集…</value></data>
   <data name="Settings_lr2_advanced_title" xml:space="preserve"><value>LR2 カスタムパス</value></data>
   <data name="Settings_lr2_advanced_description" xml:space="preserve"><value>標準配置ではない song.db と config.xml または config.xmh を指定します。</value></data>

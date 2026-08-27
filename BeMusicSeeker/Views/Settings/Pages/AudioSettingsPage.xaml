@@ -25,16 +25,23 @@
         <settings:SettingsField Margin="0,12,0,14" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_buffersize, Mode=OneWay}">
           <Grid IsEnabled="{Binding IsPlayerBufferControlEnabled}"><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions><Slider Maximum="100" LargeChange="2" SmallChange="1" IsSnapToTickEnabled="True" Value="{Binding PlayerBufferSize, Mode=TwoWay}" /><TextBlock Grid.Column="1" Margin="12,0,0,0" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlayerBufferSize, StringFormat={}{0:F0} ms}" /></Grid>
         </settings:SettingsField>
-        <settings:SettingsStatusBanner Icon="i" Status="Information"><TextBlock Text="{Binding PlayerLatency, StringFormat={}{0:N1} ms}" TextWrapping="Wrap" /></settings:SettingsStatusBanner>
+      </StackPanel>
+    </settings:SettingsSection>
+
+    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_test, Mode=OneWay}">
+      <StackPanel>
+        <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_latency, Mode=OneWay}">
+          <settings:SettingsStatusBanner Icon="i" Status="Information"><TextBlock Text="{Binding PlayerLatency, StringFormat={}{0:N1} ms}" TextWrapping="Wrap" /></settings:SettingsStatusBanner>
+        </settings:SettingsField>
+        <Button HorizontalAlignment="Left" Style="{StaticResource SettingsQuietButtonStyle}" IsEnabled="{Binding IsAudioDeviceTestAvailable}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_test, Mode=OneWay}" Click="buttonPlayerTestClick" />
+        <settings:SettingsStatusBanner Margin="0,10,0,0" Icon="i" Status="Information" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding AudioDeviceTestStatusMessage}" />
+        <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc2, Mode=OneWay}" TextWrapping="Wrap" />
       </StackPanel>
     </settings:SettingsSection>
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}">
       <StackPanel>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}"><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /></Grid.ColumnDefinitions><Slider Maximum="100" LargeChange="2" SmallChange="1" IsSnapToTickEnabled="True" Value="{Binding PlaybackPanel.PlayerVolume, ElementName=page, Mode=TwoWay}" /><TextBlock Grid.Column="1" Margin="12,0,0,0" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlaybackPanel.PlayerVolume, ElementName=page, StringFormat={}{0}%}" /></Grid></settings:SettingsField>
-        <Button HorizontalAlignment="Left" Style="{StaticResource SettingsQuietButtonStyle}" IsEnabled="{Binding IsAudioDeviceTestAvailable}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_test, Mode=OneWay}" Click="buttonPlayerTestClick" />
-        <settings:SettingsStatusBanner Margin="0,10,0,0" Icon="i" Status="Information" Style="{StaticResource SettingsMultilineStringStatusBannerStyle}" Content="{Binding AudioDeviceTestStatusMessage}" />
-        <TextBlock Margin="0,8,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_desc2, Mode=OneWay}" TextWrapping="Wrap" />
       </StackPanel>
     </settings:SettingsSection>
   </StackPanel>
