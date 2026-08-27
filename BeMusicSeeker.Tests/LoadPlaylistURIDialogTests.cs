@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
 using System.Windows.Threading;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
@@ -24,6 +28,70 @@ public sealed class LoadPlaylistURIDialogTests
         Assert.AreEqual("https://example.com/first.json" + Environment.NewLine + "file:///C:/tables/second.json", appended);
         Assert.AreEqual("file:///C:/tables/first.json", LoadPlaylistURIDialog.AppendUriInputLine(string.Empty, "file:///C:/tables/first.json"));
         Assert.AreEqual("existing", LoadPlaylistURIDialog.AppendUriInputLine("existing", " "));
+    }
+
+    [TestMethod]
+    public void Presentation_ContainsUriInputAboveFooterAtDefaultAndFontScale()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var dialog = new LoadPlaylistURIDialog();
+            var host = new Window
+            {
+                Content = dialog,
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None,
+                Width = 640,
+                Height = 320
+            };
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(host);
+                TextBox input = (TextBox)dialog.FindName("textBoxURIInput");
+                Border content = FindDialogContentBorder(dialog);
+                Button[] footerButtons = FindVisualDescendants<Button>(dialog)
+                    .Where(button => button.TemplatedParent == null)
+                    .Where(button => AutomationProperties.GetAutomationId(button).StartsWith(
+                        "LoadPlaylistUri",
+                        StringComparison.Ordinal))
+                    .ToArray();
+                Assert.AreEqual(3, footerButtons.Length);
+                Assert.AreEqual(560d, content.ActualWidth, 0.5d, "The URI overlay content width must remain the requested 560 DIP.");
+                Assert.AreEqual(220d, content.ActualHeight, 0.5d, "The URI overlay content height must remain the requested 220 DIP.");
+                Assert.IsInstanceOfType(
+                    VisualTreeHelper.GetChild(content, 0),
+                    typeof(Grid),
+                    "The URI overlay must use one content surface without a nested duplicate Border surface.");
+
+                foreach (double fontSize in new[] { 12d, 36d })
+                {
+                    TextElement.SetFontSize(dialog, fontSize);
+                    host.UpdateLayout();
+
+                    Assert.IsTrue(content.ActualWidth > 0d && content.ActualHeight > 0d);
+                    AssertVisualBoundsInside(content, input);
+                    foreach (Button footerButton in footerButtons)
+                    {
+                        AssertVisualBoundsInside(content, footerButton);
+                    }
+
+                    Rect inputBounds = GetVisualBounds(content, input);
+                    double footerTop = footerButtons
+                        .Select(button => GetVisualBounds(content, button).Top)
+                        .Min();
+                    Assert.IsTrue(
+                        inputBounds.Bottom <= footerTop + 0.5d,
+                        $"URI input bounds {inputBounds} must remain above the footer (top={footerTop}) at font size {fontSize}.");
+                }
+            }
+            finally
+            {
+                if (host.IsVisible)
+                {
+                    host.Close();
+                }
+            }
+        });
     }
 
     [TestMethod]
@@ -221,6 +289,64 @@ public sealed class LoadPlaylistURIDialogTests
         host.Arrange(new Rect(0, 0, 640, 320));
         host.UpdateLayout();
         TestUiDispatcherHost.Drain();
+    }
+
+    private static Border FindDialogContentBorder(FrameworkElement root)
+    {
+        Border[] candidates = FindVisualDescendants<Border>(root)
+            .Where(border => border.TryFindResource("App.Canonical.DialogContentStyle") is Style contentStyle
+                && StyleChainContains(border.Style, contentStyle))
+            .ToArray();
+        Assert.AreEqual(1, candidates.Length, "The URI overlay must have one canonical content surface.");
+        return candidates[0];
+    }
+
+    private static void AssertVisualBoundsInside(Visual ancestor, FrameworkElement descendant)
+    {
+        Rect bounds = GetVisualBounds(ancestor, descendant);
+        var ancestorBounds = new Rect(0d, 0d, ((FrameworkElement)ancestor).ActualWidth, ((FrameworkElement)ancestor).ActualHeight);
+        const double tolerance = 0.5d;
+        Assert.IsTrue(
+            bounds.Left >= ancestorBounds.Left - tolerance
+                && bounds.Top >= ancestorBounds.Top - tolerance
+                && bounds.Right <= ancestorBounds.Right + tolerance
+                && bounds.Bottom <= ancestorBounds.Bottom + tolerance,
+            $"{descendant.Name} bounds {bounds} exceed content bounds {ancestorBounds}.");
+    }
+
+    private static Rect GetVisualBounds(Visual ancestor, FrameworkElement descendant)
+        => descendant.TransformToAncestor(ancestor)
+            .TransformBounds(new Rect(0d, 0d, descendant.ActualWidth, descendant.ActualHeight));
+
+    private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (T descendant in FindVisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+    private static bool StyleChainContains(Style actual, Style expected)
+    {
+        for (Style candidate = actual; candidate != null; candidate = candidate.BasedOn)
+        {
+            if (ReferenceEquals(candidate, expected))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private sealed class RecordingLoadPlaylistDialogService : IUiDialogService

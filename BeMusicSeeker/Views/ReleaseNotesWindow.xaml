@@ -22,8 +22,8 @@
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
   <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}">
-    <FlowDocumentScrollViewer Margin="20" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" MinHeight="320" MaxHeight="620" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsToolBarVisible="False">
-<FlowDocument FontSize="12" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" PagePadding="12">
+    <FlowDocumentScrollViewer BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" MinHeight="320" MaxHeight="620" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsToolBarVisible="False" IsSelectionEnabled="True">
+<FlowDocument FontFamily="Meiryo UI" FontSize="12" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" PagePadding="12">
 <FrameworkContentElement.Resources>
 <ResourceDictionary>
 <Style x:Key="{x:Type List}" TargetType="{x:Type List}" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">

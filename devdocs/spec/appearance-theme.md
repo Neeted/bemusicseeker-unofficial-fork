@@ -255,6 +255,16 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 
 これらの overlay は `App.Canonical.DialogOverlayStyle` と `App.Canonical.DialogContentStyle` を明示的に採用し、overlay 内の action / input control も同じ canonical role を使用する。overlay の routed event、command、binding、validation、選択状態は従来どおり保持する。OS 標準 picker と `EmergencyDialog` はこのアプリ内 dialog canonicalization の対象外である。
 
+### ダイアログの外周、Release Notes、サイズ契約
+
+通常の native dialog では `App.Canonical.NativeWindowContentStyle` が外周 spacing の唯一の所有者となる。`ReleaseNotesWindow`、`Lr2PlayHistorySchemaUninstallDialog`、`PlayHistoryFolderDisplayPresetEditDialog`、`Settings/Lr2AdvancedPathsDialog` は content root に別の外周 margin を持たず、各画面の内側にある説明文、field、action 間の semantic spacing は維持する。`SettingsWindow` と Settings shell の `Padding="0"` は native client edge まで伸ばす edge-shell の役割であり、通常の content spacing として数えない。`InitialSetupLanguageDialog` と `LoadPlaylistURIDialog` は引き続き overlay surface であり、この native spacing 契約の対象外とする。
+
+`ReleaseNotesWindow` は `FlowDocumentScrollViewer` の read-only framework viewer を使い、effective `FontFamily` は `Meiryo UI`、`FontSize` は `12` とする。本文は通常ウェイト、version heading は bold とし、viewer は selection-enabled、toolbar 非表示、縦 `Auto`、横 `Disabled` の一つの bounded viewport を持つ。viewer に application-local な `ContextMenu` や専用の menu 文言を追加しない。現行 .NET 10 WPF default の公開 `ContextMenuService` は `ApplicationCommands.Copy` と `ApplicationCommands.SelectAll` の role を提供する（menu caption と popup position は framework variation とする）。旧来の Cut/Copy/Paste 固定、selection 外では開かないこと、Select All を除外することを要求する legacy right-click 契約は退役済みとする。selection、clipboard、物理 cursor の挙動を application code が横取りしない。
+
+`LoadPlaylistURIDialog` は外側の overlay の `Width` / `Height` と field、action、command、lifecycle を変えず、content surface を一重にする。surface 内は label、URI input、footer を `Auto` / `*` / `Auto` の伸縮可能な行へ配置し、input に固定高さを置かない。font / text scale が変わっても input chrome は footer の上側に収まり、outer overlay のサイズを拡大して解決しない。
+
+`PlaylistSummaryBulkEditDialog` は既存の positive `MinWidth`、`MinHeight`、`CanResize`、height、scroll、lifecycle を維持し、初期 `Width` を `MinWidth` と同じ値にする。ユーザーが resize した後に minimum width まで戻せることを保つ。
+
 OS 標準の `OpenFileDialog` / `SaveFileDialog` / folder picker は Windows 管理 UI のためテーマ対象外。
 
 ## MessageBox

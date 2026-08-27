@@ -15,7 +15,7 @@ Test Contract Packet: `APP-UI-SHARED-PRESENTATION-03`
 
 ## Decisions
 
-- Release Notes keeps strict legacy WPF behavior: the default Cut / Copy / Paste menu appears only for a non-empty selection hit; Cut and Paste are disabled, Copy is enabled, and no custom Select All item is added.
+- Release Notes follows the current .NET 10 WPF default context-menu behavior: Copy / Select All are provided by the framework and the app does not install a custom document menu. The earlier legacy Cut / Copy / Paste compatibility proposal is explicitly retired.
 - Release Notes uses `Meiryo UI` at 12 points. The independent bounded viewport, hidden toolbar, normal body, and bold version headings remain.
 - The ordinary native content role is the only outer-spacing owner. Settings remains an edge-shell exception; overlays remain overlay surfaces.
 - Summary Bulk Edit keeps its existing minimum width and `CanResize`; its initial width equals that minimum.
@@ -36,8 +36,8 @@ Test Contract Packet: `APP-UI-SHARED-PRESENTATION-03`
 ### Release Notes
 
 - `APPUI-RN-01`: one selection-enabled, read-only document viewport uses `Meiryo UI` / 12pt, normal body, bold version headings, hidden toolbar, bounded vertical scrolling, and disabled horizontal scrolling.
-- `APPUI-RN-02`: the strict WPF-default selection menu is preserved exactly as decided. Menu captions and localized release text are not exact oracles.
-- Approved exactness is limited to typography, heading/body weight, command set/order/state, and absence of Select All/custom menu.
+- `APPUI-RN-02`: the current .NET 10 WPF-default document menu remains framework-owned, exposes Copy / Select All, and is not replaced by an app-defined menu. Menu captions, popup position, and localized release text are not exact oracles.
+- Approved exactness is limited to typography, heading/body weight, the framework Copy / Select All command roles, and absence of an app-defined document menu.
 
 ### Window spacing and overlay containment
 
@@ -77,8 +77,8 @@ Test Contract Packet: `APP-UI-SHARED-PRESENTATION-03`
 ## Evidence rules
 
 - Use base-red/head-pass for current scrollbar mismatch, native double-spacing, Bulk width mismatch, Load URI containment, Release Notes font regression, and legacy Property navigation mismatch when the public/materialized seam can reproduce them.
-- Use targeted mutants for already-green scrolling mechanics, WPF-default menu behavior, Settings/overlay exceptions, top-navigation keyboard/Automation/scroll reset, Property binding/availability/draft retention, and any base-inexpressible new primitive.
-- The Release Notes menu test uses deterministic explicit hits; it must not move or inspect the physical cursor or mutate the clipboard.
+- Use targeted mutants for already-green scrolling mechanics, WPF-default menu ownership, Settings/overlay exceptions, top-navigation keyboard/Automation/scroll reset, Property binding/availability/draft retention, and any base-inexpressible new primitive.
+- The Release Notes menu test may use keyboard/context-menu public seams, but it must not move or inspect the physical cursor, mutate the clipboard, use private reflection, or assert popup coordinates.
 - Do not add pixel, screenshot, current translation, child-order, source-text, private-reflection, broad snapshot, or current-output assertions.
 - The one-time Bulk base/head differential may record the base minimum, but durable assertions remain relational.
 - The one-time Load overlay base/head differential may record the outer requested size, but durable assertions verify containment and unchanged function rather than literal geometry.
@@ -165,5 +165,5 @@ Verification:
 - Unit A runs first.
 - After Unit A is committed, Unit B and Unit C may run in parallel only with the ownership above: Unit B owns `DialogPresentationTests`; Unit C must keep Property coverage in the playlist/MainWindow fixtures. Shared spec or fixture edits require root integration rather than concurrent edits.
 - Each worker receives only its Contract IDs and may alter fixture mechanics but not expected semantics.
-- Replan if canonical adoption requires application-level implicit resources that break standalone dictionary closure, if Property needs ViewModel/persisted navigation state, or if any fix needs changing Release Notes menu semantics, outer overlay size, Bulk minimum, field inventory, availability, or modal lifecycle.
+- Replan if canonical adoption requires application-level implicit resources that break standalone dictionary closure, if Property needs ViewModel/persisted navigation state, or if any fix needs changing the approved current-framework Release Notes menu ownership, outer overlay size, Bulk minimum, field inventory, availability, or modal lifecycle.
 - After integration, run combined focused Quick, exact repository-executable UI inspection, one Functional verification, and a fresh read-only static review against this packet.

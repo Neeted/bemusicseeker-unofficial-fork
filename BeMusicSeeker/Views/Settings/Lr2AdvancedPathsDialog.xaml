@@ -13,7 +13,7 @@
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
   <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}">
-    <Grid Margin="24"><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <Grid><Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
       <StackPanel>
       <TextBlock Margin="0,0,0,18" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_lr2_advanced_description, Mode=OneWay}" TextWrapping="Wrap" />
       <settings:SettingsStatusBanner Margin="0,0,0,12" Icon="!" Status="Error" Content="{Binding ValidationError, ElementName=DialogRoot, Mode=OneWay}" />

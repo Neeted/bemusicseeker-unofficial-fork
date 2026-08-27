@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using BeMusicSeeker.Models.Update;
@@ -95,6 +96,184 @@ public sealed class DialogPresentationTests
                 }
 
                 fixture.Cleanup();
+            }
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow("ReleaseNotesWindow")]
+    [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
+    [DataRow("PlayHistoryFolderDisplayPresetEditDialog")]
+    [DataRow("Lr2AdvancedPathsDialog")]
+    public void OrdinaryNativeWindows_UseNativeContentAsSingleOuterSpacingOwner(string dialogName)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            PresentationFixture fixture = CreateFixture(dialogName);
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(fixture.HostWindow);
+                fixture.HostWindow.UpdateLayout();
+
+                Border nativeContent = FindNativeContentRoot(fixture.PresentationRoot);
+                Assert.IsTrue(
+                    nativeContent.Padding.Left > 0d
+                        || nativeContent.Padding.Top > 0d
+                        || nativeContent.Padding.Right > 0d
+                        || nativeContent.Padding.Bottom > 0d,
+                    "The canonical native content role must provide the ordinary native outer spacing.");
+
+                Assert.AreEqual(
+                    1,
+                    VisualTreeHelper.GetChildrenCount(nativeContent),
+                    "The native spacing owner must directly contain the dialog content surface.");
+                Assert.IsInstanceOfType(
+                    VisualTreeHelper.GetChild(nativeContent, 0),
+                    typeof(FrameworkElement),
+                    "The native content surface must be a framework element.");
+                var directContent = (FrameworkElement)VisualTreeHelper.GetChild(nativeContent, 0);
+                Assert.AreEqual(
+                    new Thickness(0),
+                    directContent.Margin,
+                    "Ordinary native dialogs must not add a second direct-child outer margin.");
+            }
+            finally
+            {
+                if (fixture.HostWindow.IsVisible)
+                {
+                    fixture.HostWindow.Close();
+                }
+
+                fixture.Cleanup();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void ReleaseNotes_RestoresLegacyTypographyAndBoundedSelectionViewport()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var window = new ReleaseNotesWindow();
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+                window.UpdateLayout();
+
+                FlowDocumentScrollViewer viewer = FindVisualDescendants<FlowDocumentScrollViewer>(window)
+                    .Single(item => item.Visibility == Visibility.Visible);
+                FlowDocument document = viewer.Document;
+
+                Assert.AreEqual("Meiryo UI", document.FontFamily.Source);
+                Assert.AreEqual(12d, document.FontSize, 0.01d);
+                Assert.IsTrue(viewer.IsSelectionEnabled, "Release Notes must remain selection-enabled.");
+                Assert.IsFalse(viewer.IsToolBarVisible, "Release Notes must not expose an editing toolbar.");
+                Assert.AreEqual(ScrollBarVisibility.Auto, viewer.VerticalScrollBarVisibility);
+                Assert.AreEqual(ScrollBarVisibility.Disabled, viewer.HorizontalScrollBarVisibility);
+
+                Paragraph[] paragraphs = EnumerateParagraphs(document.Blocks).ToArray();
+                Assert.IsTrue(
+                    paragraphs.Any(paragraph => paragraph.FontWeight == FontWeights.Bold),
+                    "Version headings must remain bold.");
+                Assert.IsTrue(
+                    paragraphs.Any(paragraph => paragraph.FontWeight == FontWeights.Normal),
+                    "Release Notes body paragraphs must remain normal weight.");
+            }
+            finally
+            {
+                if (window.IsVisible)
+                {
+                    window.Close();
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void ReleaseNotes_UsesFrameworkOwnedSelectionMenuRoles()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var window = new ReleaseNotesWindow();
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+                window.UpdateLayout();
+
+                FlowDocumentScrollViewer viewer = FindVisualDescendants<FlowDocumentScrollViewer>(window)
+                    .Single(item => item.Visibility == Visibility.Visible);
+                FlowDocument document = viewer.Document;
+                Assert.IsTrue(viewer.IsSelectionEnabled, "Release Notes must remain selection-enabled.");
+                Assert.AreEqual(
+                    DependencyProperty.UnsetValue,
+                    viewer.ReadLocalValue(FrameworkElement.ContextMenuProperty),
+                    "Release Notes must not define a local custom ContextMenu.");
+                TextPointer selectionStart = FindFirstTextPointer(document);
+                TextPointer selectionEnd = selectionStart.GetPositionAtOffset(1, LogicalDirection.Forward);
+                viewer.Selection.Select(selectionStart, selectionEnd);
+                Assert.IsFalse(viewer.Selection.IsEmpty, "The framework menu role check must use a nonempty document selection.");
+                ContextMenu menu = GetFrameworkContextMenu(viewer);
+                try
+                {
+                    MenuItem[] commandItems = menu.Items
+                        .OfType<MenuItem>()
+                        .Where(item => item.Command != null)
+                        .ToArray();
+                    Assert.AreEqual(
+                        2,
+                        commandItems.Length,
+                        "The framework-owned Release Notes menu must expose its two command roles.");
+                    CollectionAssert.AreEqual(
+                        new[] { ApplicationCommands.Copy, ApplicationCommands.SelectAll },
+                        commandItems.Select(item => item.Command).ToArray(),
+                        "The framework-owned Release Notes menu must expose Copy and Select All commands.");
+                    Assert.IsFalse(
+                        commandItems.Any(item => item.Command is RoutedCommand command
+                            && (command == ApplicationCommands.Cut || command == ApplicationCommands.Paste)),
+                        "Release Notes must not expose editing commands that the framework viewer does not own.");
+                }
+                finally
+                {
+                    menu.IsOpen = false;
+                }
+            }
+            finally
+            {
+                if (window.IsVisible)
+                {
+                    window.Close();
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaylistSummaryBulkEditDialog_StartsAtMinimumWidthAndCanReturnAfterResize()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var dialog = new PlaylistSummaryBulkEditDialog();
+            try
+            {
+                Assert.IsTrue(double.IsFinite(dialog.MinWidth) && dialog.MinWidth > 0d);
+                Assert.AreEqual(dialog.MinWidth, dialog.Width, 0.01d);
+                Assert.AreEqual(ResizeMode.CanResize, dialog.ResizeMode);
+
+                windowTest.ShowAndWaitForContentRendered(dialog);
+                dialog.Width = dialog.MinWidth + Math.Max(80d, dialog.MinWidth * 0.25d);
+                dialog.UpdateLayout();
+                Assert.IsTrue(dialog.Width > dialog.MinWidth);
+
+                dialog.Width = dialog.MinWidth;
+                dialog.UpdateLayout();
+                Assert.AreEqual(dialog.MinWidth, dialog.Width, 0.01d);
+            }
+            finally
+            {
+                if (dialog.IsVisible)
+                {
+                    dialog.Close();
+                }
             }
         });
     }
@@ -463,20 +642,31 @@ public sealed class DialogPresentationTests
         }
 
         Style nativeContentStyle = RequireStyle(presentationRoot, nativeContentStyleKey);
-        Border[] nativeContentRoots = contentBorderCandidates
+        Border nativeContentRoot = contentBorderCandidates
             .Where(border => StyleChainContains(border.Style, nativeContentStyle))
-            .ToArray();
-        Assert.AreEqual(
-            1,
-            nativeContentRoots.Length,
-            "A native window must have one explicit rectangular content/padding role.");
-
-        Border nativeContentRoot = nativeContentRoots[0];
+            .Single();
         Assert.AreEqual(new Thickness(0), nativeContentRoot.BorderThickness);
         Assert.AreEqual(new CornerRadius(0), nativeContentRoot.CornerRadius);
         Assert.IsNull(
             nativeContentRoot.Background,
             "ThemedWindow must own the native client surface instead of an inner Border background.");
+    }
+
+    private static Border FindNativeContentRoot(FrameworkElement presentationRoot)
+    {
+        const string nativeContentStyleKey = "App.Canonical.NativeWindowContentStyle";
+        Style nativeContentStyle = RequireStyle(presentationRoot, nativeContentStyleKey);
+        Border[] contentBorderCandidates = (presentationRoot as Border is Border root
+                ? new[] { root }
+                : Array.Empty<Border>())
+            .Concat(FindVisualDescendants<Border>(presentationRoot))
+            .Where(border => StyleChainContains(border.Style, nativeContentStyle))
+            .ToArray();
+        Assert.AreEqual(
+            1,
+            contentBorderCandidates.Length,
+            "A native window must have exactly one canonical native content role.");
+        return contentBorderCandidates[0];
     }
 
     private static void AssertNativeSemanticContentReachable(
@@ -800,6 +990,54 @@ public sealed class DialogPresentationTests
     private static Rect GetVisualBounds(Visual ancestor, FrameworkElement descendant)
         => descendant.TransformToAncestor(ancestor)
             .TransformBounds(new Rect(0, 0, descendant.ActualWidth, descendant.ActualHeight));
+
+    private static IEnumerable<Paragraph> EnumerateParagraphs(IEnumerable<Block> blocks)
+    {
+        foreach (Block block in blocks)
+        {
+            if (block is Paragraph paragraph)
+            {
+                yield return paragraph;
+                continue;
+            }
+
+            if (block is not List list)
+            {
+                continue;
+            }
+
+            foreach (ListItem item in list.ListItems)
+            {
+                foreach (Paragraph nestedParagraph in EnumerateParagraphs(item.Blocks))
+                {
+                    yield return nestedParagraph;
+                }
+            }
+        }
+    }
+
+    private static TextPointer FindFirstTextPointer(FlowDocument document)
+    {
+        for (TextPointer? pointer = document.ContentStart;
+            pointer != null;
+            pointer = pointer.GetNextContextPosition(LogicalDirection.Forward))
+        {
+            if (pointer.GetPointerContext(LogicalDirection.Forward) == TextPointerContext.Text)
+            {
+                return pointer;
+            }
+        }
+
+        Assert.Fail("Release Notes must contain a selectable text run.");
+        throw new InvalidOperationException("Release Notes must contain a selectable text run.");
+    }
+
+    private static ContextMenu GetFrameworkContextMenu(FlowDocumentScrollViewer viewer)
+    {
+        ContextMenu? menu = ContextMenuService.GetContextMenu(viewer);
+        Assert.IsNotNull(menu, "The framework-owned viewer must expose its default ContextMenu through the public service.");
+        return menu!;
+    }
 
     private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)
         where T : DependencyObject
