@@ -506,36 +506,6 @@ public sealed class MainWindowChartPresentationWpfTests
         Assert.IsNotNull(track);
         Assert.AreEqual(orientation, scrollBar.Orientation);
         Assert.AreEqual(orientation, track.Orientation);
-        if (orientation == Orientation.Vertical)
-        {
-            Assert.AreSame(
-                ScrollBar.LineUpCommand,
-                ((RepeatButton)scrollBar.Template.FindName("LineUpButton", scrollBar)).Command);
-            Assert.AreSame(
-                ScrollBar.LineDownCommand,
-                ((RepeatButton)scrollBar.Template.FindName("LineDownButton", scrollBar)).Command);
-            Assert.AreSame(
-                ScrollBar.PageUpCommand,
-                ((RepeatButton)track.DecreaseRepeatButton).Command);
-            Assert.AreSame(
-                ScrollBar.PageDownCommand,
-                ((RepeatButton)track.IncreaseRepeatButton).Command);
-        }
-        else
-        {
-            Assert.AreSame(
-                ScrollBar.LineLeftCommand,
-                ((RepeatButton)scrollBar.Template.FindName("LineLeftButton", scrollBar)).Command);
-            Assert.AreSame(
-                ScrollBar.LineRightCommand,
-                ((RepeatButton)scrollBar.Template.FindName("LineRightButton", scrollBar)).Command);
-            Assert.AreSame(
-                ScrollBar.PageLeftCommand,
-                ((RepeatButton)track.DecreaseRepeatButton).Command);
-            Assert.AreSame(
-                ScrollBar.PageRightCommand,
-                ((RepeatButton)track.IncreaseRepeatButton).Command);
-        }
     }
 
     private static void FlushResourceUpdates(CustomTableView table)

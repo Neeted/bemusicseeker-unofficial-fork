@@ -603,30 +603,8 @@ public sealed class MainWindowContextMenuResourceTests
             Assert.IsNotNull(horizontalTrack);
             Assert.AreEqual(Orientation.Vertical, verticalTrack.Orientation);
             Assert.AreEqual(Orientation.Horizontal, horizontalTrack.Orientation);
-            Assert.AreSame(
-                ScrollBar.LineUpCommand,
-                ((RepeatButton)vertical.Template.FindName("LineUpButton", vertical)).Command);
-            Assert.AreSame(
-                ScrollBar.LineDownCommand,
-                ((RepeatButton)vertical.Template.FindName("LineDownButton", vertical)).Command);
-            Assert.AreSame(
-                ScrollBar.PageUpCommand,
-                ((RepeatButton)verticalTrack.DecreaseRepeatButton).Command);
-            Assert.AreSame(
-                ScrollBar.PageDownCommand,
-                ((RepeatButton)verticalTrack.IncreaseRepeatButton).Command);
-            Assert.AreSame(
-                ScrollBar.LineLeftCommand,
-                ((RepeatButton)horizontal.Template.FindName("LineLeftButton", horizontal)).Command);
-            Assert.AreSame(
-                ScrollBar.LineRightCommand,
-                ((RepeatButton)horizontal.Template.FindName("LineRightButton", horizontal)).Command);
-            Assert.AreSame(
-                ScrollBar.PageLeftCommand,
-                ((RepeatButton)horizontalTrack.DecreaseRepeatButton).Command);
-            Assert.AreSame(
-                ScrollBar.PageRightCommand,
-                ((RepeatButton)horizontalTrack.IncreaseRepeatButton).Command);
+            Assert.IsTrue(vertical.ActualWidth > 0d && vertical.ActualHeight > 0d);
+            Assert.IsTrue(horizontal.ActualWidth > 0d && horizontal.ActualHeight > 0d);
 
             Border corner = FindVisualDescendants<Border>(scroller)
                 .Single(border => Grid.GetRow(border) == 1 && Grid.GetColumn(border) == 1);
@@ -646,10 +624,166 @@ public sealed class MainWindowContextMenuResourceTests
             Assert.AreEqual(scroller.VerticalOffset, vertical.Value, 0.01d);
             Assert.AreEqual(scroller.HorizontalOffset, horizontal.Value, 0.01d);
 
+            AssertScrollCommandBehavior(
+                scroller,
+                vertical,
+                verticalTrack,
+                Orientation.Vertical,
+                "Canonical context vertical scrollbar");
+            AssertScrollCommandBehavior(
+                scroller,
+                horizontal,
+                horizontalTrack,
+                Orientation.Horizontal,
+                "Canonical context horizontal scrollbar");
+
             vertical.IsEnabled = false;
             TestUiDispatcherHost.Drain();
             Assert.IsTrue(vertical.Opacity < 1d);
         });
+    }
+
+    private static void AssertScrollCommandBehavior(
+        ScrollViewer viewer,
+        ScrollBar scrollbar,
+        Track track,
+        Orientation orientation,
+        string description)
+    {
+        RoutedCommand lineStartCommand;
+        RoutedCommand lineEndCommand;
+        RoutedCommand pageStartCommand;
+        RoutedCommand pageEndCommand;
+        if (orientation == Orientation.Vertical)
+        {
+            lineStartCommand = ScrollBar.LineUpCommand;
+            lineEndCommand = ScrollBar.LineDownCommand;
+            pageStartCommand = ScrollBar.PageUpCommand;
+            pageEndCommand = ScrollBar.PageDownCommand;
+        }
+        else
+        {
+            lineStartCommand = ScrollBar.LineLeftCommand;
+            lineEndCommand = ScrollBar.LineRightCommand;
+            pageStartCommand = ScrollBar.PageLeftCommand;
+            pageEndCommand = ScrollBar.PageRightCommand;
+        }
+
+        FrameworkElement lineStart = FindScrollCommandAffordance(
+            scrollbar,
+            lineStartCommand,
+            description + " line-start");
+        FrameworkElement lineEnd = FindScrollCommandAffordance(
+            scrollbar,
+            lineEndCommand,
+            description + " line-end");
+        FrameworkElement pageStart = FindScrollCommandAffordance(
+            track,
+            pageStartCommand,
+            description + " page-start");
+        FrameworkElement pageEnd = FindScrollCommandAffordance(
+            track,
+            pageEndCommand,
+            description + " page-end");
+
+        double lineStartOffset = SetScrollOffsetToInterior(viewer, orientation, description);
+        InvokeScrollAffordance(lineStart, description + " line-start");
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        Assert.IsTrue(
+            GetScrollOffset(viewer, orientation) < lineStartOffset,
+            description + " line-start command must decrease the viewer offset.");
+
+        double lineEndOffset = SetScrollOffsetToInterior(viewer, orientation, description);
+        InvokeScrollAffordance(lineEnd, description + " line-end");
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        Assert.IsTrue(
+            GetScrollOffset(viewer, orientation) > lineEndOffset,
+            description + " line-end command must increase the viewer offset.");
+
+        double pageStartOffset = SetScrollOffsetToInterior(viewer, orientation, description);
+        InvokeScrollAffordance(pageStart, description + " page-start");
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        Assert.IsTrue(
+            GetScrollOffset(viewer, orientation) < pageStartOffset,
+            description + " page-start command must decrease the viewer offset.");
+
+        double pageEndOffset = SetScrollOffsetToInterior(viewer, orientation, description);
+        InvokeScrollAffordance(pageEnd, description + " page-end");
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        double finalOffset = GetScrollOffset(viewer, orientation);
+        Assert.IsTrue(
+            finalOffset > pageEndOffset,
+            description + " page-end command must increase the viewer offset.");
+        Assert.AreEqual(
+            finalOffset,
+            scrollbar.Value,
+            0.01d,
+            description + " scrollbar value must follow its viewer offset.");
+    }
+
+    private static FrameworkElement FindScrollCommandAffordance(
+        DependencyObject root,
+        RoutedCommand command,
+        string description)
+    {
+        FrameworkElement[] candidates = FindVisualDescendants<FrameworkElement>(root)
+            .Where(element => element is ICommandSource source && ReferenceEquals(source.Command, command))
+            .ToArray();
+        Assert.AreEqual(
+            1,
+            candidates.Length,
+            description + " must expose exactly one materialized command affordance.");
+        FrameworkElement affordance = candidates[0];
+        AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(affordance)
+            ?? throw new AssertFailedException(description + " command affordance must expose an Automation peer.");
+        Assert.IsNotNull(
+            peer.GetPattern(PatternInterface.Invoke),
+            description + " command affordance must expose Invoke automation.");
+        return affordance;
+    }
+
+    private static double SetScrollOffsetToInterior(
+        ScrollViewer viewer,
+        Orientation orientation,
+        string description)
+    {
+        double maximum = orientation == Orientation.Vertical
+            ? viewer.ScrollableHeight
+            : viewer.ScrollableWidth;
+        Assert.IsTrue(maximum > 0d, description + " must expose a positive scroll extent.");
+        if (orientation == Orientation.Vertical)
+        {
+            viewer.ScrollToVerticalOffset(maximum / 2d);
+        }
+        else
+        {
+            viewer.ScrollToHorizontalOffset(maximum / 2d);
+        }
+
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        double offset = GetScrollOffset(viewer, orientation);
+        Assert.IsTrue(
+            offset > 0d && offset < maximum,
+            description + " must invoke affordances from a proven non-boundary offset.");
+        return offset;
+    }
+
+    private static double GetScrollOffset(ScrollViewer viewer, Orientation orientation)
+        => orientation == Orientation.Vertical ? viewer.VerticalOffset : viewer.HorizontalOffset;
+
+    private static void InvokeScrollAffordance(FrameworkElement affordance, string description)
+    {
+        Assert.IsTrue(affordance.IsEnabled, description + " command affordance must be enabled.");
+        AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(affordance)
+            ?? throw new AssertFailedException(description + " command affordance must expose an Automation peer.");
+        IInvokeProvider invokeProvider = peer.GetPattern(PatternInterface.Invoke) as IInvokeProvider
+            ?? throw new AssertFailedException(description + " command affordance must expose Invoke automation.");
+        invokeProvider.Invoke();
     }
 
     [TestMethod]
