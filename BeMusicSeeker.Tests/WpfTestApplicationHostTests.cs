@@ -104,23 +104,32 @@ public sealed class WpfTestApplicationHostTests
             AssertBrush(initialSetupSurface.BorderBrush, "App.DialogBorderBrush");
 
             var playlistPropertyDialog = new PlaylistPropertyDialog();
-            Grid playlistPropertyRoot = FindVisualDescendants<Grid>(playlistPropertyDialog).First();
+            Grid playlistPropertyRoot = FindVisualDescendants<Grid>(playlistPropertyDialog)
+                .Single(grid => FindResourceInScope(grid.Resources, "App.Canonical.DialogContentStyle") is Style);
             AssertBrush(playlistPropertyRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
-            AssertBrush(
-                FindVisualDescendants<Border>(playlistPropertyDialog)
-                    .Single(border => border.CornerRadius == new CornerRadius(8))
-                    .Background,
-                "App.DialogBackgroundBrush");
+            Rectangle playlistPropertyOverlay = FindElementWithScopedStyle<Rectangle>(
+                playlistPropertyRoot,
+                "App.Canonical.DialogOverlayStyle");
+            Border playlistPropertyContent = FindElementWithScopedStyle<Border>(
+                playlistPropertyRoot,
+                "App.Canonical.DialogContentStyle");
+            AssertBrush(playlistPropertyOverlay.Fill, "App.DialogOverlayBrush");
+            AssertBrush(playlistPropertyContent.Background, "App.DialogBackgroundBrush");
+            AssertBrush(playlistPropertyContent.BorderBrush, "App.DialogBorderBrush");
 
             var loadPlaylistDialog = new LoadPlaylistURIDialog();
-            Grid loadPlaylistRoot = FindVisualDescendants<Grid>(loadPlaylistDialog).Single();
+            Grid loadPlaylistRoot = FindVisualDescendants<Grid>(loadPlaylistDialog)
+                .Single(grid => FindResourceInScope(grid.Resources, "App.Canonical.DialogContentStyle") is Style);
             AssertBrush(loadPlaylistRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
-            AssertBrush(FindVisualDescendants<Rectangle>(loadPlaylistDialog).Single().Fill, "App.DialogOverlayBrush");
-            AssertBrush(
-                FindVisualDescendants<Border>(loadPlaylistDialog)
-                    .First(border => border.CornerRadius == new CornerRadius(10))
-                    .Background,
-                "App.DialogBackgroundBrush");
+            Rectangle loadPlaylistOverlay = FindElementWithScopedStyle<Rectangle>(
+                loadPlaylistRoot,
+                "App.Canonical.DialogOverlayStyle");
+            Border loadPlaylistContent = FindElementWithScopedStyle<Border>(
+                loadPlaylistRoot,
+                "App.Canonical.DialogContentStyle");
+            AssertBrush(loadPlaylistOverlay.Fill, "App.DialogOverlayBrush");
+            AssertBrush(loadPlaylistContent.Background, "App.DialogBackgroundBrush");
+            AssertBrush(loadPlaylistContent.BorderBrush, "App.DialogBorderBrush");
 
             var pendingDeleteDialog = new PendingDeleteConfirmDialog();
             AssertBrush(pendingDeleteDialog.Background, "App.DialogBackgroundBrush");
@@ -132,9 +141,11 @@ public sealed class WpfTestApplicationHostTests
             var progressDialog = new ProgressDialog(new ProgressDialogSettings());
             AssertBrush(progressDialog.Background, "App.DialogBackgroundBrush");
             AssertBrush(progressDialog.Foreground, "App.TextBrush");
-            AssertBrush(
-                FindVisualDescendants<DockPanel>(progressDialog).Single().Background,
-                "App.DialogBackgroundBrush");
+            Border progressDialogContent = FindElementWithScopedStyle<Border>(
+                progressDialog,
+                "App.Canonical.DialogContentStyle");
+            AssertBrush(progressDialogContent.Background, "App.DialogBackgroundBrush");
+            AssertBrush(progressDialogContent.BorderBrush, "App.DialogBorderBrush");
         });
     }
 
@@ -304,6 +315,43 @@ public sealed class WpfTestApplicationHostTests
             Application.Current.Resources[resourceKey],
             value,
             resourceKey + " must resolve through the application semantic resource.");
+    }
+
+    private static T FindElementWithScopedStyle<T>(FrameworkElement scope, object resourceKey)
+        where T : FrameworkElement
+    {
+        object? resource = FindResourceInScope(scope.Resources, resourceKey);
+        Assert.IsInstanceOfType(resource, typeof(Style), resourceKey + " must resolve from the dialog-local resource facade.");
+        Style expectedStyle = (Style)resource;
+
+        T[] matches = FindVisualDescendants<T>(scope)
+            .Where(element => ReferenceEquals(element.Style, expectedStyle))
+            .ToArray();
+        Assert.AreEqual(
+            1,
+            matches.Length,
+            resourceKey + " must identify exactly one applied canonical role surface in its dialog scope.");
+        return matches[0];
+    }
+
+    private static object? FindResourceInScope(ResourceDictionary resources, object key)
+    {
+        // Keep application fallback out of this lookup so a missing dialog-local facade cannot pass accidentally.
+        if (resources.Contains(key))
+        {
+            return resources[key];
+        }
+
+        foreach (ResourceDictionary mergedDictionary in resources.MergedDictionaries.Reverse())
+        {
+            object? value = FindResourceInScope(mergedDictionary, key);
+            if (value != null)
+            {
+                return value;
+            }
+        }
+
+        return null;
     }
 
     private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)
