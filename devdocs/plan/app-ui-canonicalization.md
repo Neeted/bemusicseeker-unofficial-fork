@@ -213,7 +213,7 @@ assertion because bounds containment is its explicit observable contract.
 - Required bounded Quick: `artifacts/verification/tests-quick-20260827-141108/functional/results.trx` — 109/109 passed for `DialogPresentationTests|SettingsWindowPresentationTests|SettingsForegroundInteractionTests|WpfTestApplicationHostTests|UiDialogCoordinatorWpfTests|ThemedMessageBoxTests|NativeWindowThemeContractTests`.
 - Targeted negative control for the legacy fixed-height Progress implementation: `artifacts/verification/tests-quick-20260827-135609/functional/results.trx` — 1/1 intended failure from rendered sub-label overflow; the mutation was reverted.
 - Targeted negative control after removing the scoped canonical content role: `artifacts/verification/tests-quick-20260827-135708/functional/results.trx` — 12/13 passed and the intended Progress data row failed with the semantic locator assertion; the mutation was reverted.
-- No deviation from the approved packet. Functional and fresh static review are the root-owned Unit 4 follow-up.
+- No deviation from the approved packet. The final Functional and fresh static review results are recorded in the completion evidence below.
 
 ### Review-fix oracle-hardening evidence
 
@@ -225,7 +225,7 @@ assertion because bounds containment is its explicit observable contract.
 - Application-level implicit Button-style negative control: `artifacts/verification/tests-quick-20260827-144917/functional/results.trx` — 13/14 passed; the intended ReleaseNotesWindow row failed when the canonical style was injected into Application resources, and the prior resource was restored in `finally`. The mutation was reverted.
 - Focused bounded Quick: `artifacts/verification/tests-quick-20260827-145037/functional/results.trx` — 45/45 passed for DialogPresentationTests, SettingsForegroundInteractionTests, WpfTestApplicationHostTests, UiDialogCoordinatorWpfTests, ThemedMessageBoxTests, and NativeWindowThemeContractTests.
 - The fixture metadata now assigns an authority-owned semantic role to every materialized production Button, requires canonical overlay adoption only for the four overlay surfaces, and probes an unadopted runtime Button outside the sentinel scope. SettingsWindow cleanup uses the existing `CloseForOwnerShutdown` helper.
-- Fresh static review remains root-owned and is not claimed complete by this worker.
+- The subsequent fresh static review identified the direct-acceptance P2 oracle gaps addressed in the next section.
 
 ### Direct-acceptance P2 oracle hardening evidence
 
@@ -235,4 +235,11 @@ assertion because bounds containment is its explicit observable contract.
 - Settings role negative control: temporarily changed the `SettingsResyncLr2SongDb` production action to `SettingsDangerButtonStyle`; `tests-quick-20260827-151131/functional/results.trx` recorded 13 passed and the intended `SettingsWindow` row failure (`Neutral` expected, `Danger` actual). The mutation was reverted.
 - Stable-ID role negative control: temporarily changed `PlaylistSummaryClose` to the canonical neutral action style without changing its ID; `tests-quick-20260827-151306/functional/results.trx` recorded 13 passed and the intended `PlaylistSummaryBulkEditDialog` row failure (`Quiet` expected, `Neutral` actual). The mutation was reverted.
 - Head focused Dialog pass: `tests-quick-20260827-150954/functional/results.trx` recorded 14/14 `DialogPresentationTests` before the required bounded lane. Required bounded Quick (`DialogPresentationTests|SettingsForegroundInteractionTests|WpfTestApplicationHostTests|UiDialogCoordinatorWpfTests|ThemedMessageBoxTests|NativeWindowThemeContractTests|SettingsWindowPresentationTests`) passed 109/109 at `tests-quick-20260827-151528/functional/results.trx`.
-- No packet deviation. Functional acceptance and fresh static review remain root-owned and are not claimed by this worker.
+- No packet deviation.
+
+### Final acceptance evidence
+
+- Final Functional on head `e6e71152`: `artifacts/verification/tests-functional-20260827-151932` — all six hosts passed; the remaining host recorded 2661 total, 2653 passed, and 8 skipped. Test execution completed in 150.3 seconds within the 180-second budget, and the tracked working-tree fingerprint was unchanged.
+- Final fresh static review of `66fa69d4..e6e71152` found no blocking findings, confirmed all three preceding direct-acceptance P2 findings resolved, and returned no recommendations.
+- Manual inspection of the repository executable confirmed the single status glyph, separated LR2 resync/play-log groups, latency label/value/action grouping, exact ComboBox popup-width following, independent play-log FOLDER preset section, and canonical custom-dialog presentation. All inspection actions were cancelled and the repository process was closed.
+- The final worktree was clean and `git diff --check` passed.
