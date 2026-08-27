@@ -104,6 +104,14 @@ Verification:
 - focused Quick for playlist property/bulk, MainWindow workspace, coordinator/modal, dialog presentation, native window theme, and localization parity if resources change
 - `git diff --check`
 
+Implementation evidence:
+
+- Property and Summary Bulk Edit now construct fresh `ThemedWindow` instances through `UiDialogCoordinator.ShowWindowAsync`; the MainWindow retains only the Initial Setup and Load Playlist URI overlay hosts.
+- Property field availability and the three General/Folder/Custom Folder navigation sections remain rendered through the existing bindings, while both dialogs use `SettingsSection` content and bounded scrolling at explicit resizable minimum sizes.
+- The rendered date regression first failed against raw `DateTime` output (`1/2/2024 3:04:05 AM`), then passed after moving the compatibility format onto the rendered `TextBlock`: `Update: 2024/01/02`. A raw-date targeted mutant failed the same actual-window assertion and was reverted.
+- Focused Quick (`artifacts/verification/tests-quick-20260827-175735/functional`): 28/28 passed for dialog presentation and playlist property/bulk fixtures. Combined focused Quick (`artifacts/verification/tests-quick-20260827-182541/functional`): 53/53 passed across dialog presentation, playlist property/bulk, WPF host, MainWindow playlist workspace, `UiDialogCoordinator`, and native-window theme fixtures. The WPF host semantic-brush case was updated from the retired property overlay surface to the native content role.
+- The first cache-cold focused run reached 28/28 test-body passes but the runner rejected a stale untracked hang-dump XML during whitespace verification; the diagnostic process and generated `BeMusicSeeker.Tests/TestResults` tree were removed, and the clean rerun above passed the runner fingerprint/whitespace checks.
+
 ## Integration and acceptance
 
 - Run the combined focused Quick scope after both units.

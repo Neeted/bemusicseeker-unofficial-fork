@@ -1986,8 +1986,6 @@
       </DockPanel>
       <v:InitialSetupLanguageDialog x:Name="initialSetupLanguageDialog" DataContext="{Binding SettingDialog}" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="1" />
       <v:LoadPlaylistURIDialog x:Name="loadPlaylistURIDialog" DataContext="{Binding PlaylistWorkspace}" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="2" />
-      <v:PlaylistPropertyDialog x:Name="playlistPropertyDialog" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="3" />
-      <v:PlaylistSummaryBulkEditDialog x:Name="playlistSummaryBulkEditDialog" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="4" />
       <StackPanel Name="windowCaptionPanel" DockPanel.Dock="Top" Orientation="Horizontal" Margin="0" HorizontalAlignment="Right" VerticalAlignment="Top">
         <Button Content="0" Style="{DynamicResource CaptionButtonStyleKey}" Command="{x:Static SystemCommands.MinimizeWindowCommand}" />
         <Button Content="1" Style="{DynamicResource CaptionButtonStyleKey}" Command="{x:Static SystemCommands.MaximizeWindowCommand}" Visibility="{Binding WindowState, ElementName=window, Converter={StaticResource WindowStateToCaptionVisibilityConverter}, ConverterParameter=Maximized}" />

@@ -104,17 +104,13 @@ public sealed class WpfTestApplicationHostTests
 
             var playlistPropertyDialog = new PlaylistPropertyDialog();
             Grid playlistPropertyRoot = FindVisualDescendants<Grid>(playlistPropertyDialog)
-                .Single(grid => FindResourceInScope(grid.Resources, "App.Canonical.DialogContentStyle") is Style);
+                .Single(grid => FindResourceInScope(grid.Resources, "App.Canonical.NativeWindowContentStyle") is Style);
             AssertBrush(playlistPropertyRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
-            Rectangle playlistPropertyOverlay = FindElementWithScopedStyle<Rectangle>(
-                playlistPropertyRoot,
-                "App.Canonical.DialogOverlayStyle");
             Border playlistPropertyContent = FindElementWithScopedStyle<Border>(
                 playlistPropertyRoot,
-                "App.Canonical.DialogContentStyle");
-            AssertBrush(playlistPropertyOverlay.Fill, "App.DialogOverlayBrush");
-            AssertBrush(playlistPropertyContent.Background, "App.DialogBackgroundBrush");
-            AssertBrush(playlistPropertyContent.BorderBrush, "App.DialogBorderBrush");
+                "App.Canonical.NativeWindowContentStyle");
+            Assert.IsNull(playlistPropertyContent.Background);
+            Assert.IsNull(playlistPropertyContent.BorderBrush);
 
             var loadPlaylistDialog = new LoadPlaylistURIDialog();
             Grid loadPlaylistRoot = FindVisualDescendants<Grid>(loadPlaylistDialog)

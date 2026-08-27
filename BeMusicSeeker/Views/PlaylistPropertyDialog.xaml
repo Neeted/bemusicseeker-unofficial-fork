@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<UserControl x:Class="BeMusicSeeker.Views.PlaylistPropertyDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" x:Name="playlistPropertyDialog">
+<v:ThemedWindow x:Class="BeMusicSeeker.Views.PlaylistPropertyDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:settings="clr-namespace:BeMusicSeeker.Views.Settings" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" x:Name="playlistPropertyDialog" Width="640" Height="520" MinWidth="560" MinHeight="420" ResizeMode="CanResize" ShowInTaskbar="False" WindowStartupLocation="CenterOwner" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Property, Mode=OneWay}" KeyDown="DialogKeyDown">
   <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
     <FrameworkElement.Resources>
       <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries>
           <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Themes/CanonicalDialogStyles.xaml" />
+          <ResourceDictionary Source="/BeMusicSeeker;component/BeMusicSeeker/Views/Settings/SettingsControls.xaml" />
         </ResourceDictionary.MergedDictionaries>
         <v:objectToBoolConverter x:Key="objectToBoolConverter" />
         <v:notOperatorBoolConverter x:Key="notOperatorBoolConverter" />
@@ -69,32 +70,6 @@
             </Setter.Value>
           </Setter>
         </Style>
-        <Style TargetType="{x:Type GroupBox}" BasedOn="{StaticResource {x:Type GroupBox}}">
-          <Setter Property="Margin" Value="0,0,0,8" />
-          <Setter Property="Padding" Value="10,8,10,10" />
-          <Setter Property="Template">
-            <Setter.Value>
-              <ControlTemplate TargetType="{x:Type GroupBox}">
-                <Grid SnapsToDevicePixels="True">
-                  <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                  </Grid.RowDefinitions>
-                  <ContentPresenter Grid.Row="0" Margin="2,0,0,3" ContentSource="Header" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Control.Foreground}" TextElement.FontWeight="SemiBold" />
-                  <Border Grid.Row="1" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Background="{TemplateBinding Background}" CornerRadius="4">
-                    <ContentPresenter Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
-                  </Border>
-                </Grid>
-                <ControlTemplate.Triggers>
-                  <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Foreground" Value="{DynamicResource DisabledForegroundBrush}" />
-                    <Setter Property="BorderBrush" Value="{DynamicResource DisabledBorderBrush}" />
-                  </Trigger>
-                </ControlTemplate.Triggers>
-              </ControlTemplate>
-            </Setter.Value>
-          </Setter>
-        </Style>
         <Style TargetType="{x:Type Button}" BasedOn="{StaticResource {x:Type Button}}">
           <Setter Property="MinHeight" Value="24" />
           <Setter Property="Padding" Value="10,2" />
@@ -126,15 +101,17 @@
         </Style>
       </ResourceDictionary>
     </FrameworkElement.Resources>
-    <Rectangle Style="{StaticResource App.Canonical.DialogOverlayStyle}" />
-    <Border Style="{StaticResource App.Canonical.DialogContentStyle}" Width="520" Height="350" SnapsToDevicePixels="True">
+    <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" Margin="16" SnapsToDevicePixels="True">
       <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
         <Grid DockPanel.Dock="Bottom" VerticalAlignment="Bottom" Margin="0,8,0,0">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
-          <Label Style="{StaticResource App.Canonical.LabelStyle}" Grid.Column="0" ContentStringFormat="Update: {0:yyyy/MM/dd}" Content="{Binding last_update}" />
+          <TextBlock Grid.Column="0"
+                     VerticalAlignment="Center"
+                     Foreground="{DynamicResource App.TextBrush}"
+                     Text="{Binding last_update, StringFormat=&quot;Update: {0:yyyy'/'MM'/'dd}&quot;}" />
           <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
             <Button Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" MinWidth="64" Margin="0,0,8,0" AutomationProperties.AutomationId="PlaylistPropertyAccept" Click="SaveAndClose" />
             <Button Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="Cancel" MinWidth="64" AutomationProperties.AutomationId="PlaylistPropertyCancel" Click="CancelAndClose" />
@@ -143,7 +120,7 @@
         <TabControl DockPanel.Dock="Top">
           <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.General, Mode=OneWay}">
             <StackPanel>
-              <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" DockPanel.Dock="Top" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}">
+              <settings:SettingsSection DockPanel.Dock="Top" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}">
                 <DockPanel>
                   <DockPanel Dock="Bottom">
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
@@ -166,12 +143,10 @@
                     </DockPanel>
                   </DockPanel>
                 </DockPanel>
-              </GroupBox>
-              <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}">
-                <HeaderedContentControl.Header>
-                  <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" Name="checkBox" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_syncmode, Mode=OneWay}" IsChecked="{Binding is_external_sync}" />
-                </HeaderedContentControl.Header>
-                <StackPanel IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
+              </settings:SettingsSection>
+              <StackPanel Margin="0,0,0,28">
+                <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" Name="checkBox" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_syncmode, Mode=OneWay}" IsChecked="{Binding is_external_sync}" />
+                <StackPanel Margin="0,14,0,0" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
                   <DockPanel Margin="0,5,0,0">
                     <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}" Height="24" Width="340" DockPanel.Dock="Right" VerticalContentAlignment="Center" Text="{Binding Page_url}" />
                     <Label Style="{StaticResource App.Canonical.LabelStyle}" DockPanel.Dock="Left" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_pageuri, Mode=OneWay}" />
@@ -185,12 +160,12 @@
                     <Label Style="{StaticResource App.Canonical.LabelStyle}" DockPanel.Dock="Left" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_datauri, Mode=OneWay}" />
                   </DockPanel>
                 </StackPanel>
-              </GroupBox>
+              </StackPanel>
             </StackPanel>
           </TabItem>
           <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Folder, Mode=OneWay}">
             <DockPanel>
-              <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" DockPanel.Dock="Top" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_sortorder_song, Mode=OneWay}" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
+              <settings:SettingsSection DockPanel.Dock="Top" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_sortorder_song, Mode=OneWay}" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
                 <Grid>
                   <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1*" />
@@ -205,8 +180,8 @@
                     <RadioButton Style="{StaticResource App.Canonical.RadioButtonStyle}" GroupName="SortOrder" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_desc, Mode=OneWay}" IsChecked="{Binding folder_sort_ascending, Converter={StaticResource notOperatorBoolConverter}}" />
                   </StackPanel>
                 </Grid>
-              </GroupBox>
-              <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_folder_order, Mode=OneWay}" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
+              </settings:SettingsSection>
+              <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_folder_order, Mode=OneWay}" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBox, Mode=OneWay}">
                 <DockPanel>
                   <ListBox Style="{StaticResource App.Canonical.ListBoxStyle}" Name="foldersListBox" DockPanel.Dock="Left" Width="300" Height="130" SelectionMode="Extended" ItemsSource="{Binding folder_order}">
                     <ItemsControl.ItemTemplate>
@@ -223,12 +198,12 @@
                     <Button Style="{StaticResource App.Canonical.DialogActionStyle}" FontFamily="Marlett" Content="6" Margin="0,2,0,0" Padding="2,1,1,1" AutomationProperties.AutomationId="PlaylistPropertyFolderMoveDown" IsEnabled="{Binding IsChecked, Converter={StaticResource notOperatorBoolConverter}, ElementName=checkBoxFolderNatueralSort}" Click="folderListDown" />
                   </StackPanel>
                 </DockPanel>
-              </GroupBox>
+              </settings:SettingsSection>
             </DockPanel>
           </TabItem>
           <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Custom_folder, Mode=OneWay}" IsEnabled="{Binding OperationModeLR2DB}">
             <DockPanel>
-              <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" DockPanel.Dock="Bottom" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_output_dst, Mode=OneWay}">
+              <settings:SettingsSection DockPanel.Dock="Bottom" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_output_dst, Mode=OneWay}">
                 <StackPanel>
                   <DockPanel Margin="0,0,0,4">
                     <Label Style="{StaticResource App.Canonical.LabelStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_output_base, Mode=OneWay}" />
@@ -240,8 +215,8 @@
                     <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}" Height="24" HorizontalAlignment="Left" Width="210" VerticalContentAlignment="Center" Text="{Binding output_dir}" />
                   </DockPanel>
                 </StackPanel>
-              </GroupBox>
-              <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" DockPanel.Dock="Top" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_folder_type, Mode=OneWay}">
+              </settings:SettingsSection>
+              <settings:SettingsSection DockPanel.Dock="Top" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_folder_type, Mode=OneWay}">
                 <DockPanel>
                   <UniformGrid ScrollViewer.VerticalScrollBarVisibility="Disabled" UseLayoutRounding="False" Columns="2" Margin="10,0,10,0" DockPanel.Dock="Top" VerticalAlignment="Center" Height="160">
                     <CheckBox Style="{StaticResource App.Canonical.CheckBoxStyle}" VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_all_songs_tooltip, Mode=OneWay}" IsChecked="{Binding ignore_folder_output, ConverterParameter=AllSongsFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}}" />
@@ -260,11 +235,11 @@
                   </UniformGrid>
                   <TextBlock Margin="0" DockPanel.Dock="Bottom" VerticalAlignment="Bottom" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_desc, Mode=OneWay}" />
                 </DockPanel>
-              </GroupBox>
+              </settings:SettingsSection>
             </DockPanel>
           </TabItem>
         </TabControl>
       </DockPanel>
     </Border>
   </Grid>
-</UserControl>
+</v:ThemedWindow>

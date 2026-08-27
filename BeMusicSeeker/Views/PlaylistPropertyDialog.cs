@@ -3,9 +3,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Markup;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
@@ -15,65 +17,210 @@ using Ribbit.Util;
 
 namespace BeMusicSeeker.Views;
 
-public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
+/// <summary>
+/// Presents one playlist property edit session as a native, owner-modal window.
+/// The workspace owns the session; this window only gates its terminal operation and
+/// reports the result to <see cref="UiDialogCoordinator"/>.
+/// </summary>
+public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
 {
+    private int operationInProgress;
+
+    private Task operationTask = Task.CompletedTask;
+
+    private bool allowClose;
+
+    private bool ownerShutdownCloseRequested;
+
+    private bool terminalOutcome;
+
+    private bool closed;
+
+    /// <summary>Initializes an unbound playlist property window for XAML tooling.</summary>
     public PlaylistPropertyDialog()
     {
         InitializeComponent();
     }
 
-    private MainWindow GetDialogHost()
+    /// <summary>Initializes a playlist property window for one workspace-owned edit session.</summary>
+    /// <param name="viewModel">The edit session displayed by the window.</param>
+    internal PlaylistPropertyDialog(PlaylistPropertyDialogViewModel viewModel)
+        : this()
     {
-        return Window.GetWindow(this) as MainWindow
-            ?? throw new InvalidOperationException("Playlist property dialog is not hosted by MainWindow.");
+        DataContext = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
     }
 
-    private async void CancelAndClose(object sender, RoutedEventArgs e)
+    /// <summary>Gets whether a completed save/reset terminal operation closed this window.</summary>
+    internal bool HasTerminalOutcome => terminalOutcome;
+
+    /// <summary>Gets whether the owner forced this window closed as part of application shutdown.</summary>
+    internal bool IsOwnerShutdownClose => ownerShutdownCloseRequested;
+
+    /// <summary>
+    /// Gets the operation task that must settle before the workspace disposes the session.
+    /// </summary>
+    internal Task WaitForOperationCompletionAsync() => operationTask;
+
+    /// <summary>
+    /// Closes this window for owner shutdown without initiating save or reset.
+    /// Repeated calls are intentionally idempotent.
+    /// </summary>
+    internal void CloseForOwnerShutdown()
     {
-        if (base.DataContext is PlaylistPropertyDialogViewModel playlistPropertyDialogViewModel)
+        ownerShutdownCloseRequested = true;
+        allowClose = true;
+        if (!closed)
         {
-            try
-            {
-                PlaylistPropertyDialogOperationResult result =
-                    await playlistPropertyDialogViewModel.ResetPropertiesAsync();
-                if (result == PlaylistPropertyDialogOperationResult.Completed)
-                {
-                    playlistPropertyDialogViewModel.Dispose();
-                    GetDialogHost().ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel);
-                }
-                else if (result == PlaylistPropertyDialogOperationResult.ValidationFailed)
-                {
-                    ShowValidationError();
-                }
-            }
-            catch (Exception ex)
-            {
-                ShowOperationFailure(ex);
-            }
+            Close();
         }
     }
 
-    private async void SaveAndClose(object sender, RoutedEventArgs e)
+    /// <inheritdoc />
+    protected override void OnClosed(EventArgs e)
     {
-        if (base.DataContext is PlaylistPropertyDialogViewModel playlistPropertyDialogViewModel)
+        closed = true;
+        base.OnClosed(e);
+    }
+
+    private void CancelAndClose(object sender, RoutedEventArgs e)
+    {
+        StartTerminalOperation(save: false);
+    }
+
+    private void SaveAndClose(object sender, RoutedEventArgs e)
+    {
+        StartTerminalOperation(save: true);
+    }
+
+    private void DialogKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape)
         {
+            return;
+        }
+
+        e.Handled = true;
+        StartTerminalOperation(save: false);
+    }
+
+    /// <inheritdoc />
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        if (allowClose || ownerShutdownCloseRequested)
+        {
+            base.OnClosing(e);
+            return;
+        }
+
+        if (DataContext is not PlaylistPropertyDialogViewModel)
+        {
+            // An unbound tooling/presentation instance has no edit session to reset.
+            allowClose = true;
+            base.OnClosing(e);
+            return;
+        }
+
+        // A user close (including the title-bar X) has the same reset lifecycle as Cancel.
+        // Keep the native window open until the workspace confirms the reset completed.
+        e.Cancel = true;
+        if (Volatile.Read(ref operationInProgress) == 0)
+        {
+            StartTerminalOperation(save: false);
+        }
+    }
+
+    private void StartTerminalOperation(bool save)
+    {
+        if (ownerShutdownCloseRequested || Interlocked.CompareExchange(ref operationInProgress, 1, 0) != 0)
+        {
+            return;
+        }
+
+        if (DataContext is not PlaylistPropertyDialogViewModel viewModel)
+        {
+            Interlocked.Exchange(ref operationInProgress, 0);
+            return;
+        }
+
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        operationTask = completion.Task;
+        _ = RunTerminalOperationAsync(viewModel, save, completion);
+    }
+
+    private async Task RunTerminalOperationAsync(
+        PlaylistPropertyDialogViewModel viewModel,
+        bool save,
+        TaskCompletionSource<bool> completion)
+    {
+        try
+        {
+            PlaylistPropertyDialogOperationResult result = save
+                ? await viewModel.SaveAndApplyAsync()
+                : await viewModel.ResetPropertiesAsync();
+
+            if (ownerShutdownCloseRequested)
+            {
+                return;
+            }
+
+            if (result == PlaylistPropertyDialogOperationResult.Completed)
+            {
+                terminalOutcome = true;
+                allowClose = true;
+                // DialogResult is the coordinator's accepted/cancelled result and closes
+                // the native window only after the operation has completed.
+                CloseWithResult(save);
+            }
+            else if (result == PlaylistPropertyDialogOperationResult.ValidationFailed)
+            {
+                ShowValidationError();
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowOperationFailure(ex);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref operationInProgress, 0);
+            operationTask = Task.CompletedTask;
+            completion.TrySetResult(true);
+        }
+    }
+
+    private void CloseWithResult(bool result)
+    {
+        try
+        {
+            DialogResult = result;
+        }
+        catch (InvalidOperationException)
+        {
+            // Presentation fixtures may use Show() to inspect the native window.  Such
+            // windows have no modal DialogResult slot, but still close after completion.
+            if (closed)
+            {
+                return;
+            }
+
             try
             {
-                PlaylistPropertyDialogOperationResult result =
-                    await playlistPropertyDialogViewModel.SaveAndApplyAsync();
-                if (result == PlaylistPropertyDialogOperationResult.Completed)
-                {
-                    playlistPropertyDialogViewModel.Dispose();
-                    GetDialogHost().ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel);
-                }
-                else if (result == PlaylistPropertyDialogOperationResult.ValidationFailed)
-                {
-                    ShowValidationError();
-                }
+                Close();
             }
-            catch (Exception ex)
+            catch (InvalidOperationException)
             {
-                ShowOperationFailure(ex);
+                // A reset started by the title-bar X is completing from inside Closing.
+                // Defer the non-modal fallback until that event has returned.
+                Dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.Normal,
+                    new Action(() =>
+                    {
+                        if (!closed)
+                        {
+                            allowClose = true;
+                            Close();
+                        }
+                    }));
             }
         }
     }
@@ -81,7 +228,7 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
     private void ShowValidationError()
     {
         UiDialogRoute.ShowMessageBox(
-            Window.GetWindow(this),
+            this,
             "プレイリスト名・URI・出力先フォルダ名を確認して下さい。",
             "エラー",
             MessageBoxButton.OK,
@@ -91,7 +238,7 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
     private void ShowOperationFailure(Exception exception)
     {
         UiDialogRoute.ShowMessageBox(
-            Window.GetWindow(this),
+            this,
             BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception,
             BeMusicSeeker.Properties.Resources.Error,
             MessageBoxButton.OK,

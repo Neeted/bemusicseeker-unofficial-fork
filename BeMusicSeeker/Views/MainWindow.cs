@@ -64,6 +64,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private FrameworkElement activeOverlayDialog;
 
+    private PlaylistPropertyDialog activePlaylistPropertyDialog;
+
+    private PlaylistSummaryBulkEditDialog activePlaylistSummaryBulkEditDialog;
+
     private SettingsWindow settingsWindow;
 
 #nullable enable
@@ -200,9 +204,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private bool HidesPlaybackSurface(FrameworkElement dialog)
     {
-        return ReferenceEquals(dialog, playlistPropertyDialog)
-            || ReferenceEquals(dialog, playlistSummaryBulkEditDialog)
-            || ReferenceEquals(dialog, loadPlaylistURIDialog);
+        return ReferenceEquals(dialog, loadPlaylistURIDialog);
     }
 
     private async void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
@@ -1419,6 +1421,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void ApplyTerminalShutdown()
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        activePlaylistPropertyDialog?.CloseForOwnerShutdown();
+        activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
         CaptureWindowStateForClosing();
         if (viewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow)
@@ -1435,6 +1439,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void MainWindow_Closed(object sender, EventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        activePlaylistPropertyDialog?.CloseForOwnerShutdown();
+        activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         CaptureWindowStateForClosing();
         viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
         UnsubscribeViewModelUiInteractions();
@@ -1474,6 +1480,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         CancelRelatedDocumentRequest();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
+        activePlaylistPropertyDialog?.CloseForOwnerShutdown();
+        activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
         base.OnClosing(e);
         CaptureWindowStateForClosing();
@@ -3949,7 +3957,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             .Logging("playlistSummaryContextMenuMoveToBmtSortBottomClick");
     }
 
-    private void playlistSummaryContextMenuOpenBulkEditClick(object sender, RoutedEventArgs e)
+    private async void playlistSummaryContextMenuOpenBulkEditClick(object sender, RoutedEventArgs e)
     {
         PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
         List<PlaylistSummaryRow> selectedPlaylistSummaryRows = [.. getSelectedPlaylistSummaryRows(playlistSummaryRow).Where(row => row?.TableRef != null)];
@@ -3965,8 +3973,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            playlistSummaryBulkEditDialog.DataContext = dialog;
-            ShowOverlayDialog(playlistSummaryBulkEditDialog);
+            await ShowPlaylistSummaryBulkEditDialogAsync(dialog);
         }
     }
 
@@ -3995,18 +4002,169 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        playlistPropertyDialog.DataContext = dialog;
-        ShowOverlayDialog(playlistPropertyDialog);
+        await ShowPlaylistPropertyDialogAsync(viewModel, dialog);
     }
 
-    internal void ClosePlaylistPropertyDialog(PlaylistPropertyDialogViewModel dialog)
+    private async Task ShowPlaylistPropertyDialogAsync(
+        MainWindowViewModel viewModel,
+        PlaylistPropertyDialogViewModel dialog)
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
+        PlaylistPropertyDialog window = null;
+        Visibility previousPlaybackOverlayVisibility = PlaybackOverlayVisibility;
+        PlaybackOverlayVisibility = Visibility.Visible;
+        try
         {
-            viewModel.PlaylistWorkspace.ClosePropertyDialog(dialog);
+            UiWindowDialogResult<object> result = await new UiDialogCoordinator()
+                .ShowWindowAsync(new UiWindowDialogRequest<PlaylistPropertyDialog, object>(
+                    () =>
+                    {
+                        window = new PlaylistPropertyDialog(dialog);
+                        activePlaylistPropertyDialog = window;
+                        return window;
+                    },
+                    _ => null,
+                    this));
+            ThrowIfWindowDialogFailed(result.Status, result.Error, "Playlist property window");
         }
-        playlistPropertyDialog.DataContext = null;
-        HideOverlayDialog(playlistPropertyDialog);
+        finally
+        {
+            try
+            {
+                try
+                {
+                    if (window != null)
+                    {
+                        await window.WaitForOperationCompletionAsync();
+                    }
+                    if (window == null || (!window.HasTerminalOutcome && !window.IsOwnerShutdownClose))
+                    {
+                        await dialog.ResetPropertiesAsync();
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (window != null)
+                        {
+                            window.DataContext = null;
+                        }
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            dialog.Dispose();
+                        }
+                        finally
+                        {
+                            try
+                            {
+                                viewModel.PlaylistWorkspace.ClosePropertyDialog(dialog);
+                            }
+                            finally
+                            {
+                                if (ReferenceEquals(activePlaylistPropertyDialog, window))
+                                {
+                                    activePlaylistPropertyDialog = null;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                RestorePlaylistDialogUiState(previousPlaybackOverlayVisibility, refreshFolderPath: true);
+            }
+        }
+    }
+
+    private async Task ShowPlaylistSummaryBulkEditDialogAsync(
+        PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel dialog)
+    {
+        PlaylistSummaryBulkEditDialog window = null;
+        Visibility previousPlaybackOverlayVisibility = PlaybackOverlayVisibility;
+        PlaybackOverlayVisibility = Visibility.Visible;
+        try
+        {
+            UiWindowDialogResult<object> result = await new UiDialogCoordinator()
+                .ShowWindowAsync(new UiWindowDialogRequest<PlaylistSummaryBulkEditDialog, object>(
+                    () =>
+                    {
+                        window = new PlaylistSummaryBulkEditDialog(dialog);
+                        activePlaylistSummaryBulkEditDialog = window;
+                        return window;
+                    },
+                    _ => null,
+                    this));
+            ThrowIfWindowDialogFailed(result.Status, result.Error, "Playlist summary bulk-edit window");
+        }
+        finally
+        {
+            try
+            {
+                try
+                {
+                    if (window != null)
+                    {
+                        await window.WaitForApplyCompletionAsync();
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (window != null)
+                        {
+                            window.DataContext = null;
+                        }
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            dialog.OwnerWorkspace.CloseSummaryBulkEditDialog(dialog);
+                        }
+                        finally
+                        {
+                            if (ReferenceEquals(activePlaylistSummaryBulkEditDialog, window))
+                            {
+                                activePlaylistSummaryBulkEditDialog = null;
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                RestorePlaylistDialogUiState(previousPlaybackOverlayVisibility, refreshFolderPath: false);
+            }
+        }
+    }
+
+    private void RestorePlaylistDialogUiState(
+        Visibility previousPlaybackOverlayVisibility,
+        bool refreshFolderPath)
+    {
+        try
+        {
+            playbackPanelView.RestoreSelectedSurface();
+        }
+        finally
+        {
+            try
+            {
+                if (refreshFolderPath)
+                {
+                    BindingOperations.GetMultiBindingExpression(gridBMSPlayerControlsFolderPath, TextBlock.TextProperty)?.UpdateTarget();
+                }
+            }
+            finally
+            {
+                PlaybackOverlayVisibility = previousPlaybackOverlayVisibility;
+            }
+        }
     }
 
     private async void playlistSummaryContextMenuRemoveClick(object sender, RoutedEventArgs e)
@@ -4342,19 +4500,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        try
+        PlaylistPropertyDialogViewModel dialog = await viewModel.PlaylistWorkspace
+            .CreatePlaylistPropertyDialogAsync()
+            .Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
+        if (dialog != null)
         {
-            PlaylistPropertyDialogViewModel dialog = await viewModel.PlaylistWorkspace
-                .CreatePlaylistPropertyDialogAsync()
-                .Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
-            if (dialog != null)
-            {
-                playlistPropertyDialog.DataContext = dialog;
-                ShowOverlayDialog(playlistPropertyDialog);
-            }
-        }
-        catch
-        {
+            await ShowPlaylistPropertyDialogAsync(viewModel, dialog);
         }
     }
 
@@ -7500,10 +7651,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog)) PlaybackOverlayVisibility = Visibility.Collapsed;
             }
             playbackPanelView.RestoreSelectedSurface();
-            if (sender is PlaylistPropertyDialog)
-            {
-                BindingOperations.GetMultiBindingExpression(gridBMSPlayerControlsFolderPath, TextBlock.TextProperty).UpdateTarget();
-            }
         }
     }
 

@@ -200,18 +200,14 @@ public sealed class DialogPresentationTests
                     ButtonWithAutomationId("LoadPlaylistUriAccept", DialogButtonRole.Primary, "playlist URI affirmative"),
                     ButtonWithAutomationId("LoadPlaylistUriCancel", DialogButtonRole.Quiet, "playlist URI cancel"),
                 ]),
-            "PlaylistPropertyDialog" => CreateOverlayFixture(
+            "PlaylistPropertyDialog" => CreateNativeFixture(
                 new PlaylistPropertyDialog(),
-                720,
-                520,
                 [
                     ButtonWithAutomationId("PlaylistPropertyAccept", DialogButtonRole.Primary, "playlist property affirmative"),
                     ButtonWithAutomationId("PlaylistPropertyCancel", DialogButtonRole.Quiet, "playlist property cancel"),
                 ]),
-            "PlaylistSummaryBulkEditDialog" => CreateOverlayFixture(
+            "PlaylistSummaryBulkEditDialog" => CreateNativeFixture(
                 new PlaylistSummaryBulkEditDialog(),
-                720,
-                560,
                 [
                     ButtonWithAutomationId("PlaylistSummaryClose", DialogButtonRole.Quiet, "playlist summary close"),
                     ButtonWithAutomationId("PlaylistSummaryApplyCustomFolderOutput", DialogButtonRole.Neutral, "playlist summary custom folder apply"),

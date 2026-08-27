@@ -160,13 +160,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 {
                     DataContext = dialog
                 };
-                var window = new Window
-                {
-                    Content = view,
-                    Width = 640,
-                    Height = 520
-                };
-                windowTest.ShowAndWaitForContentRendered(window);
+                windowTest.ShowAndWaitForContentRendered(view);
 
                 Dictionary<string, CheckBox> checkBoxes = FindDescendants<CheckBox>(view)
                     .Select(checkBox =>
@@ -227,6 +221,33 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    public void PlaylistPropertyDialog_RendersHistoricalUpdateDateWithoutTime()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var view = new PlaylistPropertyDialog
+            {
+                DataContext = new PlaylistPropertyDateFixture()
+            };
+
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(view);
+                view.UpdateLayout();
+
+                string[] renderedText = FindDescendants<TextBlock>(view).Select(textBlock => textBlock.Text).ToArray();
+                Assert.IsTrue(
+                    renderedText.Contains("Update: 2024/01/02", StringComparer.Ordinal),
+                    $"Rendered text did not contain the historical date: {string.Join(" | ", renderedText)}");
+            }
+            finally
+            {
+                view.CloseForOwnerShutdown();
+            }
+        });
+    }
+
+    [TestMethod]
     public void PlaylistSummaryBulkEditDialog_BindsAllCustomFolderOptionsTwoWayAndLocalized()
     {
         var settings = new Settings
@@ -245,13 +266,7 @@ public sealed class PlaylistSummaryBulkEditTests
             {
                 DataContext = dialog
             };
-            var window = new Window
-            {
-                Content = view,
-                Width = 640,
-                Height = 520
-            };
-            windowTest.ShowAndWaitForContentRendered(window);
+            windowTest.ShowAndWaitForContentRendered(view);
 
             Dictionary<string, CheckBox> checkBoxes = FindDescendants<CheckBox>(view)
                 .Select(checkBox =>
@@ -390,6 +405,11 @@ public sealed class PlaylistSummaryBulkEditTests
             ignore_folder_output = ignoreFolderOutput,
             entry_type = entryUnitType
         };
+    }
+
+    private sealed class PlaylistPropertyDateFixture
+    {
+        public DateTime last_update { get; } = new(2024, 1, 2, 3, 4, 5);
     }
 
     private static IReadOnlyList<(LR2SongDBExtended.playlist.CustomFolderType Type, string BulkProperty, string DefaultProperty, string Label)> GetCustomFolderOptionContracts()
