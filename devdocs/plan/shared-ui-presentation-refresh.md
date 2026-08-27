@@ -137,6 +137,12 @@ Verification:
 - required base-red/head-pass and menu/exception/scale mutants
 - `git diff --check`
 
+Unit B evidence:
+
+- Base semantic red `tests-quick-20260828-022021`: 23/30 passed; the seven intended failures covered the four duplicate native margins, Release Notes typography, Bulk initial/minimum width mismatch, and large-font Load URI containment.
+- Head combined Quick `tests-quick-20260828-030944`: 31/31 passed; Settings edge `tests-quick-20260828-030901`: 1/1 passed.
+- Targeted mutants for a custom Release Notes menu, Georgia typography, disabled selection, duplicate Release Notes margin, native/overlay misclassification, fixed Load URI input/outer heights, and fixed/non-resizable Bulk sizing each failed the intended contract and were restored.
+
 ### Unit C — Playlist Property redesign
 
 Dependency: Unit A must be integrated first.
@@ -159,6 +165,12 @@ Verification:
 - focused Quick for Property/Bulk semantic presentation, canonical navigation interaction, and actual modal reopen/lifecycle
 - legacy navigation base-red plus keyboard/Automation/inventory/gate/draft targeted mutants
 - `git diff --check`
+
+Unit C evidence:
+
+- Base semantic red `tests-quick-20260828-032655`: the legacy property layout failed the three intended top-navigation integration contracts.
+- Head combined Quick `tests-quick-20260828-040027`: 24/24 passed across property presentation, actual MainWindow reopen/lifecycle, and generic dialog role validation.
+- Targeted mutants for multiple selection, missing selection indicator, missing scroll reset, broken availability gating, and the wrong ordinary-ListBox role each failed the intended contract and were restored.
 
 ## Dependency, parallelism, and review
 

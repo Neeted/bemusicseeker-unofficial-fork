@@ -610,7 +610,7 @@ public sealed class DialogPresentationTests
         AssertCanonicalControlRole<ComboBox>(presentationRoot, "ComboBox", "App.Canonical.ComboBoxStyle");
         AssertCanonicalControlRole<CheckBox>(presentationRoot, "CheckBox", "App.Canonical.CheckBoxStyle");
         AssertCanonicalControlRole<RadioButton>(presentationRoot, "RadioButton", "App.Canonical.RadioButtonStyle");
-        AssertCanonicalControlRole<ListBox>(presentationRoot, "ListBox", "App.Canonical.ListBoxStyle");
+        AssertCanonicalListBoxRoles(presentationRoot);
         AssertCanonicalControlRole<GroupBox>(presentationRoot, "GroupBox", "App.Canonical.GroupBoxStyle");
         AssertCanonicalControlRole<Label>(presentationRoot, "Label", "App.Canonical.LabelStyle");
         AssertCanonicalControlRole<ScrollViewer>(presentationRoot, "ScrollViewer", "App.Canonical.ScrollViewerStyle");
@@ -883,17 +883,64 @@ public sealed class DialogPresentationTests
         foreach (T control in FindVisualDescendants<T>(presentationRoot).Where(item => item.TemplatedParent == null))
         {
             Style resolvedStyle = RequireStyle(control, canonicalStyleKey);
-            Assert.IsNotNull(
-                control.Style,
-                $"Every {controlName} in the dialog must have an explicit canonical control role.");
-            Assert.IsTrue(
-                StyleChainContains(control.Style, resolvedStyle),
-                $"{controlName} must derive from {canonicalStyleKey}.");
-            ControlTemplate expectedTemplate = GetEffectiveStyleValue<ControlTemplate>(resolvedStyle, Control.TemplateProperty);
-            ControlTemplate actualTemplate = GetEffectiveStyleValue<ControlTemplate>(control.Style, Control.TemplateProperty);
-            Assert.IsNotNull(expectedTemplate, $"{canonicalStyleKey} must define an effective template.");
-            Assert.AreSame(expectedTemplate, actualTemplate, $"{controlName} must use its canonical effective template.");
+            AssertCanonicalControlRole(control, controlName, canonicalStyleKey, resolvedStyle);
         }
+    }
+
+    private static void AssertCanonicalListBoxRoles(FrameworkElement presentationRoot)
+    {
+        const string listBoxStyleKey = "App.Canonical.ListBoxStyle";
+        const string topNavigationStyleKey = "App.Canonical.TopNavigationStyle";
+        ListBox[] listBoxes = FindVisualDescendants<ListBox>(presentationRoot)
+            .Where(item => item.TemplatedParent == null)
+            .ToArray();
+        foreach (ListBox listBox in listBoxes)
+        {
+            bool isPropertyNavigation = string.Equals(
+                listBox.Name,
+                "propertyNavigation",
+                StringComparison.Ordinal);
+            Style topNavigationStyle = listBox.TryFindResource(topNavigationStyleKey) as Style;
+            bool isTopNavigation = isPropertyNavigation
+                || topNavigationStyle != null && StyleChainContains(listBox.Style, topNavigationStyle);
+            string canonicalStyleKey = isTopNavigation ? topNavigationStyleKey : listBoxStyleKey;
+            Style resolvedStyle = RequireStyle(listBox, canonicalStyleKey);
+            AssertCanonicalControlRole(
+                listBox,
+                isTopNavigation ? "top-navigation ListBox" : "ListBox",
+                canonicalStyleKey,
+                resolvedStyle);
+            if (isPropertyNavigation)
+            {
+                Assert.AreEqual(
+                    SelectionMode.Single,
+                    listBox.SelectionMode,
+                    "Playlist property top navigation must keep single selection semantics.");
+                Assert.AreEqual(
+                    KeyboardNavigationMode.Continue,
+                    KeyboardNavigation.GetDirectionalNavigation(listBox),
+                    "Playlist property top navigation must expose directional keyboard navigation.");
+            }
+        }
+    }
+
+    private static void AssertCanonicalControlRole<T>(
+        T control,
+        string controlName,
+        string canonicalStyleKey,
+        Style resolvedStyle)
+        where T : Control
+    {
+        Assert.IsNotNull(
+            control.Style,
+            $"Every {controlName} in the dialog must have an explicit canonical control role.");
+        Assert.IsTrue(
+            StyleChainContains(control.Style, resolvedStyle),
+            $"{controlName} must derive from {canonicalStyleKey}.");
+        ControlTemplate expectedTemplate = GetEffectiveStyleValue<ControlTemplate>(resolvedStyle, Control.TemplateProperty);
+        ControlTemplate actualTemplate = GetEffectiveStyleValue<ControlTemplate>(control.Style, Control.TemplateProperty);
+        Assert.IsNotNull(expectedTemplate, $"{canonicalStyleKey} must define an effective template.");
+        Assert.AreSame(expectedTemplate, actualTemplate, $"{controlName} must use its canonical effective template.");
     }
 
     private static Style RequireStyle(FrameworkElement resourceOwner, string key)

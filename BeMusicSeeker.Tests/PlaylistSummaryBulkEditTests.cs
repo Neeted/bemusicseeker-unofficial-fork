@@ -1,12 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -248,6 +254,316 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    public void PlaylistPropertyDialog_TopNavigationKeepsSingleSelectionAndDraftsAcrossCategories()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var fixture = new PlaylistPropertyPresentationFixture
+            {
+                OperationModeLR2DB = true
+            };
+            var view = new PlaylistPropertyDialog
+            {
+                DataContext = fixture,
+                Width = 640,
+                Height = 420
+            };
+
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(view);
+                view.UpdateLayout();
+
+                var navigation = (ListBox)view.FindName("propertyNavigation")
+                    ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
+                var generalPage = (Grid)view.FindName("generalPage");
+                var folderPage = (Grid)view.FindName("folderPage");
+                var customPage = (Grid)view.FindName("customPage");
+                var contentScrollViewer = (ScrollViewer)view.FindName("propertyContentScrollViewer");
+                Assert.IsNotNull(generalPage);
+                Assert.IsNotNull(folderPage);
+                Assert.IsNotNull(customPage);
+                Assert.IsNotNull(contentScrollViewer);
+                Assert.AreEqual(3, navigation.Items.Count);
+                Assert.AreEqual(SelectionMode.Single, navigation.SelectionMode);
+                Assert.AreEqual(0, navigation.SelectedIndex);
+                Assert.AreEqual(Visibility.Visible, generalPage.Visibility);
+                Assert.AreEqual(Visibility.Collapsed, folderPage.Visibility);
+                Assert.AreEqual(Visibility.Collapsed, customPage.Visibility);
+
+                ListBoxItem[] items = Enumerable.Range(0, navigation.Items.Count)
+                    .Select(index => (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(index))
+                    .ToArray();
+                Assert.IsTrue(items.All(item => item != null));
+                foreach (ListBoxItem item in items)
+                {
+                    item.ApplyTemplate();
+                    Assert.IsNotNull(item.Template.FindName("SelectionIndicator", item));
+                    Assert.IsNotNull(item.Template.FindName("FocusBorder", item));
+                }
+                Assert.AreEqual(
+                    Visibility.Visible,
+                    ((Border)items[0].Template.FindName("SelectionIndicator", items[0])).Visibility);
+                Assert.AreEqual(
+                    Visibility.Collapsed,
+                    ((Border)items[1].Template.FindName("SelectionIndicator", items[1])).Visibility);
+
+                TextBox nameEditor = FindBoundElement<TextBox>(
+                    view,
+                    TextBox.TextProperty,
+                    nameof(PlaylistPropertyPresentationFixture.name));
+                nameEditor.Text = "draft playlist";
+                nameEditor.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
+                TestUiDispatcherHost.Drain();
+
+                navigation.SelectedIndex = 2;
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(Visibility.Collapsed, generalPage.Visibility);
+                Assert.AreEqual(Visibility.Collapsed, folderPage.Visibility);
+                Assert.AreEqual(Visibility.Visible, customPage.Visibility);
+                contentScrollViewer.UpdateLayout();
+                Assert.IsTrue(
+                    contentScrollViewer.ScrollableHeight > 0,
+                    "Custom folder content must expose a scrollable viewport for reset coverage.");
+                contentScrollViewer.ScrollToVerticalOffset(contentScrollViewer.ScrollableHeight);
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(contentScrollViewer.VerticalOffset > 0);
+
+                navigation.SelectedIndex = 1;
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(0, contentScrollViewer.VerticalOffset);
+                navigation.SelectedIndex = 0;
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(Visibility.Visible, generalPage.Visibility);
+                Assert.AreEqual("draft playlist", nameEditor.Text);
+                Assert.AreEqual("draft playlist", fixture.name);
+                Assert.AreEqual(0, contentScrollViewer.VerticalOffset);
+
+                view.Activate();
+                Assert.IsTrue(items[0].Focus());
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(
+                    Visibility.Visible,
+                    ((Border)items[0].Template.FindName("FocusBorder", items[0])).Visibility);
+                RaiseKey(items[0], Key.End);
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(2, navigation.SelectedIndex);
+                Assert.IsTrue(items[2].IsKeyboardFocusWithin);
+                RaiseKey(items[2], Key.Home);
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(0, navigation.SelectedIndex);
+                Assert.IsTrue(items[0].IsKeyboardFocusWithin);
+                RaiseKey(items[0], Key.Right);
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(1, navigation.SelectedIndex);
+                Assert.IsTrue(items[1].IsKeyboardFocusWithin);
+                RaiseKey(items[1], Key.Left);
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(0, navigation.SelectedIndex);
+                Assert.IsTrue(items[0].IsKeyboardFocusWithin);
+
+                var navigationPeer = new ListBoxAutomationPeer(navigation);
+                var selectionProvider = (ISelectionProvider)navigationPeer.GetPattern(PatternInterface.Selection);
+                Assert.IsNotNull(selectionProvider);
+                Assert.IsFalse(selectionProvider.CanSelectMultiple);
+                Assert.AreEqual(1, selectionProvider.GetSelection().Length);
+                AutomationPeer folderPeer = navigationPeer.GetChildren()![1];
+                var folderSelection = (ISelectionItemProvider)folderPeer.GetPattern(PatternInterface.SelectionItem);
+                Assert.IsNotNull(folderSelection);
+                folderSelection.Select();
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(1, navigation.SelectedIndex);
+                Assert.IsTrue(folderSelection.IsSelected);
+            }
+            finally
+            {
+                view.CloseForOwnerShutdown();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaylistPropertyDialog_PreservesInventoryBindingsAndAvailabilityGates()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var fixture = new PlaylistPropertyPresentationFixture
+            {
+                OperationModeLR2DB = true
+            };
+            var view = new PlaylistPropertyDialog
+            {
+                DataContext = fixture,
+                Width = 640,
+                Height = 520
+            };
+
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(view);
+                view.UpdateLayout();
+
+                foreach (string path in new[]
+                {
+                    nameof(PlaylistPropertyPresentationFixture.name),
+                    nameof(PlaylistPropertyPresentationFixture.symbol),
+                    nameof(PlaylistPropertyPresentationFixture.compat_prefix),
+                    nameof(PlaylistPropertyPresentationFixture.Page_url),
+                    nameof(PlaylistPropertyPresentationFixture.Header_url),
+                    nameof(PlaylistPropertyPresentationFixture.Data_url),
+                    nameof(PlaylistPropertyPresentationFixture.output_dir)
+                })
+                {
+                    TextBox editor = FindBoundElement<TextBox>(view, TextBox.TextProperty, path);
+                    AssertEffectiveTwoWayBinding(editor, TextBox.TextProperty, path);
+                }
+
+                ComboBox entryType = FindBoundElement<ComboBox>(
+                    view,
+                    Selector.SelectedItemProperty,
+                    nameof(PlaylistPropertyPresentationFixture.entry_type));
+                AssertEffectiveTwoWayBinding(entryType, Selector.SelectedItemProperty, nameof(PlaylistPropertyPresentationFixture.entry_type));
+                Assert.IsNotNull(FindBoundElement<ComboBox>(
+                    view,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.entry_type_list)));
+                Assert.IsNotNull(FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_external_sync)));
+
+                ComboBox sortKey = FindBoundElement<ComboBox>(
+                    view,
+                    Selector.SelectedItemProperty,
+                    nameof(PlaylistPropertyPresentationFixture.folder_sort_key));
+                AssertEffectiveTwoWayBinding(sortKey, Selector.SelectedItemProperty, nameof(PlaylistPropertyPresentationFixture.folder_sort_key));
+                Assert.IsNotNull(FindBoundElement<ComboBox>(
+                    view,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.folder_sort_key_list)));
+                Assert.IsNotNull(FindBoundElement<ListBox>(
+                    view,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.folder_order)));
+                Assert.IsTrue(FindDescendants<RadioButton>(view).Count(button =>
+                    BindingOperations.GetBindingBase(button, ToggleButton.IsCheckedProperty) is Binding binding
+                    && binding.Path?.Path == nameof(PlaylistPropertyPresentationFixture.folder_sort_ascending)) >= 2);
+                CheckBox autoSort = FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_auto_folder_sort));
+
+                ComboBox outputBase = FindBoundElement<ComboBox>(
+                    view,
+                    Selector.SelectedItemProperty,
+                    nameof(PlaylistPropertyPresentationFixture.custom_folder_output_base_option));
+                AssertEffectiveTwoWayBinding(outputBase, Selector.SelectedItemProperty, nameof(PlaylistPropertyPresentationFixture.custom_folder_output_base_option));
+                Assert.IsNotNull(FindBoundElement<ComboBox>(
+                    view,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.OutputBaseOptions)));
+                AssertEffectiveTwoWayBinding(
+                    FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_root_folder)),
+                    nameof(PlaylistPropertyPresentationFixture.is_root_folder));
+
+                string[] customFolderTypes =
+                [
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.UserFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.RandomFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder),
+                    nameof(LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder)
+                ];
+                CheckBox[] outputCheckBoxes = FindDescendants<CheckBox>(view)
+                    .Where(checkBox => BindingOperations.GetBindingBase(
+                            checkBox,
+                            ToggleButton.IsCheckedProperty) is Binding binding
+                        && binding.ConverterParameter is string)
+                    .ToArray();
+                CollectionAssert.AreEquivalent(
+                    customFolderTypes,
+                    outputCheckBoxes.Select(checkBox =>
+                    {
+                        Binding binding = (Binding)BindingOperations.GetBindingBase(
+                            checkBox,
+                            ToggleButton.IsCheckedProperty)!;
+                        return (string)binding.ConverterParameter;
+                    }).ToArray());
+                foreach (CheckBox checkBox in outputCheckBoxes)
+                {
+                    Binding binding = (Binding)BindingOperations.GetBindingBase(checkBox, ToggleButton.IsCheckedProperty)!;
+                    AssertEffectiveTwoWayBinding(checkBox, binding.ConverterParameter as string ?? "custom folder output");
+                    Binding? tooltipBinding = BindingOperations.GetBindingBase(
+                        checkBox,
+                        ToolTipService.ToolTipProperty) as Binding;
+                    Assert.IsNotNull(tooltipBinding);
+                    Assert.IsTrue(
+                        (tooltipBinding.Path?.Path ?? string.Empty).EndsWith("_tooltip", StringComparison.Ordinal),
+                        $"Missing semantic tooltip binding for {binding.ConverterParameter}.");
+                }
+
+                ListBox navigation = (ListBox)view.FindName("propertyNavigation");
+                ListBoxItem customNavigationItem = (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(2);
+                Assert.IsTrue(customNavigationItem.IsEnabled);
+                fixture.OperationModeLR2DB = false;
+                TestUiDispatcherHost.Drain();
+                Assert.IsFalse(customNavigationItem.IsEnabled);
+                fixture.OperationModeLR2DB = true;
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(customNavigationItem.IsEnabled);
+
+                CheckBox externalSync = FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_external_sync));
+                TextBox pageUrl = FindBoundElement<TextBox>(
+                    view,
+                    TextBox.TextProperty,
+                    nameof(PlaylistPropertyPresentationFixture.Page_url));
+                Assert.IsTrue(pageUrl.IsEnabled);
+                externalSync.IsChecked = true;
+                externalSync.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
+                TestUiDispatcherHost.Drain();
+                Assert.IsFalse(pageUrl.IsEnabled);
+                externalSync.IsChecked = false;
+                externalSync.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(pageUrl.IsEnabled);
+
+                Button moveUp = FindButtonByAutomationId(view, "PlaylistPropertyFolderMoveUp");
+                Button moveDown = FindButtonByAutomationId(view, "PlaylistPropertyFolderMoveDown");
+                Assert.IsTrue(moveUp.IsEnabled);
+                Assert.IsTrue(moveDown.IsEnabled);
+                autoSort.IsChecked = true;
+                autoSort.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
+                TestUiDispatcherHost.Drain();
+                Assert.IsFalse(moveUp.IsEnabled);
+                Assert.IsFalse(moveDown.IsEnabled);
+                autoSort.IsChecked = false;
+                autoSort.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
+                TestUiDispatcherHost.Drain();
+
+                entryType.SelectedItem = Resources.Folder;
+                entryType.GetBindingExpression(Selector.SelectedItemProperty)!.UpdateSource();
+                TestUiDispatcherHost.Drain();
+                CheckBox levelFolder = outputCheckBoxes.Single(checkBox =>
+                    string.Equals(
+                        (string?)((Binding)BindingOperations.GetBindingBase(checkBox, ToggleButton.IsCheckedProperty)!).ConverterParameter,
+                        nameof(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder),
+                        StringComparison.Ordinal));
+                Assert.IsFalse(levelFolder.IsEnabled);
+                entryType.SelectedItem = Resources.File;
+                entryType.GetBindingExpression(Selector.SelectedItemProperty)!.UpdateSource();
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(levelFolder.IsEnabled);
+            }
+            finally
+            {
+                view.CloseForOwnerShutdown();
+            }
+        });
+    }
+
+    [TestMethod]
     public void PlaylistSummaryBulkEditDialog_BindsAllCustomFolderOptionsTwoWayAndLocalized()
     {
         var settings = new Settings
@@ -412,6 +728,146 @@ public sealed class PlaylistSummaryBulkEditTests
         public DateTime last_update { get; } = new(2024, 1, 2, 3, 4, 5);
     }
 
+    private sealed class PlaylistPropertyPresentationFixture : INotifyPropertyChanged
+    {
+        private bool operationModeLr2Db;
+        private bool isExternalSync;
+        private bool isAutoFolderSort;
+        private bool isRootFolder;
+        private bool folderSortAscending = true;
+        private LR2SongDBExtended.playlist.EntryUnitType entryType = LR2SongDBExtended.playlist.EntryUnitType.File;
+        private LR2SongDBExtended.playlist.CustomFolderSortType folderSortKey;
+        private LR2SongDBExtended.playlist.CustomFolderType ignoreFolderOutput;
+        private string nameValue = "Presentation playlist";
+        private string symbolValue = "P";
+        private string compatPrefix = "★";
+        private string outputDirectory = "presentation-playlist";
+        private Uri pageUrl = new("https://example.invalid/page", UriKind.Absolute);
+        private Uri headerUrl = new("https://example.invalid/header", UriKind.Absolute);
+        private Uri dataUrl = new("https://example.invalid/data", UriKind.Absolute);
+        private PlaylistCustomFolderOutputBaseOption outputBaseOption = new("Default", null);
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public bool OperationModeLR2DB
+        {
+            get => operationModeLr2Db;
+            set => SetField(ref operationModeLr2Db, value);
+        }
+
+        public bool is_external_sync
+        {
+            get => isExternalSync;
+            set => SetField(ref isExternalSync, value);
+        }
+
+        public bool is_auto_folder_sort
+        {
+            get => isAutoFolderSort;
+            set => SetField(ref isAutoFolderSort, value);
+        }
+
+        public bool is_root_folder
+        {
+            get => isRootFolder;
+            set => SetField(ref isRootFolder, value);
+        }
+
+        public bool folder_sort_ascending
+        {
+            get => folderSortAscending;
+            set => SetField(ref folderSortAscending, value);
+        }
+
+        public LR2SongDBExtended.playlist.EntryUnitType entry_type
+        {
+            get => entryType;
+            set => SetField(ref entryType, value);
+        }
+
+        public LR2SongDBExtended.playlist.CustomFolderSortType folder_sort_key
+        {
+            get => folderSortKey;
+            set => SetField(ref folderSortKey, value);
+        }
+
+        public LR2SongDBExtended.playlist.CustomFolderType ignore_folder_output
+        {
+            get => ignoreFolderOutput;
+            set => SetField(ref ignoreFolderOutput, value);
+        }
+
+        public string name
+        {
+            get => nameValue;
+            set => SetField(ref nameValue, value);
+        }
+
+        public string symbol
+        {
+            get => symbolValue;
+            set => SetField(ref symbolValue, value);
+        }
+
+        public string compat_prefix
+        {
+            get => compatPrefix;
+            set => SetField(ref compatPrefix, value);
+        }
+
+        public string output_dir
+        {
+            get => outputDirectory;
+            set => SetField(ref outputDirectory, value);
+        }
+
+        public Uri Page_url
+        {
+            get => pageUrl;
+            set => SetField(ref pageUrl, value);
+        }
+
+        public Uri Header_url
+        {
+            get => headerUrl;
+            set => SetField(ref headerUrl, value);
+        }
+
+        public Uri Data_url
+        {
+            get => dataUrl;
+            set => SetField(ref dataUrl, value);
+        }
+
+        public DateTime last_update { get; } = new(2024, 1, 2, 3, 4, 5);
+
+        public IEnumerable<string> entry_type_list => ["ファイル", "フォルダ"];
+
+        public IEnumerable<string> folder_sort_key_list => ["(無し)", "レベル", "タイトル"];
+
+        public ObservableCollection<string> folder_order { get; } = ["Alpha", "Beta", "Gamma"];
+
+        public IReadOnlyList<PlaylistCustomFolderOutputBaseOption> OutputBaseOptions { get; } =
+            [new PlaylistCustomFolderOutputBaseOption("Default", null)];
+
+        public PlaylistCustomFolderOutputBaseOption custom_folder_output_base_option
+        {
+            get => outputBaseOption;
+            set => SetField(ref outputBaseOption, value);
+        }
+
+        private void SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value))
+            {
+                return;
+            }
+
+            field = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+    }
+
     private static IReadOnlyList<(LR2SongDBExtended.playlist.CustomFolderType Type, string BulkProperty, string DefaultProperty, string Label)> GetCustomFolderOptionContracts()
     {
         return
@@ -486,17 +942,61 @@ public sealed class PlaylistSummaryBulkEditTests
 
     private static void AssertEffectiveTwoWayBinding(CheckBox checkBox, string propertyName)
     {
-        BindingExpression binding = checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)
-            ?? throw new AssertFailedException($"Missing IsChecked binding: {propertyName}");
-        Assert.IsTrue(BindingOperations.IsDataBound(checkBox, ToggleButton.IsCheckedProperty), propertyName);
+        AssertEffectiveTwoWayBinding(checkBox, ToggleButton.IsCheckedProperty, propertyName);
+    }
+
+    private static void AssertEffectiveTwoWayBinding(
+        DependencyObject element,
+        DependencyProperty property,
+        string propertyName)
+    {
+        BindingExpression binding = BindingOperations.GetBindingExpression(element, property)
+            ?? throw new AssertFailedException($"Missing binding: {propertyName}");
+        Assert.IsTrue(BindingOperations.IsDataBound(element, property), propertyName);
         BindingMode mode = binding.ParentBinding.Mode;
         bool isEffectiveTwoWay = mode == BindingMode.TwoWay
             || (mode == BindingMode.Default
-                && ((FrameworkPropertyMetadata)ToggleButton.IsCheckedProperty
-                    .GetMetadata(typeof(ToggleButton))).BindsTwoWayByDefault);
+                && ((FrameworkPropertyMetadata)property
+                    .GetMetadata(element.GetType())).BindsTwoWayByDefault);
         Assert.IsTrue(
             isEffectiveTwoWay,
             $"{propertyName} must use an effective TwoWay binding; actual mode was {mode}.");
+    }
+
+    private static T FindBoundElement<T>(
+        DependencyObject root,
+        DependencyProperty property,
+        string path)
+        where T : DependencyObject
+    {
+        return FindDescendants<T>(root)
+            .SingleOrDefault(element =>
+                BindingOperations.GetBindingBase(element, property) is Binding binding
+                && string.Equals(binding.Path?.Path, path, StringComparison.Ordinal))
+            ?? throw new AssertFailedException($"Missing binding '{path}' on {typeof(T).Name}.");
+    }
+
+    private static CheckBox FindBoundCheckBox(DependencyObject root, string path)
+        => FindBoundElement<CheckBox>(root, ToggleButton.IsCheckedProperty, path);
+
+    private static Button FindButtonByAutomationId(DependencyObject root, string automationId)
+    {
+        return FindDescendants<Button>(root)
+            .SingleOrDefault(button => string.Equals(
+                AutomationProperties.GetAutomationId(button),
+                automationId,
+                StringComparison.Ordinal))
+            ?? throw new AssertFailedException($"Missing button '{automationId}'.");
+    }
+
+    private static void RaiseKey(UIElement target, Key key)
+    {
+        PresentationSource source = PresentationSource.FromVisual(target)
+            ?? throw new AssertFailedException("A keyboard target must have a presentation source.");
+        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+        {
+            RoutedEvent = Keyboard.KeyDownEvent
+        });
     }
 
     private static void SetBulkFolderValue(

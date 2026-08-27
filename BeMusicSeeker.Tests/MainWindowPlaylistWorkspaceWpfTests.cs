@@ -48,7 +48,15 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     fixture.Window,
                     summary,
                     row,
-                    "MainWindowPlaylistWorkspaceWpfTests.property-open");
+                    "MainWindowPlaylistWorkspaceWpfTests.property-open",
+                    (dialog, _) =>
+                    {
+                        var navigation = (ListBox)dialog.FindName("propertyNavigation");
+                        navigation.SelectedIndex = 1;
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual(1, navigation.SelectedIndex);
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                    });
                 Assert.AreSame(fixture.Window, first.Owner);
                 Assert.IsFalse(first.OwnerEnabled);
                 Assert.IsInstanceOfType(first.DataContext, typeof(PlaylistPropertyDialogViewModel));
@@ -65,6 +73,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreSame(fixture.Window, reopened.Owner);
                 Assert.IsFalse(reopened.OwnerEnabled);
                 Assert.AreNotSame(first.DataContext, reopened.DataContext);
+                Assert.AreEqual(
+                    0,
+                    ((ListBox)reopened.Window.FindName("propertyNavigation")).SelectedIndex,
+                    "A reopened property dialog must select General without restoring navigation state.");
                 Assert.AreEqual(1, reopened.DataContextDetachCount);
                 Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
                 fixture.ModalPreparation.AssertLatest(reopened.Window, expectedCount: 2);

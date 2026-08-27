@@ -103,6 +103,20 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         StartTerminalOperation(save: false);
     }
 
+    private void PropertyNavigationSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (e.AddedItems.Count == 0 || propertyContentScrollViewer == null)
+        {
+            return;
+        }
+
+        // Each category is a separate draft view in one shared viewport.  Resetting
+        // the viewport at the view boundary prevents the newly selected category
+        // from inheriting the previous category's scroll position.
+        propertyContentScrollViewer.ScrollToTop();
+        propertyContentScrollViewer.ScrollToLeftEnd();
+    }
+
     /// <inheritdoc />
     protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
     {
