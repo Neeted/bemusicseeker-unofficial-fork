@@ -21,6 +21,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -47,7 +48,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     fixture.Window,
                     summary,
                     row,
-                    windowTest,
                     "MainWindowPlaylistWorkspaceWpfTests.property-open");
                 Assert.AreSame(fixture.Window, first.Owner);
                 Assert.IsFalse(first.OwnerEnabled);
@@ -60,7 +60,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     fixture.Window,
                     summary,
                     row,
-                    windowTest,
                     "MainWindowPlaylistWorkspaceWpfTests.property-reopen");
                 Assert.AreSame(fixture.Window, reopened.Owner);
                 Assert.IsFalse(reopened.OwnerEnabled);
@@ -72,7 +71,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     fixture.Window,
                     summary,
                     row,
-                    windowTest,
                     "MainWindowPlaylistWorkspaceWpfTests.bulk-open");
                 Assert.AreSame(fixture.Window, bulk.Owner);
                 Assert.IsFalse(bulk.OwnerEnabled);
@@ -120,7 +118,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     fixture.Window,
                     summary,
                     row,
-                    windowTest,
                     "MainWindowPlaylistWorkspaceWpfTests.bulk-shutdown",
                     (dialog, observation) =>
                     {
@@ -1029,6 +1026,24 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             + 4096d;
     }
 
+    private static UiDialogCoordinator CreateActualRouteDialogService(
+        TestWindowPresentationScope windowTest)
+    {
+        ArgumentNullException.ThrowIfNull(windowTest);
+        return new UiDialogCoordinator(
+            new UiDialogOwnerResolver(),
+            dialogWindow =>
+            {
+                // UiDialogCoordinator invokes this modal scope after creating and owning the
+                // child, immediately before ShowDialog. Keep the real coordinator route while
+                // giving the shared scope its required pre-show non-activating seam.
+                windowTest.PrepareForOwnedPresentation(
+                    dialogWindow,
+                    TestWindowActivation.NonActivating);
+                return UiDialogOwnerResolver.PushActiveModal(dialogWindow);
+            });
+    }
+
     private static ActualMainWindowFixture CreateActualMainWindowFixture(
         TestWindowPresentationScope windowTest)
     {
@@ -1061,6 +1076,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         var lifetime = new RecordingApplicationLifetime();
         var composition = new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
+            playlistWorkspaceDialogService: CreateActualRouteDialogService(windowTest),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: lifetime,
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -1166,7 +1182,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         MainWindow owner,
         CustomTableView summary,
         PlaylistSummaryRow row,
-        TestWindowPresentationScope windowTest,
         string operationName,
         Action<PlaylistPropertyDialog, ModalObservation<PlaylistPropertyDialog>> drive = null)
     {
@@ -1179,7 +1194,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             owner,
             summary,
             row,
-            windowTest,
             commandResourcePath: "Resources.Property",
             operationName,
             drive);
@@ -1189,7 +1203,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         MainWindow owner,
         CustomTableView summary,
         PlaylistSummaryRow row,
-        TestWindowPresentationScope windowTest,
         string operationName,
         Action<PlaylistSummaryBulkEditDialog, ModalObservation<PlaylistSummaryBulkEditDialog>> drive = null)
     {
@@ -1213,7 +1226,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             owner,
             summary,
             row,
-            windowTest,
             commandResourcePath: "Resources.Playlist_summary_bulk_edit",
             operationName,
             drive);
@@ -1223,7 +1235,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         MainWindow owner,
         CustomTableView summary,
         PlaylistSummaryRow row,
-        TestWindowPresentationScope windowTest,
         string commandResourcePath,
         string operationName,
         Action<TWindow, ModalObservation<TWindow>> drive)
