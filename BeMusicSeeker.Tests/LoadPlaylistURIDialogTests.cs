@@ -56,12 +56,6 @@ public sealed class LoadPlaylistURIDialogTests
                         StringComparison.Ordinal))
                     .ToArray();
                 Assert.AreEqual(3, footerButtons.Length);
-                Assert.AreEqual(560d, content.ActualWidth, 0.5d, "The URI overlay content width must remain the requested 560 DIP.");
-                Assert.AreEqual(220d, content.ActualHeight, 0.5d, "The URI overlay content height must remain the requested 220 DIP.");
-                Assert.IsInstanceOfType(
-                    VisualTreeHelper.GetChild(content, 0),
-                    typeof(Grid),
-                    "The URI overlay must use one content surface without a nested duplicate Border surface.");
 
                 foreach (double fontSize in new[] { 12d, 36d })
                 {

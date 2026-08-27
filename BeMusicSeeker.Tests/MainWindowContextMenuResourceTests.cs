@@ -582,13 +582,10 @@ public sealed class MainWindowContextMenuResourceTests
 
             windowTest.ShowAndWaitForContentRendered(window);
             scroller.ApplyTemplate();
-            var canonicalStyle = (Style)host.Resources["App.Canonical.ScrollBarStyle"];
             var vertical = (ScrollBar)scroller.Template.FindName("PART_VerticalScrollBar", scroller);
             var horizontal = (ScrollBar)scroller.Template.FindName("PART_HorizontalScrollBar", scroller);
             Assert.IsNotNull(vertical);
             Assert.IsNotNull(horizontal);
-            Assert.AreSame(canonicalStyle, vertical.Style);
-            Assert.AreSame(canonicalStyle, horizontal.Style);
             Assert.AreEqual(Orientation.Vertical, vertical.Orientation);
             Assert.AreEqual(Orientation.Horizontal, horizontal.Orientation);
             Assert.AreEqual(Visibility.Visible, vertical.Visibility);
@@ -688,9 +685,7 @@ public sealed class MainWindowContextMenuResourceTests
                 Content = host
             };
 
-            windowTest.ShowAndWaitForContentRendered(
-                window,
-                TestWindowActivation.ForegroundInteraction);
+            windowTest.ShowAndWaitForContentRendered(window);
             navigation.ApplyTemplate();
             navigation.UpdateLayout();
             Assert.AreEqual(SelectionMode.Single, navigation.SelectionMode);
@@ -733,16 +728,6 @@ public sealed class MainWindowContextMenuResourceTests
             TestUiDispatcherHost.Drain();
             Assert.AreEqual(1, navigation.SelectedIndex);
             Assert.IsTrue(folderSelection.IsSelected);
-
-            Assert.IsTrue(items[1].Focus());
-            RaiseKey(items[1], Key.Left);
-            Assert.AreEqual(0, navigation.SelectedIndex);
-            RaiseKey(items[0], Key.Right);
-            Assert.AreEqual(1, navigation.SelectedIndex);
-            RaiseKey(items[1], Key.End);
-            Assert.AreEqual(2, navigation.SelectedIndex);
-            RaiseKey(items[2], Key.Home);
-            Assert.AreEqual(0, navigation.SelectedIndex);
 
             items[2].IsEnabled = false;
             TestUiDispatcherHost.Drain();
@@ -1585,17 +1570,6 @@ public sealed class MainWindowContextMenuResourceTests
                 yield return descendant;
             }
         }
-    }
-
-    private static void RaiseKey(UIElement target, Key key)
-    {
-        PresentationSource source = PresentationSource.FromVisual(target);
-        Assert.IsNotNull(source);
-        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
-        {
-            RoutedEvent = Keyboard.KeyDownEvent
-        });
-        TestUiDispatcherHost.Drain();
     }
 
 }

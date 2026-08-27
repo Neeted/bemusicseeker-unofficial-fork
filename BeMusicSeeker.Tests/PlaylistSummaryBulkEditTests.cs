@@ -12,7 +12,6 @@ using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
-using System.Windows.Input;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -274,39 +273,48 @@ public sealed class PlaylistSummaryBulkEditTests
                 windowTest.ShowAndWaitForContentRendered(view);
                 view.UpdateLayout();
 
-                var navigation = (ListBox)view.FindName("propertyNavigation")
+                Selector navigation = (Selector)view.FindName("propertyNavigation")
                     ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
-                var generalPage = (Grid)view.FindName("generalPage");
-                var folderPage = (Grid)view.FindName("folderPage");
-                var customPage = (Grid)view.FindName("customPage");
+                FrameworkElement generalPage = (FrameworkElement)view.FindName("generalPage");
+                FrameworkElement folderPage = (FrameworkElement)view.FindName("folderPage");
+                FrameworkElement customPage = (FrameworkElement)view.FindName("customPage");
                 var contentScrollViewer = (ScrollViewer)view.FindName("propertyContentScrollViewer");
                 Assert.IsNotNull(generalPage);
                 Assert.IsNotNull(folderPage);
                 Assert.IsNotNull(customPage);
                 Assert.IsNotNull(contentScrollViewer);
                 Assert.AreEqual(3, navigation.Items.Count);
-                Assert.AreEqual(SelectionMode.Single, navigation.SelectionMode);
                 Assert.AreEqual(0, navigation.SelectedIndex);
                 Assert.AreEqual(Visibility.Visible, generalPage.Visibility);
                 Assert.AreEqual(Visibility.Collapsed, folderPage.Visibility);
                 Assert.AreEqual(Visibility.Collapsed, customPage.Visibility);
 
-                ListBoxItem[] items = Enumerable.Range(0, navigation.Items.Count)
-                    .Select(index => (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(index))
+                FrameworkElement contentHost = (FrameworkElement)view.FindName("propertyContent")
+                    ?? throw new AssertFailedException("Playlist property content host was not materialized.");
+                Assert.AreNotSame(navigation, contentHost);
+
+                AutomationPeer navigationPeer = UIElementAutomationPeer.CreatePeerForElement(navigation)
+                    ?? throw new AssertFailedException("Playlist property navigation automation was not materialized.");
+                ISelectionProvider selectionProvider = (ISelectionProvider)navigationPeer.GetPattern(PatternInterface.Selection)
+                    ?? throw new AssertFailedException("Playlist property navigation does not expose Selection automation.");
+                Assert.IsFalse(selectionProvider.CanSelectMultiple);
+                Assert.AreEqual(1, selectionProvider.GetSelection().Length);
+                AutomationPeer[] navigationItems = navigationPeer.GetChildren()?.ToArray()
+                    ?? throw new AssertFailedException("Playlist property navigation items were not exposed to Automation.");
+                Assert.AreEqual(navigation.Items.Count, navigationItems.Length);
+                ISelectionItemProvider[] selectionItems = navigationItems
+                    .Select(item => item.GetPattern(PatternInterface.SelectionItem) as ISelectionItemProvider
+                        ?? throw new AssertFailedException("A top-navigation item lacks SelectionItem automation."))
                     .ToArray();
-                Assert.IsTrue(items.All(item => item != null));
-                foreach (ListBoxItem item in items)
-                {
-                    item.ApplyTemplate();
-                    Assert.IsNotNull(item.Template.FindName("SelectionIndicator", item));
-                    Assert.IsNotNull(item.Template.FindName("FocusBorder", item));
-                }
-                Assert.AreEqual(
-                    Visibility.Visible,
-                    ((Border)items[0].Template.FindName("SelectionIndicator", items[0])).Visibility);
-                Assert.AreEqual(
-                    Visibility.Collapsed,
-                    ((Border)items[1].Template.FindName("SelectionIndicator", items[1])).Visibility);
+                Assert.IsTrue(navigationItems.All(item => !string.IsNullOrWhiteSpace(item.GetName())));
+                Assert.AreEqual(1, selectionItems.Count(item => item.IsSelected));
+
+                ISelectionItemProvider alternateSelection = selectionItems.First(item => !item.IsSelected);
+                alternateSelection.Select();
+                TestUiDispatcherHost.Drain();
+                Assert.AreNotEqual(0, navigation.SelectedIndex);
+                Assert.IsTrue(alternateSelection.IsSelected);
+                Assert.AreEqual(1, selectionProvider.GetSelection().Length);
 
                 TextBox nameEditor = FindBoundElement<TextBox>(
                     view,
@@ -338,42 +346,6 @@ public sealed class PlaylistSummaryBulkEditTests
                 Assert.AreEqual("draft playlist", nameEditor.Text);
                 Assert.AreEqual("draft playlist", fixture.name);
                 Assert.AreEqual(0, contentScrollViewer.VerticalOffset);
-
-                view.Activate();
-                Assert.IsTrue(items[0].Focus());
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(
-                    Visibility.Visible,
-                    ((Border)items[0].Template.FindName("FocusBorder", items[0])).Visibility);
-                RaiseKey(items[0], Key.End);
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(2, navigation.SelectedIndex);
-                Assert.IsTrue(items[2].IsKeyboardFocusWithin);
-                RaiseKey(items[2], Key.Home);
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(0, navigation.SelectedIndex);
-                Assert.IsTrue(items[0].IsKeyboardFocusWithin);
-                RaiseKey(items[0], Key.Right);
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(1, navigation.SelectedIndex);
-                Assert.IsTrue(items[1].IsKeyboardFocusWithin);
-                RaiseKey(items[1], Key.Left);
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(0, navigation.SelectedIndex);
-                Assert.IsTrue(items[0].IsKeyboardFocusWithin);
-
-                var navigationPeer = new ListBoxAutomationPeer(navigation);
-                var selectionProvider = (ISelectionProvider)navigationPeer.GetPattern(PatternInterface.Selection);
-                Assert.IsNotNull(selectionProvider);
-                Assert.IsFalse(selectionProvider.CanSelectMultiple);
-                Assert.AreEqual(1, selectionProvider.GetSelection().Length);
-                AutomationPeer folderPeer = navigationPeer.GetChildren()![1];
-                var folderSelection = (ISelectionItemProvider)folderPeer.GetPattern(PatternInterface.SelectionItem);
-                Assert.IsNotNull(folderSelection);
-                folderSelection.Select();
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(1, navigation.SelectedIndex);
-                Assert.IsTrue(folderSelection.IsSelected);
             }
             finally
             {
@@ -423,42 +395,99 @@ public sealed class PlaylistSummaryBulkEditTests
                     Selector.SelectedItemProperty,
                     nameof(PlaylistPropertyPresentationFixture.entry_type));
                 AssertEffectiveTwoWayBinding(entryType, Selector.SelectedItemProperty, nameof(PlaylistPropertyPresentationFixture.entry_type));
-                Assert.IsNotNull(FindBoundElement<ComboBox>(
+                ComboBox entryTypeList = FindBoundElement<ComboBox>(
                     view,
                     ItemsControl.ItemsSourceProperty,
-                    nameof(PlaylistPropertyPresentationFixture.entry_type_list)));
-                Assert.IsNotNull(FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_external_sync)));
+                    nameof(PlaylistPropertyPresentationFixture.entry_type_list));
+                AssertEffectiveOneWayBinding(
+                    entryTypeList,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.entry_type_list));
+                CheckBox externalSync = FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_external_sync));
+                AssertEffectiveTwoWayBinding(externalSync, nameof(PlaylistPropertyPresentationFixture.is_external_sync));
 
                 ComboBox sortKey = FindBoundElement<ComboBox>(
                     view,
                     Selector.SelectedItemProperty,
                     nameof(PlaylistPropertyPresentationFixture.folder_sort_key));
                 AssertEffectiveTwoWayBinding(sortKey, Selector.SelectedItemProperty, nameof(PlaylistPropertyPresentationFixture.folder_sort_key));
-                Assert.IsNotNull(FindBoundElement<ComboBox>(
+                ComboBox sortKeyList = FindBoundElement<ComboBox>(
                     view,
                     ItemsControl.ItemsSourceProperty,
-                    nameof(PlaylistPropertyPresentationFixture.folder_sort_key_list)));
-                Assert.IsNotNull(FindBoundElement<ListBox>(
+                    nameof(PlaylistPropertyPresentationFixture.folder_sort_key_list));
+                AssertEffectiveOneWayBinding(
+                    sortKeyList,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.folder_sort_key_list));
+                ItemsControl folderOrder = FindBoundElement<ItemsControl>(
                     view,
                     ItemsControl.ItemsSourceProperty,
-                    nameof(PlaylistPropertyPresentationFixture.folder_order)));
-                Assert.IsTrue(FindDescendants<RadioButton>(view).Count(button =>
-                    BindingOperations.GetBindingBase(button, ToggleButton.IsCheckedProperty) is Binding binding
-                    && binding.Path?.Path == nameof(PlaylistPropertyPresentationFixture.folder_sort_ascending)) >= 2);
+                    nameof(PlaylistPropertyPresentationFixture.folder_order));
+                AssertEffectiveOneWayBinding(
+                    folderOrder,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.folder_order));
+                RadioButton[] sortOrderButtons = FindDescendants<RadioButton>(view)
+                    .Where(button => BindingOperations.GetBindingBase(button, ToggleButton.IsCheckedProperty) is Binding binding
+                        && binding.Path?.Path == nameof(PlaylistPropertyPresentationFixture.folder_sort_ascending))
+                    .ToArray();
+                Assert.AreEqual(2, sortOrderButtons.Length, "Both ascending and descending order choices must remain bound.");
+                RadioButton ascendingOrder = sortOrderButtons.Single(button =>
+                    ((Binding)BindingOperations.GetBindingBase(button, ToggleButton.IsCheckedProperty)!).Converter is null);
+                RadioButton descendingOrder = sortOrderButtons.Single(button =>
+                    ((Binding)BindingOperations.GetBindingBase(button, ToggleButton.IsCheckedProperty)!).Converter is not null);
+                AssertEffectiveTwoWayBinding(
+                    ascendingOrder,
+                    ToggleButton.IsCheckedProperty,
+                    "ascending folder order");
+                AssertEffectiveTwoWayBinding(
+                    descendingOrder,
+                    ToggleButton.IsCheckedProperty,
+                    "descending folder order");
                 CheckBox autoSort = FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_auto_folder_sort));
+                AssertEffectiveTwoWayBinding(autoSort, nameof(PlaylistPropertyPresentationFixture.is_auto_folder_sort));
 
                 ComboBox outputBase = FindBoundElement<ComboBox>(
                     view,
                     Selector.SelectedItemProperty,
                     nameof(PlaylistPropertyPresentationFixture.custom_folder_output_base_option));
                 AssertEffectiveTwoWayBinding(outputBase, Selector.SelectedItemProperty, nameof(PlaylistPropertyPresentationFixture.custom_folder_output_base_option));
-                Assert.IsNotNull(FindBoundElement<ComboBox>(
+                ComboBox outputBaseList = FindBoundElement<ComboBox>(
                     view,
                     ItemsControl.ItemsSourceProperty,
-                    nameof(PlaylistPropertyPresentationFixture.OutputBaseOptions)));
+                    nameof(PlaylistPropertyPresentationFixture.OutputBaseOptions));
+                AssertEffectiveOneWayBinding(
+                    outputBaseList,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.OutputBaseOptions));
                 AssertEffectiveTwoWayBinding(
                     FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_root_folder)),
                     nameof(PlaylistPropertyPresentationFixture.is_root_folder));
+
+                TextBlock updateDate = FindBoundElement<TextBlock>(
+                    view,
+                    TextBlock.TextProperty,
+                    nameof(PlaylistPropertyPresentationFixture.last_update));
+                AssertEffectiveOneWayBinding(
+                    updateDate,
+                    TextBlock.TextProperty,
+                    nameof(PlaylistPropertyPresentationFixture.last_update));
+                foreach (TextBlock infoText in FindDescendants<TextBlock>(view)
+                    .Where(textBlock => BindingOperations.GetBindingBase(textBlock, TextBlock.TextProperty) is Binding))
+                {
+                    AssertEffectiveOneWayBinding(
+                        infoText,
+                        TextBlock.TextProperty,
+                        $"informational text '{((Binding)BindingOperations.GetBindingBase(infoText, TextBlock.TextProperty)!).Path?.Path}'");
+                }
+                foreach (ContentControl infoContent in FindDescendants<ContentControl>(view)
+                    .Where(contentControl => BindingOperations.GetBindingBase(contentControl, ContentControl.ContentProperty) is Binding))
+                {
+                    AssertEffectiveOneWayBinding(
+                        infoContent,
+                        ContentControl.ContentProperty,
+                        $"informational content '{((Binding)BindingOperations.GetBindingBase(infoContent, ContentControl.ContentProperty)!).Path?.Path}'");
+                }
 
                 string[] customFolderTypes =
                 [
@@ -499,13 +528,22 @@ public sealed class PlaylistSummaryBulkEditTests
                         checkBox,
                         ToolTipService.ToolTipProperty) as Binding;
                     Assert.IsNotNull(tooltipBinding);
+                    AssertEffectiveOneWayBinding(
+                        checkBox,
+                        ToolTipService.ToolTipProperty,
+                        $"tooltip for {binding.ConverterParameter}");
                     Assert.IsTrue(
                         (tooltipBinding.Path?.Path ?? string.Empty).EndsWith("_tooltip", StringComparison.Ordinal),
                         $"Missing semantic tooltip binding for {binding.ConverterParameter}.");
                 }
 
-                ListBox navigation = (ListBox)view.FindName("propertyNavigation");
-                ListBoxItem customNavigationItem = (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(2);
+                Selector navigation = (Selector)view.FindName("propertyNavigation");
+                UIElement customNavigationItem = navigation.ItemContainerGenerator.ContainerFromIndex(2) as UIElement
+                    ?? throw new AssertFailedException("Custom Folder navigation item was not materialized.");
+                AssertEffectiveOneWayBinding(
+                    customNavigationItem,
+                    UIElement.IsEnabledProperty,
+                    "Custom Folder navigation availability");
                 Assert.IsTrue(customNavigationItem.IsEnabled);
                 fixture.OperationModeLR2DB = false;
                 TestUiDispatcherHost.Drain();
@@ -514,7 +552,6 @@ public sealed class PlaylistSummaryBulkEditTests
                 TestUiDispatcherHost.Drain();
                 Assert.IsTrue(customNavigationItem.IsEnabled);
 
-                CheckBox externalSync = FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_external_sync));
                 TextBox pageUrl = FindBoundElement<TextBox>(
                     view,
                     TextBox.TextProperty,
@@ -963,6 +1000,24 @@ public sealed class PlaylistSummaryBulkEditTests
             $"{propertyName} must use an effective TwoWay binding; actual mode was {mode}.");
     }
 
+    private static void AssertEffectiveOneWayBinding(
+        DependencyObject element,
+        DependencyProperty property,
+        string propertyName)
+    {
+        BindingExpression binding = BindingOperations.GetBindingExpression(element, property)
+            ?? throw new AssertFailedException($"Missing binding: {propertyName}");
+        Assert.IsTrue(BindingOperations.IsDataBound(element, property), propertyName);
+        BindingMode mode = binding.ParentBinding.Mode;
+        bool isEffectiveOneWay = mode == BindingMode.OneWay
+            || (mode == BindingMode.Default
+                && !((FrameworkPropertyMetadata)property
+                    .GetMetadata(element.GetType())).BindsTwoWayByDefault);
+        Assert.IsTrue(
+            isEffectiveOneWay,
+            $"{propertyName} must use an effective OneWay binding; actual mode was {mode}.");
+    }
+
     private static T FindBoundElement<T>(
         DependencyObject root,
         DependencyProperty property,
@@ -987,16 +1042,6 @@ public sealed class PlaylistSummaryBulkEditTests
                 automationId,
                 StringComparison.Ordinal))
             ?? throw new AssertFailedException($"Missing button '{automationId}'.");
-    }
-
-    private static void RaiseKey(UIElement target, Key key)
-    {
-        PresentationSource source = PresentationSource.FromVisual(target)
-            ?? throw new AssertFailedException("A keyboard target must have a presentation source.");
-        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
-        {
-            RoutedEvent = Keyboard.KeyDownEvent
-        });
     }
 
     private static void SetBulkFolderValue(

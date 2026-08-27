@@ -172,6 +172,12 @@ Unit C evidence:
 - Head combined Quick `tests-quick-20260828-040027`: 24/24 passed across property presentation, actual MainWindow reopen/lifecycle, and generic dialog role validation.
 - Targeted mutants for multiple selection, missing selection indicator, missing scroll reset, broken availability gating, and the wrong ordinary-ListBox role each failed the intended contract and were restored.
 
+Static-review amendment evidence:
+
+- The first fresh review found no production P0/P1, but rejected five acceptance-direct test-contract issues: non-allowlisted foreground interaction, durable literal Load URI geometry, concrete Property navigation control types, scrollbar style identity, and incomplete binding-direction coverage.
+- The amendment removes those implementation constraints while retaining observable behavior and adds effective TwoWay/OneWay binding-direction checks. A temporary OneWay `is_external_sync` mutant failed the intended oracle and was restored (`tests-quick-20260828-043448`).
+- Amendment head Quick `tests-quick-20260828-043649`: 65/65 passed; `git diff --check` passed.
+
 ## Dependency, parallelism, and review
 
 - Unit A runs first.
