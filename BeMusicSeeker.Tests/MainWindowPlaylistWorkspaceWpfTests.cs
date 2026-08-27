@@ -10,6 +10,7 @@ using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -137,21 +138,16 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         fixture.Window.Close();
                         observation.OwnerCloseWasCanceled = fixture.Window.IsVisible;
                         observation.ShutdownCountBeforeApplyCompletion = fixture.Lifetime.RequestShutdownCount;
-                        void ReleaseApplyAfterOwnerShutdownClose()
+                        void ReleaseApplyAfterOwnerShutdownClose(object sender, EventArgs args)
                         {
-                            if (!dialog.IsOwnerShutdownClose)
-                            {
-                                TestUiDispatcherHost.Dispatcher.BeginInvoke(
-                                    DispatcherPriority.ApplicationIdle,
-                                    new Action(ReleaseApplyAfterOwnerShutdownClose));
-                                return;
-                            }
+                            dialog.Closed -= ReleaseApplyAfterOwnerShutdownClose;
+                            Assert.IsTrue(
+                                dialog.IsOwnerShutdownClose,
+                                "Bulk dialog must close through the owner-shutdown path before the apply lock is released.");
                             observation.ShutdownCountBeforeLockRelease = fixture.Lifetime.RequestShutdownCount;
                             ReleaseApplyWriteBlocker();
                         }
-                        TestUiDispatcherHost.Dispatcher.BeginInvoke(
-                            DispatcherPriority.ApplicationIdle,
-                            new Action(ReleaseApplyAfterOwnerShutdownClose));
+                        dialog.Closed += ReleaseApplyAfterOwnerShutdownClose;
                     });
 
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
@@ -1017,6 +1013,22 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     private static TaskCompletionSource<object?> NewCompletion()
         => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    private static void ReassertNonActivatingPosition(Window window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        // MainWindow restores its persisted native placement during source initialization,
+        // after the shared presentation scope has prepared the window. Reassert the one-shot
+        // offscreen position after Loaded so that the common policy check observes the actual
+        // MainWindow route without allowing foreground interaction. The extra span tolerates
+        // WPF coordinates being logical pixels while the native restore uses physical pixels.
+        window.Left = SystemParameters.VirtualScreenLeft
+            + (SystemParameters.VirtualScreenWidth * 4d)
+            + 4096d;
+        window.Top = SystemParameters.VirtualScreenTop
+            + (SystemParameters.VirtualScreenHeight * 4d)
+            + 4096d;
+    }
+
     private static ActualMainWindowFixture CreateActualMainWindowFixture(
         TestWindowPresentationScope windowTest)
     {
@@ -1094,9 +1106,19 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             Assert.IsTrue(viewModel.IsInitializationCompleted);
 
             window = new MainWindow(viewModel);
-            windowTest.ShowAndWaitForContentRendered(
-                window,
-                TestWindowActivation.ForegroundInteraction);
+            RoutedEventHandler ensureNonActivatingPosition = (_, _) =>
+                window.Dispatcher.BeginInvoke(
+                    DispatcherPriority.Render,
+                    new Action(() => ReassertNonActivatingPosition(window)));
+            window.Loaded += ensureNonActivatingPosition;
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+            }
+            finally
+            {
+                window.Loaded -= ensureNonActivatingPosition;
+            }
             return new ActualMainWindowFixture(
                 root,
                 viewModel,
@@ -1158,7 +1180,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             summary,
             row,
             windowTest,
-            commandIndex: 6,
+            commandResourcePath: "Resources.Property",
             operationName,
             drive);
     }
@@ -1178,13 +1200,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             viewModel.BmtOutputOption = viewModel.OnOption;
             RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryApplyBmtOutput"));
             dialog.WaitForApplyCompletionAsync().ContinueWith(
-                _ => dialog.Dispatcher.BeginInvoke(
+                _ => observation.CallbackGate.Queue(
                     DispatcherPriority.ApplicationIdle,
-                    new Action(() =>
+                    () =>
                     {
                         observation.VisibleAfterApply = dialog.IsVisible;
                         RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryClose"));
-                    })),
+                    }),
                 TaskScheduler.Default);
         };
         return OpenDialog(
@@ -1192,7 +1214,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             summary,
             row,
             windowTest,
-            commandIndex: 5,
+            commandResourcePath: "Resources.Playlist_summary_bulk_edit",
             operationName,
             drive);
     }
@@ -1202,25 +1224,31 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         CustomTableView summary,
         PlaylistSummaryRow row,
         TestWindowPresentationScope windowTest,
-        int commandIndex,
+        string commandResourcePath,
         string operationName,
         Action<TWindow, ModalObservation<TWindow>> drive)
         where TWindow : Window
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(commandResourcePath);
         var opened = new TaskCompletionSource<ModalObservation<TWindow>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         ModalObservation<TWindow> observation = null;
+        var callbackGate = new DispatcherCallbackGate(owner.Dispatcher);
 
         void ObserveDialog()
         {
+            if (!callbackGate.IsOpen)
+            {
+                return;
+            }
             TWindow dialog = Application.Current.Windows
                 .OfType<TWindow>()
                 .FirstOrDefault(candidate => candidate.IsVisible);
             if (dialog == null)
             {
-                owner.Dispatcher.BeginInvoke(
+                callbackGate.Queue(
                     DispatcherPriority.ApplicationIdle,
-                    new Action(ObserveDialog));
+                    ObserveDialog);
                 return;
             }
 
@@ -1228,28 +1256,36 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 dialog,
                 dialog.Owner,
                 !owner.IsEnabled,
-                dialog.DataContext);
+                dialog.DataContext,
+                callbackGate);
             dialog.DataContextChanged += observation.HandleDataContextChanged;
             drive(dialog, observation);
             opened.TrySetResult(observation);
         }
 
-        ContextMenu menu = (ContextMenu)owner.FindResource("playlistSummaryContextMenu");
-        menu.PlacementTarget = summary;
-        menu.Tag = new CustomTableContextMenuContext(row, 0);
-        MenuItem command = menu.Items.OfType<MenuItem>().ElementAt(commandIndex);
-        owner.Dispatcher.BeginInvoke(
-            DispatcherPriority.ApplicationIdle,
-            new Action(ObserveDialog));
-        RaiseMenuClick(command);
+        try
+        {
+            ContextMenu menu = (ContextMenu)owner.FindResource("playlistSummaryContextMenu");
+            menu.PlacementTarget = summary;
+            menu.Tag = new CustomTableContextMenuContext(row, 0);
+            MenuItem command = FindMenuItemByHeaderBindingPath(menu, commandResourcePath);
+            callbackGate.Queue(
+                DispatcherPriority.ApplicationIdle,
+                ObserveDialog);
+            RaiseMenuClick(command);
 
-        TestUiDispatcherHost.AwaitTaskOnDispatcher(opened.Task, operationName + ".opened");
-        observation = opened.Task.GetAwaiter().GetResult();
-        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-            observation.DataContextDetached.Task,
-            operationName + ".cleanup");
-        observation.Window.DataContextChanged -= observation.HandleDataContextChanged;
-        return observation;
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(opened.Task, operationName + ".opened");
+            observation = opened.Task.GetAwaiter().GetResult();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                observation.DataContextDetached.Task,
+                operationName + ".cleanup");
+            observation.Window.DataContextChanged -= observation.HandleDataContextChanged;
+            return observation;
+        }
+        finally
+        {
+            callbackGate.Close();
+        }
     }
 
     private static Button FindAutomationButton(DependencyObject root, string automationId)
@@ -1261,6 +1297,24 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 StringComparison.Ordinal));
         return button
             ?? throw new AssertFailedException($"Button '{automationId}' was not materialized.");
+    }
+
+    private static MenuItem FindMenuItemByHeaderBindingPath(
+        ItemsControl root,
+        string expectedBindingPath)
+    {
+        MenuItem command = root.Items
+            .OfType<MenuItem>()
+            .SingleOrDefault(item => BindingOperations.GetBindingBase(
+                    item,
+                    HeaderedItemsControl.HeaderProperty) is Binding binding
+                && string.Equals(
+                    binding.Path?.Path,
+                    expectedBindingPath,
+                    StringComparison.Ordinal));
+        return command
+            ?? throw new AssertFailedException(
+                $"Menu item with header binding '{expectedBindingPath}' was not materialized.");
     }
 
     private static IEnumerable<T> FindDescendants<T>(DependencyObject root)
@@ -1333,12 +1387,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             TWindow window,
             Window owner,
             bool ownerEnabled,
-            object dataContext)
+            object dataContext,
+            DispatcherCallbackGate callbackGate)
         {
             Window = window;
             Owner = owner;
             OwnerEnabled = ownerEnabled;
             DataContext = dataContext;
+            CallbackGate = callbackGate;
         }
 
         internal TWindow Window { get; }
@@ -1348,6 +1404,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         internal bool OwnerEnabled { get; }
 
         internal object DataContext { get; }
+
+        internal DispatcherCallbackGate CallbackGate { get; }
 
         internal bool VisibleAfterApply { get; set; }
 
@@ -1373,6 +1431,87 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             }
             DataContextDetachCount++;
             DataContextDetached.TrySetResult(null);
+        }
+    }
+
+    /// <summary>
+    /// Cancels dispatcher callbacks owned by one modal observation and aborts callbacks
+    /// that have not started, so a watchdog or terminal cleanup cannot keep polling alive.
+    /// </summary>
+    private sealed class DispatcherCallbackGate
+    {
+        private readonly Dispatcher dispatcher;
+        private readonly object sync = new();
+        private readonly HashSet<DispatcherOperation> pendingOperations = [];
+        private bool isOpen = true;
+
+        internal DispatcherCallbackGate(Dispatcher dispatcher)
+        {
+            this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        }
+
+        internal bool IsOpen
+        {
+            get
+            {
+                lock (sync)
+                {
+                    return isOpen;
+                }
+            }
+        }
+
+        internal void Queue(DispatcherPriority priority, Action callback)
+        {
+            ArgumentNullException.ThrowIfNull(callback);
+            DispatcherOperation operation = null!;
+            lock (sync)
+            {
+                if (!isOpen)
+                {
+                    return;
+                }
+
+                operation = dispatcher.BeginInvoke(
+                    priority,
+                    new Action(() => Execute(operation, callback)));
+                pendingOperations.Add(operation);
+            }
+        }
+
+        internal void Close()
+        {
+            DispatcherOperation[] operations;
+            lock (sync)
+            {
+                if (!isOpen)
+                {
+                    return;
+                }
+
+                isOpen = false;
+                operations = pendingOperations.ToArray();
+                pendingOperations.Clear();
+            }
+
+            foreach (DispatcherOperation operation in operations)
+            {
+                operation.Abort();
+            }
+        }
+
+        private void Execute(DispatcherOperation operation, Action callback)
+        {
+            lock (sync)
+            {
+                pendingOperations.Remove(operation);
+                if (!isOpen)
+                {
+                    return;
+                }
+            }
+
+            callback();
         }
     }
 
