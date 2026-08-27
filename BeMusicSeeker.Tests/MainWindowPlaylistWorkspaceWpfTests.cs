@@ -59,6 +59,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             ?? throw new AssertFailedException("Playlist property content host was not materialized.");
                         PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
                         AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.General);
+                        Assert.AreSame(
+                            navigationState.ItemsByCategory[PropertyNavigationCategory.General],
+                            navigationState.InitiallySelectedItem,
+                            "The property dialog must capture its initial General provider before category navigation.");
                         Assert.AreEqual(
                             PropertyNavigationCategory.General,
                             IdentifyVisiblePropertyCategory(contentHost));
@@ -92,6 +96,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             reopenedNavigationState,
                             PropertyNavigationCategory.General,
                             "A reopened property dialog must select General without restoring navigation state.");
+                        Assert.AreSame(
+                            reopenedNavigationState.ItemsByCategory[PropertyNavigationCategory.General],
+                            reopenedNavigationState.InitiallySelectedItem,
+                            "A reopened property dialog must capture its newly selected General provider before navigation mutations.");
                         RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
                     });
                 Assert.AreSame(fixture.Window, reopened.Owner);
@@ -1374,28 +1382,49 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         Assert.IsTrue(selectionItems.All(item => !string.IsNullOrWhiteSpace(item.Peer.GetName())));
         Assert.AreEqual(1, selectionItems.Count(item => item.Provider.IsSelected));
         Assert.AreEqual(1, selectionProvider.GetSelection().Length);
-        Assert.AreEqual(
-            PropertyNavigationCategory.General,
-            IdentifyVisiblePropertyCategory(contentHost),
-            "Property navigation must initially expose the General content role.");
+
+        PropertyNavigationItem initiallySelectedItem = selectionItems.Single(item => item.Provider.IsSelected);
+        PropertyNavigationCategory initialCategory = IdentifyVisiblePropertyCategory(contentHost);
 
         var itemsByCategory = new Dictionary<PropertyNavigationCategory, PropertyNavigationItem>();
+        Assert.IsTrue(
+            itemsByCategory.TryAdd(initialCategory, initiallySelectedItem),
+            "The initially selected property provider must map to one observable content role.");
         foreach (PropertyNavigationItem item in selectionItems)
         {
+            if (ReferenceEquals(item, initiallySelectedItem))
+            {
+                continue;
+            }
+
             PropertyNavigationCategory category;
-            try
+            if (!item.Peer.IsEnabled())
+            {
+                AssertAuthorityDefinedCustomFolderAvailability(navigation, item.Peer);
+                PropertyNavigationItem selectedBeforeAttempt = selectionItems.Single(candidate => candidate.Provider.IsSelected);
+                bool rejected = false;
+                try
+                {
+                    item.Provider.Select();
+                }
+                catch (ElementNotEnabledException)
+                {
+                    rejected = true;
+                }
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(
+                    rejected || !item.Provider.IsSelected,
+                    "A disabled property navigation provider must reject Automation selection.");
+                Assert.IsTrue(
+                    selectedBeforeAttempt.Provider.IsSelected,
+                    "A rejected disabled property navigation selection must leave the current category selected.");
+                category = PropertyNavigationCategory.CustomFolder;
+            }
+            else
             {
                 item.Provider.Select();
                 TestUiDispatcherHost.Drain();
                 category = IdentifyVisiblePropertyCategory(contentHost);
-            }
-            catch (ElementNotEnabledException)
-            {
-                Assert.AreEqual(
-                    Resources.Custom_folder,
-                    item.Peer.GetName(),
-                    "Only the authority-defined Custom Folder navigation item may be disabled.");
-                category = PropertyNavigationCategory.CustomFolder;
             }
 
             Assert.IsTrue(
@@ -1404,9 +1433,17 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         }
 
         Assert.AreEqual(3, itemsByCategory.Count, "Property navigation categories must map to unique observable content roles.");
-        itemsByCategory[PropertyNavigationCategory.General].Provider.Select();
+        Assert.AreEqual(
+            PropertyNavigationCategory.General,
+            initialCategory,
+            "The SelectionItem provider captured before any mutation must map to the General content role.");
+        Assert.AreSame(
+            initiallySelectedItem,
+            itemsByCategory[PropertyNavigationCategory.General],
+            "The captured initial SelectionItem must be the provider mapped to General.");
+        initiallySelectedItem.Provider.Select();
         TestUiDispatcherHost.Drain();
-        return new PropertyNavigationObservation(selectionProvider, itemsByCategory);
+        return new PropertyNavigationObservation(selectionProvider, itemsByCategory, initiallySelectedItem);
     }
 
     private static PropertyNavigationItem CreatePropertyNavigationItem(AutomationPeer peer)
@@ -1477,6 +1514,35 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         return false;
     }
 
+    private static void AssertAuthorityDefinedCustomFolderAvailability(
+        FrameworkElement navigation,
+        AutomationPeer expectedProvider)
+    {
+        FrameworkElement[] availabilityHosts = FindDescendants<FrameworkElement>(navigation)
+            .Where(element => HasBindingPath(
+                element,
+                nameof(PlaylistPropertyDialogViewModel.OperationModeLR2DB)))
+            .ToArray();
+        Assert.AreEqual(
+            1,
+            availabilityHosts.Length,
+            "The conditionally available property category must expose one authority-backed availability binding.");
+        Assert.IsFalse(
+            availabilityHosts[0].IsEnabled,
+            "The authority-backed custom-folder availability binding must be disabled for a rejected provider.");
+        AutomationPeer availabilityPeer = UIElementAutomationPeer.CreatePeerForElement(availabilityHosts[0])
+            ?? throw new AssertFailedException(
+                "The authority-backed custom-folder availability host must expose the disabled SelectionItem provider.");
+        Assert.AreEqual(
+            expectedProvider.GetAutomationControlType(),
+            availabilityPeer.GetAutomationControlType(),
+            "The disabled provider must retain the authority-backed custom-folder Automation role.");
+        Assert.AreEqual(
+            expectedProvider.GetBoundingRectangle(),
+            availabilityPeer.GetBoundingRectangle(),
+            "The disabled provider must be the authority-backed custom-folder navigation role.");
+    }
+
     private enum PropertyNavigationCategory
     {
         General,
@@ -1490,7 +1556,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private sealed record PropertyNavigationObservation(
         ISelectionProvider SelectionProvider,
-        IReadOnlyDictionary<PropertyNavigationCategory, PropertyNavigationItem> ItemsByCategory);
+        IReadOnlyDictionary<PropertyNavigationCategory, PropertyNavigationItem> ItemsByCategory,
+        PropertyNavigationItem InitiallySelectedItem);
 
     private static MenuItem FindMenuItemByHeaderBindingPath(
         ItemsControl root,

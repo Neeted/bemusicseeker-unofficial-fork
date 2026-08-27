@@ -493,18 +493,6 @@ public sealed class SettingsForegroundInteractionTests
                 var horizontalTrack = (Track)horizontalScrollBar.Template.FindName("PART_Track", horizontalScrollBar);
                 Assert.IsNotNull(horizontalTrack);
                 Assert.AreEqual(Orientation.Horizontal, horizontalTrack.Orientation);
-                Assert.AreSame(
-                    ScrollBar.LineLeftCommand,
-                    ((RepeatButton)horizontalScrollBar.Template.FindName("LineLeftButton", horizontalScrollBar)).Command);
-                Assert.AreSame(
-                    ScrollBar.LineRightCommand,
-                    ((RepeatButton)horizontalScrollBar.Template.FindName("LineRightButton", horizontalScrollBar)).Command);
-                Assert.AreSame(
-                    ScrollBar.PageLeftCommand,
-                    ((RepeatButton)horizontalTrack.DecreaseRepeatButton).Command);
-                Assert.AreSame(
-                    ScrollBar.PageRightCommand,
-                    ((RepeatButton)horizontalTrack.IncreaseRepeatButton).Command);
                 var scrollPeer = new ScrollViewerAutomationPeer(pageScroller);
                 var scrollProvider = (IScrollProvider)scrollPeer.GetPattern(PatternInterface.Scroll);
                 Assert.IsNotNull(scrollProvider);
@@ -521,6 +509,10 @@ public sealed class SettingsForegroundInteractionTests
                 PumpDispatcher(window.Dispatcher);
                 Assert.IsTrue(pageScroller.HorizontalOffset > initialHorizontalOffset);
                 Assert.AreEqual(pageScroller.HorizontalOffset, horizontalScrollBar.Value, 0.01d);
+                AssertMaterializedScrollViewerConsumer(
+                    pageScroller,
+                    Orientation.Horizontal,
+                    "Representative ScrollViewer horizontal content");
                 verticalScrollBar.IsEnabled = false;
                 PumpDispatcher(window.Dispatcher);
                 Assert.IsTrue(verticalScrollBar.Opacity < 1d);
@@ -747,7 +739,7 @@ public sealed class SettingsForegroundInteractionTests
                 var disabledNavigationChrome = (Border)topNavigationItemsByIndex[2].Template.FindName("NavigationItemChrome", topNavigationItemsByIndex[2]);
                 Assert.IsTrue(disabledNavigationChrome.Opacity < 1d);
                 AutomationPeer disabledNavigationPeer = topNavigationPeer.GetChildren()
-                    .Single(peer => peer.GetName() == "Custom Folder");
+                    .Single(peer => !peer.IsEnabled());
                 var disabledNavigationSelection = (ISelectionItemProvider)disabledNavigationPeer.GetPattern(PatternInterface.SelectionItem);
                 Assert.IsNotNull(disabledNavigationSelection);
                 int selectedBeforeDisabledAttempt = topNavigation.SelectedIndex;
@@ -1546,18 +1538,14 @@ public sealed class SettingsForegroundInteractionTests
             ?? throw new AssertFailedException(consumerName + " scrollbar must materialize PART_Track.");
         Assert.AreEqual(expectedOrientation, track.Orientation, consumerName + " scrollbar track orientation.");
 
-        RepeatButton lineStart;
-        RepeatButton lineEnd;
+        FrameworkElement lineStart;
+        FrameworkElement lineEnd;
         RoutedCommand lineStartCommand;
         RoutedCommand lineEndCommand;
         RoutedCommand pageStartCommand;
         RoutedCommand pageEndCommand;
         if (expectedOrientation == Orientation.Vertical)
         {
-            lineStart = scrollbar.Template.FindName("LineUpButton", scrollbar) as RepeatButton
-                ?? throw new AssertFailedException(consumerName + " vertical scrollbar must expose LineUpButton.");
-            lineEnd = scrollbar.Template.FindName("LineDownButton", scrollbar) as RepeatButton
-                ?? throw new AssertFailedException(consumerName + " vertical scrollbar must expose LineDownButton.");
             lineStartCommand = ScrollBar.LineUpCommand;
             lineEndCommand = ScrollBar.LineDownCommand;
             pageStartCommand = ScrollBar.PageUpCommand;
@@ -1565,24 +1553,16 @@ public sealed class SettingsForegroundInteractionTests
         }
         else
         {
-            lineStart = scrollbar.Template.FindName("LineLeftButton", scrollbar) as RepeatButton
-                ?? throw new AssertFailedException(consumerName + " horizontal scrollbar must expose LineLeftButton.");
-            lineEnd = scrollbar.Template.FindName("LineRightButton", scrollbar) as RepeatButton
-                ?? throw new AssertFailedException(consumerName + " horizontal scrollbar must expose LineRightButton.");
             lineStartCommand = ScrollBar.LineLeftCommand;
             lineEndCommand = ScrollBar.LineRightCommand;
             pageStartCommand = ScrollBar.PageLeftCommand;
             pageEndCommand = ScrollBar.PageRightCommand;
         }
 
-        Assert.AreSame(lineStartCommand, lineStart.Command, consumerName + " line-start command route.");
-        Assert.AreSame(lineEndCommand, lineEnd.Command, consumerName + " line-end command route.");
-        RepeatButton pageStart = track.DecreaseRepeatButton as RepeatButton
-            ?? throw new AssertFailedException(consumerName + " scrollbar must expose its page-start button.");
-        RepeatButton pageEnd = track.IncreaseRepeatButton as RepeatButton
-            ?? throw new AssertFailedException(consumerName + " scrollbar must expose its page-end button.");
-        Assert.AreSame(pageStartCommand, pageStart.Command, consumerName + " page-start command route.");
-        Assert.AreSame(pageEndCommand, pageEnd.Command, consumerName + " page-end command route.");
+        lineStart = FindScrollCommandAffordance(scrollbar, lineStartCommand, consumerName + " line-start");
+        lineEnd = FindScrollCommandAffordance(scrollbar, lineEndCommand, consumerName + " line-end");
+        FrameworkElement pageStart = FindScrollCommandAffordance(track, pageStartCommand, consumerName + " page-start");
+        FrameworkElement pageEnd = FindScrollCommandAffordance(track, pageEndCommand, consumerName + " page-end");
 
         IScrollProvider scrollProvider = (new ScrollViewerAutomationPeer(viewer).GetPattern(PatternInterface.Scroll) as IScrollProvider)
             ?? throw new AssertFailedException(consumerName + " must expose Scroll automation.");
@@ -1615,18 +1595,94 @@ public sealed class SettingsForegroundInteractionTests
             0.01d,
             consumerName + " scrollbar maximum must follow its viewer extent.");
 
+        double lineStartOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
+        InvokeScrollButton(lineStart, consumerName + " line-start");
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        Assert.IsTrue(
+            GetScrollOffset(viewer, expectedOrientation) < lineStartOffset,
+            consumerName + " line-start command must decrease the viewer offset.");
+
+        double lineEndOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
         InvokeScrollButton(lineEnd, consumerName + " line-end");
         TestUiDispatcherHost.Drain();
         viewer.UpdateLayout();
         Assert.IsTrue(
-            (expectedOrientation == Orientation.Vertical ? viewer.VerticalOffset : viewer.HorizontalOffset) >= transitionedOffset,
-            consumerName + " line-end command must route to its viewer.");
+            GetScrollOffset(viewer, expectedOrientation) > lineEndOffset,
+            consumerName + " line-end command must increase the viewer offset.");
+
+        double pageStartOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
         InvokeScrollButton(pageStart, consumerName + " page-start");
         TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        Assert.IsTrue(
+            GetScrollOffset(viewer, expectedOrientation) < pageStartOffset,
+            consumerName + " page-start command must decrease the viewer offset.");
+
+        double pageEndOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
+        InvokeScrollButton(pageEnd, consumerName + " page-end");
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        Assert.IsTrue(
+            GetScrollOffset(viewer, expectedOrientation) > pageEndOffset,
+            consumerName + " page-end command must increase the viewer offset.");
     }
 
-    private static void InvokeScrollButton(RepeatButton button, string description)
+    private static FrameworkElement FindScrollCommandAffordance(
+        DependencyObject root,
+        RoutedCommand command,
+        string description)
     {
+        FrameworkElement[] candidates = FindDescendants<FrameworkElement>(root)
+            .Where(element => element is ICommandSource source && ReferenceEquals(source.Command, command))
+            .ToArray();
+        Assert.AreEqual(
+            1,
+            candidates.Length,
+            description + " must expose exactly one materialized command affordance.");
+        FrameworkElement affordance = candidates[0];
+        AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(affordance)
+            ?? throw new AssertFailedException(description + " command affordance must expose an Automation peer.");
+        Assert.IsNotNull(
+            peer.GetPattern(PatternInterface.Invoke),
+            description + " command affordance must expose Invoke automation.");
+        return affordance;
+    }
+
+    private static double SetScrollOffsetToInterior(
+        ScrollViewer viewer,
+        Orientation orientation,
+        string consumerName)
+    {
+        double maximum = orientation == Orientation.Vertical
+            ? viewer.ScrollableHeight
+            : viewer.ScrollableWidth;
+        Assert.IsTrue(maximum > 0d, consumerName + " must expose a positive scroll extent.");
+        double target = maximum / 2d;
+        if (orientation == Orientation.Vertical)
+        {
+            viewer.ScrollToVerticalOffset(target);
+        }
+        else
+        {
+            viewer.ScrollToHorizontalOffset(target);
+        }
+
+        TestUiDispatcherHost.Drain();
+        viewer.UpdateLayout();
+        double offset = GetScrollOffset(viewer, orientation);
+        Assert.IsTrue(
+            offset > 0d && offset < maximum,
+            consumerName + " must invoke affordances from a proven non-boundary offset.");
+        return offset;
+    }
+
+    private static double GetScrollOffset(ScrollViewer viewer, Orientation orientation)
+        => orientation == Orientation.Vertical ? viewer.VerticalOffset : viewer.HorizontalOffset;
+
+    private static void InvokeScrollButton(FrameworkElement button, string description)
+    {
+        Assert.IsTrue(button.IsEnabled, description + " command affordance must be enabled at the interior offset.");
         AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(button)
             ?? throw new AssertFailedException(description + " button must expose an Automation peer.");
         IInvokeProvider invokeProvider = peer.GetPattern(PatternInterface.Invoke) as IInvokeProvider
