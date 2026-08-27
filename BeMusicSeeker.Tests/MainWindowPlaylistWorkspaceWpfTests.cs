@@ -55,6 +55,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreEqual(1, first.DataContextDetachCount);
                 Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
                 Assert.AreSame(fixture.Table, row.TableRef);
+                fixture.ModalPreparation.AssertLatest(first.Window, expectedCount: 1);
 
                 ModalObservation<PlaylistPropertyDialog> reopened = OpenPropertyDialog(
                     fixture.Window,
@@ -66,6 +67,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreNotSame(first.DataContext, reopened.DataContext);
                 Assert.AreEqual(1, reopened.DataContextDetachCount);
                 Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                fixture.ModalPreparation.AssertLatest(reopened.Window, expectedCount: 2);
 
                 ModalObservation<PlaylistSummaryBulkEditDialog> bulk = OpenBulkDialog(
                     fixture.Window,
@@ -81,6 +83,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.IsTrue(fixture.Table.is_bmt_output);
                 Assert.AreEqual(1, bulk.DataContextDetachCount);
                 Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActiveSummaryBulkEditDialog);
+                fixture.ModalPreparation.AssertLatest(bulk.Window, expectedCount: 3);
             }
             finally
             {
@@ -147,6 +150,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         dialog.Closed += ReleaseApplyAfterOwnerShutdownClose;
                     });
 
+                fixture.ModalPreparation.AssertLatest(shutdown.Window, expectedCount: 1);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     fixture.Lifetime.ShutdownRequested.Task,
                     "MainWindowPlaylistWorkspaceWpfTests.bulk-shutdown.terminal-request");
@@ -1027,9 +1031,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     private static UiDialogCoordinator CreateActualRouteDialogService(
-        TestWindowPresentationScope windowTest)
+        TestWindowPresentationScope windowTest,
+        ModalPreparationRecorder modalPreparation)
     {
         ArgumentNullException.ThrowIfNull(windowTest);
+        ArgumentNullException.ThrowIfNull(modalPreparation);
         return new UiDialogCoordinator(
             new UiDialogOwnerResolver(),
             dialogWindow =>
@@ -1040,6 +1046,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 windowTest.PrepareForOwnedPresentation(
                     dialogWindow,
                     TestWindowActivation.NonActivating);
+                modalPreparation.Record(dialogWindow);
                 return UiDialogOwnerResolver.PushActiveModal(dialogWindow);
             });
     }
@@ -1074,7 +1081,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             IsLR2BackupEnabled = false
         };
         var lifetime = new RecordingApplicationLifetime();
-        UiDialogCoordinator actualRouteDialogService = CreateActualRouteDialogService(windowTest);
+        var modalPreparation = new ModalPreparationRecorder();
+        UiDialogCoordinator actualRouteDialogService = CreateActualRouteDialogService(
+            windowTest,
+            modalPreparation);
         var composition = new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -1145,6 +1155,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 playlist,
                 table,
                 lifetime,
+                modalPreparation,
                 hadPreviousViewModelResource,
                 previousViewModelResource);
         }
@@ -1529,6 +1540,26 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         }
     }
 
+    private sealed class ModalPreparationRecorder
+    {
+        private readonly List<Window> preparedWindows = [];
+
+        internal int Count => preparedWindows.Count;
+
+        internal void Record(Window window)
+        {
+            ArgumentNullException.ThrowIfNull(window);
+            preparedWindows.Add(window);
+        }
+
+        internal void AssertLatest(Window expectedWindow, int expectedCount)
+        {
+            ArgumentNullException.ThrowIfNull(expectedWindow);
+            Assert.AreEqual(expectedCount, Count);
+            Assert.AreSame(expectedWindow, preparedWindows[^1]);
+        }
+    }
+
     private sealed class ActualMainWindowFixture
     {
         internal ActualMainWindowFixture(
@@ -1538,6 +1569,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             TestBmsPlaylist playlist,
             BMSTable table,
             RecordingApplicationLifetime lifetime,
+            ModalPreparationRecorder modalPreparation,
             bool hadPreviousViewModelResource,
             object previousViewModelResource)
         {
@@ -1547,6 +1579,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             Playlist = playlist;
             Table = table;
             Lifetime = lifetime;
+            ModalPreparation = modalPreparation;
             this.hadPreviousViewModelResource = hadPreviousViewModelResource;
             this.previousViewModelResource = previousViewModelResource;
         }
@@ -1562,6 +1595,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         internal BMSTable Table { get; }
 
         internal RecordingApplicationLifetime Lifetime { get; }
+
+        internal ModalPreparationRecorder ModalPreparation { get; }
 
         private readonly bool hadPreviousViewModelResource;
 
