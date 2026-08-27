@@ -80,8 +80,7 @@ public sealed class WpfTestApplicationHostTests
             var settingsWindow = new SettingsWindow();
             Grid settingsOperationRoot = (Grid)settingsWindow.FindName("settingDialogOperationGrid");
             AssertBrush(settingsOperationRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
-            Grid settingsSurface = settingsOperationRoot.Children.OfType<Grid>().Single();
-            AssertBrush(settingsSurface.Background, "App.DialogBackgroundBrush");
+            AssertBrush(settingsWindow.Background, "App.DialogBackgroundBrush");
             var warningField = new SettingsField
             {
                 Header = "header",
@@ -134,18 +133,15 @@ public sealed class WpfTestApplicationHostTests
             var pendingDeleteDialog = new PendingDeleteConfirmDialog();
             AssertBrush(pendingDeleteDialog.Background, "App.DialogBackgroundBrush");
             AssertBrush(pendingDeleteDialog.Foreground, "App.TextBrush");
-            AssertBrush(
-                FindVisualDescendants<Border>(pendingDeleteDialog).Single().Background,
-                "App.DialogBackgroundBrush");
 
             var progressDialog = new ProgressDialog(new ProgressDialogSettings());
             AssertBrush(progressDialog.Background, "App.DialogBackgroundBrush");
             AssertBrush(progressDialog.Foreground, "App.TextBrush");
             Border progressDialogContent = FindElementWithScopedStyle<Border>(
                 progressDialog,
-                "App.Canonical.DialogContentStyle");
-            AssertBrush(progressDialogContent.Background, "App.DialogBackgroundBrush");
-            AssertBrush(progressDialogContent.BorderBrush, "App.DialogBorderBrush");
+                "App.Canonical.NativeWindowContentStyle");
+            Assert.IsNull(progressDialogContent.Background);
+            Assert.IsNull(progressDialogContent.BorderBrush);
         });
     }
 

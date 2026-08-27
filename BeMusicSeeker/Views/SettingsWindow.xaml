@@ -22,9 +22,9 @@
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
   <Grid x:Name="settingDialogRootGrid" IsEnabled="{Binding IsEditCompletionEnabled}">
-    <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
+    <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" Padding="0">
       <Grid x:Name="settingDialogOperationGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
-        <Grid Background="{DynamicResource App.DialogBackgroundBrush}" SnapsToDevicePixels="True">
+        <Grid SnapsToDevicePixels="True">
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="216" />
           <ColumnDefinition Width="1" />

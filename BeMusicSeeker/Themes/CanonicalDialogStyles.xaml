@@ -23,6 +23,16 @@
     <Setter Property="Padding" Value="14" />
   </Style>
 
+  <!-- Native windows receive their outer client surface from ThemedWindow. This role only
+       preserves content spacing and deliberately has no fill, border, or corner radius so
+       a native window cannot grow a second rounded dialog surface inside its client area. -->
+  <Style x:Key="App.Canonical.NativeWindowContentStyle" TargetType="{x:Type Border}" BasedOn="{x:Null}">
+    <Setter Property="Padding" Value="14" />
+    <Setter Property="BorderBrush" Value="{x:Null}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="0" />
+  </Style>
+
   <Style x:Key="App.Canonical.DialogActionStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource App.Canonical.ButtonStyle}" />
   <Style x:Key="App.Canonical.DialogPrimaryActionStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource App.Canonical.PrimaryButtonStyle}" />
   <Style x:Key="App.Canonical.DialogQuietActionStyle" TargetType="{x:Type Button}" BasedOn="{StaticResource App.Canonical.QuietButtonStyle}" />

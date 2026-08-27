@@ -65,6 +65,14 @@ Verification:
 - focused Quick for dialog, Settings, WPF host, theme, LR2 schema UI, and preset/release presentation fixtures
 - `git diff --check`
 
+Implementation evidence:
+
+- Base red (`artifacts/verification/tests-quick-20260827-170459/functional`): 17 focused presentation cases ran; 10 intended semantic failures were recorded (9 native rounded-surface failures for NMS-01 and 1 LR2 lower-content containment failure for NMS-02). The remaining 7 cases passed; compile/setup failures were not counted as red evidence.
+- The implementation assigns `NativeWindowContentStyle` as a padding-only native content role, retains `DialogContentStyle` for MainWindow overlays, makes Settings shell edge ownership explicit, and changes Release Notes, Play History Preset Edit, and LR2 uninstall to content-fit or bounded-scroll presentation.
+- Focused head-pass (`artifacts/verification/tests-quick-20260827-171047/functional`): 87/87 cases passed for the dialog, WPF host, and Settings presentation scope, including rendered native containment and Settings client-edge assertions.
+- Targeted negative controls passed their intended failure checks and were fully reverted: native rounded-wrapper restore failed 1/13 NMS-01 cases (`artifacts/verification/tests-quick-20260827-171624/functional`); LR2 fixed `Height=320` / `MinHeight=300` failed 1/3 NMS-02 cases (`artifacts/verification/tests-quick-20260827-171727/functional`); Release Notes no-scroll (`VerticalScrollBarVisibility=Disabled`) failed 1/3 bounded-scroll cases (`artifacts/verification/tests-quick-20260827-171841/functional`).
+- Final focused Quick (`artifacts/verification/tests-quick-20260827-172239/functional`): 98/98 passed across `DialogPresentationTests`, `WpfTestApplicationHostTests`, `SettingsWindowPresentationTests`, `Lr2PlayHistorySchemaUiTests`, and `NativeWindowThemeContractTests`.
+
 ## Unit 2 — playlist modal windows and date compatibility
 
 Observable outcome:
@@ -110,4 +118,3 @@ Verification:
 - save/reset/apply completion cannot be controlled without copying production logic
 - any proposal changes the exact date format, field/group inventory, close-on-failure behavior, provisional rollback, persistence meaning, or operation-owned state lifetime
 - another fixed-size exception or a fallback dialog route becomes necessary
-

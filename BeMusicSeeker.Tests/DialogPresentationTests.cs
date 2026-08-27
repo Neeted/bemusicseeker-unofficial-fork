@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using BeMusicSeeker.Models.Update;
@@ -71,6 +72,33 @@ public sealed class DialogPresentationTests
         });
     }
 
+    [DataTestMethod]
+    [DataRow("ReleaseNotesWindow")]
+    [DataRow("PlayHistoryFolderDisplayPresetEditDialog")]
+    [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
+    public void NonExceptionNativeWindows_KeepSemanticContentInsideClientBounds(string dialogName)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            PresentationFixture fixture = CreateFixture(dialogName);
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(fixture.HostWindow);
+                fixture.HostWindow.UpdateLayout();
+                AssertNativeSemanticContentReachable(fixture, dialogName);
+            }
+            finally
+            {
+                if (fixture.HostWindow.IsVisible)
+                {
+                    fixture.HostWindow.Close();
+                }
+
+                fixture.Cleanup();
+            }
+        });
+    }
+
     [TestMethod]
     public void ProgressDialog_WithSubLabelAndCancel_RendersContentInsideItsClientBounds()
     {
@@ -93,7 +121,7 @@ public sealed class DialogPresentationTests
             Border content = FindVisualDescendants<Border>(dialog)
                 .Single(border => StyleChainContains(
                     border.Style,
-                    (Style)dialog.FindResource("App.Canonical.DialogContentStyle")));
+                    (Style)dialog.FindResource("App.Canonical.NativeWindowContentStyle")));
             var progressBar = (ProgressBar)dialog.FindName("ProgressBar")!;
             var cancelButton = (Button)dialog.FindName("CancelButton")!;
             var textLabel = (TextBlock)dialog.FindName("TextLabel")!;
@@ -332,14 +360,17 @@ public sealed class DialogPresentationTests
         IEnumerable<Border> contentBorderCandidates = presentationRoot is Border contentRoot
             ? new[] { contentRoot }.Concat(FindVisualDescendants<Border>(presentationRoot))
             : FindVisualDescendants<Border>(presentationRoot);
-        Border[] contentBorders = contentBorderCandidates
-            .Where(border =>
-            {
-                Style contentStyle = border.TryFindResource("App.Canonical.DialogContentStyle") as Style;
-                return contentStyle != null && StyleChainContains(border.Style, contentStyle);
-            })
-            .ToArray();
-        Assert.IsTrue(contentBorders.Length > 0, "The dialog must apply the canonical content role.");
+        if (fixture.RequiresOverlayRole)
+        {
+            Border[] contentBorders = contentBorderCandidates
+                .Where(border =>
+                {
+                    Style contentStyle = border.TryFindResource("App.Canonical.DialogContentStyle") as Style;
+                    return contentStyle != null && StyleChainContains(border.Style, contentStyle);
+                })
+                .ToArray();
+            Assert.IsTrue(contentBorders.Length > 0, "The overlay dialog must apply the canonical content role.");
+        }
 
         Button[] buttons = FindVisualDescendants<Button>(presentationRoot)
             .Where(item => item.TemplatedParent == null)
@@ -412,6 +443,115 @@ public sealed class DialogPresentationTests
         if (fixture.RequiresOverlayRole)
         {
             AssertCanonicalOverlaySurface(presentationRoot);
+        }
+        else
+        {
+            AssertCanonicalNativeContent(presentationRoot);
+        }
+    }
+
+    private static void AssertCanonicalNativeContent(FrameworkElement presentationRoot)
+    {
+        const string nativeContentStyleKey = "App.Canonical.NativeWindowContentStyle";
+        Border[] contentBorderCandidates = (presentationRoot as Border is Border root
+                ? new[] { root }
+                : Array.Empty<Border>())
+            .Concat(FindVisualDescendants<Border>(presentationRoot))
+            .ToArray();
+        Style dialogContentStyle = presentationRoot.TryFindResource("App.Canonical.DialogContentStyle") as Style;
+        if (dialogContentStyle != null)
+        {
+            Assert.IsFalse(
+                contentBorderCandidates.Any(border => StyleChainContains(border.Style, dialogContentStyle)),
+                "A native window must not wrap its client content in the rounded overlay DialogContentStyle.");
+        }
+
+        Style nativeContentStyle = RequireStyle(presentationRoot, nativeContentStyleKey);
+        Border[] nativeContentRoots = contentBorderCandidates
+            .Where(border => StyleChainContains(border.Style, nativeContentStyle))
+            .ToArray();
+        Assert.AreEqual(
+            1,
+            nativeContentRoots.Length,
+            "A native window must have one explicit rectangular content/padding role.");
+
+        Border nativeContentRoot = nativeContentRoots[0];
+        Assert.AreEqual(new Thickness(0), nativeContentRoot.BorderThickness);
+        Assert.AreEqual(new CornerRadius(0), nativeContentRoot.CornerRadius);
+        Assert.IsNull(
+            nativeContentRoot.Background,
+            "ThemedWindow must own the native client surface instead of an inner Border background.");
+    }
+
+    private static void AssertNativeSemanticContentReachable(
+        PresentationFixture fixture,
+        string dialogName)
+    {
+        FrameworkElement root = fixture.PresentationRoot;
+        FrameworkElement[] semanticElements = dialogName switch
+        {
+            "ReleaseNotesWindow" => FindVisualDescendants<FlowDocumentScrollViewer>(root)
+                .Cast<FrameworkElement>()
+                .ToArray(),
+            "PlayHistoryFolderDisplayPresetEditDialog" => FindVisualDescendants<FrameworkElement>(root)
+                .Where(element => element.Visibility == Visibility.Visible
+                    && element.ActualWidth > 0
+                    && element.ActualHeight > 0
+                    && element.TemplatedParent == null
+                    && element is TextBlock or TextBox or GroupBox or ListBox or Button)
+                .ToArray(),
+            "Lr2PlayHistorySchemaUninstallDialog" => FindVisualDescendants<FrameworkElement>(root)
+                .Where(element => element.Visibility == Visibility.Visible
+                    && element.ActualWidth > 0
+                    && element.ActualHeight > 0
+                    && element.TemplatedParent == null
+                    && element is TextBlock or TextBox or GroupBox or RadioButton or Button or ScrollViewer)
+                .ToArray(),
+            _ => throw new ArgumentOutOfRangeException(nameof(dialogName), dialogName, "Unknown reachability fixture."),
+        };
+        Assert.IsTrue(
+            semanticElements.Length > 0,
+            $"{dialogName} must expose rendered semantic content for the containment contract.");
+
+        foreach (FrameworkElement semanticElement in semanticElements)
+        {
+            AssertVisualBoundsInside(root, semanticElement);
+        }
+
+        if (dialogName == "Lr2PlayHistorySchemaUninstallDialog")
+        {
+            Button[] buttons = FindVisualDescendants<Button>(root)
+                .Where(button => button.TemplatedParent == null)
+                .ToArray();
+            Assert.AreEqual(2, buttons.Length, "LR2 uninstall must render both terminal actions.");
+            foreach (Button button in buttons)
+            {
+                AssertVisualBoundsInside(root, button);
+            }
+        }
+
+        if (dialogName == "ReleaseNotesWindow")
+        {
+            FlowDocumentScrollViewer[] releaseNotesViewers = FindVisualDescendants<FlowDocumentScrollViewer>(root)
+                .Where(viewer => viewer.Visibility == Visibility.Visible)
+                .ToArray();
+            Assert.AreEqual(1, releaseNotesViewers.Length, "Release Notes must expose one bounded document viewport.");
+            Assert.AreEqual(
+                ScrollBarVisibility.Auto,
+                releaseNotesViewers[0].VerticalScrollBarVisibility,
+                "Release Notes must keep a reachable vertical viewport for localized document content.");
+        }
+
+        if (dialogName == "PlayHistoryFolderDisplayPresetEditDialog")
+        {
+            ListBox[] presetLists = FindVisualDescendants<ListBox>(root)
+                .Where(list => list.Visibility == Visibility.Visible && list.TemplatedParent == null)
+                .ToArray();
+            Assert.AreEqual(1, presetLists.Length, "The preset editor must expose one playlist selection list.");
+            Assert.AreEqual(
+                ScrollBarVisibility.Auto,
+                ScrollViewer.GetVerticalScrollBarVisibility(presetLists[0]),
+                "The preset playlist list must remain reachable when localized content exceeds its viewport.");
         }
     }
 

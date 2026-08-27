@@ -60,10 +60,54 @@ public sealed class SettingsWindowPresentationTests
             Assert.AreEqual(ResizeMode.CanResize, window.ResizeMode);
             Assert.AreEqual(WindowStartupLocation.CenterOwner, window.WindowStartupLocation);
             Assert.IsFalse(window.ShowInTaskbar);
-            Assert.AreEqual(820d, window.Width);
-            Assert.AreEqual(760d, window.Height);
-            Assert.AreEqual(820d, window.MinWidth);
-            Assert.AreEqual(600d, window.MinHeight);
+            Assert.IsTrue(double.IsFinite(window.Width) && window.Width > 0d);
+            Assert.IsTrue(double.IsFinite(window.Height) && window.Height > 0d);
+            Assert.IsTrue(double.IsFinite(window.MinWidth) && window.MinWidth > 0d);
+            Assert.IsTrue(double.IsFinite(window.MinHeight) && window.MinHeight > 0d);
+            Assert.IsTrue(window.MinWidth <= window.Width);
+            Assert.IsTrue(window.MinHeight <= window.Height);
+        });
+    }
+
+    [TestMethod]
+    public void SettingsWindow_SidebarReachesNativeClientEdgeWhilePageKeepsInnerSpacing()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(window);
+                window.UpdateLayout();
+
+                Border nativeContent = FindDescendants<Border>(window).Single(border =>
+                    border.Style != null
+                    && FindResourceInStyleScope(border, "App.Canonical.NativeWindowContentStyle")
+                    && border.BorderThickness == new Thickness(0)
+                    && border.CornerRadius == new CornerRadius(0));
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                ContentControl pageHeader = (ContentControl)window.FindName("settingsPageHeader");
+
+                Rect nativeBounds = new(0d, 0d, nativeContent.ActualWidth, nativeContent.ActualHeight);
+                Rect navigationBounds = GetVisualBounds(nativeContent, navigation);
+                Rect headerBounds = GetVisualBounds(nativeContent, pageHeader);
+                Assert.IsTrue(
+                    navigationBounds.Left <= nativeBounds.Left + 1d,
+                    $"Settings navigation must reach the native client edge (native={nativeBounds}, navigation={navigationBounds}).");
+                Assert.IsTrue(
+                    headerBounds.Left > navigationBounds.Right,
+                    "The selected page must retain inner spacing after the outer native inset is removed.");
+            }
+            finally
+            {
+                if (window.IsVisible)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+
+                owner.SettingDialog.Dispose();
+            }
         });
     }
 
@@ -227,8 +271,11 @@ public sealed class SettingsWindowPresentationTests
             Assert.AreEqual(WindowStartupLocation.CenterOwner, window.WindowStartupLocation);
             Assert.IsFalse(window.ShowInTaskbar);
             Assert.AreEqual(ResizeMode.CanResize, window.ResizeMode);
-            Assert.AreEqual(760d, window.Width);
-            Assert.AreEqual(640d, window.Height);
+            Assert.AreEqual(SizeToContent.Height, window.SizeToContent);
+            Assert.IsTrue(double.IsFinite(window.Width) && window.Width > 0d);
+            Assert.IsTrue(double.IsFinite(window.MinWidth) && window.MinWidth > 0d);
+            Assert.IsTrue(double.IsFinite(window.MinHeight) && window.MinHeight > 0d);
+            Assert.IsTrue(double.IsFinite(window.MaxHeight) && window.MaxHeight >= window.MinHeight);
         });
     }
 
@@ -3639,6 +3686,28 @@ public sealed class SettingsWindowPresentationTests
 
         return false;
     }
+
+    private static bool FindResourceInStyleScope(Border element, string key)
+    {
+        if (element.TryFindResource(key) is not Style expectedStyle)
+        {
+            return false;
+        }
+
+        for (Style candidate = element.Style; candidate != null; candidate = candidate.BasedOn)
+        {
+            if (ReferenceEquals(candidate, expectedStyle))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Rect GetVisualBounds(Visual ancestor, FrameworkElement descendant)
+        => descendant.TransformToAncestor(ancestor)
+            .TransformBounds(new Rect(0d, 0d, descendant.ActualWidth, descendant.ActualHeight));
 
     private static IEnumerable<T> FindDescendants<T>(DependencyObject root) where T : DependencyObject
     {

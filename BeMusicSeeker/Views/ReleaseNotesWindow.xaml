@@ -5,7 +5,8 @@
              xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
              xmlns:views="clr-namespace:BeMusicSeeker.Views"
              Width="760"
-             Height="640"
+             SizeToContent="Height"
+             MaxHeight="720"
              MinWidth="560"
              MinHeight="420"
              ResizeMode="CanResize"
@@ -20,8 +21,8 @@
 
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
-  <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
-    <FlowDocumentScrollViewer Margin="20" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" MinHeight="320" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsToolBarVisible="False">
+  <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}">
+    <FlowDocumentScrollViewer Margin="20" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" MinHeight="320" MaxHeight="620" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsToolBarVisible="False">
 <FlowDocument FontSize="12" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" PagePadding="12">
 <FrameworkContentElement.Resources>
 <ResourceDictionary>

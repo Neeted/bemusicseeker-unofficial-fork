@@ -6,7 +6,8 @@
         xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
         Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_edit, Mode=OneWay}"
         Width="560"
-        Height="460"
+        SizeToContent="Height"
+        MaxHeight="640"
         MinWidth="480"
         MinHeight="360"
         WindowStartupLocation="CenterOwner"
@@ -21,7 +22,7 @@
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
-  <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
+  <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}">
     <DockPanel Margin="12" LastChildFill="True">
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
       <Button MinWidth="72" Height="24" Margin="0,0,8,0" Style="{StaticResource App.Canonical.DialogPrimaryActionStyle}" Content="OK" AutomationProperties.AutomationId="PlayHistoryPresetSave" Click="SaveAndClose" />
@@ -32,7 +33,7 @@
       <Label Style="{StaticResource App.Canonical.LabelStyle}" DockPanel.Dock="Left" Height="28" Padding="0,4,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_name, Mode=OneWay}" />
       <TextBox Style="{StaticResource App.Canonical.TextBoxStyle}" Height="24" VerticalContentAlignment="Center" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
     </DockPanel>
-    <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_playlists, Mode=OneWay}">
+    <GroupBox Style="{StaticResource App.Canonical.GroupBoxStyle}" MaxHeight="460" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_folder_display_preset_playlists, Mode=OneWay}">
       <ListBox Style="{StaticResource App.Canonical.ListBoxStyle}" ItemsSource="{Binding PlaylistOptions}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto">
         <ListBox.ItemTemplate>
           <DataTemplate>

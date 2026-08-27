@@ -7,7 +7,7 @@
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
-  <Border Style="{StaticResource App.Canonical.DialogContentStyle}">
+  <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}">
     <Grid>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />

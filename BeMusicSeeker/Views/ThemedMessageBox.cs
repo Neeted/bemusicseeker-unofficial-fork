@@ -157,7 +157,7 @@ internal static class ThemedMessageBox
         dialog.SetResourceReference(Control.ForegroundProperty, "App.TextBrush");
 
         var root = new Border();
-        root.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.DialogContentStyle");
+        root.SetResourceReference(FrameworkElement.StyleProperty, "App.Canonical.NativeWindowContentStyle");
 
         var layout = new Grid();
         layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -258,7 +258,7 @@ internal static class ThemedMessageBox
 
     private static void EnsureCanonicalDialogResources(FrameworkElement element)
     {
-        if (element.TryFindResource("App.Canonical.DialogContentStyle") is null)
+        if (element.TryFindResource("App.Canonical.NativeWindowContentStyle") is null)
         {
             element.Resources.MergedDictionaries.Add(new ResourceDictionary
             {
