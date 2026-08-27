@@ -112,6 +112,14 @@ Implementation evidence:
 - Focused Quick (`artifacts/verification/tests-quick-20260827-175735/functional`): 28/28 passed for dialog presentation and playlist property/bulk fixtures. Combined focused Quick (`artifacts/verification/tests-quick-20260827-182541/functional`): 53/53 passed across dialog presentation, playlist property/bulk, WPF host, MainWindow playlist workspace, `UiDialogCoordinator`, and native-window theme fixtures. The WPF host semantic-brush case was updated from the retired property overlay surface to the native content role.
 - The first cache-cold focused run reached 28/28 test-body passes but the runner rejected a stale untracked hang-dump XML during whitespace verification; the diagnostic process and generated `BeMusicSeeker.Tests/TestResults` tree were removed, and the clean rerun above passed the runner fingerprint/whitespace checks.
 
+## Review amendment evidence (`APP-UI-NATIVE-MODAL-02`)
+
+- MainWindow owner shutdown now defers the terminal application request until active Property/Bulk operations reach terminal completion, owner-forced close has returned, DataContext detachment has completed, and the route cleanup task has completed. Repeated shutdown requests remain idempotent, while ordinary close gating and operation failure visibility are preserved.
+- Property and Summary Bulk Edit use the native content padding owner without an additional root margin. The retained overlay contract remains limited to `InitialSetupLanguageDialog` and `LoadPlaylistURIDialog`.
+- Actual MainWindow modal lifetime coverage was added for owned/disabled fresh dialogs, Property reset and reopen cleanup, Bulk successful apply, and shutdown ordering. The focused two-test head pass is recorded at `artifacts/verification/tests-quick-20260827-200024/functional` (2/2).
+- The targeted wrong-order mutant that requested terminal shutdown before awaiting the active Bulk apply failed the shutdown ordering oracle at `artifacts/verification/tests-quick-20260827-195942/functional`; the mutant was reverted before the head pass.
+- Final amendment focused Quick (`artifacts/verification/tests-quick-20260827-200333/functional`): 116/116 passed across MainWindow playlist workspace, Playlist Summary Bulk Edit, dialog presentation, WPF host, `UiDialogCoordinator`, and Settings presentation fixtures.
+
 ## Integration and acceptance
 
 - Run the combined focused Quick scope after both units.

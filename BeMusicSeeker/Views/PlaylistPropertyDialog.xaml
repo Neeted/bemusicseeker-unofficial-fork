@@ -101,7 +101,7 @@
         </Style>
       </ResourceDictionary>
     </FrameworkElement.Resources>
-    <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" Margin="16" SnapsToDevicePixels="True">
+    <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" SnapsToDevicePixels="True">
       <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
         <Grid DockPanel.Dock="Bottom" VerticalAlignment="Bottom" Margin="0,8,0,0">
           <Grid.ColumnDefinitions>

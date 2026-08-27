@@ -24,7 +24,7 @@
         </Style>
       </ResourceDictionary>
     </FrameworkElement.Resources>
-    <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" Margin="16" SnapsToDevicePixels="True">
+    <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" SnapsToDevicePixels="True">
       <DockPanel LastChildFill="True">
         <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
           <Button MinWidth="72" HorizontalAlignment="Right" Style="{StaticResource App.Canonical.DialogQuietActionStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistSummaryClose" Click="CloseDialog" />

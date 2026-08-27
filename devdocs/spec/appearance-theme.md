@@ -240,6 +240,8 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 - `PendingDeleteConfirmDialog`
 - `PlayHistoryFolderDisplayPresetEditDialog`
 - `Lr2PlayHistorySchemaUninstallDialog`
+- `PlaylistPropertyDialog`
+- `PlaylistSummaryBulkEditDialog`
 - `Parago/Windows/ProgressDialog`
 - code-only で構築する `ThemedMessageBox`
 
@@ -247,7 +249,7 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 
 上記の native dialog と code-only MessageBox は、`ThemedWindow` が所有する単一の native client surface 上へ、塗りつぶし、border、corner radius を持たない `App.Canonical.NativeWindowContentStyle`（content spacing 専用 role）を必要に応じて明示的に採用する。これにより native window の client 全体へ内側の rounded / bordered surface を重ねない。button の affirmative / quiet / danger role は `App.Canonical.Dialog*ActionStyle` で表現し、入力 control、一覧、group、label、scroll viewer も対応する `App.Canonical.*Style` を各 view で明示する。`DialogContentStyle` は rounded `DialogSurfaceStyle` を継承する overlay 専用 role とし、native window の outer content には使用しない。`SettingsWindow` は shell / sidebar を native client edge まで伸ばし、feature content 側の spacing は保持する。`SettingsWindow` と `Lr2AdvancedPathsDialog` の既存 `Settings*` button / control key は SettingsControls の canonical `BasedOn` alias として維持する。検証は同一 host に実コンストラクタで生成した view の適用済み role / effective template と外側 sentinel の隔離を対象とし、別 load 間の CLR identity、座標、子順、source text を要求しない。これにより、canonical resource の導入で未採用の MainWindow や別画面へ implicit style が波及せず、owner、modal result、既定値、cancel、close、gate、永続化、lifetime の既存契約も変更しない。
 
-`InitialSetupLanguageDialog`、`PlaylistPropertyDialog`、`LoadPlaylistURIDialog` などアプリ内 overlay の主要な描画面は、引き続き `App.DialogOverlayBrush` / `App.DialogBackgroundBrush` / `App.DialogBorderBrush` / `App.TextBrush` を参照する。
+`InitialSetupLanguageDialog` と `LoadPlaylistURIDialog` は MainWindow の content 内で背景を覆うため、引き続き overlay とする。これらの主要な描画面は `App.DialogOverlayBrush` / `App.DialogBackgroundBrush` / `App.DialogBorderBrush` / `App.TextBrush` を参照する。
 
 これらの overlay は `App.Canonical.DialogOverlayStyle` と `App.Canonical.DialogContentStyle` を明示的に採用し、overlay 内の action / input control も同じ canonical role を使用する。overlay の routed event、command、binding、validation、選択状態は従来どおり保持する。OS 標準 picker と `EmergencyDialog` はこのアプリ内 dialog canonicalization の対象外である。
 

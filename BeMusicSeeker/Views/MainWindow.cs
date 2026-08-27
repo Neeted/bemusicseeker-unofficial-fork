@@ -68,6 +68,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private PlaylistSummaryBulkEditDialog activePlaylistSummaryBulkEditDialog;
 
+    private Task playlistPropertyDialogCleanupTask = Task.CompletedTask;
+
+    private Task playlistSummaryBulkEditDialogCleanupTask = Task.CompletedTask;
+
+    private int terminalShutdownStarted;
+
+    private bool terminalWindowCloseAuthorized;
+
     private SettingsWindow settingsWindow;
 
 #nullable enable
@@ -1420,11 +1428,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void ApplyTerminalShutdown()
     {
+        if (Interlocked.CompareExchange(ref terminalShutdownStarted, 1, 0) != 0)
+        {
+            return;
+        }
+
+        _ = ApplyTerminalShutdownAsync().LoggingAndPropagate("MainWindow.ApplyTerminalShutdown");
+    }
+
+    private async Task ApplyTerminalShutdownAsync()
+    {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        activePlaylistPropertyDialog?.CloseForOwnerShutdown();
-        activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
+        PlaylistPropertyDialog propertyDialog = activePlaylistPropertyDialog;
+        PlaylistSummaryBulkEditDialog bulkEditDialog = activePlaylistSummaryBulkEditDialog;
+        Task propertyOperationTask = propertyDialog?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
+        Task bulkApplyTask = bulkEditDialog?.WaitForApplyCompletionAsync() ?? Task.CompletedTask;
+        Task propertyCleanupTask = playlistPropertyDialogCleanupTask ?? Task.CompletedTask;
+        Task bulkCleanupTask = playlistSummaryBulkEditDialogCleanupTask ?? Task.CompletedTask;
+
+        propertyDialog?.CloseForOwnerShutdown();
+        bulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
+
+        // The dialog owns its operation and session lifetime.  Keep the owner alive until
+        // the operation, forced close, DataContext detach, and workspace cleanup have all
+        // reached their terminal signals.
+        await Task.WhenAll(propertyOperationTask, bulkApplyTask).ConfigureAwait(true);
+        await Task.WhenAll(propertyCleanupTask, bulkCleanupTask).ConfigureAwait(true);
+
         CaptureWindowStateForClosing();
+        terminalWindowCloseAuthorized = true;
         if (viewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow)
         {
             shellShutdownWorkflow.CompleteTerminalShutdown();
@@ -1455,7 +1488,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     protected override void OnClosing(CancelEventArgs e)
     {
         MainWindowViewModel closingViewModel = base.DataContext as MainWindowViewModel;
-        if (closingViewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow && !shellShutdownWorkflow.IsCloseAllowed)
+        if (closingViewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow
+            && !shellShutdownWorkflow.IsCloseAllowed
+            && !terminalWindowCloseAuthorized)
         {
             e.Cancel = true;
             bool closeRequestStarted = shellShutdownWorkflow.TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest);
@@ -4011,6 +4046,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     {
         PlaylistPropertyDialog window = null;
         Visibility previousPlaybackOverlayVisibility = PlaybackOverlayVisibility;
+        var cleanupCompletion = new TaskCompletionSource<object>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        playlistPropertyDialogCleanupTask = cleanupCompletion.Task;
         PlaybackOverlayVisibility = Visibility.Visible;
         try
         {
@@ -4028,6 +4066,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         finally
         {
+            Exception cleanupFailure = null;
             try
             {
                 try
@@ -4073,9 +4112,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     }
                 }
             }
+            catch (Exception exception)
+            {
+                cleanupFailure = exception;
+                throw;
+            }
             finally
             {
-                RestorePlaylistDialogUiState(previousPlaybackOverlayVisibility, refreshFolderPath: true);
+                try
+                {
+                    RestorePlaylistDialogUiState(previousPlaybackOverlayVisibility, refreshFolderPath: true);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    throw;
+                }
+                finally
+                {
+                    if (cleanupFailure != null)
+                    {
+                        cleanupCompletion.TrySetException(cleanupFailure);
+                    }
+                    else
+                    {
+                        cleanupCompletion.TrySetResult(null);
+                    }
+                    if (ReferenceEquals(playlistPropertyDialogCleanupTask, cleanupCompletion.Task))
+                    {
+                        playlistPropertyDialogCleanupTask = Task.CompletedTask;
+                    }
+                }
             }
         }
     }
@@ -4085,6 +4152,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     {
         PlaylistSummaryBulkEditDialog window = null;
         Visibility previousPlaybackOverlayVisibility = PlaybackOverlayVisibility;
+        var cleanupCompletion = new TaskCompletionSource<object>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        playlistSummaryBulkEditDialogCleanupTask = cleanupCompletion.Task;
         PlaybackOverlayVisibility = Visibility.Visible;
         try
         {
@@ -4102,6 +4172,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         finally
         {
+            Exception cleanupFailure = null;
             try
             {
                 try
@@ -4136,9 +4207,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     }
                 }
             }
+            catch (Exception exception)
+            {
+                cleanupFailure = exception;
+                throw;
+            }
             finally
             {
-                RestorePlaylistDialogUiState(previousPlaybackOverlayVisibility, refreshFolderPath: false);
+                try
+                {
+                    RestorePlaylistDialogUiState(previousPlaybackOverlayVisibility, refreshFolderPath: false);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    throw;
+                }
+                finally
+                {
+                    if (cleanupFailure != null)
+                    {
+                        cleanupCompletion.TrySetException(cleanupFailure);
+                    }
+                    else
+                    {
+                        cleanupCompletion.TrySetResult(null);
+                    }
+                    if (ReferenceEquals(playlistSummaryBulkEditDialogCleanupTask, cleanupCompletion.Task))
+                    {
+                        playlistSummaryBulkEditDialogCleanupTask = Task.CompletedTask;
+                    }
+                }
             }
         }
     }

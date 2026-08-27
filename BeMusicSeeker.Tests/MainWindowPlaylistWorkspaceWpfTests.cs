@@ -1,13 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -19,6 +28,166 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
+    [TestMethod]
+    public void MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
+            try
+            {
+                CustomTableView summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.Drain();
+
+                ModalObservation<PlaylistPropertyDialog> first = OpenPropertyDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    windowTest,
+                    "MainWindowPlaylistWorkspaceWpfTests.property-open");
+                Assert.AreSame(fixture.Window, first.Owner);
+                Assert.IsFalse(first.OwnerEnabled);
+                Assert.IsInstanceOfType(first.DataContext, typeof(PlaylistPropertyDialogViewModel));
+                Assert.AreEqual(1, first.DataContextDetachCount);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                Assert.AreSame(fixture.Table, row.TableRef);
+
+                ModalObservation<PlaylistPropertyDialog> reopened = OpenPropertyDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    windowTest,
+                    "MainWindowPlaylistWorkspaceWpfTests.property-reopen");
+                Assert.AreSame(fixture.Window, reopened.Owner);
+                Assert.IsFalse(reopened.OwnerEnabled);
+                Assert.AreNotSame(first.DataContext, reopened.DataContext);
+                Assert.AreEqual(1, reopened.DataContextDetachCount);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+
+                ModalObservation<PlaylistSummaryBulkEditDialog> bulk = OpenBulkDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    windowTest,
+                    "MainWindowPlaylistWorkspaceWpfTests.bulk-open");
+                Assert.AreSame(fixture.Window, bulk.Owner);
+                Assert.IsFalse(bulk.OwnerEnabled);
+                Assert.IsInstanceOfType(
+                    bulk.DataContext,
+                    typeof(PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel));
+                Assert.IsTrue(bulk.VisibleAfterApply);
+                Assert.IsTrue(fixture.Table.is_bmt_output);
+                Assert.AreEqual(1, bulk.DataContextDetachCount);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActiveSummaryBulkEditDialog);
+            }
+            finally
+            {
+                fixture.Close();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void MainWindowClose_WaitsForBulkApplyBeforeTerminalShutdownAndCleansOwnedState()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
+            bool applyWriteBlockerHeld = false;
+            try
+            {
+                CustomTableView summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.Drain();
+
+                void ReleaseApplyWriteBlocker()
+                {
+                    if (!applyWriteBlockerHeld)
+                    {
+                        return;
+                    }
+                    applyWriteBlockerHeld = false;
+                    fixture.Playlist.FreeWriterLockBMSTables();
+                }
+
+                ModalObservation<PlaylistSummaryBulkEditDialog> shutdown = OpenBulkDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    windowTest,
+                    "MainWindowPlaylistWorkspaceWpfTests.bulk-shutdown",
+                    (dialog, observation) =>
+                    {
+                        PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel draft =
+                            (PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel)dialog.DataContext;
+                        draft.BmtOutputOption = draft.OnOption;
+                        fixture.Playlist.AcquireWriterLockBMSTables();
+                        applyWriteBlockerHeld = true;
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryApplyBmtOutput"));
+                        Task applyCompletion = dialog.WaitForApplyCompletionAsync();
+                        fixture.Lifetime.RequestShutdownAction = () =>
+                            observation.ApplyCompletedAtTerminalRequest = applyCompletion.IsCompleted;
+                        observation.ApplyWasPending = !dialog.IsEnabled;
+
+                        fixture.Window.Close();
+                        observation.OwnerCloseWasCanceled = fixture.Window.IsVisible;
+                        observation.ShutdownCountBeforeApplyCompletion = fixture.Lifetime.RequestShutdownCount;
+                        void ReleaseApplyAfterOwnerShutdownClose()
+                        {
+                            if (!dialog.IsOwnerShutdownClose)
+                            {
+                                TestUiDispatcherHost.Dispatcher.BeginInvoke(
+                                    DispatcherPriority.ApplicationIdle,
+                                    new Action(ReleaseApplyAfterOwnerShutdownClose));
+                                return;
+                            }
+                            observation.ShutdownCountBeforeLockRelease = fixture.Lifetime.RequestShutdownCount;
+                            ReleaseApplyWriteBlocker();
+                        }
+                        TestUiDispatcherHost.Dispatcher.BeginInvoke(
+                            DispatcherPriority.ApplicationIdle,
+                            new Action(ReleaseApplyAfterOwnerShutdownClose));
+                    });
+
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    fixture.Lifetime.ShutdownRequested.Task,
+                    "MainWindowPlaylistWorkspaceWpfTests.bulk-shutdown.terminal-request");
+                Assert.AreEqual(
+                    1,
+                    fixture.Lifetime.RequestShutdownCount,
+                    $"shutdown={fixture.Lifetime.RequestShutdownCount}, applyPending={shutdown.ApplyWasPending}, ownerCloseCanceled={shutdown.OwnerCloseWasCanceled}, beforeApply={shutdown.ShutdownCountBeforeApplyCompletion}, beforeRelease={shutdown.ShutdownCountBeforeLockRelease}, visible={fixture.Window.IsVisible}");
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActiveSummaryBulkEditDialog);
+                Assert.IsNull(shutdown.Window.DataContext);
+                Assert.AreEqual(1, shutdown.DataContextDetachCount);
+                Assert.IsTrue(shutdown.ApplyWasPending);
+                Assert.IsTrue(shutdown.OwnerCloseWasCanceled);
+                Assert.AreEqual(0, shutdown.ShutdownCountBeforeApplyCompletion);
+                Assert.AreEqual(0, shutdown.ShutdownCountBeforeLockRelease);
+                Assert.IsTrue(shutdown.ApplyCompletedAtTerminalRequest);
+                fixture.Window.Close();
+                Assert.IsFalse(fixture.Window.IsVisible);
+
+                // Repeated owner shutdown signals remain idempotent after terminal authorization.
+                fixture.ViewModel.ShellShutdownWorkflow.RequestTerminalApplicationShutdown();
+                Assert.AreEqual(1, fixture.Lifetime.RequestShutdownCount);
+            }
+            finally
+            {
+                if (applyWriteBlockerHeld)
+                {
+                    applyWriteBlockerHeld = false;
+                    fixture.Playlist.FreeWriterLockBMSTables();
+                }
+                fixture.Close();
+            }
+        });
+    }
+
     [TestMethod]
     public void PlaylistDialogs_UseDirectWorkspaceComposition()
     {
@@ -847,6 +1016,474 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private static TaskCompletionSource<object?> NewCompletion()
         => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static ActualMainWindowFixture CreateActualMainWindowFixture(
+        TestWindowPresentationScope windowTest)
+    {
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(MainWindowPlaylistWorkspaceWpfTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
+
+        var settings = new Settings
+        {
+            OperationModeLR2DB = false,
+            BMSRootPath = root,
+            StandaloneBmsRootPaths = root,
+            BMSInstallDir = root,
+            TableListURL = new Uri("http://127.0.0.1:1/table-list.json"),
+            EnablePlaylistUrlCompletion = false,
+            ScanBmsFilesOnStartup = false,
+            SkipInitPlaylistLoad = true,
+            UseBeatorajaScoreDb = false,
+            EnableBeatorajaBmtOutput = false,
+            UseExternalPanelImage = false,
+            UsePlayeruBMplay = false,
+            UsePlayerLR2body = false,
+            UsePlayerBMIIDXView = false,
+            IsLR2BackupEnabled = false
+        };
+        var lifetime = new RecordingApplicationLifetime();
+        var composition = new ApplicationComposition(
+            settingsEditSession: new NoOpSettingsEditSession(settings),
+            uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            applicationLifetime: lifetime,
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        var library = new TestBmsLibrary(
+            songDbPath,
+            getLR2Config: null,
+            _lr2ScoreDB: null,
+            startupRequiredFileScanReason: null,
+            optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+        var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+        var table = new BMSTable
+        {
+            playlist_id = 1,
+            bmt_sort = 1,
+            name = "Native modal fixture",
+            entry_type = LR2SongDBExtended.playlist.EntryUnitType.File,
+            is_bmt_output = false,
+            ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None
+        };
+        playlist.BMSTables = new ObservableCollection<BMSTable> { table };
+        var viewModel = new MainWindowViewModel(
+            composition,
+            new FixedStartupLibraryFactory(library, playlist));
+        viewModel.StartupUpdateWorkflow.NotifyClosing();
+        viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+        viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+
+        bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
+        object previousViewModelResource = hadPreviousViewModelResource
+            ? Application.Current.Resources["vm"]
+            : null;
+        Application.Current.Resources["vm"] = viewModel;
+        MainWindow window = null;
+        try
+        {
+            Task initialization = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
+                () => { },
+                action => action(),
+                () => false);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                initialization,
+                "MainWindowPlaylistWorkspaceWpfTests.main-window-initialization");
+            Assert.IsTrue(viewModel.IsInitializationCompleted);
+
+            window = new MainWindow(viewModel);
+            windowTest.ShowAndWaitForContentRendered(
+                window,
+                TestWindowActivation.ForegroundInteraction);
+            return new ActualMainWindowFixture(
+                root,
+                viewModel,
+                window,
+                playlist,
+                table,
+                lifetime,
+                hadPreviousViewModelResource,
+                previousViewModelResource);
+        }
+        catch
+        {
+            try
+            {
+                Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    closeRequest,
+                    "MainWindowPlaylistWorkspaceWpfTests.main-window-failed-close");
+                if (window?.IsVisible == true)
+                {
+                    window.Close();
+                }
+            }
+            catch
+            {
+            }
+            if (hadPreviousViewModelResource)
+            {
+                Application.Current.Resources["vm"] = previousViewModelResource;
+            }
+            else
+            {
+                Application.Current.Resources.Remove("vm");
+            }
+            viewModel.SettingDialog.Dispose();
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            throw;
+        }
+    }
+
+    private static ModalObservation<PlaylistPropertyDialog> OpenPropertyDialog(
+        MainWindow owner,
+        CustomTableView summary,
+        PlaylistSummaryRow row,
+        TestWindowPresentationScope windowTest,
+        string operationName,
+        Action<PlaylistPropertyDialog, ModalObservation<PlaylistPropertyDialog>> drive = null)
+    {
+        drive ??= (dialog, _) =>
+        {
+            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+        };
+        return OpenDialog(
+            owner,
+            summary,
+            row,
+            windowTest,
+            commandIndex: 6,
+            operationName,
+            drive);
+    }
+
+    private static ModalObservation<PlaylistSummaryBulkEditDialog> OpenBulkDialog(
+        MainWindow owner,
+        CustomTableView summary,
+        PlaylistSummaryRow row,
+        TestWindowPresentationScope windowTest,
+        string operationName,
+        Action<PlaylistSummaryBulkEditDialog, ModalObservation<PlaylistSummaryBulkEditDialog>> drive = null)
+    {
+        drive ??= (dialog, observation) =>
+        {
+            PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel viewModel =
+                (PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel)dialog.DataContext;
+            viewModel.BmtOutputOption = viewModel.OnOption;
+            RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryApplyBmtOutput"));
+            dialog.WaitForApplyCompletionAsync().ContinueWith(
+                _ => dialog.Dispatcher.BeginInvoke(
+                    DispatcherPriority.ApplicationIdle,
+                    new Action(() =>
+                    {
+                        observation.VisibleAfterApply = dialog.IsVisible;
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryClose"));
+                    })),
+                TaskScheduler.Default);
+        };
+        return OpenDialog(
+            owner,
+            summary,
+            row,
+            windowTest,
+            commandIndex: 5,
+            operationName,
+            drive);
+    }
+
+    private static ModalObservation<TWindow> OpenDialog<TWindow>(
+        MainWindow owner,
+        CustomTableView summary,
+        PlaylistSummaryRow row,
+        TestWindowPresentationScope windowTest,
+        int commandIndex,
+        string operationName,
+        Action<TWindow, ModalObservation<TWindow>> drive)
+        where TWindow : Window
+    {
+        var opened = new TaskCompletionSource<ModalObservation<TWindow>>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        ModalObservation<TWindow> observation = null;
+
+        void ObserveDialog()
+        {
+            TWindow dialog = Application.Current.Windows
+                .OfType<TWindow>()
+                .FirstOrDefault(candidate => candidate.IsVisible);
+            if (dialog == null)
+            {
+                owner.Dispatcher.BeginInvoke(
+                    DispatcherPriority.ApplicationIdle,
+                    new Action(ObserveDialog));
+                return;
+            }
+
+            observation = new ModalObservation<TWindow>(
+                dialog,
+                dialog.Owner,
+                !owner.IsEnabled,
+                dialog.DataContext);
+            dialog.DataContextChanged += observation.HandleDataContextChanged;
+            drive(dialog, observation);
+            opened.TrySetResult(observation);
+        }
+
+        ContextMenu menu = (ContextMenu)owner.FindResource("playlistSummaryContextMenu");
+        menu.PlacementTarget = summary;
+        menu.Tag = new CustomTableContextMenuContext(row, 0);
+        MenuItem command = menu.Items.OfType<MenuItem>().ElementAt(commandIndex);
+        owner.Dispatcher.BeginInvoke(
+            DispatcherPriority.ApplicationIdle,
+            new Action(ObserveDialog));
+        RaiseMenuClick(command);
+
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(opened.Task, operationName + ".opened");
+        observation = opened.Task.GetAwaiter().GetResult();
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+            observation.DataContextDetached.Task,
+            operationName + ".cleanup");
+        observation.Window.DataContextChanged -= observation.HandleDataContextChanged;
+        return observation;
+    }
+
+    private static Button FindAutomationButton(DependencyObject root, string automationId)
+    {
+        Button button = FindDescendants<Button>(root)
+            .FirstOrDefault(candidate => string.Equals(
+                AutomationProperties.GetAutomationId(candidate),
+                automationId,
+                StringComparison.Ordinal));
+        return button
+            ?? throw new AssertFailedException($"Button '{automationId}' was not materialized.");
+    }
+
+    private static IEnumerable<T> FindDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        if (root == null)
+        {
+            yield break;
+        }
+        var pending = new Stack<DependencyObject>();
+        var visited = new HashSet<DependencyObject>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            DependencyObject current = pending.Pop();
+            if (!visited.Add(current))
+            {
+                continue;
+            }
+            if (current is T typed)
+            {
+                yield return typed;
+            }
+            if (current is Visual || current is System.Windows.Media.Media3D.Visual3D)
+            {
+                for (int index = 0; index < VisualTreeHelper.GetChildrenCount(current); index++)
+                {
+                    pending.Push(VisualTreeHelper.GetChild(current, index));
+                }
+            }
+            foreach (object logicalChild in LogicalTreeHelper.GetChildren(current))
+            {
+                if (logicalChild is DependencyObject dependencyObject)
+                {
+                    pending.Push(dependencyObject);
+                }
+            }
+        }
+    }
+
+    private static void RaiseButtonClick(Button button)
+        => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
+
+    private static void RaiseKey(UIElement target, Key key)
+    {
+        PresentationSource source = PresentationSource.FromVisual(target);
+        Assert.IsNotNull(source);
+        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+        {
+            RoutedEvent = Keyboard.KeyDownEvent
+        });
+    }
+
+    private static PlaylistSummaryRow CreatePlaylistSummaryRow(BMSTable table)
+    {
+        return new PlaylistSummaryRow
+        {
+            PlaylistId = table.playlist_id,
+            Name = table.name,
+            BmtSort = table.bmt_sort ?? int.MaxValue,
+            IsBmtOutput = table.is_bmt_output != false,
+            TableRef = table
+        };
+    }
+
+    private sealed class ModalObservation<TWindow>
+        where TWindow : Window
+    {
+        internal ModalObservation(
+            TWindow window,
+            Window owner,
+            bool ownerEnabled,
+            object dataContext)
+        {
+            Window = window;
+            Owner = owner;
+            OwnerEnabled = ownerEnabled;
+            DataContext = dataContext;
+        }
+
+        internal TWindow Window { get; }
+
+        internal Window Owner { get; }
+
+        internal bool OwnerEnabled { get; }
+
+        internal object DataContext { get; }
+
+        internal bool VisibleAfterApply { get; set; }
+
+        internal bool ApplyWasPending { get; set; }
+
+        internal bool OwnerCloseWasCanceled { get; set; }
+
+        internal bool ApplyCompletedAtTerminalRequest { get; set; }
+
+        internal int ShutdownCountBeforeApplyCompletion { get; set; }
+
+        internal int ShutdownCountBeforeLockRelease { get; set; }
+
+        internal int DataContextDetachCount { get; private set; }
+
+        internal TaskCompletionSource<object?> DataContextDetached { get; } = NewCompletion();
+
+        internal void HandleDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            if (e.NewValue != null)
+            {
+                return;
+            }
+            DataContextDetachCount++;
+            DataContextDetached.TrySetResult(null);
+        }
+    }
+
+    private sealed class ActualMainWindowFixture
+    {
+        internal ActualMainWindowFixture(
+            string root,
+            MainWindowViewModel viewModel,
+            MainWindow window,
+            TestBmsPlaylist playlist,
+            BMSTable table,
+            RecordingApplicationLifetime lifetime,
+            bool hadPreviousViewModelResource,
+            object previousViewModelResource)
+        {
+            Root = root;
+            ViewModel = viewModel;
+            Window = window;
+            Playlist = playlist;
+            Table = table;
+            Lifetime = lifetime;
+            this.hadPreviousViewModelResource = hadPreviousViewModelResource;
+            this.previousViewModelResource = previousViewModelResource;
+        }
+
+        internal string Root { get; }
+
+        internal MainWindowViewModel ViewModel { get; }
+
+        internal MainWindow Window { get; }
+
+        internal TestBmsPlaylist Playlist { get; }
+
+        internal BMSTable Table { get; }
+
+        internal RecordingApplicationLifetime Lifetime { get; }
+
+        private readonly bool hadPreviousViewModelResource;
+
+        private readonly object previousViewModelResource;
+
+        internal void Close()
+        {
+            if (Window.IsVisible)
+            {
+                Task closeRequest = ViewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    closeRequest,
+                    "MainWindowPlaylistWorkspaceWpfTests.fixture-close");
+                Window.Close();
+            }
+            ViewModel.SettingDialog.Dispose();
+            if (hadPreviousViewModelResource)
+            {
+                Application.Current.Resources["vm"] = previousViewModelResource;
+            }
+            else
+            {
+                Application.Current.Resources.Remove("vm");
+            }
+            if (Directory.Exists(Root))
+            {
+                Directory.Delete(Root, recursive: true);
+            }
+        }
+    }
+
+    private sealed class FixedStartupLibraryFactory : IStartupLibraryFactory
+    {
+        internal FixedStartupLibraryFactory(TestBmsLibrary library, TestBmsPlaylist playlist)
+        {
+            Library = library;
+            Playlist = playlist;
+        }
+
+        private TestBmsLibrary Library { get; }
+
+        private TestBmsPlaylist Playlist { get; }
+
+        public BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile) => Library;
+
+        public BMSPlaylist CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library) => Playlist;
+    }
+
+    private sealed class RecordingApplicationLifetime : IApplicationLifetimePort
+    {
+        internal TaskCompletionSource<object?> ShutdownRequested { get; } = NewCompletion();
+
+        internal int RequestShutdownCount { get; private set; }
+
+        internal Action RequestShutdownAction { get; set; }
+
+        public bool IsFirstStartup => false;
+
+        public void CompleteFirstStartup()
+        {
+        }
+
+        public void MarkCoordinatedShutdownStarted(string reason)
+        {
+        }
+
+        public void RequestShutdown()
+        {
+            RequestShutdownCount++;
+            ShutdownRequested.TrySetResult(null);
+            RequestShutdownAction?.Invoke();
+        }
+
+        public Task RestartApplicationAsync() => Task.CompletedTask;
+    }
 
     private static void MaterializeTreeItems(TreeViewItem root)
     {
