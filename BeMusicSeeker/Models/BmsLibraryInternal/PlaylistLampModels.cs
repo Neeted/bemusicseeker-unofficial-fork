@@ -63,8 +63,7 @@ internal enum PlaylistLampClearCategory
     EASY,
     ASSIST,
     FAILED,
-    NP,
-    NS
+    NP
 }
 
 /// <summary>
@@ -80,8 +79,7 @@ internal enum PlaylistLampRankCategory
     D,
     E,
     F,
-    NP,
-    NS
+    NP
 }
 
 /// <summary>
@@ -191,6 +189,7 @@ internal sealed class PlaylistLampEntrySnapshot
     /// <param name="resolvedSha256">resolve index が選択した chart の SHA256。</param>
     /// <param name="isRemoved">削除済み entry か。</param>
     /// <param name="isDummy">空 folder 用 dummy entry か。</param>
+    /// <param name="chartInfoSha256">entry に対応する chart_info の SHA256。</param>
     public PlaylistLampEntrySnapshot(
         string folderName,
         string identityKey,
@@ -201,7 +200,8 @@ internal sealed class PlaylistLampEntrySnapshot
         string resolvedMd5 = null,
         string resolvedSha256 = null,
         bool isRemoved = false,
-        bool isDummy = false)
+        bool isDummy = false,
+        string chartInfoSha256 = null)
     {
         FolderName = folderName ?? string.Empty;
         Md5 = Normalize(md5);
@@ -209,6 +209,7 @@ internal sealed class PlaylistLampEntrySnapshot
         ResolvedPath = Normalize(resolvedPath);
         ResolvedMd5 = Normalize(resolvedMd5);
         ResolvedSha256 = Normalize(resolvedSha256);
+        ChartInfoSha256 = Normalize(chartInfoSha256);
         IsOwned = isOwned;
         IsRemoved = isRemoved;
         IsDummy = isDummy || string.Equals(Md5, BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, StringComparison.OrdinalIgnoreCase);
@@ -250,6 +251,9 @@ internal sealed class PlaylistLampEntrySnapshot
     /// <summary>owned chart resolve index が選択した SHA256 です。</summary>
     public string ResolvedSha256 { get; }
 
+    /// <summary>entry の chart_info に保存された SHA256 です。</summary>
+    public string ChartInfoSha256 { get; }
+
     /// <summary>所持 chart かどうかです。</summary>
     public bool IsOwned { get; }
 
@@ -263,7 +267,11 @@ internal sealed class PlaylistLampEntrySnapshot
     public string ScoreHash => !string.IsNullOrWhiteSpace(ResolvedMd5) ? ResolvedMd5 : Md5;
 
     /// <summary>beatoraja source lookup に使う SHA256 の優先解決値です。</summary>
-    public string ScoreSha256 => !string.IsNullOrWhiteSpace(ResolvedSha256) ? ResolvedSha256 : Sha256;
+    public string ScoreSha256 => !string.IsNullOrWhiteSpace(ResolvedSha256)
+        ? ResolvedSha256
+        : !string.IsNullOrWhiteSpace(Sha256)
+            ? Sha256
+            : ChartInfoSha256;
 
     /// <summary>集計対象の実 entry かどうかです。</summary>
     public bool IsActiveRealEntry => !IsRemoved && !IsDummy;
@@ -289,7 +297,8 @@ internal sealed class PlaylistLampEntrySnapshot
             FirstNonEmpty(ResolvedMd5, other.ResolvedMd5),
             FirstNonEmpty(ResolvedSha256, other.ResolvedSha256),
             IsRemoved && other.IsRemoved,
-            IsDummy || other.IsDummy);
+            IsDummy || other.IsDummy,
+            FirstNonEmpty(ChartInfoSha256, other.ChartInfoSha256));
     }
 
     private static string FirstNonEmpty(string first, string second)
@@ -425,7 +434,7 @@ internal sealed class PlaylistLampScoreSnapshot
     /// score source の規則に従って entry の score を解決します。
     /// </summary>
     /// <param name="entry">解決対象 entry。</param>
-    /// <returns>score row。未所持、未登録、source unavailable の場合は null。</returns>
+    /// <returns>score row。未登録または source unavailable の場合は null。</returns>
     internal PlaylistLampScore Resolve(PlaylistLampEntrySnapshot entry)
     {
         if (!IsScoreDataAvailable || entry == null)
@@ -459,7 +468,8 @@ internal readonly struct PlaylistLampDependencyStamp : IEquatable<PlaylistLampDe
         int scoreSnapshotVersion,
         long scoreSourceGeneration,
         ActiveScoreSource scoreSource,
-        ScoreTableLoadStatus scoreLoadStatus)
+        ScoreTableLoadStatus scoreLoadStatus,
+        int chartInfoIndexVersion = 0)
     {
         EntriesRevision = entriesRevision;
         CatalogVersion = catalogVersion;
@@ -468,6 +478,7 @@ internal readonly struct PlaylistLampDependencyStamp : IEquatable<PlaylistLampDe
         ScoreSourceGeneration = scoreSourceGeneration;
         ScoreSource = scoreSource;
         ScoreLoadStatus = scoreLoadStatus;
+        ChartInfoIndexVersion = chartInfoIndexVersion;
     }
 
     /// <summary>playlist entries revision。</summary>
@@ -491,6 +502,9 @@ internal readonly struct PlaylistLampDependencyStamp : IEquatable<PlaylistLampDe
     /// <summary>score table load status。</summary>
     public ScoreTableLoadStatus ScoreLoadStatus { get; }
 
+    /// <summary>chart_info index version。</summary>
+    public int ChartInfoIndexVersion { get; }
+
     /// <inheritdoc />
     public bool Equals(PlaylistLampDependencyStamp other)
     {
@@ -500,7 +514,8 @@ internal readonly struct PlaylistLampDependencyStamp : IEquatable<PlaylistLampDe
             && ScoreSnapshotVersion == other.ScoreSnapshotVersion
             && ScoreSourceGeneration == other.ScoreSourceGeneration
             && ScoreSource == other.ScoreSource
-            && ScoreLoadStatus == other.ScoreLoadStatus;
+            && ScoreLoadStatus == other.ScoreLoadStatus
+            && ChartInfoIndexVersion == other.ChartInfoIndexVersion;
     }
 
     /// <inheritdoc />
@@ -519,7 +534,8 @@ internal readonly struct PlaylistLampDependencyStamp : IEquatable<PlaylistLampDe
             ScoreSnapshotVersion,
             ScoreSourceGeneration,
             ScoreSource,
-            ScoreLoadStatus);
+            ScoreLoadStatus,
+            ChartInfoIndexVersion);
     }
 
     /// <summary>stamp の等価演算子です。</summary>
@@ -543,7 +559,6 @@ internal sealed class PlaylistLampAggregationRequest
         IEnumerable<PlaylistLampEntrySnapshot> entries,
         PlaylistLampScoreSnapshot scoreSnapshot,
         DateTime? playlistLastUpdatedUtc = null,
-        DateTime? aggregationUpdatedAtUtc = null,
         PlaylistLampInputState inputState = PlaylistLampInputState.Loaded,
         string failureMessage = null,
         PlaylistLampDependencyStamp dependencyStamp = default)
@@ -558,7 +573,6 @@ internal sealed class PlaylistLampAggregationRequest
             0L,
             null);
         PlaylistLastUpdatedUtc = playlistLastUpdatedUtc;
-        AggregationUpdatedAtUtc = aggregationUpdatedAtUtc;
         InputState = inputState;
         FailureMessage = failureMessage ?? string.Empty;
         DependencyStamp = dependencyStamp;
@@ -578,9 +592,6 @@ internal sealed class PlaylistLampAggregationRequest
 
     /// <summary>playlist の last_update 値です。</summary>
     public DateTime? PlaylistLastUpdatedUtc { get; }
-
-    /// <summary>successful build を受け入れた時刻です。</summary>
-    public DateTime? AggregationUpdatedAtUtc { get; }
 
     /// <summary>entry load の状態です。</summary>
     public PlaylistLampInputState InputState { get; }
@@ -884,35 +895,33 @@ internal sealed class PlaylistLampStatistics
     /// <param name="ownedCount">所持 chart 数。</param>
     /// <param name="missingCount">未所持 chart 数。</param>
     /// <param name="playedCount">score がある chart 数。</param>
-    /// <param name="noScoreOwnedCount">所持かつ score がない chart 数。</param>
+    /// <param name="unplayedCount">score がない chart 数。</param>
     /// <param name="ownershipRate">owned / total。</param>
-    /// <param name="playRate">played / owned。</param>
+    /// <param name="playRate">played / total。</param>
     /// <param name="averageExRate">played chart の EX rate 算術平均。</param>
     /// <param name="clearRate">clear 済み chart / total。</param>
     /// <param name="scoreDataAvailable">score 依存値が利用可能かどうか。</param>
     /// <param name="sourceLastUpdatedUtc">score source の更新時刻。</param>
     /// <param name="playlistLastUpdatedUtc">playlist の更新時刻。</param>
-    /// <param name="aggregationUpdatedAtUtc">成功した aggregation の更新時刻。</param>
     internal PlaylistLampStatistics(
         int totalCount,
         int ownedCount,
         int missingCount,
         int? playedCount,
-        int? noScoreOwnedCount,
+        int? unplayedCount,
         double? ownershipRate,
         double? playRate,
         double? averageExRate,
         double? clearRate,
         bool scoreDataAvailable,
         DateTime? sourceLastUpdatedUtc,
-        DateTime? playlistLastUpdatedUtc,
-        DateTime? aggregationUpdatedAtUtc)
+        DateTime? playlistLastUpdatedUtc)
     {
         TotalCount = Math.Max(0, totalCount);
         OwnedCount = Math.Max(0, ownedCount);
         MissingCount = Math.Max(0, missingCount);
         PlayedCount = playedCount;
-        NoScoreOwnedCount = noScoreOwnedCount;
+        UnplayedCount = unplayedCount;
         OwnershipRate = ownershipRate;
         PlayRate = playRate;
         AverageExRate = averageExRate;
@@ -920,7 +929,6 @@ internal sealed class PlaylistLampStatistics
         ScoreDataAvailable = scoreDataAvailable;
         SourceLastUpdatedUtc = sourceLastUpdatedUtc;
         PlaylistLastUpdatedUtc = playlistLastUpdatedUtc;
-        AggregationUpdatedAtUtc = aggregationUpdatedAtUtc;
     }
 
     /// <summary>active real entry 数。</summary>
@@ -935,13 +943,13 @@ internal sealed class PlaylistLampStatistics
     /// <summary>score が存在する chart 数。score unavailable 時は null。</summary>
     public int? PlayedCount { get; }
 
-    /// <summary>所持かつ score なしの chart 数。score unavailable 時は null。</summary>
-    public int? NoScoreOwnedCount { get; }
+    /// <summary>score がない chart 数。score unavailable 時は null。</summary>
+    public int? UnplayedCount { get; }
 
     /// <summary>owned / total の割合。</summary>
     public double? OwnershipRate { get; }
 
-    /// <summary>played / owned の割合。</summary>
+    /// <summary>played / total の割合。</summary>
     public double? PlayRate { get; }
 
     /// <summary>played chart の EX rate 算術平均（0..1）。</summary>
@@ -958,15 +966,6 @@ internal sealed class PlaylistLampStatistics
 
     /// <summary>playlist の last update。</summary>
     public DateTime? PlaylistLastUpdatedUtc { get; }
-
-    /// <summary>successful aggregation が受理された時刻。</summary>
-    public DateTime? AggregationUpdatedAtUtc { get; }
-
-    /// <summary>clear graph の NP count alias。</summary>
-    public int? NpCount => NoScoreOwnedCount;
-
-    /// <summary>clear graph の NS count alias。</summary>
-    public int NsCount => MissingCount;
 
     /// <summary>rate を percentage 表示するための ownership alias。</summary>
     public double? OwnershipPercentage => OwnershipRate.HasValue ? OwnershipRate.Value * 100.0 : null;
@@ -996,7 +995,6 @@ internal sealed class PlaylistLampAggregationResult
     /// <param name="rankSegments">playlist 全体 rank segments。</param>
     /// <param name="statistics">playlist 統計。</param>
     /// <param name="scoreSnapshot">使用した score snapshot。</param>
-    /// <param name="aggregationUpdatedAtUtc">成功した aggregation の更新時刻。</param>
     /// <param name="failureMessage">失敗理由。</param>
     internal PlaylistLampAggregationResult(
         string playlistId,
@@ -1006,7 +1004,6 @@ internal sealed class PlaylistLampAggregationResult
         IReadOnlyList<PlaylistLampSegment> rankSegments,
         PlaylistLampStatistics statistics,
         PlaylistLampScoreSnapshot scoreSnapshot,
-        DateTime? aggregationUpdatedAtUtc,
         string failureMessage)
     {
         PlaylistId = playlistId ?? string.Empty;
@@ -1021,7 +1018,6 @@ internal sealed class PlaylistLampAggregationResult
         ScoreSnapshot = scoreSnapshot ?? CreateUnavailableScoreSnapshot();
         ScoreDataAvailable = ScoreSnapshot.IsScoreDataAvailable;
         IsSegmentInvocationEnabled = ScoreDataAvailable && state == PlaylistLampViewerState.Ready;
-        AggregationUpdatedAtUtc = aggregationUpdatedAtUtc;
         FailureMessage = failureMessage ?? string.Empty;
     }
 
@@ -1051,9 +1047,6 @@ internal sealed class PlaylistLampAggregationResult
 
     /// <summary>graph segment invocation が有効かどうかです。</summary>
     public bool IsSegmentInvocationEnabled { get; }
-
-    /// <summary>successful aggregation の更新時刻。</summary>
-    public DateTime? AggregationUpdatedAtUtc { get; }
 
     /// <summary>failed state の診断メッセージ。</summary>
     public string FailureMessage { get; }

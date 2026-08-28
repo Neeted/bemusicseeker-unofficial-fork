@@ -302,6 +302,47 @@ public sealed class ChartListFilterViewModel : ViewModel
             return new ChartListFilterSnapshot(keywordFilter, modeFilter);
         }
     }
+
+    /// <summary>
+    /// Applies a complete filter snapshot to the controls without raising per-field workflow
+    /// events. A compound owner operation uses this to publish one final refresh after both
+    /// selection and filter state have been committed.
+    /// </summary>
+    /// <param name="snapshot">The immutable filter values to display.</param>
+    internal void ApplySnapshotSilently(ChartListFilterSnapshot snapshot)
+    {
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+
+        bool keywordChanged;
+        bool modeChanged;
+        lock (syncRoot)
+        {
+            string nextKeyword = snapshot.KeywordFilter ?? string.Empty;
+            ChartModeFilter nextMode = snapshot.ModeFilter == ChartModeFilter.None
+                ? ChartModeFilter.All
+                : snapshot.ModeFilter;
+            keywordChanged = !string.Equals(keywordFilter, nextKeyword, StringComparison.Ordinal);
+            modeChanged = modeFilter != nextMode;
+            keywordFilter = nextKeyword;
+            modeFilter = nextMode;
+        }
+
+        if (keywordChanged)
+        {
+            RaisePropertyChanged(nameof(KeywordFilter));
+        }
+        if (modeChanged)
+        {
+            RaisePropertyChanged(nameof(ModeFilter));
+        }
+        if (keywordChanged)
+        {
+            UpdateKeywordSearchPresentation(raiseHelpText: false);
+        }
+    }
 }
 
 /// <summary>

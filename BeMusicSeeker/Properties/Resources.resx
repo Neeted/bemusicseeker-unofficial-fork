@@ -3187,4 +3187,56 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistProp_sort_description" xml:space="preserve"><value>フォルダ内の譜面を並べる基準と方向を設定します。</value></data>
   <data name="PlaylistProp_folder_order_description" xml:space="preserve"><value>自動の自然順を使うか、選択したフォルダを手動で並べ替えます。</value></data>
   <data name="PlaylistProp_output_description" xml:space="preserve"><value>通常出力先、出力フォルダ名、ルート出力の扱いを設定します。</value></data>
+  <data name="Open_lamp_viewer" xml:space="preserve"><value>ランプビューアを開く</value></data>
+  <data name="PlaylistLampViewer_title_format" xml:space="preserve"><value>{0} - ランプビューア</value></data>
+  <data name="PlaylistLampViewer_total" xml:space="preserve"><value>全譜面</value></data>
+  <data name="PlaylistLampViewer_owned" xml:space="preserve"><value>所持</value></data>
+  <data name="PlaylistLampViewer_missing" xml:space="preserve"><value>未所持</value></data>
+  <data name="PlaylistLampViewer_ownership_rate" xml:space="preserve"><value>所持率</value></data>
+  <data name="PlaylistLampViewer_played" xml:space="preserve"><value>プレイ済み</value></data>
+  <data name="PlaylistLampViewer_no_play" xml:space="preserve"><value>未プレイ</value></data>
+  <data name="PlaylistLampViewer_play_rate" xml:space="preserve"><value>プレイ率</value></data>
+  <data name="PlaylistLampViewer_score_source" xml:space="preserve"><value>スコアソース</value></data>
+  <data name="PlaylistLampViewer_playlist_last_update" xml:space="preserve"><value>プレイリスト最終更新</value></data>
+  <data name="PlaylistLampViewer_average_ex_rate" xml:space="preserve"><value>平均EXスコア率</value></data>
+  <data name="PlaylistLampViewer_clear_rate" xml:space="preserve"><value>クリア率</value></data>
+  <data name="PlaylistLampViewer_clear_lamp" xml:space="preserve"><value>クリアランプ</value></data>
+  <data name="PlaylistLampViewer_rank_lamp" xml:space="preserve"><value>DJランク</value></data>
+  <data name="PlaylistLampViewer_unavailable" xml:space="preserve"><value>利用不可</value></data>
+  <data name="PlaylistLampViewer_selected" xml:space="preserve"><value>選択中</value></data>
+  <data name="PlaylistLampViewer_not_selected" xml:space="preserve"><value>未選択</value></data>
+  <data name="PlaylistLampViewer_segment_detail_format" xml:space="preserve"><value>{0}: {1} ({2})</value></data>
+  <data name="PlaylistLampViewer_segment_detail_adaptive_format" xml:space="preserve"><value>{0}: {1} ({2})</value></data>
+  <data name="PlaylistLampViewer_segment_unavailable_detail_format" xml:space="preserve"><value>{0}: {1}（{2}）</value></data>
+  <data name="PlaylistLampViewer_percentage_format" xml:space="preserve"><value>{0:N2}%</value></data>
+  <data name="PlaylistLampViewer_percentage_less_than_format" xml:space="preserve"><value>{0}未満</value></data>
+  <data name="PlaylistLampViewer_folder_count_format" xml:space="preserve"><value>{0} 譜面</value></data>
+  <data name="PlaylistLampViewer_source_lr2" xml:space="preserve"><value>LR2</value></data>
+  <data name="PlaylistLampViewer_source_beatoraja" xml:space="preserve"><value>beatoraja</value></data>
+  <data name="PlaylistLampViewer_source_none" xml:space="preserve"><value>なし</value></data>
+  <data name="PlaylistLampViewer_source_status_format" xml:space="preserve"><value>{0}（{1}）</value></data>
+  <data name="PlaylistLampViewer_source_failed" xml:space="preserve"><value>スコアデータの読み込みに失敗</value></data>
+  <data name="PlaylistLampViewer_initial_failure" xml:space="preserve"><value>ランプビューアの初回集計に失敗しました。</value></data>
+  <data name="PlaylistLampViewer_initial_deleted" xml:space="preserve"><value>対象のプレイリストが見つからないため、ランプビューアを開けません。</value></data>
+  <data name="PlaylistLampViewer_live_failure" xml:space="preserve"><value>ランプビューアの更新に失敗したため、ビューアを閉じます。</value></data>
+  <data name="PlaylistLampViewer_failure_title" xml:space="preserve"><value>ランプビューア</value></data>
+  <data name="PlaylistLampViewer_clear_max" xml:space="preserve"><value>MAX</value></data>
+  <data name="PlaylistLampViewer_clear_perfect" xml:space="preserve"><value>PERFECT</value></data>
+  <data name="PlaylistLampViewer_clear_fc" xml:space="preserve"><value>FC</value></data>
+  <data name="PlaylistLampViewer_clear_exhard" xml:space="preserve"><value>EXHARD</value></data>
+  <data name="PlaylistLampViewer_clear_hard" xml:space="preserve"><value>HARD</value></data>
+  <data name="PlaylistLampViewer_clear_normal" xml:space="preserve"><value>NORMAL</value></data>
+  <data name="PlaylistLampViewer_clear_easy" xml:space="preserve"><value>EASY</value></data>
+  <data name="PlaylistLampViewer_clear_assist" xml:space="preserve"><value>ASSIST</value></data>
+  <data name="PlaylistLampViewer_clear_failed" xml:space="preserve"><value>FAILED</value></data>
+  <data name="PlaylistLampViewer_clear_np" xml:space="preserve"><value>NP</value></data>
+  <data name="PlaylistLampViewer_rank_aaa" xml:space="preserve"><value>AAA</value></data>
+  <data name="PlaylistLampViewer_rank_aa" xml:space="preserve"><value>AA</value></data>
+  <data name="PlaylistLampViewer_rank_a" xml:space="preserve"><value>A</value></data>
+  <data name="PlaylistLampViewer_rank_b" xml:space="preserve"><value>B</value></data>
+  <data name="PlaylistLampViewer_rank_c" xml:space="preserve"><value>C</value></data>
+  <data name="PlaylistLampViewer_rank_d" xml:space="preserve"><value>D</value></data>
+  <data name="PlaylistLampViewer_rank_e" xml:space="preserve"><value>E</value></data>
+  <data name="PlaylistLampViewer_rank_f" xml:space="preserve"><value>F</value></data>
+  <data name="PlaylistLampViewer_rank_np" xml:space="preserve"><value>NP</value></data>
 </root>

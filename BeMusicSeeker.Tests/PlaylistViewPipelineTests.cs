@@ -827,8 +827,8 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        PlaylistRequestIdentity left = PlaylistRequestFactory.CreateIdentity(table, " FolderA ", PlaylistDetailFilter.PlaylistFilter, " keyword ", ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
-        PlaylistRequestIdentity right = PlaylistRequestFactory.CreateIdentity(table, "FolderA", PlaylistDetailFilter.PlaylistFilter, "KEYWORD", ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
+        PlaylistRequestIdentity left = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, " FolderA ", PlaylistDetailFilter.PlaylistFilter, " keyword ", ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
+        PlaylistRequestIdentity right = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "FolderA", PlaylistDetailFilter.PlaylistFilter, "KEYWORD", ChartModeFilter._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
 
         Assert.AreEqual(left, right);
     }
@@ -837,8 +837,8 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_DifferentPlaylistRevisionBreaksDedup()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, null, PlaylistDetailFilter.PlaylistNotOwnedFilterSelected, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, null, PlaylistDetailFilter.PlaylistNotOwnedFilterSelected, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 5, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, null, PlaylistDetailFilter.PlaylistNotOwnedFilterSelected, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, null, PlaylistDetailFilter.PlaylistNotOwnedFilterSelected, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 5, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         Assert.AreNotEqual(before, after);
     }
@@ -847,8 +847,8 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_DifferentScoreSnapshotVersionBreaksDedup()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 6, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 6, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         Assert.AreNotEqual(before, after);
     }
@@ -857,8 +857,8 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_DifferentChartInfoIndexVersionBreaksDedup()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
+        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
 
         Assert.AreNotEqual(before, after);
         Assert.IsTrue(before.SourceIdentity.EqualsIgnoringChartInfoIndex(after.SourceIdentity));
@@ -879,8 +879,8 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Descending
         };
 
-        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, "alpha", ChartModeFilter.All, titleAscending, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, "beta", ChartModeFilter._7KEYS, titleDescending, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, "alpha", ChartModeFilter.All, titleAscending, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, "beta", ChartModeFilter._7KEYS, titleDescending, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         Assert.AreEqual(before.SourceIdentity, after.SourceIdentity);
         Assert.AreNotEqual(before.PresentationIdentity, after.PresentationIdentity);
@@ -891,8 +891,8 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistIdentity_SourceVersionsOnlyChangeSourceIdentity()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, "keyword", ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, "keyword", ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 4, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity before = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, "keyword", ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity after = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, "keyword", ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 4, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         Assert.AreNotEqual(before.SourceIdentity, after.SourceIdentity);
         Assert.AreEqual(before.PresentationIdentity, after.PresentationIdentity);
@@ -945,8 +945,8 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistDetailBuildDecision_WhenOnlyPresentationChanges_AppliesViewOnly()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, "alpha", ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, "beta", ChartModeFilter._7KEYS, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, "alpha", ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, "beta", ChartModeFilter._7KEYS, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
             CreatePlaylistBuildRequest(request),
@@ -961,8 +961,8 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistDetailBuildDecision_WhenScoreSnapshotChanges_RebuildsSource()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 6, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 6, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
             CreatePlaylistBuildRequest(request),
@@ -978,8 +978,8 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistDetailBuildDecision_WhenOnlyChartInfoIndexChanges_PatchesThenAppliesView()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
+        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
 
         PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
             CreatePlaylistBuildRequest(request),
@@ -994,8 +994,8 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistDetailBuildDecision_WhenEmptyFolderChartInfoOnlyChanges_PatchesThenAppliesView()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, string.Empty, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, string.Empty, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
+        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, string.Empty, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, string.Empty, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
 
         PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
             CreatePlaylistBuildRequest(request),
@@ -1011,8 +1011,8 @@ public sealed class PlaylistViewPipelineTests
     {
         var currentTable = new BMSTable();
         var requestTable = new BMSTable();
-        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(currentTable, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(requestTable, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
+        PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(currentTable, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(requestTable, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
 
         PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
             CreatePlaylistBuildRequest(request),
@@ -1027,7 +1027,7 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistDetailBuildDecision_WhenResolvedSourceHasNoRows_DoesNotTreatSourceAsMissing()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
             CreatePlaylistBuildRequest(identity),
@@ -1041,7 +1041,7 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistDetailBuildDecision_WhenSnapshotRowsAreNull_RebuildsAsSourceMissing()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, "Folder", PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
             CreatePlaylistBuildRequest(identity),
@@ -1236,10 +1236,54 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_DistinguishesRootPlaylistAndEmptyFolderNode()
     {
         var table = new BMSTable();
-        PlaylistRequestIdentity rootPlaylist = PlaylistRequestFactory.CreateIdentity(table, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
-        PlaylistRequestIdentity emptyFolder = PlaylistRequestFactory.CreateIdentity(table, string.Empty, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity rootPlaylist = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        PlaylistRequestIdentity emptyFolder = PlaylistRequestFactory.CreateIdentity(table, PlaylistDetailSelectionScope.Folder, string.Empty, PlaylistDetailFilter.PlaylistFilter, null, ChartModeFilter.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         Assert.AreNotEqual(rootPlaylist, emptyFolder);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistRequestIdentity_DistinguishesOrdinaryRootAndOverallNormalFolderScope()
+    {
+        var table = new BMSTable();
+        PlaylistRequestIdentity ordinaryRoot = PlaylistRequestFactory.CreateIdentity(
+            table,
+            PlaylistDetailSelectionScope.OrdinaryRoot,
+            folderName: null,
+            PlaylistDetailFilter.PlaylistFilter,
+            keywordFilter: null,
+            ChartModeFilter.All,
+            sortParameters: null,
+            libraryIndexVersion: 3,
+            playlistRevision: 4,
+            scoreSnapshotVersion: 5,
+            chartInfoIndexVersion: 6,
+            hasResolvedSelection: true);
+        PlaylistRequestIdentity overallNormalFolders = PlaylistRequestFactory.CreateIdentity(
+            table,
+            PlaylistDetailSelectionScope.OverallNormalFolders,
+            folderName: null,
+            PlaylistDetailFilter.PlaylistFilter,
+            keywordFilter: null,
+            ChartModeFilter.All,
+            sortParameters: null,
+            libraryIndexVersion: 3,
+            playlistRevision: 4,
+            scoreSnapshotVersion: 5,
+            chartInfoIndexVersion: 6,
+            hasResolvedSelection: true);
+
+        Assert.AreNotEqual(ordinaryRoot, overallNormalFolders);
+        Assert.AreNotEqual(ordinaryRoot.SourceIdentity, overallNormalFolders.SourceIdentity);
+        Assert.IsFalse(ordinaryRoot.SourceIdentity.EqualsIgnoringChartInfoIndex(overallNormalFolders.SourceIdentity));
+
+        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
+            CreatePlaylistBuildRequest(overallNormalFolders),
+            CreatePlaylistDetailBuildStateSnapshot(ordinaryRoot));
+
+        Assert.AreEqual(PlaylistDetailBuildAction.RebuildSource, decision.Action);
+        Assert.IsTrue(decision.SelectionChanged);
+        Assert.AreEqual("selection_changed", decision.SourceInvalidationReason);
     }
 
     [TestMethod]
@@ -4716,6 +4760,7 @@ public sealed class PlaylistViewPipelineTests
     {
         return PlaylistRequestFactory.CreateIdentity(
             new BMSTable(),
+            PlaylistDetailSelectionScope.Folder,
             folderName,
             PlaylistDetailFilter.PlaylistFilter,
             keywordFilter: null,
@@ -4774,6 +4819,7 @@ public sealed class PlaylistViewPipelineTests
             hasSourceRows,
             sourceRowCount,
             identity.Table,
+            identity.SelectionScope,
             identity.FolderName,
             identity.FilterType,
             identity.LibraryIndexVersion,

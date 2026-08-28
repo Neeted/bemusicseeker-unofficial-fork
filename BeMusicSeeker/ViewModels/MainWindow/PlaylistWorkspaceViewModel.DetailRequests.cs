@@ -46,6 +46,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return 0;
             }
             BMSTable table = selection.Table;
+            PlaylistDetailSelectionScope selectionScope = selection.Scope;
             string folderName = selection.FolderName;
             PlaylistDetailFilter filterType = selection.Filter;
             ChartListFilterSnapshot currentFilters = CapturePlaylistDetailFilterSnapshot();
@@ -82,6 +83,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     OpenReadiness = openReadiness,
                     Identity = PlaylistRequestFactory.CreateIdentity(
                         table,
+                        selectionScope,
                         folderName,
                         filterType,
                         keywordFilter,
@@ -246,6 +248,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 hasSourceRows: sourceRows != null,
                 sourceRowCount: sourceRows?.Count ?? 0,
                 DetailViewState.Source.CurrentTable,
+                DetailViewState.Source.CurrentSelectionScope,
                 DetailViewState.Source.CurrentFolderName,
                 DetailViewState.Source.CurrentFilterType,
                 DetailViewState.Source.LastBuiltLibraryIndexVersion,
@@ -336,6 +339,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             long sourceStartMs = stopwatch.ElapsedMilliseconds;
             PlaylistSourceBuildResult sourceBuild = BuildDetailSourceRows(
                 request.Identity.Table,
+                request.Identity.SelectionScope,
                 request.Identity.FolderName,
                 request.Identity.FilterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected,
                 indexSnapshot,

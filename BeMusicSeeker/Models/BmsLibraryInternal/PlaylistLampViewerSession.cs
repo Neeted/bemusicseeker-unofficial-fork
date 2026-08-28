@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -105,7 +106,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
 
     private PlaylistLampAggregationResult current;
 
-    private CancellationTokenSource activeBuildCancellation;
+    private RefreshCancellation activeBuildCancellation;
 
     private long generation;
 
@@ -114,6 +115,102 @@ internal sealed class PlaylistLampViewerSession : IDisposable
     private long lastNotificationSequence;
 
     private int disposed;
+
+    /// <summary>
+    /// 一つの refresh が所有する cancellation source です。
+    /// superseder は cancel だけを要求し、underlying CTS の dispose は所有 refresh の finally
+    /// に限定します。cancel callback と dispose の競合時にも callback の外で安全に dispose します。
+    /// </summary>
+    private sealed class RefreshCancellation : IDisposable
+    {
+        private readonly object gate = new();
+
+        private readonly CancellationTokenSource source = new();
+
+        private bool cancellationRequested;
+
+        private bool cancellationRunning;
+
+        private bool disposed;
+
+        private bool disposeAfterCancellation;
+
+        private bool sourceDisposed;
+
+        internal CancellationTokenSource CreateLinkedTokenSource(CancellationToken callerCancellationToken)
+        {
+            lock (gate)
+            {
+                if (disposed)
+                {
+                    throw new ObjectDisposedException(nameof(RefreshCancellation));
+                }
+                return CancellationTokenSource.CreateLinkedTokenSource(source.Token, callerCancellationToken);
+            }
+        }
+
+        internal void Cancel()
+        {
+            lock (gate)
+            {
+                if (disposed || sourceDisposed || cancellationRequested)
+                {
+                    return;
+                }
+                cancellationRequested = true;
+                cancellationRunning = true;
+            }
+
+            try
+            {
+                source.Cancel();
+            }
+            finally
+            {
+                bool disposeSource;
+                lock (gate)
+                {
+                    cancellationRunning = false;
+                    disposeSource = disposeAfterCancellation && !sourceDisposed;
+                    disposeAfterCancellation = false;
+                    if (disposeSource)
+                    {
+                        sourceDisposed = true;
+                    }
+                }
+                if (disposeSource)
+                {
+                    source.Dispose();
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            bool disposeSource;
+            lock (gate)
+            {
+                if (disposed)
+                {
+                    return;
+                }
+                disposed = true;
+                disposeSource = !cancellationRunning && !sourceDisposed;
+                if (disposeSource)
+                {
+                    sourceDisposed = true;
+                }
+                else if (cancellationRunning)
+                {
+                    disposeAfterCancellation = true;
+                }
+            }
+            if (disposeSource)
+            {
+                source.Dispose();
+            }
+        }
+    }
 
     /// <summary>
     /// session を生成します。
@@ -154,9 +251,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
                 null,
                 false,
                 null,
-                null,
                 null),
-            null,
             null,
             string.Empty);
         dataSource.Changed += DataSourceChanged;
@@ -209,8 +304,8 @@ internal sealed class PlaylistLampViewerSession : IDisposable
     /// <returns>この refresh の完了 task。</returns>
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
-        CancellationTokenSource previousCancellation;
-        CancellationTokenSource buildCancellation;
+        RefreshCancellation previousCancellation;
+        RefreshCancellation buildCancellation;
         long requestedGeneration;
         long requestedInvalidationVersion;
         lock (stateGate)
@@ -222,21 +317,21 @@ internal sealed class PlaylistLampViewerSession : IDisposable
             requestedGeneration = ++generation;
             requestedInvalidationVersion = sourceInvalidationVersion;
             previousCancellation = activeBuildCancellation;
-            buildCancellation = new CancellationTokenSource();
+            buildCancellation = new RefreshCancellation();
             activeBuildCancellation = buildCancellation;
         }
-        previousCancellation?.Cancel();
-        previousCancellation?.Dispose();
-        PublishLoading(requestedGeneration, requestedInvalidationVersion);
-        using CancellationTokenSource linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
-            buildCancellation.Token,
-            cancellationToken);
+        CancellationTokenSource linkedCancellation = null;
+        CancellationToken linkedCancellationToken = default;
         try
         {
+            previousCancellation?.Cancel();
+            PublishLoading(requestedGeneration, requestedInvalidationVersion);
+            linkedCancellation = buildCancellation.CreateLinkedTokenSource(cancellationToken);
+            linkedCancellationToken = linkedCancellation.Token;
             PlaylistLampAggregationRequest request = await dataSource
-                .CaptureAsync(playlistId, linkedCancellation.Token)
+                .CaptureAsync(playlistId, linkedCancellationToken)
                 .ConfigureAwait(false);
-            linkedCancellation.Token.ThrowIfCancellationRequested();
+            linkedCancellationToken.ThrowIfCancellationRequested();
             if (request == null)
             {
                 request = PlaylistLampAggregationRequest.Failed(
@@ -250,11 +345,11 @@ internal sealed class PlaylistLampViewerSession : IDisposable
                     "data source returned a snapshot for another playlist.");
             }
             PlaylistLampAggregationResult result = await buildExecutor
-                .BuildAsync(request, aggregationService, linkedCancellation.Token)
+                .BuildAsync(request, aggregationService, linkedCancellationToken)
                 .ConfigureAwait(false);
             TryPublish(requestedGeneration, requestedInvalidationVersion, result);
         }
-        catch (OperationCanceledException) when (linkedCancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (linkedCancellationToken.IsCancellationRequested)
         {
             // A superseded or caller-cancelled build has no result to publish.
         }
@@ -268,6 +363,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         }
         finally
         {
+            linkedCancellation?.Dispose();
             lock (stateGate)
             {
                 if (requestedGeneration == generation
@@ -292,7 +388,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         {
             return;
         }
-        CancellationTokenSource cancellation;
+        RefreshCancellation cancellation;
         lock (stateGate)
         {
             ++generation;
@@ -302,7 +398,6 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         }
         dataSource.Changed -= DataSourceChanged;
         cancellation?.Cancel();
-        cancellation?.Dispose();
         ResultChanged = null;
     }
 
@@ -335,7 +430,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         // Source notifications can originate while a table/library writer owns its lock.
         // Defer the refresh so snapshot capture and result subscribers never run inline on
         // that publication stack.
-        _ = Task.Run(() => RefreshAsync());
+        _ = Task.Run(() => RefreshAsync()).Logging("PlaylistLampViewerSession.DataSourceChanged");
     }
 
     private void PublishLoading(long requestedGeneration, long requestedInvalidationVersion)
@@ -358,9 +453,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
                 null,
                 false,
                 null,
-                null,
                 null),
-            null,
             null,
             string.Empty);
         TryPublish(requestedGeneration, requestedInvalidationVersion, loading);

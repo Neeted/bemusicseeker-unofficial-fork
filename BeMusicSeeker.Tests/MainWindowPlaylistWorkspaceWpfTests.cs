@@ -725,13 +725,83 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                     Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemReload").IsEnabled);
                     Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemOpenPageURI").IsEnabled);
+                    MenuItem lampViewer = FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemOpenLampViewer");
+                    Assert.AreEqual(Resources.Open_lamp_viewer, lampViewer.Header);
+                    Assert.AreSame(lampViewer, menu.Items[2]);
+                    Assert.IsInstanceOfType(menu.Items[3], typeof(Separator));
                     Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemOverwriteLevel").IsEnabled);
                     Assert.AreEqual(
                         !table.is_external_sync,
                         FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemCreateNewFolder").IsEnabled);
                     Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemRemoveTable").IsEnabled);
                 }
+
+                ContextMenu summaryMenu = (ContextMenu)window.FindResource("playlistSummaryContextMenu");
+                MenuItem summaryLampViewer = FindMenuItem(summaryMenu, "playlistSummaryContextMenuOpenLampViewer");
+                Assert.AreEqual(Resources.Open_lamp_viewer, summaryLampViewer.Header);
+                Assert.AreSame(summaryLampViewer, summaryMenu.Items[2]);
+                Assert.IsInstanceOfType(summaryMenu.Items[3], typeof(Separator));
             });
+    }
+
+    [TestMethod]
+    public void PlaylistLampNavigation_SelectsTableRootThroughComposedMainWindowTerminal()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
+            try
+            {
+                fixture.Table.entries =
+                [
+                    new BMSTableEntry
+                    {
+                        folder = "normal",
+                        md5 = new string('a', 32)
+                    }
+                ];
+                fixture.Table.Folder_order = ["normal"];
+                TestUiDispatcherHost.Drain();
+
+                TreeViewItem playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                MaterializeTreeItems(playlistRoot);
+                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator
+                    .ContainerFromItem(fixture.Table) as TreeViewItem;
+                Assert.IsNotNull(tableItem, "the active playlist table must be materialized in the shell tree");
+                tableItem.IsExpanded = true;
+                MaterializeTreeItems(tableItem);
+
+                TreeViewItem folderItem = FindDescendants<TreeViewItem>(tableItem)
+                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode);
+                Assert.IsNotNull(
+                    folderItem,
+                    "a playlist folder child must be materialized for the root-selection route");
+                folderItem.IsSelected = true;
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(folderItem.IsSelected);
+
+                var request = PlaylistLampViewerNavigationRequest.ForOverall(
+                    fixture.Table.playlist_id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    PlaylistLampSegmentKind.Clear,
+                    PlaylistLampClearCategory.ASSIST,
+                    rankCategory: null);
+                Assert.IsTrue(fixture.ViewModel.PlaylistWorkspace.TryRequestPlaylistLampNavigation(request));
+                TestUiDispatcherHost.Drain();
+
+                tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem;
+                Assert.IsNotNull(tableItem);
+                Assert.IsTrue(tableItem.IsSelected, "overall lamp navigation must select the playlist table root");
+                Assert.IsFalse(
+                    FindDescendants<TreeViewItem>(tableItem)
+                        .Where(item => !ReferenceEquals(item, tableItem))
+                        .Any(item => item.DataContext is PlaylistFolderNode && item.IsSelected),
+                    "overall lamp navigation must not leave a child folder selected");
+            }
+            finally
+            {
+                fixture.Close();
+            }
+        });
     }
 
     [TestMethod]

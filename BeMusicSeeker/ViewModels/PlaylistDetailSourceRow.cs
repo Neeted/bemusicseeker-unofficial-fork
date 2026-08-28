@@ -32,7 +32,7 @@ internal sealed class PlaylistDetailSourceRow
 
     private readonly Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
 
-    private readonly ChartScoreSnapshot effectiveScoreSnapshot;
+    private ChartScoreSnapshot effectiveScoreSnapshot;
 
     /// <summary>
     /// 実体譜面を所持しているかどうかです。
@@ -97,35 +97,35 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string RefTablesNames { get; }
 
-    internal ClearType clear { get; }
+    internal ClearType clear { get; private set; }
 
-    internal RankType rank { get; }
+    internal RankType rank { get; private set; }
 
     internal string ClearDisplayText => ScoreDisplayTextFormatter.FormatClear(clear);
 
     internal string RankDisplayText => ScoreDisplayTextFormatter.FormatRank(rank);
 
-    internal double? rate { get; }
+    internal double? rate { get; private set; }
 
     internal double? rateDouble => score.HasValue && totalnotes.HasValue && totalnotes.Value > 0 ? (double?)((double)score.Value / 2.0 / totalnotes.Value) : null;
 
-    internal int? score { get; }
+    internal int? score { get; private set; }
 
-    internal int? totalnotes { get; }
+    internal int? totalnotes { get; private set; }
 
-    internal int? maxcombo { get; }
+    internal int? maxcombo { get; private set; }
 
-    internal int? minbp { get; }
+    internal int? minbp { get; private set; }
 
-    internal string rankingString { get; }
+    internal string rankingString { get; private set; }
 
-    internal DateTime? rankingLastupdate { get; }
+    internal DateTime? rankingLastupdate { get; private set; }
 
-    internal double? stddevVal { get; }
+    internal double? stddevVal { get; private set; }
 
-    internal double? scoreDifficulty { get; }
+    internal double? scoreDifficulty { get; private set; }
 
-    internal ChartFileStatus status { get; }
+    internal ChartFileStatus status { get; private set; }
 
     internal string lr2_bmsid { get; }
 
@@ -308,10 +308,45 @@ internal sealed class PlaylistDetailSourceRow
         return true;
     }
 
+    private void SetScoreSnapshot(BMSScore scoreSnapshot)
+    {
+        effectiveScoreSnapshot = ResolveEffectiveScore(Chart, scoreSnapshot);
+        Chart = CreateChartFileWithEffectiveScore();
+        clear = effectiveScoreSnapshot.Clear;
+        rank = effectiveScoreSnapshot.Rank;
+        rate = effectiveScoreSnapshot.Rate;
+        score = effectiveScoreSnapshot.Score;
+        totalnotes = effectiveScoreSnapshot.TotalNotes;
+        maxcombo = effectiveScoreSnapshot.MaxCombo;
+        minbp = effectiveScoreSnapshot.MinBp;
+        rankingString = effectiveScoreSnapshot.RankingString;
+        rankingLastupdate = effectiveScoreSnapshot.RankingLastUpdate;
+        stddevVal = effectiveScoreSnapshot.StdDevVal;
+        scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
+        status = Chart?.Status ?? ChartFileStatus.NONE;
+    }
+
     internal PlaylistDetailSourceRow WithEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
     {
         var copy = (PlaylistDetailSourceRow)MemberwiseClone();
         copy.SetEntryChartInfo(chartInfo);
+        return copy;
+    }
+
+    /// <summary>
+    /// chart_info patch と同じ immutable row replacement で score projection も更新します。
+    /// chart_info hydration 後に未所持 entry の score hash が初めて解決できる場合に使います。
+    /// </summary>
+    /// <param name="chartInfo">更新された entry chart_info。</param>
+    /// <param name="scoreSnapshot">現在の score snapshot から解決した score。</param>
+    /// <returns>更新後の source row。</returns>
+    internal PlaylistDetailSourceRow WithEntryChartInfoAndScore(
+        LR2SongDBExtended.chart_info chartInfo,
+        BMSScore scoreSnapshot)
+    {
+        var copy = (PlaylistDetailSourceRow)MemberwiseClone();
+        copy.SetEntryChartInfo(chartInfo);
+        copy.SetScoreSnapshot(scoreSnapshot);
         return copy;
     }
 
@@ -321,7 +356,7 @@ internal sealed class PlaylistDetailSourceRow
     /// <returns>一覧表示用 row。</returns>
     internal PlaylistDetailRow CreateViewRow()
     {
-        Chart = CreateChartFile();
+        Chart = CreateChartFileWithEffectiveScore();
         return new PlaylistDetailRow(this);
     }
 
@@ -346,7 +381,7 @@ internal sealed class PlaylistDetailSourceRow
         comment = editedRow.comment ?? string.Empty;
         memo = editedRow.memo ?? string.Empty;
         EntryLevelSortKey = ResolveEntryLevelSortKey(editedRow.Level, Entry.level, editedRow.EntryLevelSortKey);
-        Chart = CreateChartFile();
+        Chart = CreateChartFileWithEffectiveScore();
         SearchText = BuildSearchText();
     }
 
@@ -398,6 +433,14 @@ internal sealed class PlaylistDetailSourceRow
             Entry?.level,
             mode,
             EntryChartInfo);
+    }
+
+    private ChartFile CreateChartFileWithEffectiveScore()
+    {
+        ChartFile chart = CreateChartFile();
+        return !ReferenceEquals(effectiveScoreSnapshot, chart?.Score)
+            ? ChartFileProjection.WithScore(chart, effectiveScoreSnapshot)
+            : chart;
     }
 
     private LR2SongDBExtended.chart_info ResolveChartInfoProjection()

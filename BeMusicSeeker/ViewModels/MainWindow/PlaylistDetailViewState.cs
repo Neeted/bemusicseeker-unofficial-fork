@@ -10,6 +10,7 @@ internal sealed class PlaylistDetailSourceSnapshotState
 {
     internal List<PlaylistDetailSourceRow> Rows = [];
     internal BMSTable CurrentTable;
+    internal PlaylistDetailSelectionScope CurrentSelectionScope = PlaylistDetailSelectionScope.OrdinaryRoot;
     internal string CurrentFolderName;
     internal PlaylistDetailFilter CurrentFilterType = PlaylistDetailFilter.PlaylistFilter;
     internal long GenerationId;
@@ -80,6 +81,7 @@ internal sealed class PlaylistDetailViewState
                 }
                 Source.Rows = request.SourceRows;
                 Source.CurrentTable = request.CurrentTable;
+                Source.CurrentSelectionScope = request.CurrentSelectionScope;
                 Source.CurrentFolderName = request.CurrentFolderName;
                 Source.CurrentFilterType = request.CurrentFilterType;
                 Source.LastBuiltLibraryIndexVersion = request.BuildRequest.Identity.LibraryIndexVersion;
@@ -117,6 +119,7 @@ internal sealed class PlaylistDetailTerminalRequest
     internal bool ReplaceSource { get; set; }
     internal List<PlaylistDetailSourceRow> SourceRows { get; set; }
     internal BMSTable CurrentTable { get; set; }
+    internal PlaylistDetailSelectionScope CurrentSelectionScope { get; set; } = PlaylistDetailSelectionScope.OrdinaryRoot;
     internal string CurrentFolderName { get; set; }
     internal PlaylistDetailFilter CurrentFilterType { get; set; }
     internal IList ViewRows { get; set; }

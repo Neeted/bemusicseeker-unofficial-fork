@@ -22,8 +22,7 @@ internal sealed class PlaylistLampAggregationService
         PlaylistLampClearCategory.EASY,
         PlaylistLampClearCategory.ASSIST,
         PlaylistLampClearCategory.FAILED,
-        PlaylistLampClearCategory.NP,
-        PlaylistLampClearCategory.NS
+        PlaylistLampClearCategory.NP
     ];
 
     private static readonly PlaylistLampRankCategory[] rankCategoryOrder =
@@ -36,8 +35,7 @@ internal sealed class PlaylistLampAggregationService
         PlaylistLampRankCategory.D,
         PlaylistLampRankCategory.E,
         PlaylistLampRankCategory.F,
-        PlaylistLampRankCategory.NP,
-        PlaylistLampRankCategory.NS
+        PlaylistLampRankCategory.NP
     ];
 
     /// <summary>
@@ -63,15 +61,14 @@ internal sealed class PlaylistLampAggregationService
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
-        DateTime updatedAtUtc = request.AggregationUpdatedAtUtc ?? DateTime.UtcNow;
         switch (request.InputState)
         {
             case PlaylistLampInputState.Loading:
-                return CreateTerminalResult(request, PlaylistLampViewerState.Loading, updatedAtUtc, string.Empty);
+                return CreateTerminalResult(request, PlaylistLampViewerState.Loading, string.Empty);
             case PlaylistLampInputState.Deleted:
-                return CreateTerminalResult(request, PlaylistLampViewerState.Deleted, updatedAtUtc, string.Empty);
+                return CreateTerminalResult(request, PlaylistLampViewerState.Deleted, string.Empty);
             case PlaylistLampInputState.Failed:
-                return CreateTerminalResult(request, PlaylistLampViewerState.Failed, updatedAtUtc, request.FailureMessage);
+                return CreateTerminalResult(request, PlaylistLampViewerState.Failed, request.FailureMessage);
         }
 
         PlaylistLampScoreSnapshot scoreSnapshot = request.ScoreSnapshot;
@@ -122,22 +119,15 @@ internal sealed class PlaylistLampAggregationService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 totalCount++;
-                if (!entry.IsOwned)
+                if (entry.IsOwned)
                 {
-                    if (scoreDataAvailable)
-                    {
-                        Increment(clearCounts, folderClearCounts, PlaylistLampClearCategory.NS);
-                        Increment(rankCounts, folderRankCounts, PlaylistLampRankCategory.NS);
-                    }
-                    continue;
+                    ownedCount++;
                 }
-
-                ownedCount++;
-                PlaylistLampScore score = scoreSnapshot.Resolve(entry);
                 if (!scoreDataAvailable)
                 {
                     continue;
                 }
+                PlaylistLampScore score = scoreSnapshot.Resolve(entry);
                 if (score == null)
                 {
                     Increment(clearCounts, folderClearCounts, PlaylistLampClearCategory.NP);
@@ -225,10 +215,6 @@ internal sealed class PlaylistLampAggregationService
             {
                 foreach (PlaylistLampEntrySnapshot entry in DistinctEntries(entriesByFolder[folder]))
                 {
-                    if (!entry.IsOwned)
-                    {
-                        continue;
-                    }
                     PlaylistLampScore score = scoreSnapshot.Resolve(entry);
                     if (score == null)
                     {
@@ -260,7 +246,7 @@ internal sealed class PlaylistLampAggregationService
 
         int missingCount = totalCount - ownedCount;
         double? ownershipRate = Ratio(ownedCount, totalCount);
-        double? playRate = scoreDataAvailable ? Ratio(playedCount, ownedCount) : null;
+        double? playRate = scoreDataAvailable ? Ratio(playedCount, totalCount) : null;
         double? averageExRate = scoreDataAvailable && exRates.Count > 0 ? exRates.Average() : null;
         double? clearRate = scoreDataAvailable ? Ratio(clearCount, totalCount) : null;
         var statistics = new PlaylistLampStatistics(
@@ -268,15 +254,14 @@ internal sealed class PlaylistLampAggregationService
             ownedCount,
             missingCount,
             scoreDataAvailable ? playedCount : null,
-            scoreDataAvailable ? ownedCount - playedCount : null,
+            scoreDataAvailable ? totalCount - playedCount : null,
             ownershipRate,
             playRate,
             averageExRate,
             clearRate,
             scoreDataAvailable,
             scoreDataAvailable ? scoreSnapshot.LastUpdatedUtc : null,
-            request.PlaylistLastUpdatedUtc,
-            updatedAtUtc);
+            request.PlaylistLastUpdatedUtc);
         PlaylistLampViewerState state = totalCount == 0
             ? PlaylistLampViewerState.Empty
             : PlaylistLampViewerState.Ready;
@@ -300,14 +285,12 @@ internal sealed class PlaylistLampAggregationService
             globalRankSegments,
             statistics,
             scoreSnapshot,
-            updatedAtUtc,
             string.Empty);
     }
 
     private static PlaylistLampAggregationResult CreateTerminalResult(
         PlaylistLampAggregationRequest request,
         PlaylistLampViewerState state,
-        DateTime updatedAtUtc,
         string failureMessage)
     {
         PlaylistLampStatistics statistics = new(
@@ -322,8 +305,7 @@ internal sealed class PlaylistLampAggregationService
             null,
             false,
             null,
-            request.PlaylistLastUpdatedUtc,
-            state == PlaylistLampViewerState.Ready || state == PlaylistLampViewerState.Empty ? updatedAtUtc : null);
+            request.PlaylistLastUpdatedUtc);
         return new PlaylistLampAggregationResult(
             request.PlaylistId,
             state,
@@ -332,7 +314,6 @@ internal sealed class PlaylistLampAggregationService
             [],
             statistics,
             request.ScoreSnapshot,
-            null,
             failureMessage);
     }
 

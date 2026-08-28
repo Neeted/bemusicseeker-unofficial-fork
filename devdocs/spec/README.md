@@ -60,6 +60,7 @@
 - [custom-table-view.md](custom-table-view.md)
 - [file-selection-dialogs.md](file-selection-dialogs.md)
 - [logging-policy.md](logging-policy.md)
+- [playlist-lamp-viewer.md](playlist-lamp-viewer.md)
 
 ## 開発運用
 

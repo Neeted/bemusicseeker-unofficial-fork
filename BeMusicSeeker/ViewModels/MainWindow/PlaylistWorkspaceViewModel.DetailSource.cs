@@ -12,6 +12,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     internal PlaylistSourceBuildResult BuildDetailSourceRows(
         BMSTable table,
+        PlaylistDetailSelectionScope selectionScope,
         string folderName,
         bool onlyNotOwned,
         PlaylistLibraryIndexSnapshot libraryIndexSnapshot,
@@ -46,10 +47,14 @@ public sealed partial class PlaylistWorkspaceViewModel
         cancellationToken.ThrowIfCancellationRequested();
         List<(BMSTableEntry entry, LibraryChartRef resolvedChart)> resolvedEntries = [];
         cancellationStage = "entry_resolve";
+        bool includeAllNormalFolders = selectionScope == PlaylistDetailSelectionScope.OverallNormalFolders;
         foreach (BMSTableEntry entry in SnapshotPlaylistEntriesExceptDummy(table))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (entry.is_removed || (folderName != null && entry.folder != folderName))
+            if (entry.is_removed
+                || (folderName != null && entry.folder != folderName)
+                || (includeAllNormalFolders
+                    && string.Equals(entry.folder, "[NO SONG]", StringComparison.Ordinal)))
             {
                 continue;
             }
@@ -166,7 +171,15 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         sourceCount = sourceRows.Count;
+        BMSLibrary.ScoreSnapshot scoreSnapshot = dataSource.GetScoreSnapshot();
+        IReadOnlyDictionary<string, BMSScore> scoresByHash = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Lr2
+            ? scoreSnapshot.ScoresByHash
+            : new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyDictionary<string, BMSScore> scoresBySha256 = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Beatoraja
+            ? scoreSnapshot.ScoresBySha256
+            : new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
         var resolvedChartInfos = new LR2SongDBExtended.chart_info[sourceRows.Count];
+        var resolvedScores = new BMSScore[sourceRows.Count];
         var chartInfoPatchCandidates = new bool[sourceRows.Count];
         for (int index = 0; index < sourceRows.Count; index++)
         {
@@ -183,6 +196,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                 continue;
             }
             resolvedChartInfos[index] = resolved;
+            resolvedScores[index] = PlaylistEntryScoreSnapshotResolver.Resolve(
+                row.Entry,
+                null,
+                resolved,
+                scoreSnapshot,
+                scoresByHash,
+                scoresBySha256);
             chartInfoPatchCandidates[index] = true;
         }
 
@@ -215,7 +235,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     {
                         continue;
                     }
-                    patchedRows[index] = currentRow.WithEntryChartInfo(resolved);
+                    patchedRows[index] = currentRow.WithEntryChartInfoAndScore(resolved, resolvedScores[index]);
                     patchedCount++;
                 }
                 DetailViewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRows);

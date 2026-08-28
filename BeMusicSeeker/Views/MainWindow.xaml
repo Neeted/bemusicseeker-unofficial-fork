@@ -289,6 +289,7 @@
       <ContextMenu x:Key="treeViewPlaylistTableContextMenu" HasDropShadow="True" Opened="treeViewPlaylistTableContextMenuOpend">
         <MenuItem Name="treeViewPlaylistTableContextMenuItemReload" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="treeViewPlaylistTableContextMenuItemReloadClick" />
         <MenuItem Name="treeViewPlaylistTableContextMenuItemOpenPageURI" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_page, Mode=OneWay}" Click="treeViewPlaylistTableContextMenuItemOpenPageURIClick" />
+        <MenuItem Name="treeViewPlaylistTableContextMenuItemOpenLampViewer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lamp_viewer, Mode=OneWay}" Click="treeViewPlaylistTableContextMenuItemOpenLampViewerClick" />
         <Separator />
         <MenuItem Name="treeViewPlaylistTableContextMenuItemOverwriteLevel" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Override_level, Mode=OneWay}" Click="treeViewPlaylistTableContextMenuItemOverwriteLevelClick" />
         <Separator />
@@ -498,6 +499,7 @@
       <ContextMenu x:Key="playlistSummaryContextMenu" HasDropShadow="True">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="playlistSummaryContextMenuResyncClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_page, Mode=OneWay}" Click="playlistSummaryContextMenuOpenPageClick" />
+        <MenuItem Name="playlistSummaryContextMenuOpenLampViewer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lamp_viewer, Mode=OneWay}" Click="playlistSummaryContextMenuOpenLampViewerClick" />
         <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_apply_current_order_to_bmt_sort, Mode=OneWay}" Click="playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_move_to_bmt_sort_top, Mode=OneWay}" Click="playlistSummaryContextMenuMoveToBmtSortTopClick" />

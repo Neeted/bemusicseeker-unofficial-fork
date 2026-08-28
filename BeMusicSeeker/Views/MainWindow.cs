@@ -122,11 +122,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private readonly MainWindowPlaylistWorkspaceTerminals playlistWorkspaceTerminals;
 
+    private readonly PlaylistLampViewerWindowManager playlistLampViewerWindowManager;
+
     private readonly MainWindowProgressStatusBarTerminals progressStatusBarTerminals;
 
     private readonly IUiDialogService playlistWorkspaceDialogService;
 
     private MainWindowViewModel subscribedViewModel;
+
+    private bool suppressPlaylistLampTreeSelection;
 
     private long lastNormalLibraryFirstVisibleRequestId;
 
@@ -137,6 +141,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         get => (Visibility)GetValue(PlaybackOverlayVisibilityProperty);
         private set => SetValue(PlaybackOverlayVisibilityProperty, value);
     }
+
+    /// <summary>Gets the owner-scoped manager for modeless playlist lamp viewers.</summary>
+    internal PlaylistLampViewerWindowManager PlaylistLampViewerWindows => playlistLampViewerWindowManager;
 
     private static void ThrowIfPickerFailed(UiDialogStatus status, Exception exception, string routeName)
     {
@@ -464,6 +471,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             ?? MainWindowProgressStatusBarTerminals.Create(viewModel);
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService
             ?? new UiDialogCoordinator();
+        this.playlistLampViewerWindowManager = new(
+            this,
+            viewModel.PlaylistWorkspace,
+            this.playlistWorkspaceDialogService);
         DataContext = viewModel;
         InitializeComponent();
         viewModel.SettingDialog.AttachPresentationPort(this);
@@ -556,6 +567,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         viewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
         viewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
         viewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
+        viewModel.PlaylistWorkspace.PlaylistLampNavigationRequested += MainWindow_PlaylistLampNavigationRequested;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
         viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
@@ -586,6 +598,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
         subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
         subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
+        subscribedViewModel.PlaylistWorkspace.PlaylistLampNavigationRequested -= MainWindow_PlaylistLampNavigationRequested;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
@@ -1460,6 +1473,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         propertyDialog?.CloseForOwnerShutdown();
         bulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
+        playlistLampViewerWindowManager.CloseAll();
 
         // The dialog owns its operation and session lifetime.  Keep the owner alive until
         // the operation, forced close, DataContext detach, and workspace cleanup have all
@@ -1485,6 +1499,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
+        playlistLampViewerWindowManager.Dispose();
         CaptureWindowStateForClosing();
         viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
         UnsubscribeViewModelUiInteractions();
@@ -1529,6 +1544,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
+        playlistLampViewerWindowManager.CloseAll();
         base.OnClosing(e);
         CaptureWindowStateForClosing();
         closingViewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
@@ -1985,6 +2001,65 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 NLogWrapper.FileLogger?.Info("custom_table_selection_changed selectedIndex=" + e.SelectedIndex + " selectedCount=" + (e.SelectedRows?.Count ?? 0));
             }
             playbackTerminal.HandleTableSelection(e.SelectedRow);
+        }
+    }
+
+    private void MainWindow_PlaylistLampNavigationRequested(
+        object sender,
+        PlaylistLampNavigationRequestedEventArgs request)
+    {
+        if (request?.Selection?.Table == null)
+        {
+            return;
+        }
+
+        suppressPlaylistLampTreeSelection = true;
+        try
+        {
+            if (!TrySelectPlaylistTreeItem(
+                request.Selection.Table,
+                out _,
+                out _))
+            {
+                return;
+            }
+            TreeViewItem tableTreeViewItem = TryGetPlaylistTreeViewItem(
+                request.Selection.Table,
+                out _,
+                out _);
+            if (tableTreeViewItem == null)
+            {
+                return;
+            }
+            if (request.Request?.Scope == PlaylistLampViewerNavigationScope.Overall)
+            {
+                // An overall graph category targets the table root.  The typed scope is
+                // authoritative; do not reinterpret it as a folder with a sentinel name.
+                tableTreeViewItem.IsExpanded = true;
+                tableTreeViewItem.UpdateLayout();
+                return;
+            }
+            PlaylistFolderNode folderNode = request.Selection.Table.FolderNodes
+                ?.FirstOrDefault(candidate => candidate != null
+                    && candidate.SpecialKind == PlaylistFolderNodeSpecialKind.None
+                    && string.Equals(
+                        candidate.FolderName,
+                        request.Selection.FolderName,
+                        StringComparison.Ordinal));
+            if (folderNode == null)
+            {
+                return;
+            }
+            tableTreeViewItem.IsExpanded = true;
+            tableTreeViewItem.UpdateLayout();
+            TrySelectChildTreeViewItemByDataContext(
+                tableTreeViewItem,
+                folderNode,
+                "playlist_lamp_navigation");
+        }
+        finally
+        {
+            suppressPlaylistLampTreeSelection = false;
         }
     }
 
@@ -3586,6 +3661,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void playlistTableSelected(object sender, RoutedEventArgs e)
     {
+        if (suppressPlaylistLampTreeSelection)
+        {
+            e.Handled = true;
+            return;
+        }
         var treeViewItem3 = e.OriginalSource as TreeViewItem;
         if (base.DataContext is not MainWindowViewModel viewModel || sender is not TreeViewItem treeViewItem)
         {
@@ -3966,6 +4046,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             await viewModel.PlaylistWorkspace.OpenPlaylistSummaryUriAsync(playlistSummaryRow.LinkUri)
                 .Logging("playlistSummaryContextMenuOpenPageClick");
         }
+    }
+
+    /// <summary>Opens a fresh local lamp viewer for the single summary row.</summary>
+    private async void playlistSummaryContextMenuOpenLampViewerClick(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is not MainWindowViewModel
+            || resolvePlaylistSummaryRowFromSender(sender) is not PlaylistSummaryRow row)
+        {
+            return;
+        }
+        e.Handled = true;
+        await playlistLampViewerWindowManager.TryOpenAsync(row)
+            .LoggingAndPropagate("playlistSummaryContextMenuOpenLampViewerClick");
     }
 
     private async void playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick(object sender, RoutedEventArgs e)
@@ -4692,6 +4785,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PlaylistTableContextMenuAvailability availability =
             mainWindowViewModel.PlaylistWorkspace.CapturePlaylistTableContextMenuAvailability(dataContext);
         MenuItem menuItem = null;
+        MenuItem lampViewerMenuItem = null;
         MenuItem menuItem3 = null;
         MenuItem menuItem4 = null;
         MenuItem menuItem5 = null;
@@ -4706,6 +4800,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
                 case "treeViewPlaylistTableContextMenuItemOpenPageURI":
                     menuItem = item as MenuItem;
+                    break;
+                case "treeViewPlaylistTableContextMenuItemOpenLampViewer":
+                    lampViewerMenuItem = item as MenuItem;
                     break;
                 case "treeViewPlaylistTableContextMenuItemOverwriteLevel":
                     menuItem3 = item as MenuItem;
@@ -4723,10 +4820,53 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         menuItem7.IsEnabled = availability.CanReload;
         menuItem.IsEnabled = availability.CanOpenPage;
+        if (lampViewerMenuItem != null)
+        {
+            // The shell test/composition path can expose a transient tree table before the
+            // persistence owner is attached. Keep the local command inert for that state;
+            // resolving the full typed open context is reserved for the click boundary.
+            lampViewerMenuItem.IsEnabled = dataContext.playlist_id.HasValue
+                && TryCapturePlaylistLampViewerOpenContext(
+                    mainWindowViewModel.PlaylistWorkspace,
+                    dataContext) != null;
+        }
         menuItem4.IsEnabled = availability.CanCreateFolder;
         menuItem3.IsEnabled = availability.CanOverwriteLevel;
         menuItem5.IsEnabled = availability.CanRemoveTable;
         menuItem6.IsEnabled = availability.CanOpenProperty;
+    }
+
+    private static PlaylistLampViewerOpenContext TryCapturePlaylistLampViewerOpenContext(
+        PlaylistWorkspaceViewModel workspace,
+        BMSTable table)
+    {
+        if (workspace == null || table == null || !table.playlist_id.HasValue)
+        {
+            return null;
+        }
+        try
+        {
+            return workspace.CapturePlaylistLampViewerOpenContext(table);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    private static BMSTable ResolvePlaylistTableFromMenuItem(object sender)
+    {
+        if (sender is not MenuItem menuItem)
+        {
+            return null;
+        }
+        if (menuItem.DataContext is BMSTable table)
+        {
+            return table;
+        }
+        return (menuItem.Parent as ContextMenu)?.PlacementTarget is TreeViewItem treeViewItem
+            ? treeViewItem.DataContext as BMSTable
+            : null;
     }
 
     /// <summary>
@@ -4774,6 +4914,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         mainWindowViewModel.PlaylistWorkspace.OpenPlaylistTablePage(dataContext);
+    }
+
+    /// <summary>Opens a fresh local lamp viewer for the playlist-tree table.</summary>
+    private async void treeViewPlaylistTableContextMenuItemOpenLampViewerClick(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is not MainWindowViewModel
+            || ResolvePlaylistTableFromMenuItem(sender) is not BMSTable table)
+        {
+            return;
+        }
+        e.Handled = true;
+        await playlistLampViewerWindowManager.TryOpenAsync(table)
+            .LoggingAndPropagate("treeViewPlaylistTableContextMenuItemOpenLampViewerClick");
     }
 
     /// <summary>

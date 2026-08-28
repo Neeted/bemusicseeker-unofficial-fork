@@ -143,6 +143,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 ReplaceSource = replaceSource,
                 SourceRows = sourceRows,
                 CurrentTable = currentTable,
+                CurrentSelectionScope = request.BuildRequest.Identity.SelectionScope,
                 CurrentFolderName = currentFolderName,
                 CurrentFilterType = currentFilterType,
                 ViewRows = viewApply.FinalRows,

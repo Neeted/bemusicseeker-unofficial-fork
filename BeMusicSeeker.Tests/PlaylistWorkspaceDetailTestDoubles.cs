@@ -19,6 +19,8 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
 
     internal LR2SongDBExtended.chart_info ChartInfo { get; set; } = null!;
 
+    internal BMSLibrary.ScoreSnapshot ScoreSnapshot { get; set; } = null!;
+
     internal Action? EnsureEntriesLoadedAction { get; set; }
 
     public int ChartInfoIndexVersion => 1;
@@ -35,7 +37,7 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
 
     public BMSLibrary.ScoreSnapshot GetScoreSnapshot()
     {
-        return null!;
+        return ScoreSnapshot;
     }
 
     public PlaylistLibraryResolveIndexSnapshot GetResolveIndexSnapshot(

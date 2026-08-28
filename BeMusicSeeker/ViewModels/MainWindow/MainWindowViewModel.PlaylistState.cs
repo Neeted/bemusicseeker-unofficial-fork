@@ -14,11 +14,30 @@ internal enum PlaylistDetailFilter
 }
 
 /// <summary>
+/// Identifies the semantic source scope represented by a playlist-detail selection.
+/// The scope is part of build identity because an overall lamp navigation and the
+/// ordinary playlist root both use a null folder name while exposing different rows.
+/// </summary>
+internal enum PlaylistDetailSelectionScope
+{
+    /// <summary>The ordinary playlist root, including its legacy special-folder rows.</summary>
+    OrdinaryRoot = 1,
+
+    /// <summary>A specific playlist folder, including the not-owned special folder.</summary>
+    Folder,
+
+    /// <summary>All current normal folders for an overall lamp-viewer navigation.</summary>
+    OverallNormalFolders
+}
+
+/// <summary>
 /// playlist source snapshot の再構築要否を判定する正規化済み snapshot です。
 /// </summary>
 internal readonly struct PlaylistSourceIdentity : IEquatable<PlaylistSourceIdentity>
 {
     internal BMSTable Table { get; }
+
+    internal PlaylistDetailSelectionScope SelectionScope { get; }
 
     internal string FolderName { get; }
 
@@ -34,9 +53,10 @@ internal readonly struct PlaylistSourceIdentity : IEquatable<PlaylistSourceIdent
 
     internal bool HasResolvedSelection { get; }
 
-    internal PlaylistSourceIdentity(BMSTable table, string folderName, PlaylistDetailFilter filterType, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
+    internal PlaylistSourceIdentity(BMSTable table, PlaylistDetailSelectionScope selectionScope, string folderName, PlaylistDetailFilter filterType, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
     {
         Table = table;
+        SelectionScope = selectionScope;
         FolderName = folderName;
         FilterType = filterType;
         LibraryIndexVersion = libraryIndexVersion;
@@ -48,12 +68,12 @@ internal readonly struct PlaylistSourceIdentity : IEquatable<PlaylistSourceIdent
 
     public bool Equals(PlaylistSourceIdentity other)
     {
-        return Table == other.Table && string.Equals(FolderName, other.FolderName, StringComparison.Ordinal) && FilterType == other.FilterType && LibraryIndexVersion == other.LibraryIndexVersion && PlaylistRevision == other.PlaylistRevision && ScoreSnapshotVersion == other.ScoreSnapshotVersion && ChartInfoIndexVersion == other.ChartInfoIndexVersion && HasResolvedSelection == other.HasResolvedSelection;
+        return Table == other.Table && SelectionScope == other.SelectionScope && string.Equals(FolderName, other.FolderName, StringComparison.Ordinal) && FilterType == other.FilterType && LibraryIndexVersion == other.LibraryIndexVersion && PlaylistRevision == other.PlaylistRevision && ScoreSnapshotVersion == other.ScoreSnapshotVersion && ChartInfoIndexVersion == other.ChartInfoIndexVersion && HasResolvedSelection == other.HasResolvedSelection;
     }
 
     internal bool EqualsIgnoringChartInfoIndex(PlaylistSourceIdentity other)
     {
-        return Table == other.Table && string.Equals(FolderName, other.FolderName, StringComparison.Ordinal) && FilterType == other.FilterType && LibraryIndexVersion == other.LibraryIndexVersion && PlaylistRevision == other.PlaylistRevision && ScoreSnapshotVersion == other.ScoreSnapshotVersion && HasResolvedSelection == other.HasResolvedSelection;
+        return Table == other.Table && SelectionScope == other.SelectionScope && string.Equals(FolderName, other.FolderName, StringComparison.Ordinal) && FilterType == other.FilterType && LibraryIndexVersion == other.LibraryIndexVersion && PlaylistRevision == other.PlaylistRevision && ScoreSnapshotVersion == other.ScoreSnapshotVersion && HasResolvedSelection == other.HasResolvedSelection;
     }
 
     public override bool Equals(object obj)
@@ -66,6 +86,7 @@ internal readonly struct PlaylistSourceIdentity : IEquatable<PlaylistSourceIdent
         unchecked
         {
             int hashCode = Table?.GetHashCode() ?? 0;
+            hashCode = (hashCode * 397) ^ (int)SelectionScope;
             hashCode = (hashCode * 397) ^ (FolderName?.GetHashCode() ?? 0);
             hashCode = (hashCode * 397) ^ (int)FilterType;
             hashCode = (hashCode * 397) ^ LibraryIndexVersion.GetHashCode();
@@ -133,6 +154,8 @@ internal readonly struct PlaylistRequestIdentity : IEquatable<PlaylistRequestIde
 
     internal BMSTable Table => SourceIdentity.Table;
 
+    internal PlaylistDetailSelectionScope SelectionScope => SourceIdentity.SelectionScope;
+
     internal string FolderName => SourceIdentity.FolderName;
 
     internal PlaylistDetailFilter FilterType => SourceIdentity.FilterType;
@@ -158,9 +181,9 @@ internal readonly struct PlaylistRequestIdentity : IEquatable<PlaylistRequestIde
     /// <summary>
     /// 正規化済み playlist 要求 identity を生成します。
     /// </summary>
-    internal PlaylistRequestIdentity(BMSTable table, string folderName, PlaylistDetailFilter filterType, string keywordFilter, ChartModeFilter modeFilter, string sortColumnName, ListSortDirection sortDirection, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
+    internal PlaylistRequestIdentity(BMSTable table, PlaylistDetailSelectionScope selectionScope, string folderName, PlaylistDetailFilter filterType, string keywordFilter, ChartModeFilter modeFilter, string sortColumnName, ListSortDirection sortDirection, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
     {
-        SourceIdentity = new PlaylistSourceIdentity(table, folderName, filterType, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection);
+        SourceIdentity = new PlaylistSourceIdentity(table, selectionScope, folderName, filterType, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection);
         PresentationIdentity = new PlaylistPresentationIdentity(keywordFilter, modeFilter, sortColumnName, sortDirection);
     }
 

@@ -188,6 +188,7 @@ internal sealed class PlaylistDetailBuildState
             viewState.Source.Rows = [];
             viewState.View.Rows = new List<object>();
             viewState.Source.CurrentTable = null;
+            viewState.Source.CurrentSelectionScope = PlaylistDetailSelectionScope.OrdinaryRoot;
             viewState.Source.CurrentFolderName = null;
             viewState.Source.CurrentFilterType = PlaylistDetailFilter.PlaylistFilter;
             viewState.View.CurrentIdentity = null;

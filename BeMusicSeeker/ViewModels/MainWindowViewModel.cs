@@ -2874,6 +2874,7 @@ public partial class MainWindowViewModel : ViewModel,
                 request.PublishReferenceReceipt,
                 request.OperationToken));
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
+        PlaylistWorkspace.PlaylistLampNavigationRequested += PlaylistWorkspacePlaylistLampNavigationRequested;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;

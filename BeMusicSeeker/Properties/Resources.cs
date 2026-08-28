@@ -2107,6 +2107,162 @@ public class Resources
     /// <summary>カスタムフォルダの出力先の説明を表示します。</summary>
     public static string PlaylistProp_output_description => ResourceManager.GetString("PlaylistProp_output_description", resourceCulture);
 
+    /// <summary>Opens the local playlist lamp viewer from a context menu.</summary>
+    public static string Open_lamp_viewer => ResourceManager.GetString("Open_lamp_viewer", resourceCulture);
+
+    /// <summary>Format for a playlist lamp viewer window title.</summary>
+    public static string PlaylistLampViewer_title_format => ResourceManager.GetString("PlaylistLampViewer_title_format", resourceCulture);
+
+    /// <summary>Total-chart card label.</summary>
+    public static string PlaylistLampViewer_total => ResourceManager.GetString("PlaylistLampViewer_total", resourceCulture);
+
+    /// <summary>Owned-chart card label.</summary>
+    public static string PlaylistLampViewer_owned => ResourceManager.GetString("PlaylistLampViewer_owned", resourceCulture);
+
+    /// <summary>Missing-chart card label.</summary>
+    public static string PlaylistLampViewer_missing => ResourceManager.GetString("PlaylistLampViewer_missing", resourceCulture);
+
+    /// <summary>Ownership-rate card label.</summary>
+    public static string PlaylistLampViewer_ownership_rate => ResourceManager.GetString("PlaylistLampViewer_ownership_rate", resourceCulture);
+
+    /// <summary>Played-chart card label.</summary>
+    public static string PlaylistLampViewer_played => ResourceManager.GetString("PlaylistLampViewer_played", resourceCulture);
+
+    /// <summary>No-play card label.</summary>
+    public static string PlaylistLampViewer_no_play => ResourceManager.GetString("PlaylistLampViewer_no_play", resourceCulture);
+
+    /// <summary>Play-rate card label.</summary>
+    public static string PlaylistLampViewer_play_rate => ResourceManager.GetString("PlaylistLampViewer_play_rate", resourceCulture);
+
+    /// <summary>Score-source card label.</summary>
+    public static string PlaylistLampViewer_score_source => ResourceManager.GetString("PlaylistLampViewer_score_source", resourceCulture);
+
+    /// <summary>Playlist-last-update card label.</summary>
+    public static string PlaylistLampViewer_playlist_last_update => ResourceManager.GetString("PlaylistLampViewer_playlist_last_update", resourceCulture);
+
+    /// <summary>Average EX-rate card label.</summary>
+    public static string PlaylistLampViewer_average_ex_rate => ResourceManager.GetString("PlaylistLampViewer_average_ex_rate", resourceCulture);
+
+    /// <summary>Clear-rate card label.</summary>
+    public static string PlaylistLampViewer_clear_rate => ResourceManager.GetString("PlaylistLampViewer_clear_rate", resourceCulture);
+
+    /// <summary>Clear-lamp graph label.</summary>
+    public static string PlaylistLampViewer_clear_lamp => ResourceManager.GetString("PlaylistLampViewer_clear_lamp", resourceCulture);
+
+    /// <summary>DJ-rank graph label.</summary>
+    public static string PlaylistLampViewer_rank_lamp => ResourceManager.GetString("PlaylistLampViewer_rank_lamp", resourceCulture);
+
+    /// <summary>Localized unavailable-value label.</summary>
+    public static string PlaylistLampViewer_unavailable => ResourceManager.GetString("PlaylistLampViewer_unavailable", resourceCulture);
+
+    /// <summary>Localized selected-state label.</summary>
+    public static string PlaylistLampViewer_selected => ResourceManager.GetString("PlaylistLampViewer_selected", resourceCulture);
+
+    /// <summary>Localized unselected-state label.</summary>
+    public static string PlaylistLampViewer_not_selected => ResourceManager.GetString("PlaylistLampViewer_not_selected", resourceCulture);
+
+    /// <summary>Localized segment detail format.</summary>
+    public static string PlaylistLampViewer_segment_detail_format => ResourceManager.GetString("PlaylistLampViewer_segment_detail_format", resourceCulture);
+
+    /// <summary>Localized segment detail format using an already-adaptive percentage.</summary>
+    public static string PlaylistLampViewer_segment_detail_adaptive_format => ResourceManager.GetString("PlaylistLampViewer_segment_detail_adaptive_format", resourceCulture);
+
+    /// <summary>Localized segment detail format for unavailable percentages.</summary>
+    public static string PlaylistLampViewer_segment_unavailable_detail_format => ResourceManager.GetString("PlaylistLampViewer_segment_unavailable_detail_format", resourceCulture);
+
+    /// <summary>Localized percentage format.</summary>
+    public static string PlaylistLampViewer_percentage_format => ResourceManager.GetString("PlaylistLampViewer_percentage_format", resourceCulture);
+
+    /// <summary>Localized lower-bound format for a positive percentage below display precision.</summary>
+    public static string PlaylistLampViewer_percentage_less_than_format => ResourceManager.GetString("PlaylistLampViewer_percentage_less_than_format", resourceCulture);
+
+    /// <summary>Localized folder count format.</summary>
+    public static string PlaylistLampViewer_folder_count_format => ResourceManager.GetString("PlaylistLampViewer_folder_count_format", resourceCulture);
+
+    /// <summary>LR2 score-source label.</summary>
+    public static string PlaylistLampViewer_source_lr2 => ResourceManager.GetString("PlaylistLampViewer_source_lr2", resourceCulture);
+
+    /// <summary>beatoraja score-source label.</summary>
+    public static string PlaylistLampViewer_source_beatoraja => ResourceManager.GetString("PlaylistLampViewer_source_beatoraja", resourceCulture);
+
+    /// <summary>No-score-source label.</summary>
+    public static string PlaylistLampViewer_source_none => ResourceManager.GetString("PlaylistLampViewer_source_none", resourceCulture);
+
+    /// <summary>Localized score-source status format.</summary>
+    public static string PlaylistLampViewer_source_status_format => ResourceManager.GetString("PlaylistLampViewer_source_status_format", resourceCulture);
+
+    /// <summary>Localized score-source failure value.</summary>
+    public static string PlaylistLampViewer_source_failed => ResourceManager.GetString("PlaylistLampViewer_source_failed", resourceCulture);
+
+    /// <summary>Localized initial aggregation failure dialog text.</summary>
+    public static string PlaylistLampViewer_initial_failure => ResourceManager.GetString("PlaylistLampViewer_initial_failure", resourceCulture);
+
+    /// <summary>Localized initial deleted-playlist dialog text.</summary>
+    public static string PlaylistLampViewer_initial_deleted => ResourceManager.GetString("PlaylistLampViewer_initial_deleted", resourceCulture);
+
+    /// <summary>Localized live aggregation failure dialog text.</summary>
+    public static string PlaylistLampViewer_live_failure => ResourceManager.GetString("PlaylistLampViewer_live_failure", resourceCulture);
+
+    /// <summary>Localized aggregation failure dialog title.</summary>
+    public static string PlaylistLampViewer_failure_title => ResourceManager.GetString("PlaylistLampViewer_failure_title", resourceCulture);
+
+    /// <summary>MAX clear label.</summary>
+    public static string PlaylistLampViewer_clear_max => ResourceManager.GetString("PlaylistLampViewer_clear_max", resourceCulture);
+
+    /// <summary>PERFECT clear label.</summary>
+    public static string PlaylistLampViewer_clear_perfect => ResourceManager.GetString("PlaylistLampViewer_clear_perfect", resourceCulture);
+
+    /// <summary>FC clear label.</summary>
+    public static string PlaylistLampViewer_clear_fc => ResourceManager.GetString("PlaylistLampViewer_clear_fc", resourceCulture);
+
+    /// <summary>EXHARD clear label.</summary>
+    public static string PlaylistLampViewer_clear_exhard => ResourceManager.GetString("PlaylistLampViewer_clear_exhard", resourceCulture);
+
+    /// <summary>HARD clear label.</summary>
+    public static string PlaylistLampViewer_clear_hard => ResourceManager.GetString("PlaylistLampViewer_clear_hard", resourceCulture);
+
+    /// <summary>NORMAL clear label.</summary>
+    public static string PlaylistLampViewer_clear_normal => ResourceManager.GetString("PlaylistLampViewer_clear_normal", resourceCulture);
+
+    /// <summary>EASY clear label.</summary>
+    public static string PlaylistLampViewer_clear_easy => ResourceManager.GetString("PlaylistLampViewer_clear_easy", resourceCulture);
+
+    /// <summary>ASSIST clear label.</summary>
+    public static string PlaylistLampViewer_clear_assist => ResourceManager.GetString("PlaylistLampViewer_clear_assist", resourceCulture);
+
+    /// <summary>FAILED clear label.</summary>
+    public static string PlaylistLampViewer_clear_failed => ResourceManager.GetString("PlaylistLampViewer_clear_failed", resourceCulture);
+
+    /// <summary>No-play clear label.</summary>
+    public static string PlaylistLampViewer_clear_np => ResourceManager.GetString("PlaylistLampViewer_clear_np", resourceCulture);
+
+    /// <summary>AAA rank label.</summary>
+    public static string PlaylistLampViewer_rank_aaa => ResourceManager.GetString("PlaylistLampViewer_rank_aaa", resourceCulture);
+
+    /// <summary>AA rank label.</summary>
+    public static string PlaylistLampViewer_rank_aa => ResourceManager.GetString("PlaylistLampViewer_rank_aa", resourceCulture);
+
+    /// <summary>A rank label.</summary>
+    public static string PlaylistLampViewer_rank_a => ResourceManager.GetString("PlaylistLampViewer_rank_a", resourceCulture);
+
+    /// <summary>B rank label.</summary>
+    public static string PlaylistLampViewer_rank_b => ResourceManager.GetString("PlaylistLampViewer_rank_b", resourceCulture);
+
+    /// <summary>C rank label.</summary>
+    public static string PlaylistLampViewer_rank_c => ResourceManager.GetString("PlaylistLampViewer_rank_c", resourceCulture);
+
+    /// <summary>D rank label.</summary>
+    public static string PlaylistLampViewer_rank_d => ResourceManager.GetString("PlaylistLampViewer_rank_d", resourceCulture);
+
+    /// <summary>E rank label.</summary>
+    public static string PlaylistLampViewer_rank_e => ResourceManager.GetString("PlaylistLampViewer_rank_e", resourceCulture);
+
+    /// <summary>F rank label.</summary>
+    public static string PlaylistLampViewer_rank_f => ResourceManager.GetString("PlaylistLampViewer_rank_f", resourceCulture);
+
+    /// <summary>No-play rank label.</summary>
+    public static string PlaylistLampViewer_rank_np => ResourceManager.GetString("PlaylistLampViewer_rank_np", resourceCulture);
+
     internal Resources()
     {
     }

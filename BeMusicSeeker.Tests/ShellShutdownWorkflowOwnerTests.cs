@@ -515,7 +515,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         var request = new PlaylistBuildRequest
         {
             Identity = PlaylistRequestFactory.CreateIdentity(
-                new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, null,
+                new BMSTable(), PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, null,
                 ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true)
         };
         PlaylistDetailBuildQueueCoordinator.RegisterRequest(

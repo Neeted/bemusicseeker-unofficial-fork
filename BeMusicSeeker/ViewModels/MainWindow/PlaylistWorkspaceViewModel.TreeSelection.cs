@@ -404,13 +404,16 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal void RequestDetailSelection(BMSTable table, PlaylistFolderNode folderNode = null)
     {
+        PlaylistDetailSelectionScope selectionScope = folderNode == null
+            ? PlaylistDetailSelectionScope.OrdinaryRoot
+            : PlaylistDetailSelectionScope.Folder;
         string folderName = folderNode == null || folderNode.IsSpecial
             ? null
             : folderNode.FolderName;
         PlaylistDetailFilter filter = folderNode?.SpecialKind == PlaylistFolderNodeSpecialKind.NotOwned
             ? PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
             : PlaylistDetailFilter.PlaylistFilter;
-        PlaylistDetailSelection selection = new(table, folderName, filter);
+        PlaylistDetailSelection selection = new(table, selectionScope, folderName, filter);
         long selectionRevision;
         lock (playlistDetailSelectionSyncRoot)
         {
@@ -551,15 +554,19 @@ internal sealed class PlaylistDetailSelection
 {
     internal PlaylistDetailSelection(
         BMSTable table,
+        PlaylistDetailSelectionScope scope,
         string folderName,
         PlaylistDetailFilter filter)
     {
         Table = table;
+        Scope = scope;
         FolderName = folderName;
         Filter = filter;
     }
 
     internal BMSTable Table { get; }
+
+    internal PlaylistDetailSelectionScope Scope { get; }
 
     internal string FolderName { get; }
 
@@ -567,23 +574,24 @@ internal sealed class PlaylistDetailSelection
 
     internal PlaylistDetailSelection Clone()
     {
-        return new PlaylistDetailSelection(Table, FolderName, Filter);
+        return new PlaylistDetailSelection(Table, Scope, FolderName, Filter);
     }
 
     internal PlaylistDetailSelection WithTable(BMSTable table)
     {
-        return new PlaylistDetailSelection(table, FolderName, Filter);
+        return new PlaylistDetailSelection(table, Scope, FolderName, Filter);
     }
 
     internal PlaylistDetailSelection WithFolderName(string folderName)
     {
-        return new PlaylistDetailSelection(Table, folderName, Filter);
+        return new PlaylistDetailSelection(Table, Scope, folderName, Filter);
     }
 
     internal bool Matches(PlaylistDetailSelection other)
     {
         return other != null
             && ReferenceEquals(Table, other.Table)
+            && Scope == other.Scope
             && string.Equals(FolderName, other.FolderName, StringComparison.Ordinal)
             && Filter == other.Filter;
     }

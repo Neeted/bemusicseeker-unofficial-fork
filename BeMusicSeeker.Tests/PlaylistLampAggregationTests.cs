@@ -9,14 +9,104 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// PLV-02〜08 の pure lamp aggregation contract tests.
+/// PLV-2026-08-28-D2 D2-01〜05 の pure lamp aggregation contract tests.
 /// </summary>
 [TestClass]
 public sealed class PlaylistLampAggregationTests
 {
     private static readonly DateTime PlaylistUpdatedAt = new(2026, 8, 28, 1, 2, 3, DateTimeKind.Utc);
 
-    private static readonly DateTime AggregatedAt = new(2026, 8, 28, 2, 3, 4, DateTimeKind.Utc);
+    private static readonly DateTime ScoreUpdatedAt = new(2026, 8, 28, 2, 3, 4, DateTimeKind.Utc);
+
+    [TestMethod]
+    public void Aggregate_countsScoresForOwnedAndUnownedEntriesWithTotalDenominators()
+    {
+        PlaylistLampScore ownedScore = Score("owned-scored", "owned-scored", ClearType.HARD, RankType.AAA, perfect: 100);
+        PlaylistLampScore unownedScore = Score("unowned-scored", "unowned-scored", ClearType.CLEAR, RankType.C, perfect: 50);
+        PlaylistLampScoreSnapshot scoreSnapshot = CreateScoreSnapshot(ActiveScoreSource.Beatoraja, ownedScore, unownedScore);
+        var entries = new[]
+        {
+            Entry("folder", "owned-scored", owned: true, sha256: ownedScore.Sha256),
+            Entry("folder", "unowned-scored", owned: false, sha256: unownedScore.Sha256),
+            Entry("folder", "owned-no-score", owned: true, sha256: "owned-no-score"),
+            Entry("folder", "unowned-no-score", owned: false, sha256: "unowned-no-score")
+        };
+
+        PlaylistLampAggregationResult result = Aggregate("matrix", ["folder"], entries, scoreSnapshot);
+
+        Assert.AreEqual(4, result.Statistics.TotalCount);
+        Assert.AreEqual(2, result.Statistics.OwnedCount);
+        Assert.AreEqual(2, result.Statistics.MissingCount);
+        Assert.AreEqual(2, result.Statistics.PlayedCount);
+        Assert.AreEqual(2, result.Statistics.UnplayedCount);
+        Assert.AreEqual(0.5, result.Statistics.PlayRate!.Value, 0.0001);
+        Assert.AreEqual(0.75, result.Statistics.AverageExRate!.Value, 0.0001);
+        Assert.AreEqual(0.5, result.Statistics.ClearRate!.Value, 0.0001);
+        Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.HARD));
+        Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.NORMAL));
+        Assert.AreEqual(2, Count(result.ClearSegments, PlaylistLampClearCategory.NP));
+        Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.AAA));
+        Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.C));
+        Assert.AreEqual(2, Count(result.RankSegments, PlaylistLampRankCategory.NP));
+    }
+
+    [TestMethod]
+    public void Aggregate_usesSourceSpecificHashPriorityIncludingChartInfoFallback()
+    {
+        PlaylistLampScore resolvedShaScore = Score("resolved-md5", "resolved-sha", ClearType.HARD, RankType.AA);
+        PlaylistLampScore entryShaScore = Score("entry-md5", "entry-sha", ClearType.EASY, RankType.B);
+        PlaylistLampScore chartInfoShaScore = Score("info-md5", "info-sha", ClearType.FC, RankType.C);
+        PlaylistLampScoreSnapshot beatoraja = CreateScoreSnapshot(
+            ActiveScoreSource.Beatoraja,
+            resolvedShaScore,
+            entryShaScore,
+            chartInfoShaScore);
+        var beatorajaEntries = new[]
+        {
+            Entry("folder", "resolved", owned: false, md5: "entry-md5", sha256: "entry-sha", resolvedSha256: "resolved-sha", chartInfoSha256: "info-sha"),
+            Entry("folder", "entry", owned: false, md5: "entry-md5-2", sha256: "entry-sha", chartInfoSha256: "info-sha"),
+            Entry("folder", "chart-info", owned: false, md5: "entry-md5-3", chartInfoSha256: "info-sha")
+        };
+
+        PlaylistLampAggregationResult beatorajaResult = Aggregate("beatoraja-priority", ["folder"], beatorajaEntries, beatoraja);
+
+        Assert.AreEqual(1, Count(beatorajaResult.ClearSegments, PlaylistLampClearCategory.HARD));
+        Assert.AreEqual(1, Count(beatorajaResult.ClearSegments, PlaylistLampClearCategory.EASY));
+        Assert.AreEqual(1, Count(beatorajaResult.ClearSegments, PlaylistLampClearCategory.FC));
+
+        PlaylistLampScore resolvedMd5Score = Score("resolved-md5", "", ClearType.HARD, RankType.AA);
+        PlaylistLampScore entryMd5Score = Score("entry-md5", "", ClearType.EASY, RankType.B);
+        PlaylistLampScoreSnapshot lr2 = CreateScoreSnapshot(ActiveScoreSource.Lr2, resolvedMd5Score, entryMd5Score);
+        var lr2Entries = new[]
+        {
+            Entry("folder", "lr2", owned: false, md5: "entry-md5", resolvedMd5: "resolved-md5")
+        };
+
+        PlaylistLampAggregationResult lr2Result = Aggregate("lr2-priority", ["folder"], lr2Entries, lr2);
+
+        Assert.AreEqual(1, Count(lr2Result.ClearSegments, PlaylistLampClearCategory.HARD));
+        Assert.AreEqual(0, Count(lr2Result.ClearSegments, PlaylistLampClearCategory.EASY));
+    }
+
+    [TestMethod]
+    public void Aggregate_mapsRawNoPlayAndNoSongScoresToNpWithoutCountingPlayed()
+    {
+        var noPlay = Score("no-play", "no-play", ClearType.NO_PLAY, RankType.INVALID);
+        var noSong = Score("no-song", "no-song", ClearType.NO_SONG, RankType.INVALID);
+        PlaylistLampAggregationResult result = Aggregate(
+            "raw-no-score",
+            ["folder"],
+            [
+                Entry("folder", "no-play", owned: false, sha256: "no-play"),
+                Entry("folder", "no-song", owned: false, sha256: "no-song")
+            ],
+            CreateScoreSnapshot(ActiveScoreSource.Beatoraja, noPlay, noSong));
+
+        Assert.AreEqual(0, result.Statistics.PlayedCount);
+        Assert.AreEqual(2, result.Statistics.UnplayedCount);
+        Assert.AreEqual(2, Count(result.ClearSegments, PlaylistLampClearCategory.NP));
+        Assert.AreEqual(2, Count(result.RankSegments, PlaylistLampRankCategory.NP));
+    }
 
     [TestMethod]
     public void Aggregate_usesCanonicalFolderOrderKeepsEmptyAndExcludesNonRealEntries()
@@ -47,8 +137,7 @@ public sealed class PlaylistLampAggregationTests
             ["z", "a", "empty", "[NO SONG]"],
             entries,
             scoreSnapshot,
-            PlaylistUpdatedAt,
-            AggregatedAt);
+            PlaylistUpdatedAt);
 
         PlaylistLampAggregationResult result = new PlaylistLampAggregationService().Aggregate(request);
 
@@ -62,12 +151,12 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(0, result.FolderRows[2].Count);
         Assert.AreEqual(1, Count(result.FolderRows[0].ClearSegments, PlaylistLampClearCategory.PERFECT));
         Assert.AreEqual(1, Count(result.FolderRows[1].ClearSegments, PlaylistLampClearCategory.PERFECT));
-        Assert.AreEqual(1, Count(result.FolderRows[1].ClearSegments, PlaylistLampClearCategory.NS));
-        Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.NS));
+        Assert.AreEqual(1, Count(result.FolderRows[1].ClearSegments, PlaylistLampClearCategory.NP));
+        Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.NP));
         Assert.AreEqual(3, result.ClearSegments.Sum(segment => segment.Count));
         Assert.AreEqual(3, result.RankSegments.Sum(segment => segment.Count));
         Assert.AreEqual(PlaylistLampClearCategory.MAX, result.ClearSegments[0].ClearCategory);
-        Assert.AreEqual(PlaylistLampClearCategory.NS, result.ClearSegments[^1].ClearCategory);
+        Assert.AreEqual(PlaylistLampClearCategory.NP, result.ClearSegments[^1].ClearCategory);
         Assert.AreEqual(PlaylistLampRankCategory.AAA, result.RankSegments[0].RankCategory);
     }
 
@@ -93,7 +182,10 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.EXHARD));
         Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.MAX));
         CollectionAssert.AreEqual(
-            new[] { "AAA", "AA", "A", "B", "C", "D", "E", "F", "NP", "NS" },
+            new[] { "MAX", "PERFECT", "FC", "EXHARD", "HARD", "NORMAL", "EASY", "ASSIST", "FAILED", "NP" },
+            result.ClearSegments.Select(segment => segment.ClearCategory!.Value.ToString()).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "AAA", "AA", "A", "B", "C", "D", "E", "F", "NP" },
             result.RankSegments.Select(segment => segment.RankCategory!.Value.ToString()).ToArray());
         Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.AAA));
         Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.AA));
@@ -146,12 +238,11 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(25.0, result.FolderRows[0].ClearSegments.Single(segment => segment.ClearCategory == PlaylistLampClearCategory.NORMAL).Percentage!.Value, 0.0001);
         Assert.AreEqual(75.0, result.Statistics.OwnershipRate!.Value * 100.0, 0.0001);
         Assert.AreEqual(2, result.Statistics.PlayedCount);
-        Assert.AreEqual(1, result.Statistics.NoScoreOwnedCount);
-        Assert.AreEqual(2.0 / 3.0, result.Statistics.PlayRate!.Value, 0.0001);
+        Assert.AreEqual(2, result.Statistics.UnplayedCount);
+        Assert.AreEqual(0.5, result.Statistics.PlayRate!.Value, 0.0001);
         Assert.AreEqual(0.75, result.Statistics.AverageExRate!.Value, 0.0001);
         Assert.AreEqual(0.25, result.Statistics.ClearRate!.Value, 0.0001);
-        Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.NP));
-        Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.NS));
+        Assert.AreEqual(2, Count(result.ClearSegments, PlaylistLampClearCategory.NP));
     }
 
     [TestMethod]
@@ -207,7 +298,7 @@ public sealed class PlaylistLampAggregationTests
             Assert.AreEqual(1, result.Statistics.MissingCount);
             Assert.IsFalse(result.ScoreDataAvailable);
             Assert.IsNull(result.Statistics.PlayedCount);
-            Assert.IsNull(result.Statistics.NoScoreOwnedCount);
+            Assert.IsNull(result.Statistics.UnplayedCount);
             Assert.IsNull(result.Statistics.PlayRate);
             Assert.IsNull(result.Statistics.ClearRate);
             Assert.IsFalse(result.IsSegmentInvocationEnabled);
@@ -243,8 +334,7 @@ public sealed class PlaylistLampAggregationTests
             folders,
             entries,
             scoreSnapshot,
-            PlaylistUpdatedAt,
-            AggregatedAt));
+            PlaylistUpdatedAt));
     }
 
     private static PlaylistLampEntrySnapshot Entry(
@@ -254,7 +344,10 @@ public sealed class PlaylistLampAggregationTests
         string? md5 = null,
         string? sha256 = null,
         bool isRemoved = false,
-        bool isDummy = false)
+        bool isDummy = false,
+        string? resolvedMd5 = null,
+        string? resolvedSha256 = null,
+        string? chartInfoSha256 = null)
     {
         return new PlaylistLampEntrySnapshot(
             folder,
@@ -263,10 +356,11 @@ public sealed class PlaylistLampAggregationTests
             md5,
             sha256,
             owned ? "C:/charts/" + identity + ".bms" : null,
-            md5,
-            sha256,
+            resolvedMd5,
+            resolvedSha256,
             isRemoved,
-            isDummy);
+            isDummy,
+            chartInfoSha256);
     }
 
     private static PlaylistLampScore Score(
@@ -302,7 +396,7 @@ public sealed class PlaylistLampAggregationTests
             ScoreTableLoadStatus.Loaded,
             1,
             1,
-            AggregatedAt,
+            ScoreUpdatedAt,
             byHash,
             bySha256);
     }

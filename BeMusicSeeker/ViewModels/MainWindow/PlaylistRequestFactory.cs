@@ -64,6 +64,7 @@ internal static class PlaylistRequestFactory
     /// Creates the normalized identity used to coalesce and reuse playlist build requests.
     /// </summary>
     /// <param name="table">Playlist table selected by the current tree node.</param>
+    /// <param name="selectionScope">Semantic source scope represented by the selection.</param>
     /// <param name="folderName">Playlist folder name selected by the current tree node.</param>
     /// <param name="filterType">Playlist filter type selected by the current tree node.</param>
     /// <param name="keywordFilter">Keyword filter text.</param>
@@ -77,6 +78,7 @@ internal static class PlaylistRequestFactory
     /// <returns>Normalized playlist request identity.</returns>
     internal static PlaylistRequestIdentity CreateIdentity(
         BMSTable table,
+        PlaylistDetailSelectionScope selectionScope,
         string folderName,
         PlaylistDetailFilter filterType,
         string keywordFilter,
@@ -90,6 +92,7 @@ internal static class PlaylistRequestFactory
     {
         return new PlaylistRequestIdentity(
             table,
+            selectionScope,
             NormalizeFolderName(folderName),
             filterType,
             NormalizeKeywordFilter(keywordFilter),

@@ -16,6 +16,7 @@ internal readonly struct PlaylistDetailBuildStateSnapshot
         bool hasSourceRows,
         int sourceRowCount,
         BMSTable currentTable,
+        PlaylistDetailSelectionScope currentSelectionScope,
         string currentFolderName,
         PlaylistDetailFilter currentFilterType,
         long lastBuiltLibraryIndexVersion,
@@ -28,6 +29,7 @@ internal readonly struct PlaylistDetailBuildStateSnapshot
         HasSourceRows = hasSourceRows;
         SourceRowCount = sourceRowCount;
         CurrentTable = currentTable;
+        CurrentSelectionScope = currentSelectionScope;
         CurrentFolderName = currentFolderName;
         CurrentFilterType = currentFilterType;
         LastBuiltLibraryIndexVersion = lastBuiltLibraryIndexVersion;
@@ -43,6 +45,8 @@ internal readonly struct PlaylistDetailBuildStateSnapshot
     internal int SourceRowCount { get; }
 
     internal BMSTable CurrentTable { get; }
+
+    internal PlaylistDetailSelectionScope CurrentSelectionScope { get; }
 
     internal string CurrentFolderName { get; }
 
@@ -132,6 +136,7 @@ internal static class PlaylistDetailBuildDecisionService
             || snapshot.CurrentFilterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected;
         bool selectionChanged = !snapshot.CurrentSourceIdentity.HasValue
             || snapshot.CurrentTable != request.Identity.Table
+            || snapshot.CurrentSelectionScope != request.Identity.SelectionScope
             || !string.Equals(PlaylistRequestFactory.NormalizeFolderName(snapshot.CurrentFolderName), request.Identity.FolderName, StringComparison.Ordinal)
             || snapshot.CurrentFilterType != request.Identity.FilterType
             || snapshot.CurrentSourceIdentity.Value.HasResolvedSelection != request.Identity.HasResolvedSelection;

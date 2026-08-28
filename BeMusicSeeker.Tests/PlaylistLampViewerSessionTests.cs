@@ -17,7 +17,38 @@ public sealed class PlaylistLampViewerSessionTests
 {
     private static readonly DateTime PlaylistUpdatedAt = new(2026, 8, 28, 1, 2, 3, DateTimeKind.Utc);
 
-    private static readonly DateTime AggregatedAt = new(2026, 8, 28, 2, 3, 4, DateTimeKind.Utc);
+    private static readonly DateTime ScoreUpdatedAt = new(2026, 8, 28, 2, 3, 4, DateTimeKind.Utc);
+
+    [TestMethod]
+    public async Task Session_disposeDuringLoadingDoesNotDisposeRefreshCancellationBeforeLinkedTokenCreation()
+    {
+        var source = new FakeLampSource(ReadyRequest("playlist", 1, 1));
+        var session = new PlaylistLampViewerSession("playlist", source);
+        var loadingPublished = NewCompletion<bool>();
+        session.ResultChanged += (_, args) =>
+        {
+            if (args.Result.State == PlaylistLampViewerState.Loading)
+            {
+                session.Dispose();
+                loadingPublished.TrySetResult(true);
+            }
+        };
+
+        try
+        {
+            await session.StartAsync();
+            await loadingPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.IsTrue(session.IsDisposed);
+            Assert.AreEqual(1, source.AddCount);
+            Assert.AreEqual(1, source.RemoveCount);
+            Assert.AreEqual(1, source.CaptureCount);
+        }
+        finally
+        {
+            session.Dispose();
+        }
+    }
 
     [TestMethod]
     public async Task Session_refreshesForRevisionAndPassesDependencyStampToTheAcceptedBuild()
@@ -37,7 +68,8 @@ public sealed class PlaylistLampViewerSessionTests
             8,
             9,
             ActiveScoreSource.Beatoraja,
-            ScoreTableLoadStatus.Loaded));
+            ScoreTableLoadStatus.Loaded,
+            chartInfoIndexVersion: 10));
         var source = new FakeLampSource(first);
         var executor = new GatedBuildExecutor();
         using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
@@ -71,6 +103,7 @@ public sealed class PlaylistLampViewerSessionTests
         Assert.AreEqual(6, executor.RequestAt(1).DependencyStamp.CatalogVersion);
         Assert.AreEqual(7, executor.RequestAt(1).DependencyStamp.OwnedCollectionVersion);
         Assert.AreEqual(ActiveScoreSource.Beatoraja, executor.RequestAt(1).DependencyStamp.ScoreSource);
+        Assert.AreEqual(10, executor.RequestAt(1).DependencyStamp.ChartInfoIndexVersion);
     }
 
     [TestMethod]
@@ -185,7 +218,7 @@ public sealed class PlaylistLampViewerSessionTests
         Assert.AreEqual(0, session.Current.Statistics.MissingCount);
         Assert.IsFalse(session.Current.ScoreDataAvailable);
         Assert.IsNull(session.Current.Statistics.PlayedCount);
-        Assert.IsNull(session.Current.Statistics.NoScoreOwnedCount);
+        Assert.IsNull(session.Current.Statistics.UnplayedCount);
         Assert.IsNull(session.Current.Statistics.PlayRate);
         Assert.IsFalse(session.Current.ClearSegments.Any(segment => segment.IsInvokable));
     }
@@ -304,7 +337,7 @@ public sealed class PlaylistLampViewerSessionTests
             ScoreTableLoadStatus.Loaded,
             revision,
             revision,
-            AggregatedAt,
+            ScoreUpdatedAt,
             scoresByHash);
         return new PlaylistLampAggregationRequest(
             playlistId,
@@ -312,7 +345,6 @@ public sealed class PlaylistLampViewerSessionTests
             entries,
             scoreSnapshot,
             PlaylistUpdatedAt,
-            AggregatedAt,
             dependencyStamp: dependencyStamp);
     }
 
@@ -363,8 +395,8 @@ public sealed class PlaylistLampViewerSessionTests
 
         public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(string playlistId, CancellationToken cancellationToken)
         {
-            cancellationToken.ThrowIfCancellationRequested();
             Interlocked.Increment(ref captureCount);
+            cancellationToken.ThrowIfCancellationRequested();
             Exception? failure = CaptureFailure;
             if (failure != null)
             {

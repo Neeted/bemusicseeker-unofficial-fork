@@ -627,6 +627,25 @@ Right-clicking the playlist body in the playlist tree lets you run the following
 
 In playlists that are not externally synced, chart rows can be added by dragging and dropping them from a list onto the playlist body or a folder. Play-log rows can be added the same way when they have been resolved to owned charts. Dragging rows within playlist detail to another folder moves them between folders inside the same playlist. When dropping onto the root of a folder-type playlist, the folder is selected based on the contents of existing folders and MD5 information for the same songs, and a new folder is created if necessary.
 
+### Playlist Lamp Viewer
+
+From a playlist tree item or a single playlist-summary row, choose `Open lamp viewer` immediately below `Open page`. The viewer is a local, modeless window; it does not open the playlist URL in a browser. Every activation creates a fresh window, so multiple viewers for the same playlist can remain open independently. Closing the main window closes all viewers.
+
+The viewer opens after loading has completed and the result can be displayed. The top cards show total charts, owned, missing, ownership rate, active score source, and playlist last update. When score data is available, a second card group shows played, unplayed, play rate, average EX score rate, and whole-playlist clear rate.
+
+The graph area has clear lamps on the left and DJ ranks on the right. Each normal folder appears in playlist order in one shared scrollable area. Both halves of a row use `folder name | 100%-stacked bar | chart count`. Empty ordinary folders remain visible with a count of zero.
+
+The clear order is `MAX`, `PERFECT`, `FC`, `EXHARD`, `HARD`, `NORMAL`, `EASY`, `ASSIST`, `FAILED`, `NP`. With an LR2 score source, `MAX` and `EXHARD` are omitted from every viewer surface. The rank order is `AAA`, `AA`, `A`, `B`, `C`, `D`, `E`, `F`, `NP`; rank `MAX` is included in `AAA`. `ASSIST` includes the `INVALID` and `L_ASSIST` clear states. Check missing charts with the `Owned` and `Missing` cards; unplayed charts are counted as `NP`.
+
+> [!NOTE]
+> When LR2 is played with an option that disables score saving, the EASY clear lamp may remain even when the corresponding `op_history` bit is not set. BeMusicSeeker treats that record as `ASSIST` in the viewer.
+
+Ownership rate is `owned / total`; play rate is `played / total`; average EX score rate is the arithmetic mean over played charts. Whole-playlist clear rate is `(ASSIST or better) / total`, with `FAILED` and `NP` excluded from the clear count. An empty denominator is shown as localized `Unavailable`, not `0%`.
+
+When score data is unavailable or fails to load, score-independent cards remain visible, while both graphs, score-dependent cards, and segment navigation are unavailable. If the playlist is deleted or aggregation fails before the viewer opens, one localized dialog is shown and no viewer opens. If the playlist is deleted after opening, that viewer closes quietly; if aggregation fails after opening, one localized dialog is shown and then only that viewer closes. There is no retry button.
+
+Segments with at least one chart show their label and count. Click a segment with the mouse, or focus it and press Enter or Space. Its tooltip shows the label, count, and percentage; very small positive percentages use a lower-bound label instead of appearing as 0%. The selected segment is visibly marked by color, border, and text. Choosing a folder segment opens the same normal folder in the main window and filters the list by that segment. Choosing a top overall segment opens the playlist root and filters across its normal folders. The current keyword search is replaced by the selected segment's condition. If the playlist or folder is no longer available, clicking the segment has no effect.
+
 ### Import External Playlist
 
 ![Playlist import menu](img/プレイリストインポート_ツリーコンテキストメニュー.PNG)

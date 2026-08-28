@@ -54,6 +54,43 @@ public sealed class LocalizationResourceParityTests
     }
 
     [TestMethod]
+    public void PlaylistLampViewerAdaptiveFormats_ArePresentAndValidAcrossLanguages()
+    {
+        string root = FindRepositoryRoot();
+        var formatArgumentCounts = new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            [nameof(Resources.PlaylistLampViewer_segment_detail_adaptive_format)] = 3,
+            [nameof(Resources.PlaylistLampViewer_percentage_less_than_format)] = 1
+        };
+        Dictionary<string, string> resxValues = ReadResxStringValues(
+            Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+
+        foreach ((string key, int argumentCount) in formatArgumentCounts)
+        {
+            AssertLocalizedFormat(
+                "Resources.resx",
+                key,
+                resxValues.TryGetValue(key, out string value) ? value : null,
+                argumentCount);
+        }
+
+        foreach (string languagePath in Directory.GetFiles(
+            Path.Combine(root, "lang"),
+            "*.json").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            JObject language = ReadLanguageJsonObject(languagePath);
+            foreach ((string key, int argumentCount) in formatArgumentCounts)
+            {
+                AssertLocalizedFormat(
+                    Path.GetFileName(languagePath),
+                    key,
+                    language[key]?.Value<string>(),
+                    argumentCount);
+            }
+        }
+    }
+
+    [TestMethod]
     public void InitialSetupLanguageDialogStrings_ArePresentInAllLanguages()
     {
         string root = FindRepositoryRoot();
@@ -256,26 +293,11 @@ public sealed class LocalizationResourceParityTests
             JObject language = ReadLanguageJsonObject(languagePath);
             foreach ((string key, int argumentCount) in formatArgumentCounts)
             {
-                string value = language[key]?.Value<string>();
-                Assert.IsFalse(string.IsNullOrWhiteSpace(value), Path.GetFileName(languagePath) + " " + key + " must not be empty.");
-                for (int index = 0; index < argumentCount; index++)
-                {
-                    StringAssert.Contains(
-                        value,
-                        "{" + index.ToString(CultureInfo.InvariantCulture),
-                        Path.GetFileName(languagePath) + " " + key + " must preserve placeholder " + index + ".");
-                }
-                object[] arguments = Enumerable.Range(0, argumentCount)
-                    .Select(index => index == argumentCount - 1 ? (object)1.5 : index.ToString(CultureInfo.InvariantCulture))
-                    .ToArray();
-                try
-                {
-                    _ = string.Format(CultureInfo.InvariantCulture, value, arguments);
-                }
-                catch (FormatException exception)
-                {
-                    Assert.Fail(Path.GetFileName(languagePath) + " " + key + " has invalid placeholders: " + exception.Message);
-                }
+                AssertLocalizedFormat(
+                    Path.GetFileName(languagePath),
+                    key,
+                    language[key]?.Value<string>(),
+                    argumentCount);
             }
             foreach (string key in plainKeys)
             {
@@ -306,6 +328,21 @@ public sealed class LocalizationResourceParityTests
             .Select(element => (string)element.Attribute("name"))
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static Dictionary<string, string> ReadResxStringValues(string path)
+    {
+        var document = XDocument.Load(path);
+        return document
+            .Root
+            .Elements("data")
+            .Where(element => element.Attribute("type") == null)
+            .Where(element => element.Attribute("mimetype") == null)
+            .Where(element => element.Element("value") != null)
+            .ToDictionary(
+                element => (string)element.Attribute("name"),
+                element => (string)element.Element("value"),
+                StringComparer.Ordinal);
     }
 
     private static HashSet<string> ReadLanguageJsonKeys(string path)
@@ -353,6 +390,76 @@ public sealed class LocalizationResourceParityTests
             + Environment.NewLine
             + "Extra: "
             + FormatKeys(extra));
+    }
+
+    private static void AssertLocalizedFormat(
+        string sourceName,
+        string key,
+        string value,
+        int argumentCount)
+    {
+        Assert.IsFalse(string.IsNullOrWhiteSpace(value), sourceName + " " + key + " must not be empty.");
+        object[] arguments = Enumerable.Range(0, argumentCount)
+            .Select(index => (object)new CompositeFormatSentinel(
+                "__resource_format_argument_"
+                + index.ToString(CultureInfo.InvariantCulture)
+                + "__"))
+            .ToArray();
+        string formatted;
+        try
+        {
+            formatted = string.Format(CultureInfo.InvariantCulture, value, arguments);
+        }
+        catch (FormatException exception)
+        {
+            Assert.Fail(sourceName + " " + key + " has invalid placeholders: " + exception.Message);
+            return;
+        }
+
+        for (int index = 0; index < argumentCount; index++)
+        {
+            string sentinel = "__resource_format_argument_"
+                + index.ToString(CultureInfo.InvariantCulture)
+                + "__";
+            StringAssert.Contains(
+                formatted,
+                sentinel,
+                sourceName + " " + key + " must consume placeholder " + index + ".");
+        }
+
+        object[] compatibilityArguments = Enumerable.Range(0, argumentCount)
+            .Select(index => index == argumentCount - 1
+                ? (object)1.5
+                : index.ToString(CultureInfo.InvariantCulture))
+            .ToArray();
+        try
+        {
+            _ = string.Format(CultureInfo.InvariantCulture, value, compatibilityArguments);
+        }
+        catch (FormatException exception)
+        {
+            Assert.Fail(sourceName + " " + key + " has incompatible format specifiers: " + exception.Message);
+        }
+    }
+
+    private sealed class CompositeFormatSentinel : IFormattable
+    {
+        private readonly string value;
+
+        public CompositeFormatSentinel(string value)
+        {
+            this.value = value;
+        }
+
+        public string ToString(string? format, IFormatProvider? formatProvider)
+        {
+            return value;
+        }
+
+        public override string ToString()
+        {
+            return value;
+        }
     }
 
     private static string FormatKeys(string[] keys)

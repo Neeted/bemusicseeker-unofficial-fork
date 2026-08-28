@@ -50,6 +50,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
         PlaylistSourceBuildResult result = workspace.BuildDetailSourceRows(
             table,
+            PlaylistDetailSelectionScope.Folder,
             "target",
             onlyNotOwned: false,
             new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty },
@@ -60,6 +61,42 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreSame(included, result.SourceRows[0].Entry);
         Assert.AreEqual(1, dataSource.EnsureEntriesLoadedCallCount);
         Assert.AreEqual("source_row_materialize", cancellationStage);
+    }
+
+    [TestMethod]
+    public void BuildDetailSourceRows_OrdinaryRootRetainsSpecialFolderRows()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        var normal = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "normal")
+        {
+            folder = "normal"
+        };
+        var special = new TestablePlaylistEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "special")
+        {
+            folder = "[NO SONG]"
+        };
+        var table = new BMSTable
+        {
+            entries = [normal, special]
+        };
+        string cancellationStage = string.Empty;
+
+        PlaylistSourceBuildResult result = workspace.BuildDetailSourceRows(
+            table,
+            PlaylistDetailSelectionScope.OrdinaryRoot,
+            folderName: null,
+            onlyNotOwned: false,
+            new PlaylistLibraryIndexSnapshot
+            {
+                ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty
+            },
+            CancellationToken.None,
+            ref cancellationStage);
+
+        CollectionAssert.AreEquivalent(
+            new[] { normal, special },
+            result.SourceRows.Select(row => row.Entry).ToArray(),
+            "the ordinary playlist root must preserve its legacy [NO SONG] projection");
     }
 
     [TestMethod]
@@ -89,6 +126,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             RequestVersion = 7,
             Identity = PlaylistRequestFactory.CreateIdentity(
                 new BMSTable(),
+                PlaylistDetailSelectionScope.OrdinaryRoot,
                 null,
                 PlaylistDetailFilter.PlaylistFilter,
                 null,
@@ -120,6 +158,79 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     }
 
     [TestMethod]
+    public void TryPatchDetailSourceChartInfo_ReResolvesUnownedBeatorajaScoreFromHydratedChartInfo()
+    {
+        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        var entry = new TestablePlaylistEntry("66666666666666666666666666666666", "chart-info-score");
+        var oldRow = new PlaylistDetailSourceRow(entry, resolvedChart: null);
+        workspace.DetailViewState.Source.Rows = [oldRow];
+        workspace.DetailBuildState.RequestVersion = 9;
+
+        var chartInfo = new LR2SongDBExtended.chart_info
+        {
+            sha256 = new string('c', 64),
+            parser_version = 1,
+            updated_at = new DateTime(2026, 3, 1)
+        };
+        dataSource.ChartInfo = chartInfo;
+        var score = new BMSScore
+        {
+            hash = entry.md5,
+            clear = ClearType.HARD,
+            rank = RankType.AAA,
+            perfect = 100,
+            totalnotes = 100
+        };
+        dataSource.ScoreSnapshot = new BMSLibrary.ScoreSnapshot
+        {
+            ActiveScoreSource = ActiveScoreSource.Beatoraja,
+            LoadStatus = ScoreTableLoadStatus.Loaded,
+            Version = 2,
+            SourceGeneration = 1,
+            ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+            {
+                [chartInfo.sha256] = score
+            }
+        };
+        var request = new PlaylistBuildRequest
+        {
+            RequestVersion = 9,
+            Identity = PlaylistRequestFactory.CreateIdentity(
+                new BMSTable(),
+                PlaylistDetailSelectionScope.OrdinaryRoot,
+                null,
+                PlaylistDetailFilter.PlaylistFilter,
+                null,
+                ChartModeFilter.All,
+                null,
+                libraryIndexVersion: 1,
+                playlistRevision: 1,
+                scoreSnapshotVersion: 2,
+                chartInfoIndexVersion: 2,
+                hasResolvedSelection: true)
+        };
+
+        bool patched = workspace.TryPatchDetailSourceChartInfo(
+            request,
+            CancellationToken.None,
+            out _,
+            out _,
+            out int patchedCount,
+            out _);
+
+        Assert.IsTrue(patched);
+        Assert.AreEqual(1, patchedCount);
+        Assert.AreEqual(ClearType.NO_SONG, oldRow.clear);
+        PlaylistDetailSourceRow patchedRow = workspace.DetailViewState.Source.Rows[0];
+        Assert.AreNotSame(oldRow, patchedRow);
+        Assert.AreSame(chartInfo, patchedRow.EntryChartInfo);
+        Assert.AreEqual(ClearType.HARD, patchedRow.clear);
+        Assert.AreEqual(RankType.AAA, patchedRow.rank);
+        Assert.AreEqual(200, patchedRow.score);
+        Assert.AreEqual(100, patchedRow.totalnotes);
+    }
+
+    [TestMethod]
     public void TryPatchDetailSourceChartInfo_RejectsStaleRequestWithoutReplacingSource()
     {
         var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
@@ -144,7 +255,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         {
             RequestVersion = 7,
             Identity = PlaylistRequestFactory.CreateIdentity(
-                new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, null,
+                new BMSTable(), PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, null,
                 ChartModeFilter.All, null, 1, 1, 1, 2, hasResolvedSelection: true)
         };
 
@@ -171,6 +282,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
         PlaylistSourceBuildResult result = workspace.BuildDetailSourceRows(
             table,
+            PlaylistDetailSelectionScope.Folder,
             null,
             onlyNotOwned: true,
             new PlaylistLibraryIndexSnapshot { ResolveIndex = resolveIndex },
@@ -195,6 +307,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
         Assert.ThrowsException<OperationCanceledException>(() => workspace.BuildDetailSourceRows(
             table,
+            PlaylistDetailSelectionScope.OrdinaryRoot,
             null,
             onlyNotOwned: false,
             new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty },
@@ -851,7 +964,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         var replacementSource = new FakePlaylistDetailDataSource();
         using var activeBuildCancellation = new CancellationTokenSource();
         PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(
-            new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, null,
+            new BMSTable(), PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, null,
             ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true);
         workspace.DetailBuildState.RequestVersion = 10;
         workspace.DetailBuildState.CurrentBuildCancellation = activeBuildCancellation;
@@ -875,6 +988,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
         workspace.BuildDetailSourceRows(
             table,
+            PlaylistDetailSelectionScope.OrdinaryRoot,
             null,
             onlyNotOwned: false,
             new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty },
@@ -895,10 +1009,10 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     {
         var state = new PlaylistDetailBuildState();
         PlaylistRequestIdentity firstIdentity = PlaylistRequestFactory.CreateIdentity(
-            new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, "first",
+            new BMSTable(), PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, "first",
             ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true);
         PlaylistRequestIdentity secondIdentity = PlaylistRequestFactory.CreateIdentity(
-            new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, "second",
+            new BMSTable(), PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, "second",
             ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true);
         var first = new PlaylistBuildRequest { Identity = firstIdentity };
         PlaylistDetailBuildQueueCoordinator.RegisterRequest(
@@ -986,7 +1100,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         var request = new PlaylistBuildRequest
         {
             Identity = PlaylistRequestFactory.CreateIdentity(
-                new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, null,
+                new BMSTable(), PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter, null,
                 ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true)
         };
         PlaylistDetailBuildQueueCoordinator.RegisterRequest(

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -360,6 +361,796 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
+    }
+
+    [TestMethod]
+    public void PlaylistLampNavigation_UsesChartSearchAliasesForEveryClearAndRankCategory()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+
+            const int playlistId = 7405;
+            const string folderName = "Normal";
+            var entries = new List<BMSTableEntry>();
+            var sourceRows = new List<PlaylistDetailSourceRow>();
+            int fixtureIndex = 0;
+
+            PlaylistDetailSourceRow AddRow(
+                ClearType clear,
+                RankType rank,
+                string title)
+            {
+                fixtureIndex++;
+                var entry = new TestablePlaylistEntry(
+                    fixtureIndex.ToString("x32", CultureInfo.InvariantCulture),
+                    title)
+                {
+                    folder = folderName
+                };
+                entries.Add(entry);
+                PlaylistDetailSourceRow row = new(
+                    entry,
+                    resolvedChart: null,
+                    scoreSnapshot: CreateScore(entry.md5, clear, rank));
+                sourceRows.Add(row);
+                return row;
+            }
+
+            PlaylistDetailSourceRow max = AddRow(ClearType.MAX, RankType.MAX, "max");
+            PlaylistDetailSourceRow perfect = AddRow(ClearType.PA, RankType.AA, "perfect");
+            PlaylistDetailSourceRow fc = AddRow(ClearType.FC, RankType.A, "fc");
+            PlaylistDetailSourceRow exhard = AddRow(ClearType.EX_HARD, RankType.B, "exhard");
+            PlaylistDetailSourceRow hard = AddRow(ClearType.HARD, RankType.C, "hard");
+            PlaylistDetailSourceRow normal = AddRow(ClearType.CLEAR, RankType.D, "normal");
+            PlaylistDetailSourceRow easy = AddRow(ClearType.EASY, RankType.E, "easy");
+            PlaylistDetailSourceRow assist = AddRow(ClearType.INVALID, RankType.INVALID, "assist");
+            PlaylistDetailSourceRow lassist = AddRow(ClearType.L_ASSIST, RankType.INVALID, "lassist");
+            PlaylistDetailSourceRow failed = AddRow(ClearType.FAILED, RankType.F, "failed");
+            PlaylistDetailSourceRow noPlay = AddRow(ClearType.NO_PLAY, RankType.INVALID, "no-play");
+            PlaylistDetailSourceRow noSong = AddRow(ClearType.NO_SONG, RankType.INVALID, "no-song");
+            PlaylistDetailSourceRow rankAaa = AddRow(ClearType.HARD, RankType.AAA, "rank-aaa");
+            PlaylistDetailSourceRow rankMax = AddRow(ClearType.HARD, RankType.MAX, "rank-max");
+            PlaylistDetailSourceRow rankAa = AddRow(ClearType.HARD, RankType.AA, "rank-aa");
+            PlaylistDetailSourceRow rankA = AddRow(ClearType.HARD, RankType.A, "rank-a");
+            PlaylistDetailSourceRow rankB = AddRow(ClearType.HARD, RankType.B, "rank-b");
+            PlaylistDetailSourceRow rankC = AddRow(ClearType.HARD, RankType.C, "rank-c");
+            PlaylistDetailSourceRow rankD = AddRow(ClearType.HARD, RankType.D, "rank-d");
+            PlaylistDetailSourceRow rankE = AddRow(ClearType.HARD, RankType.E, "rank-e");
+            PlaylistDetailSourceRow rankF = AddRow(ClearType.HARD, RankType.F, "rank-f");
+            PlaylistDetailSourceRow playedAssistWithInvalidRank = AddRow(
+                ClearType.INVALID,
+                RankType.INVALID,
+                "played-assist-invalid-rank");
+
+            var table = new BMSTable
+            {
+                playlist_id = playlistId,
+                name = "Lamp category aliases",
+                entries = entries,
+                Folder_order = [folderName]
+            };
+            var playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            workspace.InitializePlaylistDetailFilter(
+                new ChartListFilterSnapshot("previous keyword", ChartModeFilter._7KEYS));
+            var publications = new List<PlaylistLampNavigationRequestedEventArgs>();
+            workspace.PlaylistLampNavigationRequested += (_, args) => publications.Add(args);
+
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.MAX),
+                publications, max);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.PERFECT),
+                publications, perfect);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.FC),
+                publications, fc);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.EXHARD),
+                publications, exhard);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.HARD),
+                publications, hard, rankAaa, rankMax, rankAa, rankA, rankB, rankC, rankD, rankE, rankF);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.NORMAL),
+                publications, normal);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.EASY),
+                publications, easy);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.ASSIST),
+                publications, assist, lassist, playedAssistWithInvalidRank);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.FAILED),
+                publications, failed);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampClearCategory.NP),
+                publications, noPlay, noSong);
+
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.AAA),
+                publications, max, rankAaa, rankMax);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.AA),
+                publications, perfect, rankAa);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.A),
+                publications, fc, rankA);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.B),
+                publications, exhard, rankB);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.C),
+                publications, hard, rankC);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.D),
+                publications, normal, rankD);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.E),
+                publications, easy, rankE);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.F),
+                publications, failed, assist, lassist, rankF, playedAssistWithInvalidRank);
+            AssertLampNavigationRows(
+                workspace, table, sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(CultureInfo.InvariantCulture), folderName, PlaylistLampRankCategory.NP),
+                publications, noPlay, noSong);
+            Assert.AreEqual(19, publications.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistLampNavigation_ReplacesKeywordAndPublishesFinalRowsForUnownedScoreAndNoPlay()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+
+            const int playlistId = 7401;
+            const string folderName = "Normal";
+            var maxEntry = new TestablePlaylistEntry(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "unowned max")
+            {
+                folder = folderName
+            };
+            var noPlayEntry = new TestablePlaylistEntry(
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "no play")
+            {
+                folder = folderName
+            };
+            var noSongEntry = new TestablePlaylistEntry(
+                "cccccccccccccccccccccccccccccccc",
+                "no song")
+            {
+                folder = folderName
+            };
+            var table = new BMSTable
+            {
+                playlist_id = playlistId,
+                name = "Lamp navigation",
+                entries = [maxEntry, noPlayEntry, noSongEntry],
+                Folder_order = [folderName]
+            };
+            var playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            workspace.InitializePlaylistDetailFilter(
+                new ChartListFilterSnapshot("previous keyword", ChartModeFilter._7KEYS));
+
+            BMSScore maxScore = CreateScore(maxEntry.md5, ClearType.CLEAR, RankType.MAX, rate: 100);
+            BMSScore noPlayScore = CreateScore(noPlayEntry.md5, ClearType.NO_PLAY, RankType.INVALID);
+            BMSScore noSongScore = CreateScore(noSongEntry.md5, ClearType.NO_SONG, RankType.INVALID);
+            PlaylistDetailSourceRow maxRow = new(maxEntry, resolvedChart: null, scoreSnapshot: maxScore);
+            PlaylistDetailSourceRow noPlayRow = new(noPlayEntry, resolvedChart: null, scoreSnapshot: noPlayScore);
+            PlaylistDetailSourceRow noSongRow = new(noSongEntry, resolvedChart: null, scoreSnapshot: noSongScore);
+            IReadOnlyList<PlaylistDetailSourceRow> sourceRows = [maxRow, noPlayRow, noSongRow];
+            var publications = new List<PlaylistLampNavigationRequestedEventArgs>();
+            workspace.PlaylistLampNavigationRequested += (_, args) => publications.Add(args);
+
+            AssertLampNavigationRows(
+                workspace,
+                table,
+                sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(),
+                    folderName,
+                    PlaylistLampRankCategory.AAA),
+                publications,
+                maxRow);
+            AssertLampNavigationRows(
+                workspace,
+                table,
+                sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(),
+                    folderName,
+                    PlaylistLampClearCategory.NP),
+                publications,
+                noPlayRow,
+                noSongRow);
+            AssertLampNavigationRows(
+                workspace,
+                table,
+                sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForRank(
+                    playlistId.ToString(),
+                    folderName,
+                    PlaylistLampRankCategory.NP),
+                publications,
+                noPlayRow,
+                noSongRow);
+            Assert.AreEqual(3, publications.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistLampNavigation_AcceptsEmptyNormalFolderAndPublishesFinalRows()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+
+            const int playlistId = 7402;
+            const string folderName = "";
+            var entry = new TestablePlaylistEntry(
+                "dddddddddddddddddddddddddddddddd",
+                "empty folder chart")
+            {
+                folder = folderName
+            };
+            var table = new BMSTable
+            {
+                playlist_id = playlistId,
+                name = "Empty folder navigation",
+                entries = [entry],
+                Folder_order = [folderName]
+            };
+            var playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            workspace.InitializePlaylistDetailFilter(
+                new ChartListFilterSnapshot("previous keyword", ChartModeFilter._7KEYS));
+
+            BMSScore noPlayScore = CreateScore(entry.md5, ClearType.NO_PLAY, RankType.INVALID);
+            PlaylistDetailSourceRow noPlayRow = new(entry, resolvedChart: null, scoreSnapshot: noPlayScore);
+            IReadOnlyList<PlaylistDetailSourceRow> sourceRows = [noPlayRow];
+            var publications = new List<PlaylistLampNavigationRequestedEventArgs>();
+            workspace.PlaylistLampNavigationRequested += (_, args) => publications.Add(args);
+
+            AssertLampNavigationRows(
+                workspace,
+                table,
+                sourceRows,
+                PlaylistLampSegmentInvocationRequest.ForClear(
+                    playlistId.ToString(),
+                    folderName,
+                    PlaylistLampClearCategory.NP),
+                publications,
+                noPlayRow);
+            Assert.AreEqual(string.Empty, publications.Single().Selection.FolderName);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlaylistLampNavigation_EmptyFolderRunsMainWindowConsumerAndCommitsFinalRows()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            string tempDirectory = Path.Combine(
+                Path.GetTempPath(),
+                nameof(PlaylistWorkspaceActionWorkflowTests),
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDirectory);
+            MainWindowViewModel viewModel = null;
+            try
+            {
+                string songDbPath = Path.Combine(tempDirectory, "song.db");
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
+                PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+
+                var settings = new Settings
+                {
+                    OperationModeLR2DB = false,
+                    BMSRootPath = tempDirectory,
+                    StandaloneBmsRootPaths = tempDirectory,
+                    BMSInstallDir = tempDirectory,
+                    SkipInitPlaylistLoad = true,
+                    ScanBmsFilesOnStartup = false,
+                    UseBeatorajaScoreDb = false,
+                    EnableBeatorajaBmtOutput = false,
+                    UseExternalPanelImage = false,
+                    UsePlayeruBMplay = false,
+                    UsePlayerLR2body = false,
+                    UsePlayerBMIIDXView = false,
+                    IsLR2BackupEnabled = false
+                };
+                viewModel = MainWindowViewModelTestFactory.Create(settings);
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+
+                var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
+                library.BMSFiles = [];
+                var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+                var noPlayEntry = new TestablePlaylistEntry(
+                    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                    "empty-folder no-play")
+                {
+                    folder = string.Empty
+                };
+                noPlayEntry.SetSha256(new string('e', 64));
+                var scoredEntry = new TestablePlaylistEntry(
+                    "ffffffffffffffffffffffffffffffff",
+                    "empty-folder scored")
+                {
+                    folder = string.Empty
+                };
+                scoredEntry.SetSha256(new string('f', 64));
+                const int playlistId = 7403;
+                var table = new BMSTable
+                {
+                    playlist_id = playlistId,
+                    name = "Empty normal folder consumer",
+                    entries = [noPlayEntry, scoredEntry],
+                    Folder_order = [string.Empty]
+                };
+                playlist.BMSTables = new ObservableCollection<BMSTable> { table };
+
+                var scored = new BMSScore
+                {
+                    hash = scoredEntry.md5,
+                    clear = ClearType.HARD,
+                    rank = RankType.A,
+                    perfect = 80,
+                    great = 20,
+                    totalnotes = 100,
+                    rate = 80
+                };
+                var detailDataSource = new FakePlaylistDetailDataSource
+                {
+                    ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.Empty,
+                    ScoreSnapshot = new BMSLibrary.ScoreSnapshot
+                    {
+                        ActiveScoreSource = ActiveScoreSource.Beatoraja,
+                        LoadStatus = ScoreTableLoadStatus.Loaded,
+                        Version = 1,
+                        SourceGeneration = 1,
+                        ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            [scoredEntry.sha256] = scored
+                        }
+                    }
+                };
+
+                var profile = new LibraryProfile(
+                    operationModeLR2DB: false,
+                    songDbPath,
+                    [tempDirectory],
+                    lr2ConfigProvider: null,
+                    lr2ScoreDbPath: null,
+                    canWriteLr2Config: false,
+                    canOutputLr2Folders: false,
+                    canUseLr2Backup: false,
+                    canUseLr2IrScore: false);
+                IStartupLibraryApplicationPort applicationPort =
+                    (IStartupLibraryApplicationPort)viewModel;
+                applicationPort.AttachStartupLibrary(library);
+                applicationPort.AttachStartupServices(
+                    new StartupLibraryServices(profile, library, playlist));
+                viewModel.PlaylistWorkspace.SetDetailDataSource(detailDataSource);
+
+                ChartListFilterSnapshot previousFilter =
+                    new("previous keyword", ChartModeFilter.All);
+                viewModel.ChartFilters.ApplySnapshotSilently(previousFilter);
+                viewModel.PlaylistWorkspace.InitializePlaylistDetailFilter(previousFilter);
+                int rowsChanged = 0;
+                viewModel.MainChartList.PropertyChanged += (_, args) =>
+                {
+                    if (string.Equals(args.PropertyName, nameof(viewModel.MainChartList.Rows), StringComparison.Ordinal))
+                    {
+                        rowsChanged++;
+                    }
+                };
+
+                bool accepted = viewModel.PlaylistWorkspace.TryRequestPlaylistLampNavigation(
+                    PlaylistLampSegmentInvocationRequest.ForClear(
+                        playlistId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        string.Empty,
+                        PlaylistLampClearCategory.NP));
+                Assert.IsTrue(accepted);
+                int requestVersion = viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion;
+                Task completion = viewModel.PlaylistWorkspace.WaitForDetailRequestCompletionAsync(requestVersion);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    completion,
+                    "playlist-lamp.empty-folder.consumer-detail-build");
+                TestUiDispatcherHost.Drain();
+
+                Assert.AreNotEqual(previousFilter.KeywordFilter, viewModel.ChartFilters.KeywordFilter);
+                ChartListFilterSnapshot appliedFilter =
+                    viewModel.PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot();
+                Assert.AreNotEqual(previousFilter.KeywordFilter, appliedFilter.KeywordFilter);
+                Assert.AreEqual(appliedFilter.KeywordFilter, viewModel.ChartFilters.KeywordFilter);
+                PlaylistDetailSelection selection = viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection();
+                Assert.IsNotNull(selection);
+                Assert.AreSame(table, selection.Table);
+                Assert.AreEqual(string.Empty, selection.FolderName);
+
+                List<PlaylistDetailRow> finalRows = viewModel.MainChartList.Rows
+                    .Cast<PlaylistDetailRow>()
+                    .ToList();
+                Assert.AreEqual(1, finalRows.Count);
+                Assert.AreSame(noPlayEntry, finalRows[0].Entry);
+                Assert.IsTrue(rowsChanged > 0);
+                Assert.IsTrue(viewModel.MainChartList.LastCompletion.RequestId > 0L);
+                Assert.AreEqual(
+                    MainViewUpdateMode.PlaylistFilterSelected,
+                    viewModel.MainChartList.LastCompletion.Mode);
+                Assert.AreSame(
+                    table,
+                    viewModel.PlaylistWorkspace.DetailViewState.Source.CurrentTable);
+            }
+            finally
+            {
+                if (viewModel != null)
+                {
+                    viewModel.PlaylistWorkspace.CancelDetailBuilds();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.PlaylistWorkspace.WaitForDetailBuildIdleAsync(),
+                        "playlist-lamp.empty-folder.consumer-cleanup");
+                    viewModel.PlaylistWorkspace.Dispose();
+                    viewModel.SettingDialog.Dispose();
+                }
+                if (Directory.Exists(tempDirectory))
+                {
+                    Directory.Delete(tempDirectory, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlaylistLampNavigation_OverallRunsMainWindowConsumerAcrossNormalFoldersAndExcludesSpecialFolder()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            string tempDirectory = Path.Combine(
+                Path.GetTempPath(),
+                nameof(PlaylistWorkspaceActionWorkflowTests),
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDirectory);
+            MainWindowViewModel viewModel = null;
+            try
+            {
+                string songDbPath = Path.Combine(tempDirectory, "song.db");
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
+                PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+
+                var settings = new Settings
+                {
+                    OperationModeLR2DB = false,
+                    BMSRootPath = tempDirectory,
+                    StandaloneBmsRootPaths = tempDirectory,
+                    BMSInstallDir = tempDirectory,
+                    SkipInitPlaylistLoad = true,
+                    ScanBmsFilesOnStartup = false,
+                    UseBeatorajaScoreDb = false,
+                    EnableBeatorajaBmtOutput = false,
+                    UseExternalPanelImage = false,
+                    UsePlayeruBMplay = false,
+                    UsePlayerLR2body = false,
+                    UsePlayerBMIIDXView = false,
+                    IsLR2BackupEnabled = false
+                };
+                viewModel = MainWindowViewModelTestFactory.Create(settings);
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+
+                var library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
+                library.BMSFiles = [];
+                var playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+                var firstFolderNoPlay = new TestablePlaylistEntry(
+                    "11111111111111111111111111111111",
+                    "first folder no play")
+                {
+                    folder = "First"
+                };
+                firstFolderNoPlay.SetSha256(new string('1', 64));
+                var secondFolderNoSong = new TestablePlaylistEntry(
+                    "22222222222222222222222222222222",
+                    "second folder no song")
+                {
+                    folder = "Second"
+                };
+                secondFolderNoSong.SetSha256(new string('2', 64));
+                var normalNonMatch = new TestablePlaylistEntry(
+                    "33333333333333333333333333333333",
+                    "normal folder hard")
+                {
+                    folder = "First"
+                };
+                normalNonMatch.SetSha256(new string('3', 64));
+                var specialFolderNoSong = new TestablePlaylistEntry(
+                    "44444444444444444444444444444444",
+                    "special no song control")
+                {
+                    folder = "[NO SONG]"
+                };
+                specialFolderNoSong.SetSha256(new string('4', 64));
+                const int playlistId = 7404;
+                var table = new BMSTable
+                {
+                    playlist_id = playlistId,
+                    name = "Overall lamp navigation",
+                    entries = [firstFolderNoPlay, secondFolderNoSong, normalNonMatch, specialFolderNoSong],
+                    Folder_order = ["First", "Second"]
+                };
+                playlist.BMSTables = new ObservableCollection<BMSTable> { table };
+
+                var detailDataSource = new FakePlaylistDetailDataSource
+                {
+                    ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.Empty,
+                    ScoreSnapshot = new BMSLibrary.ScoreSnapshot
+                    {
+                        ActiveScoreSource = ActiveScoreSource.Beatoraja,
+                        LoadStatus = ScoreTableLoadStatus.Loaded,
+                        Version = 1,
+                        SourceGeneration = 1,
+                        ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            [firstFolderNoPlay.sha256] = CreateScore(
+                                firstFolderNoPlay.md5,
+                                ClearType.NO_PLAY,
+                                RankType.INVALID),
+                            [secondFolderNoSong.sha256] = CreateScore(
+                                secondFolderNoSong.md5,
+                                ClearType.NO_SONG,
+                                RankType.INVALID),
+                            [normalNonMatch.sha256] = CreateScore(
+                                normalNonMatch.md5,
+                                ClearType.HARD,
+                                RankType.A),
+                            [specialFolderNoSong.sha256] = CreateScore(
+                                specialFolderNoSong.md5,
+                                ClearType.NO_SONG,
+                                RankType.INVALID)
+                        }
+                    }
+                };
+
+                var profile = new LibraryProfile(
+                    operationModeLR2DB: false,
+                    songDbPath,
+                    [tempDirectory],
+                    lr2ConfigProvider: null,
+                    lr2ScoreDbPath: null,
+                    canWriteLr2Config: false,
+                    canOutputLr2Folders: false,
+                    canUseLr2Backup: false,
+                    canUseLr2IrScore: false);
+                IStartupLibraryApplicationPort applicationPort =
+                    (IStartupLibraryApplicationPort)viewModel;
+                applicationPort.AttachStartupLibrary(library);
+                applicationPort.AttachStartupServices(
+                    new StartupLibraryServices(profile, library, playlist));
+                viewModel.PlaylistWorkspace.SetDetailDataSource(detailDataSource);
+
+                ChartListFilterSnapshot previousFilter =
+                    new("stale keyword", ChartModeFilter.All);
+                viewModel.ChartFilters.ApplySnapshotSilently(previousFilter);
+                viewModel.PlaylistWorkspace.InitializePlaylistDetailFilter(previousFilter);
+
+                List<PlaylistLampNavigationRequestedEventArgs> publications = [];
+                viewModel.PlaylistWorkspace.PlaylistLampNavigationRequested +=
+                    (_, args) => publications.Add(args);
+                PlaylistLampViewerNavigationRequest request =
+                    PlaylistLampViewerNavigationRequest.ForOverall(
+                        playlistId.ToString(CultureInfo.InvariantCulture),
+                        PlaylistLampSegmentKind.Clear,
+                        PlaylistLampClearCategory.NP,
+                        rankCategory: null);
+
+                Assert.IsTrue(viewModel.PlaylistWorkspace.TryRequestPlaylistLampNavigation(request));
+                Assert.AreEqual(1, publications.Count);
+                Assert.AreSame(table, publications[0].Selection.Table);
+                Assert.IsNull(publications[0].Selection.FolderName);
+                Assert.AreEqual(PlaylistLampViewerNavigationScope.Overall, publications[0].Request.Scope);
+
+                int requestVersion = viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.PlaylistWorkspace.WaitForDetailRequestCompletionAsync(requestVersion),
+                    "playlist-lamp.overall.consumer-detail-build");
+                TestUiDispatcherHost.Drain();
+
+                Assert.AreNotEqual(previousFilter.KeywordFilter, viewModel.ChartFilters.KeywordFilter);
+                Assert.AreEqual(
+                    viewModel.ChartFilters.KeywordFilter,
+                    viewModel.PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot().KeywordFilter);
+                PlaylistDetailSelection selection =
+                    viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection();
+                Assert.IsNotNull(selection);
+                Assert.AreSame(table, selection.Table);
+                Assert.IsNull(selection.FolderName);
+
+                List<PlaylistDetailRow> finalRows = viewModel.MainChartList.Rows
+                    .Cast<PlaylistDetailRow>()
+                    .ToList();
+                CollectionAssert.AreEquivalent(
+                    new[] { firstFolderNoPlay, secondFolderNoSong },
+                    finalRows.Select(row => row.Entry).ToArray());
+                Assert.IsFalse(finalRows.Any(row => ReferenceEquals(row.Entry, normalNonMatch)));
+                Assert.IsFalse(finalRows.Any(row => ReferenceEquals(row.Entry, specialFolderNoSong)));
+                Assert.AreEqual(
+                    MainViewUpdateMode.PlaylistFilterSelected,
+                    viewModel.MainChartList.LastCompletion.Mode);
+            }
+            finally
+            {
+                if (viewModel != null)
+                {
+                    viewModel.PlaylistWorkspace.CancelDetailBuilds();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.PlaylistWorkspace.WaitForDetailBuildIdleAsync(),
+                        "playlist-lamp.overall.consumer-cleanup");
+                    viewModel.PlaylistWorkspace.Dispose();
+                    viewModel.SettingDialog.Dispose();
+                }
+                if (Directory.Exists(tempDirectory))
+                {
+                    Directory.Delete(tempDirectory, recursive: true);
+                }
+            }
+        });
+    }
+
+    private static void AssertLampNavigationRows(
+        PlaylistWorkspaceViewModel workspace,
+        BMSTable table,
+        IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
+        PlaylistLampSegmentInvocationRequest request,
+        List<PlaylistLampNavigationRequestedEventArgs> publications,
+        params PlaylistDetailSourceRow[] expectedRows)
+    {
+        int publicationCountBefore = publications.Count;
+        Assert.IsTrue(workspace.TryRequestPlaylistLampNavigation(request));
+        Assert.AreEqual(publicationCountBefore + 1, publications.Count);
+        PlaylistLampNavigationRequestedEventArgs publication = publications[^1];
+        Assert.AreSame(table, publication.Selection.Table);
+        Assert.AreEqual(request.FolderName, publication.Selection.FolderName);
+        Assert.AreEqual(ChartModeFilter._7KEYS, publication.FilterSnapshot.ModeFilter);
+        Assert.AreNotEqual("previous keyword", publication.FilterSnapshot.KeywordFilter);
+
+        List<PlaylistDetailSourceRow> filteredRows = PlaylistDetailPresentationService.ApplySourceRows(
+            sourceRows,
+            publication.FilterSnapshot.KeywordFilter,
+            publication.FilterSnapshot.ModeFilter,
+            sortParameters: null,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _,
+            out _);
+        CollectionAssert.AreEquivalent(expectedRows, filteredRows);
+    }
+
+    private static BMSScore CreateScore(
+        string hash,
+        ClearType clear,
+        RankType rank,
+        int rate = 80)
+    {
+        return new BMSScore
+        {
+            hash = hash,
+            clear = clear,
+            rank = rank,
+            perfect = 80,
+            great = 20,
+            totalnotes = 100,
+            rate = rate
+        };
     }
 
     [TestMethod]

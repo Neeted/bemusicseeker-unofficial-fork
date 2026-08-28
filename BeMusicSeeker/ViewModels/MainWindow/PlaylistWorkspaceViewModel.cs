@@ -99,6 +99,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             lock (DetailViewState.SyncRoot)
             {
                 DetailViewState.Source.CurrentIdentity = null;
+                DetailViewState.Source.CurrentSelectionScope = PlaylistDetailSelectionScope.OrdinaryRoot;
                 DetailViewState.View.CurrentIdentity = null;
             }
             Volatile.Write(ref detailDataSource, dataSource);

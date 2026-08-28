@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Collections.Specialized;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -20,6 +22,8 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
     private readonly object subscriptionGate = new();
 
     private readonly HashSet<BMSTable> subscribedTables = [];
+
+    private INotifyCollectionChanged subscribedTablesCollection;
 
     private readonly record struct RawEntrySnapshot(
         string Folder,
@@ -43,6 +47,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         playlist.PlaylistTablesReplaced += PlaylistTablesReplaced;
         playlist.PlaylistEntriesHydrationCompleted += PlaylistEntriesHydrationCompleted;
         library.PropertyChanged += LibraryPropertyChanged;
+        SynchronizeTableCollectionSubscription();
         SynchronizeTableSubscriptions();
     }
 
@@ -95,54 +100,52 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             entriesRevision = table.PlaylistEntriesRevision;
             failureMessage = table.EntriesLoadErrorMessage;
             if (entriesLoadState == PlaylistEntriesLoadState.Loading
-                || entriesLoadState == PlaylistEntriesLoadState.NotLoaded)
+                || entriesLoadState == PlaylistEntriesLoadState.NotLoaded
+                || entriesLoadState == PlaylistEntriesLoadState.Failed)
             {
-                return new PlaylistLampAggregationRequest(
-                    playlistId,
-                    [],
-                    [],
-                    null,
-                    inputState: PlaylistLampInputState.Loading,
-                    dependencyStamp: new PlaylistLampDependencyStamp(
-                        entriesRevision,
-                        0,
-                        library.OwnedChartCollectionVersion,
-                        0,
-                        0L,
-                        ActiveScoreSource.None,
-                        ScoreTableLoadStatus.NotConfigured));
+                folderOrder = [];
+                entries = [];
+                playlistLastUpdated = default;
             }
-            if (entriesLoadState == PlaylistEntriesLoadState.Failed)
+            else
             {
-                return new PlaylistLampAggregationRequest(
-                    playlistId,
-                    [],
-                    [],
-                    null,
-                    inputState: PlaylistLampInputState.Failed,
-                    failureMessage: failureMessage,
-                    dependencyStamp: new PlaylistLampDependencyStamp(
-                        entriesRevision,
-                        0,
-                        library.OwnedChartCollectionVersion,
-                        0,
-                        0L,
-                        ActiveScoreSource.None,
-                        ScoreTableLoadStatus.NotConfigured));
+                folderOrder = (table.folder_list ?? []).ToArray();
+                entries = (table.entries ?? [])
+                    .Where(entry => entry != null)
+                    .Select(entry => new RawEntrySnapshot(
+                        entry.folder,
+                        entry.md5,
+                        entry.sha256,
+                        entry.is_removed))
+                    .ToArray();
+                playlistLastUpdated = table.last_update;
             }
-            folderOrder = (table.folder_list ?? []).ToArray();
-            entries = (table.entries ?? [])
-                .Where(entry => entry != null)
-                .Select(entry => new RawEntrySnapshot(
-                    entry.folder,
-                    entry.md5,
-                    entry.sha256,
-                    entry.is_removed))
-                .ToArray();
-            playlistLastUpdated = table.last_update;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        if (entriesLoadState == PlaylistEntriesLoadState.Loading
+            || entriesLoadState == PlaylistEntriesLoadState.NotLoaded)
+        {
+            return new PlaylistLampAggregationRequest(
+                playlistId,
+                [],
+                [],
+                null,
+                inputState: PlaylistLampInputState.Loading,
+                dependencyStamp: CreateUnavailableDependencyStamp(entriesRevision));
+        }
+        if (entriesLoadState == PlaylistEntriesLoadState.Failed)
+        {
+            return new PlaylistLampAggregationRequest(
+                playlistId,
+                [],
+                [],
+                null,
+                inputState: PlaylistLampInputState.Failed,
+                failureMessage: failureMessage,
+                dependencyStamp: CreateUnavailableDependencyStamp(entriesRevision));
+        }
+
         PlaylistLibraryResolveIndexSnapshot resolveIndex = library.GetPlaylistLibraryResolveIndexSnapshot(
             cancellationToken,
             out _,
@@ -157,6 +160,8 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             LibraryChartRef resolved = resolveIndex.ResolveChartForPlaylistHash(entry.Md5, entry.Sha256);
             string resolvedMd5 = resolved?.Md5;
             string resolvedSha256 = resolved?.Sha256;
+            LR2SongDBExtended.chart_info chartInfo = library.ResolveChartInfo(entry.Sha256, entry.Md5);
+            string chartInfoSha256 = chartInfo?.sha256;
             string identityKey = !string.IsNullOrWhiteSpace(resolvedMd5)
                 ? "md5:" + resolvedMd5
                 : !string.IsNullOrWhiteSpace(entry.Md5)
@@ -165,7 +170,9 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
                         ? "sha256:" + resolvedSha256
                         : !string.IsNullOrWhiteSpace(entry.Sha256)
                             ? "sha256:" + entry.Sha256
-                            : resolved?.Path;
+                            : !string.IsNullOrWhiteSpace(chartInfoSha256)
+                                ? "chart-info-sha256:" + chartInfoSha256
+                                : resolved?.Path;
             lampEntries.Add(new PlaylistLampEntrySnapshot(
                 entry.Folder,
                 identityKey,
@@ -176,7 +183,8 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
                 resolvedMd5,
                 resolvedSha256,
                 entry.IsRemoved,
-                string.Equals(entry.Md5, BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, StringComparison.OrdinalIgnoreCase)));
+                string.Equals(entry.Md5, BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, StringComparison.OrdinalIgnoreCase),
+                chartInfoSha256));
         }
 
         StorageRowsVersionSnapshot storageRowsVersion = library.CatalogStorageRowsVersion;
@@ -188,7 +196,8 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             lampScoreSnapshot.Version,
             lampScoreSnapshot.SourceGeneration,
             lampScoreSnapshot.Source,
-            lampScoreSnapshot.LoadStatus);
+            lampScoreSnapshot.LoadStatus,
+            library.ChartInfoIndexVersion);
         DateTime? lastUpdatedUtc = playlistLastUpdated == default ? null : playlistLastUpdated;
         return new PlaylistLampAggregationRequest(
             playlistId,
@@ -196,9 +205,21 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             lampEntries,
             lampScoreSnapshot,
             lastUpdatedUtc,
-            aggregationUpdatedAtUtc: null,
             inputState: PlaylistLampInputState.Loaded,
             dependencyStamp: dependencyStamp);
+    }
+
+    private PlaylistLampDependencyStamp CreateUnavailableDependencyStamp(int entriesRevision)
+    {
+        return new PlaylistLampDependencyStamp(
+            entriesRevision,
+            0,
+            library.OwnedChartCollectionVersion,
+            0,
+            0L,
+            ActiveScoreSource.None,
+            ScoreTableLoadStatus.NotConfigured,
+            library.ChartInfoIndexVersion);
     }
 
     /// <summary>
@@ -215,6 +236,11 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         library.PropertyChanged -= LibraryPropertyChanged;
         lock (subscriptionGate)
         {
+            if (subscribedTablesCollection != null)
+            {
+                subscribedTablesCollection.CollectionChanged -= PlaylistTablesCollectionChanged;
+                subscribedTablesCollection = null;
+            }
             foreach (BMSTable table in subscribedTables)
             {
                 table.PropertyChanged -= TablePropertyChanged;
@@ -279,7 +305,15 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
 
     private void PlaylistTablesReplaced(object sender, EventArgs e)
     {
+        SynchronizeTableCollectionSubscription();
         SynchronizeTableSubscriptions();
+        NotifyChanged(string.Empty);
+    }
+
+    private void PlaylistTablesCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+    {
+        // CollectionChanged can be raised while BMSPlaylist owns its writer lock.  The
+        // actual snapshot and table-subscription reconciliation are deferred by NotifyChanged.
         NotifyChanged(string.Empty);
     }
 
@@ -312,7 +346,8 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
                 or nameof(BMSLibrary.BMSFiles)
                 or nameof(BMSLibrary.BmsonSongs)
                 or nameof(BMSLibrary.BMSParentFolderListCacheVersion)
-                or nameof(BMSLibrary.OwnedChartCollectionVersion))
+                or nameof(BMSLibrary.OwnedChartCollectionVersion)
+                or nameof(BMSLibrary.ChartInfoIndexVersion))
         {
             NotifyChanged(string.Empty);
         }
@@ -332,8 +367,36 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             // lock.  Keep every external subscriber off that publication stack.
             if (Volatile.Read(ref disposed) == 0)
             {
+                SynchronizeTableCollectionSubscription();
+                SynchronizeTableSubscriptions();
                 Changed?.Invoke(this, args);
             }
         });
+    }
+
+    private void SynchronizeTableCollectionSubscription()
+    {
+        if (Volatile.Read(ref disposed) != 0)
+        {
+            return;
+        }
+        INotifyCollectionChanged currentCollection = playlist.BMSTables as INotifyCollectionChanged;
+        lock (subscriptionGate)
+        {
+            if (Volatile.Read(ref disposed) != 0
+                || ReferenceEquals(currentCollection, subscribedTablesCollection))
+            {
+                return;
+            }
+            if (subscribedTablesCollection != null)
+            {
+                subscribedTablesCollection.CollectionChanged -= PlaylistTablesCollectionChanged;
+            }
+            subscribedTablesCollection = currentCollection;
+            if (subscribedTablesCollection != null)
+            {
+                subscribedTablesCollection.CollectionChanged += PlaylistTablesCollectionChanged;
+            }
+        }
     }
 }
