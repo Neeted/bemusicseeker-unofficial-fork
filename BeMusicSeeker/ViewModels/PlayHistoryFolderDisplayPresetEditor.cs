@@ -79,6 +79,8 @@ public sealed class PlayHistoryFolderDisplayPresetEditSession : ViewModel
 {
     private string name;
 
+    private string searchText = string.Empty;
+
     /// <summary>
     /// 編集セッションを初期化します。
     /// </summary>
@@ -93,6 +95,7 @@ public sealed class PlayHistoryFolderDisplayPresetEditSession : ViewModel
         SourcePreset = sourcePreset;
         this.name = name ?? string.Empty;
         PlaylistOptions = [.. playlistOptions ?? []];
+        FilteredPlaylistOptions = [.. PlaylistOptions];
     }
 
     /// <summary>
@@ -124,6 +127,32 @@ public sealed class PlayHistoryFolderDisplayPresetEditSession : ViewModel
     public ObservableCollection<PlayHistoryFolderPresetPlaylistOption> PlaylistOptions { get; }
 
     /// <summary>
+    /// playlist 候補を表示名で絞り込む検索文字列を取得または設定します。
+    /// 空文字列、null、または空白だけの文字列では全候補を表示します。
+    /// </summary>
+    public string SearchText
+    {
+        get => searchText;
+        set
+        {
+            string nextSearchText = value ?? string.Empty;
+            if (!string.Equals(searchText, nextSearchText, StringComparison.Ordinal))
+            {
+                searchText = nextSearchText;
+                RefreshFilteredPlaylistOptions();
+                RaisePropertyChanged();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 現在の検索文字列に一致する playlist 候補を取得します。
+    /// 候補の選択状態は元の <see cref="PlaylistOptions" /> と共有されるため、
+    /// 絞り込みで非表示になった選択も保持されます。
+    /// </summary>
+    public ObservableCollection<PlayHistoryFolderPresetPlaylistOption> FilteredPlaylistOptions { get; }
+
+    /// <summary>
     /// 編集内容を保存形式へ変換します。
     /// </summary>
     /// <returns>現在の名前と選択 playlist を持つ target set。</returns>
@@ -139,6 +168,30 @@ public sealed class PlayHistoryFolderDisplayPresetEditSession : ViewModel
                     .Select(option => option.ToReference())
             ]
         };
+    }
+
+    private void RefreshFilteredPlaylistOptions()
+    {
+        FilteredPlaylistOptions.Clear();
+        if (string.IsNullOrWhiteSpace(SearchText))
+        {
+            foreach (PlayHistoryFolderPresetPlaylistOption option in PlaylistOptions)
+            {
+                FilteredPlaylistOptions.Add(option);
+            }
+        }
+        else
+        {
+            foreach (PlayHistoryFolderPresetPlaylistOption option in PlaylistOptions)
+            {
+                if (option.DisplayName.IndexOf(SearchText, StringComparison.CurrentCultureIgnoreCase) >= 0)
+                {
+                    FilteredPlaylistOptions.Add(option);
+                }
+            }
+        }
+
+        RaisePropertyChanged(nameof(FilteredPlaylistOptions));
     }
 }
 

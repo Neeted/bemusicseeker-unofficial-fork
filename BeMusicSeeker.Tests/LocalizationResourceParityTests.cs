@@ -167,6 +167,7 @@ public sealed class LocalizationResourceParityTests
             , nameof(Resources.Device_setting_latency)
             , nameof(Resources.Device_setting_test)
             , nameof(Resources.Play_history_folder_display_preset)
+            , nameof(Resources.Play_history_folder_display_preset_search)
             , nameof(Resources.Settings_edit_custom_lr2_paths)
             , nameof(Resources.Settings_lr2_advanced_title)
             , nameof(Resources.Settings_lr2_advanced_description)

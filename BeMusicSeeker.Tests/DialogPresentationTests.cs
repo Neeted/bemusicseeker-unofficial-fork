@@ -80,7 +80,6 @@ public sealed class DialogPresentationTests
 
     [DataTestMethod]
     [DataRow("ReleaseNotesWindow")]
-    [DataRow("PlayHistoryFolderDisplayPresetEditDialog")]
     [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
     public void NonExceptionNativeWindows_KeepSemanticContentInsideClientBounds(string dialogName)
     {
@@ -108,7 +107,6 @@ public sealed class DialogPresentationTests
     [DataTestMethod]
     [DataRow("ReleaseNotesWindow")]
     [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
-    [DataRow("PlayHistoryFolderDisplayPresetEditDialog")]
     [DataRow("Lr2AdvancedPathsDialog")]
     public void OrdinaryNativeWindows_UseNativeContentAsSingleOuterSpacingOwner(string dialogName)
     {
@@ -150,6 +148,106 @@ public sealed class DialogPresentationTests
                 }
 
                 fixture.Cleanup();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlayHistoryPresetDialog_UsesBoundedResizablePlaylistViewport()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            PlayHistoryFolderDisplayPresetEditSession session = new(
+                sourcePreset: null,
+                name: "Viewport preset",
+                playlistOptions: Enumerable.Range(1, 48)
+                    .Select(index => new PlayHistoryFolderPresetPlaylistOption(
+                        new PlaylistTablePresentationSnapshot(
+                            index,
+                            "Playlist " + index,
+                            "Playlist " + index,
+                            "P" + index,
+                            "P" + index,
+                            isRootFolder: false,
+                            outputDirectory: string.Empty,
+                            customFolderOutputBaseName: string.Empty),
+                        isSelected: false,
+                        selectionChanged: null)));
+            var dialog = new PlayHistoryFolderDisplayPresetEditDialog(owner.SettingDialog, session)
+            {
+                Height = 360d,
+                Width = 560d
+            };
+
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(dialog);
+                dialog.UpdateLayout();
+
+                ListBox playlistList = (ListBox)dialog.FindName("PlaylistOptionsList")!;
+                ScrollViewer playlistViewport = FindVisualDescendants<ScrollViewer>(playlistList).Single();
+                Button saveButton = FindVisualDescendants<Button>(dialog)
+                    .Single(button => AutomationProperties.GetAutomationId(button) == "PlayHistoryPresetSave");
+                Button cancelButton = FindVisualDescendants<Button>(dialog)
+                    .Single(button => AutomationProperties.GetAutomationId(button) == "PlayHistoryPresetCancel");
+
+                Assert.IsTrue(playlistViewport.ViewportHeight > 0d);
+                AssertVisualBoundsInside(dialog, playlistList);
+                Assert.IsTrue(
+                    playlistViewport.ScrollableHeight > 0d,
+                    $"The playlist viewport must expose a positive scroll extent (viewport={playlistViewport.ViewportHeight}, extent={playlistViewport.ScrollableHeight}, list={playlistList.ActualHeight}, dialog={dialog.ActualHeight}, content={((FrameworkElement)dialog.Content).ActualHeight}, items={playlistList.Items.Count}).");
+                Assert.IsTrue(saveButton.IsDefault, "The affirmative action must be the dialog default.");
+                Assert.IsTrue(cancelButton.IsCancel, "The quiet action must be the dialog cancel route.");
+                AssertVisualBoundsInside(dialog, saveButton);
+                AssertVisualBoundsInside(dialog, cancelButton);
+
+                PlayHistoryFolderPresetPlaylistOption lastOption = session.PlaylistOptions[^1];
+                Assert.IsNull(
+                    playlistList.ItemContainerGenerator.ContainerFromItem(lastOption),
+                    "The final playlist must remain unrealized before the virtualized viewport reaches it.");
+                playlistList.ScrollIntoView(lastOption);
+                TestUiDispatcherHost.Drain();
+                dialog.UpdateLayout();
+                ListBoxItem lastContainer = FindVisualDescendants<ListBoxItem>(playlistList)
+                    .Single(item => ReferenceEquals(item.DataContext, lastOption));
+                CheckBox lastCheckBox = FindVisualDescendants<CheckBox>(lastContainer).Single();
+                AutomationPeer checkBoxPeer = UIElementAutomationPeer.CreatePeerForElement(lastCheckBox)
+                    ?? throw new AssertFailedException("The last playlist checkbox must expose UI automation.");
+                IToggleProvider toggleProvider = checkBoxPeer.GetPattern(PatternInterface.Toggle) as IToggleProvider
+                    ?? throw new AssertFailedException("The last playlist checkbox must expose Toggle automation.");
+                toggleProvider.Toggle();
+                Assert.IsTrue(lastOption.IsSelected, "The last playlist must be selectable after scrolling it into view.");
+
+                double compactViewportHeight = playlistViewport.ViewportHeight;
+                double requestedExpandedHeight = 760d;
+                dialog.Height = requestedExpandedHeight;
+                dialog.UpdateLayout();
+                Assert.AreEqual(
+                    requestedExpandedHeight,
+                    dialog.ActualHeight,
+                    1d,
+                    "The dialog must honor a larger user resize instead of applying a hidden fixed maximum.");
+                Assert.IsTrue(
+                    playlistViewport.ViewportHeight > compactViewportHeight,
+                    "Expanding the dialog must grow the playlist viewport.");
+                AssertVisualBoundsInside(dialog, playlistList);
+
+                dialog.Height = Math.Max(dialog.MinHeight, 360d);
+                dialog.UpdateLayout();
+                Assert.IsTrue(saveButton.IsEnabled);
+                Assert.IsTrue(cancelButton.IsEnabled);
+                AssertVisualBoundsInside(dialog, saveButton);
+                AssertVisualBoundsInside(dialog, cancelButton);
+            }
+            finally
+            {
+                if (dialog.IsVisible)
+                {
+                    dialog.Close();
+                }
+
+                owner.SettingDialog.Dispose();
             }
         });
     }
@@ -688,13 +786,6 @@ public sealed class DialogPresentationTests
             "ReleaseNotesWindow" => FindVisualDescendants<FlowDocumentScrollViewer>(root)
                 .Cast<FrameworkElement>()
                 .ToArray(),
-            "PlayHistoryFolderDisplayPresetEditDialog" => FindVisualDescendants<FrameworkElement>(root)
-                .Where(element => element.Visibility == Visibility.Visible
-                    && element.ActualWidth > 0
-                    && element.ActualHeight > 0
-                    && element.TemplatedParent == null
-                    && element is TextBlock or TextBox or GroupBox or ListBox or Button)
-                .ToArray(),
             "Lr2PlayHistorySchemaUninstallDialog" => FindVisualDescendants<FrameworkElement>(root)
                 .Where(element => element.Visibility == Visibility.Visible
                     && element.ActualWidth > 0
@@ -737,17 +828,6 @@ public sealed class DialogPresentationTests
                 "Release Notes must keep a reachable vertical viewport for localized document content.");
         }
 
-        if (dialogName == "PlayHistoryFolderDisplayPresetEditDialog")
-        {
-            ListBox[] presetLists = FindVisualDescendants<ListBox>(root)
-                .Where(list => list.Visibility == Visibility.Visible && list.TemplatedParent == null)
-                .ToArray();
-            Assert.AreEqual(1, presetLists.Length, "The preset editor must expose one playlist selection list.");
-            Assert.AreEqual(
-                ScrollBarVisibility.Auto,
-                ScrollViewer.GetVerticalScrollBarVisibility(presetLists[0]),
-                "The preset playlist list must remain reachable when localized content exceeds its viewport.");
-        }
     }
 
     private static void AssertCanonicalOverlaySurface(FrameworkElement presentationRoot)

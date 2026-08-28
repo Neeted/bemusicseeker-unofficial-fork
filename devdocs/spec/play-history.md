@@ -191,6 +191,16 @@ display target filter / FOLDER projection は projection 後、keyword search �
 
 Play History の表示対象 dropdown は playlist 正本から作る read model であり、playlist の追加・削除・リロードに対する `BMSTables` 変更通知から更新される。`BMSTables` 変更通知は playlist 正本の writer lock 中に発生し得るため、通知 handler 内で同期的に playlist reader lock を取り直してはならない。表示対象の再構築は UI Dispatcher へ遅延し、writer lock が解放された後の snapshot として行う。遅延中または再構築中に追加通知が来た場合は revision を進め、最新 revision を反映するまで再実行する。Play History 側の read model 更新は playlist 正本、playlist entries、LR2 custom folder、beatoraja `.bmt` 出力を変更しない。
 
+設定画面の `プレイログ FOLDER 表示プリセット` 編集 dialog は、名前と検索欄を上段に置き、playlist 一覧を残余領域内の bounded/resizable viewport として表示する。一覧自身がスクロールと virtualization/recycling を担当し、dialog 外側の無限 measure に依存しない。表示名全体（playlist name、symbol、必要な qualifier を含む）に対する CurrentCulture の case-insensitive substring 検索を行い、検索文字列が null / 空文字列 / 空白だけの場合は全候補を表示する。検索は編集 session のみの state で、preset JSON へ保存せず、新しい session では空欄へ戻る。検索で非表示になった選択は保持し、保存時は表示中かどうかにかかわらず全候補の選択 ID を target set へ変換する。OK / Cancel は一覧のスクロールや resize によらず常に到達可能である。
+
+この編集 dialog の検証 map は次の通りである。
+
+| Contract | Fixture / lane |
+| --- | --- |
+| `PHFDP-UI-01` | `DialogPresentationTests.PlayHistoryPresetDialog_UsesBoundedResizablePlaylistViewport` / filtered Quick |
+| `PHFDP-SRCH-01`, `PHFDP-SEL-01`, `PHFDP-SES-01`, `PHFDP-COMPAT-01` | `SettingDialogCustomFolderOutputBaseTests` / filtered Quick |
+| `PHFDP-L10N-01` | `LocalizationResourceParityTests` / filtered Quick |
+
 ## Diagnostics
 
 play history diagnostics は provider / stage / severity / code / message / source path を持つ。現行 UI は summary diagnostic text と log に出す最小実装であり、専用 maintenance view への詳細表示は未実装である。

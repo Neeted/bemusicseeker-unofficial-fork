@@ -138,6 +138,7 @@
   "Play_history_display_target_folder_only_set_format": "FOLDER : {0}",
   "Play_history_folder_display_preset": "Presets d'affichage FOLDER du play log",
   "Play_history_folder_display_preset_name": "Nom du preset : ",
+  "Play_history_folder_display_preset_search": "Rechercher une playlist : ",
   "Play_history_folder_display_preset_playlists": "Playlists cibles",
   "Play_history_folder_display_preset_edit": "Modifier",
   "Play_history_folder_display_preset_default_name": "Nouveau preset",

@@ -578,6 +578,8 @@ public class Resources
 
     public static string Play_history_folder_display_preset_name => ResourceManager.GetString("Play_history_folder_display_preset_name", resourceCulture);
 
+    public static string Play_history_folder_display_preset_search => ResourceManager.GetString("Play_history_folder_display_preset_search", resourceCulture);
+
     public static string Play_history_folder_display_preset_playlists => ResourceManager.GetString("Play_history_folder_display_preset_playlists", resourceCulture);
 
     public static string Play_history_folder_display_preset_edit => ResourceManager.GetString("Play_history_folder_display_preset_edit", resourceCulture);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -169,6 +170,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.AreEqual(secondPresetNameBeforeDuplicateValidation, secondPreset.Name);
             AssertTargetSetEquals(secondPresetTargetSetBeforeDuplicateValidation, secondPreset.ToTargetSet());
             editSession.PlaylistOptions.Last().IsSelected = true;
+            editSession.SearchText = "definitely-no-match";
+            Assert.AreEqual(0, editSession.FilteredPlaylistOptions.Count);
             Assert.IsTrue(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(editSession, out string applyPresetError), applyPresetError);
             secondPreset.Targets.Add(new PlayHistoryDisplayTargetReference { PlaylistId = 999 });
 
@@ -182,11 +185,17 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             Assert.IsTrue(dialog.PersistPlayHistoryFolderDisplayPresetsIfChanged());
             Assert.IsFalse(string.IsNullOrWhiteSpace(testSettings.PlayHistoryDisplayTargetSetsJson));
-            StringAssert.Contains(testSettings.PlayHistoryDisplayTargetSetsJson, "\"PlaylistId\"");
-            Assert.IsFalse(testSettings.PlayHistoryDisplayTargetSetsJson.Contains("PlaylistName"));
-            Assert.IsFalse(testSettings.PlayHistoryDisplayTargetSetsJson.Contains("PlaylistSymbol"));
-            Assert.IsFalse(testSettings.PlayHistoryDisplayTargetSetsJson.Contains("FolderLabel"));
-            Assert.IsFalse(testSettings.PlayHistoryDisplayTargetSetsJson.Contains("999"));
+            IReadOnlyList<PlayHistoryDisplayTargetSet> persistedTargetSets =
+                PlayHistoryDisplayTargetSetStore.Deserialize(testSettings.PlayHistoryDisplayTargetSetsJson);
+            Assert.AreEqual(2, persistedTargetSets.Count);
+            Assert.AreEqual(preset.Name, persistedTargetSets[0].Name);
+            CollectionAssert.AreEqual(
+                new int?[] { 101 },
+                persistedTargetSets[0].Targets.Select(reference => reference.PlaylistId).ToArray());
+            Assert.AreEqual("Second", persistedTargetSets[1].Name);
+            CollectionAssert.AreEqual(
+                new int?[] { 202 },
+                persistedTargetSets[1].Targets.Select(reference => reference.PlaylistId).ToArray());
 
             Assert.AreEqual(7, viewModel.PlayHistory.DisplayTargets.Count);
             Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.DisplayTargets[0].Kind);
@@ -206,6 +215,121 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.PlayHistoryDisplayTargetSetsJson = previousJson;
             TryDeleteDirectory(tempDirectory);
         }
+    }
+
+    [TestMethod]
+    public void PlayHistoryFolderDisplayPresetEditSession_SearchesDisplayNamesUsingCurrentCulture()
+    {
+        CultureInfo previousCulture = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("tr-TR");
+            PlayHistoryFolderPresetPlaylistOption istanbul = CreatePresetOption(
+                101,
+                "Istanbul",
+                "SAT");
+            PlayHistoryFolderPresetPlaylistOption middle = CreatePresetOption(
+                202,
+                "Alpha Middle",
+                "MXX");
+            PlayHistoryFolderPresetPlaylistOption qualifier = CreatePresetOption(
+                303,
+                "Library",
+                "QUEUE");
+            var session = new PlayHistoryFolderDisplayPresetEditSession(
+                sourcePreset: null,
+                name: "Search",
+                playlistOptions: [istanbul, middle, qualifier]);
+
+            CollectionAssert.AreEqual(
+                new[] { istanbul, middle, qualifier },
+                session.FilteredPlaylistOptions.ToArray());
+
+            session.SearchText = "ı";
+            CollectionAssert.AreEqual(
+                new[] { istanbul },
+                session.FilteredPlaylistOptions.ToArray(),
+                "Filtered display names: " + string.Join(" | ", session.FilteredPlaylistOptions.Select(option => option.DisplayName)));
+
+            session.SearchText = "PHA MİD";
+            CollectionAssert.AreEqual(
+                new[] { middle },
+                session.FilteredPlaylistOptions.ToArray(),
+                "Filtered display names: " + string.Join(" | ", session.FilteredPlaylistOptions.Select(option => option.DisplayName)));
+
+            session.SearchText = "mxx";
+            CollectionAssert.AreEqual(new[] { middle }, session.FilteredPlaylistOptions.ToArray());
+
+            session.SearchText = " \t";
+            CollectionAssert.AreEqual(
+                new[] { istanbul, middle, qualifier },
+                session.FilteredPlaylistOptions.ToArray());
+            session.SearchText = null!;
+            Assert.AreEqual(string.Empty, session.SearchText);
+            CollectionAssert.AreEqual(
+                new[] { istanbul, middle, qualifier },
+                session.FilteredPlaylistOptions.ToArray());
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
+    }
+
+    [TestMethod]
+    public void PlayHistoryFolderDisplayPresetEditSession_PreservesHiddenSelectionAndFilterAcrossSessions()
+    {
+        PlayHistoryFolderPresetPlaylistOption selectedOption = CreatePresetOption(
+            101,
+            "Selected",
+            "SEL",
+            isSelected: true);
+        PlayHistoryFolderPresetPlaylistOption otherOption = CreatePresetOption(
+            202,
+            "Other",
+            "OTH");
+        var sourcePreset = new PlayHistoryFolderDisplayPresetEditor(
+            "Saved",
+            [new PlayHistoryDisplayTargetReference { PlaylistId = 101 }]);
+        var session = new PlayHistoryFolderDisplayPresetEditSession(
+            sourcePreset,
+            sourcePreset.Name,
+            [selectedOption, otherOption]);
+
+        PlayHistoryDisplayTargetSet sourceBeforeSearch = sourcePreset.ToTargetSet();
+        session.SearchText = "no-match";
+
+        Assert.AreEqual(0, session.FilteredPlaylistOptions.Count);
+        Assert.IsTrue(selectedOption.IsSelected);
+        AssertTargetSetEquals(sourceBeforeSearch, sourcePreset.ToTargetSet());
+        CollectionAssert.AreEqual(
+            new int?[] { 101 },
+            session.ToTargetSet().Targets.Select(reference => reference.PlaylistId).ToArray());
+
+        string persistedJson = PlayHistoryDisplayTargetSetStore.Serialize([session.ToTargetSet()]);
+        IReadOnlyList<PlayHistoryDisplayTargetSet> recreatedTargetSets =
+            PlayHistoryDisplayTargetSetStore.Deserialize(persistedJson);
+        Assert.AreEqual("Saved", recreatedTargetSets.Single().Name);
+        CollectionAssert.AreEqual(
+            new int?[] { 101 },
+            recreatedTargetSets.Single().Targets.Select(reference => reference.PlaylistId).ToArray());
+
+        var reopened = new PlayHistoryFolderDisplayPresetEditSession(
+            sourcePreset,
+            recreatedTargetSets.Single().Name,
+            [
+                CreatePresetOption(101, "Selected", "SEL", isSelected: true),
+                CreatePresetOption(202, "Other", "OTH")
+            ]);
+        Assert.AreEqual(string.Empty, reopened.SearchText);
+        CollectionAssert.AreEqual(
+            reopened.PlaylistOptions.ToArray(),
+            reopened.FilteredPlaylistOptions.ToArray());
+        reopened.SearchText = "no-match";
+        Assert.AreEqual(0, reopened.FilteredPlaylistOptions.Count);
+        Assert.IsTrue(reopened.PlaylistOptions.Single(option => option.Table.PlaylistId == 101).IsSelected);
+        reopened.SearchText = string.Empty;
+        Assert.IsTrue(reopened.FilteredPlaylistOptions.Single(option => option.Table.PlaylistId == 101).IsSelected);
     }
 
     [TestMethod]
@@ -1389,6 +1513,18 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             symbol = symbol,
             org_symbol = symbol
         };
+    }
+
+    private static PlayHistoryFolderPresetPlaylistOption CreatePresetOption(
+        int playlistId,
+        string name,
+        string symbol,
+        bool isSelected = false)
+    {
+        return new PlayHistoryFolderPresetPlaylistOption(
+            PlaylistTablePresentationSnapshot.From(CreatePresetTable(playlistId, name, symbol)),
+            isSelected,
+            selectionChanged: null);
     }
 
     private static PlayHistoryDisplayTargetSet CreateTargetSet(string name, int playlistId = 101)

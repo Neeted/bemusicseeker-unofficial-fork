@@ -1703,6 +1703,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="Play_history_folder_display_preset_name" xml:space="preserve">
     <value>プリセット名: </value>
   </data>
+  <data name="Play_history_folder_display_preset_search" xml:space="preserve">
+    <value>プレイリスト名で検索: </value>
+  </data>
   <data name="Play_history_folder_display_preset_playlists" xml:space="preserve">
     <value>対象プレイリスト</value>
   </data>
