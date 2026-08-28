@@ -325,6 +325,15 @@ public partial class BMSLibrary : ObservableObject
         internal Dictionary<string, BMSScore> ScoresBySha256 { get; set; } = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
 
         internal ActiveScoreSource ActiveScoreSource { get; set; }
+
+        /// <summary>score table のロード状態です。</summary>
+        internal ScoreTableLoadStatus LoadStatus { get; set; } = ScoreTableLoadStatus.NotConfigured;
+
+        /// <summary>score table のロード失敗理由です。</summary>
+        internal string LoadFailureMessage { get; set; } = string.Empty;
+
+        /// <summary>score source の切り替え世代です。</summary>
+        internal long SourceGeneration { get; set; }
     }
 
     private sealed class RankingDownloadContext
@@ -406,6 +415,18 @@ public partial class BMSLibrary : ObservableObject
         internal bool SnapshotReady;
 
         internal int SnapshotVersion;
+
+        /// <summary>active score source です。</summary>
+        internal ActiveScoreSource ActiveScoreSource;
+
+        /// <summary>score table のロード状態です。</summary>
+        internal ScoreTableLoadStatus LoadStatus;
+
+        /// <summary>score table のロード失敗理由です。</summary>
+        internal string LoadFailureMessage;
+
+        /// <summary>score source の切り替え世代です。</summary>
+        internal long SourceGeneration;
 
         internal bool HydrationRunning;
 
@@ -628,6 +649,10 @@ public partial class BMSLibrary : ObservableObject
     private ActiveScoreSource activeScoreSource;
 
     private long scoreSourceGeneration;
+
+    private ScoreTableLoadStatus scoreTableLoadStatus = ScoreTableLoadStatus.NotConfigured;
+
+    private string scoreTableLoadFailureMessage = string.Empty;
 
     private Lr2PlayHistorySchemaCheckResult lr2PlayHistorySchemaCheckResult;
 
@@ -3011,6 +3036,30 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    /// <summary>
+    /// 現在の score source のロード状態を返します。
+    /// </summary>
+    /// <returns>score source のロード状態。</returns>
+    internal ScoreTableLoadStatus GetScoreTableLoadStatusForDiagnostics()
+    {
+        using (rwlockBMSScores.GetReaderGuard())
+        {
+            return scoreTableLoadStatus;
+        }
+    }
+
+    /// <summary>
+    /// score source のロード失敗理由を返します。
+    /// </summary>
+    /// <returns>失敗時の診断メッセージ。失敗していない場合は空文字列。</returns>
+    internal string GetScoreTableLoadFailureMessageForDiagnostics()
+    {
+        using (rwlockBMSScores.GetReaderGuard())
+        {
+            return scoreTableLoadFailureMessage ?? string.Empty;
+        }
+    }
+
     internal Lr2PlayHistorySchemaStatusSnapshot GetLr2PlayHistorySchemaStatusSnapshot()
     {
         using (rwlockBMSScores.GetReaderGuard())
@@ -3038,6 +3087,10 @@ public partial class BMSLibrary : ObservableObject
                 {
                     SnapshotReady = ScoreSnapshotReady,
                     SnapshotVersion = snapshot?.Version ?? 0,
+                    ActiveScoreSource = snapshot?.ActiveScoreSource ?? ActiveScoreSource.None,
+                    LoadStatus = snapshot?.LoadStatus ?? ScoreTableLoadStatus.NotConfigured,
+                    LoadFailureMessage = snapshot?.LoadFailureMessage ?? string.Empty,
+                    SourceGeneration = snapshot?.SourceGeneration ?? 0L,
                     HydrationRunning = deferredScoreHydrationRunning,
                     HydrationCompletedVersion = deferredScoreHydrationLastCompletedVersion,
                     RankingRefreshRunning = deferredRankingRefreshRunning,
@@ -4517,6 +4570,9 @@ public partial class BMSLibrary : ObservableObject
         List<BMSScore> scoresSnapshot;
         Dictionary<string, BMSScore> beatorajaScoresSnapshot;
         ActiveScoreSource sourceSnapshot;
+        ScoreTableLoadStatus loadStatusSnapshot;
+        string loadFailureMessageSnapshot;
+        long sourceGenerationSnapshot;
         using (rwlockBMSScores.GetReaderGuard())
         {
             scoresSnapshot = [.. (BMSScores ?? []).Where(score => score != null)];
@@ -4524,6 +4580,9 @@ public partial class BMSLibrary : ObservableObject
                 beatorajaScoresBySha256 ?? new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
                 StringComparer.OrdinalIgnoreCase);
             sourceSnapshot = activeScoreSource;
+            loadStatusSnapshot = scoreTableLoadStatus;
+            loadFailureMessageSnapshot = scoreTableLoadFailureMessage ?? string.Empty;
+            sourceGenerationSnapshot = scoreSourceGeneration;
         }
         var stopwatch = Stopwatch.StartNew();
         var scoresByHash = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
@@ -4547,10 +4606,14 @@ public partial class BMSLibrary : ObservableObject
                 Scores = scoresSnapshot,
                 ScoresByHash = scoresByHash,
                 ScoresBySha256 = beatorajaScoresSnapshot,
-                ActiveScoreSource = sourceSnapshot
+                ActiveScoreSource = sourceSnapshot,
+                LoadStatus = loadStatusSnapshot,
+                LoadFailureMessage = loadFailureMessageSnapshot,
+                SourceGeneration = sourceGenerationSnapshot
             };
         }
-        ScoreSnapshotReady = sourceSnapshot != ActiveScoreSource.None;
+        ScoreSnapshotReady = sourceSnapshot != ActiveScoreSource.None
+            && loadStatusSnapshot == ScoreTableLoadStatus.Loaded;
         ScoreSnapshotVersion = version;
         LogInstallPerformance("score_snapshot_load completed reason=" + (reason ?? "unknown") + " version=" + version + " source=" + sourceSnapshot + " count=" + scoresSnapshot.Count + " beatorajaCount=" + beatorajaScoresSnapshot.Count + " buildMs=" + stopwatch.ElapsedMilliseconds);
     }
@@ -5343,12 +5406,16 @@ public partial class BMSLibrary : ObservableObject
                     LogInstallPerformance("score_tbl_load readOnly=" + scoreTableLoadResult.ReadOnly.ToString().ToLowerInvariant()
                         + " dbLockWaitMs=" + scoreTableLoadResult.DbLockWaitMs
                         + " source=" + scoreTableLoadResult.ActiveScoreSource
+                        + " status=" + scoreTableLoadResult.Status
                         + " rows=" + scoreTableLoadResult.Scores.Count
                         + " beatorajaRows=" + scoreTableLoadResult.BeatorajaScoresBySha256.Count
                         + " lr2Id=" + scoreTableLoadResult.LR2Id
+                        + " failure=" + (scoreTableLoadResult.FailureMessage ?? string.Empty)
                         + " lr2PlayHistorySchemaStatus=" + (scoreTableLoadResult.Lr2PlayHistorySchemaCheckResult?.Status.ToString() ?? "Unknown"));
                     lr2PlayHistorySchemaCheckResult = scoreTableLoadResult.Lr2PlayHistorySchemaCheckResult;
                     activeScoreSource = scoreTableLoadResult.ActiveScoreSource;
+                    scoreTableLoadStatus = scoreTableLoadResult.Status;
+                    scoreTableLoadFailureMessage = scoreTableLoadResult.FailureMessage ?? string.Empty;
                     if (scoreTableLoadResult.ActiveScoreSource == ActiveScoreSource.Beatoraja)
                     {
                         LR2ID = 0;
@@ -5380,6 +5447,8 @@ public partial class BMSLibrary : ObservableObject
                 {
                     lr2PlayHistorySchemaCheckResult = null;
                     activeScoreSource = ActiveScoreSource.None;
+                    scoreTableLoadStatus = ScoreTableLoadStatus.NotConfigured;
+                    scoreTableLoadFailureMessage = string.Empty;
                     LR2ID = 0;
                     beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
                     BMSScores = [];

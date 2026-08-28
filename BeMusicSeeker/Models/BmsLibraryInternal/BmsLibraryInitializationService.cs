@@ -1603,7 +1603,11 @@ internal sealed class BmsLibraryInitializationService
     {
         if (dbGateway == null)
         {
-            return new ScoreTableLoadResult();
+            return new ScoreTableLoadResult
+            {
+                Status = ScoreTableLoadStatus.Failed,
+                FailureMessage = "score database gateway is unavailable."
+            };
         }
 
         var result = new ScoreTableLoadResult
@@ -1611,9 +1615,15 @@ internal sealed class BmsLibraryInitializationService
             EnableDownloadLr2IrScoreAndDetectUnsent = options?.EnableDownloadLr2IrScoreAndDetectUnsent ?? false
         };
         result.Lr2PlayHistorySchemaCheckResult = CheckLr2PlayHistorySchemaForScoreLoad(dbGateway, options);
-        if (IsBeatorajaScoreDbEnabled(options))
+        if (options?.UseBeatorajaScoreDb == true)
         {
             result.ActiveScoreSource = ActiveScoreSource.Beatoraja;
+            if (!IsBeatorajaScoreDbEnabled(options))
+            {
+                result.Status = ScoreTableLoadStatus.Failed;
+                result.FailureMessage = "configured beatoraja score.db is unavailable.";
+                return result;
+            }
             try
             {
                 var loader = new BeatorajaScoreDbLoader();
@@ -1621,9 +1631,12 @@ internal sealed class BmsLibraryInitializationService
                 {
                     result.BeatorajaScoresBySha256[score.Key] = score.Value;
                 }
+                result.Status = ScoreTableLoadStatus.Loaded;
             }
-            catch
+            catch (Exception ex)
             {
+                result.Status = ScoreTableLoadStatus.Failed;
+                result.FailureMessage = DescribeScoreLoadFailure(ex);
             }
             return result;
         }
@@ -1638,13 +1651,28 @@ internal sealed class BmsLibraryInitializationService
                 result.LR2Id = lr2Result.LR2Id;
                 result.ReadOnly = lr2Result.ReadOnly;
                 result.DbLockWaitMs = lr2Result.DbLockWaitMs;
+                result.Status = ScoreTableLoadStatus.Loaded;
             }
-            catch
+            catch (Exception ex)
             {
+                result.Status = ScoreTableLoadStatus.Failed;
+                result.FailureMessage = DescribeScoreLoadFailure(ex);
             }
         }
 
         return result;
+    }
+
+    private static string DescribeScoreLoadFailure(Exception exception)
+    {
+        if (exception == null)
+        {
+            return "score table load failed.";
+        }
+        string message = exception.Message?.Trim();
+        return string.IsNullOrWhiteSpace(message)
+            ? exception.GetType().Name
+            : exception.GetType().Name + ": " + message;
     }
 
     private static Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchemaForScoreLoad(
@@ -1696,10 +1724,19 @@ internal sealed class BmsLibraryInitializationService
 
     private static bool IsBeatorajaScoreDbEnabled(BmsLibraryOptionsSnapshot options)
     {
-        return options?.UseBeatorajaScoreDb == true
-            && !string.IsNullOrWhiteSpace(options.BeatorajaScoreDbPath)
-            && string.Equals(Path.GetFileName(options.BeatorajaScoreDbPath), "score.db", StringComparison.OrdinalIgnoreCase)
-            && File.Exists(options.BeatorajaScoreDbPath);
+        if (options?.UseBeatorajaScoreDb != true || string.IsNullOrWhiteSpace(options.BeatorajaScoreDbPath))
+        {
+            return false;
+        }
+        try
+        {
+            return string.Equals(Path.GetFileName(options.BeatorajaScoreDbPath), "score.db", StringComparison.OrdinalIgnoreCase)
+                && File.Exists(options.BeatorajaScoreDbPath);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     public InstallTableLoadResult LoadInstallTable(

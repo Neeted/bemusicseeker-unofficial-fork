@@ -404,6 +404,7 @@ public sealed class BmsLibraryIrServiceTests
             });
 
         Assert.AreEqual(ActiveScoreSource.Beatoraja, result.ActiveScoreSource);
+        Assert.AreEqual(ScoreTableLoadStatus.Loaded, result.Status);
         Assert.AreEqual(0, result.Scores.Count);
         Assert.AreEqual(0, result.LR2Id);
         Assert.AreEqual(1, result.BeatorajaScoresBySha256.Count);
@@ -425,8 +426,32 @@ public sealed class BmsLibraryIrServiceTests
             });
 
         Assert.AreEqual(ActiveScoreSource.Lr2, result.ActiveScoreSource);
+        Assert.AreEqual(ScoreTableLoadStatus.Loaded, result.Status);
         Assert.AreEqual(1, result.Scores.Count);
         Assert.AreEqual(123, result.LR2Id);
+        Assert.AreEqual(0, result.BeatorajaScoresBySha256.Count);
+    }
+
+    [TestMethod]
+    public void LoadScoreTable_reportsBeatorajaFailureWithoutFallingBackToLr2()
+    {
+        using var env = TempIrEnvironment.Create();
+        CreateLr2ScoreDb(env.ScoreDbPath);
+        string missingBeatorajaScoreDbPath = Path.Combine(env.RootDirectoryPath, "beatoraja", "player1", "score.db");
+        var service = new BmsLibraryInitializationService();
+
+        ScoreTableLoadResult result = service.LoadScoreTable(
+            env.CreateGateway(),
+            new BmsLibraryOptionsSnapshot
+            {
+                UseBeatorajaScoreDb = true,
+                BeatorajaScoreDbPath = missingBeatorajaScoreDbPath
+            });
+
+        Assert.AreEqual(ActiveScoreSource.Beatoraja, result.ActiveScoreSource);
+        Assert.AreEqual(ScoreTableLoadStatus.Failed, result.Status);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
+        Assert.AreEqual(0, result.Scores.Count);
         Assert.AreEqual(0, result.BeatorajaScoresBySha256.Count);
     }
 
