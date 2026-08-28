@@ -1,5 +1,9 @@
 {
   "_language_name": "English",
+  "PlaylistProp_sync_description": "Set the source URIs before enabling external synchronization. Source-owned fields cannot be edited while synchronization is enabled.",
+  "PlaylistProp_sort_description": "Choose how charts are ordered inside each folder.",
+  "PlaylistProp_folder_order_description": "Use automatic natural sorting or arrange selected folders manually.",
+  "PlaylistProp_output_description": "Choose the normal output base, output folder name, and root output behavior.",
   "Audio": "Audio",
   "Recording": "Recording",
   "About_this_app": "About this app",

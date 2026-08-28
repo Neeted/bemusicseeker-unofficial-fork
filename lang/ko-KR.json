@@ -1,5 +1,9 @@
 {
   "_language_name": "한국어",
+  "PlaylistProp_sync_description": "외부 동기화를 켜기 전에 원본 URI를 설정합니다. 동기화 중에는 원본과 충돌하는 항목을 편집할 수 없습니다.",
+  "PlaylistProp_sort_description": "각 폴더 안의 채보 정렬 기준과 방향을 설정합니다.",
+  "PlaylistProp_folder_order_description": "자동 자연 정렬을 사용하거나 선택한 폴더를 수동으로 정렬합니다.",
+  "PlaylistProp_output_description": "일반 출력 기준 위치, 출력 폴더 이름 및 루트 출력 동작을 설정합니다.",
   "Audio": "오디오",
   "Recording": "녹음",
   "About_this_app": "이 앱 정보",

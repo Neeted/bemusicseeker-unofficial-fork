@@ -804,10 +804,11 @@ public sealed class MainWindowContextMenuResourceTests
                 SelectedIndex = 0,
                 Style = (Style)host.Resources["App.Canonical.TopNavigationStyle"]
             };
+            var contentText = new TextBlock { Text = "General content" };
             var content = new ContentControl
             {
                 Height = 80,
-                Content = new TextBlock { Text = "General content" },
+                Content = contentText,
                 Style = (Style)host.Resources["App.Canonical.TopNavigationContentStyle"]
             };
             host.Children.Add(navigation);
@@ -868,8 +869,27 @@ public sealed class MainWindowContextMenuResourceTests
             var disabledNavigationChrome = (Border)items[2].Template.FindName("NavigationItemChrome", items[2]);
             Assert.IsTrue(disabledNavigationChrome.Opacity < 1d);
             content.ApplyTemplate();
+            content.UpdateLayout();
             Assert.IsFalse(content.Focusable);
-            Assert.IsNotNull(content.Template.FindName("TopNavigationContentChrome", content));
+            Assert.IsFalse(
+                FindVisualDescendants<Border>(content).Any(border =>
+                    border.BorderThickness.Left > 0d
+                    || border.BorderThickness.Top > 0d
+                    || border.BorderThickness.Right > 0d
+                    || border.BorderThickness.Bottom > 0d
+                    || border.CornerRadius.TopLeft > 0d
+                    || border.CornerRadius.TopRight > 0d
+                    || border.CornerRadius.BottomRight > 0d
+                    || border.CornerRadius.BottomLeft > 0d),
+                "The shared top-navigation content role must be an unframed host.");
+            Point contentOrigin = contentText.TransformToAncestor(content).Transform(new Point());
+            Assert.AreEqual(content.Padding.Left, contentOrigin.X, 0.5d);
+            Assert.AreEqual(content.Padding.Top, contentOrigin.Y, 0.5d);
+            Assert.AreEqual(
+                content.ActualWidth - content.Padding.Left - content.Padding.Right,
+                contentText.ActualWidth,
+                0.5d,
+                "The unframed content host must preserve horizontal padding and stretch alignment.");
         });
     }
 

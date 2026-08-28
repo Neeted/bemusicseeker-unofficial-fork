@@ -137,7 +137,9 @@ canonical resource の依存関係は `App -> CanonicalDialogStyles -> Canonical
 - `MenuItem`
 - `Separator`
 
-Playlist Property の上部カテゴリ navigation は、`App.Canonical.TopNavigationStyle`、`App.Canonical.TopNavigationItemStyle`、`App.Canonical.TopNavigationContentStyle` の keyed role で構成する。navigation は General / Folder / Custom Folder の single-select top-navigation role として public な Selection / SelectionItem Automation pattern および標準 keyboard route を維持し、選択 item は下端 indicator、hover / focus / disabled state を表示する。本文は navigation と別の content host とし、canonical role は未採用の application-wide implicit style へ漏らさない。WPF の selector、item container、template type はこの role の契約ではない。
+Playlist Property の上部カテゴリ navigation は、`App.Canonical.TopNavigationStyle`、`App.Canonical.TopNavigationItemStyle`、`App.Canonical.TopNavigationContentStyle` の keyed role で構成する。navigation は General / Folder / Custom Folder の single-select top-navigation role として public な Selection / SelectionItem Automation pattern および標準 keyboard route を維持し、選択 item は下端 indicator、hover / focus / disabled state を表示する。本文は navigation と別の unframed content host とし、padding、stretch alignment、non-focusable state だけを共有 role が所有する。selected page 全体を囲む border、rounded background、card surface は追加せず、major `SettingsSection` の階層を本文の可視構造とする。canonical role は未採用の application-wide implicit style へ漏らさない。WPF の selector、item container、template type はこの role の契約ではない。
+
+Playlist Property の Custom Folder は、十三の wrapping flag と heading / description を持つ Output Folder を先に表示し、Output Destination の output base / folder name / root option を後に続ける。両 section は top-origin の natural flow に置き、window の高さだけを増やしても Destination の top 位置を移動させる bottom dock / star spacer を使用しない。
 
 `SimpleMenuItem` は `SystemColors.*` ではなく、`App.PopupBackgroundBrush` / `App.TextBrush` / `App.ControlHoverBrush` / `App.MenuSelectedBackgroundBrush` / `App.MenuSelectedTextBrush` / `App.DisabledTextBrush` / `App.BorderBrush` を使う。MainWindow の column header など局所 `MenuItem` style は implicit style を `BasedOn` で継承する。
 
@@ -223,6 +225,7 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 - 設定groupは `App.ControlBackgroundBrush` / `App.BorderBrush` を使う rounded cardとし、カテゴリheader、card間、card内は `8 / 12 / 16 / 24` pxのspacing scaleへ揃える。
 - button は `SettingsButtonStyle` を共通 template とし、primary / quiet / danger / icon の各styleを同じ state modelから派生させる。Save and closeは accent familyを通常、hover、pressed、disabled、focusの全状態で維持し、primaryのkeyboard focusは各accent stateと3:1以上のcontrastを持つ `App.AccentFocusRingBrush` で示す。Cancelはquiet actionとする。buttonのcommand/click、enabled、focus behaviorは既存contractを変えない。
 - label / value / actionの設定行はflexible Gridで構成し、長いcultureのlabelとcheckbox textは折り返す。Window shellが所有する単一の縦ScrollViewerで選択中の本文だけをscrollし、navigation、header、footerは固定する。横scrollは使用しない。
+- `SettingsSection` は heading、optional description、content の単一の template owner とする。高さが有限の host では heading / description の natural height を除いた残りを content へ配分し、auto-sized の Settings page では content の natural desired height を保って人工的な余白を作らない。個別 dialog はこの section template を複製しない。
 - 設定 visual tree と template は legacy の `NormalBrush` / `MouseOverBrush` / `PressedBrush` / `PressedBorderBrush` / `DefaultedBorderBrush` や table 専用 brush を参照せず、固定色も持たない。
 - Slider は horizontal / vertical orientationと `None` / `TopLeft` / `BottomRight` / `Both` のtick placementをtemplateで保持し、tickは `App.SliderTickBrush` で描画する。
 - アプリが所有する標準 native window は `ThemedWindow` を共通 base とし、標準 WPF title bar を残す。native handle 確定後に current theme の dark-mode flag と `App.DialogBackgroundBrush` / `App.TextBrush` / `App.BorderBrush` 由来の caption / text / border color を DWM へ要求し、theme変更時に同じ生存中の window へ再適用する。window close で theme change の購読を解除する。未対応OS、未対応attribute、API不在、HRESULT失敗では例外を外へ出さず、Windowsのsystem fallbackをそのまま使う。
@@ -264,6 +267,8 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 `LoadPlaylistURIDialog` は外側の overlay の `Width` / `Height` と field、action、command、lifecycle を変えず、content surface を一重にする。surface 内は label、URI input、footer を `Auto` / `*` / `Auto` の伸縮可能な行へ配置し、input に固定高さを置かない。font / text scale が変わっても input chrome は footer の上側に収まり、outer overlay のサイズを拡大して解決しない。
 
 `PlaylistSummaryBulkEditDialog` は既存の positive `MinWidth`、`MinHeight`、`CanResize`、height、scroll、lifecycle を維持し、初期 `Width` を `MinWidth` と同じ値にする。ユーザーが resize した後に minimum width まで戻せることを保つ。
+
+`PlaylistPropertyDialog` は初期 `Width=640` / `Height=720`、`MinWidth=560` / `MinHeight=420`、`CanResize` とする。top navigation と footer は固定し、その間の選択ページだけを単一の縦 `ScrollViewer` が所有する。既定の日本語 resource、既定 font、96 DPI の初期 `General` は縦 scrollbar を必要とせず、すべてのページで横 scrollbar を使用しない。初期 height は content の固定高さではなくこの no-scroll contract を満たす shell の初期値であり、狭い・低い resize や長い localized content では body の縦 scroll を許可する。
 
 OS 標準の `OpenFileDialog` / `SaveFileDialog` / folder picker は Windows 管理 UI のためテーマ対象外。
 

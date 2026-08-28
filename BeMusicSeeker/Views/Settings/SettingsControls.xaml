@@ -196,16 +196,24 @@
   <Style TargetType="{x:Type settings:SettingsSection}">
     <Setter Property="Margin" Value="0,0,0,28" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type settings:SettingsSection}">
-          <StackPanel>
-            <TextBlock FontSize="17"
+          <Grid>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <TextBlock Grid.Row="0"
+                       FontSize="17"
                        FontWeight="SemiBold"
                        Text="{TemplateBinding Header}"
                        TextWrapping="Wrap" />
-            <TextBlock Margin="0,4,0,0"
+            <TextBlock Grid.Row="1"
+                       Margin="0,4,0,0"
                        Foreground="{DynamicResource App.DisabledTextBrush}"
                        Text="{TemplateBinding Description}"
                        TextWrapping="Wrap">
@@ -219,8 +227,11 @@
                 </Style>
               </TextBlock.Style>
             </TextBlock>
-            <ContentPresenter Margin="0,14,0,0" />
-          </StackPanel>
+            <ContentPresenter Grid.Row="2"
+                              Margin="0,14,0,0"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+          </Grid>
         </ControlTemplate>
       </Setter.Value>
     </Setter>

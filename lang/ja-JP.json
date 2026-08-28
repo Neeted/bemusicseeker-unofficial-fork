@@ -1,5 +1,9 @@
 {
   "_language_name": "日本語",
+  "PlaylistProp_sync_description": "参照元 URI を設定します。外部同期中は参照元と競合する項目を編集できません。",
+  "PlaylistProp_sort_description": "フォルダ内の譜面を並べる基準と方向を設定します。",
+  "PlaylistProp_folder_order_description": "自動の自然順を使うか、選択したフォルダを手動で並べ替えます。",
+  "PlaylistProp_output_description": "通常出力先、出力フォルダ名、ルート出力の扱いを設定します。",
   "Audio": "オーディオ",
   "Recording": "録音",
   "About_this_app": "このアプリについて",

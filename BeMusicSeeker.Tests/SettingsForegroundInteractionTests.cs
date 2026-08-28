@@ -393,6 +393,7 @@ public sealed class SettingsForegroundInteractionTests
             }
 
             Window window = null;
+            Window sectionWindow = null;
             try
             {
                 Grid host = CreateSettingsControlHost();
@@ -408,6 +409,57 @@ public sealed class SettingsForegroundInteractionTests
                 AssertEffectiveTemplateRole(listBoxStyle, canonicalListBoxStyle, nameof(ListBox));
                 AssertEffectiveTemplateRole(listBoxItemStyle, canonicalListBoxItemStyle, nameof(ListBoxItem));
                 AssertEffectiveTemplateRole(expanderStyle, canonicalExpanderStyle, nameof(Expander));
+
+                Grid sectionHost = CreateSettingsControlHost();
+                var constrainedContent = new Border
+                {
+                    MinHeight = 32,
+                    Child = new TextBlock { Text = "Constrained section content" }
+                };
+                var constrainedSection = new SettingsSection
+                {
+                    Header = "Constrained section",
+                    Description = "Its content must receive the finite host's remaining height.",
+                    Content = constrainedContent
+                };
+                var constrainedContainer = new Grid { Height = 220 };
+                constrainedContainer.Children.Add(constrainedSection);
+
+                var naturalContent = new Border
+                {
+                    MinHeight = 32,
+                    Child = new TextBlock { Text = "Natural section content" }
+                };
+                var naturalSection = new SettingsSection
+                {
+                    Header = "Natural section",
+                    Description = "An auto-sized host must retain natural desired height.",
+                    Content = naturalContent
+                };
+                var sectionPanel = new StackPanel();
+                sectionPanel.Children.Add(constrainedContainer);
+                sectionPanel.Children.Add(naturalSection);
+                sectionHost.Children.Add(sectionPanel);
+                sectionWindow = new Window
+                {
+                    Content = sectionHost,
+                    Width = 420,
+                    Height = 420
+                };
+                windowTest.ShowAndWaitForContentRendered(
+                    sectionWindow,
+                    TestWindowActivation.ForegroundInteraction);
+                sectionWindow.UpdateLayout();
+
+                Assert.IsTrue(
+                    constrainedContent.ActualHeight > naturalContent.ActualHeight + 50d,
+                    "A SettingsSection in a finite-height host must allocate its remaining height to content.");
+                Assert.IsTrue(
+                    naturalContent.ActualHeight <= naturalContent.DesiredSize.Height + 0.5d,
+                    "An auto-sized SettingsSection must leave content at its natural desired height.");
+                Assert.IsTrue(
+                    naturalSection.ActualHeight < constrainedSection.ActualHeight - 50d,
+                    "An auto-sized SettingsSection must not inherit artificial blank height from constrained hosts.");
 
                 var pageScroller = new ScrollViewer
                 {
@@ -652,10 +704,11 @@ public sealed class SettingsForegroundInteractionTests
                     SelectedIndex = 0,
                     Style = (Style)topNavigationHost.Resources["App.Canonical.TopNavigationStyle"]
                 };
+                var topNavigationContentText = new TextBlock { Text = "General content" };
                 var topNavigationContent = new ContentControl
                 {
                     Height = 80,
-                    Content = new TextBlock { Text = "General content" },
+                    Content = topNavigationContentText,
                     Style = (Style)topNavigationHost.Resources["App.Canonical.TopNavigationContentStyle"]
                 };
                 var topNavigationPanel = new StackPanel();
@@ -759,11 +812,57 @@ public sealed class SettingsForegroundInteractionTests
                     selectionRejected || !disabledNavigationSelection.IsSelected,
                     "A disabled top-navigation item must reject or ignore public Automation selection.");
                 topNavigationContent.ApplyTemplate();
+                topNavigationContent.UpdateLayout();
                 Assert.IsFalse(topNavigationContent.Focusable);
-                Assert.IsNotNull(topNavigationContent.Template.FindName("TopNavigationContentChrome", topNavigationContent));
+                Rect topNavigationContentBounds = new(
+                    0d,
+                    0d,
+                    topNavigationContent.ActualWidth,
+                    topNavigationContent.ActualHeight);
+                Border? visibleEnclosingSurface = FindDescendants<Border>(topNavigationContent)
+                    .FirstOrDefault(border =>
+                    {
+                        Rect borderBounds = border
+                            .TransformToAncestor(topNavigationContent)
+                            .TransformBounds(new Rect(0d, 0d, border.ActualWidth, border.ActualHeight));
+                        bool coversContent = borderBounds.Left <= topNavigationContentBounds.Left + 0.5d
+                            && borderBounds.Top <= topNavigationContentBounds.Top + 0.5d
+                            && borderBounds.Right >= topNavigationContentBounds.Right - 0.5d
+                            && borderBounds.Bottom >= topNavigationContentBounds.Bottom - 0.5d;
+                        bool hasVisibleBorder = (border.BorderThickness.Left > 0d
+                                || border.BorderThickness.Top > 0d
+                                || border.BorderThickness.Right > 0d
+                                || border.BorderThickness.Bottom > 0d)
+                            && border.BorderBrush is Brush borderBrush
+                            && borderBrush.Opacity > 0d
+                            && (borderBrush is not SolidColorBrush borderColor || borderColor.Color.A > 0);
+                        bool hasRoundedVisibleSurface = (border.CornerRadius.TopLeft > 0d
+                                || border.CornerRadius.TopRight > 0d
+                                || border.CornerRadius.BottomRight > 0d
+                                || border.CornerRadius.BottomLeft > 0d)
+                            && ((border.Background is Brush background
+                                    && background.Opacity > 0d
+                                    && (background is not SolidColorBrush backgroundColor || backgroundColor.Color.A > 0))
+                                || hasVisibleBorder);
+                        return coversContent && (hasVisibleBorder || hasRoundedVisibleSurface);
+                    });
+                Assert.IsNull(
+                    visibleEnclosingSurface,
+                    "The shared top-navigation content role must not render a visible enclosing surface.");
+                Point topNavigationContentOrigin = topNavigationContentText
+                    .TransformToAncestor(topNavigationContent)
+                    .Transform(new Point());
+                Assert.AreEqual(topNavigationContent.Padding.Left, topNavigationContentOrigin.X, 0.5);
+                Assert.AreEqual(topNavigationContent.Padding.Top, topNavigationContentOrigin.Y, 0.5);
+                Assert.AreEqual(
+                    topNavigationContent.ActualWidth - topNavigationContent.Padding.Left - topNavigationContent.Padding.Right,
+                    topNavigationContentText.ActualWidth,
+                    0.5,
+                    "The unframed content role must continue to own canonical content padding and stretch.");
             }
             finally
             {
+                sectionWindow?.Close();
                 window?.Close();
                 foreach (Type type in sentinelTypes)
                 {

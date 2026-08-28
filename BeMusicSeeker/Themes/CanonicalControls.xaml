@@ -783,17 +783,10 @@
   </ControlTemplate>
 
   <ControlTemplate x:Key="App.Canonical.TopNavigationContentTemplate" TargetType="{x:Type ContentControl}">
-    <Border x:Name="TopNavigationContentChrome"
-            Background="{DynamicResource App.SurfaceBrush}"
-            BorderBrush="{DynamicResource App.BorderBrush}"
-            BorderThickness="1"
-            CornerRadius="8"
-            SnapsToDevicePixels="True">
-      <ContentPresenter Margin="{TemplateBinding Padding}"
-                        HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                        VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                        ContentSource="Content" />
-    </Border>
+    <ContentPresenter Margin="{TemplateBinding Padding}"
+                      HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                      VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                      ContentSource="Content" />
   </ControlTemplate>
 
   <ControlTemplate x:Key="App.Canonical.ExpanderHeaderToggleTemplate" TargetType="{x:Type ToggleButton}">

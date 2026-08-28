@@ -1,5 +1,9 @@
 {
   "_language_name": "简体中文",
+  "PlaylistProp_sync_description": "启用外部同步前请先设置源 URI。同步期间无法编辑与源数据冲突的项目。",
+  "PlaylistProp_sort_description": "设置各文件夹内谱面的排序依据和方向。",
+  "PlaylistProp_folder_order_description": "使用自动自然排序，或手动调整所选文件夹的顺序。",
+  "PlaylistProp_output_description": "设置常规输出基准位置、输出文件夹名称和根目录输出方式。",
   "Audio": "音频",
   "Recording": "录音",
   "About_this_app": "关于此应用",

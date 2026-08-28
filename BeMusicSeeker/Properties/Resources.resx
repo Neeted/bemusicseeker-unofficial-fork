@@ -3202,4 +3202,8 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="RightClick_external_program_executable_missing" xml:space="preserve"><value>設定されたプログラムの実行ファイルが見つかりません。</value></data>
   <data name="RightClick_external_program_chart_missing" xml:space="preserve"><value>対象の譜面ファイルが見つかりません。</value></data>
   <data name="RightClick_external_program_launch_failed" xml:space="preserve"><value>プログラムを起動できませんでした。</value></data>
+  <data name="PlaylistProp_sync_description" xml:space="preserve"><value>参照元 URI を設定します。外部同期中は参照元と競合する項目を編集できません。</value></data>
+  <data name="PlaylistProp_sort_description" xml:space="preserve"><value>フォルダ内の譜面を並べる基準と方向を設定します。</value></data>
+  <data name="PlaylistProp_folder_order_description" xml:space="preserve"><value>自動の自然順を使うか、選択したフォルダを手動で並べ替えます。</value></data>
+  <data name="PlaylistProp_output_description" xml:space="preserve"><value>通常出力先、出力フォルダ名、ルート出力の扱いを設定します。</value></data>
 </root>

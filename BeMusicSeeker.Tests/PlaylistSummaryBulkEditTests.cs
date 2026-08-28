@@ -19,6 +19,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views.Settings.Pages;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -263,9 +264,7 @@ public sealed class PlaylistSummaryBulkEditTests
             };
             var view = new PlaylistPropertyDialog
             {
-                DataContext = fixture,
-                Width = 640,
-                Height = 420
+                DataContext = fixture
             };
 
             try
@@ -305,10 +304,13 @@ public sealed class PlaylistSummaryBulkEditTests
                     TextBox.TextProperty,
                     nameof(PlaylistPropertyPresentationFixture.output_dir));
                 Assert.IsTrue(outputDirectoryEditor.IsVisible, "The selected Custom Folder category must expose its fields.");
+                FrameworkElement customPage = (FrameworkElement)view.FindName("customPage")
+                    ?? throw new AssertFailedException("Custom Folder page was not materialized.");
+                customPage.MinHeight = contentScrollViewer.ViewportHeight + 160d;
                 contentScrollViewer.UpdateLayout();
                 Assert.IsTrue(
                     contentScrollViewer.ScrollableHeight > 0,
-                    "Custom folder content must expose a scrollable viewport for reset coverage.");
+                    "Test-induced overflow must expose a scrollable viewport for reset coverage.");
                 contentScrollViewer.ScrollToVerticalOffset(contentScrollViewer.ScrollableHeight);
                 TestUiDispatcherHost.Drain();
                 Assert.IsTrue(contentScrollViewer.VerticalOffset > 0);
@@ -570,6 +572,343 @@ public sealed class PlaylistSummaryBulkEditTests
                 entryType.GetBindingExpression(Selector.SelectedItemProperty)!.UpdateSource();
                 TestUiDispatcherHost.Drain();
                 Assert.IsTrue(levelFolder.IsEnabled);
+            }
+            finally
+            {
+                view.CloseForOwnerShutdown();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaylistPropertyDialog_ConceptAShellAndGeneralUseTheApprovedResponsiveViewport()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var fixture = new PlaylistPropertyPresentationFixture
+            {
+                OperationModeLR2DB = true
+            };
+            var view = new PlaylistPropertyDialog
+            {
+                DataContext = fixture
+            };
+
+            try
+            {
+                Assert.AreEqual(640d, view.Width, 0.01d);
+                Assert.AreEqual(720d, view.Height, 0.01d);
+                Assert.AreEqual(560d, view.MinWidth, 0.01d);
+                Assert.AreEqual(420d, view.MinHeight, 0.01d);
+                Assert.AreEqual(ResizeMode.CanResize, view.ResizeMode);
+
+                windowTest.ShowAndWaitForContentRendered(view);
+                view.UpdateLayout();
+
+                var bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")
+                    ?? throw new AssertFailedException("Playlist property body viewport was not materialized.");
+                FrameworkElement navigation = (FrameworkElement)view.FindName("propertyNavigation")
+                    ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
+                var navigationList = (ListBox)navigation;
+                var contentHost = (ContentControl)view.FindName("propertyContent")
+                    ?? throw new AssertFailedException("Playlist property content host was not materialized.");
+                TextBlock updateDate = FindBoundElement<TextBlock>(
+                    view,
+                    TextBlock.TextProperty,
+                    nameof(PlaylistPropertyPresentationFixture.last_update));
+                Button accept = FindButtonByAutomationId(view, "PlaylistPropertyAccept");
+
+                Assert.AreEqual(0d, bodyViewport.ScrollableHeight, 0.01d,
+                    "Initial Japanese General content must fit without vertical page overflow.");
+                Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d,
+                    "The page body must not expose horizontal overflow.");
+                Assert.AreEqual(ScrollBarVisibility.Disabled, bodyViewport.HorizontalScrollBarVisibility);
+                Assert.IsFalse(IsDescendantOf(navigation, bodyViewport), "Navigation must remain fixed outside the page body viewport.");
+                Assert.IsFalse(IsDescendantOf(updateDate, bodyViewport), "Update information must remain fixed outside the page body viewport.");
+                Assert.IsFalse(IsDescendantOf(accept, bodyViewport), "Dialog actions must remain fixed outside the page body viewport.");
+                for (int categoryIndex = 0; categoryIndex < navigationList.Items.Count; categoryIndex++)
+                {
+                    navigationList.SelectedIndex = categoryIndex;
+                    TestUiDispatcherHost.Drain();
+                    view.UpdateLayout();
+                    AssertNoVisiblePageEnclosingChrome(contentHost, bodyViewport, categoryIndex);
+                    AssertSelectedPageRetainsMajorSectionHierarchy(view, categoryIndex);
+                }
+                navigationList.SelectedIndex = 0;
+                TestUiDispatcherHost.Drain();
+                view.UpdateLayout();
+
+                TextBox name = FindBoundElement<TextBox>(view, TextBox.TextProperty, nameof(PlaylistPropertyPresentationFixture.name));
+                TextBox symbol = FindBoundElement<TextBox>(view, TextBox.TextProperty, nameof(PlaylistPropertyPresentationFixture.symbol));
+                TextBox prefix = FindBoundElement<TextBox>(view, TextBox.TextProperty, nameof(PlaylistPropertyPresentationFixture.compat_prefix));
+                ComboBox entryType = FindBoundElement<ComboBox>(
+                    view,
+                    Selector.SelectedItemProperty,
+                    nameof(PlaylistPropertyPresentationFixture.entry_type));
+                CheckBox externalSync = FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_external_sync));
+                TextBox pageUrl = FindBoundElement<TextBox>(view, TextBox.TextProperty, nameof(PlaylistPropertyPresentationFixture.Page_url));
+                TextBox headerUrl = FindBoundElement<TextBox>(view, TextBox.TextProperty, nameof(PlaylistPropertyPresentationFixture.Header_url));
+                TextBox dataUrl = FindBoundElement<TextBox>(view, TextBox.TextProperty, nameof(PlaylistPropertyPresentationFixture.Data_url));
+
+                FrameworkElement[] canonicalEditors = [name, symbol, prefix, entryType, pageUrl, headerUrl, dataUrl];
+                Assert.IsTrue(canonicalEditors.All(editor => editor.ActualHeight >= 32d),
+                    "General editors must retain canonical minimum height.");
+
+                Rect nameBounds = GetBounds(name, bodyViewport);
+                Rect symbolBounds = GetBounds(symbol, bodyViewport);
+                Rect prefixBounds = GetBounds(prefix, bodyViewport);
+                Rect entryBounds = GetBounds(entryType, bodyViewport);
+                Rect syncBounds = GetBounds(externalSync, bodyViewport);
+                Rect pageBounds = GetBounds(pageUrl, bodyViewport);
+                Rect headerBounds = GetBounds(headerUrl, bodyViewport);
+                Rect dataBounds = GetBounds(dataUrl, bodyViewport);
+
+                Assert.IsTrue(nameBounds.Left <= symbolBounds.Left && nameBounds.Right >= prefixBounds.Right,
+                    "The full-width name editor must span the two-column identity editors.");
+                Assert.IsTrue(symbolBounds.Bottom > prefixBounds.Top && prefixBounds.Bottom > symbolBounds.Top,
+                    "Symbol and compatible prefix must share the roomy identity row.");
+                Assert.IsTrue(symbolBounds.Width >= symbolBounds.Height * 3d,
+                    "Symbol must not retain the former compact fixed-width editor.");
+                Assert.IsTrue(entryBounds.Top >= Math.Max(symbolBounds.Bottom, prefixBounds.Bottom),
+                    "Entry unit must follow the identity editors as a separate field.");
+                Assert.IsTrue(syncBounds.Top >= entryBounds.Bottom,
+                    "External synchronization must follow the local playlist identity fields.");
+                Assert.IsTrue(pageBounds.Top >= syncBounds.Bottom
+                    && headerBounds.Top >= pageBounds.Bottom
+                    && dataBounds.Top >= headerBounds.Bottom,
+                    "External synchronization must precede the full-width Page/Header/Data URI sequence.");
+                Assert.IsTrue(new[] { pageBounds, headerBounds, dataBounds }.All(bounds => bounds.Width >= nameBounds.Width * 0.9d),
+                    "URI editors must use the same full-width editing span as the playlist name.");
+
+                double symbolWidthBeforeResize = symbol.ActualWidth;
+                double nameWidthBeforeResize = name.ActualWidth;
+                double pageWidthBeforeResize = pageUrl.ActualWidth;
+                view.Width += 160d;
+                view.UpdateLayout();
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(symbol.ActualWidth > symbolWidthBeforeResize);
+                Assert.IsTrue(name.ActualWidth > nameWidthBeforeResize);
+                Assert.IsTrue(pageUrl.ActualWidth > pageWidthBeforeResize);
+                Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d);
+
+                view.Width = view.MinWidth;
+                view.Height = view.MinHeight;
+                view.UpdateLayout();
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d,
+                    "General must not create horizontal overflow at minimum window size.");
+                Assert.IsTrue(
+                    canonicalEditors
+                        .Select(editor => GetBounds(editor, bodyViewport))
+                        .All(bounds => bounds.Left >= -0.5d && bounds.Right <= bodyViewport.ViewportWidth + 0.5d),
+                    "General editors must remain horizontally reachable at minimum window size.");
+                bodyViewport.ScrollToVerticalOffset(bodyViewport.ScrollableHeight);
+                TestUiDispatcherHost.Drain();
+                Rect minimumDataBounds = GetBounds(dataUrl, bodyViewport);
+                Assert.IsTrue(
+                    minimumDataBounds.Top >= -0.5d && minimumDataBounds.Bottom <= bodyViewport.ViewportHeight + 0.5d,
+                    "The final General editor must be reachable through the minimum-height body viewport.");
+            }
+            finally
+            {
+                view.CloseForOwnerShutdown();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaylistPropertyDialog_ConceptAFolderOrderOwnsScrollingAndGrowsWithWindow()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var fixture = new PlaylistPropertyPresentationFixture
+            {
+                OperationModeLR2DB = true
+            };
+            for (int index = 0; index < 40; index++)
+            {
+                fixture.folder_order.Add($"Synthetic folder {index:D2}");
+            }
+
+            var view = new PlaylistPropertyDialog
+            {
+                DataContext = fixture
+            };
+
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(view);
+                ((ListBox)view.FindName("propertyNavigation")).SelectedIndex = 1;
+                TestUiDispatcherHost.Drain();
+                view.UpdateLayout();
+
+                var bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")!;
+                ComboBox sortKey = FindBoundElement<ComboBox>(
+                    view,
+                    Selector.SelectedItemProperty,
+                    nameof(PlaylistPropertyPresentationFixture.folder_sort_key));
+                var folderOrder = FindBoundElement<ListBox>(
+                    view,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.folder_order));
+                Button moveUp = FindButtonByAutomationId(view, "PlaylistPropertyFolderMoveUp");
+                Button moveDown = FindButtonByAutomationId(view, "PlaylistPropertyFolderMoveDown");
+                ScrollViewer listViewport = FindDescendants<ScrollViewer>(folderOrder)
+                    .Single(viewer => !ReferenceEquals(viewer, bodyViewport));
+
+                Rect sortBounds = GetBounds(sortKey, bodyViewport);
+                Rect listBounds = GetBounds(folderOrder, bodyViewport);
+                Rect moveUpBounds = GetBounds(moveUp, bodyViewport);
+                Rect moveDownBounds = GetBounds(moveDown, bodyViewport);
+                Assert.IsTrue(sortBounds.Bottom <= listBounds.Top,
+                    "Folder sorting must precede the folder-order region.");
+                Assert.IsTrue(listViewport.ScrollableHeight > 0d,
+                    "Synthetic folders must overflow inside the independently scrolling order list.");
+                Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d);
+                Assert.IsTrue(moveUpBounds.Top >= listBounds.Top && moveDownBounds.Bottom <= listBounds.Bottom,
+                    "Manual ordering actions must remain reachable alongside the folder-order viewport.");
+
+                double listHeightBeforeResize = folderOrder.ActualHeight;
+                view.Height += 160d;
+                view.UpdateLayout();
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(folderOrder.ActualHeight > listHeightBeforeResize,
+                    "The dominant folder-order viewport must gain height when the window becomes taller.");
+
+                SettingsSection folderOrderSection = FindDescendants<SettingsSection>(view)
+                    .Single(section => IsDescendantOf(folderOrder, section));
+                BindingOperations.ClearBinding(folderOrderSection, SettingsSection.DescriptionProperty);
+                folderOrderSection.Description = string.Join(
+                    " ",
+                    Enumerable.Repeat("Deterministic long folder order description", 16));
+                view.Width = view.MinWidth;
+                view.Height = view.MinHeight;
+                view.UpdateLayout();
+                TestUiDispatcherHost.Drain();
+
+                Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d,
+                    "Folder must not create horizontal overflow at minimum window size.");
+                Assert.IsTrue(bodyViewport.ScrollableHeight > 0d,
+                    "Constrained long Folder content must create reachable outer vertical extent.");
+                Assert.IsTrue(listViewport.ScrollableHeight > 0d,
+                    "The Folder list must retain independent vertical extent at minimum window size.");
+                bodyViewport.ScrollToVerticalOffset(bodyViewport.ScrollableHeight);
+                TestUiDispatcherHost.Drain();
+                Rect minimumMoveUpBounds = GetBounds(moveUp, bodyViewport);
+                Rect minimumMoveDownBounds = GetBounds(moveDown, bodyViewport);
+                Assert.IsTrue(
+                    minimumMoveUpBounds.Top >= -0.5d
+                    && minimumMoveDownBounds.Bottom <= bodyViewport.ViewportHeight + 0.5d,
+                    "The Folder move actions must be reachable through the minimum-height body viewport.");
+                Assert.IsTrue(
+                    new[] { GetBounds(sortKey, bodyViewport), GetBounds(folderOrder, bodyViewport), minimumMoveUpBounds, minimumMoveDownBounds }
+                        .All(bounds => bounds.Left >= -0.5d && bounds.Right <= bodyViewport.ViewportWidth + 0.5d),
+                    "Folder controls must remain horizontally reachable at minimum window size.");
+            }
+            finally
+            {
+                view.CloseForOwnerShutdown();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaylistPropertyDialog_ConceptACustomOutputFolderPrecedesNaturalFlowDestination()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var fixture = new PlaylistPropertyPresentationFixture
+            {
+                OperationModeLR2DB = true
+            };
+            var view = new PlaylistPropertyDialog
+            {
+                DataContext = fixture
+            };
+
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(view);
+                view.Width = view.MinWidth;
+                ((ListBox)view.FindName("propertyNavigation")).SelectedIndex = 2;
+                TestUiDispatcherHost.Drain();
+                view.UpdateLayout();
+
+                var bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")!;
+                ComboBox outputBase = FindBoundElement<ComboBox>(
+                    view,
+                    Selector.SelectedItemProperty,
+                    nameof(PlaylistPropertyPresentationFixture.custom_folder_output_base_option));
+                TextBox outputDirectory = FindBoundElement<TextBox>(
+                    view,
+                    TextBox.TextProperty,
+                    nameof(PlaylistPropertyPresentationFixture.output_dir));
+                CheckBox rootFolder = FindBoundCheckBox(view, nameof(PlaylistPropertyPresentationFixture.is_root_folder));
+                CheckBox[] flags = FindDescendants<CheckBox>(view)
+                    .Where(checkBox => BindingOperations.GetBindingBase(
+                            checkBox,
+                            ToggleButton.IsCheckedProperty) is Binding binding
+                        && binding.ConverterParameter is string)
+                    .ToArray();
+                FrameworkElement outputTypesSection = FindElementByAutomationId<FrameworkElement>(
+                    view,
+                    "PlaylistPropertyOutputTypesSection");
+                TextBlock explanation = FindDescendants<TextBlock>(outputTypesSection)
+                    .Where(textBlock => !string.IsNullOrWhiteSpace(textBlock.Text))
+                    .OrderBy(textBlock => GetBounds(textBlock, bodyViewport).Top)
+                    .Skip(1)
+                    .FirstOrDefault()
+                    ?? throw new AssertFailedException("Output Types description was not rendered in its heading hierarchy.");
+
+                Rect outputBaseBounds = GetBounds(outputBase, bodyViewport);
+                Rect outputDirectoryBounds = GetBounds(outputDirectory, bodyViewport);
+                Rect rootBounds = GetBounds(rootFolder, bodyViewport);
+                Rect explanationBounds = GetBounds(explanation, bodyViewport);
+                Rect firstFlagBounds = flags.Select(flag => GetBounds(flag, bodyViewport)).OrderBy(bounds => bounds.Top).First();
+                Assert.IsTrue(explanationBounds.Bottom <= firstFlagBounds.Top,
+                    "Output Types explanation must follow its heading and precede the flags.");
+                double lastFlagBottom = flags.Max(flag => GetBounds(flag, bodyViewport).Bottom);
+                Assert.IsTrue(lastFlagBottom <= outputBaseBounds.Top
+                    && outputBaseBounds.Bottom <= outputDirectoryBounds.Top
+                    && outputDirectoryBounds.Bottom <= rootBounds.Top,
+                    "Output Folder must precede the naturally flowing Output Destination fields.");
+                Assert.AreEqual(13, flags.Length);
+                Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d);
+
+                double outputBaseWidthBeforeResize = outputBase.ActualWidth;
+                double outputDirectoryWidthBeforeResize = outputDirectory.ActualWidth;
+                view.Width += 160d;
+                view.UpdateLayout();
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(outputBase.ActualWidth > outputBaseWidthBeforeResize);
+                Assert.IsTrue(outputDirectory.ActualWidth > outputDirectoryWidthBeforeResize);
+
+                double destinationTopBeforeHeightResize = GetBounds(outputBase, bodyViewport).Top;
+                view.Height += 160d;
+                view.UpdateLayout();
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(
+                    destinationTopBeforeHeightResize,
+                    GetBounds(outputBase, bodyViewport).Top,
+                    1d,
+                    "Output Destination must remain in natural top-origin flow when only height grows.");
+
+                CheckBox wrappingProbe = flags.OrderBy(flag => GetBounds(flag, bodyViewport).Top).First();
+                double ordinaryFlagHeight = flags
+                    .Where(flag => !ReferenceEquals(flag, wrappingProbe))
+                    .Max(flag => flag.ActualHeight);
+                BindingOperations.ClearBinding(wrappingProbe, ContentControl.ContentProperty);
+                wrappingProbe.Content = string.Join(" ", Enumerable.Repeat("Long localized output option", 12));
+                view.Width = view.MinWidth;
+                view.UpdateLayout();
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(wrappingProbe.ActualHeight > ordinaryFlagHeight,
+                    "A long localized output caption must wrap instead of remaining a clipped single line.");
+                Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d);
+                Assert.IsTrue(flags
+                    .Select(flag => GetBounds(flag, bodyViewport))
+                    .All(bounds => bounds.Left >= -0.5d && bounds.Right <= bodyViewport.ViewportWidth + 0.5d),
+                    "Output flags must remain horizontally contained at minimum width.");
             }
             finally
             {
@@ -1216,6 +1555,133 @@ public sealed class PlaylistSummaryBulkEditTests
                 StringComparison.Ordinal))
             ?? throw new AssertFailedException($"Missing button '{automationId}'.");
     }
+
+    private static T FindElementByAutomationId<T>(DependencyObject root, string automationId)
+        where T : FrameworkElement
+    {
+        return FindDescendants<T>(root)
+            .SingleOrDefault(element => string.Equals(
+                AutomationProperties.GetAutomationId(element),
+                automationId,
+                StringComparison.Ordinal))
+            ?? throw new AssertFailedException($"Missing element '{automationId}'.");
+    }
+
+    private static Rect GetBounds(FrameworkElement element, Visual ancestor)
+    {
+        return element.TransformToAncestor(ancestor)
+            .TransformBounds(new Rect(0d, 0d, element.ActualWidth, element.ActualHeight));
+    }
+
+    private static bool IsDescendantOf(DependencyObject element, DependencyObject ancestor)
+    {
+        return FindDescendants<DependencyObject>(ancestor)
+            .Any(candidate => ReferenceEquals(candidate, element));
+    }
+
+    private static void AssertNoVisiblePageEnclosingChrome(
+        ContentControl contentHost,
+        ScrollViewer bodyViewport,
+        int categoryIndex)
+    {
+        Rect viewportBounds = GetBounds(bodyViewport, contentHost);
+        Border? enclosingChrome = FindDescendants<Border>(contentHost)
+            .FirstOrDefault(border =>
+            {
+                if (!IsDescendantOf(bodyViewport, border))
+                {
+                    return false;
+                }
+
+                Rect borderBounds = GetBounds(border, contentHost);
+                bool coversBody = borderBounds.Left <= viewportBounds.Left + 0.5d
+                    && borderBounds.Top <= viewportBounds.Top + 0.5d
+                    && borderBounds.Right >= viewportBounds.Right - 0.5d
+                    && borderBounds.Bottom >= viewportBounds.Bottom - 0.5d;
+                bool hasVisibleBorder = (border.BorderThickness.Left > 0d
+                        || border.BorderThickness.Top > 0d
+                        || border.BorderThickness.Right > 0d
+                        || border.BorderThickness.Bottom > 0d)
+                    && IsVisibleBrush(border.BorderBrush);
+                bool hasRoundedVisibleSurface = (border.CornerRadius.TopLeft > 0d
+                        || border.CornerRadius.TopRight > 0d
+                        || border.CornerRadius.BottomRight > 0d
+                        || border.CornerRadius.BottomLeft > 0d)
+                    && (IsVisibleBrush(border.Background) || hasVisibleBorder);
+                return coversBody && (hasVisibleBorder || hasRoundedVisibleSurface);
+            });
+
+        Assert.IsNull(
+            enclosingChrome,
+            $"Playlist property category {categoryIndex} must use an unframed selected-page body.");
+    }
+
+    private static void AssertSelectedPageRetainsMajorSectionHierarchy(
+        PlaylistPropertyDialog view,
+        int categoryIndex)
+    {
+        FrameworkElement firstControl;
+        FrameworkElement secondControl;
+        string firstRole;
+        string secondRole;
+        switch ((PropertyNavigationCategory)categoryIndex)
+        {
+            case PropertyNavigationCategory.General:
+                firstControl = FindBoundElement<TextBox>(
+                    view,
+                    TextBox.TextProperty,
+                    nameof(PlaylistPropertyPresentationFixture.name));
+                secondControl = FindBoundCheckBox(
+                    view,
+                    nameof(PlaylistPropertyPresentationFixture.is_external_sync));
+                firstRole = "General identity";
+                secondRole = "General external synchronization";
+                break;
+            case PropertyNavigationCategory.Folder:
+                firstControl = FindBoundElement<ComboBox>(
+                    view,
+                    Selector.SelectedItemProperty,
+                    nameof(PlaylistPropertyPresentationFixture.folder_sort_key));
+                secondControl = FindBoundElement<ListBox>(
+                    view,
+                    ItemsControl.ItemsSourceProperty,
+                    nameof(PlaylistPropertyPresentationFixture.folder_order));
+                firstRole = "Folder sorting";
+                secondRole = "Folder ordering";
+                break;
+            case PropertyNavigationCategory.CustomFolder:
+                firstControl = FindDescendants<CheckBox>(view)
+                    .First(checkBox => BindingOperations.GetBindingBase(
+                            checkBox,
+                            ToggleButton.IsCheckedProperty) is Binding binding
+                        && binding.ConverterParameter is string);
+                secondControl = FindBoundElement<ComboBox>(
+                    view,
+                    Selector.SelectedItemProperty,
+                    nameof(PlaylistPropertyPresentationFixture.custom_folder_output_base_option));
+                firstRole = "Custom Output Folder";
+                secondRole = "Custom Output Destination";
+                break;
+            default:
+                throw new AssertFailedException($"Unknown playlist property category index {categoryIndex}.");
+        }
+
+        SettingsSection? firstSection = FindDescendants<SettingsSection>(view)
+            .SingleOrDefault(section => section.IsVisible && IsDescendantOf(firstControl, section));
+        SettingsSection? secondSection = FindDescendants<SettingsSection>(view)
+            .SingleOrDefault(section => section.IsVisible && IsDescendantOf(secondControl, section));
+        Assert.IsNotNull(firstSection, $"{firstRole} must remain owned by a visible major SettingsSection.");
+        Assert.IsNotNull(secondSection, $"{secondRole} must remain owned by a visible major SettingsSection.");
+        Assert.AreNotSame(
+            firstSection,
+            secondSection,
+            $"{firstRole} and {secondRole} must remain partitioned by the major SettingsSection hierarchy.");
+    }
+
+    private static bool IsVisibleBrush(Brush? brush)
+        => brush is not null
+            && brush.Opacity > 0d
+            && (brush is not SolidColorBrush solid || solid.Color.A > 0);
 
     private static void SetBulkFolderValue(
         PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel dialog,

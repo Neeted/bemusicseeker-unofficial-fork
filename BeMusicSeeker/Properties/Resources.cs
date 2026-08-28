@@ -2108,6 +2108,18 @@ public class Resources
     /// <summary>プログラム起動の一般的な失敗を表示します。</summary>
     public static string RightClick_external_program_launch_failed => ResourceManager.GetString("RightClick_external_program_launch_failed", resourceCulture);
 
+    /// <summary>外部同期と参照元 URI の関係の説明を表示します。</summary>
+    public static string PlaylistProp_sync_description => ResourceManager.GetString("PlaylistProp_sync_description", resourceCulture);
+
+    /// <summary>フォルダ内ソートの説明を表示します。</summary>
+    public static string PlaylistProp_sort_description => ResourceManager.GetString("PlaylistProp_sort_description", resourceCulture);
+
+    /// <summary>フォルダ順序の手動編集の説明を表示します。</summary>
+    public static string PlaylistProp_folder_order_description => ResourceManager.GetString("PlaylistProp_folder_order_description", resourceCulture);
+
+    /// <summary>カスタムフォルダの出力先の説明を表示します。</summary>
+    public static string PlaylistProp_output_description => ResourceManager.GetString("PlaylistProp_output_description", resourceCulture);
+
     internal Resources()
     {
     }

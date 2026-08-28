@@ -1,5 +1,9 @@
 {
   "_language_name": "Français",
+  "PlaylistProp_sync_description": "Définissez les URI source avant d’activer la synchronisation externe. Les champs gérés par la source ne sont pas modifiables pendant la synchronisation.",
+  "PlaylistProp_sort_description": "Choisissez le tri des charts dans chaque dossier.",
+  "PlaylistProp_folder_order_description": "Utilisez le tri naturel automatique ou réorganisez manuellement les dossiers sélectionnés.",
+  "PlaylistProp_output_description": "Choisissez la base de sortie normale, le nom du dossier de sortie et le comportement de sortie racine.",
   "Audio": "Audio",
   "Recording": "Enregistrement",
   "About_this_app": "À propos de cette application",
