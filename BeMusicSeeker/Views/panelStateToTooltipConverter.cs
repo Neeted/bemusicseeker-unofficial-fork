@@ -16,10 +16,6 @@ internal class panelStateToTooltipConverter : IValueConverter
             {
                 return Resources.Tooltip_view_mode + ": " + Resources.Tooltip_bms_player;
             }
-            if (((PlayerPanelState)value).HasFlag(PlayerPanelState.MOVIE_PLAYER))
-            {
-                return Resources.Tooltip_view_mode + ": " + Resources.Tooltip_movie_preview;
-            }
             return Resources.Tooltip_view_mode + ": " + Resources.Tooltip_image_file;
         }
         return Binding.DoNothing;

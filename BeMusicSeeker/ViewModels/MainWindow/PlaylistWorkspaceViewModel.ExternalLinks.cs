@@ -6,14 +6,11 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private const string PlaylistClearLampUri = "http://xyzzz.net/bms/clearlamp";
-
     internal PlaylistTableContextMenuAvailability CapturePlaylistTableContextMenuAvailability(BMSTable table)
     {
         return new PlaylistTableContextMenuAvailability(
             canReload: CanReloadPlaylistTable(table),
             canOpenPage: CanOpenPlaylistTablePage(table),
-            canOpenClearLamp: CanOpenPlaylistTableClearLamp(table),
             canCreateFolder: table != null && !table.is_external_sync,
             canOverwriteLevel: true,
             canRemoveTable: true,
@@ -29,14 +26,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     private bool CanOpenPlaylistTablePage(BMSTable table)
     {
         return table?.Page_url != null || table?.GetAbsoluteHeaderUrl() != null;
-    }
-
-    private bool CanOpenPlaylistTableClearLamp(BMSTable table)
-    {
-        return table?.Page_url != null
-            && table.Page_url.Scheme != "bmseeker"
-            && table.is_external_sync
-            && GetPlaylistLibraryLr2Id() != 0;
     }
 
     internal bool TryResolvePlaylistTablePageUri(BMSTable table, out Uri uri)
@@ -74,31 +63,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         return false;
     }
 
-    internal bool TryResolvePlaylistTableClearLampUri(BMSTable table, out Uri uri)
-    {
-        uri = null;
-        if (table?.Page_url == null
-            || table.Page_url.Scheme == "bmseeker"
-            || !table.is_external_sync)
-        {
-            return false;
-        }
-
-        int lr2Id = GetPlaylistLibraryLr2Id();
-        if (lr2Id == 0)
-        {
-            return false;
-        }
-
-        uri = new Uri(
-            PlaylistClearLampUri
-            + "?lr2ID="
-            + Uri.EscapeDataString(lr2Id.ToString())
-            + "&table_url="
-            + Uri.EscapeDataString(table.Page_url.ToString()));
-        return true;
-    }
-
     internal Task OpenPlaylistSummaryUriAsync(Uri uri)
     {
         if (uri == null || !uri.IsAbsoluteUri)
@@ -130,17 +94,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         return true;
     }
 
-    internal bool OpenPlaylistTableClearLamp(BMSTable table)
-    {
-        if (!TryResolvePlaylistTableClearLampUri(table, out Uri uri))
-        {
-            return false;
-        }
-
-        playlistUrlBrowserOpenSink(uri);
-        return true;
-    }
-
     private int GetPlaylistLibraryLr2Id()
     {
         return getPlaylistLibrary()?.LR2ID ?? 0;
@@ -152,7 +105,6 @@ internal sealed class PlaylistTableContextMenuAvailability
     internal PlaylistTableContextMenuAvailability(
         bool canReload,
         bool canOpenPage,
-        bool canOpenClearLamp,
         bool canCreateFolder,
         bool canOverwriteLevel,
         bool canRemoveTable,
@@ -160,7 +112,6 @@ internal sealed class PlaylistTableContextMenuAvailability
     {
         CanReload = canReload;
         CanOpenPage = canOpenPage;
-        CanOpenClearLamp = canOpenClearLamp;
         CanCreateFolder = canCreateFolder;
         CanOverwriteLevel = canOverwriteLevel;
         CanRemoveTable = canRemoveTable;
@@ -170,8 +121,6 @@ internal sealed class PlaylistTableContextMenuAvailability
     internal bool CanReload { get; }
 
     internal bool CanOpenPage { get; }
-
-    internal bool CanOpenClearLamp { get; }
 
     internal bool CanCreateFolder { get; }
 

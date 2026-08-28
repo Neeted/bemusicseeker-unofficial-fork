@@ -23,12 +23,13 @@ public sealed class PortableSettingsMigrationTests
             ("SkipEstimateOfflineScoreRanking", "True"),
             ("UseEverythingForPendingPackageSourceScan", "True"),
             ("SkipInitFileCheck", "True"),
+            ("UseExternalWebBrowser", "True"),
             ("StandardCustomTableColumnSettings", "current"),
             ("UnknownFutureSetting", "keep"));
 
         int removed = PortableSettingsProvider.RemoveObsoleteSettings(section);
 
-        Assert.AreEqual(8, removed);
+        Assert.AreEqual(9, removed);
         Assert.IsNull(FindSetting(section, "StandardColumnsSettings"));
         Assert.IsNull(FindSetting(section, "BmsonColumnSettingsMigrationVersion"));
         Assert.IsNull(FindSetting(section, "PublishVersion"));
@@ -37,8 +38,51 @@ public sealed class PortableSettingsMigrationTests
         Assert.IsNull(FindSetting(section, "SkipEstimateOfflineScoreRanking"));
         Assert.IsNull(FindSetting(section, "UseEverythingForPendingPackageSourceScan"));
         Assert.IsNull(FindSetting(section, "SkipInitFileCheck"));
+        Assert.IsNull(FindSetting(section, "UseExternalWebBrowser"));
         Assert.IsNotNull(FindSetting(section, "StandardCustomTableColumnSettings"));
         Assert.IsNotNull(FindSetting(section, "UnknownFutureSetting"));
+    }
+
+    [TestMethod]
+    public void NormalizeMigratedConfig_RewritesLegacyMovieBitToBmsBitAndPreservesOtherBits()
+    {
+        XDocument doc = CreateConfigDocument(
+            ("PlayerPanelState", "4"),
+            ("UnknownFutureSetting", "keep"));
+        XElement section = GetSettingsSection(doc);
+
+        Assert.AreEqual(1, PortableSettingsProvider.NormalizeSettingsSection(section));
+        Assert.AreEqual("2", GetSettingValue(section, "PlayerPanelState"));
+        Assert.AreEqual("keep", GetSettingValue(section, "UnknownFutureSetting"));
+
+        foreach ((string legacyValue, string expectedValue) in new[]
+        {
+            ("5", "3"),
+            ("12", "10"),
+            ("13", "11")
+        })
+        {
+            doc = CreateConfigDocument(("PlayerPanelState", legacyValue));
+            section = GetSettingsSection(doc);
+            Assert.AreEqual(1, PortableSettingsProvider.NormalizeSettingsSection(section));
+            Assert.AreEqual(expectedValue, GetSettingValue(section, "PlayerPanelState"));
+        }
+    }
+
+    [TestMethod]
+    public void NormalizeMigratedConfig_RewritesLegacyMovieSymbolAndIsIdempotent()
+    {
+        XDocument doc = CreateConfigDocument(("PlayerPanelState", "TITLE_SMALL, MOVIE_PLAYER"));
+        XElement section = GetSettingsSection(doc);
+
+        Assert.AreEqual(1, PortableSettingsProvider.NormalizeSettingsSection(section));
+        Assert.AreEqual("TITLE_SMALL, BMS_PLAYER", GetSettingValue(section, "PlayerPanelState"));
+        Assert.AreEqual(0, PortableSettingsProvider.NormalizeSettingsSection(section));
+
+        doc = CreateConfigDocument(("PlayerPanelState", "1"));
+        section = GetSettingsSection(doc);
+        Assert.AreEqual(0, PortableSettingsProvider.NormalizeSettingsSection(section));
+        Assert.AreEqual("1", GetSettingValue(section, "PlayerPanelState"));
     }
 
     [TestMethod]

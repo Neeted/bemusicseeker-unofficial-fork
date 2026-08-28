@@ -96,12 +96,6 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private string bmsPlayerHeaderArtist = string.Empty;
 
-    private string moviePlayerHeaderTitle = string.Empty;
-
-    private string moviePlayerHeaderSubtitle = string.Empty;
-
-    private string moviePlayerHeaderArtist = string.Empty;
-
     private ViewModelCommand nextCommand;
     private ViewModelCommand previousCommand;
     private ViewModelCommand restartCommand;
@@ -362,28 +356,33 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>
+    /// Gets whether a requested panel state is selectable with the current BMS player surface.
+    /// </summary>
+    /// <param name="state">Panel state requested by the user or persisted settings.</param>
+    /// <param name="bmsPlayerSurfaceAvailable">Whether the BMS player surface is usable.</param>
     internal bool CanSelectPanelState(
         PlayerPanelState state,
-        bool bmsPlayerSurfaceAvailable,
-        bool moviePlayerSurfaceAvailable)
+        bool bmsPlayerSurfaceAvailable)
     {
         if (state.HasFlag(PlayerPanelState.BMS_PLAYER) && !bmsPlayerSurfaceAvailable)
-        {
-            return false;
-        }
-        if (state.HasFlag(PlayerPanelState.MOVIE_PLAYER) && !moviePlayerSurfaceAvailable)
         {
             return false;
         }
         return true;
     }
 
+    /// <summary>
+    /// Selects a panel state when its current BMS player surface is available.
+    /// </summary>
+    /// <param name="state">Panel state to select.</param>
+    /// <param name="bmsPlayerSurfaceAvailable">Whether the BMS player surface is usable.</param>
+    /// <returns><see langword="true"/> when the state was selected.</returns>
     internal bool TrySelectPanelState(
         PlayerPanelState state,
-        bool bmsPlayerSurfaceAvailable,
-        bool moviePlayerSurfaceAvailable)
+        bool bmsPlayerSurfaceAvailable)
     {
-        if (!CanSelectPanelState(state, bmsPlayerSurfaceAvailable, moviePlayerSurfaceAvailable))
+        if (!CanSelectPanelState(state, bmsPlayerSurfaceAvailable))
         {
             return false;
         }
@@ -392,18 +391,20 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return true;
     }
 
-    internal void RotatePanelState(bool bmsPlayerSurfaceAvailable, bool moviePlayerSurfaceAvailable)
+    /// <summary>
+    /// Cycles between the title and BMS player surfaces while preserving compactness.
+    /// </summary>
+    /// <param name="bmsPlayerSurfaceAvailable">Whether the BMS player surface is usable.</param>
+    internal void RotatePanelState(bool bmsPlayerSurfaceAvailable)
     {
         PlayerPanelState state = PlayerPanelState;
         do
         {
             state = state.HasFlag(PlayerPanelState.BMS_PLAYER)
-                ? (state & ~PlayerPanelState.BMS_PLAYER) | PlayerPanelState.MOVIE_PLAYER
-                : !state.HasFlag(PlayerPanelState.MOVIE_PLAYER)
-                    ? state | PlayerPanelState.BMS_PLAYER
-                    : state & ~PlayerPanelState.MOVIE_PLAYER;
+                ? state & ~PlayerPanelState.BMS_PLAYER
+                : state | PlayerPanelState.BMS_PLAYER;
         }
-        while (!CanSelectPanelState(state, bmsPlayerSurfaceAvailable, moviePlayerSurfaceAvailable));
+        while (!CanSelectPanelState(state, bmsPlayerSurfaceAvailable));
 
         PlayerPanelState = state;
     }
@@ -440,8 +441,6 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     public bool CanShowEffect => playbackSettings.UsesUbMplay;
 
     public bool CanChangePlayside => playbackSettings.UsesUbMplay;
-
-    public bool UseExternalWebBrowser => playbackSettings.UseExternalWebBrowser;
 
     public bool UseExternalPanelImage => playbackSettings.UseExternalPanelImage;
 
@@ -1739,17 +1738,17 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// <summary>
     /// Gets the active playback title shown in the panel header.
     /// </summary>
-    public string PlayerHeaderTitle => IsMoviePlayerHeaderActive ? moviePlayerHeaderTitle : bmsPlayerHeaderTitle;
+    public string PlayerHeaderTitle => bmsPlayerHeaderTitle;
 
     /// <summary>
     /// Gets the active playback subtitle shown in the panel header.
     /// </summary>
-    public string PlayerHeaderSubtitle => IsMoviePlayerHeaderActive ? moviePlayerHeaderSubtitle : bmsPlayerHeaderSubtitle;
+    public string PlayerHeaderSubtitle => bmsPlayerHeaderSubtitle;
 
     /// <summary>
     /// Gets the active playback artist shown in the panel header.
     /// </summary>
-    public string PlayerHeaderArtist => IsMoviePlayerHeaderActive ? moviePlayerHeaderArtist : bmsPlayerHeaderArtist;
+    public string PlayerHeaderArtist => bmsPlayerHeaderArtist;
 
     /// <summary>
     /// Gets the BMS player title cache used when the BMS panel is active.
@@ -1765,21 +1764,6 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// Gets the BMS player artist cache used when the BMS panel is active.
     /// </summary>
     internal string BmsPlayerHeaderArtist => bmsPlayerHeaderArtist;
-
-    /// <summary>
-    /// Gets the movie player title cache used when the movie panel is active.
-    /// </summary>
-    internal string MoviePlayerHeaderTitle => moviePlayerHeaderTitle;
-
-    /// <summary>
-    /// Gets the movie player subtitle cache used when the movie panel is active.
-    /// </summary>
-    internal string MoviePlayerHeaderSubtitle => moviePlayerHeaderSubtitle;
-
-    /// <summary>
-    /// Gets the movie player artist cache used when the movie panel is active.
-    /// </summary>
-    internal string MoviePlayerHeaderArtist => moviePlayerHeaderArtist;
 
     /// <summary>
     /// Gets or sets the internal player volume stored in application settings.
@@ -1798,12 +1782,6 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
-    private bool IsMoviePlayerHeaderActive =>
-        playbackSettings.PlayerPanelState == PlayerPanelState.MOVIE_PLAYER
-        && (!string.IsNullOrWhiteSpace(moviePlayerHeaderTitle)
-            || !string.IsNullOrWhiteSpace(moviePlayerHeaderSubtitle)
-            || !string.IsNullOrWhiteSpace(moviePlayerHeaderArtist));
-
     /// <summary>
     /// Updates the BMS player header cache from the currently selected or playing BMS file.
     /// </summary>
@@ -1814,33 +1792,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         bool changed = SetHeaderValue(ref bmsPlayerHeaderTitle, GridRowResolver.GetBmsPlayerDisplayTitle(bmsFile))
             | SetHeaderValue(ref bmsPlayerHeaderSubtitle, GridRowResolver.GetBmsPlayerDisplaySubtitle(bmsFile))
             | SetHeaderValue(ref bmsPlayerHeaderArtist, GridRowResolver.GetBmsPlayerDisplayArtist(bmsFile));
-        if (changed || !IsMoviePlayerHeaderActive)
+        if (changed)
         {
             RaisePlayerHeaderPropertiesChanged();
         }
-    }
-
-    /// <summary>
-    /// Updates the movie player header cache from the selected row while keeping BMS metadata available for fallback display.
-    /// </summary>
-    /// <param name="row">Row whose display metadata should be used for the movie panel.</param>
-    internal void SetMoviePlayerHeader(object row)
-    {
-        bool changed = SetHeaderValue(ref moviePlayerHeaderTitle, GridRowResolver.GetDisplayRawTitle(row))
-            | SetHeaderValue(ref moviePlayerHeaderSubtitle, GridRowResolver.GetDisplaySubtitle(row))
-            | SetHeaderValue(ref moviePlayerHeaderArtist, GridRowResolver.GetDisplayArtist(row));
-        if (changed || IsMoviePlayerHeaderActive)
-        {
-            RaisePlayerHeaderPropertiesChanged();
-        }
-    }
-
-    /// <summary>
-    /// Re-raises active header bindings when an external setting changes which panel header source is visible.
-    /// </summary>
-    internal void NotifyPlayerHeaderSourceChanged()
-    {
-        RaisePlayerHeaderPropertiesChanged();
     }
 
     private static bool SetHeaderValue(ref string storage, string value)
@@ -1900,7 +1855,6 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         RaisePropertyChanged(nameof(CanShowInfo));
         RaisePropertyChanged(nameof(CanShowEffect));
         RaisePropertyChanged(nameof(CanChangePlayside));
-        RaisePropertyChanged(nameof(UseExternalWebBrowser));
         RaisePropertyChanged(nameof(UseExternalPanelImage));
         RaisePropertyChanged(nameof(StagefilePath));
         RaisePropertyChanged(nameof(UsesUbMplay));

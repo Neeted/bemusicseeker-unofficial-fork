@@ -1,7 +1,6 @@
 using System;
 using System.ComponentModel;
 using System.IO;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -390,14 +389,6 @@ public partial class PlaybackPanelView : UserControl
         gridBMSPlayerImage.Effect as BlurEffect
         ?? throw new InvalidOperationException("Playback panel image must use a BlurEffect.");
 
-    public void ConfigureBrowserHost()
-    {
-        if (webBrowser == null) return;
-        object browser = typeof(WebBrowser).GetProperty("AxIWebBrowser2", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(webBrowser, null);
-        browser?.GetType().InvokeMember("Silent", BindingFlags.SetProperty, null, browser, new object[] { true });
-        browser?.GetType().InvokeMember("RegisterAsDropTarget", BindingFlags.SetProperty, null, browser, new object[] { false });
-    }
-
     public void RefreshArtwork(BMSFile bmsFile)
     {
         if (bmsFile == null)
@@ -444,7 +435,6 @@ public partial class PlaybackPanelView : UserControl
     }
     private void ShowBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Visible);
     private void CollapseBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Collapsed);
-    private void CollapseBrowser() => RestoreVisibilityBinding(webBrowser, Visibility.Collapsed);
     private static void RestoreVisibilityBinding(UIElement element, Visibility visibility)
     {
         if (element == null) return;
@@ -461,8 +451,7 @@ public partial class PlaybackPanelView : UserControl
 
     public bool TrySelectBmsPlayerSurface() => PlaybackPanel.TrySelectPanelState(
         PlayerPanelState.BMS_PLAYER,
-        IsBmsPlayerSurfaceAvailable(PlaybackPanel),
-        IsMoviePlayerSurfaceAvailable());
+        IsBmsPlayerSurfaceAvailable(PlaybackPanel));
 
     private bool IsBmsPlayerSurfaceAvailable(PlaybackPanelViewModel playbackPanel)
     {
@@ -473,22 +462,17 @@ public partial class PlaybackPanelView : UserControl
         return playbackPanel.UsesBmiIdxView;
     }
 
-    private bool IsMoviePlayerSurfaceAvailable() => false;
-
+    /// <summary>
+    /// Resolves a requested panel state to a surface that can be materialized by this view.
+    /// </summary>
+    /// <param name="requestedState">State requested by the playback panel owner.</param>
+    /// <param name="bmsPlayerSurfaceAvailable">Whether the BMS player surface is usable.</param>
+    /// <returns>The requested state with unavailable BMS surface selection removed.</returns>
     internal static PlayerPanelState ResolveSurfaceState(
         PlayerPanelState requestedState,
-        bool bmsPlayerSurfaceAvailable,
-        bool moviePlayerSurfaceAvailable)
+        bool bmsPlayerSurfaceAvailable)
     {
         PlayerPanelState resolvedState = requestedState;
-        if (resolvedState.HasFlag(PlayerPanelState.MOVIE_PLAYER) && !moviePlayerSurfaceAvailable)
-        {
-            resolvedState &= ~PlayerPanelState.MOVIE_PLAYER;
-            if (bmsPlayerSurfaceAvailable)
-            {
-                resolvedState |= PlayerPanelState.BMS_PLAYER;
-            }
-        }
         if (resolvedState.HasFlag(PlayerPanelState.BMS_PLAYER) && !bmsPlayerSurfaceAvailable)
         {
             resolvedState &= ~PlayerPanelState.BMS_PLAYER;
@@ -500,16 +484,14 @@ public partial class PlaybackPanelView : UserControl
     {
         PlayerPanelState resolvedState = ResolveSurfaceState(
             state,
-            IsBmsPlayerSurfaceAvailable(playbackPanel),
-            IsMoviePlayerSurfaceAvailable());
+            IsBmsPlayerSurfaceAvailable(playbackPanel));
         EffectivePlayerPanelState = resolvedState;
         if (resolvedState.HasFlag(PlayerPanelState.BMS_PLAYER)) ShowBmsPlayer(); else CollapseBmsPlayer();
-        CollapseBrowser();
     }
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked(object sender = null, RoutedEventArgs e = null)
     {
         if (isClosingOrClosed) return;
-        PlaybackPanel.RotatePanelState(IsBmsPlayerSurfaceAvailable(PlaybackPanel), IsMoviePlayerSurfaceAvailable());
+        PlaybackPanel.RotatePanelState(IsBmsPlayerSurfaceAvailable(PlaybackPanel));
     }
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked2(object sender, RoutedEventArgs e) => PlaybackPanel.ToggleCompactPanel();
     private void windowsFormsHostIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)

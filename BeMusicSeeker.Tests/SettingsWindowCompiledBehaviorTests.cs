@@ -97,6 +97,60 @@ public sealed class SettingsWindowCompiledBehaviorTests
     }
 
     [TestMethod]
+    public void PlaybackPageCompiledTreeMaterializesCurrentPlayerControls()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            {
+                OperationModeLR2DB = false,
+                BMSRootPath = Path.GetTempPath(),
+                StandaloneBmsRootPaths = Path.GetTempPath(),
+                BMSInstallDir = Path.GetTempPath(),
+                ScanBmsFilesOnStartup = false,
+                SkipInitPlaylistLoad = true,
+                UsePlayeruBMplay = false,
+                UsePlayerLR2body = false,
+                UsePlayerBMIIDXView = false
+            });
+            var window = new SettingsWindow
+            {
+                DataContext = owner.SettingDialog,
+                PlaybackPanel = owner.PlaybackPanel
+            };
+            try
+            {
+                Materialize(window);
+                ListBox navigation = (ListBox)window.FindName("settingsNavigation");
+                ContentControl content = (ContentControl)window.FindName("settingsPageContent");
+                navigation.SelectedItem = window.FindName("navigationPlayback");
+                Materialize(window);
+
+                var page = (PlaybackSettingsPage)content.Content;
+                RadioButton internalPlayer = (RadioButton)page.FindName("radioButtonInternalPlayer");
+                RadioButton ubmplayPlayer = (RadioButton)page.FindName("radioButtonPlayuBMplay");
+                RadioButton bmiidxPlayer = (RadioButton)page.FindName("radioButtonPlayBMIIDXView");
+                RadioButton lr2Player = (RadioButton)page.FindName("radioButtonPlayLR2body");
+
+                Assert.AreSame(owner.SettingDialog, page.DataContext);
+                Assert.AreSame(owner.SettingDialog, internalPlayer.DataContext);
+                Assert.AreSame(owner.SettingDialog, ubmplayPlayer.DataContext);
+                Assert.AreSame(owner.SettingDialog, bmiidxPlayer.DataContext);
+                Assert.AreSame(owner.SettingDialog, lr2Player.DataContext);
+                Assert.AreEqual(nameof(SettingsDialogViewModel.UseInternalPlayer), GetBindingPath(internalPlayer, ToggleButton.IsCheckedProperty));
+                Assert.AreEqual(nameof(SettingsDialogViewModel.UsePlayeruBMplay), GetBindingPath(ubmplayPlayer, ToggleButton.IsCheckedProperty));
+                Assert.AreEqual(nameof(SettingsDialogViewModel.UsePlayerBMIIDXView), GetBindingPath(bmiidxPlayer, ToggleButton.IsCheckedProperty));
+                Assert.AreEqual(nameof(SettingsDialogViewModel.UsePlayerLR2body), GetBindingPath(lr2Player, ToggleButton.IsCheckedProperty));
+                Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
+            }
+            finally
+            {
+                owner.SettingDialog.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
     public void RightClickPageBindsTheChildEditorWithoutMutatingSettingsOnOpen()
     {
         TestUiDispatcherHost.RunWindowTest(_ =>

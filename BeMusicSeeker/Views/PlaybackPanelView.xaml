@@ -4,12 +4,10 @@
     <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/resources/#LigatureSymbols</FontFamily>
     <FontFamily x:Key="Commodore">/BeMusicSeeker;component/resources/#Commodore 64 Rounded</FontFamily>
     <v:windowsFormsHostVisibilitiesConverter x:Key="windowsFormsHostVisibilitiesConverter" />
-    <v:notOperatorBoolConverter x:Key="notOperatorBoolConverter" />
     <v:panelStateToStringConverter x:Key="panelStateToStringConverter" />
     <v:panelStateToStringConverter2 x:Key="panelStateToStringConverter2" />
     <v:panelStateToTooltipConverter x:Key="panelStateToTooltipConverter" />
     <v:panelStateIsTitleSmallConverter x:Key="panelStateIsTitleSmallConverter" />
-    <v:panelStateIsMoviePlayerConverter x:Key="panelStateIsMoviePlayerConverter" />
     <v:panelStateToVisibilityConverter x:Key="panelStateToVisibilityConverter" />
     <v:combineTitleAndArtistConverter x:Key="combineTitleAndArtistConverter" />
     <v:nowPlayingBMStoPlayButtonStringComverter x:Key="nowPlayingBMStoPlayButtonStringComverter" />
@@ -33,23 +31,13 @@
       </Image>
       <Grid Name="gridPlayerTitle" Height="80" DockPanel.Dock="Bottom" VerticalAlignment="Bottom" ClipToBounds="True">
         <Grid.Visibility>
-          <MultiBinding Converter="{StaticResource playerTitleVisibilityConverter}">
-            <Binding Path="Visibility" ElementName="windowsFormsHost" />
-            <Binding Path="Visibility" ElementName="webBrowser" />
-          </MultiBinding>
+          <Binding Path="Visibility" ElementName="windowsFormsHost" Converter="{StaticResource playerTitleVisibilityConverter}" />
         </Grid.Visibility>
         <DockPanel Name="gridBMSPlayerTitlePanel" Height="40" LastChildFill="False" VerticalAlignment="Bottom" Background="#80000000">
           <TextBlock Name="gridBMSPlayerControlsArtist" DockPanel.Dock="Bottom" FontFamily="Meiryo" FontSize="12" Margin="0" Foreground="#FFFFFFFF" HorizontalAlignment="Center" Text="{Binding PlayerHeaderArtist}" />
           <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" Margin="3,3,3,0" HorizontalAlignment="Center">
             <TextBlock Name="gridBMSPlayerControlsTitle" FontFamily="Meiryo" FontSize="14" Margin="0" FontWeight="Bold" Foreground="#FFFFFFFF" HorizontalAlignment="Right" Text="{Binding PlayerHeaderTitle}" />
             <TextBlock Name="gridBMSPlayerControlsSubtitle" FontFamily="Meiryo" FontSize="14" Margin="5,0,0,0" Foreground="#FFFFFFFF" HorizontalAlignment="Left" Text="{Binding PlayerHeaderSubtitle}" />
-          </StackPanel>
-        </DockPanel>
-        <DockPanel Height="40" LastChildFill="False" Visibility="Collapsed">
-          <TextBlock Name="gridBMSPlayerControlsArtistForMovie" DockPanel.Dock="Bottom" FontFamily="Meiryo" FontSize="12" Margin="0" Foreground="#FFFFFFFF" HorizontalAlignment="Center" Text="{Binding PlayerHeaderArtist}" />
-          <StackPanel Orientation="Horizontal" DockPanel.Dock="Bottom" Margin="3,3,3,0" HorizontalAlignment="Center">
-            <TextBlock Name="gridBMSPlayerControlsTitleForMovie" FontFamily="Meiryo" FontSize="14" Margin="0" FontWeight="Bold" Foreground="#FFFFFFFF" HorizontalAlignment="Right" Text="{Binding PlayerHeaderTitle}" />
-            <TextBlock Name="gridBMSPlayerControlsSubtitleForMovie" FontFamily="Meiryo" FontSize="14" Margin="5,0,0,0" Foreground="#FFFFFFFF" HorizontalAlignment="Left" Text="{Binding PlayerHeaderSubtitle}" />
           </StackPanel>
         </DockPanel>
         <Border Name="gridBMSPlayerControlsBanner" BorderThickness="0" BorderBrush="#FF404040" HorizontalAlignment="Center" VerticalAlignment="Center" Width="302" Height="80" Margin="0" Opacity="0" />
@@ -59,7 +47,6 @@
           <UIElement.Visibility>
             <MultiBinding Converter="{StaticResource windowsFormsHostVisibilitiesConverter}" Mode="OneWay" ConverterParameter="wfh">
               <Binding Path="OverlayVisibility" ElementName="playbackPanelView" />
-              <Binding Path="Visibility" ElementName="webBrowser" />
               <Binding Path="IsEnabled" ElementName="windowsFormsHost" />
               <Binding Path="NowPlayingBmsFile" />
               <Binding RelativeSource="{RelativeSource Self}" />
@@ -67,8 +54,6 @@
           </UIElement.Visibility>
           <wf:Panel x:Name="_panel" Location="0,0" Size="587, 256" MinimumSize="587, 256" MaximumSize="587, 256" />
         </WindowsFormsHost>
-      <WebBrowser Name="webBrowser" Height="256" MaxHeight="256" Margin="0" ClipToBounds="True" VerticalAlignment="Bottom" HorizontalAlignment="Center" Visibility="Collapsed" IsEnabled="{Binding UseExternalWebBrowser, Converter={StaticResource notOperatorBoolConverter}}" IsEnabledChanged="windowsFormsHostIsEnabledChanged">
-        </WebBrowser>
       </Grid>
       <Grid Name="gridPlayngBmsInfo" HorizontalAlignment="Right" Width="220" Margin="0" Visibility="Hidden">
         <TextBlock Margin="0,0,0,-11" VerticalAlignment="Center" FontFamily="{StaticResource Commodore}" FontSize="13" Background="#33000000" Padding="5" Visibility="{Binding CurrentlyPlayingDuration, Converter={StaticResource positiveTimeSpanToVisibilityHiddenConverter}}">
@@ -204,18 +189,6 @@
       </Panel.Background>
       <Slider Name="sliderPlayer" DockPanel.Dock="Top" Margin="0,-10,0,-8" Height="18" VerticalAlignment="Top" Style="{DynamicResource SliderStylePlayer}" IsMoveToPointEnabled="True" LargeChange="0.1" Maximum="{Binding CurrentlyPlayingDuration, Converter={StaticResource timeSpanToDoubleSecConverter}}" Value="{Binding CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}" Visibility="{Binding CurrentlyPlayingDuration, Converter={StaticResource positiveTimeSpanToVisibilityHiddenConverter}}" MouseMove="sliderPlayerMouseMove" MouseLeave="sliderPlayerMouseLeave" PreviewMouseLeftButtonUp="sliderPlayerMouseLeftButtonUp" />
       <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="5,0,0,0">
-        <FrameworkElement.Style>
-          <Style TargetType="{x:Type StackPanel}">
-            <Style.Triggers>
-              <DataTrigger Value="True" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
-                <Setter Property="Visibility" Value="Collapsed" />
-              </DataTrigger>
-              <DataTrigger Value="False" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
-                <Setter Property="Visibility" Value="Visible" />
-              </DataTrigger>
-            </Style.Triggers>
-          </Style>
-        </FrameworkElement.Style>
         <Button Name="buttonBMSPlayerControlsPlayAndPauseButton" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="17" Margin="0,1,0,0" ToolTip="再生/一時停止" Content="{Binding NowPlayingBmsFile.status, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPlayStartButtonClicked" />
         <Button Content="stop" Style="{StaticResource stylePlayerButtonSymbol}" ToolTip="停止" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPlayStopButtonClicked" />
         <Button Content="backback" Style="{StaticResource stylePlayerButtonSymbol}" ToolTip="前の曲" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPreviousButtonClicked" />
@@ -228,18 +201,6 @@
         <Button Name="buttonBMSPlayerControlsRotatePanelState" FlowDirection="LeftToRight" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="20" Content="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Mode=OneWay, Converter={StaticResource panelStateToStringConverter}}" ToolTip="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Mode=OneWay, Converter={StaticResource panelStateToTooltipConverter}}" Click="gridBMSPlayerControlsRotatePanelStateButtonClicked" />
         <Button Content="gear" Style="{StaticResource stylePlayerButtonSymbol}" FlowDirection="LeftToRight" FontSize="20" ToolTip="本体設定" Command="{Binding SettingsCommand, ElementName=playbackPanelView}" />
         <v:DropDownMenuButton Width="25" Height="25" Template="{DynamicResource templateDropmenuButtonSetting}" FontSize="17" FlowDirection="LeftToRight" Margin="0,1,0,0" BorderThickness="0" ToolTip="プレイヤー設定">
-          <FrameworkElement.Style>
-            <Style TargetType="{x:Type v:DropDownMenuButton}">
-              <Style.Triggers>
-                <DataTrigger Value="True" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
-                  <Setter Property="Visibility" Value="Hidden" />
-                </DataTrigger>
-                <DataTrigger Value="False" Binding="{Binding EffectivePlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
-                  <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-              </Style.Triggers>
-            </Style>
-          </FrameworkElement.Style>
           <FrameworkElement.Resources>
             <ResourceDictionary>
               <ControlTemplate x:Key="templateDropmenuButtonSetting" TargetType="{x:Type ToggleButton}">

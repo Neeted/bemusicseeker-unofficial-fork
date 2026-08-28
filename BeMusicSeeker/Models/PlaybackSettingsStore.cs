@@ -23,8 +23,6 @@ internal interface IPlaybackSettingsStore
 
     bool UsesBmiIdxView { get; }
 
-    bool UseExternalWebBrowser { get; }
-
     bool UseExternalPanelImage { get; }
 
     string StagefilePath { get; }
@@ -78,8 +76,6 @@ internal sealed class SettingsPlaybackSettingsStore : IPlaybackSettingsStore
     public bool UsesUbMplay => Values.UsePlayeruBMplay;
 
     public bool UsesBmiIdxView => Values.UsePlayerBMIIDXView;
-
-    public bool UseExternalWebBrowser => Values.UseExternalWebBrowser;
 
     public bool UseExternalPanelImage => Values.UseExternalPanelImage;
 

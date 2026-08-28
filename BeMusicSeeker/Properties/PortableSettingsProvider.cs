@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Configuration;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
@@ -12,6 +13,8 @@ namespace BeMusicSeeker.Properties;
 public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSettingsProvider
 {
     internal const string SettingsSectionName = "BeMusicSeeker.Properties.Settings";
+    private const int LegacyMoviePlayerBit = 4;
+    private const int BmsPlayerBit = 2;
 
     private static readonly HashSet<string> ObsoleteSettingNames = new(StringComparer.Ordinal)
     {
@@ -32,7 +35,8 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         "UseCustomTableView",
         "SkipEstimateOfflineScoreRanking",
         "UseEverythingForPendingPackageSourceScan",
-        "SkipInitFileCheck"
+        "SkipInitFileCheck",
+        "UseExternalWebBrowser"
     };
 
     public override void Initialize(string name, NameValueCollection config)
@@ -98,7 +102,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
             {
                 return;
             }
-            RemoveObsoleteSettings(xElement);
+            NormalizeSettingsSection(xElement);
             foreach (SettingsPropertyValue item in collection)
             {
                 string serialized = GetSerializedValue(item);
@@ -130,7 +134,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
                     xElement3.Value = serialized;
                 }
             }
-            xDocument.Save(PortableSettingsPath.UserConfigPath);
+            SaveDocumentAtomically(xDocument, PortableSettingsPath.UserConfigPath);
         }
         catch (Exception ex)
         {
@@ -210,6 +214,9 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
             {
                 return dictionary;
             }
+            // The startup normalizer persists this migration when possible, but a read-only
+            // config must still expose canonical values to the generated Settings wrapper.
+            NormalizeSettingsSection(xElement);
             foreach (XElement item in xElement.Elements("setting"))
             {
                 string attributeValue = (string)item.Attribute("name");
@@ -253,6 +260,45 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         return xDocument;
     }
 
+    private static void SaveDocumentAtomically(XDocument document, string targetPath)
+    {
+        string directoryPath = Path.GetDirectoryName(targetPath)
+            ?? throw new ArgumentException("The settings target must have a directory.", nameof(targetPath));
+        string tempPath = Path.Combine(
+            directoryPath,
+            $"{Path.GetFileName(targetPath)}.{Guid.NewGuid():N}.tmp");
+        bool replacementCompleted = false;
+        try
+        {
+            document.Save(tempPath);
+            if (File.Exists(targetPath))
+            {
+                File.Replace(tempPath, targetPath, null);
+            }
+            else
+            {
+                File.Move(tempPath, targetPath);
+            }
+            replacementCompleted = true;
+        }
+        finally
+        {
+            if (!replacementCompleted && File.Exists(tempPath))
+            {
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch (Exception ex)
+                {
+                    NLogWrapper.TraceLogger?.Warn(
+                        ex,
+                        "portable_settings_temp_cleanup failed path=" + tempPath + " target=" + targetPath);
+                }
+            }
+        }
+    }
+
     internal static int RemoveObsoleteSettings(XElement settingsSection)
     {
         if (settingsSection == null)
@@ -265,6 +311,85 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
             setting.Remove();
         }
         return obsoleteSettings.Count;
+    }
+
+    /// <summary>
+    /// Applies the persisted-settings migrations that must run before the generated settings
+    /// wrapper materializes a value. The operation is idempotent so startup and save paths can
+    /// share this owner without changing an already-normalized document.
+    /// </summary>
+    internal static int NormalizeSettingsSection(XElement settingsSection)
+    {
+        if (settingsSection == null)
+        {
+            return 0;
+        }
+
+        int normalizedSettings = RemoveObsoleteSettings(settingsSection);
+        XElement playerPanelState = settingsSection.Elements("setting")
+            .FirstOrDefault(e => string.Equals((string)e.Attribute("name"), "PlayerPanelState", StringComparison.Ordinal));
+        XElement valueElement = playerPanelState?.Element("value");
+        if (valueElement == null)
+        {
+            return normalizedSettings;
+        }
+
+        string normalizedValue = NormalizePlayerPanelStateValue(valueElement.Value);
+        if (string.Equals(valueElement.Value, normalizedValue, StringComparison.Ordinal))
+        {
+            return normalizedSettings;
+        }
+
+        valueElement.Value = normalizedValue;
+        return normalizedSettings + 1;
+    }
+
+    /// <summary>
+    /// Normalizes an existing portable configuration before any generated Settings getter reads it.
+    /// </summary>
+    internal static int NormalizeCurrentPortableConfig()
+    {
+        if (!File.Exists(PortableSettingsPath.UserConfigPath))
+        {
+            return 0;
+        }
+
+        XDocument document = XDocument.Load(PortableSettingsPath.UserConfigPath);
+        XElement settingsSection = document.Root?.Element("userSettings")?.Element(SettingsSectionName);
+        int normalizedSettings = NormalizeSettingsSection(settingsSection);
+        if (normalizedSettings > 0)
+        {
+            SaveDocumentAtomically(document, PortableSettingsPath.UserConfigPath);
+        }
+
+        return normalizedSettings;
+    }
+
+    private static string NormalizePlayerPanelStateValue(string value)
+    {
+        if (int.TryParse(value.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int numericValue)
+            && (numericValue & LegacyMoviePlayerBit) != 0)
+        {
+            return ((numericValue & ~LegacyMoviePlayerBit) | BmsPlayerBit)
+                .ToString(CultureInfo.InvariantCulture);
+        }
+
+        string[] symbolicValues = value.Split(',');
+        bool changed = false;
+        for (int index = 0; index < symbolicValues.Length; index++)
+        {
+            string token = symbolicValues[index].Trim();
+            if (string.Equals(token, "MOVIE_PLAYER", StringComparison.OrdinalIgnoreCase))
+            {
+                int start = symbolicValues[index].IndexOf(token, StringComparison.Ordinal);
+                symbolicValues[index] = start >= 0
+                    ? symbolicValues[index].Remove(start, token.Length).Insert(start, "BMS_PLAYER")
+                    : "BMS_PLAYER";
+                changed = true;
+            }
+        }
+
+        return changed ? string.Join(",", symbolicValues) : value;
     }
 
 }

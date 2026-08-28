@@ -647,8 +647,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private int tempLR2BackupNum;
 
-    private bool tempUseExternalWebBrowser;
-
     private bool tempUseExternalPanelImage;
 
     private string tempAppearanceTheme;
@@ -3039,22 +3037,6 @@ public partial class SettingsDialogViewModel : ViewModel
                     ApplicationSettings.LR2BackupNum = value;
                 }
                 RaisePropertyChanged("LR2BackupNum");
-            }
-        }
-    }
-
-    public bool UseExternalWebBrowser
-    {
-        get
-        {
-            return ApplicationSettings.UseExternalWebBrowser;
-        }
-        set
-        {
-            if (ApplicationSettings.UseExternalWebBrowser != value)
-            {
-                ApplicationSettings.UseExternalWebBrowser = value;
-                RaisePropertyChanged("UseExternalWebBrowser");
             }
         }
     }
@@ -6532,7 +6514,6 @@ public partial class SettingsDialogViewModel : ViewModel
         tempLR2BackupTarget = ApplicationSettings.LR2BackupTarget;
         tempLR2BackupSpan = ApplicationSettings.LR2BackupSpan;
         tempLR2BackupNum = ApplicationSettings.LR2BackupNum;
-        tempUseExternalWebBrowser = ApplicationSettings.UseExternalWebBrowser;
         tempUseExternalPanelImage = ApplicationSettings.UseExternalPanelImage;
         tempAppearanceTheme = AppThemeService.NormalizeTheme(ApplicationSettings.AppearanceTheme);
         tempCustomTableFontSize = ApplicationSettings.CustomTableFontSize;
@@ -6663,7 +6644,6 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempLR2BackupTarget != ApplicationSettings.LR2BackupTarget
             || tempLR2BackupSpan != ApplicationSettings.LR2BackupSpan
             || tempLR2BackupNum != ApplicationSettings.LR2BackupNum
-            || tempUseExternalWebBrowser != ApplicationSettings.UseExternalWebBrowser
             || tempUseExternalPanelImage != ApplicationSettings.UseExternalPanelImage
             || !string.Equals(AppThemeService.NormalizeTheme(tempAppearanceTheme), AppThemeService.NormalizeTheme(ApplicationSettings.AppearanceTheme), StringComparison.Ordinal)
             || !tempCustomTableFontSize.Equals(ApplicationSettings.CustomTableFontSize)
@@ -7757,7 +7737,6 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.LR2BackupTarget = tempLR2BackupTarget;
         ApplicationSettings.LR2BackupSpan = tempLR2BackupSpan;
         ApplicationSettings.LR2BackupNum = tempLR2BackupNum;
-        ApplicationSettings.UseExternalWebBrowser = tempUseExternalWebBrowser;
         ApplicationSettings.UseExternalPanelImage = tempUseExternalPanelImage;
         string restoredAppearanceTheme = AppThemeService.NormalizeTheme(tempAppearanceTheme);
         ApplicationSettings.AppearanceTheme = restoredAppearanceTheme;
@@ -7860,7 +7839,6 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(LR2BackupTarget));
         RaisePropertyChanged(nameof(LR2BackupSpan));
         RaisePropertyChanged(nameof(LR2BackupNum));
-        RaisePropertyChanged(nameof(UseExternalWebBrowser));
         RaisePropertyChanged(nameof(UseExternalPanelImage));
         RaisePropertyChanged(nameof(AppearanceTheme));
         RaisePropertyChanged(nameof(IsLightAppearanceTheme));

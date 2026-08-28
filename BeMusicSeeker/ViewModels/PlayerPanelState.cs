@@ -11,5 +11,4 @@ public enum PlayerPanelState
     TITLE_LARGE = 0,
     TITLE_SMALL = 1,
     BMS_PLAYER = 2,
-    MOVIE_PLAYER = 4
 }

@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.Linq;
 using System.Windows;
 using System.Windows.Data;
 
@@ -12,24 +11,28 @@ internal class windowsFormsHostVisibilitiesConverter : IMultiValueConverter
     {
         try
         {
-            int contentStateIndex = values.Length - 3;
-            if (values.Take(contentStateIndex).Cast<Visibility>().Any(v => v == Visibility.Visible))
+            if (values.Length != 4
+                || values[0] is not Visibility overlayVisibility
+                || values[1] is not bool isEnabled
+                || values[3] is not UIElement host)
+            {
+                return DependencyProperty.UnsetValue;
+            }
+            if (overlayVisibility == Visibility.Visible)
             {
                 return Visibility.Collapsed;
             }
-            if (!(bool)values[contentStateIndex])
+            if (!isEnabled || values[2] == null)
             {
                 return Visibility.Collapsed;
             }
-            if (values[contentStateIndex + 1] == null)
-            {
-                return Visibility.Collapsed;
-            }
-            return ((UIElement)values[values.Length - 1]).Visibility;
+            return host.Visibility;
         }
         catch
         {
-            return ((UIElement)values[values.Length - 1]).Visibility;
+            return values is { Length: > 0 } && values[^1] is UIElement host
+                ? host.Visibility
+                : DependencyProperty.UnsetValue;
         }
     }
 

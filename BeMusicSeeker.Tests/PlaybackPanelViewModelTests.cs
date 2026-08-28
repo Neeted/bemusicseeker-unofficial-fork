@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Forms.Integration;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
@@ -1453,24 +1454,20 @@ public sealed class PlaybackPanelViewModelTests
         {
             panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
 
-            Assert.IsTrue(panel.CanSelectPanelState(PlayerPanelState.TITLE_LARGE, false, false));
-            Assert.IsFalse(panel.CanSelectPanelState(PlayerPanelState.BMS_PLAYER, false, true));
-            Assert.IsFalse(panel.CanSelectPanelState(PlayerPanelState.MOVIE_PLAYER, true, false));
-            Assert.IsFalse(panel.TrySelectPanelState(PlayerPanelState.BMS_PLAYER, false, true));
+            Assert.IsTrue(panel.CanSelectPanelState(PlayerPanelState.TITLE_LARGE, false));
+            Assert.IsFalse(panel.CanSelectPanelState(PlayerPanelState.BMS_PLAYER, false));
+            Assert.IsFalse(panel.TrySelectPanelState(PlayerPanelState.BMS_PLAYER, false));
             Assert.AreEqual(PlayerPanelState.TITLE_LARGE, panel.PlayerPanelState);
 
             panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
-            panel.RotatePanelState(bmsPlayerSurfaceAvailable: true, moviePlayerSurfaceAvailable: false);
+            panel.RotatePanelState(bmsPlayerSurfaceAvailable: true);
             Assert.AreEqual(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, panel.PlayerPanelState);
 
             panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
-            panel.RotatePanelState(bmsPlayerSurfaceAvailable: true, moviePlayerSurfaceAvailable: false);
+            panel.RotatePanelState(bmsPlayerSurfaceAvailable: true);
             Assert.AreEqual(PlayerPanelState.BMS_PLAYER, panel.PlayerPanelState);
 
-            panel.RotatePanelState(bmsPlayerSurfaceAvailable: false, moviePlayerSurfaceAvailable: true);
-            Assert.AreEqual(PlayerPanelState.MOVIE_PLAYER, panel.PlayerPanelState);
-
-            panel.RotatePanelState(bmsPlayerSurfaceAvailable: false, moviePlayerSurfaceAvailable: false);
+            panel.RotatePanelState(bmsPlayerSurfaceAvailable: false);
             Assert.AreEqual(PlayerPanelState.TITLE_LARGE, panel.PlayerPanelState);
 
             panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER;
@@ -1484,20 +1481,78 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanelViewResolvesUnavailableMovieSurfaceWithoutChangingRequestedState()
+    public void PlaybackPanelViewResolvesUnavailableBmsSurfaceWithImageFallbackAndCompactPreserved()
     {
         Assert.AreEqual(
             PlayerPanelState.BMS_PLAYER,
-            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.MOVIE_PLAYER, true, false));
+            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.BMS_PLAYER, true));
         Assert.AreEqual(
             PlayerPanelState.TITLE_LARGE,
-            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.MOVIE_PLAYER, false, false));
+            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.BMS_PLAYER, false));
         Assert.AreEqual(
             PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER,
-            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.TITLE_SMALL | PlayerPanelState.MOVIE_PLAYER, true, false));
+            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, true));
         Assert.AreEqual(
-            PlayerPanelState.MOVIE_PLAYER,
-            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.MOVIE_PLAYER, true, true));
+            PlayerPanelState.TITLE_SMALL,
+            PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, false));
+    }
+
+    [TestMethod]
+    public void PlaybackPanelView_CompiledTreeMaterializesCurrentSurfaceAndHeader()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var window = new Window
+            {
+                Width = 640d,
+                Height = 360d,
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None
+            };
+            try
+            {
+                var settings = new InMemoryPlaybackSettingsStore
+                {
+                    PlayerPanelState = PlayerPanelState.BMS_PLAYER,
+                    UsesBmiIdxView = true
+                };
+                PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer(), settings);
+                string[] values = new string[29];
+                values[0] = "0123456789abcdef0123456789abcdef";
+                values[1] = "Current Title";
+                values[2] = "[Current Subtitle]";
+                values[3] = "Current Artist";
+                values[7] = Path.Combine(Path.GetTempPath(), "current.bms");
+                BMSFile current = BMSFile.FromSongTableRawValues(values);
+                panel.SetBmsPlayerHeader(current);
+
+                var view = new PlaybackPanelView { DataContext = panel };
+                window.Content = view;
+                windowTest.ShowAndWaitForContentRendered(window);
+                FlushRenderQueue(window);
+
+                var playerHost = (WindowsFormsHost)view.FindName("windowsFormsHost");
+                var artwork = (Image)view.FindName("gridBMSPlayerImage");
+                var playButton = (Button)view.FindName("buttonBMSPlayerControlsPlayAndPauseButton");
+                var title = (TextBlock)view.FindName("gridBMSPlayerControlsTitle");
+                var subtitle = (TextBlock)view.FindName("gridBMSPlayerControlsSubtitle");
+                var artist = (TextBlock)view.FindName("gridBMSPlayerControlsArtist");
+
+                Assert.AreSame(panel, view.DataContext);
+                Assert.AreSame(panel, playerHost.DataContext);
+                Assert.IsNotNull(artwork.Source);
+                Assert.AreSame(panel, playButton.DataContext);
+                Assert.AreSame(panel, title.DataContext);
+                Assert.AreEqual("Current Title", title.Text);
+                Assert.AreEqual("[Current Subtitle]", subtitle.Text);
+                Assert.AreEqual("Current Artist", artist.Text);
+            }
+            finally
+            {
+                window.Content = null;
+                window.Close();
+            }
+        });
     }
 
     [TestMethod]
@@ -1843,7 +1898,6 @@ public sealed class PlaybackPanelViewModelTests
         bool originalUbMplay = Settings.Default.UsePlayeruBMplay;
         bool originalLr2 = Settings.Default.UsePlayerLR2body;
         bool originalBmi = Settings.Default.UsePlayerBMIIDXView;
-        bool originalExternalBrowser = Settings.Default.UseExternalWebBrowser;
         bool originalExternalPanelImage = Settings.Default.UseExternalPanelImage;
         string originalStagefilePath = Settings.Default.StagefilePath;
         PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer());
@@ -1854,7 +1908,6 @@ public sealed class PlaybackPanelViewModelTests
             Settings.Default.UsePlayeruBMplay = false;
             Settings.Default.UsePlayerLR2body = true;
             Settings.Default.UsePlayerBMIIDXView = false;
-            Settings.Default.UseExternalWebBrowser = !originalExternalBrowser;
             Settings.Default.UseExternalPanelImage = !originalExternalPanelImage;
             Settings.Default.StagefilePath = "playback-panel-stage.png";
             panel.NotifySettingsChanged();
@@ -1864,11 +1917,10 @@ public sealed class PlaybackPanelViewModelTests
             Assert.IsFalse(panel.CanShowInfo);
             Assert.IsFalse(panel.CanShowEffect);
             Assert.IsFalse(panel.CanChangePlayside);
-            Assert.AreEqual(!originalExternalBrowser, panel.UseExternalWebBrowser);
             Assert.AreEqual(!originalExternalPanelImage, panel.UseExternalPanelImage);
             Assert.AreEqual("playback-panel-stage.png", panel.StagefilePath);
             CollectionAssert.IsSubsetOf(
-                new[] { "PlayerPanelState", "CanSeek", "CanChangeHighSpeed", "CanShowInfo", "CanShowEffect", "CanChangePlayside", "UseExternalWebBrowser", "UseExternalPanelImage", "StagefilePath" },
+                new[] { "PlayerPanelState", "CanSeek", "CanChangeHighSpeed", "CanShowInfo", "CanShowEffect", "CanChangePlayside", "UseExternalPanelImage", "StagefilePath" },
                 changed.ToArray());
 
             Settings.Default.UsePlayeruBMplay = true;
@@ -1885,7 +1937,6 @@ public sealed class PlaybackPanelViewModelTests
             Settings.Default.UsePlayeruBMplay = originalUbMplay;
             Settings.Default.UsePlayerLR2body = originalLr2;
             Settings.Default.UsePlayerBMIIDXView = originalBmi;
-            Settings.Default.UseExternalWebBrowser = originalExternalBrowser;
             Settings.Default.UseExternalPanelImage = originalExternalPanelImage;
             Settings.Default.StagefilePath = originalStagefilePath;
         }
@@ -2062,8 +2113,6 @@ public sealed class PlaybackPanelViewModelTests
         public bool UsesUbMplay { get; set; }
 
         public bool UsesBmiIdxView { get; set; }
-
-        public bool UseExternalWebBrowser { get; set; }
 
         public bool UseExternalPanelImage { get; set; }
 

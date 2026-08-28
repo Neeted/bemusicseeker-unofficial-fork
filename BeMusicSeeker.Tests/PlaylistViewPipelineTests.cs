@@ -1350,34 +1350,6 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void SetMoviePlayerHeader_UsesRowRawTitleAndKeepsBmsDisplayTarget()
-    {
-        var viewModel = MainWindowViewModelTestFactory.Create();
-        var bmsFile = new TestableBmsFile();
-        bmsFile.ApplySnapshot("abababababababababababababababab", "BmsTitle", 7);
-        bmsFile.SetSubtitle("[BmsSubtitle]");
-        bmsFile.SetArtist("BmsArtist");
-        PlaybackPanelViewModel panel = viewModel.PlaybackPanel;
-        panel.SetBmsPlayerHeader(bmsFile);
-
-        var movieFile = new TestableBmsFile();
-        movieFile.ApplySnapshot("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "MovieTitle", 7);
-        movieFile.SetSubtitle("[MovieSubtitle]");
-        movieFile.SetArtist("MovieArtist");
-        LibraryChartRow row = LibraryChartRow.FromBmsFile(movieFile);
-
-        panel.SetMoviePlayerHeader(row);
-
-        Assert.AreSame(bmsFile, panel.DisplayedBmsPlayerFile);
-        Assert.AreEqual("BmsTitle", panel.BmsPlayerHeaderTitle);
-        Assert.AreEqual("[BmsSubtitle]", panel.BmsPlayerHeaderSubtitle);
-        Assert.AreEqual("BmsArtist", panel.BmsPlayerHeaderArtist);
-        Assert.AreEqual("MovieTitle", panel.MoviePlayerHeaderTitle);
-        Assert.AreEqual("[MovieSubtitle]", panel.MoviePlayerHeaderSubtitle);
-        Assert.AreEqual("MovieArtist", panel.MoviePlayerHeaderArtist);
-    }
-
-    [TestMethod]
     public void PlaylistDetailSourceRow_ImmutableResolvedBmsKeepsPlayerOwner()
     {
         var file = new TestableBmsFile();

@@ -268,9 +268,13 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 
 ## Settings File Migration
 
-設定は実行ファイル横の `config/user.config` を正とする。従来版の AppData 配下 `user.config` が見つかった場合は、`LegacyUserConfigMigrator` が初回起動時にコピーする。
+設定は実行ファイル横の `config/user.config` を正とする。従来版の AppData 配下 `user.config` が見つかった場合は、`LegacyUserConfigMigrator` が初回起動時にコピーする。既存の portable config とコピーした legacy config は、最初の `Settings` getter / read より前に同じ正規化 owner を通す。
 
-このコピー時に、従来版 user.config だけを対象にした互換補正を行う。
+この正規化は idempotent で、保存時だけに遅延させない。旧 `PlayerPanelState` の MOVIE bit (4) を BMS bit (2) へ移し、compact bit と未知の bit を保持する。`UseExternalWebBrowser` を含む obsolete setting key は同じ正規化処理で削除する。
+
+正規化結果の永続化に失敗した場合は、既存の portable config を変更せず parse 可能な状態で保持する。永続化の成否にかかわらず、同一起動中の read path は読み込んだ設定をメモリ上で正規化し、旧値に対応する現行の値を返す。
+
+コピー時には、従来版 user.config だけを対象にした残りの互換補正も行う。
 
 - 旧難易度表 URL `http://www.ribbit.xyz/bms/tables/table_info.json` は現行既定 URL に置き換える。
 - LR2 連携設定で `LR2RootPath` が空の場合、`LR2ConfigXmlPath` と `LR2SongDBPath` が同じ LR2 ルート配下を指し、`LR2body.exe` または `LRHbody.exe` が存在する場合だけ root path を補完する。

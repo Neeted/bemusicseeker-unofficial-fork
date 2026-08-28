@@ -656,10 +656,6 @@ public class Resources
 
     public static string Move_to_recycle => ResourceManager.GetString("Move_to_recycle", resourceCulture);
 
-    public static string Movie_playback => ResourceManager.GetString("Movie_playback", resourceCulture);
-
-    public static string Movie_playback_exbrowser => ResourceManager.GetString("Movie_playback_exbrowser", resourceCulture);
-
     public static string Msg_clear_all_installed => ResourceManager.GetString("Msg_clear_all_installed", resourceCulture);
 
     public static string Msg_clear_all_pendings => ResourceManager.GetString("Msg_clear_all_pendings", resourceCulture);
@@ -809,8 +805,6 @@ public class Resources
 
     public static string New => ResourceManager.GetString("New", resourceCulture);
 
-    public static string NicoNico => ResourceManager.GetString("NicoNico", resourceCulture);
-
     public static string No_folder_name => ResourceManager.GetString("No_folder_name", resourceCulture);
 
     public static string None => ResourceManager.GetString("None", resourceCulture);
@@ -832,8 +826,6 @@ public class Resources
     public static string Open_association => ResourceManager.GetString("Open_association", resourceCulture);
 
     public static string Open_chart_viewer => ResourceManager.GetString("Open_chart_viewer", resourceCulture);
-
-    public static string Open_clear_lamp => ResourceManager.GetString("Open_clear_lamp", resourceCulture);
 
     public static string Open_document => ResourceManager.GetString("Open_document", resourceCulture);
 
@@ -1176,8 +1168,6 @@ public class Resources
 
     public static string Tooltip_loading => ResourceManager.GetString("Tooltip_loading", resourceCulture);
 
-    public static string Tooltip_movie_preview => ResourceManager.GetString("Tooltip_movie_preview", resourceCulture);
-
     public static string Tooltip_pause => ResourceManager.GetString("Tooltip_pause", resourceCulture);
 
     public static string Tooltip_play => ResourceManager.GetString("Tooltip_play", resourceCulture);
@@ -1226,8 +1216,6 @@ public class Resources
     public static string Warning => ResourceManager.GetString("Warning", resourceCulture);
 
     public static string Weekly => ResourceManager.GetString("Weekly", resourceCulture);
-
-    public static string YouTube => ResourceManager.GetString("YouTube", resourceCulture);
 
     public static string Playlist_summary_header => ResourceManager.GetString("Playlist_summary_header", resourceCulture);
 
@@ -2012,7 +2000,6 @@ public class Resources
     public static string Settings_appearance_table_description => ResourceManager.GetString("Settings_appearance_table_description", resourceCulture);
     public static string Settings_player_executable_path => ResourceManager.GetString("Settings_player_executable_path", resourceCulture);
     public static string Settings_player_lr2_description => ResourceManager.GetString("Settings_player_lr2_description", resourceCulture);
-    public static string Settings_movie_playback_description => ResourceManager.GetString("Settings_movie_playback_description", resourceCulture);
     public static string Settings_audio_output_description => ResourceManager.GetString("Settings_audio_output_description", resourceCulture);
     public static string Settings_audio_advanced => ResourceManager.GetString("Settings_audio_advanced", resourceCulture);
     public static string Settings_recording_format_description => ResourceManager.GetString("Settings_recording_format_description", resourceCulture);

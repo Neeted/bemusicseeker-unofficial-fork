@@ -159,11 +159,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
-            BMSLibrary library = CreateLibraryWithLr2Id(songDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
-                playlistStoreProvider: () => playlist,
-                playlistLibraryProvider: () => library);
+                playlistStoreProvider: () => playlist);
 
             BMSTable normalTable = new()
             {
@@ -173,7 +171,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 workspace.CapturePlaylistTableContextMenuAvailability(normalTable);
             Assert.IsTrue(normal.CanReload);
             Assert.IsTrue(normal.CanOpenPage);
-            Assert.IsFalse(normal.CanOpenClearLamp);
             Assert.IsTrue(normal.CanCreateFolder);
             Assert.IsTrue(normal.CanOverwriteLevel);
             Assert.IsTrue(normal.CanRemoveTable);
@@ -188,7 +185,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 workspace.CapturePlaylistTableContextMenuAvailability(externalTable);
             Assert.IsTrue(external.CanReload);
             Assert.IsTrue(external.CanOpenPage);
-            Assert.IsTrue(external.CanOpenClearLamp);
             Assert.IsFalse(external.CanCreateFolder);
             Assert.IsTrue(external.CanOverwriteLevel);
             Assert.IsTrue(external.CanRemoveTable);
@@ -239,7 +235,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     [TestMethod]
-    public void PlaylistTableExternalLinks_UseLibraryPlayerIdForRecommendedAndClearLampRoutes()
+    public void PlaylistTableExternalLinks_UseLibraryPlayerIdForRecommendedRoute()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -263,21 +259,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 "http://walkure.net/hakkyou/recommended_mypage.html?playerid=123",
                 recommendedUri.ToString());
 
-            BMSTable clearLampTable = new()
-            {
-                Page_url = new Uri("https://example.test/table?a=1&b=%E6%97%A5%E6%9C%AC"),
-                is_external_sync = true
-            };
-            Assert.IsTrue(workspace.CapturePlaylistTableContextMenuAvailability(clearLampTable).CanOpenClearLamp);
-            Assert.IsTrue(workspace.TryResolvePlaylistTableClearLampUri(clearLampTable, out Uri clearLampUri));
-            string expectedTableQuery = Uri.EscapeDataString(clearLampTable.Page_url.ToString());
-            Assert.AreEqual(
-                "http://xyzzz.net/bms/clearlamp?lr2ID=123&table_url=" + expectedTableQuery,
-                clearLampUri.OriginalString);
-
-            clearLampTable.Page_url = new Uri("bmseeker:table.recommended");
-            Assert.IsFalse(workspace.CapturePlaylistTableContextMenuAvailability(clearLampTable).CanOpenClearLamp);
-            Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(clearLampTable, out _));
         }
         finally
         {
@@ -286,39 +267,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
-    }
-
-    [TestMethod]
-    public void PlaylistTableExternalLinks_SkipLibraryLookupForIneligibleClearLampTables()
-    {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-            out _,
-            playlistLibraryProvider: () => throw new InvalidOperationException("library lookup should not run"));
-
-        PlaylistTableContextMenuAvailability nullAvailability =
-            workspace.CapturePlaylistTableContextMenuAvailability(null);
-        Assert.IsFalse(nullAvailability.CanOpenClearLamp);
-        Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(null, out _));
-        PlaylistTableContextMenuAvailability specialAvailability =
-            workspace.CapturePlaylistTableContextMenuAvailability(
-                new BMSTable { Page_url = new Uri("bmseeker:table.recommended"), is_external_sync = true });
-        Assert.IsFalse(specialAvailability.CanOpenClearLamp);
-        Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(
-            new BMSTable { Page_url = new Uri("bmseeker:table.recommended"), is_external_sync = true },
-            out _));
-        PlaylistTableContextMenuAvailability localAvailability =
-            workspace.CapturePlaylistTableContextMenuAvailability(
-                new BMSTable { Page_url = new Uri("https://example.test/table"), is_external_sync = false });
-        Assert.IsFalse(localAvailability.CanOpenClearLamp);
-        Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(
-            new BMSTable { Page_url = new Uri("https://example.test/table"), is_external_sync = false },
-            out _));
-        Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(
-            new BMSTable { Page_url = new Uri("bmseeker:table.other") },
-            out _));
-        Assert.ThrowsException<InvalidOperationException>(() =>
-            workspace.CapturePlaylistTableContextMenuAvailability(
-                new BMSTable { Page_url = new Uri("https://example.test/table"), is_external_sync = true }));
     }
 
     [TestMethod]

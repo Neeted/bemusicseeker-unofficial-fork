@@ -914,21 +914,6 @@ internal sealed class Settings : ApplicationSettingsBase
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("False")]
-    public bool UseExternalWebBrowser
-    {
-        get
-        {
-            return (bool)this["UseExternalWebBrowser"];
-        }
-        set
-        {
-            this["UseExternalWebBrowser"] = value;
-        }
-    }
-
-    [UserScopedSetting]
-    [DebuggerNonUserCode]
-    [DefaultSettingValue("False")]
     public bool UseExternalPanelImage
     {
         get

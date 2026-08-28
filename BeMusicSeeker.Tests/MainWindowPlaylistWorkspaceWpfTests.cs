@@ -706,6 +706,35 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     [TestMethod]
+    public void PlaylistTableContextMenu_CompiledTreePreservesCurrentActionsForEligibleAndIneligibleTables()
+    {
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            new Settings(),
+            (_, window) =>
+            {
+                ContextMenu menu = (ContextMenu)window.FindResource("treeViewPlaylistTableContextMenu");
+                foreach (BMSTable table in new[]
+                {
+                    new BMSTable { Page_url = new Uri("https://example.test/external"), is_external_sync = true },
+                    new BMSTable { Page_url = new Uri("https://example.test/local"), is_external_sync = false }
+                })
+                {
+                    menu.PlacementTarget = new TreeViewItem { DataContext = table };
+                    menu.DataContext = table;
+                    OpenContextMenu(menu);
+
+                    Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemReload").IsEnabled);
+                    Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemOpenPageURI").IsEnabled);
+                    Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemOverwriteLevel").IsEnabled);
+                    Assert.AreEqual(
+                        !table.is_external_sync,
+                        FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemCreateNewFolder").IsEnabled);
+                    Assert.IsTrue(FindMenuItem(menu, "treeViewPlaylistTableContextMenuItemRemoveTable").IsEnabled);
+                }
+            });
+    }
+
+    [TestMethod]
     public void PlaylistTableRemoval_RoutesThroughWorkflowOwner()
     {
         RunPlaylistTableRemovalRejectionScenario();

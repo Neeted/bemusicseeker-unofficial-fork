@@ -1406,15 +1406,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     /// <summary>
     /// ウィンドウの内部リソースとHWNDが初期化された直後に呼び出されます。
-    /// パネル状態の整合性確認、WebBrowserコントロールの設定（サイレント化、ドロップ無効化）、
-    /// および前回終了時のウィンドウ配置（最大化状態や座標）の復元を行います。
+    /// パネル状態の整合性確認、および前回終了時のウィンドウ配置（最大化状態や座標）の
+    /// 復元を行います。
     /// </summary>
     /// <param name="e">イベントデータ。</param>
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
         playbackPanelView.EnsureSelectedSurfaceAvailable();
-        playbackPanelView.ConfigureBrowserHost();
         try
         {
             if (DataContext is not MainWindowViewModel viewModel)
@@ -4693,7 +4692,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PlaylistTableContextMenuAvailability availability =
             mainWindowViewModel.PlaylistWorkspace.CapturePlaylistTableContextMenuAvailability(dataContext);
         MenuItem menuItem = null;
-        MenuItem menuItem2 = null;
         MenuItem menuItem3 = null;
         MenuItem menuItem4 = null;
         MenuItem menuItem5 = null;
@@ -4708,9 +4706,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
                 case "treeViewPlaylistTableContextMenuItemOpenPageURI":
                     menuItem = item as MenuItem;
-                    break;
-                case "treeViewPlaylistTableContextMenuItemOpenClearLamp":
-                    menuItem2 = item as MenuItem;
                     break;
                 case "treeViewPlaylistTableContextMenuItemOverwriteLevel":
                     menuItem3 = item as MenuItem;
@@ -4728,7 +4723,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         menuItem7.IsEnabled = availability.CanReload;
         menuItem.IsEnabled = availability.CanOpenPage;
-        menuItem2.IsEnabled = availability.CanOpenClearLamp;
         menuItem4.IsEnabled = availability.CanCreateFolder;
         menuItem3.IsEnabled = availability.CanOverwriteLevel;
         menuItem5.IsEnabled = availability.CanRemoveTable;
@@ -4780,19 +4774,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         mainWindowViewModel.PlaylistWorkspace.OpenPlaylistTablePage(dataContext);
-    }
-
-    /// <summary>
-    /// テーブル階層コンテキストメニュー「クリア状況ページを開く」実行時の処理。
-    /// ユーザーのLR2IDと対象難易度表URLをパラメータにし、外部連携サイト（通常はWalkureのクリアランプページ）を表示します。
-    /// </summary>
-    private void treeViewPlaylistTableContextMenuItemOpenClearLampClick(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel
-            && sender is MenuItem { DataContext: BMSTable dataContext })
-        {
-            mainWindowViewModel.PlaylistWorkspace.OpenPlaylistTableClearLamp(dataContext);
-        }
     }
 
     /// <summary>

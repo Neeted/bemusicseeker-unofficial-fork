@@ -108,7 +108,6 @@ public sealed class LocalizationResourceParityTests
             , nameof(Resources.Settings_appearance_table_description)
             , nameof(Resources.Settings_player_executable_path)
             , nameof(Resources.Settings_player_lr2_description)
-            , nameof(Resources.Settings_movie_playback_description)
             , nameof(Resources.Settings_audio_output_description)
             , nameof(Resources.Settings_audio_advanced)
             , nameof(Resources.Settings_recording_format_description)

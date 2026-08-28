@@ -129,9 +129,6 @@ RANKING/RANK UPDATE/T-SCORE/ΔMAXの表示を更新できますが、
   <data name="Rename_folder" xml:space="preserve">
     <value>名前の変更</value>
   </data>
-  <data name="Tooltip_movie_preview" xml:space="preserve">
-    <value>MOVIEプレビュー</value>
-  </data>
   <data name="Remove_folder" xml:space="preserve">
     <value>削除</value>
   </data>
@@ -651,9 +648,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="PlaylistProp_headeruri" xml:space="preserve">
     <value>ヘッダURI: </value>
   </data>
-  <data name="NicoNico" xml:space="preserve">
-    <value>ニコニコ動画</value>
-  </data>
   <data name="Details_show_diag_chartview" xml:space="preserve">
     <value>譜面ビューアへの登録時に確認メッセージを表示する</value>
   </data>
@@ -1091,9 +1085,6 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   <data name="Details_show_diag_recommend" xml:space="preserve">
     <value>リコメンドの更新メッセージを表示する</value>
   </data>
-  <data name="YouTube" xml:space="preserve">
-    <value>YouTube</value>
-  </data>
   <data name="PlaylistProp_ftype_alphabet" xml:space="preserve">
     <value>アルファベット別ALL</value>
   </data>
@@ -1143,9 +1134,6 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
     <value>バックアップからの復元に失敗しました。
 データはロールバックされました。</value>
   </data>
-  <data name="Movie_playback_exbrowser" xml:space="preserve">
-    <value>YouTube・ニコニコ動画の再生に外部ブラウザを使用する</value>
-  </data>
   <data name="Details_estimate_offline_score_ranking" xml:space="preserve">
     <value>オフラインスコアのランキング推定を行う</value>
   </data>
@@ -1154,9 +1142,6 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   </data>
   <data name="Playlist" xml:space="preserve">
     <value>プレイリスト</value>
-  </data>
-  <data name="Open_clear_lamp" xml:space="preserve">
-    <value>クリアランプ (外部サイト)</value>
   </data>
   <data name="Msg_merge_bms_folder" xml:space="preserve">
     <value>対象のパスにある全てのファイルを別のパスに移動して
@@ -1173,9 +1158,6 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Library" xml:space="preserve">
     <value>ライブラリ</value>
-  </data>
-  <data name="Movie_playback" xml:space="preserve">
-    <value>動画再生</value>
   </data>
   <data name="Tooltip_play" xml:space="preserve">
     <value>再生中</value>
@@ -3125,7 +3107,6 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Settings_appearance_table_description" xml:space="preserve"><value>ライブラリ一覧の文字と行の密度を調整します。</value></data>
   <data name="Settings_player_executable_path" xml:space="preserve"><value>プレーヤー実行ファイル</value></data>
   <data name="Settings_player_lr2_description" xml:space="preserve"><value>LR2 の実行ファイルで譜面を再生します。</value></data>
-  <data name="Settings_movie_playback_description" xml:space="preserve"><value>関連する動画リンクを開く方法を選択します。</value></data>
   <data name="Settings_audio_output_description" xml:space="preserve"><value>再生に使用するドライバー、デバイス、音声形式を選択します。</value></data>
   <data name="Settings_audio_advanced" xml:space="preserve"><value>詳細な音声設定</value></data>
   <data name="Settings_recording_format_description" xml:space="preserve"><value>録音ファイルの形式、品質、正規化、ゲインを設定します。</value></data>

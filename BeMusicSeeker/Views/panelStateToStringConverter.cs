@@ -15,10 +15,6 @@ internal class panelStateToStringConverter : IValueConverter
             {
                 return "music";
             }
-            if (((PlayerPanelState)value).HasFlag(PlayerPanelState.MOVIE_PLAYER))
-            {
-                return "video";
-            }
             return "image";
         }
         return Binding.DoNothing;

@@ -171,21 +171,21 @@ internal sealed class mainWindowMinWidthConverter : IMultiValueConverter
     }
 }
 
-internal sealed class playerTitleVisibilityConverter : IMultiValueConverter
+internal sealed class playerTitleVisibilityConverter : IValueConverter
 {
-    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (values.Length != 2 || values[0] is not Visibility bmsVisibility || values[1] is not Visibility movieVisibility)
+        if (value is not Visibility visibility)
         {
             return DependencyProperty.UnsetValue;
         }
 
-        return bmsVisibility == Visibility.Visible || movieVisibility == Visibility.Visible
+        return visibility == Visibility.Visible
             ? Visibility.Collapsed
             : Visibility.Visible;
     }
 
-    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
     {
         throw new NotSupportedException();
     }

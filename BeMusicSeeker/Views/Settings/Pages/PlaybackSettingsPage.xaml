@@ -37,9 +37,5 @@
         </settings:SettingsOptionRow>
       </StackPanel>
     </settings:SettingsSection>
-    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Movie_playback, Mode=OneWay}"
-                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_movie_playback_description, Mode=OneWay}">
-      <CheckBox IsChecked="{Binding UseExternalWebBrowser}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Movie_playback_exbrowser, Mode=OneWay}" />
-    </settings:SettingsSection>
   </StackPanel>
 </UserControl>

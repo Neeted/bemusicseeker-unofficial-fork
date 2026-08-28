@@ -145,13 +145,68 @@ public sealed class ApplicationSettingsLifecycleTests
         Assert.AreEqual(AppThemeService.Light, lifecycle.GetCurrentAppearanceTheme());
     }
 
+    [TestMethod]
+    public void InitializeNormalizesSettingsBeforeReadingTheInjectedStore()
+    {
+        var store = new FakeApplicationSettingsStore
+        {
+            AssemblyVersion = new SerializableVersion(1, 2, 3, 4),
+            Language = "ja-JP",
+            AppearanceTheme = AppThemeService.Light
+        };
+        var lifecycle = new ApplicationSettingsLifecycle(
+            settingsStore: store,
+            normalizeSettings: () => store.Events.Add("normalize"));
+
+        lifecycle.Initialize(
+            ["ja-JP", "en-US"],
+            () => new SerializableVersion(1, 2, 3, 4));
+
+        int normalizeIndex = store.Events.IndexOf("normalize");
+        int firstReadIndex = store.Events.FindIndex(value => value.StartsWith("read:", StringComparison.Ordinal));
+        Assert.IsTrue(normalizeIndex >= 0);
+        Assert.IsTrue(firstReadIndex > normalizeIndex);
+    }
+
     private sealed class FakeApplicationSettingsStore : IApplicationSettingsStore
     {
-        public SerializableVersion AssemblyVersion { get; set; } = null!;
+        private SerializableVersion assemblyVersion = null!;
 
-        public string Language { get; set; } = null!;
+        private string language = null!;
 
-        public string AppearanceTheme { get; set; } = null!;
+        private string appearanceTheme = null!;
+
+        public System.Collections.Generic.List<string> Events { get; } = [];
+
+        public SerializableVersion AssemblyVersion
+        {
+            get
+            {
+                Events.Add("read:AssemblyVersion");
+                return assemblyVersion;
+            }
+            set => assemblyVersion = value;
+        }
+
+        public string Language
+        {
+            get
+            {
+                Events.Add("read:Language");
+                return language;
+            }
+            set => language = value;
+        }
+
+        public string AppearanceTheme
+        {
+            get
+            {
+                Events.Add("read:AppearanceTheme");
+                return appearanceTheme;
+            }
+            set => appearanceTheme = value;
+        }
 
         public int UpgradeCount { get; private set; }
 
@@ -160,11 +215,13 @@ public sealed class ApplicationSettingsLifecycleTests
         public void Upgrade()
         {
             UpgradeCount++;
+            Events.Add("upgrade");
         }
 
         public void Save()
         {
             SaveCount++;
+            Events.Add("save");
         }
     }
 }

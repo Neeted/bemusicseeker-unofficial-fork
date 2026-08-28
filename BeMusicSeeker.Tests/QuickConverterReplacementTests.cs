@@ -32,8 +32,8 @@ public sealed class QuickConverterReplacementTests
         Assert.AreSame(DependencyProperty.UnsetValue, minHeight.Convert(new object[] { 286d, Visibility.Visible }, typeof(double), null, Culture));
 
         var playerTitle = new playerTitleVisibilityConverter();
-        Assert.AreEqual(Visibility.Collapsed, playerTitle.Convert(new object[] { Visibility.Visible, Visibility.Collapsed }, typeof(Visibility), null, Culture));
-        Assert.AreEqual(Visibility.Visible, playerTitle.Convert(new object[] { Visibility.Hidden, Visibility.Collapsed }, typeof(Visibility), null, Culture));
+        Assert.AreEqual(Visibility.Collapsed, playerTitle.Convert(Visibility.Visible, typeof(Visibility), null, Culture));
+        Assert.AreEqual(Visibility.Visible, playerTitle.Convert(Visibility.Hidden, typeof(Visibility), null, Culture));
 
         var duration = new positiveTimeSpanToVisibilityHiddenConverter();
         Assert.AreEqual(Visibility.Visible, duration.Convert(TimeSpan.FromSeconds(1), typeof(Visibility), null, Culture));

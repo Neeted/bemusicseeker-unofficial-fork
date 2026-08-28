@@ -203,8 +203,6 @@ The list appearance settings adjust the shared table display used by the library
 
 ### Playback
 
-![Settings Playback](img/設定_再生.PNG)
-
 Select the player used to play charts. The built-in player is for simple audio-only preview playback. When using external players such as uBMplay, BMIIDXView2015, or LR2, specify the executable path.
 
 Even in standalone mode, you can specify LR2body as the playback application. This is separate from whether the application integrates with the LR2 DB.
@@ -500,7 +498,7 @@ Library:
 Playlists:
 
 - Playlist root: You can run `Create new`, `Import`, and `Reload`. Import options include specifying a URL, loading from a difficulty table list, importing the Overjoy BMS difficulty estimation table, recommend tables, and so on.
-- Playlist body: You can run `Reload`, `Open page`, `Clear lamp (external site)`, `Overwrite levels`, `Create folder`, `Export`, `Delete playlist`, and `Properties`. For details on each item, see [Playlist Detail](#playlist-detail).
+- Playlist body: You can run `Reload`, `Open page`, `Overwrite levels`, `Create folder`, `Export`, `Delete playlist`, and `Properties`. For details on each item, see [Playlist Detail](#playlist-detail).
 - Folder in playlist: You can run `Delete` and `Rename`.
 - Playlist summary row: You can run `Reload`, `Open page`, `Apply current order to BMT SORT`, `Move to top of BMT SORT`, `Move to bottom of BMT SORT`, `Bulk edit...`, `Properties`, and `Delete playlist`. Reloading multiple selected rows in the summary targets the selected playlists regardless of their external sync flag.
 
@@ -621,7 +619,6 @@ Right-clicking the playlist body in the playlist tree lets you run the following
 
 - `Reload`: Re-fetches the target playlist. A single-playlist reload targets the selected playlist regardless of its external sync flag.
 - `Open page`: Opens the playlist page URI in a browser.
-- `Clear lamp (external site)`: Passes the LR2ID and playlist page URI to an external CLEAR LAMP site and opens it. **However, because the external site is currently unavailable, an internal lamp viewer is being considered instead.**
 - `Overwrite levels`: Uses the levels registered in this playlist to overwrite the levels of the same charts in the local library. A confirmation dialog is shown before execution. This cannot be run for some special tables, such as recommend tables. This operation affects saved values in the song table, not actual files. **Depending on your play skin it may have a use, but personally I do not recommend using it.**
 - `Create folder`: Adds a manually managed folder to a playlist that is not externally synced.
 - `Export`: Saves the playlist as two files, `header.json` and `data.json`. The save location for each file is specified with a file selection dialog.

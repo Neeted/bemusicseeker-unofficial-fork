@@ -13,12 +13,11 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlayerPanelStateSettingsCompatibilityTests
 {
     [TestMethod]
-    public void PlayerPanelState_PreservesPersistedKeyDefaultNamesAndNumericMeanings()
+    public void PlayerPanelState_PreservesPersistedKeyDefaultNamesAndValues()
     {
         Assert.AreEqual(0, (int)PlayerPanelState.TITLE_LARGE);
         Assert.AreEqual(1, (int)PlayerPanelState.TITLE_SMALL);
         Assert.AreEqual(2, (int)PlayerPanelState.BMS_PLAYER);
-        Assert.AreEqual(4, (int)PlayerPanelState.MOVIE_PLAYER);
 
         var metadata = new Settings().Properties[nameof(Settings.PlayerPanelState)];
         Assert.IsNotNull(metadata);
@@ -32,15 +31,10 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
             AssertRoundTrips(configPath, "TITLE_LARGE", PlayerPanelState.TITLE_LARGE);
             AssertRoundTrips(configPath, "TITLE_SMALL", PlayerPanelState.TITLE_SMALL);
             AssertRoundTrips(configPath, "BMS_PLAYER", PlayerPanelState.BMS_PLAYER);
-            AssertRoundTrips(configPath, "MOVIE_PLAYER", PlayerPanelState.MOVIE_PLAYER);
             AssertRoundTrips(
                 configPath,
                 "TITLE_SMALL, BMS_PLAYER",
                 PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER);
-            AssertRoundTrips(
-                configPath,
-                "TITLE_SMALL, MOVIE_PLAYER",
-                PlayerPanelState.TITLE_SMALL | PlayerPanelState.MOVIE_PLAYER);
         }
         finally
         {
@@ -57,6 +51,90 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
                 File.WriteAllBytes(configPath, originalConfig);
             }
         }
+    }
+
+    [TestMethod]
+    public void PlayerPanelState_AtomicNormalizationFailurePreservesOriginalAndMaterializesCanonicalValue()
+    {
+        string configPath = PortableSettingsPath.UserConfigPath;
+        byte[]? originalConfig = File.Exists(configPath) ? File.ReadAllBytes(configPath) : null;
+        FileAttributes originalAttributes = File.Exists(configPath)
+            ? File.GetAttributes(configPath)
+            : FileAttributes.Normal;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath));
+            if (File.Exists(configPath))
+            {
+                File.SetAttributes(configPath, FileAttributes.Normal);
+            }
+
+            CreateConfig("12").Save(configPath);
+            byte[] legacyConfig = File.ReadAllBytes(configPath);
+
+            Exception? saveFailure = null;
+            using (var replaceBlocker = new FileStream(
+                configPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read))
+            {
+                try
+                {
+                    PortableSettingsProvider.NormalizeCurrentPortableConfig();
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    saveFailure = ex;
+                }
+            }
+
+            Assert.IsNotNull(saveFailure, "The replace blocker must exercise the existing save failure contract.");
+            CollectionAssert.AreEqual(legacyConfig, File.ReadAllBytes(configPath));
+            Assert.AreEqual("12", GetPlayerPanelStateValue(XDocument.Load(configPath)));
+
+            var loaded = new Settings();
+            loaded.Reload();
+            Assert.AreEqual(
+                (PlayerPanelState)10,
+                loaded.PlayerPanelState,
+                "The generated Settings wrapper must consume the in-memory normalized value even when persistence fails.");
+        }
+        finally
+        {
+            if (File.Exists(configPath))
+            {
+                File.SetAttributes(configPath, FileAttributes.Normal);
+            }
+
+            if (originalConfig == null)
+            {
+                if (File.Exists(configPath))
+                {
+                    File.Delete(configPath);
+                }
+            }
+            else
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(configPath));
+                File.WriteAllBytes(configPath, originalConfig);
+                File.SetAttributes(configPath, originalAttributes);
+            }
+        }
+    }
+
+    private static string GetPlayerPanelStateValue(XDocument document)
+    {
+        return document.Root?
+            .Element("userSettings")?
+            .Element(PortableSettingsProvider.SettingsSectionName)?
+            .Elements("setting")
+            .Single(setting => string.Equals(
+                (string?)setting.Attribute("name"),
+                nameof(Settings.PlayerPanelState),
+                StringComparison.Ordinal))
+            .Element("value")?
+            .Value ?? string.Empty;
     }
 
     private static void AssertRoundTrips(

@@ -4,7 +4,7 @@
 
 `PlaybackPanelViewModel.PlayerPanelState` は、保存された requested state の正本である。`PlaybackPanelView` は `Settings.Default` を直接参照せず、利用可能な再生面を考慮した `EffectivePlayerPanelState` だけを表示判断に使う。
 
-`TITLE_SMALL` は compact 表示を表す flag である。`TITLE_LARGE` は値 0 の正規状態であり、未初期化 sentinel として扱わない。MOVIE_PLAYER 互換値、BMS_PLAYER が利用できない場合の fallback、退役済み WebBrowser を選択しない契約は [movie-playback-current-state.md](movie-playback-current-state.md) に従う。surface fallback は requested state を書き換えない。
+`TITLE_SMALL` は compact 表示を表す flag である。`TITLE_LARGE` は値 0 の正規状態であり、未初期化 sentinel として扱わない。現行の surface は artwork と BMS player のみで、BMS player が利用できない場合は artwork 側へ fallback する。surface fallback は requested state を書き換えない。
 
 ## 初期同期と通常遷移
 

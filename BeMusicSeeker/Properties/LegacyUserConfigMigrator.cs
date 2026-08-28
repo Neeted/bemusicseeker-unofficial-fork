@@ -19,6 +19,7 @@ internal static class LegacyUserConfigMigrator
         {
             if (File.Exists(PortableSettingsPath.UserConfigPath))
             {
+                PortableSettingsProvider.NormalizeCurrentPortableConfig();
                 return;
             }
             string legacyRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BeMusicSeeker");
@@ -161,7 +162,7 @@ internal static class LegacyUserConfigMigrator
             return 0;
         }
 
-        int normalizedSettings = PortableSettingsProvider.RemoveObsoleteSettings(settingsSection);
+        int normalizedSettings = PortableSettingsProvider.NormalizeSettingsSection(settingsSection);
         if (string.Equals(GetSettingValue(doc, "TableListURL"), Settings.LegacyTableListUrl, StringComparison.OrdinalIgnoreCase))
         {
             normalizedSettings += SetSettingValue(settingsSection, "TableListURL", Settings.DefaultTableListUrl);
