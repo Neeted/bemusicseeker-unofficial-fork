@@ -124,6 +124,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private readonly PlaylistLampViewerWindowManager playlistLampViewerWindowManager;
 
+    private readonly MainWindowForegroundTerminal mainWindowForegroundTerminal;
+
     private readonly MainWindowProgressStatusBarTerminals progressStatusBarTerminals;
 
     private readonly IUiDialogService playlistWorkspaceDialogService;
@@ -300,11 +302,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="playlistWorkspaceDialogService">
     /// playlist Property/Bulk modal routes が使う coordinator。未指定時は既定の production coordinator を使用します。
     /// </param>
+    /// <param name="mainWindowForegroundTerminal">
+    /// playlist lamp navigation 成功後の shell restore/activation/focus terminal。未指定時は WPF shell に接続します。
+    /// </param>
 #nullable enable
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
-        IUiDialogService? playlistWorkspaceDialogService = null)
+        IUiDialogService? playlistWorkspaceDialogService = null,
+        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null)
         : this(
             viewModel,
             settingsWindowCreated,
@@ -329,7 +335,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             null,
             null,
             null,
-            playlistWorkspaceDialogService)
+            playlistWorkspaceDialogService,
+            mainWindowForegroundTerminal)
     {
     }
 
@@ -408,6 +415,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="playlistWorkspaceTerminals">playlist workspace mutation terminals。</param>
     /// <param name="progressStatusBarTerminals">compiled status-bar action terminals。</param>
     /// <param name="playlistWorkspaceDialogService">playlist Property/Bulk modal route の coordinator。未指定時は既定 coordinator を使用します。</param>
+    /// <param name="mainWindowForegroundTerminal">successful playlist lamp navigation 後の shell focus terminal。</param>
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
@@ -432,7 +440,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null,
         MainWindowProgressStatusBarTerminals? progressStatusBarTerminals = null,
         MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
-        IUiDialogService? playlistWorkspaceDialogService = null)
+        IUiDialogService? playlistWorkspaceDialogService = null,
+        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null)
     {
         if (viewModel == null)
         {
@@ -471,6 +480,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             ?? MainWindowProgressStatusBarTerminals.Create(viewModel);
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService
             ?? new UiDialogCoordinator();
+        this.mainWindowForegroundTerminal = mainWindowForegroundTerminal
+            ?? MainWindowForegroundTerminal.Create(this);
         this.playlistLampViewerWindowManager = new(
             this,
             viewModel.PlaylistWorkspace,
@@ -2014,6 +2025,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
 
         suppressPlaylistLampTreeSelection = true;
+        bool navigationApplied = false;
         try
         {
             if (!TrySelectPlaylistTreeItem(
@@ -2037,10 +2049,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 // authoritative; do not reinterpret it as a folder with a sentinel name.
                 tableTreeViewItem.IsExpanded = true;
                 tableTreeViewItem.UpdateLayout();
+                navigationApplied = true;
                 return;
             }
-            PlaylistFolderNode folderNode = request.Selection.Table.FolderNodes
-                ?.FirstOrDefault(candidate => candidate != null
+            PlaylistFolderNode folderNode = tableTreeViewItem.Items
+                .OfType<PlaylistFolderNode>()
+                .FirstOrDefault(candidate => candidate != null
                     && candidate.SpecialKind == PlaylistFolderNodeSpecialKind.None
                     && string.Equals(
                         candidate.FolderName,
@@ -2052,14 +2066,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             }
             tableTreeViewItem.IsExpanded = true;
             tableTreeViewItem.UpdateLayout();
-            TrySelectChildTreeViewItemByDataContext(
+            if (!TrySelectChildTreeViewItemByDataContext(
                 tableTreeViewItem,
                 folderNode,
-                "playlist_lamp_navigation");
+                "playlist_lamp_navigation"))
+            {
+                return;
+            }
+            navigationApplied = true;
         }
         finally
         {
             suppressPlaylistLampTreeSelection = false;
+            if (navigationApplied)
+            {
+                mainWindowForegroundTerminal.FocusMainWindow();
+            }
         }
     }
 
@@ -3486,10 +3508,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return false;
         }
-        if (rootTreeViewItem.ItemContainerGenerator.ContainerFromItem(targetDataContext) is not TreeViewItem treeViewItem)
+        TreeViewItem treeViewItem = rootTreeViewItem.ItemContainerGenerator
+            .ContainerFromItem(targetDataContext) as TreeViewItem;
+        if (treeViewItem == null)
         {
             rootTreeViewItem.UpdateLayout();
             treeViewItem = rootTreeViewItem.ItemContainerGenerator.ContainerFromItem(targetDataContext) as TreeViewItem;
+        }
+        if (treeViewItem == null)
+        {
+            int targetIndex = rootTreeViewItem.Items.IndexOf(targetDataContext);
+            if (TryRealizeVirtualizedTreeItem(rootTreeViewItem, targetIndex))
+            {
+                treeViewItem = rootTreeViewItem.ItemContainerGenerator
+                    .ContainerFromIndex(targetIndex) as TreeViewItem;
+            }
         }
         treeViewItem ??= WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(rootTreeViewItem, targetDataContext);
         if (treeViewItem == null)
@@ -3499,6 +3532,39 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         SelectTreeViewItemWithFocus(treeViewItem);
         return true;
+    }
+
+    private static bool TryRealizeVirtualizedTreeItem(TreeViewItem rootTreeViewItem, int targetIndex)
+    {
+        if (rootTreeViewItem == null
+            || targetIndex < 0
+            || playlistTreeBringIndexIntoViewMethod == null)
+        {
+            return false;
+        }
+        VirtualizingStackPanel itemsHostPanel = TryGetTreeViewItemItemsHostPanel(rootTreeViewItem);
+        if (itemsHostPanel == null)
+        {
+            return false;
+        }
+        try
+        {
+            playlistTreeBringIndexIntoViewMethod.Invoke(itemsHostPanel, [targetIndex]);
+            rootTreeViewItem.UpdateLayout();
+            return rootTreeViewItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) is TreeViewItem;
+        }
+        catch (TargetInvocationException ex) when (ex.InnerException is ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
     }
 
     private static void SelectTreeViewItemWithFocus(TreeViewItem treeViewItem)

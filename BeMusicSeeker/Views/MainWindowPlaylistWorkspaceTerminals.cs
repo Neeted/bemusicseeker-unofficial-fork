@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 
@@ -55,6 +56,101 @@ internal sealed class MainWindowPlaylistUrlInstallTreeExpansionEventSource
     {
         ArgumentNullException.ThrowIfNull(handler);
         playlistWorkspace.PlaylistUrlInstallTreeExpansionRequested -= handler;
+    }
+}
+
+/// <summary>
+/// Provides the shell's best-effort foreground terminal after a successful playlist navigation.
+/// </summary>
+internal sealed class MainWindowForegroundTerminal
+{
+    private readonly Func<WindowState> readWindowState;
+
+    private readonly Action restoreWindow;
+
+    private readonly Func<bool> activateWindow;
+
+    private readonly Func<bool> focusWindow;
+
+    /// <summary>
+    /// Initializes the foreground terminal over the shell's presentation operations.
+    /// </summary>
+    /// <param name="readWindowState">Reads the current shell state.</param>
+    /// <param name="restoreWindow">Restores a minimized shell to its normal state.</param>
+    /// <param name="activateWindow">Attempts to activate the shell.</param>
+    /// <param name="focusWindow">Attempts to focus the shell.</param>
+    internal MainWindowForegroundTerminal(
+        Func<WindowState> readWindowState,
+        Action restoreWindow,
+        Func<bool> activateWindow,
+        Func<bool> focusWindow)
+    {
+        this.readWindowState = readWindowState
+            ?? throw new ArgumentNullException(nameof(readWindowState));
+        this.restoreWindow = restoreWindow
+            ?? throw new ArgumentNullException(nameof(restoreWindow));
+        this.activateWindow = activateWindow
+            ?? throw new ArgumentNullException(nameof(activateWindow));
+        this.focusWindow = focusWindow
+            ?? throw new ArgumentNullException(nameof(focusWindow));
+    }
+
+    /// <summary>
+    /// Restores a minimized shell, then makes one best-effort activation and focus attempt.
+    /// Presentation failures do not roll back the already-applied navigation.
+    /// </summary>
+    internal void FocusMainWindow()
+    {
+        try
+        {
+            if (readWindowState() == WindowState.Minimized)
+            {
+                restoreWindow();
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        try
+        {
+            _ = activateWindow();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        try
+        {
+            _ = focusWindow();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Creates the production terminal over the main shell's WPF state and activation methods.
+    /// </summary>
+    /// <param name="owner">The main shell to restore, activate, and focus.</param>
+    /// <returns>A foreground terminal bound to the supplied shell.</returns>
+    internal static MainWindowForegroundTerminal Create(Window owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+        return new MainWindowForegroundTerminal(
+            () => owner.WindowState,
+            () => owner.WindowState = WindowState.Normal,
+            owner.Activate,
+            owner.Focus);
     }
 }
 

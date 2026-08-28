@@ -749,7 +749,22 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
+            var foregroundOperations = new List<string>();
+            ActualMainWindowFixture fixture = null;
+            fixture = CreateActualMainWindowFixture(
+                windowTest,
+                CreateForegroundTerminal(
+                    foregroundOperations,
+                    () =>
+                    {
+                        TreeViewItem playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                        TreeViewItem selectedTable = playlistRoot.ItemContainerGenerator
+                            .ContainerFromItem(fixture.Table) as TreeViewItem;
+                        Assert.IsNotNull(selectedTable);
+                        Assert.IsTrue(
+                            selectedTable.IsSelected,
+                            "the playlist root selection must be applied before foreground activation");
+                    }));
             try
             {
                 fixture.Table.entries =
@@ -796,12 +811,127 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         .Where(item => !ReferenceEquals(item, tableItem))
                         .Any(item => item.DataContext is PlaylistFolderNode && item.IsSelected),
                     "overall lamp navigation must not leave a child folder selected");
+                CollectionAssert.AreEqual(
+                    new[] { "activate", "focus" },
+                    foregroundOperations,
+                    "successful overall navigation must focus the main shell exactly once");
             }
             finally
             {
                 fixture.Close();
             }
         });
+    }
+
+    [TestMethod]
+    public void PlaylistLampNavigation_SelectsFolderThroughComposedMainWindowTerminal()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var foregroundOperations = new List<string>();
+            ActualMainWindowFixture fixture = null;
+            fixture = CreateActualMainWindowFixture(
+                windowTest,
+                CreateForegroundTerminal(
+                    foregroundOperations,
+                    () =>
+                    {
+                        TreeViewItem playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                        TreeViewItem selectedTable = playlistRoot.ItemContainerGenerator
+                            .ContainerFromItem(fixture.Table) as TreeViewItem;
+                        Assert.IsNotNull(selectedTable);
+                        TreeViewItem selectedFolder = FindDescendants<TreeViewItem>(selectedTable)
+                            .FirstOrDefault(item => item.DataContext is PlaylistFolderNode && item.IsSelected);
+                        Assert.IsNotNull(
+                            selectedFolder,
+                            "the folder selection must be applied before foreground activation");
+                        Assert.AreEqual(
+                            "normal",
+                            ((PlaylistFolderNode)selectedFolder.DataContext).FolderName);
+                    }));
+            try
+            {
+                fixture.Table.entries =
+                [
+                    new BMSTableEntry
+                    {
+                        folder = "normal",
+                        md5 = new string('a', 32)
+                    }
+                ];
+                fixture.Table.Folder_order = ["normal"];
+                TestUiDispatcherHost.Drain();
+
+                TreeViewItem playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                MaterializeTreeItems(playlistRoot);
+                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator
+                    .ContainerFromItem(fixture.Table) as TreeViewItem;
+                Assert.IsNotNull(tableItem, "the active playlist table must be materialized in the shell tree");
+                tableItem.IsExpanded = true;
+                MaterializeTreeItems(tableItem);
+
+                TreeViewItem folderItem = FindDescendants<TreeViewItem>(tableItem)
+                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode);
+                Assert.IsNotNull(
+                    folderItem,
+                    "a playlist folder child must be materialized for the folder-selection route");
+                tableItem.IsSelected = true;
+                TestUiDispatcherHost.Drain();
+                Assert.IsTrue(tableItem.IsSelected);
+
+                var request = PlaylistLampViewerNavigationRequest.ForFolder(
+                    PlaylistLampSegmentInvocationRequest.ForClear(
+                        fixture.Table.playlist_id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        "normal",
+                        PlaylistLampClearCategory.ASSIST));
+                Assert.IsTrue(fixture.ViewModel.PlaylistWorkspace.TryRequestPlaylistLampNavigation(request));
+                TestUiDispatcherHost.Drain();
+
+                tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem;
+                Assert.IsNotNull(tableItem);
+                TreeViewItem selectedFolder = FindDescendants<TreeViewItem>(tableItem)
+                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode && item.IsSelected);
+                Assert.IsNotNull(selectedFolder, "folder lamp navigation must select the target folder");
+                Assert.AreEqual("normal", ((PlaylistFolderNode)selectedFolder.DataContext).FolderName);
+                CollectionAssert.AreEqual(
+                    new[] { "activate", "focus" },
+                    foregroundOperations,
+                    "successful folder navigation must focus the main shell exactly once");
+            }
+            finally
+            {
+                fixture.Close();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void MainWindowForegroundTerminal_RestoresMinimizedThenAttemptsActivationAndFocus()
+    {
+        WindowState state = WindowState.Minimized;
+        var operations = new List<string>();
+        var terminal = new MainWindowForegroundTerminal(
+            () => state,
+            () =>
+            {
+                operations.Add("restore");
+                state = WindowState.Normal;
+            },
+            () =>
+            {
+                operations.Add("activate");
+                return false;
+            },
+            () =>
+            {
+                operations.Add("focus");
+                return false;
+            });
+
+        terminal.FocusMainWindow();
+
+        CollectionAssert.AreEqual(new[] { "restore", "activate", "focus" }, operations);
+        Assert.AreEqual(WindowState.Normal, state);
     }
 
     [TestMethod]
@@ -1190,8 +1320,30 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             });
     }
 
+    private static MainWindowForegroundTerminal CreateForegroundTerminal(
+        ICollection<string> operations,
+        Action activationObserved = null)
+    {
+        ArgumentNullException.ThrowIfNull(operations);
+        return new MainWindowForegroundTerminal(
+            () => WindowState.Normal,
+            () => operations.Add("restore"),
+            () =>
+            {
+                activationObserved?.Invoke();
+                operations.Add("activate");
+                return true;
+            },
+            () =>
+            {
+                operations.Add("focus");
+                return true;
+            });
+    }
+
     private static ActualMainWindowFixture CreateActualMainWindowFixture(
-        TestWindowPresentationScope windowTest)
+        TestWindowPresentationScope windowTest,
+        MainWindowForegroundTerminal foregroundTerminal = null)
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -1273,7 +1425,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             window = new MainWindow(
                 viewModel,
                 settingsWindowCreated: null,
-                playlistWorkspaceDialogService: actualRouteDialogService);
+                playlistWorkspaceDialogService: actualRouteDialogService,
+                mainWindowForegroundTerminal: foregroundTerminal);
             RoutedEventHandler ensureNonActivatingPosition = (_, _) =>
                 window.Dispatcher.BeginInvoke(
                     DispatcherPriority.Render,

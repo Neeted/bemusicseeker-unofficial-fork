@@ -8,10 +8,14 @@ not reuse the retired fixed external URL route.
 
 ## Presentation and layout
 
-Every command invocation creates a fresh `ThemedWindow`, owned by the main
-window. Windows are modeless and multiple instances for the same playlist are
-allowed. The top of the window contains one ordered statistics collection. Its
-score-independent cards are total, owned, missing, ownership rate, active
+Every command invocation creates a fresh `ThemedWindow`. The viewer is
+temporarily owned by the main window while its initial `CenterOwner` placement
+is resolved. The manager shows it modelessly, makes one initial activation
+attempt, and immediately clears the WPF `Owner`; later main-window interaction
+therefore is not constrained by the viewer's z-order. Multiple instances for
+the same playlist are allowed. Dialogs raised by the viewer remain owned by the
+main window. The top of the window contains one ordered statistics collection.
+Its score-independent cards are total, owned, missing, ownership rate, active
 score source, and playlist last update. When score data is available, played,
 unplayed, play rate, average EX score rate, and whole-playlist clear rate are
 inserted before the final playlist last-update card. When score data is not
@@ -91,6 +95,12 @@ Main-window shutdown cancels pending opens and closes/disposes all tracked
 viewers. No later continuation may show a window or dialog after shutdown.
 There is no geometry/selection persistence and no cross-window cache.
 
+After a positive typed segment request has been applied to the playlist tree
+and detail selection, the main shell performs one best-effort restore (when
+minimized), activation, and focus terminal. A failed activation or focus
+attempt does not roll back the applied navigation. Requests whose tree
+selection does not complete do not invoke that terminal.
+
 For a normal `Ready`/`Empty` result, score-independent cards remain visible
 even when score data is unavailable or failed. In that degraded case the
 clear/rank graphs, score-dependent cards, and segment invocation are absent or
@@ -161,6 +171,11 @@ folder-scoped routes retain their existing folder guard.
 | PLV-OVR-03 | Overall NP includes normal-folder NO_PLAY/NO_SONG outcomes and excludes the special `[NO SONG]` folder. |
 | PLV-OVR-04 | Zero, degraded, deleted, failed, and stale global segments do not navigate or fall back; folder-scoped navigation remains unchanged. |
 | PLV-OVR-05 | Multiple viewers for one playlist keep independent selected segments and remain independently usable after one global invocation. |
+| PLV-FG-01 | First-presentable Ready/Empty viewers use temporary `CenterOwner` ownership through modeless `Show` and one initial activation attempt, then release WPF `Owner`; visibility, tracking, multiple instances, and lifecycle remain intact. |
+| PLV-FG-02 | A successful Overall request selects the table root and then performs exactly one main-shell restore/activation/focus terminal. |
+| PLV-FG-03 | A successful normal-folder request selects the target folder child and then performs exactly one main-shell restore/activation/focus terminal. |
+| PLV-FG-04 | A minimized shell is restored before activation and focus; false activation/focus results are best-effort and do not roll back navigation. |
+| PLV-FG-05 | Viewer dialogs remain owned by the main window throughout initial and live failure presentation. |
 | D3-NAV-CLR | Every positive clear intent reaches the supported chart-list grammar and the real parser/detail pipeline returns exact category membership, including ASSIST (`INVALID` + `L_ASSIST`) and NP (`NO_PLAY` + `NO_SONG`). |
 | D3-NAV-RNK | Rank intents return exact AA through F membership; AAA folds `AAA` + `MAX`, and NP uses clear no-play/no-score semantics without played INVALID-rank assist rows. |
 | D3-NAV-SCOPE | Folder requests retain their normal-folder scope; Overall requests publish the table root and return the union of current normal folders while excluding special `[NO SONG]`. |

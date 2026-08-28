@@ -56,7 +56,10 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
             typeof(PlaylistLampViewerWindow),
             new FrameworkPropertyMetadata(0d));
 
-    /// <summary>Creates a viewer owned by the supplied main window.</summary>
+    /// <summary>
+    /// Creates a viewer temporarily owned by the supplied main window for initial placement.
+    /// The manager releases that owner after the first modeless presentation attempt.
+    /// </summary>
     /// <param name="owner">Main-window shell.</param>
     /// <param name="viewModel">Dispatcher-bound viewer projection.</param>
     internal PlaylistLampViewerWindow(Window owner, PlaylistLampViewerViewModel viewModel)

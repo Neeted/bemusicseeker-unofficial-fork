@@ -60,6 +60,8 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable
 
     private readonly Action<PlaylistLampViewerWindow> prepareWindowForShow;
 
+    private readonly Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation;
+
     private readonly HashSet<WindowLifetime> lifetimes = [];
 
     private readonly CancellationTokenSource shutdownCancellation = new();
@@ -80,12 +82,18 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable
     /// and before it is shown. Production leaves this unset; deterministic hosts may use it to
     /// attach their native-window observation policy without changing the manager lifecycle.
     /// </param>
+    /// <param name="activateWindowForInitialPresentation">
+    /// Optional owner-scoped activation attempt invoked once after the viewer is shown and before
+    /// its temporary WPF owner is released. Production uses the viewer's regular activation
+    /// behavior; deterministic hosts may observe this boundary without activating a native window.
+    /// </param>
     internal PlaylistLampViewerWindowManager(
         MainWindow owner,
         PlaylistWorkspaceViewModel workspace,
         IUiDialogService dialogs = null,
         Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> dataSourceFactory = null,
-        Action<PlaylistLampViewerWindow> prepareWindowForShow = null)
+        Action<PlaylistLampViewerWindow> prepareWindowForShow = null,
+        Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation = null)
     {
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         this.workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
@@ -93,6 +101,8 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable
         this.dataSourceFactory = dataSourceFactory
             ?? (context => new BmsLibraryPlaylistLampDataSource(context.Playlist, context.Library));
         this.prepareWindowForShow = prepareWindowForShow;
+        this.activateWindowForInitialPresentation = activateWindowForInitialPresentation
+            ?? ActivateWindowForInitialPresentation;
     }
 
     /// <summary>Gets the number of currently shown child viewer windows.</summary>
@@ -254,6 +264,8 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable
 
             lifetime.IsShown = true;
             window.Show();
+            activateWindowForInitialPresentation(window);
+            window.Owner = null;
             return window;
         }
         catch (OperationCanceledException) when (
@@ -295,6 +307,12 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable
                 DisposeOpenCancellationIfSafe(lifetime);
             }
         }
+    }
+
+    private static void ActivateWindowForInitialPresentation(PlaylistLampViewerWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        _ = window.Activate();
     }
 
     private async void ViewModelTerminalResultChanged(

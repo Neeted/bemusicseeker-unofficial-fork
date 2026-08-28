@@ -71,6 +71,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Assert.AreEqual(
                     Resources.PlaylistLampViewer_initial_deleted,
                     dialogs.Messages.Single().MessageBoxText);
+                Assert.AreSame(fixture.Owner, dialogs.Messages.Single().Owner);
                 Assert.IsFalse(Application.Current.Windows
                     .OfType<PlaylistLampViewerWindow>()
                     .Any(window => window.IsVisible));
@@ -100,12 +101,43 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 StringAssert.Contains(
                     dialogs.Messages.Single().MessageBoxText,
                     "initial aggregation failure");
+                Assert.AreSame(fixture.Owner, dialogs.Messages.Single().Owner);
                 Assert.IsFalse(Application.Current.Windows
                     .OfType<PlaylistLampViewerWindow>()
                     .Any(window => window.IsVisible));
                 Assert.AreEqual(1, source.DisposeCount);
             },
             prepareWindowPresentation: false);
+    }
+
+    [TestMethod]
+    public void Manager_readyPresentationReleasesOwnerAfterShow()
+    {
+        var source = new ControlledLampSource(CreateReadyRequest("1"));
+        var dialogs = new RecordingDialogService();
+        int activationAttemptCount = 0;
+        RunScenario(
+            dialogs,
+            _ => source,
+            fixture =>
+            {
+                Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.owner-release.open");
+
+                PlaylistLampViewerWindow window = open.GetAwaiter().GetResult()
+                    ?? throw new AssertFailedException("The ready viewer did not open.");
+                Assert.IsNull(window.Owner);
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(1, fixture.Manager.Count);
+            },
+            activateWindowForInitialPresentation: window =>
+            {
+                activationAttemptCount++;
+                Assert.IsTrue(window.IsVisible);
+                Assert.IsNotNull(window.Owner);
+                Assert.IsFalse(window.ShowActivated);
+            });
+        Assert.AreEqual(1, activationAttemptCount);
     }
 
     [TestMethod]
@@ -315,6 +347,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Assert.AreEqual(1, closedCount);
                 Assert.AreEqual(0, fixture.Manager.Count);
                 Assert.AreEqual(1, dialogs.MessageCount);
+                Assert.AreSame(fixture.Owner, dialogs.Messages.Single().Owner);
                 Assert.AreEqual(1, source.DisposeCount);
             });
     }
@@ -353,7 +386,8 @@ public sealed class PlaylistLampViewerWindowManagerTests
         IUiDialogService dialogs,
         Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> sourceFactory,
         Action<ManagerTestFixture> test,
-        bool prepareWindowPresentation = true)
+        bool prepareWindowPresentation = true,
+        Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation = null)
     {
         string settingsRoot = Path.Combine(
             Path.GetTempPath(),
@@ -417,7 +451,8 @@ public sealed class PlaylistLampViewerWindowManagerTests
                                         TestWindowActivation.NonActivating);
                                 }
                                 fixture?.RecordPreparedWindow(window);
-                            });
+                            },
+                            activateWindowForInitialPresentation);
                         test(fixture);
                     }
                     catch (Exception ex)
@@ -546,8 +581,10 @@ public sealed class PlaylistLampViewerWindowManagerTests
             MainWindow owner,
             IUiDialogService dialogs,
             Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> sourceFactory,
-            Action<PlaylistLampViewerWindow> prepareWindowForShow)
+            Action<PlaylistLampViewerWindow> prepareWindowForShow,
+            Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation)
         {
+            Owner = owner ?? throw new ArgumentNullException(nameof(owner));
             root = Path.Combine(
                 Path.GetTempPath(),
                 nameof(PlaylistLampViewerWindowManagerTests),
@@ -568,14 +605,17 @@ public sealed class PlaylistLampViewerWindowManagerTests
             workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(Playlist, Library);
             Context = CreateContext(Playlist, Table, Library);
             Manager = new PlaylistLampViewerWindowManager(
-                owner,
+                Owner,
                 workspace,
                 dialogs,
                 sourceFactory,
-                prepareWindowForShow);
+                prepareWindowForShow,
+                activateWindowForInitialPresentation);
         }
 
         internal BMSLibrary Library { get; }
+
+        internal MainWindow Owner { get; }
 
         internal BMSPlaylist Playlist { get; }
 

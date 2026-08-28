@@ -11,6 +11,7 @@
  MinHeight="560"
  ResizeMode="CanResize"
  ShowInTaskbar="False"
+ ShowActivated="False"
  WindowStartupLocation="CenterOwner"
  Title="{Binding WindowTitle, Mode=OneWay}">
   <views:ThemedWindow.Resources>
