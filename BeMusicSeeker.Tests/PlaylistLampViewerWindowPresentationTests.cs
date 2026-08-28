@@ -163,8 +163,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                         rankHalf.TranslatePoint(new Point(0, 0), window).Y,
                         1d,
                         "paired clear/rank folder halves must share a row baseline");
-                    AssertFolderHalfOrder(clearHalf, "PlaylistLampViewerClearFolderBarHost");
-                    AssertFolderHalfOrder(rankHalf, "PlaylistLampViewerRankFolderBarHost");
+                    AssertFolderHalfGeometry(clearHalf, row, "PlaylistLampViewerClearFolderBarHost", window);
+                    AssertFolderHalfGeometry(rankHalf, row, "PlaylistLampViewerRankFolderBarHost", window);
                     Assert.AreEqual(0d, rowElement.BorderThickness.Bottom,
                         "folder rows must not render a separator");
                 }
@@ -189,6 +189,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     Assert.IsTrue(gap <= previousBar.ActualHeight / 2d + 1d,
                         "folder rows must use a compact vertical pitch");
                 }
+                AssertFolderBarsAlign(renderedRows);
 
                 Button[] segmentButtons = FindDescendants<Button>(window)
                     .Where(button => button.DataContext is PlaylistLampViewerSegmentViewModel)
@@ -204,6 +205,19 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     Assert.IsNotNull(container, "weighted segment must be hosted by an ItemsControl ContentPresenter");
                     Assert.IsTrue(container.ActualWidth > 0d,
                         $"positive segment container for {segment.CategoryKey} must have arranged width");
+                }
+
+                foreach (Border legend in FindDescendants<Border>(window)
+                    .Where(border => AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerLegend"))
+                {
+                    foreach (TextBlock textBlock in FindDescendants<TextBlock>(legend))
+                    {
+                        AssertContrastForeground(legend, textBlock);
+                    }
+                }
+                foreach (Button button in segmentButtons)
+                {
+                    AssertContrastForeground(button, button);
                 }
                 Color[] visibleSegmentColors = segmentButtons
                     .Select(button => button.Background as SolidColorBrush)
@@ -254,8 +268,57 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(assistButton)
                     ?? throw new AssertFailedException("The positive segment button has no Automation peer.");
                 Assert.AreEqual(assistSegment.DetailText, peer.GetName());
-                ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke();
-                TestUiDispatcherHost.Drain();
+                PlaylistLampViewerSegmentViewModel globalAssistSegment = viewModel.ClearSegments
+                    .Single(segment => segment.CategoryKey == assistSegment.CategoryKey);
+                Border assistLegend = FindDescendants<Border>(window)
+                    .Single(border => AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerLegend"
+                        && ReferenceEquals(border.DataContext, globalAssistSegment));
+                Button globalAssistButton = FindDescendants<Button>(window)
+                    .Single(button => ReferenceEquals(button.DataContext, globalAssistSegment));
+                string assistResourceKey = "PlaylistLamp." + globalAssistSegment.PaletteKey;
+                Assert.IsTrue(window.Resources.Contains(assistResourceKey));
+                object originalAssistBrush = window.Resources[assistResourceKey];
+                try
+                {
+                    SetViewerPaletteBrush(window, assistResourceKey, Color.FromRgb(24, 24, 24));
+                    AssertControlledContrast(
+                        assistLegend,
+                        globalAssistButton,
+                        Color.FromRgb(24, 24, 24),
+                        Colors.White);
+
+                    SetViewerPaletteBrush(window, assistResourceKey, Color.FromRgb(240, 240, 240));
+                    AssertControlledContrast(
+                        assistLegend,
+                        globalAssistButton,
+                        Color.FromRgb(240, 240, 240),
+                        Colors.Black);
+
+                    ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke();
+                    TestUiDispatcherHost.Drain();
+
+                    SetViewerPaletteBrush(window, assistResourceKey, Color.FromRgb(24, 24, 24));
+                    AssertControlledContrast(
+                        assistLegend,
+                        assistButton,
+                        Color.FromRgb(24, 24, 24),
+                        Colors.White);
+
+                    SetViewerPaletteBrush(window, assistResourceKey, Color.FromRgb(240, 240, 240));
+                    AssertControlledContrast(
+                        assistLegend,
+                        assistButton,
+                        Color.FromRgb(240, 240, 240),
+                        Colors.Black);
+                }
+                finally
+                {
+                    window.Resources[assistResourceKey] = originalAssistBrush;
+                    TestUiDispatcherHost.Drain();
+                    window.UpdateLayout();
+                }
+
+                AssertContrastForeground(assistButton, assistButton);
 
                 Assert.IsTrue(assistSegment.IsSelected);
                 Assert.AreSame(assistSegment, viewModel.SelectedSegment);
@@ -503,6 +566,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             var window = new PlaylistLampViewerWindow(owner, viewModel);
             try
             {
+                Assert.AreEqual(1290d, window.Width, 0.01d,
+                    "the viewer default width is the contracted 1500-minus-210 DIP layout");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.StartAndWaitForPresentableAsync(),
                     "playlist lamp viewer default legend first presentable result");
@@ -526,6 +591,23 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 Assert.IsTrue(legends.All(legend =>
                     Math.Abs(legend.TranslatePoint(new Point(0, 0), window).Y - firstY) <= 1d),
                     "the canonical clear legend must fit one rendered row at the default width");
+
+                AssertRenderedStatisticOrder(
+                    window,
+                    new[]
+                    {
+                        Resources.PlaylistLampViewer_total,
+                        Resources.PlaylistLampViewer_owned,
+                        Resources.PlaylistLampViewer_missing,
+                        Resources.PlaylistLampViewer_ownership_rate,
+                        Resources.PlaylistLampViewer_score_source,
+                        Resources.PlaylistLampViewer_played,
+                        Resources.PlaylistLampViewer_no_play,
+                        Resources.PlaylistLampViewer_play_rate,
+                        Resources.PlaylistLampViewer_average_ex_rate,
+                        Resources.PlaylistLampViewer_clear_rate,
+                        Resources.PlaylistLampViewer_playlist_last_update
+                    });
             }
             finally
             {
@@ -589,6 +671,14 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 Assert.IsTrue(initialMediumLabels.All(label =>
                     Math.Abs(label.ActualWidth - window.FolderLabelColumnWidth) <= 1d));
 
+                foreach (PlaylistLampViewerFolderRowViewModel row in viewModel.FolderRows)
+                {
+                    Assert.AreEqual(
+                        row.Count.ToString("N0", CultureInfo.CurrentCulture),
+                        row.CountText,
+                        "folder counts use the localized numeric format without a unit");
+                }
+
                 source.Replace(CreateFolderWidthRequest(shortName, longName));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.StartAsync(),
@@ -606,6 +696,129 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     Math.Abs(label.ActualWidth - 170d) <= 1d));
                 Assert.IsTrue(longLabels.All(label => label.TextTrimming == TextTrimming.CharacterEllipsis));
                 Assert.IsTrue(longLabels.All(label => label.ToolTip?.ToString() == longName));
+            }
+            finally
+            {
+                if (window.IsVisible)
+                {
+                    window.Close();
+                }
+                if (owner.IsVisible)
+                {
+                    owner.Close();
+                }
+                viewModel.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void Viewer_folderCountUsesLocalizedN0AndSharedCappedCountColumn()
+    {
+        const int initialCount = 1234;
+        const int cappedCount = 12345;
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var source = new FixedLampSource(CreateCountWidthRequest(initialCount, "initial"));
+            var session = new PlaylistLampViewerSession("playlist", source);
+            var viewModel = new PlaylistLampViewerViewModel(
+                "playlist",
+                "Folder count fixture",
+                session,
+                TestUiDispatcherHost.Dispatcher,
+                _ => { });
+            var owner = new Window
+            {
+                Width = 480,
+                Height = 320,
+                ShowInTaskbar = false,
+                Content = new Grid()
+            };
+            windowTest.ShowAndWaitForContentRendered(owner);
+            var window = new PlaylistLampViewerWindow(owner, viewModel);
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.StartAndWaitForPresentableAsync(),
+                    "playlist lamp viewer count width first presentable result");
+                windowTest.ShowAndWaitForContentRendered(window);
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+
+                PlaylistLampViewerFolderRowViewModel initialRow = viewModel.FolderRows
+                    .Single(row => row.FolderName == "initial");
+                Assert.AreEqual(
+                    initialCount.ToString("N0", CultureInfo.CurrentCulture),
+                    initialRow.CountText);
+                TextBlock initialCountBlock = FindFolderCountBlock(window, initialRow);
+                Grid initialClearHalf = FindByAutomationId<Grid>(
+                    FindDescendants<Border>(window).Single(border =>
+                        AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerFolderRow"
+                        && border.DataContext == initialRow),
+                    "PlaylistLampViewerClearFolderHalf");
+                double expectedInitialWidth = MeasureRenderedText(initialCountBlock, initialRow.CountText);
+                Assert.AreEqual(expectedInitialWidth, initialClearHalf.ColumnDefinitions[4].ActualWidth, 1d);
+                Assert.IsTrue(FindFolderCountColumnWidths(window, viewModel)
+                    .All(width => Math.Abs(width - expectedInitialWidth) <= 1d),
+                    "both halves and every row must share the same live count column width");
+                Assert.IsTrue(initialRow.CountText.Any(char.IsDigit));
+                Assert.IsTrue(int.TryParse(
+                    initialRow.CountText,
+                    NumberStyles.Number,
+                    CultureInfo.CurrentCulture,
+                    out int parsedInitialCount));
+                Assert.AreEqual(initialCount, parsedInitialCount);
+
+                source.Replace(CreateCountWidthRequest(cappedCount, "capped"));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.StartAsync(),
+                    "playlist lamp viewer count width live refresh");
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+
+                PlaylistLampViewerFolderRowViewModel cappedRow = viewModel.FolderRows
+                    .Single(row => row.FolderName == "capped");
+                Assert.AreEqual(
+                    cappedCount.ToString("N0", CultureInfo.CurrentCulture),
+                    cappedRow.CountText);
+                Assert.IsTrue(int.TryParse(
+                    cappedRow.CountText,
+                    NumberStyles.Number,
+                    CultureInfo.CurrentCulture,
+                    out int parsedCappedCount));
+                Assert.AreEqual(cappedCount, parsedCappedCount);
+                TextBlock cappedCountBlock = FindFolderCountBlock(window, cappedRow);
+                Grid cappedClearHalf = FindByAutomationId<Grid>(
+                    FindDescendants<Border>(window).Single(border =>
+                        AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerFolderRow"
+                        && border.DataContext == cappedRow),
+                    "PlaylistLampViewerClearFolderHalf");
+                double renderedCapWidth = MeasureRenderedText(
+                    cappedCountBlock,
+                    9999.ToString("N0", CultureInfo.CurrentCulture));
+                Assert.AreEqual(
+                    renderedCapWidth,
+                    cappedClearHalf.ColumnDefinitions[4].ActualWidth,
+                    1d);
+                Assert.IsTrue(cappedClearHalf.ColumnDefinitions[4].ActualWidth > expectedInitialWidth);
+                Assert.IsTrue(FindFolderCountColumnWidths(window, viewModel)
+                    .All(width => Math.Abs(width - renderedCapWidth) <= 1d),
+                    "a refreshed count column remains shared across both halves and rows");
+
+                foreach (PlaylistLampViewerFolderRowViewModel row in viewModel.FolderRows)
+                {
+                    Border rowElement = FindDescendants<Border>(window)
+                        .Single(border => AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerFolderRow"
+                            && border.DataContext == row);
+                    Grid clearHalf = FindByAutomationId<Grid>(rowElement, "PlaylistLampViewerClearFolderHalf");
+                    Grid rankHalf = FindByAutomationId<Grid>(rowElement, "PlaylistLampViewerRankFolderHalf");
+                    AssertFolderHalfGeometry(clearHalf, row, "PlaylistLampViewerClearFolderBarHost", window);
+                    AssertFolderHalfGeometry(rankHalf, row, "PlaylistLampViewerRankFolderBarHost", window);
+                }
+                AssertFolderBarsAlign(
+                    FindDescendants<Border>(window)
+                        .Where(border => AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerFolderRow")
+                        .ToArray());
             }
             finally
             {
@@ -657,14 +870,22 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 Assert.IsTrue(viewModel.ClearSegments.Any(segment => segment.CategoryKey == "FC"));
                 Assert.IsTrue(viewModel.ClearSegments.Any(segment => segment.CategoryKey == "HARD"));
                 Assert.IsTrue(viewModel.IsGraphVisible);
-                CollectionAssert.AreEqual(
-                    new[] { Resources.PlaylistLampViewer_total, Resources.PlaylistLampViewer_owned, Resources.PlaylistLampViewer_missing,
-                        Resources.PlaylistLampViewer_ownership_rate, Resources.PlaylistLampViewer_score_source, Resources.PlaylistLampViewer_playlist_last_update },
-                    viewModel.SummaryCards.Select(card => card.Label).ToArray());
-                CollectionAssert.AreEqual(
-                    new[] { Resources.PlaylistLampViewer_played, Resources.PlaylistLampViewer_no_play, Resources.PlaylistLampViewer_play_rate,
-                        Resources.PlaylistLampViewer_average_ex_rate, Resources.PlaylistLampViewer_clear_rate },
-                    viewModel.ScoreCards.Select(card => card.Label).ToArray());
+                AssertRenderedStatisticOrder(
+                    window,
+                    new[]
+                    {
+                        Resources.PlaylistLampViewer_total,
+                        Resources.PlaylistLampViewer_owned,
+                        Resources.PlaylistLampViewer_missing,
+                        Resources.PlaylistLampViewer_ownership_rate,
+                        Resources.PlaylistLampViewer_score_source,
+                        Resources.PlaylistLampViewer_played,
+                        Resources.PlaylistLampViewer_no_play,
+                        Resources.PlaylistLampViewer_play_rate,
+                        Resources.PlaylistLampViewer_average_ex_rate,
+                        Resources.PlaylistLampViewer_clear_rate,
+                        Resources.PlaylistLampViewer_playlist_last_update
+                    });
 
                 var degraded = CreateRequest(ActiveScoreSource.None);
                 source.Replace(degraded);
@@ -675,10 +896,19 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
                 Assert.IsTrue(viewModel.IsDegraded);
                 Assert.IsFalse(viewModel.IsGraphVisible);
-                Assert.IsFalse(viewModel.IsScoreCardsVisible);
                 Assert.AreEqual(0, FindDescendants<Button>(window)
                     .Count(button => button.DataContext is PlaylistLampViewerSegmentViewModel));
-                Assert.IsTrue(viewModel.SummaryCards.Any(card => card.Label == Resources.PlaylistLampViewer_total));
+                AssertRenderedStatisticOrder(
+                    window,
+                    new[]
+                    {
+                        Resources.PlaylistLampViewer_total,
+                        Resources.PlaylistLampViewer_owned,
+                        Resources.PlaylistLampViewer_missing,
+                        Resources.PlaylistLampViewer_ownership_rate,
+                        Resources.PlaylistLampViewer_score_source,
+                        Resources.PlaylistLampViewer_playlist_last_update
+                    });
             }
             finally
             {
@@ -695,16 +925,199 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         });
     }
 
-    private static void AssertFolderHalfOrder(Grid half, string barHostAutomationId)
+    private static void AssertFolderHalfGeometry(
+        Grid half,
+        PlaylistLampViewerFolderRowViewModel row,
+        string barHostAutomationId,
+        Window coordinateRoot)
     {
-        DependencyObject[] children = Enumerable.Range(0, VisualTreeHelper.GetChildrenCount(half))
-            .Select(index => VisualTreeHelper.GetChild(half, index))
+        TextBlock label = FindFolderLabelBlock(half, row);
+        Border bar = FindByAutomationId<Border>(half, barHostAutomationId);
+        TextBlock count = FindFolderCountBlock(half, row);
+        double labelRight = label.TranslatePoint(new Point(label.ActualWidth, 0), coordinateRoot).X;
+        double barLeft = bar.TranslatePoint(new Point(0, 0), coordinateRoot).X;
+        double barRight = bar.TranslatePoint(new Point(bar.ActualWidth, 0), coordinateRoot).X;
+        double countLeft = count.TranslatePoint(new Point(0, 0), coordinateRoot).X;
+        Assert.AreEqual(6d, barLeft - labelRight, 1d,
+            "folder label and bar are separated by the explicit six-DIP spacer");
+        Assert.AreEqual(6d, countLeft - barRight, 1d,
+            "folder bar and count are separated by the explicit six-DIP spacer");
+        Assert.IsTrue(count.ActualWidth > 0d, "folder count column must be arranged");
+    }
+
+    private static void AssertFolderBarsAlign(Border[] rows)
+    {
+        Assert.IsTrue(rows.Length > 0, "folder bar alignment requires at least one rendered row");
+        Grid firstClearHalf = FindByAutomationId<Grid>(rows[0], "PlaylistLampViewerClearFolderHalf");
+        Grid firstRankHalf = FindByAutomationId<Grid>(rows[0], "PlaylistLampViewerRankFolderHalf");
+        Border firstClearBar = FindByAutomationId<Border>(firstClearHalf, "PlaylistLampViewerClearFolderBarHost");
+        Border firstRankBar = FindByAutomationId<Border>(firstRankHalf, "PlaylistLampViewerRankFolderBarHost");
+        double firstClearBarLeft = firstClearBar.TranslatePoint(new Point(0, 0), firstClearHalf).X;
+        double firstRankBarLeft = firstRankBar.TranslatePoint(new Point(0, 0), firstRankHalf).X;
+        foreach (Border row in rows.Skip(1))
+        {
+            Grid clearHalf = FindByAutomationId<Grid>(row, "PlaylistLampViewerClearFolderHalf");
+            Grid rankHalf = FindByAutomationId<Grid>(row, "PlaylistLampViewerRankFolderHalf");
+            Border clearBar = FindByAutomationId<Border>(clearHalf, "PlaylistLampViewerClearFolderBarHost");
+            Border rankBar = FindByAutomationId<Border>(rankHalf, "PlaylistLampViewerRankFolderBarHost");
+            double clearBarLeft = clearBar.TranslatePoint(new Point(0, 0), clearHalf).X;
+            double rankBarLeft = rankBar.TranslatePoint(new Point(0, 0), rankHalf).X;
+            Assert.AreEqual(firstClearBarLeft, clearBarLeft, 1d,
+                "clear bars must share the live label/count column alignment across rows");
+            Assert.AreEqual(firstRankBarLeft, rankBarLeft, 1d,
+                "rank bars must share the live label/count column alignment across rows");
+            Assert.AreEqual(firstClearBar.ActualWidth, clearBar.ActualWidth, 1d,
+                "clear bars must share the live width across rows");
+            Assert.AreEqual(firstRankBar.ActualWidth, rankBar.ActualWidth, 1d,
+                "rank bars must share the live width across rows");
+        }
+        Assert.AreEqual(firstClearBarLeft, firstRankBarLeft, 1d,
+            "clear and rank bars must start at the same aligned column");
+        Assert.AreEqual(firstClearBar.ActualWidth, firstRankBar.ActualWidth, 1d,
+            "clear and rank bars must share the same aligned width");
+    }
+
+    private static TextBlock FindFolderLabelBlock(
+        DependencyObject root,
+        PlaylistLampViewerFolderRowViewModel row)
+        => FindDescendants<TextBlock>(root)
+            .Single(textBlock => textBlock.DataContext == row && textBlock.Text == row.FolderName);
+
+    private static TextBlock FindFolderCountBlock(
+        DependencyObject root,
+        PlaylistLampViewerFolderRowViewModel row)
+        => FindDescendants<TextBlock>(root)
+            .First(textBlock => textBlock.DataContext == row
+                && textBlock.Text == row.CountText
+                && AutomationProperties.GetAutomationId(textBlock) == "PlaylistLampViewerFolderCount");
+
+    private static IEnumerable<double> FindFolderCountColumnWidths(
+        Window window,
+        PlaylistLampViewerViewModel viewModel)
+    {
+        foreach (PlaylistLampViewerFolderRowViewModel row in viewModel.FolderRows)
+        {
+            Border rowElement = FindDescendants<Border>(window)
+                .Single(border => AutomationProperties.GetAutomationId(border) == "PlaylistLampViewerFolderRow"
+                    && border.DataContext == row);
+            yield return FindByAutomationId<Grid>(rowElement, "PlaylistLampViewerClearFolderHalf")
+                .ColumnDefinitions[4]
+                .ActualWidth;
+            yield return FindByAutomationId<Grid>(rowElement, "PlaylistLampViewerRankFolderHalf")
+                .ColumnDefinitions[4]
+                .ActualWidth;
+        }
+    }
+
+    private static void AssertContrastForeground(DependencyObject backgroundElement, Control foregroundElement)
+    {
+        Brush backgroundBrush = GetBackgroundBrush(backgroundElement);
+        Assert.IsInstanceOfType(backgroundBrush, typeof(SolidColorBrush));
+        Assert.IsInstanceOfType<SolidColorBrush>(foregroundElement.Foreground);
+        var background = (SolidColorBrush)backgroundBrush;
+        var foreground = (SolidColorBrush)foregroundElement.Foreground;
+        Assert.AreEqual(255, foreground.Color.A, "filled text must use an opaque foreground brush");
+        Assert.IsTrue(
+            foreground.Color == Colors.Black || foreground.Color == Colors.White,
+            "filled text must choose opaque black or white");
+        double backgroundLuminance = RelativeLuminance(background.Color);
+        double blackContrast = (backgroundLuminance + 0.05d) / 0.05d;
+        double whiteContrast = 1.05d / (backgroundLuminance + 0.05d);
+        Color expected = blackContrast >= whiteContrast ? Colors.Black : Colors.White;
+        Assert.AreEqual(expected, foreground.Color,
+            "filled text must choose the higher-contrast WCAG sRGB foreground");
+    }
+
+    private static void AssertContrastForeground(DependencyObject backgroundElement, TextBlock foregroundElement)
+    {
+        Brush backgroundBrush = GetBackgroundBrush(backgroundElement);
+        Assert.IsInstanceOfType(backgroundBrush, typeof(SolidColorBrush));
+        Assert.IsInstanceOfType<SolidColorBrush>(foregroundElement.Foreground);
+        var background = (SolidColorBrush)backgroundBrush;
+        var foreground = (SolidColorBrush)foregroundElement.Foreground;
+        Assert.AreEqual(255, foreground.Color.A);
+        Assert.IsTrue(foreground.Color == Colors.Black || foreground.Color == Colors.White);
+        double backgroundLuminance = RelativeLuminance(background.Color);
+        double blackContrast = (backgroundLuminance + 0.05d) / 0.05d;
+        double whiteContrast = 1.05d / (backgroundLuminance + 0.05d);
+        Color expected = blackContrast >= whiteContrast ? Colors.Black : Colors.White;
+        Assert.AreEqual(expected, foreground.Color);
+    }
+
+    private static void SetViewerPaletteBrush(
+        PlaylistLampViewerWindow window,
+        string resourceKey,
+        Color color)
+    {
+        window.Resources[resourceKey] = new SolidColorBrush(color);
+        TestUiDispatcherHost.Drain();
+        window.UpdateLayout();
+        TestUiDispatcherHost.Drain();
+        window.UpdateLayout();
+    }
+
+    private static void AssertControlledContrast(
+        Border legend,
+        Button segmentButton,
+        Color expectedBackground,
+        Color expectedForeground)
+    {
+        Assert.IsInstanceOfType(legend.Background, typeof(SolidColorBrush));
+        Assert.IsInstanceOfType(segmentButton.Background, typeof(SolidColorBrush));
+        var legendBrush = (SolidColorBrush)legend.Background;
+        var segmentBrush = (SolidColorBrush)segmentButton.Background;
+        Assert.AreEqual(expectedBackground, legendBrush.Color);
+        Assert.AreEqual(expectedBackground, segmentBrush.Color);
+        foreach (TextBlock label in FindDescendants<TextBlock>(legend))
+        {
+            AssertContrastForeground(legend, label);
+            Assert.IsInstanceOfType(label.Foreground, typeof(SolidColorBrush));
+            Assert.AreEqual(expectedForeground, ((SolidColorBrush)label.Foreground).Color);
+        }
+        AssertContrastForeground(segmentButton, segmentButton);
+        Assert.IsInstanceOfType(segmentButton.Foreground, typeof(SolidColorBrush));
+        Assert.AreEqual(expectedForeground, ((SolidColorBrush)segmentButton.Foreground).Color);
+    }
+
+    private static Brush GetBackgroundBrush(DependencyObject element)
+        => element switch
+        {
+            Border border => border.Background,
+            Control control => control.Background,
+            _ => null
+        };
+
+    private static double RelativeLuminance(Color color)
+    {
+        static double Linearize(byte channel)
+        {
+            double value = channel / 255d;
+            return value <= 0.03928d
+                ? value / 12.92d
+                : Math.Pow((value + 0.055d) / 1.055d, 2.4d);
+        }
+
+        return 0.2126d * Linearize(color.R)
+            + 0.7152d * Linearize(color.G)
+            + 0.0722d * Linearize(color.B);
+    }
+
+    private static void AssertRenderedStatisticOrder(Window window, string[] expectedLabels)
+    {
+        Border[] cards = FindDescendants<Border>(window)
+            .Where(border => border.DataContext is PlaylistLampViewerStatCardViewModel)
+            .OrderBy(border => border.TranslatePoint(new Point(0, 0), window).Y)
+            .ThenBy(border => border.TranslatePoint(new Point(0, 0), window).X)
             .ToArray();
-        Assert.IsTrue(children.Length >= 3, "folder half must contain label, bar, and count columns");
-        Assert.IsInstanceOfType<TextBlock>(children[0]);
-        Assert.IsInstanceOfType<Border>(children[1]);
-        Assert.IsInstanceOfType<TextBlock>(children[2]);
-        Assert.AreEqual(barHostAutomationId, AutomationProperties.GetAutomationId(children[1]));
+        Assert.AreEqual(expectedLabels.Length, cards.Length);
+        string[] actualLabels = cards
+            .Select(card => ((PlaylistLampViewerStatCardViewModel)card.DataContext).Label)
+            .ToArray();
+        CollectionAssert.AreEqual(expectedLabels, actualLabels);
+        double firstY = cards[0].TranslatePoint(new Point(0, 0), window).Y;
+        Assert.IsTrue(cards.All(card =>
+            Math.Abs(card.TranslatePoint(new Point(0, 0), window).Y - firstY) <= 1d),
+            "all statistics cards must be presented in one visual row");
     }
 
     private static void AssertBoundedHost(Border host)
@@ -969,6 +1382,56 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         return new PlaylistLampAggregationRequest(
             "playlist",
             folderNames ?? [],
+            entries,
+            scoreSnapshot,
+            new DateTime(2026, 8, 28, 1, 0, 0, DateTimeKind.Utc));
+    }
+
+    private static PlaylistLampAggregationRequest CreateCountWidthRequest(int entryCount, string folderName)
+    {
+        string smallFolderName = folderName + "-small";
+        var score = new PlaylistLampScore(
+            "count-width-hash",
+            "count-width-sha",
+            ClearType.HARD,
+            RankType.A,
+            50,
+            50,
+            100,
+            1);
+        var bySha256 = new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase)
+        {
+            [score.Sha256] = score
+        };
+        PlaylistLampEntrySnapshot[] entries = Enumerable.Range(0, entryCount)
+            .Select(index => new PlaylistLampEntrySnapshot(
+                folderName,
+                "count-width-entry-" + index.ToString(CultureInfo.InvariantCulture),
+                true,
+                md5: score.Hash,
+                sha256: score.Sha256,
+                resolvedMd5: score.Hash,
+                resolvedSha256: score.Sha256))
+            .Append(new PlaylistLampEntrySnapshot(
+                smallFolderName,
+                "count-width-small-entry",
+                true,
+                md5: score.Hash,
+                sha256: score.Sha256,
+                resolvedMd5: score.Hash,
+                resolvedSha256: score.Sha256))
+            .ToArray();
+        var scoreSnapshot = new PlaylistLampScoreSnapshot(
+            ActiveScoreSource.Beatoraja,
+            ScoreTableLoadStatus.Loaded,
+            1,
+            1,
+            new DateTime(2026, 8, 28, 1, 2, 3, DateTimeKind.Utc),
+            null,
+            bySha256);
+        return new PlaylistLampAggregationRequest(
+            "playlist",
+            [folderName, smallFolderName],
             entries,
             scoreSnapshot,
             new DateTime(2026, 8, 28, 1, 0, 0, DateTimeKind.Utc));

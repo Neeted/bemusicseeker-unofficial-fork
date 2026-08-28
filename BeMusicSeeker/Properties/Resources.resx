@@ -3210,7 +3210,6 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_segment_unavailable_detail_format" xml:space="preserve"><value>{0}: {1}（{2}）</value></data>
   <data name="PlaylistLampViewer_percentage_format" xml:space="preserve"><value>{0:N2}%</value></data>
   <data name="PlaylistLampViewer_percentage_less_than_format" xml:space="preserve"><value>{0}未満</value></data>
-  <data name="PlaylistLampViewer_folder_count_format" xml:space="preserve"><value>{0} 譜面</value></data>
   <data name="PlaylistLampViewer_source_lr2" xml:space="preserve"><value>LR2</value></data>
   <data name="PlaylistLampViewer_source_beatoraja" xml:space="preserve"><value>beatoraja</value></data>
   <data name="PlaylistLampViewer_source_none" xml:space="preserve"><value>なし</value></data>

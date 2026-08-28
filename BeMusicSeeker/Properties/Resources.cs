@@ -2176,9 +2176,6 @@ public class Resources
     /// <summary>Localized lower-bound format for a positive percentage below display precision.</summary>
     public static string PlaylistLampViewer_percentage_less_than_format => ResourceManager.GetString("PlaylistLampViewer_percentage_less_than_format", resourceCulture);
 
-    /// <summary>Localized folder count format.</summary>
-    public static string PlaylistLampViewer_folder_count_format => ResourceManager.GetString("PlaylistLampViewer_folder_count_format", resourceCulture);
-
     /// <summary>LR2 score-source label.</summary>
     public static string PlaylistLampViewer_source_lr2 => ResourceManager.GetString("PlaylistLampViewer_source_lr2", resourceCulture);
 

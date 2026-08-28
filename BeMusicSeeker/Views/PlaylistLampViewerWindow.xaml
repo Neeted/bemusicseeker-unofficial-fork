@@ -5,7 +5,7 @@
  xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
  xmlns:views="clr-namespace:BeMusicSeeker.Views"
  x:Name="lampViewerWindow"
- Width="1500"
+ Width="1290"
  Height="820"
  MinWidth="820"
  MinHeight="560"
@@ -17,6 +17,7 @@
     <ResourceDictionary>
       <BooleanToVisibilityConverter x:Key="lampBoolVisibility" />
       <views:PlaylistLampSegmentPercentageLabelConverter x:Key="lampSegmentPercentageLabelConverter" />
+      <views:PlaylistLampContrastForegroundConverter x:Key="lampContrastForegroundConverter" />
 
       <!-- The palette is intentionally local to the viewer. DynamicResource lookups let the
            surrounding theme replace these brushes without rebuilding the projection. -->
@@ -46,7 +47,7 @@
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="5" />
         <Setter Property="Padding" Value="12,8" />
-        <Setter Property="Margin" Value="0,0,8,8" />
+        <Setter Property="Margin" Value="0,0,6,8" />
       </Style>
       <Style x:Key="lampBarButtonStyle" TargetType="{x:Type Button}">
         <Setter Property="Padding" Value="0" />
@@ -54,7 +55,6 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="BorderBrush" Value="Transparent" />
         <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
-        <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
@@ -81,7 +81,6 @@
           <DataTrigger Binding="{Binding IsSelected}" Value="True">
             <Setter Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
             <Setter Property="BorderThickness" Value="2" />
-            <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
             <Setter Property="FontWeight" Value="Bold" />
           </DataTrigger>
         </Style.Triggers>
@@ -93,8 +92,8 @@
         <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="3" />
-        <Setter Property="Padding" Value="6,3" />
-        <Setter Property="Margin" Value="0,0,5,5" />
+        <Setter Property="Padding" Value="4,2" />
+        <Setter Property="Margin" Value="0,0,3,3" />
         <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
         <Style.Triggers>
           <DataTrigger Binding="{Binding PaletteKey}" Value="Clear.MAX"><Setter Property="Background" Value="{DynamicResource PlaylistLamp.Clear.MAX}" /></DataTrigger>
@@ -119,7 +118,9 @@
         </Style.Triggers>
       </Style>
       <DataTemplate x:Key="lampStatCardTemplate">
-        <Border Style="{StaticResource lampCardStyle}" MinWidth="118">
+        <Border Style="{StaticResource lampCardStyle}"
+                Width="{Binding CardWidth}"
+                AutomationProperties.AutomationId="PlaylistLampViewerStatCard">
           <StackPanel>
             <TextBlock Text="{Binding Label}" Foreground="{DynamicResource App.SubtleTextBrush}" FontSize="11" TextWrapping="Wrap" />
             <TextBlock Text="{Binding Value}" Foreground="{DynamicResource App.TextBrush}" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" TextWrapping="Wrap" />
@@ -131,13 +132,18 @@
                 AutomationProperties.Name="{Binding DetailText}"
                 AutomationProperties.AutomationId="PlaylistLampViewerLegend">
           <StackPanel Orientation="Horizontal">
-            <TextBlock Text="{Binding Label}" Foreground="{DynamicResource App.TextBrush}" FontWeight="SemiBold" />
-            <TextBlock Text="{Binding Count}" Foreground="{DynamicResource App.SubtleTextBrush}" Margin="7,0,0,0" />
+            <TextBlock Text="{Binding Label}"
+                       Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Border}}, Path=Background, Converter={StaticResource lampContrastForegroundConverter}}"
+                       FontWeight="SemiBold" />
+            <TextBlock Text="{Binding Count}"
+                       Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Border}}, Path=Background, Converter={StaticResource lampContrastForegroundConverter}}"
+                       Margin="7,0,0,0" />
           </StackPanel>
         </Border>
       </DataTemplate>
       <DataTemplate x:Key="lampBarTemplate">
         <Button Style="{StaticResource lampBarButtonStyle}"
+                Foreground="{Binding RelativeSource={RelativeSource Self}, Path=Background, Converter={StaticResource lampContrastForegroundConverter}}"
                 Visibility="{Binding BarVisibility}"
                 IsEnabled="{Binding IsInvokable}"
                 ToolTip="{Binding DetailText}"
@@ -166,30 +172,34 @@
             <Grid Grid.Column="0" Margin="0,0,8,0" AutomationProperties.AutomationId="PlaylistLampViewerClearFolderHalf">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="{Binding ElementName=lampViewerWindow, Path=FolderLabelColumnWidth}" />
+                <ColumnDefinition Width="6" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="{Binding ElementName=lampViewerWindow, Path=FolderCountColumnWidth}" />
               </Grid.ColumnDefinitions>
-              <TextBlock Grid.Column="0" Text="{Binding FolderName}" Foreground="{DynamicResource App.TextBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding FolderName}" VerticalAlignment="Center" />
-              <Border Grid.Column="1" Height="22" Margin="0,0,6,0" BorderThickness="0" Background="{DynamicResource App.SurfaceBrush}" AutomationProperties.AutomationId="PlaylistLampViewerClearFolderBarHost">
+              <TextBlock Grid.Column="0" Text="{Binding FolderName}" Foreground="{DynamicResource App.TextBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding FolderName}" VerticalAlignment="Center" AutomationProperties.AutomationId="PlaylistLampViewerFolderLabel" />
+              <Border Grid.Column="2" Height="22" BorderThickness="0" Background="{DynamicResource App.SurfaceBrush}" AutomationProperties.AutomationId="PlaylistLampViewerClearFolderBarHost">
                 <ItemsControl ItemsSource="{Binding PositiveClearSegments}" ItemTemplate="{StaticResource lampBarTemplate}" ItemContainerStyle="{StaticResource lampWeightedSegmentContainerStyle}">
                   <ItemsControl.ItemsPanel><ItemsPanelTemplate><views:PlaylistLampWeightedStackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                 </ItemsControl>
               </Border>
-              <TextBlock Grid.Column="2" Text="{Binding CountText}" Foreground="{DynamicResource App.SubtleTextBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" />
+              <TextBlock Grid.Column="4" Width="{Binding ElementName=lampViewerWindow, Path=FolderCountColumnWidth}" Text="{Binding CountText}" Foreground="{DynamicResource App.SubtleTextBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" TextAlignment="Right" AutomationProperties.AutomationId="PlaylistLampViewerFolderCount" />
             </Grid>
             <Grid Grid.Column="1" Margin="8,0,0,0" AutomationProperties.AutomationId="PlaylistLampViewerRankFolderHalf">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="{Binding ElementName=lampViewerWindow, Path=FolderLabelColumnWidth}" />
+                <ColumnDefinition Width="6" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="{Binding ElementName=lampViewerWindow, Path=FolderCountColumnWidth}" />
               </Grid.ColumnDefinitions>
-              <TextBlock Grid.Column="0" Text="{Binding FolderName}" Foreground="{DynamicResource App.TextBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding FolderName}" VerticalAlignment="Center" />
-              <Border Grid.Column="1" Height="22" Margin="0,0,6,0" BorderThickness="0" Background="{DynamicResource App.SurfaceBrush}" AutomationProperties.AutomationId="PlaylistLampViewerRankFolderBarHost">
+              <TextBlock Grid.Column="0" Text="{Binding FolderName}" Foreground="{DynamicResource App.TextBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding FolderName}" VerticalAlignment="Center" AutomationProperties.AutomationId="PlaylistLampViewerFolderLabel" />
+              <Border Grid.Column="2" Height="22" BorderThickness="0" Background="{DynamicResource App.SurfaceBrush}" AutomationProperties.AutomationId="PlaylistLampViewerRankFolderBarHost">
                 <ItemsControl ItemsSource="{Binding PositiveRankSegments}" ItemTemplate="{StaticResource lampBarTemplate}" ItemContainerStyle="{StaticResource lampWeightedSegmentContainerStyle}">
                   <ItemsControl.ItemsPanel><ItemsPanelTemplate><views:PlaylistLampWeightedStackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                 </ItemsControl>
               </Border>
-              <TextBlock Grid.Column="2" Text="{Binding CountText}" Foreground="{DynamicResource App.SubtleTextBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" />
+              <TextBlock Grid.Column="4" Width="{Binding ElementName=lampViewerWindow, Path=FolderCountColumnWidth}" Text="{Binding CountText}" Foreground="{DynamicResource App.SubtleTextBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" TextAlignment="Right" AutomationProperties.AutomationId="PlaylistLampViewerFolderCount" />
             </Grid>
           </Grid>
         </Border>
@@ -201,17 +211,13 @@
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
-        <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
       </Grid.RowDefinitions>
       <TextBlock Grid.Row="0" Text="{Binding PlaylistName}" FontSize="18" FontWeight="SemiBold" Margin="18,15,18,8" Foreground="{DynamicResource App.TextBrush}" />
-      <ItemsControl Grid.Row="1" Margin="18,0,10,0" ItemsSource="{Binding SummaryCards}" ItemTemplate="{StaticResource lampStatCardTemplate}">
+      <ItemsControl Grid.Row="1" Margin="18,0,10,0" ItemsSource="{Binding StatisticsCards}" ItemTemplate="{StaticResource lampStatCardTemplate}">
         <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
       </ItemsControl>
-      <ItemsControl Grid.Row="2" Margin="18,0,10,0" ItemsSource="{Binding ScoreCards}" ItemTemplate="{StaticResource lampStatCardTemplate}" Visibility="{Binding IsScoreCardsVisible, Converter={StaticResource lampBoolVisibility}}">
-        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-      </ItemsControl>
-      <Grid Grid.Row="3" Margin="18,4,18,15" Visibility="{Binding IsGraphVisible, Converter={StaticResource lampBoolVisibility}}">
+      <Grid Grid.Row="2" Margin="18,4,18,15" Visibility="{Binding IsGraphVisible, Converter={StaticResource lampBoolVisibility}}">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
@@ -246,7 +252,7 @@
             </ItemsControl>
           </Border>
         </Grid>
-          <Border Grid.Row="2" BorderThickness="0" Margin="0" />
+        <Border Grid.Row="2" BorderThickness="0" Margin="0" />
         <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="True" AutomationProperties.AutomationId="PlaylistLampViewerFolderScrollViewer">
           <ItemsControl ItemsSource="{Binding FolderRows}" ItemTemplate="{StaticResource lampFolderTemplate}">
             <ItemsControl.ItemsPanel>

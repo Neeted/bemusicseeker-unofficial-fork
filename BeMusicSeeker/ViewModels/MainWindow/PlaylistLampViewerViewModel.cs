@@ -133,9 +133,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
 
     private readonly ObservableCollection<PlaylistLampViewerFolderRowViewModel> folderRows = [];
 
-    private readonly ObservableCollection<PlaylistLampViewerStatCardViewModel> summaryCards = [];
-
-    private readonly ObservableCollection<PlaylistLampViewerStatCardViewModel> scoreCards = [];
+    private readonly ObservableCollection<PlaylistLampViewerStatCardViewModel> statisticsCards = [];
 
     private readonly TaskCompletionSource<PlaylistLampAggregationResult> firstPresentable =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -231,10 +229,6 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     public bool IsGraphVisible => (State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty)
         && IsScoreDataAvailable;
 
-    /// <summary>Whether score-dependent cards can be displayed.</summary>
-    public bool IsScoreCardsVisible => IsScoreDataAvailable
-        && (State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty);
-
     /// <summary>Whether folder rows are available to display.</summary>
     public bool HasFolderRows => folderRows.Count > 0;
 
@@ -255,11 +249,12 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     /// <summary>Current normal-folder rows in source order.</summary>
     public ObservableCollection<PlaylistLampViewerFolderRowViewModel> FolderRows => folderRows;
 
-    /// <summary>Score-independent summary cards.</summary>
-    public ObservableCollection<PlaylistLampViewerStatCardViewModel> SummaryCards => summaryCards;
-
-    /// <summary>Score-dependent statistic cards.</summary>
-    public ObservableCollection<PlaylistLampViewerStatCardViewModel> ScoreCards => scoreCards;
+    /// <summary>
+    /// Current statistics in their visual and semantic order. Score-dependent cards are
+    /// omitted when the score source is unavailable or failed, while playlist last update
+    /// remains the final card in either state.
+    /// </summary>
+    public ObservableCollection<PlaylistLampViewerStatCardViewModel> StatisticsCards => statisticsCards;
 
     /// <summary>Currently selected folder segment in this window.</summary>
     public PlaylistLampViewerSegmentViewModel SelectedSegment => selectedSegment;
@@ -378,8 +373,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         clearSegments.Clear();
         rankSegments.Clear();
         folderRows.Clear();
-        summaryCards.Clear();
-        scoreCards.Clear();
+        statisticsCards.Clear();
 
         if (next.State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty
             && next.ScoreDataAvailable)
@@ -402,11 +396,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             }
         }
 
-        AddSummaryCards(next);
-        if (IsScoreCardsVisible)
-        {
-            AddScoreCards(next);
-        }
+        AddStatisticsCards(next);
         if (next.State is not PlaylistLampViewerState.Loading)
         {
             firstPresentable.TrySetResult(next);
@@ -428,30 +418,35 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
                     and not PlaylistLampClearCategory.EXHARD));
     }
 
-    private void AddSummaryCards(PlaylistLampAggregationResult next)
+    private void AddStatisticsCards(PlaylistLampAggregationResult next)
     {
         PlaylistLampStatistics statistics = next.Statistics;
-        summaryCards.Add(Card(Resources.PlaylistLampViewer_total, FormatCount(statistics?.TotalCount)));
-        summaryCards.Add(Card(Resources.PlaylistLampViewer_owned, FormatCount(statistics?.OwnedCount)));
-        summaryCards.Add(Card(Resources.PlaylistLampViewer_missing, FormatCount(statistics?.MissingCount)));
-        summaryCards.Add(Card(Resources.PlaylistLampViewer_ownership_rate, FormatPercentage(statistics?.OwnershipPercentage)));
-        summaryCards.Add(Card(Resources.PlaylistLampViewer_score_source, ScoreSourceText));
-        summaryCards.Add(Card(Resources.PlaylistLampViewer_playlist_last_update, FormatTimestamp(statistics?.PlaylistLastUpdatedUtc)));
+        statisticsCards.Add(Card(Resources.PlaylistLampViewer_total, FormatCount(statistics?.TotalCount)));
+        statisticsCards.Add(Card(Resources.PlaylistLampViewer_owned, FormatCount(statistics?.OwnedCount)));
+        statisticsCards.Add(Card(Resources.PlaylistLampViewer_missing, FormatCount(statistics?.MissingCount)));
+        statisticsCards.Add(Card(Resources.PlaylistLampViewer_ownership_rate, FormatPercentage(statistics?.OwnershipPercentage)));
+        statisticsCards.Add(Card(Resources.PlaylistLampViewer_score_source, ScoreSourceText));
+        if (next.ScoreDataAvailable
+            && (next.State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty))
+        {
+            statisticsCards.Add(Card(Resources.PlaylistLampViewer_played, FormatCount(statistics?.PlayedCount)));
+            statisticsCards.Add(Card(Resources.PlaylistLampViewer_no_play, FormatCount(statistics?.UnplayedCount)));
+            statisticsCards.Add(Card(Resources.PlaylistLampViewer_play_rate, FormatPercentage(statistics?.PlayPercentage)));
+            statisticsCards.Add(Card(Resources.PlaylistLampViewer_average_ex_rate, FormatPercentage(statistics?.AverageExRatePercentage)));
+            statisticsCards.Add(Card(Resources.PlaylistLampViewer_clear_rate, FormatPercentage(statistics?.ClearPercentage)));
+        }
+        statisticsCards.Add(Card(
+            Resources.PlaylistLampViewer_playlist_last_update,
+            FormatTimestamp(statistics?.PlaylistLastUpdatedUtc),
+            isWide: true));
     }
 
-    private void AddScoreCards(PlaylistLampAggregationResult next)
+    private static PlaylistLampViewerStatCardViewModel Card(
+        string label,
+        string value,
+        bool isWide = false)
     {
-        PlaylistLampStatistics statistics = next.Statistics;
-        scoreCards.Add(Card(Resources.PlaylistLampViewer_played, FormatCount(statistics?.PlayedCount)));
-        scoreCards.Add(Card(Resources.PlaylistLampViewer_no_play, FormatCount(statistics?.UnplayedCount)));
-        scoreCards.Add(Card(Resources.PlaylistLampViewer_play_rate, FormatPercentage(statistics?.PlayPercentage)));
-        scoreCards.Add(Card(Resources.PlaylistLampViewer_average_ex_rate, FormatPercentage(statistics?.AverageExRatePercentage)));
-        scoreCards.Add(Card(Resources.PlaylistLampViewer_clear_rate, FormatPercentage(statistics?.ClearPercentage)));
-    }
-
-    private static PlaylistLampViewerStatCardViewModel Card(string label, string value)
-    {
-        return new PlaylistLampViewerStatCardViewModel(label, value);
+        return new PlaylistLampViewerStatCardViewModel(label, value, isWide);
     }
 
     private static string FormatCount(int? value)
@@ -731,23 +726,26 @@ internal sealed class PlaylistLampViewerFolderRowViewModel : ViewModel
     public IEnumerable<PlaylistLampViewerSegmentViewModel> PositiveRankSegments
         => RankSegments.Where(segment => segment.HasPositiveWidth);
 
-    /// <summary>Localized folder chart-count label.</summary>
-    public string CountText => string.Format(
-        CultureInfo.CurrentCulture,
-        Resources.PlaylistLampViewer_folder_count_format,
-        Count);
+    /// <summary>Localized numeric folder chart count using the current culture's N0 format.</summary>
+    public string CountText => Count.ToString("N0", CultureInfo.CurrentCulture);
 }
 
 /// <summary>One visible statistic card in the lamp viewer.</summary>
 internal sealed class PlaylistLampViewerStatCardViewModel
 {
+    private const double RegularCardWidth = 100d;
+
+    private const double WideCardWidth = 180d;
+
     /// <summary>Creates a statistic card.</summary>
     /// <param name="label">Localized card label.</param>
     /// <param name="value">Localized card value.</param>
-    internal PlaylistLampViewerStatCardViewModel(string label, string value)
+    /// <param name="isWide">Whether the card has the wider last-update layout role.</param>
+    internal PlaylistLampViewerStatCardViewModel(string label, string value, bool isWide = false)
     {
         Label = label ?? string.Empty;
         Value = value ?? string.Empty;
+        IsWideLayout = isWide;
     }
 
     /// <summary>Localized label.</summary>
@@ -755,6 +753,12 @@ internal sealed class PlaylistLampViewerStatCardViewModel
 
     /// <summary>Localized value.</summary>
     public string Value { get; }
+
+    /// <summary>Whether this card uses the wider semantic layout role.</summary>
+    public bool IsWideLayout { get; }
+
+    /// <summary>Width assigned to this card's rendered layout role.</summary>
+    public double CardWidth => IsWideLayout ? WideCardWidth : RegularCardWidth;
 }
 
 /// <summary>Localized labels for semantic lamp categories.</summary>

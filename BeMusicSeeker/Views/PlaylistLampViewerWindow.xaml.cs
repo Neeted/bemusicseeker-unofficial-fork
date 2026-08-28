@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.Linq;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
@@ -25,7 +26,7 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
 
     private readonly PlaylistLampViewerViewModel viewModel;
 
-    private DispatcherOperation folderLabelWidthUpdate;
+    private DispatcherOperation folderColumnWidthUpdate;
 
     private bool isFolderRowsSubscribed;
 
@@ -42,6 +43,18 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
             typeof(double),
             typeof(PlaylistLampViewerWindow),
             new FrameworkPropertyMetadata(MaximumFolderLabelColumnWidth));
+
+    /// <summary>
+    /// Gets the shared width of the clear and rank folder-count columns.
+    /// The view measures the current localized numeric count text and caps it at the
+    /// width needed for the localized N0 representation of 9999.
+    /// </summary>
+    public static readonly DependencyProperty FolderCountColumnWidthProperty =
+        DependencyProperty.Register(
+            nameof(FolderCountColumnWidth),
+            typeof(double),
+            typeof(PlaylistLampViewerWindow),
+            new FrameworkPropertyMetadata(0d));
 
     /// <summary>Creates a viewer owned by the supplied main window.</summary>
     /// <param name="owner">Main-window shell.</param>
@@ -68,6 +81,13 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
         private set => SetValue(FolderLabelColumnWidthProperty, value);
     }
 
+    /// <summary>Gets or sets the width shared by both folder-count columns.</summary>
+    public double FolderCountColumnWidth
+    {
+        get => (double)GetValue(FolderCountColumnWidthProperty);
+        private set => SetValue(FolderCountColumnWidthProperty, value);
+    }
+
     private void SegmentClick(object sender, RoutedEventArgs e)
     {
         if (sender is Button { DataContext: PlaylistLampViewerSegmentViewModel segment })
@@ -79,25 +99,25 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
     private void WindowLoaded(object sender, RoutedEventArgs e)
     {
         SubscribeFolderRows();
-        QueueFolderLabelWidthUpdate();
+        QueueFolderColumnWidthUpdate();
     }
 
     private void WindowUnloaded(object sender, RoutedEventArgs e)
     {
         UnsubscribeFolderRows();
-        CancelFolderLabelWidthUpdate();
+        CancelFolderColumnWidthUpdate();
     }
 
     private void WindowContentRendered(object sender, EventArgs e)
     {
-        UpdateFolderLabelColumnWidth();
+        UpdateFolderColumnWidths();
     }
 
     private void WindowClosed(object sender, EventArgs e)
     {
         isClosed = true;
         UnsubscribeFolderRows();
-        CancelFolderLabelWidthUpdate();
+        CancelFolderColumnWidthUpdate();
     }
 
     private void SubscribeFolderRows()
@@ -122,26 +142,26 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
 
     private void FolderRowsChanged(object sender, NotifyCollectionChangedEventArgs e)
     {
-        QueueFolderLabelWidthUpdate();
+        QueueFolderColumnWidthUpdate();
     }
 
-    private void QueueFolderLabelWidthUpdate()
+    private void QueueFolderColumnWidthUpdate()
     {
         if (isClosed || !IsLoaded || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
             return;
         }
-        CancelFolderLabelWidthUpdate();
+        CancelFolderColumnWidthUpdate();
         try
         {
-            folderLabelWidthUpdate = Dispatcher.BeginInvoke(
+            folderColumnWidthUpdate = Dispatcher.BeginInvoke(
                 DispatcherPriority.Render,
                 new Action(() =>
                 {
-                    folderLabelWidthUpdate = null;
+                    folderColumnWidthUpdate = null;
                     if (!isClosed && IsLoaded)
                     {
-                        UpdateFolderLabelColumnWidth();
+                        UpdateFolderColumnWidths();
                     }
                 }));
         }
@@ -151,59 +171,108 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
         }
     }
 
-    private void CancelFolderLabelWidthUpdate()
+    private void CancelFolderColumnWidthUpdate()
     {
-        if (folderLabelWidthUpdate == null)
+        if (folderColumnWidthUpdate == null)
         {
             return;
         }
         try
         {
-            folderLabelWidthUpdate.Abort();
+            folderColumnWidthUpdate.Abort();
         }
         catch (InvalidOperationException)
         {
         }
-        folderLabelWidthUpdate = null;
+        folderColumnWidthUpdate = null;
     }
 
-    private void UpdateFolderLabelColumnWidth()
+    private void UpdateFolderColumnWidths()
     {
         if (isClosed || !IsLoaded)
         {
             return;
         }
-        TextBlock formatSource = FindDescendants<TextBlock>(this)
-            .FirstOrDefault(textBlock => textBlock.DataContext is PlaylistLampViewerFolderRowViewModel);
+        TextBlock labelFormatSource = FindDescendants<TextBlock>(this)
+            .FirstOrDefault(textBlock =>
+                textBlock.DataContext is PlaylistLampViewerFolderRowViewModel
+                && AutomationProperties.GetAutomationId(textBlock) == "PlaylistLampViewerFolderLabel");
+        TextBlock countFormatSource = FindDescendants<TextBlock>(this)
+            .FirstOrDefault(textBlock =>
+                textBlock.DataContext is PlaylistLampViewerFolderRowViewModel
+                && AutomationProperties.GetAutomationId(textBlock) == "PlaylistLampViewerFolderCount");
+
+        double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        double maximumLabelWidth = MeasureFolderTextColumn(
+            labelFormatSource,
+            row => row.FolderName,
+            fallbackFontWeight: FontWeights.SemiBold,
+            pixelsPerDip);
+        double maximumCountWidth = MeasureFolderTextColumn(
+            countFormatSource,
+            row => row.CountText,
+            fallbackFontWeight: FontWeights.Normal,
+            pixelsPerDip);
+        double countCapWidth = MeasureFolderText(
+            countFormatSource,
+            9999.ToString("N0", CultureInfo.CurrentCulture),
+            fallbackFontWeight: FontWeights.Normal,
+            pixelsPerDip);
+
+        FolderLabelColumnWidth = Math.Min(MaximumFolderLabelColumnWidth, maximumLabelWidth);
+        FolderCountColumnWidth = Math.Min(maximumCountWidth, countCapWidth);
+    }
+
+    private double MeasureFolderTextColumn(
+        TextBlock formatSource,
+        Func<PlaylistLampViewerFolderRowViewModel, string> textSelector,
+        FontWeight fallbackFontWeight,
+        double pixelsPerDip)
+    {
+        double maximumWidth = 0d;
+        foreach (PlaylistLampViewerFolderRowViewModel row in viewModel.FolderRows)
+        {
+            if (row == null)
+            {
+                continue;
+            }
+            string text = textSelector(row);
+            if (string.IsNullOrEmpty(text))
+            {
+                continue;
+            }
+            maximumWidth = Math.Max(
+                maximumWidth,
+                MeasureFolderText(formatSource, text, fallbackFontWeight, pixelsPerDip));
+        }
+        return maximumWidth;
+    }
+
+    private double MeasureFolderText(
+        TextBlock formatSource,
+        string text,
+        FontWeight fallbackFontWeight,
+        double pixelsPerDip)
+    {
         FontFamily fontFamily = formatSource?.FontFamily ?? new FontFamily("Segoe UI");
         FontStyle fontStyle = formatSource?.FontStyle ?? FontStyles.Normal;
-        FontWeight fontWeight = formatSource?.FontWeight ?? FontWeights.SemiBold;
+        FontWeight fontWeight = formatSource?.FontWeight ?? fallbackFontWeight;
         FontStretch fontStretch = formatSource?.FontStretch ?? FontStretches.Normal;
         double fontSize = formatSource != null && formatSource.FontSize > 0d
             ? formatSource.FontSize
             : 12d;
-        double pixelsPerDip = formatSource != null
-            ? VisualTreeHelper.GetDpi(formatSource).PixelsPerDip
-            : VisualTreeHelper.GetDpi(this).PixelsPerDip;
         var typeface = new Typeface(fontFamily, fontStyle, fontWeight, fontStretch);
-        double maximumWidth = 0d;
-        foreach (PlaylistLampViewerFolderRowViewModel row in viewModel.FolderRows)
-        {
-            if (row == null || string.IsNullOrEmpty(row.FolderName))
-            {
-                continue;
-            }
-            var text = new FormattedText(
-                row.FolderName,
-                CultureInfo.CurrentCulture,
-                FlowDirection.LeftToRight,
-                typeface,
-                fontSize,
-                Brushes.Black,
-                pixelsPerDip);
-            maximumWidth = Math.Max(maximumWidth, text.WidthIncludingTrailingWhitespace);
-        }
-        FolderLabelColumnWidth = Math.Min(MaximumFolderLabelColumnWidth, maximumWidth);
+        var measuredText = new FormattedText(
+            text ?? string.Empty,
+            CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight,
+            typeface,
+            fontSize,
+            Brushes.Black,
+            formatSource != null
+                ? VisualTreeHelper.GetDpi(formatSource).PixelsPerDip
+                : pixelsPerDip);
+        return measuredText.WidthIncludingTrailingWhitespace;
     }
 
     private static IEnumerable<T> FindDescendants<T>(DependencyObject root)
@@ -225,6 +294,57 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
                 yield return descendant;
             }
         }
+    }
+}
+
+/// <summary>
+/// Chooses an opaque black or white foreground for a filled viewer element by comparing
+/// the WCAG sRGB relative luminance contrast of each candidate against its resolved
+/// solid-color background.
+/// </summary>
+public sealed class PlaylistLampContrastForegroundConverter : IValueConverter
+{
+    /// <summary>Returns the higher-contrast opaque foreground brush.</summary>
+    /// <param name="value">The resolved element background.</param>
+    /// <param name="targetType">Binding target type.</param>
+    /// <param name="parameter">Unused binding parameter.</param>
+    /// <param name="culture">Unused binding culture.</param>
+    /// <returns>An opaque black or white brush.</returns>
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value is not SolidColorBrush { Color.A: 255 } background)
+        {
+            return Brushes.Black;
+        }
+
+        double luminance = RelativeLuminance(background.Color);
+        double blackContrast = (luminance + 0.05d) / 0.05d;
+        double whiteContrast = 1.05d / (luminance + 0.05d);
+        return blackContrast >= whiteContrast ? Brushes.Black : Brushes.White;
+    }
+
+    /// <summary>One-way converter; reverse conversion is unsupported.</summary>
+    /// <param name="value">Unused target value.</param>
+    /// <param name="targetTypes">Unused source types.</param>
+    /// <param name="parameter">Unused binding parameter.</param>
+    /// <param name="culture">Unused binding culture.</param>
+    /// <returns>Never returns.</returns>
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+
+    private static double RelativeLuminance(Color color)
+    {
+        static double Linearize(byte channel)
+        {
+            double value = channel / 255d;
+            return value <= 0.03928d
+                ? value / 12.92d
+                : Math.Pow((value + 0.055d) / 1.055d, 2.4d);
+        }
+
+        return 0.2126d * Linearize(color.R)
+            + 0.7152d * Linearize(color.G)
+            + 0.0722d * Linearize(color.B);
     }
 }
 

@@ -10,17 +10,20 @@ not reuse the retired fixed external URL route.
 
 Every command invocation creates a fresh `ThemedWindow`, owned by the main
 window. Windows are modeless and multiple instances for the same playlist are
-allowed. The top of the window contains score-independent cards for total,
-owned, missing, ownership rate, active score source, and playlist last update.
-When score data is available, a second card group contains played, unplayed,
-play rate, average EX score rate, and whole-playlist clear rate.
+allowed. The top of the window contains one ordered statistics collection. Its
+score-independent cards are total, owned, missing, ownership rate, active
+score source, and playlist last update. When score data is available, played,
+unplayed, play rate, average EX score rate, and whole-playlist clear rate are
+inserted before the final playlist last-update card. When score data is not
+available, those score-dependent cards are omitted.
 
 The graph area is split into two equal, aligned halves: clear lamp on the left
 and DJ rank on the right. Each half has its own heading, visible legend, and
 bounded 100%-stacked bar. Below the global bars, one shared vertical
 `ScrollViewer`/virtualized item collection presents normal folders in the
 playlist's folder order. Every folder row has aligned clear and rank halves,
-each with `folder label | bar | chart count`. Empty normal folders remain
+each with `folder label | 6-DIP spacer | bar | 6-DIP spacer | chart count`.
+Empty normal folders remain
 visible with a zero count; no synthetic `[NO SONG]` row is rendered.
 
 The bars use a retained weighted WPF panel. Positive segments are standard
@@ -36,10 +39,13 @@ segment has a visible non-color border and heavier text while its siblings stay
 unselected; it remains a standard keyboard/UI Automation `Button`. The folder
 label column is measured from the rendered label typeface over the current live
 normal-folder rows, shared by the clear and rank halves, and capped at 170 DIPs.
-Labels beyond the cap use ellipsis and retain their complete tooltip. Folder
-rows have no separator and use a compact pitch that keeps adjacent bars
-non-overlapping. The default window width presents the complete clear legend
-from `MAX` through `NP` on one row; a narrower resize may wrap it.
+The count column is a separate shared live column measured from every localized
+numeric `CountText` in both halves, capped at the rendered localized `N0(9999)`
+width. Both columns recompute after folder rows refresh. Labels beyond the cap
+use ellipsis and retain their complete tooltip. Folder rows have no separator
+and use a compact pitch that keeps adjacent bars non-overlapping. The default
+window width is 1290 DIPs and presents the complete clear legend from `MAX`
+through `NP` on one row; a narrower resize may wrap it.
 
 Each positive segment exposes a localized label and count in the visible legend.
 When a segment is wide enough to contain it, the bar also shows the complete
@@ -95,16 +101,12 @@ status/retry control is used.
 
 The aggregation uses active real entries only. Global graph denominators and
 whole-playlist rates use `total`; folder graph denominators use each folder's
-real-entry count. The cards are:
-
-- `total`, `owned`, and `missing`;
-- ownership rate `owned / total`;
-- active score source and playlist last update;
-- `played` and `unplayed` counts;
-- play rate `played / total`;
-- arithmetic average EX score rate over played entries; and
-- whole-playlist clear rate `(ASSIST or better) / total`, where `FAILED` and
-  `NP` are not clear categories.
+real-entry count. The rendered card order is `total`, `owned`, `missing`,
+ownership rate, active score source, `played`, `unplayed`, play rate,
+arithmetic average EX score rate, whole-playlist clear rate, and playlist last
+update. The five score-dependent cards are omitted together when score data is
+unavailable. Whole-playlist clear rate is `(ASSIST or better) / total`, where
+`FAILED` and `NP` are not clear categories.
 
 An empty denominator displays localized `Unavailable`, never `0%`. Score
 dependent values are unavailable when the score source is absent or failed.
@@ -166,3 +168,8 @@ folder-scoped routes retain their existing folder guard.
 | D3-WPF-LABEL | Rendered folder labels use one live measured, capped 170-DIP column for both halves, with ellipsis and complete tooltip for over-cap names. |
 | D3-WPF-SELECT | Rendered hosts and unselected buttons are borderless; invoking a positive segment leaves only that selection visibly bordered with heavier text and preserves Button/UIA behavior. |
 | D3-WPF-ROWS | Rendered folder rows have no separator and adjacent bars remain non-overlapping with compact vertical pitch. |
+| D4-CONTRAST | Rendered legend and positive-segment text use opaque black or white selected from the actual resolved solid background by WCAG sRGB relative luminance, including after selection. |
+| D4-COUNT-TEXT | Folder counts render the current-culture N0 number only, without a unit suffix. |
+| D4-FOLDER-GEOMETRY | Clear and rank folder halves use shared live label and count columns with explicit 6-DIP spacers; labels cap at 170 DIPs, counts cap at localized N0(9999), widths recompute after row refresh, and bars align across rows and halves. |
+| D4-STAT-ORDER | One ordered statistics collection renders score-available and degraded card sequences in their required semantic order, with playlist last update always last. |
+| D4-DEFAULT-WIDTH | The viewer defaults to 1290 DIPs, and the score-available cards and clear legend fit one rendered row at that width. |
