@@ -23,8 +23,6 @@ internal sealed class PlayHistoryProjectionResult
 
 internal sealed class PlayHistoryRow
 {
-    private static readonly DateTime UnixEpochUtc = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-
     private PlayHistoryRow(
         Lr2PlayHistoryRecord raw,
         PlayHistorySourceProfile sourceProfile,
@@ -44,7 +42,8 @@ internal sealed class PlayHistoryRow
         SourceKey = Raw.history_id.ToString(CultureInfo.InvariantCulture);
         HistoryId = Raw.history_id;
         PlayedAtUnix = Raw.played_at;
-        PlayedAt = UnixEpochUtc.AddSeconds(Raw.played_at).ToLocalTime();
+        PlayedAtWallClockSecond = PlayHistoryWallClockSecond.FromUnixSeconds(Raw.played_at, TimeZoneInfo.Local);
+        PlayedAt = ToLocalDateTime(PlayedAtWallClockSecond);
         Finalized = Raw.finalized != 0;
         ScoreWriteType = Raw.score_write_type ?? string.Empty;
         RawHash = rawHash ?? string.Empty;
@@ -103,7 +102,8 @@ internal sealed class PlayHistoryRow
         SourceKey = BeatorajaRaw.history_id.ToString(CultureInfo.InvariantCulture);
         HistoryId = BeatorajaRaw.history_id;
         PlayedAtUnix = BeatorajaRaw.played_at;
-        PlayedAt = UnixEpochUtc.AddSeconds(BeatorajaRaw.played_at).ToLocalTime();
+        PlayedAtWallClockSecond = PlayHistoryWallClockSecond.FromUnixSeconds(BeatorajaRaw.played_at, TimeZoneInfo.Local);
+        PlayedAt = ToLocalDateTime(PlayedAtWallClockSecond);
         Finalized = true;
         ScoreWriteType = BeatorajaRaw.HasBestDelta ? "best-update" : "play";
         RawHash = sha256 ?? string.Empty;
@@ -164,6 +164,11 @@ internal sealed class PlayHistoryRow
     public long HistoryId { get; }
 
     public long PlayedAtUnix { get; }
+
+    /// <summary>
+    /// Gets the displayed local wall-clock timestamp at whole-second precision.
+    /// </summary>
+    internal PlayHistoryWallClockSecond PlayedAtWallClockSecond { get; }
 
     public DateTime PlayedAt { get; }
 
@@ -351,6 +356,11 @@ internal sealed class PlayHistoryRow
         var clone = (PlayHistoryRow)MemberwiseClone();
         clone.FolderLabels = folderLabels ?? string.Empty;
         return clone;
+    }
+
+    private static DateTime ToLocalDateTime(PlayHistoryWallClockSecond wallClock)
+    {
+        return DateTime.SpecifyKind(wallClock.ToDateTime(), DateTimeKind.Local);
     }
 
     private void ResolveScoreProjection(int? oldClear, int? newClear, int? oldOpHistory, int? newOpHistory)

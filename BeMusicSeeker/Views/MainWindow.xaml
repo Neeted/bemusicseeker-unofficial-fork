@@ -236,7 +236,7 @@
         <Separator />
         <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist_entry, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
       </ContextMenu>
-      <ContextMenu x:Key="playHistoryContextMenu" x:Shared="False" HasDropShadow="True" Opened="playHistoryContextMenuOpened">
+      <ContextMenu x:Key="playHistoryContextMenu" x:Shared="False" HasDropShadow="True" Opened="playHistoryContextMenuOpened" Closed="playHistoryContextMenuClosed">
         <Separator Name="playHistoryContextMenuSeparatorLocal" />
         <MenuItem Name="playHistoryContextMenuItemOpenAssociated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_association, Mode=OneWay}" Click="playHistoryContextMenuItemOpenAssociatedClick" />
         <MenuItem Name="playHistoryContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="playHistoryContextMenuItemOpenExplorerClick" />
@@ -244,6 +244,7 @@
         <Separator Name="playHistoryContextMenuSeparatorHash" />
         <MenuItem Name="playHistoryContextMenuItemCopyMd5" Tag="Md5" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_md5, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
         <MenuItem Name="playHistoryContextMenuItemCopySha256" Tag="Sha256" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_copy_sha256, Mode=OneWay}" Click="playHistoryContextMenuItemCopyHashClick" />
+        <MenuItem Name="playHistoryContextMenuItemAddDateRangeToSearch" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_add_date_range_to_search, Mode=OneWay}" Click="playHistoryContextMenuItemAddDateRangeToSearchClick" Visibility="Collapsed" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
         <MenuItem Name="treeViewPlaylistRootContextMenuItemCreateNewPlaylist" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Create_new, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick" />

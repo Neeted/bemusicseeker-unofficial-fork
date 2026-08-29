@@ -95,6 +95,33 @@ public sealed class ChartListFilterViewModelTests
         Assert.IsTrue(filters.KeywordSearchHelpText.IndexOf("finalized", StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
+    [TestMethod]
+    public void KeywordFilter_InvalidPlayHistoryDateShowsLocalizedWarning()
+    {
+        var filters = CreateFilters();
+        filters.UpdateKeywordSearchContext(GridKeywordSearchContext.PlayHistory, []);
+
+        filters.KeywordFilter = "date:\"2026/06/19 12:34:56..\"";
+
+        Assert.IsTrue(filters.HasKeywordSearchWarning);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(filters.KeywordSearchWarningText));
+    }
+
+    [TestMethod]
+    public void PlayHistoryDateSearchTerm_AppendsWithoutNormalizingExistingKeyword()
+    {
+        Assert.IsTrue(PlayHistoryDateSearchTerm.TryParse(
+            "2026/08/27 10:22:50..2026/08/27 11:04:12",
+            out PlayHistoryDateSearchTerm term));
+
+        const string clause = "date:\"2026/08/27 10:22:50..2026/08/27 11:04:12\"";
+        Assert.AreEqual(clause, term.AppendTo(string.Empty));
+        Assert.AreEqual("title:alpha " + clause, term.AppendTo("title:alpha "));
+        Assert.AreEqual("title:alpha\t" + clause, term.AppendTo("title:alpha\t"));
+        Assert.AreEqual("title:alpha " + clause, term.AppendTo("title:alpha"));
+        Assert.AreEqual("date:bad " + clause, term.AppendTo("date:bad"));
+    }
+
     private static ChartListFilterViewModel CreateFilters()
     {
         return new ChartListFilterViewModel(new InMemoryKeywordSearchHistorySettingsStore());

@@ -148,7 +148,7 @@ alpha artist
 - CLEAR
 - source 名
 - source path
-- プレイ日付 (`yyyy-MM-dd`)
+- プレイ日付（例: `2026-08-27`）
 
 プレイログでは、表示される列すべてが通常検索の対象になるわけではありません。BEST DJ、BEST RATE、BEST EXSCORE、BP、COMBO、OPTION、OP HISTORY、PLAY EXSCORE、JUDGES などは、現在は通常検索・field 指定検索の対象外です。
 
@@ -281,7 +281,7 @@ rank:undefined
 | `md5` | MD5。beatoraja 履歴では、所持譜面などから MD5 を解決できた場合だけ値があります |
 | `hash` | raw hash。LR2 では記録元の MD5、beatoraja では記録元の SHA256 を検索対象にします |
 | `sha256` | SHA256 |
-| `date` | プレイ日付。`yyyy-MM-dd`, `yyyy/M/d`, `yyyy/MM/dd`, `yyyyMMdd` を指定可 |
+| `date` | プレイ日時。日付、日時、または開始日時から終了日時までの期間を指定できます |
 | `year` | プレイ年。例: `2026` |
 | `month` | プレイ月。`yyyy-MM`, `yyyy/MM`, または `1` から `12` を指定可 |
 | `type` / `kind` | TYPE と score write type。`type` が主名で、`kind` は互換エイリアスです。例: `score`, `bp`, `clear`, `combo`, `play` |
@@ -291,7 +291,32 @@ rank:undefined
 | `finalized` | 確定済みかどうか。`true`, `1`, `yes`, `y`, `finalized` / `false`, `0`, `no`, `n`, `unfinalized`, `pending` を指定可 |
 | `source` | source 名と source path |
 
-プレイログの `date` / `year` / `month` / `clear` / `oldclear` / `newclear` / `finalized` は専用判定です。`level:10..12` のような範囲指定や比較演算は使いません。
+#### プレイ日時で絞り込む
+
+日付で絞り込む場合は、`date:` の後に日付を指定します。
+
+```text
+date:2026-08-27
+date:2026/8/27
+date:20260827
+```
+
+特定の日時で絞り込む場合は、DATE セルからコピーした値をダブルクォートで囲み、先頭に `date:` を付けます。
+
+```text
+date:"2026/08/27 10:22:50"
+```
+
+期間で絞り込む場合は、開始日時と終了日時を `..` でつなぎ、全体をダブルクォートで囲みます。開始日時と終了日時のプレイも検索結果に含まれます。
+
+```text
+date:"2026/08/27 10:22:50..2026/08/27 11:04:12"
+```
+
+プレイログで2行以上を選択して右クリックし、「検索に期間を追加」を選ぶと、選択したプレイ日時のうち最も早い日時から最も遅い日時までの条件を検索欄へ追加できます。検索欄に入力済みの条件はそのまま残ります。
+
+`date:` では、上記の日付・日時・期間の書式を使用してください。対応していない書式は警告が表示され、検索結果には一致しません。
+
 プレイログの `clear:defined` は、更新後 CLEAR がある行に一致します。譜面一覧・プレイリスト詳細の `clear` は `NO SONG` / `NO PLAY` も CLEAR 種別として扱うため常に `defined` ですが、プレイログでは意味が異なります。
 上部サマリーカードのクリック絞り込みも、この検索 field を内部的に使います。たとえば SCORE 更新カードは `type:score`、EASY カードは `type:clear newclear:EC` 相当の条件として、検索欄の条件と AND で適用されます。複数カードを選んだ場合、カード同士は OR で扱われます。
 また、プレイログでは `level`、`difficulty`、`notes`、`rank`、`rate`、`score`、`bp` など、譜面一覧・プレイリスト詳細用の field は使えません。未知の field として扱われます。

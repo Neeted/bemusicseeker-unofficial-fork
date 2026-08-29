@@ -146,6 +146,43 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
     public string SummaryDiagnosticText => PresentationState.DiagnosticText;
 
     /// <summary>
+    /// Captures a local wall-clock PlayedAt range for an aggregate Play Log selection.
+    /// </summary>
+    /// <param name="selectedRows">The rows selected in the Play Log table.</param>
+    /// <param name="snapshot">The immutable range used by the menu action.</param>
+    /// <returns><see langword="true"/> only when at least two Play Log rows are selected.</returns>
+    internal bool TryCreateDateSearchSnapshot(
+        IEnumerable<object> selectedRows,
+        out PlayHistoryDateSearchTerm snapshot)
+    {
+        return PlayHistoryDateSearchTerm.TryCreate(
+            (selectedRows ?? []).OfType<PlayHistoryRow>(),
+            out snapshot);
+    }
+
+    /// <summary>
+    /// Appends a captured date range to the chart-list keyword filter.
+    /// </summary>
+    /// <param name="snapshot">The immutable menu-open date range snapshot.</param>
+    /// <param name="keywordFilter">The current chart-list keyword filter.</param>
+    /// <param name="updatedKeywordFilter">The final keyword filter when the snapshot is valid.</param>
+    /// <returns><see langword="true"/> when a date range was appended.</returns>
+    internal bool TryAppendDateSearchSnapshot(
+        PlayHistoryDateSearchTerm snapshot,
+        string keywordFilter,
+        out string updatedKeywordFilter)
+    {
+        updatedKeywordFilter = keywordFilter ?? string.Empty;
+        if (snapshot == null)
+        {
+            return false;
+        }
+
+        updatedKeywordFilter = snapshot.AppendTo(keywordFilter);
+        return true;
+    }
+
+    /// <summary>
     /// Gets whether the play-history view is selected in the shell.
     /// </summary>
     public bool IsViewActive

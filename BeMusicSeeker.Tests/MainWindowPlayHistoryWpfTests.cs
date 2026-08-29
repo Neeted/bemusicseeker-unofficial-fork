@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -398,6 +399,170 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    public void PlayHistoryContextMenu_ShowsDateRangeOnlyForMultipleSelection()
+    {
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            new Settings(),
+            (viewModel, window) =>
+            {
+                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRange");
+                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                PlayHistoryRow first = CreateUnresolvedPlayHistoryRow(hash: string.Empty, playedAt: 1000);
+                PlayHistoryRow second = CreateUnresolvedPlayHistoryRow(hash: string.Empty, playedAt: 1001);
+                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                window.Resources["playHistoryContextMenu"] = playHistoryMenu;
+                table.ItemsSource = new List<object> { first, second };
+                table.SelectRowsByPredicate(_ => true);
+
+                RaiseKey(table, Key.Apps);
+                TestUiDispatcherHost.Drain();
+
+                MenuItem dateRange = playHistoryMenu.Items
+                    .OfType<MenuItem>()
+                    .SingleOrDefault(item => item.Name == "playHistoryContextMenuItemAddDateRangeToSearch");
+                Assert.IsNotNull(dateRange);
+                Assert.AreEqual(Resources.Play_history_add_date_range_to_search, dateRange.Header as string);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(dateRange.Header as string));
+                Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
+
+                playHistoryMenu.IsOpen = false;
+                TestUiDispatcherHost.Drain();
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, first));
+                RaiseKey(table, Key.Apps);
+                TestUiDispatcherHost.Drain();
+
+                Assert.AreEqual(Visibility.Collapsed, dateRange.Visibility);
+            });
+    }
+
+    [TestMethod]
+    public void PlayHistoryContextMenu_DoesNotInferPrimaryActionsFromSecondaryRows()
+    {
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            new Settings(),
+            (viewModel, window) =>
+            {
+                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangePrimary");
+                CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                PlayHistoryRow primary = CreateUnresolvedPlayHistoryRow(hash: string.Empty, playedAt: 1000);
+                PlayHistoryRow secondary = CreateResolvedPlayHistoryRow(playedAt: 1001);
+                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                window.Resources["playHistoryContextMenu"] = playHistoryMenu;
+                table.ItemsSource = new List<object> { primary, secondary };
+                table.SelectRowsByPredicate(
+                    _ => true,
+                    row => ReferenceEquals(row, primary));
+
+                Assert.IsFalse(viewModel.PlayHistory.TryCreateContextMenuState(primary, out _));
+                Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(secondary, out _));
+                RaiseKey(table, Key.Apps);
+                TestUiDispatcherHost.Drain();
+
+                MenuItem dateRange = FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemAddDateRangeToSearch");
+                Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
+                Assert.AreEqual(
+                    Visibility.Collapsed,
+                    FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemOpenExplorer").Visibility);
+                Assert.AreSame(primary, ((CustomTableContextMenuContext)playHistoryMenu.Tag).Row);
+            });
+    }
+
+    [TestMethod]
+    public void PlayHistoryContextMenu_DateRangeUsesOpenSnapshotAndUpdatesKeywordOnce()
+    {
+        Settings settings = new()
+        {
+            KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["title:previous"])
+        };
+        string historyBeforeAction = settings.KeywordSearchHistory;
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            settings,
+            (viewModel, window) =>
+            {
+                using var visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangeSnapshot");
+                ContextMenu playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                window.Resources["playHistoryContextMenu"] = playHistoryMenu;
+                var menuClosed = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                RoutedEventHandler menuClosedHandler = (_, _) => menuClosed.TrySetResult(true);
+                playHistoryMenu.Closed += menuClosedHandler;
+                try
+                {
+                    CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                    PlayHistoryRow first = CreateResolvedPlayHistoryRow(playedAt: 1000);
+                    PlayHistoryRow second = CreateResolvedPlayHistoryRow(playedAt: 1001);
+                    PlayHistoryRow intermediate = CreateResolvedPlayHistoryRow(playedAt: 1002);
+                    PlayHistoryRow later = CreateResolvedPlayHistoryRow(playedAt: 2000);
+                    table.ItemsSource = new List<object> { later, intermediate, first, second };
+                    table.SelectRowsByPredicate(
+                        row => ReferenceEquals(row, first) || ReferenceEquals(row, later),
+                        row => ReferenceEquals(row, first));
+                    CollectionAssert.AreEqual(
+                        new object[] { later, first },
+                        table.GetSelectedRowsSnapshot().ToArray(),
+                        "The table enumeration order must differ from the chronological min/max order.");
+                    Assert.IsTrue(later.PlayedAt > first.PlayedAt);
+
+                    Assert.IsTrue(table.Focus());
+                    Assert.AreSame(table, Keyboard.FocusedElement);
+
+                    const string prefix = "title:alpha\t";
+                    viewModel.ChartFilters.KeywordFilter = prefix;
+                    int keywordChangedCount = 0;
+                    viewModel.ChartFilters.KeywordFilterChanged += (_, _) => keywordChangedCount++;
+
+                    RaiseKey(table, Key.Apps);
+                    TestUiDispatcherHost.Drain();
+
+                    MenuItem dateRange = FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemAddDateRangeToSearch");
+                    Assert.IsTrue(playHistoryMenu.IsOpen);
+                    Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
+                    Assert.IsTrue(dateRange.IsEnabled);
+                    string start = first.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
+                    string end = later.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
+                    string expectedClause = $"date:\"{start}..{end}\"";
+
+                    table.SelectRowsByPredicate(row => ReferenceEquals(row, intermediate));
+                    UIElement keywordSearchBox = (UIElement)window.FindName("KeywordSearchBox");
+                    Assert.AreNotSame(keywordSearchBox, Keyboard.FocusedElement);
+                    bool keywordSearchBoxReceivedFocus = false;
+                    KeyboardFocusChangedEventHandler keywordFocusHandler =
+                        (_, _) => keywordSearchBoxReceivedFocus = true;
+                    keywordSearchBox.GotKeyboardFocus += keywordFocusHandler;
+                    try
+                    {
+                        dateRange.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, dateRange));
+                        playHistoryMenu.IsOpen = false;
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            menuClosed.Task,
+                            "play-history date-range context menu closed after action");
+                        TestUiDispatcherHost.Drain();
+                    }
+                    finally
+                    {
+                        keywordSearchBox.GotKeyboardFocus -= keywordFocusHandler;
+                    }
+
+                    Assert.AreEqual(prefix + expectedClause, viewModel.ChartFilters.KeywordFilter);
+                    Assert.AreEqual(1, keywordChangedCount);
+                    Assert.IsFalse(keywordSearchBoxReceivedFocus);
+                    Assert.AreNotSame(keywordSearchBox, Keyboard.FocusedElement);
+                    Assert.AreEqual(historyBeforeAction, settings.KeywordSearchHistory);
+                }
+                finally
+                {
+                    if (playHistoryMenu.IsOpen)
+                    {
+                        playHistoryMenu.IsOpen = false;
+                        TestUiDispatcherHost.Drain();
+                    }
+                    playHistoryMenu.Closed -= menuClosedHandler;
+                }
+            });
+    }
+
+    [TestMethod]
     public void PlayHistoryResolvedRowPlacesAssociatedOpenBeforeProgramActions()
     {
         Settings settings = new();
@@ -507,7 +672,7 @@ public sealed class MainWindowPlayHistoryWpfTests
             .Single(item => string.Equals(item.Name, name, StringComparison.Ordinal));
     }
 
-    private static PlayHistoryRow CreateResolvedPlayHistoryRow(string path = null)
+    private static PlayHistoryRow CreateResolvedPlayHistoryRow(string path = null, long playedAt = 1000)
     {
         const string hash = "cccccccccccccccccccccccccccccccc";
         string sha256 = new string('d', 64);
@@ -558,7 +723,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                     {
                         history_id = 2,
                         hash = hash,
-                        played_at = 1000,
+                        played_at = playedAt,
                         finalized = 1,
                         score_write_type = "update",
                         new_playcount = 1,
@@ -573,7 +738,7 @@ public sealed class MainWindowPlayHistoryWpfTests
         return projected.Rows.Single();
     }
 
-    private static PlayHistoryRow CreateUnresolvedPlayHistoryRow()
+    private static PlayHistoryRow CreateUnresolvedPlayHistoryRow(string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", long playedAt = 1000)
     {
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
             new Lr2PlayHistoryReadResult(
@@ -582,8 +747,8 @@ public sealed class MainWindowPlayHistoryWpfTests
                     new Lr2PlayHistoryRecord
                     {
                         history_id = 1,
-                        hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                        played_at = 1000,
+                        hash = hash,
+                        played_at = playedAt,
                         finalized = 1,
                         score_write_type = "update",
                         new_playcount = 1,

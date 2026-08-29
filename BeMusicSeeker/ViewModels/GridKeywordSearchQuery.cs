@@ -25,7 +25,8 @@ internal enum GridKeywordSearchDiagnosticKind
     EmptyFieldTerm,
     EmptyNegation,
     EmptyOr,
-    InvalidRegex
+    InvalidRegex,
+    InvalidDate
 }
 
 internal readonly struct GridKeywordSearchDiagnostic
@@ -108,7 +109,9 @@ internal sealed class GridKeywordSearchQuery
             {
                 diagnostics.Add(new GridKeywordSearchDiagnostic(GridKeywordSearchDiagnosticKind.UnknownField, condition.Field));
             }
-            if (condition.DiagnosticKind != GridKeywordSearchDiagnosticKind.None)
+            if (condition.DiagnosticKind != GridKeywordSearchDiagnosticKind.None
+                && (condition.DiagnosticKind != GridKeywordSearchDiagnosticKind.InvalidDate
+                    || context == GridKeywordSearchContext.PlayHistory))
             {
                 diagnostics.Add(new GridKeywordSearchDiagnostic(condition.DiagnosticKind, condition.DiagnosticValue));
             }
@@ -117,6 +120,13 @@ internal sealed class GridKeywordSearchQuery
                 if (alternative.IsInvalid && condition.IsRegex)
                 {
                     diagnostics.Add(new GridKeywordSearchDiagnostic(GridKeywordSearchDiagnosticKind.InvalidRegex, alternative.Term));
+                }
+                else if (alternative.IsInvalid
+                    && !condition.IsRegex
+                    && string.Equals(condition.Field, "date", StringComparison.Ordinal)
+                    && context == GridKeywordSearchContext.PlayHistory)
+                {
+                    diagnostics.Add(new GridKeywordSearchDiagnostic(GridKeywordSearchDiagnosticKind.InvalidDate, alternative.Term));
                 }
             }
         }
@@ -340,14 +350,22 @@ internal sealed class GridKeywordSearchQuery
     {
         if (string.IsNullOrEmpty(rawTerms))
         {
-            return SearchCondition.Invalid(isNegated, field, field == null ? GridKeywordSearchDiagnosticKind.EmptyOr : GridKeywordSearchDiagnosticKind.EmptyFieldTerm, field ?? string.Empty);
+            GridKeywordSearchDiagnosticKind diagnosticKind = field == null
+                ? GridKeywordSearchDiagnosticKind.EmptyOr
+                : string.Equals(field, "date", StringComparison.Ordinal) && !isRegex
+                    ? GridKeywordSearchDiagnosticKind.InvalidDate
+                    : GridKeywordSearchDiagnosticKind.EmptyFieldTerm;
+            return SearchCondition.Invalid(isNegated, field, diagnosticKind, field ?? string.Empty);
         }
         List<SearchAlternative> alternatives = [.. SplitUnquoted(rawTerms, '|')
-            .Select(rawAlternative => CreateAlternative(rawAlternative, isRegex))
+            .Select(rawAlternative => CreateAlternative(rawAlternative, isRegex, field))
             .Where(alternative => !alternative.IsEmpty)];
         if (alternatives.Count == 0)
         {
-            return SearchCondition.Invalid(isNegated, field, GridKeywordSearchDiagnosticKind.EmptyOr, rawTerms);
+            GridKeywordSearchDiagnosticKind diagnosticKind = string.Equals(field, "date", StringComparison.Ordinal) && !isRegex
+                ? GridKeywordSearchDiagnosticKind.InvalidDate
+                : GridKeywordSearchDiagnosticKind.EmptyOr;
+            return SearchCondition.Invalid(isNegated, field, diagnosticKind, rawTerms);
         }
         if (alternatives.All(alternative => alternative.IsInvalid))
         {
@@ -356,7 +374,7 @@ internal sealed class GridKeywordSearchQuery
         return new SearchCondition(isNegated, field, isRegex, [.. alternatives], isInvalid: false, diagnosticKind: GridKeywordSearchDiagnosticKind.None, diagnosticValue: string.Empty);
     }
 
-    private static SearchAlternative CreateAlternative(string rawAlternative, bool isRegex)
+    private static SearchAlternative CreateAlternative(string rawAlternative, bool isRegex, string field = null)
     {
         string term = NormalizeTerm(rawAlternative);
         if (string.IsNullOrEmpty(term))
@@ -365,7 +383,10 @@ internal sealed class GridKeywordSearchQuery
         }
         if (!isRegex)
         {
-            return new SearchAlternative(term, regex: null, isInvalid: false, isEmpty: false);
+            bool isInvalidDate = string.Equals(field, "date", StringComparison.Ordinal)
+                && (HasUnclosedQuote(rawAlternative)
+                    || !PlayHistoryDateSearchTerm.TryParse(term, out _));
+            return new SearchAlternative(term, regex: null, isInvalid: isInvalidDate, isEmpty: false);
         }
         try
         {
@@ -376,6 +397,36 @@ internal sealed class GridKeywordSearchQuery
         {
             return new SearchAlternative(term, regex: null, isInvalid: true, isEmpty: false);
         }
+    }
+
+    private static bool HasUnclosedQuote(string rawTerm)
+    {
+        string term = rawTerm?.Trim() ?? string.Empty;
+        if (term.Length == 0 || term[0] != '"')
+        {
+            return false;
+        }
+
+        bool escaping = false;
+        for (int i = 1; i < term.Length; i++)
+        {
+            char c = term[i];
+            if (escaping)
+            {
+                escaping = false;
+                continue;
+            }
+            if (c == '\\')
+            {
+                escaping = true;
+                continue;
+            }
+            if (c == '"')
+            {
+                return i != term.Length - 1;
+            }
+        }
+        return true;
     }
 
     private static string NormalizeTerm(string rawTerm)
@@ -1557,8 +1608,8 @@ internal sealed class GridKeywordSearchQuery
         string term = alternative.Term?.Trim() ?? string.Empty;
         if (string.Equals(field, "date", StringComparison.Ordinal))
         {
-            return TryParsePlayHistoryDateTerm(term, out DateTime date)
-                && row.PlayedAt.Date == date.Date;
+            return PlayHistoryDateSearchTerm.TryParse(term, out PlayHistoryDateSearchTerm dateTerm)
+                && dateTerm.Matches(row.PlayedAtWallClockSecond);
         }
         if (string.Equals(field, "year", StringComparison.Ordinal))
         {
@@ -1568,16 +1619,6 @@ internal sealed class GridKeywordSearchQuery
         return TryParsePlayHistoryMonthTerm(term, out int? yearPart, out int month)
             && row.PlayedAt.Month == month
             && (!yearPart.HasValue || row.PlayedAt.Year == yearPart.Value);
-    }
-
-    private static bool TryParsePlayHistoryDateTerm(string term, out DateTime date)
-    {
-        return DateTime.TryParseExact(
-            term ?? string.Empty,
-            ["yyyy-MM-dd", "yyyy/M/d", "yyyy/MM/dd", "yyyyMMdd"],
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.None,
-            out date);
     }
 
     private static bool TryParsePlayHistoryMonthTerm(string term, out int? year, out int month)

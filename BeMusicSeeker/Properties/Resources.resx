@@ -424,6 +424,9 @@ title:re:^alpha
   <data name="Keyword_search_warning_invalid_regex" xml:space="preserve">
     <value>正規表現が不正です: {0}</value>
   </data>
+  <data name="Keyword_search_warning_invalid_date" xml:space="preserve">
+    <value>日付の検索語が不正です: {0}</value>
+  </data>
   <data name="PlaylistProp_datauri" xml:space="preserve">
     <value>データURI: </value>
   </data>
@@ -1735,6 +1738,9 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   </data>
   <data name="Play_history_copy_raw_hash" xml:space="preserve">
     <value>RAW HASH をコピー</value>
+  </data>
+  <data name="Play_history_add_date_range_to_search" xml:space="preserve">
+    <value>検索に期間を追加</value>
   </data>
   <data name="Msg_confirm_lr2_play_history_schema_install_or_repair" xml:space="preserve">
     <value>LR2 を終了してから実行してください。

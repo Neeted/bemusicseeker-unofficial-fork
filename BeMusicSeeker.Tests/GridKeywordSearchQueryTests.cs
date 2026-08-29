@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -333,6 +334,12 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(0, memoQuery.GetDiagnostics(GridKeywordSearchContext.PlaylistDetail).Count);
         Assert.AreEqual(GridKeywordSearchDiagnosticKind.UnknownField, memoQuery.GetDiagnostics(GridKeywordSearchContext.ChartList)[0].Kind);
         Assert.AreEqual(GridKeywordSearchDiagnosticKind.UnknownField, memoQuery.GetDiagnostics(GridKeywordSearchContext.PlaylistSummary)[0].Kind);
+
+        GridKeywordSearchQuery emptyDateQuery = GridKeywordSearchQuery.Parse("date:");
+        Assert.IsTrue(emptyDateQuery.GetDiagnostics(GridKeywordSearchContext.PlayHistory)
+            .Any(diagnostic => diagnostic.Kind == GridKeywordSearchDiagnosticKind.InvalidDate));
+        Assert.IsFalse(emptyDateQuery.GetDiagnostics(GridKeywordSearchContext.ChartList)
+            .Any(diagnostic => diagnostic.Kind == GridKeywordSearchDiagnosticKind.InvalidDate));
     }
 
     [TestMethod]
@@ -577,6 +584,157 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesPlayHistoryRow_DateSupportsClosedLocalTimestampRanges()
+    {
+        PlayHistoryRow row = CreatePlayHistoryRow(
+            finalized: true,
+            playedAt: new DateTimeOffset(2026, 6, 19, 12, 34, 56, TimeSpan.Zero));
+        DateTime localPlayedAt = row.PlayedAt;
+        string start = localPlayedAt.AddSeconds(-1).ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
+        string end = localPlayedAt.AddSeconds(1).ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
+        string expression = $"date:\"{start}..{end}\"";
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse(expression).MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:\"{start}..{localPlayedAt:yyyy/MM/dd HH:mm:ss}\"").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:\"{localPlayedAt:yyyy/MM/dd HH:mm:ss}..{end}\"").MatchesPlayHistoryRow(row));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse($"date:\"{localPlayedAt.AddSeconds(1):yyyy/MM/dd HH:mm:ss}..{end}\"").MatchesPlayHistoryRow(row));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse($"date:\"{start}..{localPlayedAt.AddSeconds(-1):yyyy/MM/dd HH:mm:ss}\"").MatchesPlayHistoryRow(row));
+    }
+
+    [TestMethod]
+    public void MatchesPlayHistoryRow_DateSupportsExactDayAndLocalTimestampForms()
+    {
+        PlayHistoryRow row = CreatePlayHistoryRow(
+            finalized: true,
+            playedAt: new DateTimeOffset(2026, 6, 19, 12, 34, 56, TimeSpan.Zero));
+        DateTime localPlayedAt = row.PlayedAt;
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:{localPlayedAt:yyyy-MM-dd}").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:{localPlayedAt:yyyy/M/d}").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:{localPlayedAt:yyyy/MM/dd}").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:{localPlayedAt:yyyyMMdd}").MatchesPlayHistoryRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse($"date:\"{localPlayedAt:yyyy/MM/dd HH:mm:ss}\"").MatchesPlayHistoryRow(row));
+
+        Assert.IsTrue(PlayHistoryDateSearchTerm.TryParse("9999-12-31", out PlayHistoryDateSearchTerm maximumDay));
+        Assert.IsTrue(maximumDay.Matches(PlayHistoryWallClockSecond.FromDateTime(DateTime.MaxValue)));
+    }
+
+    [TestMethod]
+    public void MatchesPlayHistoryRow_UnqualifiedTimestampIsNotPromotedToDateCondition()
+    {
+        PlayHistoryRow row = CreatePlayHistoryRow(
+            finalized: true,
+            playedAt: new DateTimeOffset(2026, 6, 19, 12, 34, 56, TimeSpan.Zero));
+
+        Assert.IsFalse(GridKeywordSearchQuery.Parse(
+            row.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture)).MatchesPlayHistoryRow(row));
+    }
+
+    [TestMethod]
+    public void MatchesPlayHistoryRow_InvalidDateAndNegatedInvalidDateMatchNone()
+    {
+        PlayHistoryRow row = CreatePlayHistoryRow(
+            finalized: true,
+            playedAt: new DateTimeOffset(2026, 6, 19, 12, 34, 56, TimeSpan.Zero));
+
+        foreach (string expression in new[]
+        {
+            "date:\"2026/06/19 12:34:56..\"",
+            "date:\"2026/06/19 12:34:56..2026/06/19 12:34:55\"",
+            "date:\"2026/06/19 12:34:56.000\"",
+            "date:\"2026/06/19 12:34:56+09:00\"",
+            "date:\"2026/06/19 12:34:56 ..2026/06/19 12:34:57\"",
+            "date:\"2026/06/19 12:34:56.. 2026/06/19 12:34:57\"",
+            "date:\"2026/06/19 12:34:56..2026/06/19 12:34:57..2026/06/19 12:34:58\"",
+            "date:\"2026/06/19 12:34:56..2026/06/19 12:34:57",
+            "date:>=2026/06/19",
+            "date:"
+        })
+        {
+            GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(expression);
+            Assert.IsFalse(query.MatchesPlayHistoryRow(row), expression);
+            Assert.IsTrue(
+                query.GetDiagnostics(GridKeywordSearchContext.PlayHistory)
+                    .Any(diagnostic => diagnostic.Kind == GridKeywordSearchDiagnosticKind.InvalidDate),
+                expression);
+        }
+
+        GridKeywordSearchQuery negatedInvalid = GridKeywordSearchQuery.Parse("-date:not-a-date");
+        Assert.IsFalse(negatedInvalid.MatchesPlayHistoryRow(row));
+        Assert.IsTrue(negatedInvalid.GetDiagnostics(GridKeywordSearchContext.PlayHistory)
+            .Any(diagnostic => diagnostic.Kind == GridKeywordSearchDiagnosticKind.InvalidDate));
+
+        GridKeywordSearchQuery mixedOr = GridKeywordSearchQuery.Parse(
+            $"date:not-a-date|{row.PlayedAt:yyyy/MM/dd}");
+        Assert.IsTrue(mixedOr.MatchesPlayHistoryRow(row));
+        Assert.IsTrue(mixedOr.GetDiagnostics(GridKeywordSearchContext.PlayHistory)
+            .Any(diagnostic => diagnostic.Kind == GridKeywordSearchDiagnosticKind.InvalidDate));
+    }
+
+    [TestMethod]
+    public void PlayHistoryDateSearchTerm_SameSecondSelectionRemainsClosedRange()
+    {
+        DateTimeOffset playedAt = new(2026, 6, 19, 12, 34, 56, TimeSpan.Zero);
+        PlayHistoryRow first = CreatePlayHistoryRow(finalized: true, playedAt: playedAt);
+        PlayHistoryRow second = CreatePlayHistoryRow(finalized: true, playedAt: playedAt);
+
+        Assert.IsTrue(PlayHistoryDateSearchTerm.TryCreate([first, second], out PlayHistoryDateSearchTerm term));
+
+        string timestamp = first.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture);
+        Assert.AreEqual($"date:\"{timestamp}..{timestamp}\"", term.Clause);
+    }
+
+    [TestMethod]
+    public void PlayHistoryDateSearchTerm_UsesExplicitZoneWallClockForAmbiguousSeconds()
+    {
+        TimeZoneInfo eastern = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        DateTimeOffset firstInstant = new(2026, 11, 1, 5, 30, 0, TimeSpan.Zero);
+        DateTimeOffset secondInstant = new(2026, 11, 1, 6, 30, 0, TimeSpan.Zero);
+
+        PlayHistoryWallClockSecond firstEastern = PlayHistoryWallClockSecond.FromUnixSeconds(
+            firstInstant.ToUnixTimeSeconds(),
+            eastern);
+        PlayHistoryWallClockSecond secondEastern = PlayHistoryWallClockSecond.FromUnixSeconds(
+            secondInstant.ToUnixTimeSeconds(),
+            eastern);
+
+        Assert.AreNotEqual(firstInstant.UtcDateTime, secondInstant.UtcDateTime);
+        Assert.AreEqual("2026/11/01 01:30:00", firstEastern.ToCanonicalTimestamp());
+        Assert.AreEqual(firstEastern, secondEastern);
+        Assert.AreEqual(2026, firstEastern.Year);
+        Assert.AreEqual(11, firstEastern.Month);
+        Assert.AreEqual(1, firstEastern.Day);
+        Assert.AreEqual(1, firstEastern.Hour);
+        Assert.AreEqual(30, firstEastern.Minute);
+        Assert.AreEqual(0, firstEastern.Second);
+
+        Assert.IsTrue(PlayHistoryDateSearchTerm.TryParse(
+            "2026/11/01 01:30:00",
+            out PlayHistoryDateSearchTerm singleTimestamp));
+        Assert.IsTrue(PlayHistoryDateSearchTerm.TryParse(
+            "2026/11/01 01:29:59..2026/11/01 01:30:01",
+            out PlayHistoryDateSearchTerm containingRange));
+        Assert.IsTrue(singleTimestamp.Matches(firstEastern));
+        Assert.IsTrue(singleTimestamp.Matches(secondEastern));
+        Assert.IsTrue(containingRange.Matches(firstEastern));
+        Assert.IsTrue(containingRange.Matches(secondEastern));
+
+        PlayHistoryWallClockSecond firstUtc = PlayHistoryWallClockSecond.FromUnixSeconds(
+            firstInstant.ToUnixTimeSeconds(),
+            TimeZoneInfo.Utc);
+        PlayHistoryWallClockSecond secondUtc = PlayHistoryWallClockSecond.FromUnixSeconds(
+            secondInstant.ToUnixTimeSeconds(),
+            TimeZoneInfo.Utc);
+
+        Assert.AreNotEqual(firstEastern, firstUtc);
+        Assert.AreNotEqual(secondEastern, secondUtc);
+        Assert.IsFalse(singleTimestamp.Matches(firstUtc));
+        Assert.IsFalse(singleTimestamp.Matches(secondUtc));
+        Assert.IsFalse(containingRange.Matches(firstUtc));
+        Assert.IsFalse(containingRange.Matches(secondUtc));
+    }
+
+    [TestMethod]
     public void MatchesPlayHistoryRow_SupportsDiagnosticsFields()
     {
         PlayHistoryRow row = CreatePlayHistoryRow(finalized: false);
@@ -748,7 +906,7 @@ public sealed class GridKeywordSearchQueryTests
         return index;
     }
 
-    private static PlayHistoryRow CreatePlayHistoryRow(bool finalized)
+    private static PlayHistoryRow CreatePlayHistoryRow(bool finalized, DateTimeOffset? playedAt = null)
     {
         TestableBmsFile file = CreateFile();
         BMSTable table = CreateTable("Satellite sl", "SL");
@@ -767,7 +925,7 @@ public sealed class GridKeywordSearchQueryTests
                     {
                         history_id = 1,
                         hash = file.hash,
-                        played_at = new DateTimeOffset(2026, 6, 19, 12, 34, 56, TimeSpan.Zero).ToUnixTimeSeconds(),
+                        played_at = (playedAt ?? new DateTimeOffset(2026, 6, 19, 12, 34, 56, TimeSpan.Zero)).ToUnixTimeSeconds(),
                         finalized = finalized ? 1 : 0,
                         score_write_type = "update",
                         old_clear = 3,

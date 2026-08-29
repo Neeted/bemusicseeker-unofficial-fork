@@ -61,6 +61,7 @@ internal static class KeywordSearchPresentationText
             GridKeywordSearchDiagnosticKind.EmptyNegation => BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_negation,
             GridKeywordSearchDiagnosticKind.EmptyOr => BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_or,
             GridKeywordSearchDiagnosticKind.InvalidRegex => string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_invalid_regex, diagnostic.Value),
+            GridKeywordSearchDiagnosticKind.InvalidDate => string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_invalid_date, diagnostic.Value),
             _ => string.Empty,
         };
     }

@@ -148,7 +148,7 @@ Normal search targets:
 - CLEAR
 - source name
 - source path
-- play date (`yyyy-MM-dd`)
+- play date (for example, `2026-08-27`)
 
 In the Play Log, not every displayed column is part of normal search. BEST DJ, BEST RATE, BEST EXSCORE, BP, COMBO, OPTION, OP HISTORY, PLAY EXSCORE, and JUDGES are not currently targeted by normal search or field-qualified search.
 
@@ -286,7 +286,7 @@ The Play Log uses a field set separate from the main chart list and playlist det
 | `md5` | MD5. In beatoraja history, this has a value only when MD5 can be resolved from an owned chart or similar source |
 | `hash` | raw hash. LR2 targets the recorded MD5, and beatoraja targets the recorded SHA256 |
 | `sha256` | SHA256 |
-| `date` | Play date. Accepts `yyyy-MM-dd`, `yyyy/M/d`, `yyyy/MM/dd`, and `yyyyMMdd` |
+| `date` | Play date and time. You can specify a date, a date and time, or a period from a start time through an end time |
 | `year` | Play year. Example: `2026` |
 | `month` | Play month. Accepts `yyyy-MM`, `yyyy/MM`, or `1` through `12` |
 | `type` / `kind` | TYPE and score write type. `type` is the primary name; `kind` is a compatibility alias. Examples: `score`, `bp`, `clear`, `combo`, `play` |
@@ -296,7 +296,32 @@ The Play Log uses a field set separate from the main chart list and playlist det
 | `finalized` | Whether the row is finalized. Accepts `true`, `1`, `yes`, `y`, `finalized` / `false`, `0`, `no`, `n`, `unfinalized`, `pending` |
 | `source` | source name and source path |
 
-Play Log `date` / `year` / `month` / `clear` / `oldclear` / `newclear` / `finalized` use dedicated matching. Range and comparison operators such as `level:10..12` are not used for them.
+#### Filtering by Play Date and Time
+
+To filter by date, enter a date after `date:`.
+
+```text
+date:2026-08-27
+date:2026/8/27
+date:20260827
+```
+
+To filter by a specific date and time, copy the value from a DATE cell, wrap it in double quotes, and add `date:` before it.
+
+```text
+date:"2026/08/27 10:22:50"
+```
+
+To filter by a period, join the start and end times with `..` and wrap the entire value in double quotes. Plays at the start and end times are included in the results.
+
+```text
+date:"2026/08/27 10:22:50..2026/08/27 11:04:12"
+```
+
+You can also select two or more Play Log rows, right-click, and choose **Add period to search**. This appends a condition covering the earliest through the latest selected play time while preserving any text already in the search box.
+
+Use one of the date, date-and-time, or period formats shown above with `date:`. Unsupported formats show a warning and do not match any results.
+
 In the Play Log, `clear:defined` matches rows that have a CLEAR value after the update. This differs from the main chart list and playlist detail, where `clear` always matches `defined` because `NO SONG` and `NO PLAY` are also treated as CLEAR types.
 Click filtering from the top summary cards also uses these search fields internally. For example, the SCORE update card is equivalent to `type:score`, and the EASY card is equivalent to `type:clear newclear:EC`. Card filters are applied with AND against the search-box filter. When multiple cards are selected, the cards are combined with OR.
 The Play Log also does not support main-chart-list / playlist-detail fields such as `level`, `difficulty`, `notes`, `rank`, `rate`, `score`, and `bp`. They are treated as unknown fields.

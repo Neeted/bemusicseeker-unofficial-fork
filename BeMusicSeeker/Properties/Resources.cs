@@ -600,6 +600,8 @@ public class Resources
 
     public static string Play_history_copy_raw_hash => ResourceManager.GetString("Play_history_copy_raw_hash", resourceCulture);
 
+    public static string Play_history_add_date_range_to_search => ResourceManager.GetString("Play_history_add_date_range_to_search", resourceCulture);
+
     public static string Msg_confirm_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_confirm_lr2_play_history_schema_install_or_repair", resourceCulture);
 
     public static string Msg_success_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_success_lr2_play_history_schema_install_or_repair", resourceCulture);
@@ -1145,6 +1147,8 @@ public class Resources
     public static string Keyword_search_warning_empty_or => ResourceManager.GetString("Keyword_search_warning_empty_or", resourceCulture);
 
     public static string Keyword_search_warning_invalid_regex => ResourceManager.GetString("Keyword_search_warning_invalid_regex", resourceCulture);
+
+    public static string Keyword_search_warning_invalid_date => ResourceManager.GetString("Keyword_search_warning_invalid_date", resourceCulture);
 
     public static string Search_zero_note => ResourceManager.GetString("Search_zero_note", resourceCulture);
 

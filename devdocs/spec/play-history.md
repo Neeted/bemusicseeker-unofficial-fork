@@ -162,7 +162,7 @@ Play History context の field は次の通り。
 | `md5:` | resolved MD5。 |
 | `hash:` | source raw hash。LR2 では MD5、beatoraja では SHA-256。 |
 | `sha256:` | resolved SHA-256。未解決 row では空。 |
-| `date:` | local play date。`yyyy-MM-dd` / `yyyy/MM/dd` / `yyyyMMdd` を exact match する。 |
+| `date:` | local play date。`yyyy-MM-dd` / `yyyy/M/d` / `yyyy/MM/dd` / `yyyyMMdd` は表示された local day 全体、`yyyy/MM/dd HH:mm:ss` は local wall-clock の 1 秒、`date:"yyyy/MM/dd HH:mm:ss..yyyy/MM/dd HH:mm:ss"` は両端を含む closed range として exact match する。 |
 | `year:` | local play year を exact match する。 |
 | `month:` | local play month を exact match する。`M` / `MM` / `yyyy-M` / `yyyy-MM` / `yyyy/M` / `yyyy/MM` を受け付ける。 |
 | `type:` / `kind:` | `Kind` と LR2 `score_write_type`。`type:` を主名、`kind:` を互換 alias とする。 |
@@ -172,7 +172,19 @@ Play History context の field は次の通り。
 | `finalized:` | `true` / `false`、`1` / `0`、`finalized` / `unfinalized` / `pending` を boolean として扱う。 |
 | `source:` | provider display name と source path。 |
 
-`date:` / `year:` / `month:` は通常検索では substring ではなく exact match で扱う。regex (`field:re:...`) を指定した場合だけ、表示用文字列表現に対する regex として扱う。
+`date:` / `year:` / `month:` は通常検索では substring ではなく exact match で扱う。`date:` の timestamp と range は local wall-clock の秒単位で比較し、Unix timestamp や offset へ変換しない。range の開始・終了は inclusive である。`date:` の malformed、reversed、empty、open、複数 delimiter、fraction、offset、comparison 形式は warning を表示して match-none とし、negation でも all-match へ反転しない。valid alternative と同じ OR に含まれる invalid alternative は false として通常の OR を保つ。`2026/08/27 10:22:50` のように field を付けずに貼り付けた timestamp は date condition へ昇格しない。regex (`field:re:...`) を指定した場合だけ、表示用文字列表現に対する regex として扱う。
+
+Play Log の 2 行以上を選択して context menu を開くと、開いた時点で表示されている local `PlayedAt` の min/max を immutable snapshot として取得し、`date:"start..end"` の canonical clause を keyword filter の末尾へ追加できる。選択順・sort・menu click 前の selection 変更は snapshot を変えず、同じ秒の両端も range として出力する。
+
+この keyword / menu action の検証 map は次の通りである。
+
+| Contract | Fixture / lane |
+| --- | --- |
+| `PL-DR-SYNTAX-01`, `PL-DR-EXACT-01`, `PL-DR-PASTE-01`, `PL-DR-INVALID-01`, `PL-DR-DST-01` | `GridKeywordSearchQueryTests` / filtered Quick |
+| `PL-DR-COMPAT-01` | `ChartListFilterViewModelTests`, `PlayHistoryReadModelTests` existing keyword/current projection coverage / filtered Quick |
+| `PL-DR-DOC-01` | This specification and `docs/keyword-search-syntax-guide*.md`; prose is not tested by source snapshot |
+| `PL-DM-AVAIL-01`, `PL-DM-SNAPSHOT-01`, `PL-DM-APPEND-01`, `PL-DM-UPDATE-01`, `PL-DM-PRIMARY-01` | `MainWindowPlayHistoryWpfTests`, `ChartListFilterViewModelTests`, `MainWindowContextMenuResourceTests` / filtered Quick |
+| `PL-DM-L10N-01` | `LocalizationResourceParityTests` / filtered Quick |
 
 ## Display Target
 

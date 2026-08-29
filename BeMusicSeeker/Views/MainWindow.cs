@@ -248,6 +248,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private ContextMenu _lastOpenedContextMenu;
 
+    private PlayHistoryDateSearchTerm playHistoryDateSearchSnapshot;
+
     // NOTE:
     // TreeView の仮想化 (Recycling) 有効時は、画面外ノードのコンテナが VisualTree から外れる。
     // そのため「VisualTree を再帰して選択状態を判定する」実装は false negative を起こす。
@@ -2606,6 +2608,33 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return false;
     }
 
+    private bool TryCreatePlayHistoryDateSearchSnapshot(out PlayHistoryDateSearchTerm snapshot)
+    {
+        snapshot = null;
+        return base.DataContext is MainWindowViewModel viewModel
+            && viewModel.PlayHistory.TryCreateDateSearchSnapshot(
+                customTableView?.GetSelectedRowsSnapshot(),
+                out snapshot);
+    }
+
+    private static void ResetPlayHistoryDateSearchMenuItem(ContextMenu contextMenu)
+    {
+        if (contextMenu == null)
+        {
+            return;
+        }
+
+        foreach (Control item in (IEnumerable)contextMenu.Items)
+        {
+            if (item.Name == "playHistoryContextMenuItemAddDateRangeToSearch")
+            {
+                item.Visibility = Visibility.Collapsed;
+                item.IsEnabled = false;
+                break;
+            }
+        }
+    }
+
     private sealed class ConfiguredExternalActionMenuTag
     {
         internal ConfiguredExternalActionMenuTag(ConfiguredExternalActionKind kind, string actionId)
@@ -2860,13 +2889,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return false;
         }
         string resourceKey;
-        if (TryGetPlayHistoryContextMenuState(row, out _))
+        if (TryGetPlayHistoryContextMenuState(row, out _)
+            || (row is PlayHistoryRow && TryCreatePlayHistoryDateSearchSnapshot(out _)))
         {
             resourceKey = "playHistoryContextMenu";
             usePlaylistMissingContextMenu = false;
         }
         else if (row is PlayHistoryRow)
         {
+            ResetPlayHistoryDateSearchMenuItem(TryFindResource("playHistoryContextMenu") as ContextMenu);
             return false;
         }
         else if (!TryResolveTableContextMenuPolicy(row, GetCurrentChartOperationSourceScope(), out usePlaylistMissingContextMenu))
@@ -6846,8 +6877,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out object row)
-            || !TryGetPlayHistoryContextMenuState(row, out PlayHistoryContextMenuState state))
+            || base.DataContext is not MainWindowViewModel viewModel)
         {
+            return;
+        }
+
+        playHistoryDateSearchSnapshot = null;
+        bool hasContextMenuState = TryGetPlayHistoryContextMenuState(row, out PlayHistoryContextMenuState state);
+        bool hasDateSearchSnapshot = viewModel.PlayHistory.TryCreateDateSearchSnapshot(
+            customTableView?.GetSelectedRowsSnapshot(),
+            out playHistoryDateSearchSnapshot);
+        if (!hasContextMenuState && !hasDateSearchSnapshot)
+        {
+            // A test or host may reuse the resource instance after a prior open.  Reset
+            // the aggregate item before returning so stale visibility cannot advertise
+            // an unavailable action for the current selection.
+            ResetPlayHistoryDateSearchMenuItem(contextMenu);
             return;
         }
 
@@ -6855,10 +6900,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         _lastOpenedContextMenu = contextMenu;
         bool useConfiguredExternalActions = selectedChartContextMenuTerminals.SelectedChartExternalActions.HasConfiguredActions;
         RightClickActionResolutionInput configuredInput = null;
-        if (useConfiguredExternalActions
-            && base.DataContext is MainWindowViewModel configuredViewModel)
+        if (useConfiguredExternalActions && hasContextMenuState)
         {
-            configuredViewModel.PlayHistory.TryCreateRightClickActionResolutionInput(
+            viewModel.PlayHistory.TryCreateRightClickActionResolutionInput(
                 row,
                 LongPathFileSystem.FileExists,
                 out configuredInput);
@@ -6879,33 +6923,47 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             switch (item.Name)
             {
                 case "playHistoryContextMenuSeparatorLocal":
-                    item.Visibility = state.HasExternalLinkItem && state.HasLocalChartItem ? Visibility.Visible : Visibility.Collapsed;
+                    item.Visibility = state?.HasExternalLinkItem == true && state.HasLocalChartItem ? Visibility.Visible : Visibility.Collapsed;
                     break;
                 case "playHistoryContextMenuItemOpenAssociated":
-                    item.Visibility = state.CanOpenAssociated ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanOpenAssociated && LongPathFileSystem.FileExists(state.ChartPath);
+                    item.Visibility = state?.CanOpenAssociated == true ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state?.CanOpenAssociated == true && LongPathFileSystem.FileExists(state.ChartPath);
                     break;
                 case "playHistoryContextMenuItemOpenExplorer":
-                    item.Visibility = state.CanOpenExplorer ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanOpenExplorer && LongPathFileSystem.FileExists(state.ChartPath);
+                    item.Visibility = state?.CanOpenExplorer == true ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state?.CanOpenExplorer == true && LongPathFileSystem.FileExists(state.ChartPath);
                     break;
                 case "playHistoryContextMenuItemRegisterScore":
-                    item.Visibility = state.CanOpenScoreViewer ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanOpenScoreViewer && LongPathFileSystem.FileExists(state.ChartPath);
+                    item.Visibility = state?.CanOpenScoreViewer == true ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state?.CanOpenScoreViewer == true && LongPathFileSystem.FileExists(state.ChartPath);
                     break;
                 case "playHistoryContextMenuSeparatorHash":
-                    item.Visibility = (state.HasExternalLinkItem || state.HasLocalChartItem) && state.HasHashCopyItem ? Visibility.Visible : Visibility.Collapsed;
+                    item.Visibility = state != null
+                        && (state.HasExternalLinkItem || state.HasLocalChartItem)
+                        && state.HasHashCopyItem
+                        ? Visibility.Visible
+                        : Visibility.Collapsed;
                     break;
                 case "playHistoryContextMenuItemCopyMd5":
-                    item.Visibility = state.CanCopyMd5 ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanCopyMd5;
+                    item.Visibility = state?.CanCopyMd5 == true ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state?.CanCopyMd5 == true;
                     break;
                 case "playHistoryContextMenuItemCopySha256":
-                    item.Visibility = state.CanCopySha256 ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state.CanCopySha256;
+                    item.Visibility = state?.CanCopySha256 == true ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = state?.CanCopySha256 == true;
+                    break;
+                case "playHistoryContextMenuItemAddDateRangeToSearch":
+                    item.Visibility = playHistoryDateSearchSnapshot != null ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = playHistoryDateSearchSnapshot != null;
                     break;
             }
         }
+    }
+
+    private void playHistoryContextMenuClosed(object sender, RoutedEventArgs e)
+    {
+        playHistoryDateSearchSnapshot = null;
+        ResetPlayHistoryDateSearchMenuItem(sender as ContextMenu);
     }
 
     private void playHistoryContextMenuItemCopyHashClick(object sender, RoutedEventArgs e)
@@ -6929,6 +6987,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
 
         Clipboard.SetText(action.Value);
+        e.Handled = true;
+    }
+
+    private void playHistoryContextMenuItemAddDateRangeToSearchClick(object sender, RoutedEventArgs e)
+    {
+        if (playHistoryDateSearchSnapshot == null
+            || base.DataContext is not MainWindowViewModel viewModel
+            || !viewModel.PlayHistory.TryAppendDateSearchSnapshot(
+                playHistoryDateSearchSnapshot,
+                viewModel.ChartFilters.KeywordFilter,
+                out string updatedKeywordFilter))
+        {
+            return;
+        }
+
+        viewModel.ChartFilters.KeywordFilter = updatedKeywordFilter;
         e.Handled = true;
     }
 
