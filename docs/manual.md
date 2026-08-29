@@ -207,9 +207,9 @@ Select the player used to play charts. The built-in player is for simple audio-o
 
 Even in standalone mode, you can specify LR2body as the playback application. This is separate from whether the application integrates with the LR2 DB.
 
-### Device
+### Audio
 
-![Settings Device](img/設定_デバイス.PNG)
+![Settings Audio](img/設定_オーディオ.PNG)
 
 Configure playback driver, output device, sample rate, format, buffer size, volume, and related settings. If there is no sound, latency is large, or audio cuts out, check the settings in this tab.
 
@@ -250,26 +250,6 @@ In LR2 linked mode, playlists can be output as LR2 custom folders. This tab dete
 #### URL Completion
 
 For URL completion, see [URL1/URL2 Completion](#url1url2-completion).
-
-### Right-click settings
-
-The `Right-click settings` category configures `Open web pages` and `Open with a program` entries for chart context menus. Each list supports `Add`, `Delete`, `Up`, `Down`, and `Enabled`, and lets you edit the item name and order.
-
-For `Open web pages`, edit the URL template and target chart kind (BMS, bmson, or both). Templates can contain `{md5}` or `{sha256}`. An entry is hidden when the chart does not have a hash required by its template. The initial configuration contains these five enabled items in this order:
-
-| Order | Name | URL template | Target |
-| --- | --- | --- | --- |
-| 1 | BMS-IR | `https://bms-ir.org/new/song?songmd5={md5}&view=both` | BMS only |
-| 2 | Mocha | `https://mocha-repository.info/song.php?sha256={sha256}` | BMS / bmson |
-| 3 | MinIR | `https://www.gaftalk.com/minir/#/viewer/song/{sha256}/0` | BMS / bmson |
-| 4 | rianIR | `https://rianir.link/ranking?sha256={sha256}` | BMS / bmson |
-| 5 | STELLAVERSE IR | `https://ir.stellabms.xyz/charts/{md5}` | BMS / bmson |
-
-For owned charts, add entries to the `Open with program` submenu. Configure the name, order, enabled state, executable, and arguments. New entries use `{filePath}` as their default arguments. When browsing for an executable, a blank name is filled from the filename without its extension; an existing name is not overwritten. `{filePath}` is resolved as one argument token, so paths containing spaces remain safe, while additional options can be entered in the arguments field.
-
-The same saved configuration is used by the normal list, unowned playlist rows, and Play Log. Hash-only rows expose `Open web pages` entries only; `Open with program` is available only when a local chart is resolved. A missing executable or chart, or a launch failure, shows an error.
-
-Opening this category does not change the saved setting. `OK` / `Save` validates and commits the complete draft; `Cancel` or closing the window discards it. `Restore defaults` is available at any time and becomes effective when the settings are saved.
 
 ### Install
 
@@ -333,6 +313,28 @@ When `During smart overwrite, keep *.bmx/*.pmx/*.txt without overwriting by auto
 NOTE: Chart files themselves, such as BMS / PMS / bmson files, are not overwritten on same-name collision; they are installed with adjusted names such as `chart_.bms`. This is BeMusicSeeker behavior unrelated to the smart overwrite setting.
 
 This setting is used by processes that move bundled files into existing folders, such as install to an estimated destination, resource overwrite for packages that contain only already-owned charts, and duplicate folder merge. When installing an unowned new work into a new folder as a whole, same-name file collisions are rare in the first place, so smart overwrite has limited effect.
+
+### Right-click settings
+
+![Settings Right-click settings](img/設定_右クリック設定.PNG)
+
+The `Right-click settings` category configures `Open web pages` and `Open with a program` entries for chart context menus. Each list supports `Add`, `Delete`, `Up`, `Down`, and `Enabled`, and lets you edit the item name and order.
+
+For `Open web pages`, edit the URL template and target chart kind (BMS, bmson, or both). Templates can contain `{md5}` or `{sha256}`. An entry is hidden when the chart does not have a hash required by its template. The initial configuration contains these five enabled items in this order:
+
+| Order | Name | URL template | Target |
+| --- | --- | --- | --- |
+| 1 | BMS-IR | `https://bms-ir.org/new/song?songmd5={md5}&view=both` | BMS only |
+| 2 | Mocha | `https://mocha-repository.info/song.php?sha256={sha256}` | BMS / bmson |
+| 3 | MinIR | `https://www.gaftalk.com/minir/#/viewer/song/{sha256}/0` | BMS / bmson |
+| 4 | rianIR | `https://rianir.link/ranking?sha256={sha256}` | BMS / bmson |
+| 5 | STELLAVERSE IR | `https://ir.stellabms.xyz/charts/{md5}` | BMS / bmson |
+
+For owned charts, add entries to the `Open with program` submenu. Configure the name, order, enabled state, executable, and arguments. New entries use `{filePath}` as their default arguments. When browsing for an executable, a blank name is filled from the filename without its extension; an existing name is not overwritten. `{filePath}` is resolved as one argument token, so paths containing spaces remain safe, while additional options can be entered in the arguments field.
+
+The same saved configuration is used by the normal list, unowned playlist rows, and Play Log. Hash-only rows expose `Open web pages` entries only; `Open with program` is available only when a local chart is resolved. A missing executable or chart, or a launch failure, shows an error.
+
+Opening this category does not change the saved setting. `OK` / `Save` validates and commits the complete draft; `Cancel` or closing the window discards it. `Restore defaults` is available at any time and becomes effective when the settings are saved.
 
 ## Startup / Reload / Progress Display
 
@@ -629,9 +631,15 @@ In playlists that are not externally synced, chart rows can be added by dragging
 
 ### Playlist Lamp Viewer
 
-From a playlist tree item or a single playlist-summary row, choose `Open lamp viewer` immediately below `Open page`. The viewer is a local, modeless window; it does not open the playlist URL in a browser. Every activation creates a fresh window, so multiple viewers for the same playlist can remain open independently. Closing the main window closes all viewers.
+![Playlist Lamp Viewer](img/プレイリスト_ランプビューア.PNG)
 
-The viewer opens after loading has completed and the result can be displayed. The top cards show total charts, owned, missing, ownership rate, active score source, and playlist last update. When score data is available, a second card group shows played, unplayed, play rate, average EX score rate, and whole-playlist clear rate.
+#### How to Open
+
+From a playlist tree item or a single playlist-summary row, choose `Open lamp viewer`. Every activation creates a fresh window, so multiple viewers for the same playlist can remain open independently. Closing the main window closes all viewers.
+
+#### Screen Layout
+
+The viewer opens after loading has completed and the result can be displayed. The top cards show total charts, owned, missing, ownership rate, active score source, and playlist last update. A second card group shows played, unplayed, play rate, average EX score rate, and whole-playlist clear rate.
 
 The graph area has clear lamps on the left and DJ ranks on the right. Each normal folder appears in playlist order in one shared scrollable area. Both halves of a row use `folder name | 100%-stacked bar | chart count`. Empty ordinary folders remain visible with a count of zero.
 
@@ -640,13 +648,15 @@ The clear order is `MAX`, `PERFECT`, `FC`, `EXHARD`, `HARD`, `NORMAL`, `EASY`, `
 > [!NOTE]
 > When LR2 is played with an option that disables score saving, the EASY clear lamp may remain even when the corresponding `op_history` bit is not set. BeMusicSeeker treats that record as `ASSIST` in the viewer.
 
-Ownership rate is `owned / total`; play rate is `played / total`; average EX score rate is the arithmetic mean over played charts. Whole-playlist clear rate is `(ASSIST or better) / total`, with `FAILED` and `NP` excluded from the clear count. An empty denominator is shown as localized `Unavailable`, not `0%`.
-
-The header also provides an optional calendar-only `As of` date. `Latest` shows the current score snapshot. When the active score source has play history, the calendar covers the provider-wide range from the oldest qualifying local date through today; selecting a date rolls back score-dependent cards and both graphs to the state at the following local midnight. Playlist membership, ownership, folder membership, and last-update facts remain current. The selected date is local to the system and is not persisted; each viewer has its own selection. If history is unavailable or a selected date cannot be evaluated, the viewer keeps its score-independent cards and reports that historical scores are unavailable until `Latest` or another valid date is selected.
+Average EX score rate is the arithmetic mean over played charts. Whole-playlist clear rate is `(ASSIST or better) / total`. An empty denominator is shown as localized `Unavailable`, not `0%`.
 
 When score data is unavailable or fails to load, score-independent cards remain visible, while both graphs, score-dependent cards, and segment navigation are unavailable. If the playlist is deleted or aggregation fails before the viewer opens, one localized dialog is shown and no viewer opens. If the playlist is deleted after opening, that viewer closes quietly; if aggregation fails after opening, one localized dialog is shown and then only that viewer closes. There is no retry button.
 
 Segments with at least one chart show their label and count. Click a segment with the mouse, or focus it and press Enter or Space. Its tooltip shows the label, count, and percentage; very small positive percentages use a lower-bound label instead of appearing as 0%. The selected segment is visibly marked by color, border, and text. Choosing a folder segment opens the same normal folder in the main window and filters the list by that segment. Choosing a top overall segment opens the playlist root and filters across its normal folders. The current keyword search is replaced by the selected segment's condition. If the playlist or folder is no longer available, clicking the segment has no effect.
+
+#### Reproducing Past Clear Status
+
+The header also provides an optional calendar-only `As of` date. `Latest` shows the current score snapshot. When the active score source has play history, the calendar covers the provider-wide range from the oldest qualifying local date through today; selecting a date rolls back score-dependent cards and both graphs to the state at the following local midnight. Playlist membership, ownership, folder membership, and last-update facts remain current. The selected date is local to the system and is not persisted; each viewer has its own selection. If history is unavailable or a selected date cannot be evaluated, the viewer keeps its score-independent cards and reports that historical scores are unavailable until `Latest` or another valid date is selected.
 
 ### Import External Playlist
 

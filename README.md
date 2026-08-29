@@ -82,10 +82,9 @@ These are rough notes. Priority is mixed, and completed items are removed over t
    - Should md5 values that could not be uploaded, for example because the chart was too large, be stored locally? Otherwise they may remain in the unregistered list indefinitely.
    - The approach used by [bms-score-uploader](https://github.com/Neeted/bms-score-uploader) seems like a good reference.
 2. Download LR2IR rival data, import it into `song.db`, and create WIN/LOSE folders per difficulty table
-3. Clear lamp viewer
-4. Course content display and ordering editor
-5. Replace hardcoded URLs that are now broken
-6. Consolidation feature for duplicate `.wav` and `.ogg` files
+3. Course content display and ordering editor
+4. Replace hardcoded URLs that are now broken
+5. Consolidation feature for duplicate `.wav` and `.ogg` files
 
 ## License Scope
 
