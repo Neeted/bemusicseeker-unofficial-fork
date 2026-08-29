@@ -152,8 +152,7 @@ internal sealed class PlaylistLampAggregationService
                 }
                 if (score.TotalNotes > 0)
                 {
-                    int exScore = ScoreValueCalculator.CalculateExScore(score.Perfect, score.Great);
-                    double? rate = ScoreValueCalculator.CalculateRateDouble(exScore, score.TotalNotes);
+                    double? rate = ScoreValueCalculator.CalculateRateDouble(score.ExScore, score.TotalNotes);
                     if (rate.HasValue)
                     {
                         exRates.Add(rate.Value);
@@ -232,9 +231,7 @@ internal sealed class PlaylistLampAggregationService
                     }
                     if (score.TotalNotes > 0)
                     {
-                        double? rate = ScoreValueCalculator.CalculateRateDouble(
-                            ScoreValueCalculator.CalculateExScore(score.Perfect, score.Great),
-                            score.TotalNotes);
+                        double? rate = ScoreValueCalculator.CalculateRateDouble(score.ExScore, score.TotalNotes);
                         if (rate.HasValue)
                         {
                             exRates.Add(rate.Value);
@@ -285,7 +282,11 @@ internal sealed class PlaylistLampAggregationService
             globalRankSegments,
             statistics,
             scoreSnapshot,
-            string.Empty);
+            string.Empty,
+            request.Query,
+            request.HistoricalDateRange,
+            request.HistoricalStatus,
+            request.HistoricalFailureMessage);
     }
 
     private static PlaylistLampAggregationResult CreateTerminalResult(
@@ -314,7 +315,11 @@ internal sealed class PlaylistLampAggregationService
             [],
             statistics,
             request.ScoreSnapshot,
-            failureMessage);
+            failureMessage,
+            request.Query,
+            request.HistoricalDateRange,
+            request.HistoricalStatus,
+            request.HistoricalFailureMessage);
     }
 
     private static List<string> BuildFolderOrder(PlaylistLampAggregationRequest request)

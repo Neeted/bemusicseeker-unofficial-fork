@@ -5113,6 +5113,38 @@ public partial class MainWindowViewModel : ViewModel,
                 beatorajaScoreContext));
     }
 
+    /// <summary>
+    /// Captures the exact active provider context used by playlist lamp historical reads.
+    /// Unlike the play-history view selector this boundary never falls back to another provider.
+    /// </summary>
+    internal PlaylistLampHistoricalScoreSourceContext ResolvePlaylistLampHistoricalScoreSourceContext()
+    {
+        StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
+        ActiveScoreSource activeScoreSource = files?.GetActiveScoreSourceForDiagnostics() ?? ActiveScoreSource.None;
+        if (activeScoreSource == ActiveScoreSource.Lr2 && settings.OperationModeLR2DB)
+        {
+            return PlaylistLampHistoricalScoreSourceContext.Lr2(
+                ResolveMainViewLr2PlayHistoryScoreDbPath(),
+                isLr2LinkedProfile: true);
+        }
+        if (activeScoreSource == ActiveScoreSource.Beatoraja && settings.UseBeatorajaScoreDb)
+        {
+            BMSLibrary.ScoreSnapshot scoreSnapshot = files?.GetScoreSnapshotForDiagnostics();
+            var notesBySha256 = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, BMSScore> pair in scoreSnapshot?.ScoresBySha256 ?? new Dictionary<string, BMSScore>())
+            {
+                if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Value?.totalnotes > 0)
+                {
+                    notesBySha256[pair.Key] = pair.Value.totalnotes;
+                }
+            }
+            return PlaylistLampHistoricalScoreSourceContext.Beatoraja(
+                ResolveMainViewBeatorajaPlayHistoryScoreDbPath(),
+                notesBySha256);
+        }
+        return null;
+    }
+
     private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic(
         PlayHistoryDiagnosticSeverity severity,
         string stage,

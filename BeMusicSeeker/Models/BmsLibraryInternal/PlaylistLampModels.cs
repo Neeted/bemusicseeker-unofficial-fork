@@ -117,6 +117,38 @@ internal sealed class PlaylistLampScore
         Great = great;
         TotalNotes = totalNotes;
         PlayCount = playCount;
+        ExScore = ScoreValueCalculator.CalculateExScore(perfect, great);
+    }
+
+    /// <summary>
+    /// EX score を直接保持する score projection を生成します。
+    /// 履歴 source は判定数を持たず EX score だけを保存するために使用します。
+    /// </summary>
+    /// <param name="hash">LR2 の MD5。</param>
+    /// <param name="sha256">beatoraja の SHA256。</param>
+    /// <param name="clear">保存されていた clear 値。</param>
+    /// <param name="rank">保存されていた DJ rank。</param>
+    /// <param name="exScore">保存されていた EX score。</param>
+    /// <param name="totalNotes">譜面の総ノーツ数。</param>
+    /// <param name="playCount">プレイ回数。</param>
+    internal PlaylistLampScore(
+        string hash,
+        string sha256,
+        ClearType clear,
+        RankType rank,
+        int exScore,
+        int totalNotes,
+        int playCount)
+    {
+        Hash = Normalize(hash);
+        Sha256 = Normalize(sha256);
+        Clear = clear;
+        Rank = rank;
+        ExScore = Math.Max(0, exScore);
+        Perfect = ExScore / 2;
+        Great = ExScore - Perfect * 2;
+        TotalNotes = totalNotes;
+        PlayCount = playCount;
     }
 
     /// <summary>LR2 score の MD5 です。</summary>
@@ -136,6 +168,11 @@ internal sealed class PlaylistLampScore
 
     /// <summary>GREAT 判定数です。</summary>
     public int Great { get; }
+
+    /// <summary>
+    /// source-neutral な EX score です。履歴 score を含むすべての集計はこの値を使用します。
+    /// </summary>
+    public int ExScore { get; }
 
     /// <summary>譜面の総ノーツ数です。</summary>
     public int TotalNotes { get; }
@@ -163,6 +200,34 @@ internal sealed class PlaylistLampScore
             score.great,
             score.totalnotes,
             score.playcount);
+    }
+
+    /// <summary>
+    /// EX score と譜面情報から immutable score を生成します。
+    /// </summary>
+    /// <param name="hash">LR2 の MD5。</param>
+    /// <param name="sha256">beatoraja の SHA256。</param>
+    /// <param name="clear">clear 値。</param>
+    /// <param name="exScore">EX score。</param>
+    /// <param name="totalNotes">総ノーツ数。</param>
+    /// <param name="playCount">プレイ回数。</param>
+    /// <returns>source-neutral score projection。</returns>
+    internal static PlaylistLampScore FromExScore(
+        string hash,
+        string sha256,
+        ClearType clear,
+        int exScore,
+        int totalNotes,
+        int playCount = 1)
+    {
+        return new PlaylistLampScore(
+            hash,
+            sha256,
+            clear,
+            ScoreValueCalculator.CalculateRank(exScore, totalNotes),
+            exScore,
+            totalNotes,
+            playCount);
     }
 
     private static string Normalize(string value)
@@ -453,6 +518,216 @@ internal sealed class PlaylistLampScoreSnapshot
             ? byHash
             : null;
     }
+
+    /// <summary>
+    /// 同じ source identity を保った score index の immutable 差し替えを生成します。
+    /// </summary>
+    /// <param name="scoresByHash">差し替える LR2 score index。</param>
+    /// <param name="scoresBySha256">差し替える beatoraja score index。</param>
+    /// <param name="failureMessage">差し替え後の診断メッセージ。</param>
+    /// <param name="loadStatus">差し替え後の load 状態。</param>
+    /// <returns>新しい immutable score snapshot。</returns>
+    internal PlaylistLampScoreSnapshot WithScores(
+        IReadOnlyDictionary<string, PlaylistLampScore> scoresByHash,
+        IReadOnlyDictionary<string, PlaylistLampScore> scoresBySha256,
+        string failureMessage = null,
+        ScoreTableLoadStatus? loadStatus = null)
+    {
+        return new PlaylistLampScoreSnapshot(
+            Source,
+            loadStatus ?? LoadStatus,
+            Version,
+            SourceGeneration,
+            LastUpdatedUtc,
+            scoresByHash,
+            scoresBySha256,
+            failureMessage ?? FailureMessage);
+    }
+}
+
+/// <summary>
+/// ランプビューアが source へ渡す immutable な as-of query です。
+/// </summary>
+internal sealed class PlaylistLampViewerQuery : IEquatable<PlaylistLampViewerQuery>
+{
+    /// <summary>query を生成します。</summary>
+    /// <param name="playlistId">安定した playlist identity。</param>
+    /// <param name="selectedLocalDate">選択された local date。null は Latest。</param>
+    public PlaylistLampViewerQuery(string playlistId, DateTime? selectedLocalDate = null)
+    {
+        if (string.IsNullOrWhiteSpace(playlistId))
+        {
+            throw new ArgumentException("playlistId is required.", nameof(playlistId));
+        }
+        PlaylistId = playlistId;
+        SelectedLocalDate = selectedLocalDate.HasValue
+            ? DateTime.SpecifyKind(selectedLocalDate.Value.Date, DateTimeKind.Unspecified)
+            : null;
+    }
+
+    /// <summary>安定した playlist identity。</summary>
+    public string PlaylistId { get; }
+
+    /// <summary>選択 local date。null のとき current/Latest。</summary>
+    public DateTime? SelectedLocalDate { get; }
+
+    /// <summary>Latest query を生成します。</summary>
+    /// <param name="playlistId">安定した playlist identity。</param>
+    /// <returns>Latest query。</returns>
+    public static PlaylistLampViewerQuery Latest(string playlistId) => new(playlistId);
+
+    /// <inheritdoc />
+    public bool Equals(PlaylistLampViewerQuery other)
+    {
+        return other != null
+            && string.Equals(PlaylistId, other.PlaylistId, StringComparison.Ordinal)
+            && Nullable.Equals(SelectedLocalDate, other.SelectedLocalDate);
+    }
+
+    /// <inheritdoc />
+    public override bool Equals(object obj) => Equals(obj as PlaylistLampViewerQuery);
+
+    /// <inheritdoc />
+    public override int GetHashCode() => HashCode.Combine(PlaylistId, SelectedLocalDate);
+}
+
+/// <summary>
+/// active score provider から取得可能な historical local date の範囲です。
+/// </summary>
+internal sealed class PlaylistLampHistoricalDateRange
+{
+    /// <summary>履歴 date range を生成します。</summary>
+    /// <param name="earliestLocalDate">選択可能な最古の日付。</param>
+    /// <param name="latestLocalDate">選択可能な最新の日付。</param>
+    public PlaylistLampHistoricalDateRange(DateTime? earliestLocalDate, DateTime latestLocalDate)
+    {
+        EarliestLocalDate = earliestLocalDate.HasValue
+            ? DateTime.SpecifyKind(earliestLocalDate.Value.Date, DateTimeKind.Unspecified)
+            : null;
+        LatestLocalDate = DateTime.SpecifyKind(latestLocalDate.Date, DateTimeKind.Unspecified);
+    }
+
+    /// <summary>選択可能な最古 local date。履歴がないと null。</summary>
+    public DateTime? EarliestLocalDate { get; }
+
+    /// <summary>選択可能な最新 local date。</summary>
+    public DateTime LatestLocalDate { get; }
+
+    /// <summary>historical date を選択できるかどうか。</summary>
+    public bool HasHistoricalDates => EarliestLocalDate.HasValue;
+
+    /// <summary>日付が active provider の範囲内かどうか。</summary>
+    /// <param name="localDate">検証する local date。</param>
+    /// <returns>範囲内なら true。</returns>
+    public bool Contains(DateTime localDate)
+    {
+        DateTime date = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
+        return EarliestLocalDate.HasValue
+            && date >= EarliestLocalDate.Value
+            && date <= LatestLocalDate;
+    }
+}
+
+/// <summary>
+/// historical snapshot の公開状態です。
+/// </summary>
+internal enum PlaylistLampHistoricalSnapshotStatus
+{
+    Latest,
+    Available,
+    NoHistory,
+    Unavailable
+}
+
+/// <summary>
+/// historical score projection の immutable 結果です。
+/// </summary>
+internal sealed class PlaylistLampHistoricalScoreSnapshotResult
+{
+    /// <summary>historical result を生成します。</summary>
+    public PlaylistLampHistoricalScoreSnapshotResult(
+        PlaylistLampScoreSnapshot scoreSnapshot,
+        PlaylistLampHistoricalDateRange dateRange,
+        DateTime? selectedLocalDate,
+        PlaylistLampHistoricalSnapshotStatus status,
+        string failureMessage = null)
+    {
+        ScoreSnapshot = scoreSnapshot ?? throw new ArgumentNullException(nameof(scoreSnapshot));
+        DateRange = dateRange ?? throw new ArgumentNullException(nameof(dateRange));
+        SelectedLocalDate = selectedLocalDate.HasValue
+            ? DateTime.SpecifyKind(selectedLocalDate.Value.Date, DateTimeKind.Unspecified)
+            : null;
+        Status = status;
+        FailureMessage = failureMessage ?? string.Empty;
+    }
+
+    /// <summary>集計に使用する score snapshot。</summary>
+    public PlaylistLampScoreSnapshot ScoreSnapshot { get; }
+
+    /// <summary>active provider の選択可能日付範囲。</summary>
+    public PlaylistLampHistoricalDateRange DateRange { get; }
+
+    /// <summary>選択された日付。Latest では null。</summary>
+    public DateTime? SelectedLocalDate { get; }
+
+    /// <summary>historical projection の状態。</summary>
+    public PlaylistLampHistoricalSnapshotStatus Status { get; }
+
+    /// <summary>degraded/unavailable の診断メッセージ。</summary>
+    public string FailureMessage { get; }
+
+    /// <summary>historical date を適用しているかどうか。</summary>
+    public bool IsHistorical => SelectedLocalDate.HasValue;
+
+    /// <summary>score projection が degraded かどうか。</summary>
+    public bool IsDegraded => Status == PlaylistLampHistoricalSnapshotStatus.Unavailable;
+}
+
+/// <summary>
+/// score source の読み取りに必要な、shell から渡される immutable context です。
+/// </summary>
+internal sealed class PlaylistLampHistoricalScoreSourceContext
+{
+    private PlaylistLampHistoricalScoreSourceContext(
+        ActiveScoreSource source,
+        string scoreDbPath,
+        bool isLr2LinkedProfile,
+        IReadOnlyDictionary<string, int> beatorajaNotesBySha256)
+    {
+        ActiveScoreSource = source;
+        ScoreDbPath = scoreDbPath ?? string.Empty;
+        IsLr2LinkedProfile = isLr2LinkedProfile;
+        BeatorajaNotesBySha256 = new ReadOnlyDictionary<string, int>(
+            new Dictionary<string, int>(beatorajaNotesBySha256 ?? new Dictionary<string, int>(), StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>active provider。</summary>
+    public ActiveScoreSource ActiveScoreSource { get; }
+
+    /// <summary>LR2 score.db または beatoraja score.db path。</summary>
+    public string ScoreDbPath { get; }
+
+    /// <summary>LR2 linked profile かどうか。</summary>
+    public bool IsLr2LinkedProfile { get; }
+
+    /// <summary>beatoraja mode=0 score の notes index。</summary>
+    public IReadOnlyDictionary<string, int> BeatorajaNotesBySha256 { get; }
+
+    /// <summary>LR2 context を生成します。</summary>
+    /// <param name="scoreDbPath">LR2 score.db path。</param>
+    /// <param name="isLr2LinkedProfile">LR2 profile が linked かどうか。</param>
+    /// <returns>LR2 source context。</returns>
+    public static PlaylistLampHistoricalScoreSourceContext Lr2(string scoreDbPath, bool isLr2LinkedProfile = true)
+        => new(ActiveScoreSource.Lr2, scoreDbPath, isLr2LinkedProfile, null);
+
+    /// <summary>beatoraja context を生成します。</summary>
+    /// <param name="scoreDbPath">beatoraja score.db path。</param>
+    /// <param name="notesBySha256">mode=0 chart notes。</param>
+    /// <returns>beatoraja source context。</returns>
+    public static PlaylistLampHistoricalScoreSourceContext Beatoraja(
+        string scoreDbPath,
+        IReadOnlyDictionary<string, int> notesBySha256)
+        => new(ActiveScoreSource.Beatoraja, scoreDbPath, false, notesBySha256);
 }
 
 /// <summary>
@@ -561,7 +836,11 @@ internal sealed class PlaylistLampAggregationRequest
         DateTime? playlistLastUpdatedUtc = null,
         PlaylistLampInputState inputState = PlaylistLampInputState.Loaded,
         string failureMessage = null,
-        PlaylistLampDependencyStamp dependencyStamp = default)
+        PlaylistLampDependencyStamp dependencyStamp = default,
+        PlaylistLampViewerQuery query = null,
+        PlaylistLampHistoricalDateRange historicalDateRange = null,
+        PlaylistLampHistoricalSnapshotStatus historicalStatus = PlaylistLampHistoricalSnapshotStatus.Latest,
+        string historicalFailureMessage = null)
     {
         PlaylistId = playlistId ?? string.Empty;
         FolderOrder = new ReadOnlyCollection<string>(NormalizeFolderOrder(folderOrder));
@@ -576,6 +855,10 @@ internal sealed class PlaylistLampAggregationRequest
         InputState = inputState;
         FailureMessage = failureMessage ?? string.Empty;
         DependencyStamp = dependencyStamp;
+        Query = query ?? PlaylistLampViewerQuery.Latest(PlaylistId);
+        HistoricalDateRange = historicalDateRange ?? new PlaylistLampHistoricalDateRange(null, DateTime.Today);
+        HistoricalStatus = historicalStatus;
+        HistoricalFailureMessage = historicalFailureMessage ?? string.Empty;
     }
 
     /// <summary>安定した playlist identity です。</summary>
@@ -602,11 +885,26 @@ internal sealed class PlaylistLampAggregationRequest
     /// <summary>build が観測した依存 version です。</summary>
     public PlaylistLampDependencyStamp DependencyStamp { get; }
 
+    /// <summary>source に渡された immutable query。</summary>
+    public PlaylistLampViewerQuery Query { get; }
+
+    /// <summary>active provider の historical date range。</summary>
+    public PlaylistLampHistoricalDateRange HistoricalDateRange { get; }
+
+    /// <summary>historical score projection の状態。</summary>
+    public PlaylistLampHistoricalSnapshotStatus HistoricalStatus { get; }
+
+    /// <summary>historical score projection の診断メッセージ。</summary>
+    public string HistoricalFailureMessage { get; }
+
     /// <summary>entry 読み込み中の request を生成します。</summary>
     /// <param name="playlistId">安定した playlist identity。</param>
     /// <param name="dependencyStamp">観測した依存 version。</param>
     /// <returns>Loading 状態の request。</returns>
-    internal static PlaylistLampAggregationRequest Loading(string playlistId, PlaylistLampDependencyStamp dependencyStamp = default)
+    internal static PlaylistLampAggregationRequest Loading(
+        string playlistId,
+        PlaylistLampDependencyStamp dependencyStamp = default,
+        PlaylistLampViewerQuery query = null)
     {
         return new PlaylistLampAggregationRequest(
             playlistId,
@@ -614,14 +912,18 @@ internal sealed class PlaylistLampAggregationRequest
             [],
             null,
             inputState: PlaylistLampInputState.Loading,
-            dependencyStamp: dependencyStamp);
+            dependencyStamp: dependencyStamp,
+            query: query);
     }
 
     /// <summary>playlist が削除済みの request を生成します。</summary>
     /// <param name="playlistId">安定した playlist identity。</param>
     /// <param name="dependencyStamp">観測した依存 version。</param>
     /// <returns>Deleted 状態の request。</returns>
-    internal static PlaylistLampAggregationRequest Deleted(string playlistId, PlaylistLampDependencyStamp dependencyStamp = default)
+    internal static PlaylistLampAggregationRequest Deleted(
+        string playlistId,
+        PlaylistLampDependencyStamp dependencyStamp = default,
+        PlaylistLampViewerQuery query = null)
     {
         return new PlaylistLampAggregationRequest(
             playlistId,
@@ -629,7 +931,8 @@ internal sealed class PlaylistLampAggregationRequest
             [],
             null,
             inputState: PlaylistLampInputState.Deleted,
-            dependencyStamp: dependencyStamp);
+            dependencyStamp: dependencyStamp,
+            query: query);
     }
 
     /// <summary>entry snapshot の取得に失敗した request を生成します。</summary>
@@ -637,7 +940,11 @@ internal sealed class PlaylistLampAggregationRequest
     /// <param name="failureMessage">失敗理由。</param>
     /// <param name="dependencyStamp">観測した依存 version。</param>
     /// <returns>Failed 状態の request。</returns>
-    internal static PlaylistLampAggregationRequest Failed(string playlistId, string failureMessage, PlaylistLampDependencyStamp dependencyStamp = default)
+    internal static PlaylistLampAggregationRequest Failed(
+        string playlistId,
+        string failureMessage,
+        PlaylistLampDependencyStamp dependencyStamp = default,
+        PlaylistLampViewerQuery query = null)
     {
         return new PlaylistLampAggregationRequest(
             playlistId,
@@ -646,7 +953,8 @@ internal sealed class PlaylistLampAggregationRequest
             null,
             inputState: PlaylistLampInputState.Failed,
             failureMessage: failureMessage,
-            dependencyStamp: dependencyStamp);
+            dependencyStamp: dependencyStamp,
+            query: query);
     }
 
     private static List<string> NormalizeFolderOrder(IEnumerable<string> folderOrder)
@@ -1004,7 +1312,11 @@ internal sealed class PlaylistLampAggregationResult
         IReadOnlyList<PlaylistLampSegment> rankSegments,
         PlaylistLampStatistics statistics,
         PlaylistLampScoreSnapshot scoreSnapshot,
-        string failureMessage)
+        string failureMessage,
+        PlaylistLampViewerQuery query = null,
+        PlaylistLampHistoricalDateRange historicalDateRange = null,
+        PlaylistLampHistoricalSnapshotStatus historicalStatus = PlaylistLampHistoricalSnapshotStatus.Latest,
+        string historicalFailureMessage = null)
     {
         PlaylistId = playlistId ?? string.Empty;
         State = state;
@@ -1019,6 +1331,10 @@ internal sealed class PlaylistLampAggregationResult
         ScoreDataAvailable = ScoreSnapshot.IsScoreDataAvailable;
         IsSegmentInvocationEnabled = ScoreDataAvailable && state == PlaylistLampViewerState.Ready;
         FailureMessage = failureMessage ?? string.Empty;
+        Query = query ?? PlaylistLampViewerQuery.Latest(PlaylistId);
+        HistoricalDateRange = historicalDateRange ?? new PlaylistLampHistoricalDateRange(null, DateTime.Today);
+        HistoricalStatus = historicalStatus;
+        HistoricalFailureMessage = historicalFailureMessage ?? string.Empty;
     }
 
     /// <summary>安定した playlist identity。</summary>
@@ -1050,6 +1366,18 @@ internal sealed class PlaylistLampAggregationResult
 
     /// <summary>failed state の診断メッセージ。</summary>
     public string FailureMessage { get; }
+
+    /// <summary>aggregation に使用した immutable query。</summary>
+    public PlaylistLampViewerQuery Query { get; }
+
+    /// <summary>active provider の historical date range。</summary>
+    public PlaylistLampHistoricalDateRange HistoricalDateRange { get; }
+
+    /// <summary>historical score projection の状態。</summary>
+    public PlaylistLampHistoricalSnapshotStatus HistoricalStatus { get; }
+
+    /// <summary>historical score projection の診断メッセージ。</summary>
+    public string HistoricalFailureMessage { get; }
 
     /// <summary>UI 層で扱いやすい rows alias。</summary>
     public IReadOnlyList<PlaylistLampFolderRow> Folders => FolderRows;

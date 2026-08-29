@@ -2262,6 +2262,15 @@ public class Resources
     /// <summary>No-play rank label.</summary>
     public static string PlaylistLampViewer_rank_np => ResourceManager.GetString("PlaylistLampViewer_rank_np", resourceCulture);
 
+    /// <summary>Historical score as-of label.</summary>
+    public static string PlaylistLampViewer_as_of => ResourceManager.GetString("PlaylistLampViewer_as_of", resourceCulture);
+
+    /// <summary>Latest score selection label.</summary>
+    public static string PlaylistLampViewer_latest => ResourceManager.GetString("PlaylistLampViewer_latest", resourceCulture);
+
+    /// <summary>Historical score unavailable status.</summary>
+    public static string PlaylistLampViewer_historical_unavailable => ResourceManager.GetString("PlaylistLampViewer_historical_unavailable", resourceCulture);
+
     internal Resources()
     {
     }

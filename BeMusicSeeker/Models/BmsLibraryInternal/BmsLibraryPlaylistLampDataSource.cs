@@ -19,6 +19,8 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
 
     private readonly BMSLibrary library;
 
+    private readonly Func<PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory;
+
     private readonly object subscriptionGate = new();
 
     private readonly HashSet<BMSTable> subscribedTables = [];
@@ -40,10 +42,17 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
     /// </summary>
     /// <param name="playlist">playlist owner。</param>
     /// <param name="library">catalog と score owner。</param>
-    public BmsLibraryPlaylistLampDataSource(BMSPlaylist playlist, BMSLibrary library)
+    /// <param name="historicalSourceContextFactory">
+    /// active provider の read-only history source context。null の場合は Latest のみを提供します。
+    /// </param>
+    public BmsLibraryPlaylistLampDataSource(
+        BMSPlaylist playlist,
+        BMSLibrary library,
+        Func<PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory = null)
     {
         this.playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
         this.library = library ?? throw new ArgumentNullException(nameof(library));
+        this.historicalSourceContextFactory = historicalSourceContextFactory;
         playlist.PlaylistTablesReplaced += PlaylistTablesReplaced;
         playlist.PlaylistEntriesHydrationCompleted += PlaylistEntriesHydrationCompleted;
         library.PropertyChanged += LibraryPropertyChanged;
@@ -56,24 +65,21 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
 
     /// <inheritdoc />
     public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
-        string playlistId,
+        PlaylistLampViewerQuery query,
         CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref disposed) != 0)
         {
             throw new ObjectDisposedException(nameof(BmsLibraryPlaylistLampDataSource));
         }
-        if (string.IsNullOrWhiteSpace(playlistId))
-        {
-            throw new ArgumentException("playlistId is required.", nameof(playlistId));
-        }
+        ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
         return new ValueTask<PlaylistLampAggregationRequest>(
-            Task.Run(() => CaptureCore(playlistId, cancellationToken), cancellationToken));
+            Task.Run(() => CaptureCore(query, cancellationToken), cancellationToken));
     }
 
     private PlaylistLampAggregationRequest CaptureCore(
-        string playlistId,
+        PlaylistLampViewerQuery query,
         CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref disposed) != 0)
@@ -81,10 +87,10 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             throw new ObjectDisposedException(nameof(BmsLibraryPlaylistLampDataSource));
         }
         cancellationToken.ThrowIfCancellationRequested();
-        BMSTable table = FindTable(playlistId);
+        BMSTable table = FindTable(query.PlaylistId);
         if (table == null)
         {
-            return PlaylistLampAggregationRequest.Deleted(playlistId);
+            return PlaylistLampAggregationRequest.Deleted(query.PlaylistId, query: query);
         }
 
         PlaylistEntriesLoadState entriesLoadState;
@@ -127,23 +133,25 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             || entriesLoadState == PlaylistEntriesLoadState.NotLoaded)
         {
             return new PlaylistLampAggregationRequest(
-                playlistId,
+                query.PlaylistId,
                 [],
                 [],
                 null,
                 inputState: PlaylistLampInputState.Loading,
-                dependencyStamp: CreateUnavailableDependencyStamp(entriesRevision));
+                dependencyStamp: CreateUnavailableDependencyStamp(entriesRevision),
+                query: query);
         }
         if (entriesLoadState == PlaylistEntriesLoadState.Failed)
         {
             return new PlaylistLampAggregationRequest(
-                playlistId,
+                query.PlaylistId,
                 [],
                 [],
                 null,
                 inputState: PlaylistLampInputState.Failed,
                 failureMessage: failureMessage,
-                dependencyStamp: CreateUnavailableDependencyStamp(entriesRevision));
+                dependencyStamp: CreateUnavailableDependencyStamp(entriesRevision),
+                query: query);
         }
 
         PlaylistLibraryResolveIndexSnapshot resolveIndex = library.GetPlaylistLibraryResolveIndexSnapshot(
@@ -152,7 +160,12 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             out _);
         cancellationToken.ThrowIfCancellationRequested();
         BMSLibrary.ScoreSnapshot scoreSnapshot = library.GetScoreSnapshotForDiagnostics();
-        PlaylistLampScoreSnapshot lampScoreSnapshot = PlaylistLampScoreSnapshot.FromBmsLibrarySnapshot(scoreSnapshot);
+        PlaylistLampScoreSnapshot currentLampScoreSnapshot = PlaylistLampScoreSnapshot.FromBmsLibrarySnapshot(scoreSnapshot);
+        PlaylistLampHistoricalScoreSnapshotResult historicalResult = ResolveHistoricalScoreSnapshot(
+            query,
+            currentLampScoreSnapshot,
+            cancellationToken);
+        PlaylistLampScoreSnapshot lampScoreSnapshot = historicalResult.ScoreSnapshot;
         var lampEntries = new List<PlaylistLampEntrySnapshot>(entries.Length);
         foreach (RawEntrySnapshot entry in entries)
         {
@@ -200,13 +213,96 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             library.ChartInfoIndexVersion);
         DateTime? lastUpdatedUtc = playlistLastUpdated == default ? null : playlistLastUpdated;
         return new PlaylistLampAggregationRequest(
-            playlistId,
+            query.PlaylistId,
             folderOrder,
             lampEntries,
             lampScoreSnapshot,
             lastUpdatedUtc,
             inputState: PlaylistLampInputState.Loaded,
-            dependencyStamp: dependencyStamp);
+            dependencyStamp: dependencyStamp,
+            query: query,
+            historicalDateRange: historicalResult.DateRange,
+            historicalStatus: historicalResult.Status,
+            historicalFailureMessage: historicalResult.FailureMessage);
+    }
+
+    private PlaylistLampHistoricalScoreSnapshotResult ResolveHistoricalScoreSnapshot(
+        PlaylistLampViewerQuery query,
+        PlaylistLampScoreSnapshot currentScoreSnapshot,
+        CancellationToken cancellationToken)
+    {
+        if (historicalSourceContextFactory == null)
+        {
+            if (!query.SelectedLocalDate.HasValue)
+            {
+                return new PlaylistLampHistoricalScoreSnapshotResult(
+                    currentScoreSnapshot,
+                    new PlaylistLampHistoricalDateRange(null, DateTime.Today),
+                    null,
+                    PlaylistLampHistoricalSnapshotStatus.Latest);
+            }
+            return new PlaylistLampHistoricalScoreSnapshotResult(
+                currentScoreSnapshot.WithScores(
+                    new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase),
+                    new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase),
+                    "Historical score source is not configured.",
+                    ScoreTableLoadStatus.Failed),
+                new PlaylistLampHistoricalDateRange(null, DateTime.Today),
+                query.SelectedLocalDate,
+                PlaylistLampHistoricalSnapshotStatus.Unavailable,
+                "Historical score source is not configured.");
+        }
+
+        PlaylistLampHistoricalScoreSourceContext sourceContext;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            sourceContext = historicalSourceContextFactory();
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return CreateHistoricalSourceUnavailable(query, currentScoreSnapshot, exception);
+        }
+        return new PlaylistLampHistoricalScoreSnapshotReader().Read(
+            sourceContext,
+            currentScoreSnapshot,
+            query.SelectedLocalDate,
+            cancellationToken);
+    }
+
+    private static PlaylistLampHistoricalScoreSnapshotResult CreateHistoricalSourceUnavailable(
+        PlaylistLampViewerQuery query,
+        PlaylistLampScoreSnapshot currentScoreSnapshot,
+        Exception exception)
+    {
+        string message = string.IsNullOrWhiteSpace(exception?.Message)
+            ? "Historical score source could not be resolved."
+            : exception.Message;
+        DateTime today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
+        PlaylistLampHistoricalDateRange range = new(null, today);
+        if (!query.SelectedLocalDate.HasValue)
+        {
+            return new PlaylistLampHistoricalScoreSnapshotResult(
+                currentScoreSnapshot,
+                range,
+                null,
+                PlaylistLampHistoricalSnapshotStatus.Latest,
+                message);
+        }
+        return new PlaylistLampHistoricalScoreSnapshotResult(
+            currentScoreSnapshot.WithScores(
+                new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase),
+                message,
+                ScoreTableLoadStatus.Failed),
+            range,
+            query.SelectedLocalDate,
+            PlaylistLampHistoricalSnapshotStatus.Unavailable,
+            message);
     }
 
     private PlaylistLampDependencyStamp CreateUnavailableDependencyStamp(int entriesRevision)
@@ -360,7 +456,10 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             return;
         }
         long sequence = Interlocked.Increment(ref changeSequence);
-        PlaylistLampViewerSourceChangedEventArgs args = new(playlistId, sequence);
+        PlaylistLampViewerSourceChangedEventArgs args = new(
+            playlistId,
+            sequence,
+            sourceIdentity: library.GetActiveScoreSourceForDiagnostics().ToString());
         _ = Task.Run(() =>
         {
             // Table/library notifications may arrive while their owner holds a write

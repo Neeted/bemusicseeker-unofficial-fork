@@ -727,7 +727,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
         }
 
         public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
-            string playlistId,
+            PlaylistLampViewerQuery query,
             CancellationToken cancellationToken)
         {
             CaptureStarted.TrySetResult(true);
@@ -796,11 +796,11 @@ public sealed class PlaylistLampViewerWindowManagerTests
         public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed;
 
         public async ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
-            string requestedPlaylistId,
+            PlaylistLampViewerQuery requestedQuery,
             CancellationToken cancellationToken)
         {
             PlaylistLampAggregationRequest captured = await inner
-                .CaptureAsync(requestedPlaylistId, cancellationToken)
+                .CaptureAsync(requestedQuery, cancellationToken)
                 .ConfigureAwait(false);
             return captured.InputState == PlaylistLampInputState.Loaded
                 ? CreateReadyRequest(playlistId)

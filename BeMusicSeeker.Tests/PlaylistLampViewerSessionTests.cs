@@ -284,6 +284,79 @@ public sealed class PlaylistLampViewerSessionTests
         Assert.AreEqual(2, source.RemoveCount);
     }
 
+    [TestMethod]
+    public async Task Session_queryUpdateKeepsTheLatestImmutableQuery()
+    {
+        var source = new QueryAwareLampSource();
+        using var session = new PlaylistLampViewerSession("playlist", source);
+
+        await session.StartAsync();
+        DateTime firstDate = new(2026, 8, 27);
+        DateTime secondDate = new(2026, 8, 28);
+        Task first = session.UpdateSelectedAsOfDateAsync(firstDate);
+        Task second = session.UpdateSelectedAsOfDateAsync(secondDate);
+        await Task.WhenAll(first, second);
+
+        Assert.AreEqual(secondDate, session.Query.SelectedLocalDate);
+        Assert.AreEqual(secondDate, session.Current.Query.SelectedLocalDate);
+        Assert.IsTrue(source.CapturedQueries.Exists(query => query.SelectedLocalDate == firstDate));
+        Assert.IsTrue(source.CapturedQueries.Exists(query => query.SelectedLocalDate == secondDate));
+    }
+
+    [TestMethod]
+    public async Task Session_doesNotPublishStaleEarlierQueryAfterLaterQueryAccepted()
+    {
+        var source = new QueryAwareLampSource();
+        var executor = new GatedBuildExecutor();
+        using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
+        var acceptedReadyResults = new List<PlaylistLampAggregationResult>();
+        var secondAccepted = NewCompletion<PlaylistLampAggregationResult>();
+        session.ResultChanged += (_, args) =>
+        {
+            if (args.Result.State != PlaylistLampViewerState.Ready)
+            {
+                return;
+            }
+            lock (acceptedReadyResults)
+            {
+                acceptedReadyResults.Add(args.Result);
+            }
+            if (args.Result.Query.SelectedLocalDate == new DateTime(2026, 8, 28))
+            {
+                secondAccepted.TrySetResult(args.Result);
+            }
+        };
+
+        Task initial = session.StartAsync();
+        await executor.WaitForBuildCountAsync(1);
+        executor.Complete(0, executor.AggregateBuild(0));
+        await initial;
+
+        DateTime firstDate = new(2026, 8, 27);
+        DateTime secondDate = new(2026, 8, 28);
+        Task first = session.UpdateSelectedAsOfDateAsync(firstDate);
+        await executor.WaitForBuildCountAsync(2);
+        Task second = session.UpdateSelectedAsOfDateAsync(secondDate);
+        await executor.WaitForBuildCountAsync(3);
+
+        PlaylistLampAggregationResult secondResult = executor.AggregateBuild(2);
+        executor.Complete(2, secondResult);
+        PlaylistLampAggregationResult acceptedSecond = await secondAccepted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The gate deliberately ignores cancellation. Completing Q1 after Q2 was accepted
+        // exercises the generation check rather than relying on cooperative cancellation.
+        PlaylistLampAggregationResult staleFirstResult = executor.AggregateBuild(1);
+        executor.Complete(1, staleFirstResult);
+        await Task.WhenAll(first, second);
+
+        Assert.AreSame(secondResult, acceptedSecond);
+        Assert.AreSame(secondResult, session.Current);
+        lock (acceptedReadyResults)
+        {
+            Assert.IsFalse(acceptedReadyResults.Any(result => result.Query.SelectedLocalDate == firstDate));
+        }
+    }
+
     private static async Task WaitForReadyBuildAsync(PlaylistLampViewerSession session, int totalCount)
     {
         var completion = NewCompletion<PlaylistLampAggregationResult>();
@@ -393,7 +466,7 @@ public sealed class PlaylistLampViewerSessionTests
             }
         }
 
-        public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(string playlistId, CancellationToken cancellationToken)
+        public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(PlaylistLampViewerQuery query, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref captureCount);
             cancellationToken.ThrowIfCancellationRequested();
@@ -424,6 +497,61 @@ public sealed class PlaylistLampViewerSessionTests
                 handler = changed;
             }
             handler?.Invoke(this, new PlaylistLampViewerSourceChangedEventArgs(playlistId, sequence, dependencyStamp));
+        }
+    }
+
+    private sealed class QueryAwareLampSource : IPlaylistLampViewerDataSource
+    {
+        internal List<PlaylistLampViewerQuery> CapturedQueries { get; } = [];
+
+        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed;
+
+        public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
+            PlaylistLampViewerQuery query,
+            CancellationToken cancellationToken)
+        {
+            lock (CapturedQueries)
+            {
+                CapturedQueries.Add(query);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(CreateRequest(query));
+        }
+
+        private static PlaylistLampAggregationRequest CreateRequest(PlaylistLampViewerQuery query)
+        {
+            string hash = "query-chart";
+            var entries = new[]
+            {
+                new PlaylistLampEntrySnapshot(
+                    "folder",
+                    hash,
+                    true,
+                    md5: hash,
+                    resolvedMd5: hash,
+                    resolvedPath: "C:/charts/query-chart.bms")
+            };
+            var scores = new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase)
+            {
+                [hash] = PlaylistLampScore.FromExScore(hash, null, ClearType.CLEAR, 100, 100)
+            };
+            var scoreSnapshot = new PlaylistLampScoreSnapshot(
+                ActiveScoreSource.Lr2,
+                ScoreTableLoadStatus.Loaded,
+                1,
+                1,
+                null,
+                scores);
+            return new PlaylistLampAggregationRequest(
+                query.PlaylistId,
+                ["folder"],
+                entries,
+                scoreSnapshot,
+                query: query,
+                historicalDateRange: new PlaylistLampHistoricalDateRange(new DateTime(2026, 8, 27), new DateTime(2026, 8, 29)),
+                historicalStatus: query.SelectedLocalDate.HasValue
+                    ? PlaylistLampHistoricalSnapshotStatus.Available
+                    : PlaylistLampHistoricalSnapshotStatus.Latest);
         }
     }
 

@@ -3241,4 +3241,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_rank_e" xml:space="preserve"><value>E</value></data>
   <data name="PlaylistLampViewer_rank_f" xml:space="preserve"><value>F</value></data>
   <data name="PlaylistLampViewer_rank_np" xml:space="preserve"><value>NP</value></data>
+  <data name="PlaylistLampViewer_as_of" xml:space="preserve"><value>基準日</value></data>
+  <data name="PlaylistLampViewer_latest" xml:space="preserve"><value>最新</value></data>
+  <data name="PlaylistLampViewer_historical_unavailable" xml:space="preserve"><value>履歴スコア利用不可</value></data>
 </root>

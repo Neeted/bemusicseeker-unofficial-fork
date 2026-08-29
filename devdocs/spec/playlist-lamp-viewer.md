@@ -21,6 +21,36 @@ unplayed, play rate, average EX score rate, and whole-playlist clear rate are
 inserted before the final playlist last-update card. When score data is not
 available, those score-dependent cards are omitted.
 
+The header also contains a calendar-only `As of` selector and a `Latest` command.
+`Latest` (the default) uses the current score snapshot. When an active score
+provider has history, the calendar permits every local date from the oldest
+provider-wide qualifying history row through today; an empty history disables
+the date selector while leaving `Latest` available. The text box portion of the
+date picker is read-only; dates are selected through its calendar, and the date
+is not persisted or shared with another window.
+
+Selecting local date `D` rolls back the current score snapshot at the local
+midnight immediately after `D`. History rows at or after that cutoff are
+processed newest first; equal timestamps use the provider source id descending.
+LR2 considers finalized and unfinalized rows and restores `old_clear` plus
+`old_op_history`, and `old_exscore` plus `old_totalnotes`. beatoraja considers
+only mode `0` rows and restores `oldclear` plus `oldscore` using current notes.
+If a processed future row explicitly has no old score, the chart is NP. A hash
+with no processed future row retains its current score exactly.
+
+Historical mode changes only score-dependent semantics: played/unplayed,
+play rate, arithmetic average EX rate, clear rate, and the clear/rank/DJ graphs.
+Current playlist membership, folder order, ownership, missing state, and last
+update remain current facts. Segment clicks retain the current typed category
+and scope route; the historical date and cutoff are not sent to navigation.
+
+An unavailable, malformed, unreadable, or out-of-range historical snapshot is
+score-degraded rather than a terminal playlist failure. The viewer remains
+live with score-independent cards, and no current-score or all-NP fallback is
+shown. Choosing `Latest` or a valid date performs recovery. Query and source
+generations suppress stale results when date changes race with refresh or
+cancellation.
+
 The graph area is split into two equal, aligned halves: clear lamp on the left
 and DJ rank on the right. Each half has its own heading, visible legend, and
 bounded 100%-stacked bar. Below the global bars, one shared vertical
@@ -188,3 +218,15 @@ folder-scoped routes retain their existing folder guard.
 | D4-FOLDER-GEOMETRY | Clear and rank folder halves use shared live label and count columns with explicit 6-DIP spacers; labels cap at 170 DIPs, counts cap at localized N0(9999), widths recompute after row refresh, and bars align across rows and halves. |
 | D4-STAT-ORDER | One ordered statistics collection renders score-available and degraded card sequences in their required semantic order, with playlist last update always last. |
 | D4-DEFAULT-WIDTH | The viewer defaults to 1290 DIPs, and the score-available cards and clear legend fit one rendered row at that width. |
+| HIST-01 | Latest is the default, each window owns its nullable date query, and no historical selection is persisted or shared. |
+| HIST-02 | Calendar-only date selection uses the exact active provider-wide range (oldest qualifying local date through today); LR2 includes all finalization states, beatoraja uses mode 0, and empty history disables only historical selection. |
+| HIST-03 | The rollback cutoff is the selected local date plus one day at local midnight; equality is included and source rows are newest-first with descending source id ties. |
+| HIST-04 | LR2 rollback restores the required clear/option-history and EX/notes fields and preserves explicit old-score absence as NP. |
+| HIST-05 | Only the active provider is read; provider failure never falls back to the opposite provider, and beatoraja rollback uses mode-0 oldclear/oldscore plus current notes. |
+| HIST-06 | No future row preserves current score; explicit old-score absence is NP and remains distinct from current score retention. |
+| HIST-07 | Historical aggregation changes only score-dependent cards, rates, and graphs while current playlist membership/ownership/folder/last-update facts remain unchanged. |
+| HIST-08 | Missing, unreadable, malformed, and out-of-range historical data is a nonterminal score-degraded result; Latest and valid dates recover. |
+| HIST-09 | Query/source generations suppress stale publication even when cancellation is ignored. |
+| HIST-10 | Historical graph segments emit the same typed category/scope navigation request without cutoff or membership parameters. |
+| HIST-11 | Historical reads open provider databases read-only and never create, repair, or alter schema/data. |
+| HIST-12 | Header controls, resource-backed labels, six-language parity, manuals, and this specification document the historical contract. |

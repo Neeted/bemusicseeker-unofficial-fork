@@ -8,8 +8,10 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Livet;
+using Livet.Commands;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -142,6 +144,10 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
 
     private PlaylistLampAggregationResult result;
 
+    private DateTime? selectedAsOfDate;
+
+    private ViewModelCommand latestCommand;
+
     private int disposed;
 
     /// <summary>Creates a dispatcher-bound viewer projection over one session.</summary>
@@ -167,6 +173,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.navigationRequestSink = navigationRequestSink;
         result = session.Current;
+        selectedAsOfDate = result?.Query?.SelectedLocalDate;
         session.ResultChanged += SessionResultChanged;
         ApplyResult(result);
     }
@@ -176,6 +183,59 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
 
     /// <summary>Current playlist display name.</summary>
     public string PlaylistName { get; }
+
+    /// <summary>
+    /// 現在表示している score の local as-of date。null は Latest/current です。
+    /// DatePicker のカレンダー選択だけがこの値を変更します。
+    /// </summary>
+    public DateTime? SelectedAsOfDate
+    {
+        get => selectedAsOfDate;
+        set
+        {
+            DateTime? normalized = value.HasValue
+                ? DateTime.SpecifyKind(value.Value.Date, DateTimeKind.Unspecified)
+                : null;
+            if (Nullable.Equals(selectedAsOfDate, normalized))
+            {
+                return;
+            }
+            selectedAsOfDate = normalized;
+            RaisePropertyChanged(nameof(SelectedAsOfDate));
+            _ = session.UpdateSelectedAsOfDateAsync(normalized)
+                .Logging("PlaylistLampViewerViewModel.SelectedAsOfDate");
+        }
+    }
+
+    /// <summary>Latest/current score snapshotへ戻す command。</summary>
+    public ViewModelCommand LatestCommand => latestCommand ??= new ViewModelCommand(
+        () => SelectedAsOfDate = null);
+
+    /// <summary>historical DatePicker の最古選択可能日。</summary>
+    public DateTime? AsOfDateStart => result?.HistoricalDateRange?.EarliestLocalDate;
+
+    /// <summary>historical DatePicker の最新選択可能日。</summary>
+    public DateTime? AsOfDateEnd => result?.HistoricalDateRange?.LatestLocalDate;
+
+    /// <summary>history row があり DatePicker を選択できるかどうか。</summary>
+    public bool IsAsOfDateSelectionEnabled => result?.HistoricalDateRange?.HasHistoricalDates == true;
+
+    /// <summary>as-of header 用 localised status。</summary>
+    public string AsOfDateStatusText
+    {
+        get
+        {
+            if (!SelectedAsOfDate.HasValue)
+            {
+                return Resources.PlaylistLampViewer_latest;
+            }
+            if (result?.HistoricalStatus == PlaylistLampHistoricalSnapshotStatus.Unavailable)
+            {
+                return Resources.PlaylistLampViewer_historical_unavailable;
+            }
+            return SelectedAsOfDate.Value.ToString("d", CultureInfo.CurrentCulture);
+        }
+    }
 
     /// <summary>Localized native-window title.</summary>
     public string WindowTitle => string.Format(
@@ -369,6 +429,11 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             return;
         }
         result = next;
+        DateTime? nextSelectedAsOfDate = next.Query?.SelectedLocalDate;
+        if (!Nullable.Equals(selectedAsOfDate, nextSelectedAsOfDate))
+        {
+            selectedAsOfDate = nextSelectedAsOfDate;
+        }
         selectedSegment = null;
         clearSegments.Clear();
         rankSegments.Clear();

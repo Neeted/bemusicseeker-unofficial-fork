@@ -51,6 +51,67 @@ public sealed class PlaylistLampAggregationTests
     }
 
     [TestMethod]
+    public void Aggregate_historicalScoresChangeOnlyScoreDependentStatistics()
+    {
+        PlaylistLampScore failed = PlaylistLampScore.FromExScore(
+            "historical-a",
+            "historical-a",
+            ClearType.FAILED,
+            0,
+            100);
+        PlaylistLampScore easy = PlaylistLampScore.FromExScore(
+            "historical-b",
+            "historical-b",
+            ClearType.EASY,
+            200,
+            100);
+        PlaylistLampScore noPlay = PlaylistLampScore.FromExScore(
+            "historical-c",
+            "historical-c",
+            ClearType.NO_PLAY,
+            0,
+            100);
+        PlaylistLampScoreSnapshot snapshot = CreateScoreSnapshot(
+            ActiveScoreSource.Beatoraja,
+            failed,
+            easy,
+            noPlay);
+        var request = new PlaylistLampAggregationRequest(
+            "historical-playlist",
+            ["folder"],
+            [
+                Entry("folder", "a", owned: true, sha256: failed.Sha256),
+                Entry("folder", "b", owned: false, sha256: easy.Sha256),
+                Entry("folder", "c", owned: true, sha256: noPlay.Sha256)
+            ],
+            snapshot,
+            PlaylistUpdatedAt,
+            query: new PlaylistLampViewerQuery("historical-playlist", new DateTime(2026, 8, 27)),
+            historicalStatus: PlaylistLampHistoricalSnapshotStatus.Available);
+
+        PlaylistLampAggregationResult result = new PlaylistLampAggregationService().Aggregate(request);
+
+        Assert.AreEqual(3, result.Statistics.TotalCount);
+        Assert.AreEqual(2, result.Statistics.OwnedCount);
+        Assert.AreEqual(1, result.Statistics.MissingCount);
+        Assert.AreEqual(2, result.Statistics.PlayedCount);
+        Assert.AreEqual(1, result.Statistics.UnplayedCount);
+        Assert.AreEqual(2.0 / 3.0, result.Statistics.PlayRate!.Value, 0.0001);
+        Assert.AreEqual(0.5, result.Statistics.AverageExRate!.Value, 0.0001);
+        Assert.AreEqual(1.0 / 3.0, result.Statistics.ClearRate!.Value, 0.0001);
+        Assert.AreEqual(PlaylistLampViewerState.Ready, result.State);
+        Assert.AreEqual(PlaylistUpdatedAt, result.Statistics.PlaylistLastUpdatedUtc);
+        Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.HistoricalStatus);
+        Assert.AreEqual(new DateTime(2026, 8, 27), result.Query.SelectedLocalDate);
+        Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.EASY));
+        Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.FAILED));
+        Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.NP));
+        Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.AAA));
+        Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.F));
+        Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.NP));
+    }
+
+    [TestMethod]
     public void Aggregate_usesSourceSpecificHashPriorityIncludingChartInfoFallback()
     {
         PlaylistLampScore resolvedShaScore = Score("resolved-md5", "resolved-sha", ClearType.HARD, RankType.AA);

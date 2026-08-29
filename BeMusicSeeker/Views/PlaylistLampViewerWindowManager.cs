@@ -58,6 +58,8 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable
 
     private readonly Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> dataSourceFactory;
 
+    private readonly Func<PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory;
+
     private readonly Action<PlaylistLampViewerWindow> prepareWindowForShow;
 
     private readonly Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation;
@@ -93,13 +95,18 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable
         IUiDialogService dialogs = null,
         Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> dataSourceFactory = null,
         Action<PlaylistLampViewerWindow> prepareWindowForShow = null,
-        Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation = null)
+        Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation = null,
+        Func<PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory = null)
     {
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         this.workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
         this.dialogs = dialogs ?? new UiDialogCoordinator();
+        this.historicalSourceContextFactory = historicalSourceContextFactory;
         this.dataSourceFactory = dataSourceFactory
-            ?? (context => new BmsLibraryPlaylistLampDataSource(context.Playlist, context.Library));
+            ?? (context => new BmsLibraryPlaylistLampDataSource(
+                context.Playlist,
+                context.Library,
+                this.historicalSourceContextFactory));
         this.prepareWindowForShow = prepareWindowForShow;
         this.activateWindowForInitialPresentation = activateWindowForInitialPresentation
             ?? ActivateWindowForInitialPresentation;

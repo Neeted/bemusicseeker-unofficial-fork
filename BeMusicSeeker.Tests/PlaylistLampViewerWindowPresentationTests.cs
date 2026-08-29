@@ -9,6 +9,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -78,6 +79,137 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             formattedMinimum,
             formatted,
             "a tiny positive percentage must not be clamped to the minimum displayed value");
+    }
+
+    [TestMethod]
+    public void Viewer_historicalDatePicker_is_calendar_only_and_latest_recovers_the_window()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            DateTime today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
+            DateTime earliest = today.AddDays(-2);
+            DateTime selected = today.AddDays(-1);
+            var source = new HistoricalLampSource();
+            var session = new PlaylistLampViewerSession("playlist", source);
+            var viewModel = new PlaylistLampViewerViewModel(
+                "playlist",
+                "Historical date fixture",
+                session,
+                TestUiDispatcherHost.Dispatcher,
+                _ => { });
+            var owner = new Window
+            {
+                Width = 480,
+                Height = 320,
+                ShowInTaskbar = false,
+                Content = new Grid()
+            };
+            windowTest.ShowAndWaitForContentRendered(owner);
+            var window = new PlaylistLampViewerWindow(owner, viewModel);
+            EventHandler<PlaylistLampAggregationResultChangedEventArgs> resultHandler = null;
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.StartAndWaitForPresentableAsync(),
+                    "playlist lamp historical date first presentable result");
+                windowTest.ShowAndWaitForContentRendered(window);
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+
+                DatePicker picker = FindByAutomationId<DatePicker>(
+                    window,
+                    "PlaylistLampViewerAsOfDatePicker");
+                DatePickerTextBox pickerTextBox = FindDescendants<DatePickerTextBox>(picker).Single();
+                Assert.IsTrue(pickerTextBox.IsReadOnly, "the date text box must not allow free-form input");
+                Assert.IsFalse(picker.IsEnabled, "zero history must disable historical date selection");
+                Button latestBeforeHistory = FindByAutomationId<Button>(
+                    window,
+                    "PlaylistLampViewerLatestButton");
+                Assert.IsTrue(latestBeforeHistory.IsEnabled, "Latest must remain usable with zero history");
+
+                source.EnableHistory();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    session.RefreshAsync(),
+                    "playlist lamp historical date range refresh");
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+
+                Assert.IsTrue(picker.IsEnabled, "a non-empty provider history must enable the calendar");
+                Assert.AreEqual(earliest, picker.DisplayDateStart);
+                Assert.AreEqual(today, picker.DisplayDateEnd);
+
+                var selectedAccepted = NewCompletion<PlaylistLampAggregationResult>();
+                var latestAccepted = NewCompletion<PlaylistLampAggregationResult>();
+                resultHandler = (_, args) =>
+                {
+                    if (args?.Result?.State != PlaylistLampViewerState.Ready)
+                    {
+                        return;
+                    }
+                    if (args.Result.Query.SelectedLocalDate == selected)
+                    {
+                        selectedAccepted.TrySetResult(args.Result);
+                    }
+                    else if (!args.Result.Query.SelectedLocalDate.HasValue)
+                    {
+                        latestAccepted.TrySetResult(args.Result);
+                    }
+                };
+                session.ResultChanged += resultHandler;
+
+                Task selectedQuery = source.ExpectQuery(selected);
+                picker.SelectedDate = selected;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    selectedQuery,
+                    "playlist lamp historical calendar query");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    selectedAccepted.Task,
+                    "playlist lamp historical selected result");
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+
+                Assert.AreEqual(selected, picker.SelectedDate);
+                Assert.AreEqual(selected, viewModel.SelectedAsOfDate);
+                Assert.AreEqual(selected, session.Query.SelectedLocalDate);
+                Assert.AreEqual(selected, session.Current.Query.SelectedLocalDate);
+
+                Button latest = FindByAutomationId<Button>(window, "PlaylistLampViewerLatestButton");
+                Task latestQuery = source.ExpectQuery(null);
+                latest.Command.Execute(null);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    latestQuery,
+                    "playlist lamp historical latest query");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    latestAccepted.Task,
+                    "playlist lamp historical latest result");
+                TestUiDispatcherHost.Drain();
+                window.UpdateLayout();
+
+                Assert.IsNull(picker.SelectedDate);
+                Assert.IsNull(viewModel.SelectedAsOfDate);
+                Assert.IsNull(session.Query.SelectedLocalDate);
+                Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Latest, session.Current.HistoricalStatus);
+                Assert.IsTrue(picker.IsEnabled, "Latest must retain a recoverable history range");
+                Assert.AreEqual(earliest, picker.DisplayDateStart);
+                Assert.AreEqual(today, picker.DisplayDateEnd);
+            }
+            finally
+            {
+                if (resultHandler != null)
+                {
+                    session.ResultChanged -= resultHandler;
+                }
+                if (window.IsVisible)
+                {
+                    window.Close();
+                }
+                if (owner.IsVisible)
+                {
+                    owner.Close();
+                }
+                viewModel.Dispose();
+            }
+        });
     }
 
     [TestMethod]
@@ -1199,6 +1331,11 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             .Single(element => AutomationProperties.GetAutomationId(element) == automationId);
     }
 
+    private static TaskCompletionSource<T> NewCompletion<T>()
+    {
+        return new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
     private static T FindAncestor<T>(DependencyObject element, string automationId)
         where T : DependencyObject
     {
@@ -1437,6 +1574,115 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             new DateTime(2026, 8, 28, 1, 0, 0, DateTimeKind.Utc));
     }
 
+    private sealed class HistoricalLampSource : IPlaylistLampViewerDataSource
+    {
+        private readonly object stateGate = new();
+
+        private EventHandler<PlaylistLampViewerSourceChangedEventArgs> changed;
+
+        private bool historyAvailable;
+
+        private DateTime? expectedSelectedDate;
+
+        private TaskCompletionSource<PlaylistLampViewerQuery> expectedQuery;
+
+        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed
+        {
+            add => changed += value;
+            remove => changed -= value;
+        }
+
+        internal void EnableHistory()
+        {
+            lock (stateGate)
+            {
+                historyAvailable = true;
+            }
+        }
+
+        internal Task ExpectQuery(DateTime? selectedDate)
+        {
+            TaskCompletionSource<PlaylistLampViewerQuery> completion = NewCompletion<PlaylistLampViewerQuery>();
+            lock (stateGate)
+            {
+                if (expectedQuery != null)
+                {
+                    throw new InvalidOperationException("Only one historical query expectation may be pending.");
+                }
+                expectedSelectedDate = selectedDate;
+                expectedQuery = completion;
+            }
+            return completion.Task;
+        }
+
+        public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
+            PlaylistLampViewerQuery query,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(query);
+            cancellationToken.ThrowIfCancellationRequested();
+            bool hasHistory;
+            TaskCompletionSource<PlaylistLampViewerQuery> completion = null;
+            lock (stateGate)
+            {
+                hasHistory = historyAvailable;
+                if (expectedQuery != null
+                    && Nullable.Equals(expectedSelectedDate, query.SelectedLocalDate))
+                {
+                    completion = expectedQuery;
+                    expectedQuery = null;
+                    expectedSelectedDate = null;
+                }
+            }
+            completion?.TrySetResult(query);
+            return ValueTask.FromResult(CreateRequest(query, hasHistory));
+        }
+
+        private static PlaylistLampAggregationRequest CreateRequest(
+            PlaylistLampViewerQuery query,
+            bool hasHistory)
+        {
+            DateTime today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
+            string sha256 = "historical-date-sha256";
+            var score = PlaylistLampScore.FromExScore(
+                null,
+                sha256,
+                ClearType.CLEAR,
+                100,
+                100);
+            var scoreSnapshot = new PlaylistLampScoreSnapshot(
+                ActiveScoreSource.Beatoraja,
+                ScoreTableLoadStatus.Loaded,
+                1,
+                1,
+                null,
+                scoresBySha256: new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [sha256] = score
+                });
+            var entry = new PlaylistLampEntrySnapshot(
+                "folder",
+                "historical-date-entry",
+                true,
+                sha256: sha256,
+                resolvedSha256: sha256);
+            return new PlaylistLampAggregationRequest(
+                query.PlaylistId,
+                ["folder"],
+                [entry],
+                scoreSnapshot,
+                query: query,
+                historicalDateRange: hasHistory
+                    ? new PlaylistLampHistoricalDateRange(today.AddDays(-2), today)
+                    : new PlaylistLampHistoricalDateRange(null, today),
+                historicalStatus: hasHistory
+                    ? (query.SelectedLocalDate.HasValue
+                        ? PlaylistLampHistoricalSnapshotStatus.Available
+                        : PlaylistLampHistoricalSnapshotStatus.Latest)
+                    : PlaylistLampHistoricalSnapshotStatus.NoHistory);
+        }
+    }
+
     private sealed class FixedLampSource : IPlaylistLampViewerDataSource
     {
         private PlaylistLampAggregationRequest request;
@@ -1455,7 +1701,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         }
 
         public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
-            string playlistId,
+            PlaylistLampViewerQuery query,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();

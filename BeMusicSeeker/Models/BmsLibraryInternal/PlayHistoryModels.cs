@@ -294,6 +294,13 @@ internal sealed class Lr2PlayHistoryReadRequest
     internal int? Limit { get; set; }
 
     internal bool DisableLimit { get; set; }
+
+    /// <summary>
+    /// Allows a read-only consumer to read when only the performance indexes are
+    /// repairable. History trigger defects remain the consumer's responsibility because
+    /// they can make the recorded history incomplete.
+    /// </summary>
+    internal bool AllowRepairableIndexRead { get; set; }
 }
 
 internal sealed class Lr2PlayHistoryPeriodIndexRequest

@@ -58,7 +58,9 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             };
             using var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
 
-            PlaylistLampAggregationRequest request = await source.CaptureAsync("17", CancellationToken.None);
+            PlaylistLampAggregationRequest request = await source.CaptureAsync(
+                PlaylistLampViewerQuery.Latest("17"),
+                CancellationToken.None);
             PlaylistLampEntrySnapshot snapshot = request.Entries.Single();
 
             Assert.IsFalse(snapshot.IsOwned);
@@ -67,6 +69,61 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             Assert.AreEqual(chartInfoSha256, snapshot.ScoreSha256);
             Assert.AreEqual(library.ChartInfoIndexVersion, request.DependencyStamp.ChartInfoIndexVersion);
             Assert.IsTrue(request.DependencyStamp.ChartInfoIndexVersion > 0);
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task CaptureAsync_historicalSourceFactoryFailure_is_nonterminal_for_latest_and_historical_queries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        await WithTemporarySongDb(async (_, songDbPath) =>
+        {
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new ChartInfoMetadataTestSupport.RecordingDialogService())
+            {
+                BMSFiles = []
+            };
+            BMSTableEntry entry = CreateEntry(new string('e', 32), null);
+            entry.folder = "folder";
+            var table = new BMSTable
+            {
+                playlist_id = 19,
+                Folder_order = ["folder"],
+                entries = [entry]
+            };
+            var playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            using var source = new BmsLibraryPlaylistLampDataSource(
+                playlist,
+                library,
+                () => throw new InvalidOperationException("history source path unavailable"));
+
+            PlaylistLampAggregationRequest latest = await source.CaptureAsync(
+                PlaylistLampViewerQuery.Latest("19"),
+                CancellationToken.None);
+            Assert.AreEqual(PlaylistLampInputState.Loaded, latest.InputState);
+            Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Latest, latest.HistoricalStatus);
+            Assert.IsFalse(latest.HistoricalDateRange.HasHistoricalDates);
+            Assert.AreEqual(ActiveScoreSource.None, latest.ScoreSnapshot.Source);
+            Assert.AreEqual(ScoreTableLoadStatus.NotConfigured, latest.ScoreSnapshot.LoadStatus);
+            StringAssert.Contains(latest.HistoricalFailureMessage, "history source path unavailable");
+
+            PlaylistLampAggregationRequest historical = await source.CaptureAsync(
+                new PlaylistLampViewerQuery("19", DateTime.Today),
+                CancellationToken.None);
+            Assert.AreEqual(PlaylistLampInputState.Loaded, historical.InputState);
+            Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Unavailable, historical.HistoricalStatus);
+            Assert.AreEqual(ScoreTableLoadStatus.Failed, historical.ScoreSnapshot.LoadStatus);
+            Assert.IsFalse(historical.ScoreSnapshot.IsScoreDataAvailable);
+            Assert.IsFalse(historical.HistoricalDateRange.HasHistoricalDates);
+            StringAssert.Contains(historical.HistoricalFailureMessage, "history source path unavailable");
         });
     }
 

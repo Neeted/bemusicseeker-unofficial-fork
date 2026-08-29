@@ -16,14 +16,17 @@ internal sealed class PlaylistLampViewerSourceChangedEventArgs : EventArgs
     /// <param name="playlistId">更新対象 playlist identity。null/空は全 playlist。</param>
     /// <param name="sequence">source 内で単調増加する通知 sequence。</param>
     /// <param name="dependencyStamp">通知時点の依存 version。</param>
+    /// <param name="sourceIdentity">通知元 score source identity。</param>
     public PlaylistLampViewerSourceChangedEventArgs(
         string playlistId,
         long sequence,
-        PlaylistLampDependencyStamp dependencyStamp = default)
+        PlaylistLampDependencyStamp dependencyStamp = default,
+        string sourceIdentity = null)
     {
         PlaylistId = playlistId ?? string.Empty;
         Sequence = sequence;
         DependencyStamp = dependencyStamp;
+        SourceIdentity = sourceIdentity ?? string.Empty;
     }
 
     /// <summary>更新対象 playlist identity。</summary>
@@ -34,6 +37,9 @@ internal sealed class PlaylistLampViewerSourceChangedEventArgs : EventArgs
 
     /// <summary>通知時点の依存 version。</summary>
     public PlaylistLampDependencyStamp DependencyStamp { get; }
+
+    /// <summary>通知元 score source の immutable identity。</summary>
+    public string SourceIdentity { get; }
 }
 
 /// <summary>
@@ -45,12 +51,12 @@ internal interface IPlaylistLampViewerDataSource
     event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed;
 
     /// <summary>
-    /// 指定 playlist の現在 snapshot を取得します。
+    /// 指定 query の immutable snapshot を取得します。
     /// </summary>
-    /// <param name="playlistId">取得対象 playlist identity。</param>
+    /// <param name="query">playlist identity と任意の historical local date。</param>
     /// <param name="cancellationToken">取得を中断する token。</param>
     /// <returns>immutable aggregation request。</returns>
-    ValueTask<PlaylistLampAggregationRequest> CaptureAsync(string playlistId, CancellationToken cancellationToken);
+    ValueTask<PlaylistLampAggregationRequest> CaptureAsync(PlaylistLampViewerQuery query, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -105,6 +111,8 @@ internal sealed class PlaylistLampViewerSession : IDisposable
     private readonly IPlaylistLampViewerBuildExecutor buildExecutor;
 
     private PlaylistLampAggregationResult current;
+
+    private PlaylistLampViewerQuery query;
 
     private RefreshCancellation activeBuildCancellation;
 
@@ -233,6 +241,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         this.dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
         this.aggregationService = aggregationService ?? new PlaylistLampAggregationService();
         this.buildExecutor = buildExecutor ?? new PlaylistLampViewerDefaultBuildExecutor();
+        query = PlaylistLampViewerQuery.Latest(playlistId);
         current = new PlaylistLampAggregationResult(
             playlistId,
             PlaylistLampViewerState.Loading,
@@ -259,6 +268,18 @@ internal sealed class PlaylistLampViewerSession : IDisposable
 
     /// <summary>session が管理する安定 playlist identity。</summary>
     public string PlaylistId => playlistId;
+
+    /// <summary>現在の immutable query。null date は Latest を表します。</summary>
+    public PlaylistLampViewerQuery Query
+    {
+        get
+        {
+            lock (stateGate)
+            {
+                return query;
+            }
+        }
+    }
 
     /// <summary>現在の generation。</summary>
     public long Generation
@@ -298,6 +319,48 @@ internal sealed class PlaylistLampViewerSession : IDisposable
     }
 
     /// <summary>
+    /// query を置き換え、前の build を supersede して再取得します。
+    /// </summary>
+    /// <param name="nextQuery">新しい immutable query。</param>
+    /// <param name="cancellationToken">呼び出し側が待機を中断する token。</param>
+    /// <returns>置き換え後 refresh の完了 task。</returns>
+    public Task UpdateQueryAsync(
+        PlaylistLampViewerQuery nextQuery,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(nextQuery);
+        if (!string.Equals(nextQuery.PlaylistId, playlistId, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("query playlistId does not match the session.", nameof(nextQuery));
+        }
+        lock (stateGate)
+        {
+            if (Volatile.Read(ref disposed) != 0)
+            {
+                return Task.CompletedTask;
+            }
+            query = nextQuery;
+            ++sourceInvalidationVersion;
+        }
+        return RefreshAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// selected local date を query として置き換えます。null は Latest です。
+    /// </summary>
+    /// <param name="selectedLocalDate">選択日、または null。</param>
+    /// <param name="cancellationToken">呼び出し側が待機を中断する token。</param>
+    /// <returns>置き換え後 refresh の完了 task。</returns>
+    public Task UpdateSelectedAsOfDateAsync(
+        DateTime? selectedLocalDate,
+        CancellationToken cancellationToken = default)
+    {
+        return UpdateQueryAsync(
+            new PlaylistLampViewerQuery(playlistId, selectedLocalDate),
+            cancellationToken);
+    }
+
+    /// <summary>
     /// 現在 generation を supersede して snapshot を再構築します。
     /// </summary>
     /// <param name="cancellationToken">呼び出し側が待機を中断する token。</param>
@@ -308,6 +371,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         RefreshCancellation buildCancellation;
         long requestedGeneration;
         long requestedInvalidationVersion;
+        PlaylistLampViewerQuery requestedQuery;
         lock (stateGate)
         {
             if (Volatile.Read(ref disposed) != 0)
@@ -316,6 +380,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
             }
             requestedGeneration = ++generation;
             requestedInvalidationVersion = sourceInvalidationVersion;
+            requestedQuery = query;
             previousCancellation = activeBuildCancellation;
             buildCancellation = new RefreshCancellation();
             activeBuildCancellation = buildCancellation;
@@ -325,24 +390,33 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         try
         {
             previousCancellation?.Cancel();
-            PublishLoading(requestedGeneration, requestedInvalidationVersion);
+            PublishLoading(requestedGeneration, requestedInvalidationVersion, requestedQuery);
             linkedCancellation = buildCancellation.CreateLinkedTokenSource(cancellationToken);
             linkedCancellationToken = linkedCancellation.Token;
             PlaylistLampAggregationRequest request = await dataSource
-                .CaptureAsync(playlistId, linkedCancellationToken)
+                .CaptureAsync(requestedQuery, linkedCancellationToken)
                 .ConfigureAwait(false);
             linkedCancellationToken.ThrowIfCancellationRequested();
             if (request == null)
             {
                 request = PlaylistLampAggregationRequest.Failed(
                     playlistId,
-                    "data source returned no snapshot.");
+                    "data source returned no snapshot.",
+                    query: requestedQuery);
             }
             else if (!string.Equals(request.PlaylistId, playlistId, StringComparison.Ordinal))
             {
                 request = PlaylistLampAggregationRequest.Failed(
                     playlistId,
-                    "data source returned a snapshot for another playlist.");
+                    "data source returned a snapshot for another playlist.",
+                    query: requestedQuery);
+            }
+            else if (!requestedQuery.Equals(request.Query))
+            {
+                request = PlaylistLampAggregationRequest.Failed(
+                    playlistId,
+                    "data source returned a snapshot for another query.",
+                    query: requestedQuery);
             }
             PlaylistLampAggregationResult result = await buildExecutor
                 .BuildAsync(request, aggregationService, linkedCancellationToken)
@@ -357,7 +431,8 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         {
             PlaylistLampAggregationRequest failedRequest = PlaylistLampAggregationRequest.Failed(
                 playlistId,
-                DescribeFailure(exception));
+                DescribeFailure(exception),
+                query: requestedQuery);
             PlaylistLampAggregationResult failedResult = aggregationService.Aggregate(failedRequest);
             TryPublish(requestedGeneration, requestedInvalidationVersion, failedResult);
         }
@@ -433,7 +508,10 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         _ = Task.Run(() => RefreshAsync()).Logging("PlaylistLampViewerSession.DataSourceChanged");
     }
 
-    private void PublishLoading(long requestedGeneration, long requestedInvalidationVersion)
+    private void PublishLoading(
+        long requestedGeneration,
+        long requestedInvalidationVersion,
+        PlaylistLampViewerQuery requestedQuery)
     {
         PlaylistLampAggregationResult loading = new(
             playlistId,
@@ -455,7 +533,8 @@ internal sealed class PlaylistLampViewerSession : IDisposable
                 null,
                 null),
             null,
-            string.Empty);
+            string.Empty,
+            requestedQuery);
         TryPublish(requestedGeneration, requestedInvalidationVersion, loading);
     }
 

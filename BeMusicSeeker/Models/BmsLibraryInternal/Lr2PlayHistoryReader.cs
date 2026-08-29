@@ -40,7 +40,8 @@ internal sealed class Lr2PlayHistoryReader
         }
         if (schema.Status == Lr2PlayHistorySchemaStatus.Repairable)
         {
-            if (schema.MissingIndexes.Count > 0 || schema.MismatchedIndexes.Count > 0)
+            if (!request.AllowRepairableIndexRead
+                && (schema.MissingIndexes.Count > 0 || schema.MismatchedIndexes.Count > 0))
             {
                 diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_schema_index_repair_required", schema.Message, request.ScoreDbPath));
                 return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status, schema);

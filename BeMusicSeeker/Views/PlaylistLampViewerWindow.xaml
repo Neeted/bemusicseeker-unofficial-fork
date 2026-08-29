@@ -214,7 +214,41 @@
         <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
       </Grid.RowDefinitions>
-      <TextBlock Grid.Row="0" Text="{Binding PlaylistName}" FontSize="18" FontWeight="SemiBold" Margin="18,15,18,8" Foreground="{DynamicResource App.TextBrush}" />
+      <Grid Grid.Row="0" Margin="18,12,18,8" AutomationProperties.AutomationId="PlaylistLampViewerHeader">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <TextBlock Grid.Column="0" Text="{Binding PlaylistName}" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource App.TextBrush}" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_as_of, Mode=OneWay}" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource App.SubtleTextBrush}" />
+          <DatePicker SelectedDate="{Binding SelectedAsOfDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      DisplayDateStart="{Binding AsOfDateStart, Mode=OneWay}"
+                      DisplayDateEnd="{Binding AsOfDateEnd, Mode=OneWay}"
+                      IsEnabled="{Binding IsAsOfDateSelectionEnabled}"
+                      SelectedDateFormat="Short"
+                      IsTodayHighlighted="True"
+                      Width="132"
+                      AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_as_of, Mode=OneWay}"
+                      AutomationProperties.AutomationId="PlaylistLampViewerAsOfDatePicker">
+            <DatePicker.Resources>
+              <Style TargetType="{x:Type DatePickerTextBox}">
+                <Setter Property="IsReadOnly" Value="True" />
+              </Style>
+            </DatePicker.Resources>
+          </DatePicker>
+          <Button Command="{Binding LatestCommand}"
+                  Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_latest, Mode=OneWay}"
+                  Margin="6,0,0,0"
+                  Padding="9,3"
+                  AutomationProperties.AutomationId="PlaylistLampViewerLatestButton" />
+          <TextBlock Text="{Binding AsOfDateStatusText}"
+                     VerticalAlignment="Center"
+                     Margin="8,0,0,0"
+                     Foreground="{DynamicResource App.SubtleTextBrush}"
+                     AutomationProperties.AutomationId="PlaylistLampViewerAsOfStatus" />
+        </StackPanel>
+      </Grid>
       <ItemsControl Grid.Row="1" Margin="18,0,10,0" ItemsSource="{Binding StatisticsCards}" ItemTemplate="{StaticResource lampStatCardTemplate}">
         <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
       </ItemsControl>

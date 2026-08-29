@@ -485,7 +485,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         this.playlistLampViewerWindowManager = new(
             this,
             viewModel.PlaylistWorkspace,
-            this.playlistWorkspaceDialogService);
+            this.playlistWorkspaceDialogService,
+            historicalSourceContextFactory: viewModel.ResolvePlaylistLampHistoricalScoreSourceContext);
         DataContext = viewModel;
         InitializeComponent();
         viewModel.SettingDialog.AttachPresentationPort(this);
