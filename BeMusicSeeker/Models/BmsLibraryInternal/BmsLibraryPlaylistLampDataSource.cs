@@ -211,13 +211,13 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             lampScoreSnapshot.Source,
             lampScoreSnapshot.LoadStatus,
             library.ChartInfoIndexVersion);
-        DateTime? lastUpdatedUtc = playlistLastUpdated == default ? null : playlistLastUpdated;
+        DateTime? playlistLastUpdatedValue = playlistLastUpdated == default ? null : playlistLastUpdated;
         return new PlaylistLampAggregationRequest(
             query.PlaylistId,
             folderOrder,
             lampEntries,
             lampScoreSnapshot,
-            lastUpdatedUtc,
+            playlistLastUpdatedValue,
             inputState: PlaylistLampInputState.Loaded,
             dependencyStamp: dependencyStamp,
             query: query,

@@ -258,7 +258,7 @@ internal sealed class PlaylistLampAggregationService
             clearRate,
             scoreDataAvailable,
             scoreDataAvailable ? scoreSnapshot.LastUpdatedUtc : null,
-            request.PlaylistLastUpdatedUtc);
+            request.PlaylistLastUpdated);
         PlaylistLampViewerState state = totalCount == 0
             ? PlaylistLampViewerState.Empty
             : PlaylistLampViewerState.Ready;
@@ -306,7 +306,7 @@ internal sealed class PlaylistLampAggregationService
             null,
             false,
             null,
-            request.PlaylistLastUpdatedUtc);
+            request.PlaylistLastUpdated);
         return new PlaylistLampAggregationResult(
             request.PlaylistId,
             state,

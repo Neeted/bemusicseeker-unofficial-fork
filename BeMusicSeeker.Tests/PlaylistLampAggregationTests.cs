@@ -100,7 +100,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(0.5, result.Statistics.AverageExRate!.Value, 0.0001);
         Assert.AreEqual(1.0 / 3.0, result.Statistics.ClearRate!.Value, 0.0001);
         Assert.AreEqual(PlaylistLampViewerState.Ready, result.State);
-        Assert.AreEqual(PlaylistUpdatedAt, result.Statistics.PlaylistLastUpdatedUtc);
+        Assert.AreEqual(PlaylistUpdatedAt, result.Statistics.PlaylistLastUpdated);
         Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.HistoricalStatus);
         Assert.AreEqual(new DateTime(2026, 8, 27), result.Query.SelectedLocalDate);
         Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.EASY));

@@ -159,6 +159,15 @@ unavailable. Whole-playlist clear rate is `(ASSIST or better) / total`, where
 An empty denominator displays localized `Unavailable`, never `0%`. Score
 dependent values are unavailable when the score source is absent or failed.
 
+`playlist.last_update` is a legacy local wall-clock value, not a UTC timestamp.
+The playlist lamp source preserves that value as `PlaylistLastUpdated` without
+assigning or converting a timezone. The viewer formats the final card directly
+with the current culture's general short format (`timestamp.ToString("g",
+CurrentCulture)`), so its calendar date, hour, and minute match the playlist
+summary. A null or unavailable value remains localized `Unavailable`. Score
+source timestamps (`LastUpdatedUtc` and `SourceLastUpdatedUtc`) remain a
+separate UTC contract and are never substituted for the playlist last update.
+
 ## Segment navigation
 
 Invoking a positive folder segment creates a typed
@@ -226,6 +235,7 @@ folder-scoped routes retain their existing folder guard.
 | D4-FOLDER-GEOMETRY | Clear and rank folder halves use shared live label and count columns with explicit 6-DIP spacers; labels cap at 170 DIPs, counts cap at localized N0(9999), widths recompute after row refresh, and bars align across rows and halves. |
 | D4-STAT-ORDER | One ordered statistics collection renders score-available and degraded card sequences in their required semantic order, with playlist last update always last. |
 | D4-DEFAULT-WIDTH | The viewer defaults to 1290 DIPs, and the score-available cards and clear legend fit one rendered row at that width. |
+| PLV-TIME-01 | `StatisticsCards` formats the legacy local `playlist.last_update` directly in the current culture without timezone conversion; score-source UTC timestamps remain distinct, and null stays unavailable. |
 | HIST-01 | Latest is the default, each window owns its nullable date query, and no historical selection is persisted or shared. |
 | HIST-02 | Calendar-only date selection uses the exact active provider-wide range (oldest qualifying local date through today); LR2 includes all finalization states, beatoraja uses mode 0, and empty history disables only historical selection. |
 | HIST-03 | The rollback cutoff is the selected local date plus one day at local midnight; equality is included and source rows are newest-first with descending source id ties. |

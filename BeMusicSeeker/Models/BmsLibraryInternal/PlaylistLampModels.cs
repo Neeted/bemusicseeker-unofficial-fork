@@ -419,7 +419,7 @@ internal sealed class PlaylistLampScoreSnapshot
     /// <summary>score source 切り替え世代です。</summary>
     public long SourceGeneration { get; }
 
-    /// <summary>score source snapshot の更新時刻です。</summary>
+    /// <summary>score source snapshot の UTC 更新時刻です。</summary>
     public DateTime? LastUpdatedUtc { get; }
 
     /// <summary>LR2 source の immutable score index です。</summary>
@@ -833,7 +833,7 @@ internal sealed class PlaylistLampAggregationRequest
         IEnumerable<string> folderOrder,
         IEnumerable<PlaylistLampEntrySnapshot> entries,
         PlaylistLampScoreSnapshot scoreSnapshot,
-        DateTime? playlistLastUpdatedUtc = null,
+        DateTime? playlistLastUpdated = null,
         PlaylistLampInputState inputState = PlaylistLampInputState.Loaded,
         string failureMessage = null,
         PlaylistLampDependencyStamp dependencyStamp = default,
@@ -851,7 +851,7 @@ internal sealed class PlaylistLampAggregationRequest
             0,
             0L,
             null);
-        PlaylistLastUpdatedUtc = playlistLastUpdatedUtc;
+        PlaylistLastUpdated = playlistLastUpdated;
         InputState = inputState;
         FailureMessage = failureMessage ?? string.Empty;
         DependencyStamp = dependencyStamp;
@@ -873,8 +873,10 @@ internal sealed class PlaylistLampAggregationRequest
     /// <summary>score source と score index の snapshot です。</summary>
     public PlaylistLampScoreSnapshot ScoreSnapshot { get; }
 
-    /// <summary>playlist の last_update 値です。</summary>
-    public DateTime? PlaylistLastUpdatedUtc { get; }
+    /// <summary>
+    /// playlist の legacy local wall-clock last_update 値です。score source の UTC 時刻とは別の値です。
+    /// </summary>
+    public DateTime? PlaylistLastUpdated { get; }
 
     /// <summary>entry load の状態です。</summary>
     public PlaylistLampInputState InputState { get; }
@@ -1209,8 +1211,8 @@ internal sealed class PlaylistLampStatistics
     /// <param name="averageExRate">played chart の EX rate 算術平均。</param>
     /// <param name="clearRate">clear 済み chart / total。</param>
     /// <param name="scoreDataAvailable">score 依存値が利用可能かどうか。</param>
-    /// <param name="sourceLastUpdatedUtc">score source の更新時刻。</param>
-    /// <param name="playlistLastUpdatedUtc">playlist の更新時刻。</param>
+    /// <param name="sourceLastUpdatedUtc">score source の UTC 更新時刻。</param>
+    /// <param name="playlistLastUpdated">playlist の legacy local wall-clock 更新時刻。</param>
     internal PlaylistLampStatistics(
         int totalCount,
         int ownedCount,
@@ -1223,7 +1225,7 @@ internal sealed class PlaylistLampStatistics
         double? clearRate,
         bool scoreDataAvailable,
         DateTime? sourceLastUpdatedUtc,
-        DateTime? playlistLastUpdatedUtc)
+        DateTime? playlistLastUpdated)
     {
         TotalCount = Math.Max(0, totalCount);
         OwnedCount = Math.Max(0, ownedCount);
@@ -1236,7 +1238,7 @@ internal sealed class PlaylistLampStatistics
         ClearRate = clearRate;
         ScoreDataAvailable = scoreDataAvailable;
         SourceLastUpdatedUtc = sourceLastUpdatedUtc;
-        PlaylistLastUpdatedUtc = playlistLastUpdatedUtc;
+        PlaylistLastUpdated = playlistLastUpdated;
     }
 
     /// <summary>active real entry 数。</summary>
@@ -1269,11 +1271,13 @@ internal sealed class PlaylistLampStatistics
     /// <summary>score 依存統計が利用可能かどうかです。</summary>
     public bool ScoreDataAvailable { get; }
 
-    /// <summary>score source の last update。</summary>
+    /// <summary>score source の UTC last update。</summary>
     public DateTime? SourceLastUpdatedUtc { get; }
 
-    /// <summary>playlist の last update。</summary>
-    public DateTime? PlaylistLastUpdatedUtc { get; }
+    /// <summary>
+    /// playlist の legacy local wall-clock last update。score source の UTC 時刻とは別の値です。
+    /// </summary>
+    public DateTime? PlaylistLastUpdated { get; }
 
     /// <summary>rate を percentage 表示するための ownership alias。</summary>
     public double? OwnershipPercentage => OwnershipRate.HasValue ? OwnershipRate.Value * 100.0 : null;

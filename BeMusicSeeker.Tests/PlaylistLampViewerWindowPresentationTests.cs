@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -79,6 +80,101 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             formattedMinimum,
             formatted,
             "a tiny positive percentage must not be clamped to the minimum displayed value");
+    }
+
+    [TestMethod]
+    public void Viewer_playlistLastUpdateDisplaysLegacyLocalWallClockWithoutTimezoneConversion()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            CultureInfo previousCulture = CultureInfo.CurrentCulture;
+            CultureInfo previousUiCulture = CultureInfo.CurrentUICulture;
+            try
+            {
+                DateTime playlistLastUpdated = new(2026, 8, 29, 10, 49, 7, DateTimeKind.Unspecified);
+                CultureInfo[] testCultures =
+                [
+                    CultureInfo.GetCultureInfo("en-US"),
+                    CultureInfo.GetCultureInfo("de-DE")
+                ];
+                Assert.AreNotEqual(
+                    playlistLastUpdated.ToString("g", testCultures[0]),
+                    playlistLastUpdated.ToString("g", testCultures[1]),
+                    "the selected cultures must distinguish current-culture formatting from a fixed format");
+
+                foreach (CultureInfo testCulture in testCultures)
+                {
+                    CultureInfo.CurrentCulture = testCulture;
+                    CultureInfo.CurrentUICulture = testCulture;
+                    AssertPlaylistLastUpdatePresentation(playlistLastUpdated, testCulture);
+                }
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = previousCulture;
+                CultureInfo.CurrentUICulture = previousUiCulture;
+            }
+        });
+    }
+
+    [TestMethod]
+    public void Viewer_playlistLastUpdatePresentationDoesNotConvertDateTime()
+    {
+        MethodInfo addStatisticsCards = typeof(PlaylistLampViewerViewModel).GetMethod(
+            "AddStatisticsCards",
+            BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new AssertFailedException("The playlist statistics-card builder is missing.");
+        MethodInfo formatter = typeof(PlaylistLampViewerViewModel).GetMethod(
+            "FormatTimestamp",
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new AssertFailedException("The playlist last-update formatter is missing.");
+
+        // PLV-TIME-01 prohibits timezone conversion. This compiled-semantic guard keeps
+        // a UTC-configured host from masking conversion in either the card builder or formatter.
+        foreach (MethodInfo method in new[] { addStatisticsCards, formatter })
+        {
+            MethodBase[] calledMethods = StartupLibraryConstructionTestSupport
+                .EnumerateCalledMethods(method)
+                .ToArray();
+            Assert.IsFalse(
+                calledMethods.Any(IsPlaylistLastUpdateTimeConversion),
+                $"{method.Name} must not call timezone conversion APIs for playlist last-update values");
+        }
+    }
+
+    [TestMethod]
+    public void Viewer_playlistLastUpdateDisplaysUnavailableWhenRequestTimestampIsNull()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            var source = new FixedLampSource(CreateRequest(
+                ActiveScoreSource.Beatoraja,
+                playlistLastUpdated: null));
+            var session = new PlaylistLampViewerSession("playlist", source);
+            var viewModel = new PlaylistLampViewerViewModel(
+                "playlist",
+                "Null last-update fixture",
+                session,
+                TestUiDispatcherHost.Dispatcher,
+                _ => { });
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.StartAndWaitForPresentableAsync(),
+                    "playlist lamp viewer null last-update first presentable result");
+
+                Assert.IsNotNull(
+                    viewModel.CurrentResult.Statistics.SourceLastUpdatedUtc,
+                    "the fixture must retain a distinct score-source UTC timestamp");
+                PlaylistLampViewerStatCardViewModel card = viewModel.StatisticsCards.Single(
+                    candidate => candidate.Label == Resources.PlaylistLampViewer_playlist_last_update);
+                Assert.AreEqual(Resources.PlaylistLampViewer_unavailable, card.Value);
+            }
+            finally
+            {
+                viewModel.Dispose();
+            }
+        });
     }
 
     [TestMethod]
@@ -1389,6 +1485,15 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
     private static PlaylistLampAggregationRequest CreateRequest(ActiveScoreSource source)
     {
+        return CreateRequest(
+            source,
+            new DateTime(2026, 8, 28, 1, 0, 0, DateTimeKind.Utc));
+    }
+
+    private static PlaylistLampAggregationRequest CreateRequest(
+        ActiveScoreSource source,
+        DateTime? playlistLastUpdated)
+    {
         var max = new PlaylistLampScore(
             "hash-max",
             "sha-max",
@@ -1437,7 +1542,52 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             ["folder", "empty"],
             entries,
             scoreSnapshot,
-            new DateTime(2026, 8, 28, 1, 0, 0, DateTimeKind.Utc));
+            playlistLastUpdated);
+    }
+
+    private static bool IsPlaylistLastUpdateTimeConversion(MethodBase method)
+    {
+        if (method.DeclaringType == typeof(DateTimeOffset))
+        {
+            return true;
+        }
+        return method.DeclaringType == typeof(DateTime)
+            && (method.Name == nameof(DateTime.ToLocalTime)
+                || method.Name == nameof(DateTime.ToUniversalTime)
+                || method.Name == nameof(DateTime.SpecifyKind));
+    }
+
+    private static void AssertPlaylistLastUpdatePresentation(
+        DateTime playlistLastUpdated,
+        CultureInfo testCulture)
+    {
+        var source = new FixedLampSource(CreateRequest(
+            ActiveScoreSource.Beatoraja,
+            playlistLastUpdated));
+        var session = new PlaylistLampViewerSession("playlist", source);
+        var viewModel = new PlaylistLampViewerViewModel(
+            "playlist",
+            "Local last-update fixture",
+            session,
+            TestUiDispatcherHost.Dispatcher,
+            _ => { });
+        try
+        {
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                viewModel.StartAndWaitForPresentableAsync(),
+                "playlist lamp viewer local last-update first presentable result");
+
+            PlaylistLampViewerStatCardViewModel card = viewModel.StatisticsCards.Single(
+                candidate => candidate.Label == Resources.PlaylistLampViewer_playlist_last_update);
+            Assert.AreEqual(
+                playlistLastUpdated.ToString("g", testCulture),
+                card.Value,
+                "playlist.last_update is a legacy local wall-clock value and must not be timezone converted");
+        }
+        finally
+        {
+            viewModel.Dispose();
+        }
     }
 
     private static PlaylistLampAggregationRequest CreateWidthAwareRequest()

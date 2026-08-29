@@ -311,8 +311,8 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
 
     /// <summary>
     /// Current statistics in their visual and semantic order. Score-dependent cards are
-    /// omitted when the score source is unavailable or failed, while playlist last update
-    /// remains the final card in either state.
+    /// omitted when the score source is unavailable or failed, while the legacy local
+    /// playlist last update remains the final card in either state.
     /// </summary>
     public ObservableCollection<PlaylistLampViewerStatCardViewModel> StatisticsCards => statisticsCards;
 
@@ -502,7 +502,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
         statisticsCards.Add(Card(
             Resources.PlaylistLampViewer_playlist_last_update,
-            FormatTimestamp(statistics?.PlaylistLastUpdatedUtc),
+            FormatTimestamp(statistics?.PlaylistLastUpdated),
             isWide: true));
     }
 
@@ -531,7 +531,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     private static string FormatTimestamp(DateTime? value)
     {
         return value.HasValue
-            ? value.Value.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)
+            ? value.Value.ToString("g", CultureInfo.CurrentCulture)
             : Unavailable;
     }
 
