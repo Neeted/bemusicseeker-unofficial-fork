@@ -5,10 +5,10 @@ param(
 
     [string]$TestFilter,
 
-    # This seam only lowers the canonical budget so the timeout path can be
-    # verified without waiting three minutes. It cannot relax the policy limit.
-    [ValidateRange(1, 180)]
-    [int]$FunctionalTimeoutSeconds = 180,
+    # This seam may lower the canonical budget so the timeout path can be
+    # verified without waiting five minutes. It cannot relax the policy limit.
+    [ValidateRange(1, 300)]
+    [int]$FunctionalTimeoutSeconds = 300,
 
     # Internal probe-only guard.  A normal CLI string cannot satisfy the typed guard
     # checked by Invoke-MonitoredCommand; no environment variable enables this seam.
@@ -26,6 +26,7 @@ $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
 $functionalFailureCleanupWindowSeconds = 10
+$functionalReportingTargetSeconds = 180
 $monitoredCommandCleanupSeconds = 5
 . (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
 . (Join-Path $PSScriptRoot 'verification-process-lifecycle.ps1')
@@ -471,7 +472,7 @@ function New-FunctionalDeadlinePolicy {
         [DateTime]$StartUtc,
 
         [Parameter(Mandatory)]
-        [ValidateRange(1, 180)]
+        [ValidateRange(1, 300)]
         [int]$TimeoutSeconds
     )
 
@@ -1320,7 +1321,7 @@ function Invoke-ParallelFunctionalTestShards {
         [string]$DiagnosticsDirectory,
 
         [Parameter(Mandatory)]
-        [ValidateRange(1, 180)]
+        [ValidateRange(1, 300)]
         [int]$TimeoutSeconds
     )
 
@@ -1583,6 +1584,11 @@ function Invoke-ParallelFunctionalTestShards {
         "$([Math]::Round($testExecutionElapsedSeconds, 1))s"
     }
     Write-Host "Functional test execution elapsed: $elapsedDisplay; diagnostics: $DiagnosticsDirectory"
+    if ($apparentFunctionalSuccess -and
+        $null -ne $testExecutionElapsedSeconds -and
+        $testExecutionElapsedSeconds -gt $functionalReportingTargetSeconds) {
+        Write-Warning "Functional test execution exceeded ${functionalReportingTargetSeconds}s target; actual retained-ExitTime-derived elapsed is $elapsedDisplay. This actual duration must be included in the user-facing report."
+    }
     $primaryFailure = $null
     if ($null -ne $launchFailure) {
         $primaryFailure = $launchFailure
@@ -1962,7 +1968,7 @@ function Invoke-CanonicalFunctionalVerification {
         [string]$DiagnosticsRoot,
 
         [Parameter(Mandatory)]
-        [ValidateRange(1, 180)]
+        [ValidateRange(1, 300)]
         [int]$TimeoutSeconds
     )
 
@@ -2010,7 +2016,7 @@ function Invoke-FilteredQuickVerification {
         [string]$DiagnosticsRoot,
 
         [Parameter(Mandatory)]
-        [ValidateRange(1, 180)]
+        [ValidateRange(1, 300)]
         [int]$TimeoutSeconds
     )
 

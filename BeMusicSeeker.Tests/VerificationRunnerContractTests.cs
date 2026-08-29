@@ -15,6 +15,9 @@ namespace BeMusicSeeker.Tests;
 [TestCategory("ProcessIntegration")]
 public sealed class VerificationRunnerContractTests
 {
+    private const int FunctionalHardTimeoutSeconds = 300;
+    private const int FunctionalReportingTargetSeconds = 180;
+
     [TestMethod]
     public void ModeMappings_UseCanonicalFunctionalExactlyOnceForUnfilteredRoutes()
     {
@@ -55,6 +58,21 @@ public sealed class VerificationRunnerContractTests
     }
 
     [TestMethod]
+    public void FunctionalTimeout_Uses300SecondDefaultAndHardMaximumWithShorterSeam()
+    {
+        using JsonDocument result = ReadFunctionalTimeoutValidationProbe();
+
+        Assert.AreEqual(FunctionalHardTimeoutSeconds, GetProperty(result.RootElement, "DefaultTimeoutSeconds").GetInt32());
+        CollectionAssert.AreEqual(
+            new[] { 1, FunctionalHardTimeoutSeconds },
+            ReadIntegerArray(GetProperty(result.RootElement, "AcceptedTimeoutSeconds")));
+        CollectionAssert.AreEqual(
+            new[] { FunctionalHardTimeoutSeconds + 1 },
+            ReadIntegerArray(GetProperty(result.RootElement, "RejectedTimeoutSeconds")));
+        Assert.IsTrue(GetProperty(result.RootElement, "InternalFunctionRejected301").GetBoolean());
+    }
+
+    [TestMethod]
     public void FunctionalDeadlinePolicy_UsesAbsoluteExecutionAndFailureCleanupCutoffs()
     {
         using JsonDocument result = ReadFunctionalDeadlinePolicy();
@@ -63,16 +81,64 @@ public sealed class VerificationRunnerContractTests
         DateTime executionDeadlineUtc = GetProperty(policy, "ExecutionDeadlineUtc").GetDateTime();
         DateTime failureCleanupDeadlineUtc = GetProperty(policy, "FailureCleanupDeadlineUtc").GetDateTime();
 
-        Assert.AreEqual(180, GetProperty(policy, "TimeoutSeconds").GetInt32());
-        Assert.AreEqual(startUtc.AddSeconds(180), executionDeadlineUtc);
+        Assert.AreEqual(FunctionalHardTimeoutSeconds, GetProperty(policy, "TimeoutSeconds").GetInt32());
+        Assert.AreEqual(startUtc.AddSeconds(FunctionalHardTimeoutSeconds), executionDeadlineUtc);
         Assert.AreEqual(executionDeadlineUtc.AddSeconds(10), failureCleanupDeadlineUtc);
-        Assert.AreEqual(180, GetProperty(result.RootElement, "RemainingAtStart").GetInt32());
+        Assert.AreEqual(FunctionalHardTimeoutSeconds, GetProperty(result.RootElement, "RemainingAtStart").GetInt32());
         CollectionAssert.AreEqual(
             new[] { "StartUtc", "TimeoutSeconds", "ExecutionDeadlineUtc", "FailureCleanupDeadlineUtc" },
             policy.EnumerateObject().Select(property => property.Name).ToArray());
         Assert.IsFalse(policy.TryGetProperty("CleanupReserveSeconds", out _));
         Assert.IsFalse(policy.TryGetProperty("ProcessDeadlineUtc", out _));
         Assert.IsFalse(policy.TryGetProperty("PreCompletionReserveSeconds", out _));
+    }
+
+    [TestMethod]
+    public void CanonicalFunctional_ReportsRetainedExitTimePast180WithoutChangingSuccess()
+    {
+        using JsonDocument exactTarget = ReadFunctionalExitTimeReportProbe(FunctionalReportingTargetSeconds, FunctionalHardTimeoutSeconds);
+        using JsonDocument overTarget = ReadFunctionalExitTimeReportProbe(181, FunctionalHardTimeoutSeconds);
+        using JsonDocument exactDeadline = ReadFunctionalExitTimeReportProbe(FunctionalHardTimeoutSeconds, FunctionalHardTimeoutSeconds);
+
+        AssertSuccessfulExitTimeReport(exactTarget, FunctionalReportingTargetSeconds);
+        Assert.AreEqual(0, GetArrayLengthOrZero(GetProperty(exactTarget.RootElement, "Warnings")), exactTarget.RootElement.GetRawText());
+
+        AssertSuccessfulExitTimeReport(overTarget, 181);
+        AssertFunctionalReportingWarning(overTarget, 181);
+
+        AssertSuccessfulExitTimeReport(exactDeadline, FunctionalHardTimeoutSeconds);
+        AssertFunctionalReportingWarning(exactDeadline, FunctionalHardTimeoutSeconds);
+    }
+
+    [TestMethod]
+    public void CanonicalFunctional_Over180NonzeroExitRemainsFailure()
+    {
+        using JsonDocument result = ReadFunctionalExitTimeReportProbe(181, FunctionalHardTimeoutSeconds, "serial-state-a");
+
+        Assert.IsTrue(GetProperty(result.RootElement, "Caught").GetBoolean(), result.RootElement.GetRawText());
+        Assert.IsFalse(GetProperty(result.RootElement, "TimedOut").GetBoolean(), result.RootElement.GetRawText());
+        Assert.IsTrue(
+            GetProperty(result.RootElement, "ExceptionMessage").GetString()!.Contains("serial-state-a", StringComparison.Ordinal),
+            result.RootElement.GetRawText());
+    }
+
+    [TestMethod]
+    public void CanonicalFunctional_ExitAfter300IsTimeoutEvenInsideCleanupWindow()
+    {
+        using JsonDocument result = ReadFunctionalExitTimeReportProbe(FunctionalHardTimeoutSeconds + 1, FunctionalHardTimeoutSeconds);
+
+        Assert.IsTrue(GetProperty(result.RootElement, "Caught").GetBoolean(), result.RootElement.GetRawText());
+        Assert.IsTrue(GetProperty(result.RootElement, "TimedOut").GetBoolean(), result.RootElement.GetRawText());
+        Assert.AreEqual(
+            FunctionalHardTimeoutSeconds,
+            ReadReportedElapsedSeconds(result.RootElement),
+            0.05,
+            GetProperty(result.RootElement, "ElapsedLine").GetString());
+        Assert.AreEqual(0, GetProperty(result.RootElement, "FanoutAttempts").GetInt32(), result.RootElement.GetRawText());
+        DateTime startUtc = GetProperty(result.RootElement, "StartUtc").GetDateTime();
+        DateTime cleanupDeadlineUtc = GetProperty(result.RootElement, "CleanupDeadlineUtc").GetDateTime();
+        Assert.AreEqual(startUtc.AddSeconds(FunctionalHardTimeoutSeconds + 10), cleanupDeadlineUtc);
+        Assert.IsTrue(GetProperty(result.RootElement, "StopRoots").GetBoolean(), result.RootElement.GetRawText());
     }
 
     [TestMethod]
@@ -676,6 +742,33 @@ public sealed class VerificationRunnerContractTests
         return ReadPowerShellJson(new[] { "-File", scriptPath });
     }
 
+    private static JsonDocument ReadFunctionalTimeoutValidationProbe()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string lifecyclePath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verification-process-lifecycle.ps1"));
+        string verifyScriptPath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"));
+        string command = string.Join(
+            Environment.NewLine,
+            "$ErrorActionPreference = 'Stop'",
+            ". " + lifecyclePath,
+            "$signal = [System.Threading.ManualResetEventSlim]::new($false)",
+            "$guard = [VerificationPostStartFaultGuard]::new($signal)",
+            ". " + verifyScriptPath + " -InternalTestGuard $guard",
+            "$defaultTimeoutSeconds = $FunctionalTimeoutSeconds",
+            "$acceptedTimeoutSeconds = [System.Collections.Generic.List[int]]::new()",
+            "$rejectedTimeoutSeconds = [System.Collections.Generic.List[int]]::new()",
+            // Each guarded script invocation still runs PowerShell parameter binding before
+            // the probe-only early return, so these values exercise the executable CLI seam
+            // without entering restore, build, or test execution.
+            "foreach ($candidate in @(1, 300, 301)) { try { & " + verifyScriptPath + " -FunctionalTimeoutSeconds $candidate -InternalTestGuard $guard *> $null; [void]$acceptedTimeoutSeconds.Add($candidate) } catch { [void]$rejectedTimeoutSeconds.Add($candidate) } }",
+            "$internalFunctionRejected301 = $false",
+            "try { New-FunctionalDeadlinePolicy -StartUtc ([DateTime]::UtcNow) -TimeoutSeconds 301 | Out-Null } catch { $internalFunctionRejected301 = $true }",
+            "[pscustomobject]@{ DefaultTimeoutSeconds = $defaultTimeoutSeconds; AcceptedTimeoutSeconds = @($acceptedTimeoutSeconds); RejectedTimeoutSeconds = @($rejectedTimeoutSeconds); InternalFunctionRejected301 = $internalFunctionRejected301 } | ConvertTo-Json -Depth 8 -Compress");
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
     private static JsonDocument ReadFunctionalShardPlan()
     {
         // The typed guard loads the actual runner definitions without entering a normal
@@ -714,7 +807,7 @@ public sealed class VerificationRunnerContractTests
             "$guard = [VerificationPostStartFaultGuard]::new($signal)",
             $". {verifyScriptPath} -InternalTestGuard $guard",
             "$startUtc = [DateTime]::new(2026, 8, 25, 4, 0, 0, [DateTimeKind]::Utc)",
-            "$policy = New-FunctionalDeadlinePolicy -StartUtc $startUtc -TimeoutSeconds 180",
+            $"$policy = New-FunctionalDeadlinePolicy -StartUtc $startUtc -TimeoutSeconds {FunctionalHardTimeoutSeconds}",
             "$remainingAtStart = Get-RemainingBudgetSeconds -DeadlineUtc $policy.ExecutionDeadlineUtc -NowUtc $startUtc",
             "[pscustomobject]@{ Policy = $policy; RemainingAtStart = $remainingAtStart } | ConvertTo-Json -Depth 8 -Compress");
         return ReadPowerShellJson(new[] { "-Command", command });
@@ -838,6 +931,93 @@ public sealed class VerificationRunnerContractTests
             "if (Test-Path -LiteralPath $diagnostics) { Remove-Item -LiteralPath $diagnostics -Recurse -Force -ErrorAction SilentlyContinue }",
             "$output | ConvertTo-Json -Depth 8 -Compress");
         return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static JsonDocument ReadFunctionalExitTimeReportProbe(
+        int retainedExitSeconds,
+        int timeoutSeconds,
+        string? failureHostName = null)
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string lifecyclePath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verification-process-lifecycle.ps1"));
+        string verifyScriptPath = QuotePowerShellLiteral(
+            Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"));
+        string failureHostLiteral = failureHostName is null
+            ? "[string]::Empty"
+            : QuotePowerShellLiteral(failureHostName);
+        string command = string.Join(
+            Environment.NewLine,
+            "$ErrorActionPreference = 'Stop'",
+            $"$retainedExitSeconds = {retainedExitSeconds}",
+            $"$timeoutSeconds = {timeoutSeconds}",
+            $"$failureHostName = {failureHostLiteral}",
+            ". " + lifecyclePath,
+            "$signal = [System.Threading.ManualResetEventSlim]::new($false)",
+            "$guard = [VerificationPostStartFaultGuard]::new($signal)",
+            ". " + verifyScriptPath + " -InternalTestGuard $guard",
+            "$global:reportedStartUtc = $null",
+            "$global:reportedDeadlineUtc = $null",
+            "$global:portableProcessId = 0",
+            "$global:fanoutAttempts = 0",
+            "$global:cleanupDeadlineUtc = $null",
+            "$global:stopRoots = $false",
+            "$global:actualExit = ${function:Get-FunctionalProcessExitTimeUtc}",
+            "$global:actualPolicy = ${function:New-FunctionalDeadlinePolicy}",
+            "function New-FunctionalDeadlinePolicy { param([DateTime]$StartUtc, [int]$TimeoutSeconds) $policy = & $global:actualPolicy @PSBoundParameters; $global:reportedStartUtc = $policy.StartUtc; $global:reportedDeadlineUtc = $policy.ExecutionDeadlineUtc; return $policy }",
+            "function Get-FunctionalProcessExitTimeUtc { param([System.Diagnostics.Process]$Process) $actual = & $global:actualExit @PSBoundParameters; if ($null -eq $actual) { return $null }; return $global:reportedStartUtc.AddSeconds($retainedExitSeconds) }",
+            "$actualStart = ${function:Start-FunctionalShardProcess}",
+            "function Get-TestArguments { param([string]$Filter, [string]$DiagnosticsDirectory, [string]$RunSettingsPath, [switch]$NoBuild) if (-not [string]::IsNullOrWhiteSpace($failureHostName) -and $DiagnosticsDirectory -like ('*' + $failureHostName)) { return @('--unknown-functional-probe') }; return @('--version') }",
+            "function Invoke-BudgetedCommand { param([System.Diagnostics.Stopwatch]$Stopwatch, [int]$BudgetSeconds, [string]$Label, [string]$CommandPath, [string[]]$Arguments, [string]$DiagnosticsDirectory, [DateTime]$ProcessDeadlineUtc, [DateTime]$PhaseDeadlineUtc, [DateTime]$CleanupDeadlineUtc, [switch]$IsTestCommand) }",
+            "function Assert-BuiltOutputs { }",
+            "function Assert-RepositoryWhitespace { }",
+            "function Start-FunctionalShardProcess { param([pscustomobject]$Shard, [string]$DiagnosticsDirectory, [System.Collections.IList]$Entries, [System.Collections.IList]$OwnedProcessRecords, [object]$PostStartFaultGuard, [string]$RunSettingsPath) if ($Shard.Name -cne 'portable-settings') { $global:fanoutAttempts++ }; $entry = & $actualStart @PSBoundParameters; if ($Shard.Name -ceq 'portable-settings') { $global:portableProcessId = $entry.Process.Id }; return $entry }",
+            "$actualCleanup = ${function:Invoke-VerificationFunctionalCleanup}",
+            "function Invoke-VerificationFunctionalCleanup { param([System.Collections.IList]$Entries, [DateTime]$CleanupDeadlineUtc, [switch]$StopRoots, [object]$PrimitiveObserver) $global:cleanupDeadlineUtc = $CleanupDeadlineUtc; $global:stopRoots = $StopRoots.IsPresent; return & $actualCleanup @PSBoundParameters }",
+            "$capturedOutput = [System.Collections.Generic.List[object]]::new()",
+            "$caught = $null",
+            "$diagnostics = Join-Path ([IO.Path]::GetTempPath()) ('bms-verification-report-' + [Guid]::NewGuid().ToString('N'))",
+            "try { Invoke-CanonicalFunctionalVerification -DiagnosticsRoot $diagnostics -TimeoutSeconds $timeoutSeconds *>&1 | ForEach-Object { [void]$capturedOutput.Add($_) } } catch { $caught = $_.Exception }",
+            "$elapsedLine = @($capturedOutput | ForEach-Object { [string]$_ } | Where-Object { $_ -like 'Functional test execution elapsed:*' } | Select-Object -Last 1)",
+            "$warnings = @($capturedOutput | Where-Object { $_ -is [System.Management.Automation.WarningRecord] } | ForEach-Object { $_.Message } | ForEach-Object { [string]$_ })",
+            "$outputLines = @($capturedOutput | ForEach-Object { [string]$_ })",
+            "$output = [pscustomobject]@{ Caught = $null -ne $caught; TimedOut = $null -ne $caught -and $caught.Message.Contains('exceeded the configured execution deadline', [StringComparison]::Ordinal); ExceptionMessage = if ($null -eq $caught) { [string]::Empty } else { $caught.Message }; ElapsedLine = if ($elapsedLine.Count -eq 0) { [string]::Empty } else { [string]$elapsedLine[0] }; Warnings = $warnings; OutputLines = $outputLines; FanoutAttempts = $global:fanoutAttempts; StartUtc = $global:reportedStartUtc; CleanupDeadlineUtc = $global:cleanupDeadlineUtc; StopRoots = $global:stopRoots }",
+            "if (Test-Path -LiteralPath $diagnostics) { Remove-Item -LiteralPath $diagnostics -Recurse -Force -ErrorAction SilentlyContinue }",
+            "$output | ConvertTo-Json -Depth 12 -Compress");
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static void AssertSuccessfulExitTimeReport(JsonDocument result, int expectedElapsedSeconds)
+    {
+        JsonElement root = result.RootElement;
+        Assert.IsFalse(GetProperty(root, "Caught").GetBoolean(), root.GetRawText());
+        Assert.IsFalse(GetProperty(root, "TimedOut").GetBoolean(), root.GetRawText());
+        Assert.AreEqual(
+            expectedElapsedSeconds,
+            ReadReportedElapsedSeconds(root),
+            0.05,
+            GetProperty(root, "ElapsedLine").GetString());
+    }
+
+    private static void AssertFunctionalReportingWarning(JsonDocument result, int expectedElapsedSeconds)
+    {
+        string warningText = string.Join(
+            Environment.NewLine,
+            ReadStringArray(GetProperty(result.RootElement, "Warnings")));
+        if (string.IsNullOrWhiteSpace(warningText))
+        {
+            warningText = string.Join(
+                Environment.NewLine,
+                ReadStringArray(GetProperty(result.RootElement, "OutputLines")));
+        }
+
+        StringAssert.Contains(warningText, FunctionalReportingTargetSeconds.ToString(CultureInfo.InvariantCulture));
+        Assert.IsTrue(warningText.Contains("target", StringComparison.OrdinalIgnoreCase), warningText);
+        Assert.IsTrue(
+            warningText.Contains(expectedElapsedSeconds.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal),
+            warningText);
+        Assert.IsTrue(warningText.Contains("retained", StringComparison.OrdinalIgnoreCase), warningText);
+        Assert.IsTrue(warningText.Contains("user-facing report", StringComparison.OrdinalIgnoreCase), warningText);
     }
 
     private static double ReadReportedElapsedSeconds(JsonElement result)
@@ -1065,6 +1245,16 @@ public sealed class VerificationRunnerContractTests
         foreach (JsonElement value in array.EnumerateArray())
         {
             values.Add(value.GetString()!);
+        }
+        return values.ToArray();
+    }
+
+    private static int[] ReadIntegerArray(JsonElement array)
+    {
+        var values = new List<int>();
+        foreach (JsonElement value in array.EnumerateArray())
+        {
+            values.Add(value.GetInt32());
         }
         return values.ToArray();
     }

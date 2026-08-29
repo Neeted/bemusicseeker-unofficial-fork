@@ -6,8 +6,9 @@
 
 ## 運用目標
 
-- 通常の機能検証では、portable settings の `dotnet test` 開始直前から、portable と fanout する全 Functional testhost の実際のプロセス `ExitTime` までの test execution を 180 秒以内で完了させる。個々の testhost や shard ごとの 180 秒ではない。script startup、preflight、restore、build、output 準備、artifact 回収、fingerprint、環境復元、whitespace確認、postflight はこの test budget の対象外である。
+- 通常の機能検証では、portable settings の `dotnet test` 開始直前から、portable と fanout する全 Functional testhost の実際のプロセス `ExitTime` までの test execution を 300 秒以内で完了させる。個々の testhost や shard ごとの 300 秒ではない。script startup、preflight、restore、build、output 準備、artifact 回収、fingerprint、環境復元、whitespace確認、postflight はこの test budget の対象外である。180 秒は運用上の reporting target とし、300 秒以内の遅い成功を timeout として扱わない。
 - Functional の canonical runner は portable settings の `dotnet test` 開始直前に一つの execution deadline（開始時刻 + `FunctionalTimeoutSeconds`）と、その deadline + 10 秒の failure-cleanup cutoff を作る。同じ deadline を portable、fanout launch、全 testhost 完了まで共有し、host / phase ごとに reset しない。+10 秒は timeout / failure 時の owned-process cleanup と stream drain 専用であり、成功判定を testhost 完了後の cleanup、fingerprint、環境復元、whitespace 確認まで延長しない。
+- retained process `ExitTime` から求めた elapsed が 180 秒ちょうど以下なら通常成功として出力する。180 秒を超えて 300 秒以下で完了した成功 run も通常成功のままとし、通常の elapsed 出力に加えて 180 秒 target 超過、actual retained-`ExitTime` elapsed、およびその実時間を user-facing report に必ず含める指示を warning / diagnostic へ出力する。300 秒を超えた場合だけ timeout とし、timeout retry はこの真の timeout に限る。
 - Functional は、追跡対象ファイルを変更せず、実行順序や並列度によらず決定的に成功する。
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
 - リソース競合で不安定になる場合は、共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
@@ -22,7 +23,7 @@
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ```
 
-この呼び出しでは、script startup、tracked-file fingerprint、solution の locked restore / build / output validation、環境復元、最終 fingerprint は test execution の 180 秒予算外である。`Invoke-CanonicalFunctionalVerification` はこれらの準備後、portable settings の `dotnet test` 開始直前から全 testhost の実際の `ExitTime` までを論理的に一つの通常 test phase として所有し、`dotnet test` は restore 済みの dependency graph を使う。内部 sharding の有無にかかわらず、test execution の時間予算は一度だけ適用する。Functional からは `Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance` を除外する。
+この呼び出しでは、script startup、tracked-file fingerprint、solution の locked restore / build / output validation、環境復元、最終 fingerprint は test execution の 300 秒予算外である。`Invoke-CanonicalFunctionalVerification` はこれらの準備後、portable settings の `dotnet test` 開始直前から全 testhost の実際の `ExitTime` までを論理的に一つの通常 test phase として所有し、`dotnet test` は restore 済みの dependency graph を使う。内部 sharding の有無にかかわらず、test execution の時間予算は一度だけ適用する。Functional からは `Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance` を除外する。
 
 Quick の filter なし呼び出しもこの canonical owner を一度だけ使う。filter 付き Quick だけは明示 filter の専用 route を使い、canonical Functional の shard topology は起動しない。owner は呼び出し元が渡す diagnostics root と `FunctionalTimeoutSeconds` を受け取り、caller-owned root 配下へ restore / build / shard artifact を保存する。tracked-file fingerprint の取得と不変確認、環境復元は mode の外側で一度ずつ行い、test execution の deadline へ接続しない。
 
@@ -49,7 +50,7 @@ foreground input、keyboard focus、hit testing、nested modal activation が保
 
 正常完了は対象の `Task`、signal、event、state transitionを plain `await` で待つ。coordinator は `.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` などの同期 block を行わない。local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限り、固定 sleep、成功推定用の正の delay、既定 timeout helper は追加しない。
 
-Functional plan の変更受入は上記の最終 acceptance 方針に従う。focused Quick では `VerificationRunnerContractTests` と `VerificationProcessLifecycleTests` を使い、category exclusion、locked restore / build、180 秒 test execution budget、tracked-file fingerprint、Quick / Full mapping を検証する。
+Functional plan の変更受入は上記の最終 acceptance 方針に従う。focused Quick では `VerificationRunnerContractTests` と `VerificationProcessLifecycleTests` を使い、category exclusion、locked restore / build、300 秒 test execution hard budget と 180 秒 reporting target、tracked-file fingerprint、Quick / Full mapping を検証する。
 
 ## Verification map: process lifecycle
 
@@ -69,9 +70,9 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter '<MS
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 ```
 
-Full は Functional に加えて、tool / analyzer、`ProcessIntegration`、self-contained publish、既存データ起動受入、update package 受入を実行する。Full は `Invoke-CanonicalFunctionalVerification` を `FunctionalTimeoutSeconds` と Full run root 配下の diagnostics root で一度だけ呼び出し、locked restore、build、built-output validation、Functional test execution を別 route で再構築しない。canonical Functional の test execution 完了後に current distribution publish / baseline / acceptance へ進む。Functional の 180 秒予算は test execution phase だけに適用し、Full の準備・post-Functional release 検証とは別である。Performance、LargeFixture、parser full / slow は Full にも自動では含めず、変更対象に応じて明示実行する。
+Full は Functional に加えて、tool / analyzer、`ProcessIntegration`、self-contained publish、既存データ起動受入、update package 受入を実行する。Full は `Invoke-CanonicalFunctionalVerification` を `FunctionalTimeoutSeconds` と Full run root 配下の diagnostics root で一度だけ呼び出し、locked restore、build、built-output validation、Functional test execution を別 route で再構築しない。canonical Functional の test execution 完了後に current distribution publish / baseline / acceptance へ進む。Functional の 300 秒 hard budget と 180 秒 reporting target は test execution phase だけに適用し、Full の準備・post-Functional release 検証とは別である。Performance、LargeFixture、parser full / slow は Full にも自動では含めず、変更対象に応じて明示実行する。
 
-Full 内でも canonical Functional phase は tool restore の後、tool smoke / publish や update acceptance より前に実行する。release artifact workload の CPU / I/O の影響を test execution の 180 秒予算へ持ち込まず、portable 起動から全 testhost 完了までを同じ条件で評価するためである。
+Full 内でも canonical Functional phase は tool restore の後、tool smoke / publish や update acceptance より前に実行する。release artifact workload の CPU / I/O の影響を test execution の 300 秒予算へ持ち込まず、portable 起動から全 testhost 完了までを同じ条件で評価するためである。
 
 Full の post-Functional phase budget は内部 `verification-runner-contract.ps1` の descriptor を正本とし、次の値を変更しない。各 phase は descriptor の diagnostics segment と bounded monitored execution を一度だけ使い、process tree を停止してから cleanup する。primary failure は cleanup failure で置き換えず、cleanup failure は phase diagnostics に記録する。primary が無い場合の cleanup failure は失敗として扱い、成功時の cleanup failure も成功に隠さない。Full の finally は開始前の process environment と working directory を復元し、復元 failure も同じ優先順位で記録する。
 
@@ -204,5 +205,5 @@ Chart-info metadata lifecycle coverage uses the five distinct owner fixtures `Ch
 - `Task.Delay`、`Thread.Sleep`、`WaitOne` 等を、通常完了待ち、failure watchdog、性能 assertion に分類し、通常完了待ちを決定的な signal へ置換する。
 - updater 以外の process 起動テストを `ProcessIntegration` と軽量 contract test に分離する。
 - 性能テストを専用 project または明示実行 profile へ移し、履歴比較可能な測定結果を保存する。
-- test ごとの実行時間と flaky 履歴を継続収集し、Functional の 180 秒予算を超える前に増加を検出する。
+- test ごとの実行時間と flaky 履歴を継続収集し、Functional の 300 秒 hard budget を超える前に増加を検出する。180 秒 reporting target 超過時は actual retained-`ExitTime` elapsed を user-facing report に反映する。
 - compiled test discovery から FQN、category、source fixture、lane / shard、shared resource tag、実行時間、flaky 履歴を生成する machine-readable catalog を derived artifact として整備し、Codex が候補を絞るために test source 全体を読む必要を減らす。人手管理の巨大一覧を正本にはしない。

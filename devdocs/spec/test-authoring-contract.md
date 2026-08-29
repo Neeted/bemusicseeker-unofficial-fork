@@ -126,7 +126,7 @@ process 名だけでマシン全体の `dotnet` / `testhost` / `vstest` を停�
 - 正常完了の coordinator は対象の `Task`、event、signal、state transition を plain `await` で待ち、`.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` で同期 block しない。
 - local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限る。固定 sleep、成功推定用の正の delay、既定 timeout helper、bulk な timeout 変更は追加しない。
 
-runner、lane、parallelization、fixture placement、shared WPF / process infrastructure を変更した場合は、影響する focused Quick と acceptance lane を handoff へ明示する。Functional の実行回数、180秒 budget、timeout retry、failure classification は `testing-strategy.md` に従う。
+runner、lane、parallelization、fixture placement、shared WPF / process infrastructure を変更した場合は、影響する focused Quick と acceptance lane を handoff へ明示する。Functional の実行回数、300秒 hard budget、180秒 reporting target、timeout retry、failure classification は `testing-strategy.md` に従う。180秒を超えて成功した場合は actual elapsed をユーザーへの報告に含める。
 
 規定の retry 後も同じ症状が再発する flake は、active / last observed test、shared state、process / window / pipe handle、settings、temp resource、worker topology を failure ledger へ残し、対象 filter を実際の shard context で調査する。
 

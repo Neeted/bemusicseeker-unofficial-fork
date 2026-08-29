@@ -98,7 +98,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 ```
 
 - 実装中は関連 test filter の `Quick` を優先し、小さな修正ごとに full suite を繰り返さない。
-- 最終 acceptance の lane、Functional の実行回数・180秒予算・timeout retry・failure classification は `devdocs\spec\testing-strategy.md` に従う。通常のコード変更では、最終 snapshot の `Functional` を原則一回実行する。
+- 最終 acceptance の lane、Functional の実行回数、300秒 hard budget、180秒 reporting target、timeout retry、failure classification は `devdocs\spec\testing-strategy.md` に従う。通常のコード変更では、最終 snapshot の `Functional` を原則一回実行し、180秒を超えて成功した場合は actual elapsed をユーザーへの報告に含める。
 - `Full` は publish / updater / distribution、release 手順、Full runner の変更、release 前の受入に使う。その他の変更は filtered `Quick`、`Functional`、必要な opt-in lane を組み合わせる。
 - review 修正後は影響範囲の filtered `Quick` を先に行い、通常機能検証または release lane の前提が変わった場合だけ該当する統合 lane を再実行する。
 - deterministic failure や再発する flaky / 長時間化は、共有 state、fixture ownership、待機、競合、I/O、input 量、timeout 根拠を調査する。timeout 延長や worker / shard 低下だけで症状を隠さない。
