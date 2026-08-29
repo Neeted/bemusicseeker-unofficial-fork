@@ -1,250 +1,203 @@
-# Playlist Lamp Viewer
+# プレイリスト・ランプビューア
 
-The playlist lamp viewer is a local, modeless presentation of one playlist's
-current lamp aggregation. The playlist tree and the playlist-summary row each
-expose a localized `Open lamp viewer` command immediately below `Open page`.
-The command is a typed local route: it never calls the browser sink and does
-not reuse the retired fixed external URL route.
+プレイリスト・ランプビューアは、1つのプレイリストについて現在のランプ集計をローカルで表示するモードレスビューアである。
+プレイリストツリーとプレイリストサマリー行には、それぞれ「ページを開く」の直下に、ローカライズされた「ランプビューアを開く」コマンドを表示する。
+このコマンドは型付きのローカルルートであり、ブラウザ出力先を呼び出さず、廃止済みの固定外部URLルートも再利用しない。
 
-## Presentation and layout
+## 表示とレイアウト
 
-Every command invocation creates a fresh `ThemedWindow`. The viewer is
-temporarily owned by the main window while its initial `CenterOwner` placement
-is resolved. The manager shows it modelessly, makes one initial activation
-attempt, and immediately clears the WPF `Owner`; later main-window interaction
-therefore is not constrained by the viewer's z-order. Multiple instances for
-the same playlist are allowed. Dialogs raised by the viewer remain owned by the
-main window. The top of the window contains one ordered statistics collection.
-Its score-independent cards are total, owned, missing, ownership rate, active
-score source, and playlist last update. When score data is available, played,
-unplayed, play rate, average EX score rate, and whole-playlist clear rate are
-inserted before the final playlist last-update card. When score data is not
-available, those score-dependent cards are omitted.
+コマンドを呼び出すたびに、新しい `ThemedWindow` を作成する。
+最初の `CenterOwner` 配置を解決する間だけ、ビューアの所有者をメインウィンドウに設定する。
+マネージャーはビューアをモードレスで表示し、最初のアクティブ化を1回試みた直後にWPFの `Owner` を解除するため、その後のメインウィンドウ操作はビューアのZオーダーに制約されない。
+同じプレイリストに対して複数のビューアを開くことができる。
+ビューアから表示するダイアログの所有者は、引き続きメインウィンドウとする。
+ウィンドウ上部には、順序付きの統計カードコレクションを1つ表示する。
+スコアに依存しないカードは、総数、所持数、未所持数、所持率、使用中のスコアソース、プレイリスト最終更新である。
+スコアデータを利用できる場合は、プレイ済み、未プレイ、プレイ率、平均EXスコア率、プレイリスト全体のクリア率を、末尾のプレイリスト最終更新カードより前に挿入する。
+スコアデータを利用できない場合は、これらのスコア依存カードを表示しない。
 
-The header also contains a calendar-only `As of` selector and a `Latest` command.
-`Latest` (the default) uses the current score snapshot. When an active score
-provider has history, the calendar permits every local date from the oldest
-provider-wide qualifying history row through today; an empty history disables
-the date selector while leaving `Latest` available. The text box portion of the
-date picker is read-only; dates are selected through its calendar, and the date
-is not persisted or shared with another window.
+ヘッダーには、カレンダー専用の「基準日」選択と「最新」コマンドも表示する。
+既定の「最新」では、現在のスコアスナップショットを使用する。
+使用中のスコアプロバイダーに履歴がある場合、カレンダーでは、プロバイダー全体で条件を満たす最古の履歴行のローカル日付から今日までを選択できる。
+履歴が空の場合は日付選択を無効にするが、「最新」は引き続き使用できる。
+日付ピッカーのテキストボックス部分は読み取り専用であり、日付はカレンダーから選択する。
+選択した日付は永続化せず、別のウィンドウとも共有しない。
 
-Selecting local date `D` rolls back the current score snapshot at the local
-midnight immediately after `D`. History rows at or after that cutoff are
-processed newest first; equal timestamps use the provider source id descending.
-LR2 considers finalized and unfinalized rows and restores `old_clear` plus
-`old_op_history`, and `old_exscore` plus `old_totalnotes`. beatoraja considers
-only mode `0` rows and restores `oldclear` plus `oldscore` using current notes.
-For LR2, `old_playcount = NULL` is the explicit no-previous-score sentinel, so
-the chart is NP even when the other old-score fields are populated. A non-null
-`old_playcount` with all of `old_clear`, `old_op_history`, `old_exscore`, and
-`old_totalnotes` null is malformed/incomplete and makes the historical snapshot
-unavailable; it does not fall back to a score or NP. A hash with no processed
-future row retains its current score exactly.
+ローカル日付 `D` を選択すると、`D` の直後のローカル午前0時を基準として現在のスコアスナップショットをロールバックする。
+基準時刻以降の履歴行を新しい順に処理し、タイムスタンプが同じ場合はプロバイダーのソースIDの降順で処理する。
+LR2では確定行と未確定行の両方を対象とし、`old_clear` と `old_op_history`、および `old_exscore` と `old_totalnotes` を復元する。
+beatorajaではモード `0` の行だけを対象とし、現在のノーツ数を使って `oldclear` と `oldscore` を復元する。
+LR2では `old_playcount = NULL` が「以前のスコアなし」を明示する番兵値であるため、ほかの旧スコアフィールドに値があっても、その譜面はNPとなる。
+`old_playcount` が非NULLである一方、`old_clear`、`old_op_history`、`old_exscore`、`old_totalnotes` がすべてNULLの場合は、不正または不完全なデータとして履歴スナップショットを利用不可にする。
+この場合、スコアやNPへフォールバックしない。
+処理対象となる将来行がないハッシュは、現在のスコアをそのまま維持する。
 
-Historical mode changes only score-dependent semantics: played/unplayed,
-play rate, arithmetic average EX rate, clear rate, and the clear/rank/DJ graphs.
-Its LR2 history read requires complete history triggers while opting into reads
-with repairable index-only defects. A missing or mismatched trigger therefore
-makes the snapshot unavailable before any history-row query, whereas an
-index-only defect remains readable with a warning and is never repaired here.
-Current playlist membership, folder order, ownership, missing state, and last
-update remain current facts. Segment clicks retain the current typed category
-and scope route; the historical date and cutoff are not sent to navigation.
+履歴モードで変化するのは、スコアに依存するプレイ済み／未プレイ、プレイ率、EXスコア率の算術平均、クリア率、クリア／ランク／DJグラフだけである。
+LR2履歴の読み取りには履歴トリガーがすべて揃っていることを要求する一方、修復可能なインデックスだけの不具合があっても読み取りは許可する。
+そのため、トリガーが欠落または不一致の場合は、履歴行を問い合わせる前にスナップショットを利用不可にする。
+インデックスだけの不具合は警告付きで読み取れるが、ここでは修復しない。
+現在のプレイリスト所属、フォルダー順、所持状態、欠落状態、最終更新は、常に現在の事実を使用する。
+セグメントをクリックしたときは、現在の型付きカテゴリルートとスコープルートを維持し、履歴日付や基準時刻をナビゲーションへ渡さない。
 
-An unavailable, malformed, unreadable, or out-of-range historical snapshot is
-score-degraded rather than a terminal playlist failure. The viewer remains
-live with score-independent cards, and no current-score or all-NP fallback is
-shown. Choosing `Latest` or a valid date performs recovery. Query and source
-generations suppress stale results when date changes race with refresh or
-cancellation.
+履歴スナップショットが利用不可、不正、読み取り不能、または範囲外の場合は、プレイリスト全体の終端エラーではなく、スコア情報だけが縮退した状態とする。
+ビューアはスコア非依存カードを表示したまま動作を継続し、現在のスコアや全件NPへのフォールバックは表示しない。
+「最新」または有効な日付を選択すると復旧する。
+日付変更と更新またはキャンセルが競合した場合は、クエリ世代とソース世代によって古い結果の発行を抑止する。
 
-The graph area is split into two equal, aligned halves: clear lamp on the left
-and DJ rank on the right. Each half has its own heading, visible legend, and
-bounded 100%-stacked bar. Below the global bars, one shared vertical
-`ScrollViewer`/virtualized item collection presents normal folders in the
-playlist's folder order. Every folder row has aligned clear and rank halves,
-each with `folder label | 6-DIP spacer | bar | 6-DIP spacer | chart count`.
-Empty normal folders remain
-visible with a zero count; no synthetic `[NO SONG]` row is rendered.
+グラフ領域は、左側のクリアランプと右側のDJランクの、位置を揃えた同じ幅の2領域に分割する。
+各領域には固有の見出し、表示される凡例、上限付きの100%積み上げバーがある。
+全体バーの下では、1つの縦方向 `ScrollViewer` と仮想化された項目コレクションを共有し、プレイリストのフォルダー順で通常フォルダーを表示する。
+各フォルダー行は、位置を揃えたクリア領域とランク領域を持ち、それぞれを `フォルダーラベル | 6 DIPの余白 | バー | 6 DIPの余白 | 譜面数` の順に配置する。
+空の通常フォルダーも件数0で表示し、合成した `[NO SONG]` 行は表示しない。
 
-The bars use a retained weighted WPF panel. Positive segments are standard
-`Button` controls weighted by count, and the final visible segment receives the
-remaining pixels so rounding cannot overflow its host. A zero-count segment has
-no positive width and is not materialized as a button. Category colors are
-distinct and supplied through dynamic theme resources. A selected segment also
-changes border, text weight, and automation status; selection is not conveyed
-by color alone.
+バーには、状態を保持する重み付きWPFパネルを使用する。
+件数が正のセグメントは件数で重み付けした標準 `Button` コントロールとし、丸めによってホストの幅を超えないよう、最後に表示されるセグメントへ残りのピクセルを割り当てる。
+件数0のセグメントは正の幅を持たず、ボタンとして実体化しない。
+カテゴリの色は互いに識別可能なものとし、動的なテーマリソースから供給する。
+選択したセグメントは、境界線、文字の太さ、オートメーション状態も変化させ、色だけで選択状態を伝えない。
 
-Graph hosts and unselected segment buttons are borderless. A selected positive
-segment has a visible non-color border and heavier text while its siblings stay
-unselected; it remains a standard keyboard/UI Automation `Button`. The folder
-label column is measured from the rendered label typeface over the current live
-normal-folder rows, shared by the clear and rank halves, and capped at 170 DIPs.
-The count column is a separate shared live column measured from every localized
-numeric `CountText` in both halves, capped at the rendered localized `N0(9999)`
-width. Both columns recompute after folder rows refresh. Labels beyond the cap
-use ellipsis and retain their complete tooltip. Folder rows have no separator
-and use a compact pitch that keeps adjacent bars non-overlapping. The default
-window width is 1290 DIPs and presents the complete clear legend from `MAX`
-through `NP` on one row; a narrower resize may wrap it.
+グラフのホストと未選択のセグメントボタンには境界線を表示しない。
+選択された件数が正のセグメントには色以外でも分かる境界線と太い文字を表示し、兄弟セグメントは未選択のままにする。
+選択されたセグメントも、標準のキーボード操作とUI Automationに対応する `Button` のままとする。
+フォルダーラベル列の幅は、現在表示中の通常フォルダー行について、描画に使用する書体でラベルを測定して決定する。
+この幅はクリア領域とランク領域で共有し、上限を170 DIPとする。
+件数列は別の共有列とし、両領域にあるローカライズ済みの数値 `CountText` をすべて測定して決定し、ローカライズして描画した `N0(9999)` の幅を上限とする。
+両方の列幅は、フォルダー行の更新後に再計算する。
+上限を超えるラベルは省略記号で表示し、完全な内容をツールチップに保持する。
+フォルダー行には区切り線を表示せず、隣接するバーが重ならないコンパクトな行間隔を使用する。
+ウィンドウの既定幅は1290 DIPとし、`MAX` から `NP` までのクリア凡例全体を1行で表示する。
+より狭くリサイズした場合は折り返してよい。
 
-Each positive segment exposes a localized label and count in the visible legend.
-When a segment is wide enough to contain it, the bar also shows the complete
-localized percentage; a narrow segment intentionally has no in-bar text, so it
-cannot show a clipped fragment or ellipsis. Every positive segment retains its
-complete localized label, count, and semantically nonzero localized percentage
-in its tooltip and Automation name. Ordinary values use the normal localized
-precision; values below that precision use a localized lower-bound representation
-instead of being rounded to zero. Exact precision and copy are not part of this
-contract. Enter, Space, and UI Automation Invoke use the same typed
-segment intent.
+件数が正の各セグメントについて、表示される凡例にローカライズ済みのラベルと件数を示す。
+セグメント内に収まる幅がある場合は、バーにもローカライズ済みの完全な割合を表示する。
+幅が狭いセグメントでは、切れた断片や省略記号を表示しないよう、意図的にバー内の文字列を表示しない。
+件数が正の各セグメントでは、完全なローカライズ済みラベル、件数、および意味上0ではないローカライズ済み割合を、ツールチップとAutomation名に保持する。
+通常の値には標準のローカライズ済み精度を使用し、その精度を下回る値は0へ丸めず、ローカライズ済みの下限表現を使用する。
+正確な精度と文言は、この契約の対象外とする。
+Enter、Space、UI AutomationのInvokeは、同じ型付きセグメント意図を使用する。
 
-## Categories and sources
+## カテゴリとソース
 
-The beatoraja clear order is `MAX`, `PERFECT`, `FC`, `EXHARD`, `HARD`,
-`NORMAL`, `EASY`, `ASSIST`, `FAILED`, `NP`. The rank order is `AAA`, `AA`,
-`A`, `B`, `C`, `D`, `E`, `F`, `NP`. Score rank `MAX` is folded into `AAA`.
-`ASSIST` includes `INVALID` and `L_ASSIST`. `NP` means no play/no score.
-Rank `F` includes played `F` and played `INVALID`-rank outcomes, while
-`NO_PLAY`/`NO_SONG` rows are excluded from rank `F` and selected only by the
-rank `NP` clear semantics.
-There is no `NS` viewer category; missing entries remain part of the total
-denominator and are represented by the core's score-independent ownership
-cards. The special `[NO SONG]` folder remains a navigation guard and is
-included in the NP search semantics, not as a rendered row.
+beatorajaのクリア順は `MAX`、`PERFECT`、`FC`、`EXHARD`、`HARD`、`NORMAL`、`EASY`、`ASSIST`、`FAILED`、`NP` とする。
+ランク順は `AAA`、`AA`、`A`、`B`、`C`、`D`、`E`、`F`、`NP` とする。
+スコアランク `MAX` は `AAA` に統合する。
+`ASSIST` には `INVALID` と `L_ASSIST` を含める。
+`NP` は未プレイまたはスコアなしを意味する。
+ランク `F` には、プレイ済みの `F` とプレイ済みでランクが `INVALID` の結果を含める。
+一方、`NO_PLAY` / `NO_SONG` 行はランク `F` から除外し、ランク `NP` のクリア状態によってのみ選択する。
+ビューアには `NS` カテゴリを設けない。
+欠落エントリは総数の分母に含めたまま、コアのスコア非依存の所持状態カードで表現する。
+特殊な `[NO SONG]` フォルダーは引き続きナビゲーションのガードとし、表示行ではなく、NP検索の意味に含める。
 
-With an LR2 source, `MAX` and `EXHARD` are omitted from every viewer surface:
-cards, legends, global bars, folder bars, tooltips, and automation values.
+LR2ソースでは、すべてのビューア表示面、すなわちカード、凡例、全体バー、フォルダーバー、ツールチップ、オートメーション値から `MAX` と `EXHARD` を除外する。
 
-## States, lifecycle, and failure
+## 状態、ライフサイクル、失敗
 
-The session publishes `Loading`, `Ready`, `Empty`, `Deleted`, and `Failed`.
-The manager subscribes before starting and waits through `Loading` for the
-first non-loading result before showing a window. Initial `Deleted` and
-`Failed` results show one owner-scoped localized dialog and do not show a
-window. A dialog failure is propagated. After a window is shown, a live
-`Deleted` result silently closes only that viewer; a live `Failed` result shows
-one localized dialog and then closes only that viewer. Repeated terminal
-signals and manual `Close` dispose the source, session, and DataContext exactly
-once.
+セッションは `Loading`、`Ready`、`Empty`、`Deleted`、`Failed` を発行する。
+マネージャーは開始前に購読し、ウィンドウを表示する前に、`Loading` の間は最初の非Loading結果を待つ。
+初期結果が `Deleted` または `Failed` の場合は、所有者のスコープ内でローカライズ済みダイアログを1回表示し、ウィンドウは表示しない。
+ダイアログ表示の失敗は呼び出し元へ伝播する。
+ウィンドウ表示後に `Deleted` を受け取った場合は、そのビューアだけを黙って閉じる。
+表示後に `Failed` を受け取った場合は、ローカライズ済みダイアログを1回表示してから、そのビューアだけを閉じる。
+終端シグナルが繰り返された場合も、手動で `Close` した場合も、ソース、セッション、DataContextを正確に1回だけ破棄する。
 
-Main-window shutdown cancels pending opens and closes/disposes all tracked
-viewers. No later continuation may show a window or dialog after shutdown.
-There is no geometry/selection persistence and no cross-window cache.
+メインウィンドウの終了時は、保留中のオープン処理をキャンセルし、追跡中のすべてのビューアを閉じて破棄する。
+終了後に完了する継続処理が、ウィンドウやダイアログを表示してはならない。
+ジオメトリや選択状態は永続化せず、ウィンドウ間キャッシュも持たない。
 
-After a positive typed segment request has been applied to the playlist tree
-and detail selection, the main shell performs one best-effort restore (when
-minimized), activation, and focus terminal. A failed activation or focus
-attempt does not roll back the applied navigation. Requests whose tree
-selection does not complete do not invoke that terminal.
+件数が正の型付きセグメント要求をプレイリストツリーと詳細選択へ適用した後、メインシェルは復元（最小化時）、アクティブ化、フォーカスの終端処理をベストエフォートで1回実行する。
+アクティブ化またはフォーカスに失敗しても、適用済みのナビゲーションはロールバックしない。
+ツリー選択が完了しなかった要求では、この終端処理を呼び出さない。
 
-For a normal `Ready`/`Empty` result, score-independent cards remain visible
-even when score data is unavailable or failed. In that degraded case the
-clear/rank graphs, score-dependent cards, and segment invocation are absent or
-disabled. The failure remains distinct from `Empty` and `NP`; no routine
-status/retry control is used.
+通常の `Ready` / `Empty` 結果では、スコアデータが利用不可または取得失敗でも、スコア非依存カードを表示し続ける。
+この縮退状態では、クリア／ランクグラフ、スコア依存カード、セグメント呼び出しを表示しないか無効にする。
+この失敗状態は `Empty` および `NP` と区別し、通常時の状態表示や再試行コントロールは使用しない。
 
-## Statistics and denominators
+## 統計と分母
 
-The aggregation uses active real entries only. Global graph denominators and
-whole-playlist rates use `total`; folder graph denominators use each folder's
-real-entry count. The rendered card order is `total`, `owned`, `missing`,
-ownership rate, active score source, `played`, `unplayed`, play rate,
-arithmetic average EX score rate, whole-playlist clear rate, and playlist last
-update. The five score-dependent cards are omitted together when score data is
-unavailable. Whole-playlist clear rate is `(ASSIST or better) / total`, where
-`FAILED` and `NP` are not clear categories.
+集計対象は、有効な実エントリだけとする。
+全体グラフの分母とプレイリスト全体の割合には `total` を使用し、フォルダーグラフの分母には各フォルダーの実エントリ数を使用する。
+カードの表示順は、`total`、所持数、未所持数、所持率、使用中のスコアソース、`played`、`unplayed`、プレイ率、EXスコア率の算術平均、プレイリスト全体のクリア率、プレイリスト最終更新とする。
+スコアデータを利用できない場合、5つのスコア依存カードをまとめて省略する。
+プレイリスト全体のクリア率は「`ASSIST` 以上 / `total`」とし、`FAILED` と `NP` はクリアカテゴリに含めない。
 
-An empty denominator displays localized `Unavailable`, never `0%`. Score
-dependent values are unavailable when the score source is absent or failed.
+分母が空の場合は、`0%` ではなくローカライズ済みの「利用不可」を表示する。
+スコアソースが存在しないか取得に失敗した場合、スコア依存値は利用不可とする。
 
-`playlist.last_update` is a legacy local wall-clock value, not a UTC timestamp.
-The playlist lamp source preserves that value as `PlaylistLastUpdated` without
-assigning or converting a timezone. The viewer formats the final card directly
-with the current culture's general short format (`timestamp.ToString("g",
-CurrentCulture)`), so its calendar date, hour, and minute match the playlist
-summary. A null or unavailable value remains localized `Unavailable`. Score
-source timestamps (`LastUpdatedUtc` and `SourceLastUpdatedUtc`) remain a
-separate UTC contract and are never substituted for the playlist last update.
+`playlist.last_update` は従来のローカル壁時計値であり、UTCタイムスタンプではない。
+プレイリスト・ランプソースは、タイムゾーンの割り当てや変換をせず、その値を `PlaylistLastUpdated` として保持する。
+ビューアは、現在のカルチャの標準の短い書式（`timestamp.ToString("g", CurrentCulture)`）で末尾のカードを直接整形し、カレンダー上の日付、時、分をプレイリストサマリーと一致させる。
+値がNULLまたは利用不可の場合は、ローカライズ済みの「利用不可」のままとする。
+スコアソースのタイムスタンプ（`LastUpdatedUtc` と `SourceLastUpdatedUtc`）は別のUTC契約のまま維持し、プレイリスト最終更新の代わりには決して使用しない。
 
-## Segment navigation
+## セグメントナビゲーション
 
-Invoking a positive folder segment creates a typed
-`PlaylistLampSegmentInvocationRequest`. The workspace re-resolves the active
-playlist by stable `playlist_id`, verifies the same normal folder, replaces the
-keyword filter, and publishes one folder-plus-filter intent. The main window
-applies that snapshot atomically and navigates to the corresponding playlist
-detail row set. Existing unowned entries are included in scored category
-filters. The typed intents are serialized with aliases supported by the
-chart-list parser (`pf`, `fc`, `exh`, `hc`, `nc`, `ec`, `ae`, `lae`, and `f`
-for clear categories; `aaa`, `aa`, `a` through `f` for rank categories).
-`ASSIST` maps to `INVALID | L_ASSIST`; `AAA` maps to `AAA | MAX`; both clear
-NP and rank NP semantically include `NO_PLAY` and `NO_SONG`. Exact query
-spelling or alternative ordering is not a contract; membership through the
-real parser and detail presentation pipeline is. Stale/deleted playlist or
-folder requests are no-ops.
+件数が正のフォルダーセグメントを呼び出すと、型付きの `PlaylistLampSegmentInvocationRequest` を作成する。
+ワークスペースは、安定した `playlist_id` で使用中のプレイリストを再解決し、同じ通常フォルダーであることを確認し、キーワードフィルターを置き換えて、フォルダーとフィルターを組み合わせた意図を1件発行する。
+メインウィンドウはそのスナップショットを不可分に適用し、対応するプレイリスト詳細行集合へ移動する。
+所持していない既存エントリも、スコアカテゴリのフィルターに含める。
+型付き意図は、譜面一覧パーサーが対応する別名でシリアライズする（クリアカテゴリは `pf`、`fc`、`exh`、`hc`、`nc`、`ec`、`ae`、`lae`、`f`、ランクカテゴリは `aaa`、`aa`、`a` から `f`）。
+`ASSIST` は `INVALID | L_ASSIST` に、`AAA` は `AAA | MAX` に対応付ける。
+クリアNPとランクNPはいずれも、意味上 `NO_PLAY` と `NO_SONG` を含む。
+クエリの厳密な表記や代替順序は契約対象外とし、実際のパーサーと詳細表示パイプラインを経由した所属関係を契約とする。
+古い、または削除済みのプレイリスト／フォルダー要求は何もしない。
 
-Invoking a positive global (top) segment carries a distinct typed `Overall`
-scope. The workspace re-resolves the same stable playlist, activates the table
-root rather than an arbitrary folder, replaces the keyword filter, and publishes
-one atomic root-plus-filter intent. The resulting detail rows are the union of
-the active normal folders in their current table state; the special `[NO SONG]`
-folder is excluded. Overall NP clear and rank segments include normal-folder
-`NO_PLAY` and `NO_SONG` outcomes, while never selecting the special folder.
-Global zero/degraded/deleted/failed/stale segments remain non-actionable, and
-folder-scoped routes retain their existing folder guard.
+件数が正の全体（上部）セグメントを呼び出すと、固有の型付き `Overall` スコープを渡す。
+ワークスペースは、同じ安定したプレイリストを再解決し、任意のフォルダーではなくテーブルルートをアクティブにし、キーワードフィルターを置き換えて、ルートとフィルターを組み合わせた意図を1件不可分に発行する。
+結果の詳細行は、現在のテーブル状態にある有効な通常フォルダーの和集合とし、特殊な `[NO SONG]` フォルダーは除外する。
+全体のクリアNPおよびランクNPセグメントには、通常フォルダーの `NO_PLAY` と `NO_SONG` の結果を含めるが、特殊フォルダーは決して選択しない。
+全体セグメントが0件、縮退、削除済み、失敗、または古い状態の場合は操作不能のままとし、フォルダースコープのルートは既存のフォルダーガードを維持する。
 
-## Verification map
+## 検証マップ
 
-| Contract | Observable coverage |
+| 契約 | 観測可能なカバレッジ |
 | --- | --- |
-| PLV-01 | Compiled tree/summary menu entries are below Open page, create a local modeless window, and do not invoke browser routing. |
-| PLV-02 | Core-backed folder rows preserve normal order, zero-count folders, and omit synthetic `[NO SONG]`. |
-| PLV-03 | Rendered beatoraja clear categories use the canonical order and labels. |
-| PLV-04 | Rendered LR2 surfaces omit MAX/EXHARD; rank MAX is represented by AAA. |
-| PLV-05 | Legends, width-aware visible percentages, localized tooltip/Automation detail with semantically nonzero positive percentages, and zero-width behavior. |
-| PLV-06 | Typed folder/category navigation, mappings, stale no-op, and one final atomic publication. |
-| PLV-07 | ResultChanged delivery is dispatcher-safe and selected state is per window. |
-| PLV-08 | Loading/Ready/Empty/Deleted/Failed plus score-unavailable/failed degradation; no routine status/retry or failure-to-NP masking. |
-| PLV-09 | Multiple windows, exact-once lifecycle cleanup, initial gate, terminal dialogs, and main-window shutdown. |
-| PLV-10 | ThemedWindow, standard Button keyboard/Invoke path, width-aware labels contained by bounded weighted geometry, automation state, and non-color selection. |
-| PLV-11 | All cards, totals, rates, averages, and empty-denominator rules. |
-| PLV-12 | RESX/generated accessors and all six language JSON key/value/placeholder parity. |
-| PLV-13 | This specification, the Japanese/English manuals, release-note sections, and the spec index. |
-| PLV-14 | No chart package, settings, persistence, or cross-window cache; legacy external route remains retired. |
-| PLV-OVR-01 | Positive global clear and rank segments expose Button/Invoke actions, preserve per-window selection, and keep the viewer open. |
-| PLV-OVR-02 | A global request uses the typed Overall scope, re-resolves the playlist, selects the table root, replaces the keyword, and commits one final union-of-normal-folders detail result. |
-| PLV-OVR-03 | Overall NP includes normal-folder NO_PLAY/NO_SONG outcomes and excludes the special `[NO SONG]` folder. |
-| PLV-OVR-04 | Zero, degraded, deleted, failed, and stale global segments do not navigate or fall back; folder-scoped navigation remains unchanged. |
-| PLV-OVR-05 | Multiple viewers for one playlist keep independent selected segments and remain independently usable after one global invocation. |
-| PLV-FG-01 | First-presentable Ready/Empty viewers use temporary `CenterOwner` ownership through modeless `Show` and one initial activation attempt, then release WPF `Owner`; visibility, tracking, multiple instances, and lifecycle remain intact. |
-| PLV-FG-02 | A successful Overall request selects the table root and then performs exactly one main-shell restore/activation/focus terminal. |
-| PLV-FG-03 | A successful normal-folder request selects the target folder child and then performs exactly one main-shell restore/activation/focus terminal. |
-| PLV-FG-04 | A minimized shell is restored before activation and focus; false activation/focus results are best-effort and do not roll back navigation. |
-| PLV-FG-05 | Viewer dialogs remain owned by the main window throughout initial and live failure presentation. |
-| D3-NAV-CLR | Every positive clear intent reaches the supported chart-list grammar and the real parser/detail pipeline returns exact category membership, including ASSIST (`INVALID` + `L_ASSIST`) and NP (`NO_PLAY` + `NO_SONG`). |
-| D3-NAV-RNK | Rank intents return exact AA through F membership; AAA folds `AAA` + `MAX`, and NP uses clear no-play/no-score semantics without played INVALID-rank assist rows. |
-| D3-NAV-SCOPE | Folder requests retain their normal-folder scope; Overall requests publish the table root and return the union of current normal folders while excluding special `[NO SONG]`. |
-| D3-WPF-LEGEND | A rendered default viewer presents the canonical clear legend from MAX through NP on one row. |
-| D3-WPF-LABEL | Rendered folder labels use one live measured, capped 170-DIP column for both halves, with ellipsis and complete tooltip for over-cap names. |
-| D3-WPF-SELECT | Rendered hosts and unselected buttons are borderless; invoking a positive segment leaves only that selection visibly bordered with heavier text and preserves Button/UIA behavior. |
-| D3-WPF-ROWS | Rendered folder rows have no separator and adjacent bars remain non-overlapping with compact vertical pitch. |
-| D4-CONTRAST | Rendered legend and positive-segment text use opaque black or white selected from the actual resolved solid background by WCAG sRGB relative luminance, including after selection. |
-| D4-COUNT-TEXT | Folder counts render the current-culture N0 number only, without a unit suffix. |
-| D4-FOLDER-GEOMETRY | Clear and rank folder halves use shared live label and count columns with explicit 6-DIP spacers; labels cap at 170 DIPs, counts cap at localized N0(9999), widths recompute after row refresh, and bars align across rows and halves. |
-| D4-STAT-ORDER | One ordered statistics collection renders score-available and degraded card sequences in their required semantic order, with playlist last update always last. |
-| D4-DEFAULT-WIDTH | The viewer defaults to 1290 DIPs, and the score-available cards and clear legend fit one rendered row at that width. |
-| PLV-TIME-01 | `StatisticsCards` formats the legacy local `playlist.last_update` directly in the current culture without timezone conversion; score-source UTC timestamps remain distinct, and null stays unavailable. |
-| HIST-01 | Latest is the default, each window owns its nullable date query, and no historical selection is persisted or shared. |
-| HIST-02 | Calendar-only date selection uses the exact active provider-wide range (oldest qualifying local date through today); LR2 includes all finalization states, beatoraja uses mode 0, and empty history disables only historical selection. |
-| HIST-03 | The rollback cutoff is the selected local date plus one day at local midnight; equality is included and source rows are newest-first with descending source id ties. |
-| HIST-04 | LR2 rollback restores the required clear/option-history and EX/notes fields and preserves explicit old-score absence as NP. |
-| HIST-05 | Only the active provider is read; provider failure never falls back to the opposite provider, and beatoraja rollback uses mode-0 oldclear/oldscore plus current notes. |
-| HIST-06 | No future row preserves current score; explicit old-score absence is NP and remains distinct from current score retention. |
-| HIST-07 | Historical aggregation changes only score-dependent cards, rates, and graphs while current playlist membership/ownership/folder/last-update facts remain unchanged. |
-| HIST-08 | Missing, unreadable, malformed, and out-of-range historical data is a nonterminal score-degraded result; Latest and valid dates recover. |
-| HIST-09 | Query/source generations suppress stale publication even when cancellation is ignored. |
-| HIST-10 | Historical graph segments emit the same typed category/scope navigation request without cutoff or membership parameters. |
-| HIST-11 | Historical reads open provider databases read-only and never create, repair, or alter schema/data. |
-| HIST-12 | Header controls, resource-backed labels, six-language parity, manuals, and this specification document the historical contract. |
+| PLV-01 | コンパイル済みのツリー／サマリーメニュー項目が「ページを開く」の直下にあり、ローカルのモードレスウィンドウを作成し、ブラウザルートを呼び出さない。 |
+| PLV-02 | コアを基準とするフォルダー行が通常フォルダーの順序と0件フォルダーを維持し、合成した `[NO SONG]` を省略する。 |
+| PLV-03 | 表示されたbeatorajaのクリアカテゴリが、正規の順序とラベルを使用する。 |
+| PLV-04 | 表示されたLR2の各表示面でMAX／EXHARDを省略し、ランクMAXをAAAとして表現する。 |
+| PLV-05 | 凡例、幅に応じた表示割合、意味上0ではない正の割合を含むローカライズ済みツールチップ／Automation詳細、および幅0の動作。 |
+| PLV-06 | 型付きのフォルダー／カテゴリナビゲーション、対応付け、古い要求の無操作、最後の不可分な発行1回。 |
+| PLV-07 | `ResultChanged` の配信がディスパッチャーセーフで、選択状態がウィンドウごとに独立する。 |
+| PLV-08 | `Loading`／`Ready`／`Empty`／`Deleted`／`Failed` と、スコア利用不可／失敗時の縮退。通常時の状態表示／再試行、および失敗からNPへの隠蔽を行わない。 |
+| PLV-09 | 複数ウィンドウ、正確に1回のライフサイクル後処理、初期ゲート、終端ダイアログ、メインウィンドウ終了処理。 |
+| PLV-10 | `ThemedWindow`、標準 `Button` のキーボード／Invoke経路、上限付き重み付けジオメトリ内に収まる幅対応ラベル、オートメーション状態、色以外による選択表現。 |
+| PLV-11 | すべてのカード、総数、割合、平均、空の分母に関する規則。 |
+| PLV-12 | RESX／生成済みアクセサー、および6言語すべてのJSONでのキー／値／プレースホルダーの一致。 |
+| PLV-13 | 本仕様、日本語／英語マニュアル、リリースノートの該当節、仕様索引。 |
+| PLV-14 | 譜面パッケージ、設定、永続化、ウィンドウ間キャッシュを追加せず、従来の外部ルートが廃止されたままである。 |
+| PLV-OVR-01 | 件数が正の全体クリア／ランクセグメントがButton／Invoke操作を提供し、ウィンドウごとの選択状態を維持して、ビューアを開いたままにする。 |
+| PLV-OVR-02 | 全体要求が型付き `Overall` スコープを使用し、プレイリストを再解決し、テーブルルートを選択し、キーワードを置き換え、通常フォルダーの和集合である最終詳細結果を1回コミットする。 |
+| PLV-OVR-03 | 全体NPが通常フォルダーのNO_PLAY／NO_SONG結果を含み、特殊な `[NO SONG]` フォルダーを除外する。 |
+| PLV-OVR-04 | 0件、縮退、削除済み、失敗、古い全体セグメントはナビゲーションやフォールバックを行わず、フォルダースコープのナビゲーションは変わらない。 |
+| PLV-OVR-05 | 同一プレイリストの複数ビューアが独立した選択セグメントを保持し、1つの全体呼び出し後もそれぞれ独立して利用できる。 |
+| PLV-FG-01 | 最初に表示可能な `Ready`／`Empty` ビューアが、モードレス `Show` と最初のアクティブ化1回を通じて一時的な `CenterOwner` 所有を使用し、その後WPFの `Owner` を解除する。表示、追跡、複数インスタンス、ライフサイクルは維持される。 |
+| PLV-FG-02 | 成功した `Overall` 要求がテーブルルートを選択し、その後メインシェルの復元／アクティブ化／フォーカス終端処理を正確に1回実行する。 |
+| PLV-FG-03 | 成功した通常フォルダー要求が対象フォルダー子要素を選択し、その後メインシェルの復元／アクティブ化／フォーカス終端処理を正確に1回実行する。 |
+| PLV-FG-04 | 最小化されたシェルはアクティブ化とフォーカスの前に復元し、アクティブ化／フォーカスがfalseでもベストエフォートとしてナビゲーションをロールバックしない。 |
+| PLV-FG-05 | ビューアのダイアログは、初期および表示中の失敗表示を通じてメインウィンドウを所有者とする。 |
+| D3-NAV-CLR | 件数が正のすべてのクリア意図が、対応している譜面一覧文法へ到達し、実際のパーサー／詳細パイプラインが、ASSIST（`INVALID` + `L_ASSIST`）とNP（`NO_PLAY` + `NO_SONG`）を含む正確なカテゴリ所属を返す。 |
+| D3-NAV-RNK | ランク意図がAAからFまでの正確な所属を返す。AAAは `AAA` + `MAX` をまとめ、NPはプレイ済みでINVALIDランクのアシスト行を含めず、クリアの未プレイ／スコアなしの意味を使用する。 |
+| D3-NAV-SCOPE | フォルダー要求が通常フォルダーのスコープを維持する。全体要求はテーブルルートを発行し、特殊な `[NO SONG]` を除外して、現在の通常フォルダーの和集合を返す。 |
+| D3-WPF-LEGEND | 既定のビューア表示が、MAXからNPまでの正規のクリア凡例を1行で示す。 |
+| D3-WPF-LABEL | 表示されたフォルダーラベルが、両領域で共有する、現在の内容から測定した上限170 DIPの1列を使用し、上限を超える名前には省略記号と完全なツールチップを表示する。 |
+| D3-WPF-SELECT | 表示されたホストと未選択ボタンに境界線がなく、件数が正のセグメントを呼び出すと、その選択だけに目に見える境界線と太い文字を残し、Button／UIAの動作を維持する。 |
+| D3-WPF-ROWS | 表示されたフォルダー行に区切り線がなく、コンパクトな縦間隔でも隣接するバーが重ならない。 |
+| D4-CONTRAST | 表示された凡例と件数が正のセグメント文字列が、選択後も含め、実際に解決された単色背景のWCAG sRGB相対輝度から選んだ不透明な黒または白を使用する。 |
+| D4-COUNT-TEXT | フォルダー件数が、単位接尾辞を付けず、現在のカルチャのN0数値だけを表示する。 |
+| D4-FOLDER-GEOMETRY | クリア／ランクのフォルダー領域が、明示的な6 DIPの余白を挟んで、現在の内容から求めたラベル列と件数列を共有する。ラベルは170 DIP、件数はローカライズ済みN0(9999)を上限とし、行更新後に幅を再計算して、行間および両領域間でバーを揃える。 |
+| D4-STAT-ORDER | 1つの順序付き統計コレクションが、スコア利用可能時と縮退時のカード列を必要な意味順で表示し、プレイリスト最終更新を常に末尾に置く。 |
+| D4-DEFAULT-WIDTH | ビューアの既定幅を1290 DIPとし、その幅でスコア利用可能時のカードとクリア凡例をそれぞれ1行に収める。 |
+| PLV-TIME-01 | `StatisticsCards` が従来のローカル `playlist.last_update` をタイムゾーン変換せず、現在のカルチャで直接整形する。スコアソースのUTCタイムスタンプは別の値として維持し、NULLは利用不可のままとする。 |
+| HIST-01 | 「最新」を既定とし、各ウィンドウが独自のNULL許容日付クエリを所有して、履歴選択を永続化も共有もしない。 |
+| HIST-02 | カレンダー専用の日付選択が、使用中のプロバイダー全体について、条件を満たす最古のローカル日付から今日までの正確な範囲を使用する。LR2はすべての確定状態、beatorajaはモード0を対象とし、履歴が空の場合は履歴選択だけを無効にする。 |
+| HIST-03 | ロールバックの基準時刻を、選択したローカル日付の翌日午前0時とする。基準時刻と同じ行を含め、ソース行は新しい順、同時刻ではソースIDの降順とする。 |
+| HIST-04 | LR2のロールバックが、必要なクリア／オプション履歴フィールドとEX／ノーツフィールドを復元し、明示された旧スコアなしをNPとして維持する。 |
+| HIST-05 | 使用中のプロバイダーだけを読み取り、プロバイダーの失敗時に反対側のプロバイダーへフォールバックしない。beatorajaのロールバックは、モード0のoldclear／oldscoreと現在のノーツ数を使用する。 |
+| HIST-06 | 将来行がない場合は現在のスコアを維持する。明示された旧スコアなしはNPとし、現在のスコア維持とは区別する。 |
+| HIST-07 | 履歴集計で変化するのはスコア依存カード、割合、グラフだけとし、現在のプレイリスト所属／所持状態／フォルダー／最終更新の事実は変えない。 |
+| HIST-08 | 履歴データの欠落、読み取り不能、不正、範囲外は、終端ではないスコア縮退結果とし、「最新」および有効な日付で復旧する。 |
+| HIST-09 | キャンセルが無視された場合でも、クエリ世代／ソース世代が古い結果の発行を抑止する。 |
+| HIST-10 | 履歴グラフのセグメントが、基準時刻や所属パラメーターを含めず、同じ型付きカテゴリ／スコープのナビゲーション要求を発行する。 |
+| HIST-11 | 履歴読み取りではプロバイダーDBを読み取り専用で開き、スキーマやデータを作成、修復、変更しない。 |
+| HIST-12 | ヘッダーコントロール、リソース由来ラベル、6言語の一致、マニュアル、本仕様が履歴契約を記載する。 |
