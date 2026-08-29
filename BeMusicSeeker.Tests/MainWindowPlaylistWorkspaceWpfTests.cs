@@ -32,6 +32,8 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
+    private const string NativeModalFixturePlaylistName = "Native modal fixture";
+
     [TestMethod]
     public void MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup()
     {
@@ -124,6 +126,101 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreEqual(1, bulk.DataContextDetachCount);
                 Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActiveSummaryBulkEditDialog);
                 fixture.ModalPreparation.AssertLatest(bulk.Window, expectedCount: 3);
+            }
+            finally
+            {
+                fixture.Close();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void PlaylistPropertyDialog_NativeCloseRequestClosesAfterSynchronousReset()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
+            try
+            {
+                CustomTableView summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.Drain();
+
+                int nativeCloseRequestCount = 0;
+                bool closedAfterSingleNativeCloseRequest = false;
+                bool testOwnedRetryUsed = false;
+                string nameAtClosed = null;
+                ModalObservation<PlaylistPropertyDialog> observation = OpenPropertyDialog(
+                    fixture.Window,
+                    summary,
+                    row,
+                    "MainWindowPlaylistWorkspaceWpfTests.property-native-close",
+                    (dialog, _) =>
+                    {
+                        const string draftPlaylistName = "Native modal draft";
+                        PlaylistPropertyDialogViewModel draft =
+                            (PlaylistPropertyDialogViewModel)dialog.DataContext;
+                        draft.name = draftPlaylistName;
+                        Assert.AreEqual(draftPlaylistName, draft.name);
+
+                        TaskCompletionSource<object?> closed = NewCompletion();
+                        EventHandler closedHandler = (_, _) =>
+                        {
+                            if (dialog.DataContext is PlaylistPropertyDialogViewModel closedDraft)
+                            {
+                                nameAtClosed = closedDraft.name;
+                            }
+                            closed.TrySetResult(null);
+                        };
+                        dialog.Closed += closedHandler;
+                        try
+                        {
+                            nativeCloseRequestCount++;
+                            dialog.Close();
+                            try
+                            {
+                                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                                    closed.Task,
+                                    "MainWindowPlaylistWorkspaceWpfTests.property-native-close.closed");
+                                closedAfterSingleNativeCloseRequest = true;
+                            }
+                            catch (TimeoutException)
+                            {
+                                // Preserve the base red evidence before using one test-owned
+                                // second close to release the nested modal route.
+                                testOwnedRetryUsed = dialog.IsVisible;
+                                if (dialog.IsVisible)
+                                {
+                                    dialog.Close();
+                                }
+                            }
+                        }
+                        finally
+                        {
+                            dialog.Closed -= closedHandler;
+                        }
+                    });
+
+                Assert.AreEqual(
+                    1,
+                    nativeCloseRequestCount,
+                    "The title-bar close scenario must issue exactly one native close request.");
+                Assert.IsTrue(
+                    closedAfterSingleNativeCloseRequest,
+                    $"One native close request must close after reset completion. Test-owned retry used: {testOwnedRetryUsed}.");
+                Assert.AreEqual(
+                    NativeModalFixturePlaylistName,
+                    nameAtClosed,
+                    "Reset must restore the fixture's original playlist name before the native window raises Closed.");
+                Assert.IsTrue(
+                    observation.Window.DialogResult.HasValue && !observation.Window.DialogResult.Value,
+                    "A reset-backed native close must return the modal coordinator's cancelled/false result.");
+                Assert.IsTrue(fixture.Window.IsEnabled, "The owner must be re-enabled after the modal route returns.");
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                Assert.IsNull(observation.Window.DataContext);
+                Assert.AreEqual(1, observation.DataContextDetachCount);
             }
             finally
             {
@@ -1392,7 +1489,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         {
             playlist_id = 1,
             bmt_sort = 1,
-            name = "Native modal fixture",
+            name = NativeModalFixturePlaylistName,
             entry_type = LR2SongDBExtended.playlist.EntryUnitType.File,
             is_bmt_output = false,
             ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None

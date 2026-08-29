@@ -30,6 +30,10 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
 
     private bool allowClose;
 
+    private bool closeRequestInProgress;
+
+    private bool terminalCloseScheduled;
+
     private bool ownerShutdownCloseRequested;
 
     private bool terminalOutcome;
@@ -137,9 +141,19 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         // A user close (including the title-bar X) has the same reset lifecycle as Cancel.
         // Keep the native window open until the workspace confirms the reset completed.
         e.Cancel = true;
-        if (Volatile.Read(ref operationInProgress) == 0)
+        if (Volatile.Read(ref operationInProgress) == 0
+            && !terminalOutcome
+            && !terminalCloseScheduled)
         {
-            StartTerminalOperation(save: false);
+            closeRequestInProgress = true;
+            try
+            {
+                StartTerminalOperation(save: false);
+            }
+            finally
+            {
+                closeRequestInProgress = false;
+            }
         }
     }
 
@@ -180,7 +194,6 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
             if (result == PlaylistPropertyDialogOperationResult.Completed)
             {
                 terminalOutcome = true;
-                allowClose = true;
                 // DialogResult is the coordinator's accepted/cancelled result and closes
                 // the native window only after the operation has completed.
                 CloseWithResult(save);
@@ -204,6 +217,34 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
 
     private void CloseWithResult(bool result)
     {
+        if (closed)
+        {
+            return;
+        }
+
+        if (closeRequestInProgress)
+        {
+            // Window.Close raises Closing synchronously. A reset for an existing table
+            // can complete inline, so defer DialogResult until the canceled Closing
+            // event has returned and WPF can accept the terminal close request.
+            if (!terminalCloseScheduled)
+            {
+                terminalCloseScheduled = true;
+                Dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.Normal,
+                    new Action(() =>
+                    {
+                        terminalCloseScheduled = false;
+                        if (!closed)
+                        {
+                            CloseWithResult(result);
+                        }
+                    }));
+            }
+            return;
+        }
+
+        allowClose = true;
         try
         {
             DialogResult = result;
@@ -212,19 +253,14 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         {
             // Presentation fixtures may use Show() to inspect the native window.  Such
             // windows have no modal DialogResult slot, but still close after completion.
-            if (closed)
-            {
-                return;
-            }
-
             try
             {
                 Close();
             }
             catch (InvalidOperationException)
             {
-                // A reset started by the title-bar X is completing from inside Closing.
-                // Defer the non-modal fallback until that event has returned.
+                // Keep the modeless fallback deferred if WPF rejects a nested close
+                // request while another terminal close is being raised.
                 Dispatcher.BeginInvoke(
                     System.Windows.Threading.DispatcherPriority.Normal,
                     new Action(() =>
