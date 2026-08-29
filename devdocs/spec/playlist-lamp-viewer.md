@@ -35,11 +35,19 @@ processed newest first; equal timestamps use the provider source id descending.
 LR2 considers finalized and unfinalized rows and restores `old_clear` plus
 `old_op_history`, and `old_exscore` plus `old_totalnotes`. beatoraja considers
 only mode `0` rows and restores `oldclear` plus `oldscore` using current notes.
-If a processed future row explicitly has no old score, the chart is NP. A hash
-with no processed future row retains its current score exactly.
+For LR2, `old_playcount = NULL` is the explicit no-previous-score sentinel, so
+the chart is NP even when the other old-score fields are populated. A non-null
+`old_playcount` with all of `old_clear`, `old_op_history`, `old_exscore`, and
+`old_totalnotes` null is malformed/incomplete and makes the historical snapshot
+unavailable; it does not fall back to a score or NP. A hash with no processed
+future row retains its current score exactly.
 
 Historical mode changes only score-dependent semantics: played/unplayed,
 play rate, arithmetic average EX rate, clear rate, and the clear/rank/DJ graphs.
+Its LR2 history read requires complete history triggers while opting into reads
+with repairable index-only defects. A missing or mismatched trigger therefore
+makes the snapshot unavailable before any history-row query, whereas an
+index-only defect remains readable with a warning and is never repaired here.
 Current playlist membership, folder order, ownership, missing state, and last
 update remain current facts. Segment clicks retain the current typed category
 and scope route; the historical date and cutoff are not sent to navigation.

@@ -79,7 +79,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
     }
 
     [TestMethod]
-    public void Explicit_old_score_absence_becomes_np()
+    public void Lr2_nonnull_old_playcount_with_all_null_tuple_degrades_the_historical_snapshot()
     {
         const string hash = "chart-c";
         DateTime selectedDate = new(2026, 8, 28);
@@ -94,8 +94,9 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             ],
             TestToday);
 
-        Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.Status);
-        Assert.IsFalse(result.ScoreSnapshot.ScoresByHash.ContainsKey(hash));
+        Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Unavailable, result.Status);
+        Assert.IsFalse(result.ScoreSnapshot.IsScoreDataAvailable);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
     }
 
     [TestMethod]
@@ -158,6 +159,38 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
     }
 
     [TestMethod]
+    public void Beatoraja_oldclear_max_restores_the_valid_upper_boundary()
+    {
+        const string sha256 = "chart-max-clear";
+        DateTime selectedDate = new(2026, 8, 28);
+        PlaylistLampScoreSnapshot current = new(
+            ActiveScoreSource.Beatoraja,
+            ScoreTableLoadStatus.Loaded,
+            1,
+            1,
+            null,
+            scoresBySha256: new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase)
+            {
+                [sha256] = PlaylistLampScore.FromExScore(null, sha256, ClearType.HARD, 190, 100)
+            });
+        PlaylistLampHistoricalScoreSnapshotResult result = PlaylistLampHistoricalScoreSnapshotBuilder.Build(
+            current,
+            ActiveScoreSource.Beatoraja,
+            selectedDate,
+            [
+                Change(ActiveScoreSource.Beatoraja, sha256, 1, selectedDate, 4, null, 100, 100),
+                Change(ActiveScoreSource.Beatoraja, sha256, 2, selectedDate.AddDays(1), (int)ClearType.MAX, null, 200, 100)
+            ],
+            TestToday);
+
+        Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.Status);
+        PlaylistLampScore score = result.ScoreSnapshot.ScoresBySha256[sha256];
+        Assert.AreEqual(ClearType.MAX, score.Clear);
+        Assert.AreEqual(200, score.ExScore);
+        Assert.AreEqual(RankType.MAX, score.Rank);
+    }
+
+    [TestMethod]
     public void Beatoraja_oldclear_no_play_projects_to_np()
     {
         const string sha256 = "chart-no-play";
@@ -194,6 +227,38 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.IsTrue(result.ScoreSnapshot.ScoresBySha256.TryGetValue(sha256, out PlaylistLampScore score));
         Assert.AreEqual(ClearType.NO_PLAY, score.Clear);
         Assert.AreEqual(RankType.F, score.Rank);
+    }
+
+    [DataTestMethod]
+    [DataRow(-1)]
+    [DataRow(11)]
+    public void Beatoraja_invalid_oldclear_outside_storage_range_degrades_the_historical_snapshot(int invalidOldClear)
+    {
+        const string sha256 = "chart-invalid-clear";
+        DateTime selectedDate = new(2026, 8, 28);
+        PlaylistLampScoreSnapshot current = new(
+            ActiveScoreSource.Beatoraja,
+            ScoreTableLoadStatus.Loaded,
+            1,
+            1,
+            null,
+            scoresBySha256: new Dictionary<string, PlaylistLampScore>(StringComparer.OrdinalIgnoreCase)
+            {
+                [sha256] = PlaylistLampScore.FromExScore(null, sha256, ClearType.HARD, 190, 100)
+            });
+        PlaylistLampHistoricalScoreSnapshotResult result = PlaylistLampHistoricalScoreSnapshotBuilder.Build(
+            current,
+            ActiveScoreSource.Beatoraja,
+            selectedDate,
+            [
+                Change(ActiveScoreSource.Beatoraja, sha256, 1, selectedDate, 4, null, 100, 100),
+                Change(ActiveScoreSource.Beatoraja, sha256, 2, selectedDate.AddDays(1), invalidOldClear, null, 150, 100)
+            ],
+            TestToday);
+
+        Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Unavailable, result.Status);
+        Assert.IsFalse(result.ScoreSnapshot.IsScoreDataAvailable);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
     }
 
     [TestMethod]
@@ -445,6 +510,59 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Unavailable, result.Status);
             Assert.IsFalse(result.ScoreSnapshot.IsScoreDataAvailable);
             Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(scoreDbPath));
+        }
+        finally
+        {
+            DeleteTemporaryDirectory(directory);
+        }
+    }
+
+    [TestMethod]
+    public void Lr2_index_only_schema_defect_keeps_historical_snapshot_available_without_repairing_the_database()
+    {
+        string directory = CreateTemporaryDirectory();
+        string scoreDbPath = Path.Combine(directory, "score.db");
+        try
+        {
+            CreateLr2ScoreDb(scoreDbPath);
+            Assert.AreEqual(
+                Lr2PlayHistorySchemaStatus.Installed,
+                new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
+            DateTime selectedDate = new(2026, 8, 28);
+            long firstPlayedAt = Change(
+                ActiveScoreSource.Lr2,
+                "index-only-chart",
+                1,
+                selectedDate,
+                3,
+                0,
+                100,
+                100).PlayedAtUnixSeconds;
+            long secondPlayedAt = Change(
+                ActiveScoreSource.Lr2,
+                "index-only-chart",
+                2,
+                selectedDate.AddDays(1),
+                3,
+                0,
+                150,
+                100).PlayedAtUnixSeconds;
+            using (SQLiteConnection db = new(scoreDbPath))
+            {
+                InsertLr2History(db, 1, "index-only-chart", firstPlayedAt, oldPlayCount: 1, oldClear: 3, oldOperationHistory: 0, oldExScore: 100, oldTotalNotes: 100);
+                InsertLr2History(db, 2, "index-only-chart", secondPlayedAt, oldPlayCount: 1, oldClear: 3, oldOperationHistory: 0, oldExScore: 150, oldTotalNotes: 100);
+                db.Execute("DROP INDEX " + Lr2PlayHistorySchemaService.TimeIndexName + ";");
+            }
+            byte[] before = File.ReadAllBytes(scoreDbPath);
+
+            PlaylistLampHistoricalScoreSnapshotResult result = new PlaylistLampHistoricalScoreSnapshotReader().Read(
+                PlaylistLampHistoricalScoreSourceContext.Lr2(scoreDbPath),
+                CurrentLr2("index-only-chart", ClearType.CLEAR, 180, 100),
+                selectedDate);
+
+            Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.Status);
+            Assert.AreEqual(150, result.ScoreSnapshot.ScoresByHash["index-only-chart"].ExScore);
             CollectionAssert.AreEqual(before, File.ReadAllBytes(scoreDbPath));
         }
         finally

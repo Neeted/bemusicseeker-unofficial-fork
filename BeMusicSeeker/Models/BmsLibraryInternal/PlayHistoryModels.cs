@@ -301,6 +301,12 @@ internal sealed class Lr2PlayHistoryReadRequest
     /// they can make the recorded history incomplete.
     /// </summary>
     internal bool AllowRepairableIndexRead { get; set; }
+
+    /// <summary>
+    /// Rejects the read when the LR2 history triggers are missing or do not match the
+    /// installed definitions. This policy is independent from repairable index reads.
+    /// </summary>
+    internal bool RequireCompleteHistoryTriggers { get; set; } = false;
 }
 
 internal sealed class Lr2PlayHistoryPeriodIndexRequest

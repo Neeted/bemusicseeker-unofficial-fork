@@ -312,6 +312,225 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    [DataTestMethod]
+    [DataRow("missing")]
+    [DataRow("mismatched")]
+    public void Lr2Reader_StrictHistoryTriggerDefectReturnsErrorWithoutReadingRows(string defect)
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
+                db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName + ";");
+                if (string.Equals(defect, "mismatched", StringComparison.Ordinal))
+                {
+                    db.Execute(
+                        "CREATE TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName
+                        + " AFTER INSERT ON score BEGIN SELECT 1; END;");
+                }
+            }
+            byte[] before = File.ReadAllBytes(scoreDbPath);
+
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath,
+                IsLr2LinkedProfile = true,
+                AllowRepairableIndexRead = true,
+                RequireCompleteHistoryTriggers = true,
+                DisableLimit = true
+            });
+
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.SchemaStatus);
+            Assert.IsTrue(result.HasErrors);
+            Assert.AreEqual(0, result.Rows.Count);
+            Assert.AreEqual(1, result.Diagnostics.Count);
+            Assert.AreEqual(PlayHistoryDiagnosticSeverity.Error, result.Diagnostics[0].Severity);
+            Assert.AreEqual(scoreDbPath, result.Diagnostics[0].SourcePath);
+            Assert.IsNotNull(result.SchemaCheckResult);
+            Assert.IsTrue(
+                result.SchemaCheckResult.MissingTriggers.Contains(Lr2PlayHistorySchemaService.ScoreInsertTriggerName)
+                || result.SchemaCheckResult.MismatchedTriggers.Contains(Lr2PlayHistorySchemaService.ScoreInsertTriggerName));
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(scoreDbPath));
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow("missing", true, false)]
+    [DataRow("mismatched", true, false)]
+    [DataRow("missing", false, true)]
+    [DataRow("mismatched", false, true)]
+    public void Lr2Reader_TriggerRequirementAndIndexRepairPoliciesRemainIndependent(
+        string defect,
+        bool requireCompleteHistoryTriggers,
+        bool allowRepairableIndexRead)
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
+                db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName + ";");
+                if (string.Equals(defect, "mismatched", StringComparison.Ordinal))
+                {
+                    db.Execute(
+                        "CREATE TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName
+                        + " AFTER INSERT ON score BEGIN SELECT 1; END;");
+                }
+            }
+            byte[] before = File.ReadAllBytes(scoreDbPath);
+
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath,
+                IsLr2LinkedProfile = true,
+                AllowRepairableIndexRead = allowRepairableIndexRead,
+                RequireCompleteHistoryTriggers = requireCompleteHistoryTriggers,
+                DisableLimit = true
+            });
+
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.SchemaStatus);
+            Assert.IsNotNull(result.SchemaCheckResult);
+            if (string.Equals(defect, "missing", StringComparison.Ordinal))
+            {
+                Assert.IsTrue(result.SchemaCheckResult.MissingTriggers.Contains(Lr2PlayHistorySchemaService.ScoreInsertTriggerName));
+                Assert.AreEqual(0, result.SchemaCheckResult.MismatchedTriggers.Count);
+            }
+            else
+            {
+                Assert.AreEqual(0, result.SchemaCheckResult.MissingTriggers.Count);
+                Assert.IsTrue(result.SchemaCheckResult.MismatchedTriggers.Contains(Lr2PlayHistorySchemaService.ScoreInsertTriggerName));
+            }
+
+            if (requireCompleteHistoryTriggers)
+            {
+                Assert.IsTrue(result.HasErrors);
+                Assert.AreEqual(0, result.Rows.Count);
+                AssertSingleDiagnostic(
+                    result,
+                    PlayHistoryDiagnosticSeverity.Error,
+                    "play_history_lr2_schema_trigger_repair_required",
+                    scoreDbPath);
+            }
+            else
+            {
+                Assert.IsFalse(result.HasErrors);
+                Assert.AreEqual(1, result.Rows.Count);
+                AssertSingleDiagnostic(
+                    result,
+                    PlayHistoryDiagnosticSeverity.Warning,
+                    "play_history_lr2_schema_repairable",
+                    scoreDbPath);
+            }
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(scoreDbPath));
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow("missing")]
+    [DataRow("mismatched")]
+    public void Lr2Reader_StrictHistoryTriggerPolicyStopsBeforeMalformedRowQuery(string defect)
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                db.Execute("DROP TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName + ";");
+                if (string.Equals(defect, "mismatched", StringComparison.Ordinal))
+                {
+                    db.Execute(
+                        "CREATE TRIGGER " + Lr2PlayHistorySchemaService.ScoreInsertTriggerName
+                        + " AFTER INSERT ON score BEGIN SELECT 1; END;");
+                }
+                db.Execute(
+                    "INSERT INTO bms_lr2_play_history (history_id, hash, played_at, finalized, score_write_type, new_playcount, playcount_delta, new_exscore, new_totalnotes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                    1,
+                    HashA,
+                    "not-a-unix-timestamp",
+                    1,
+                    "update",
+                    1,
+                    1,
+                    200,
+                    100);
+                // Keep PRAGMA table_info compatible while making SELECT ... ORDER BY fail
+                // on the reader's fresh connection if the strict policy is bypassed.
+                db.Execute("PRAGMA writable_schema = ON;");
+                db.Execute(
+                    "UPDATE sqlite_master SET sql = replace(sql, 'played_at INTEGER NOT NULL', 'played_at INTEGER COLLATE missing_history_collation NOT NULL') WHERE type = 'table' AND name = 'bms_lr2_play_history';");
+                db.Execute("PRAGMA writable_schema = OFF;");
+            }
+            byte[] before = File.ReadAllBytes(scoreDbPath);
+
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath,
+                IsLr2LinkedProfile = true,
+                AllowRepairableIndexRead = true,
+                RequireCompleteHistoryTriggers = true,
+                DisableLimit = true
+            });
+
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.SchemaStatus);
+            Assert.IsTrue(result.HasErrors);
+            Assert.AreEqual(0, result.Rows.Count);
+            AssertSingleDiagnostic(
+                result,
+                PlayHistoryDiagnosticSeverity.Error,
+                "play_history_lr2_schema_trigger_repair_required",
+                scoreDbPath);
+            Assert.IsNotNull(result.SchemaCheckResult);
+            if (string.Equals(defect, "missing", StringComparison.Ordinal))
+            {
+                Assert.IsTrue(result.SchemaCheckResult.MissingTriggers.Contains(Lr2PlayHistorySchemaService.ScoreInsertTriggerName));
+            }
+            else
+            {
+                Assert.IsTrue(result.SchemaCheckResult.MismatchedTriggers.Contains(Lr2PlayHistorySchemaService.ScoreInsertTriggerName));
+            }
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(scoreDbPath));
+        });
+    }
+
+    [TestMethod]
+    public void Lr2Reader_StrictHistoryTriggerRequirementAllowsIndexOnlyRepairableReadWhenOptedIn()
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertHistory(db, historyId: 1, hash: HashA, playedAt: 1000, finalized: true, newExscore: 200);
+                db.Execute("DROP INDEX " + Lr2PlayHistorySchemaService.TimeIndexName + ";");
+            }
+            byte[] before = File.ReadAllBytes(scoreDbPath);
+
+            Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(new Lr2PlayHistoryReadRequest
+            {
+                ScoreDbPath = scoreDbPath,
+                IsLr2LinkedProfile = true,
+                AllowRepairableIndexRead = true,
+                RequireCompleteHistoryTriggers = true,
+                DisableLimit = true
+            });
+
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, result.SchemaStatus);
+            Assert.IsFalse(result.HasErrors);
+            Assert.AreEqual(1, result.Rows.Count);
+            Assert.AreEqual(1L, result.Rows[0].history_id);
+            Assert.AreEqual(1, result.Diagnostics.Count);
+            Assert.AreEqual(PlayHistoryDiagnosticSeverity.Warning, result.Diagnostics[0].Severity);
+            Assert.IsNotNull(result.SchemaCheckResult);
+            Assert.IsTrue(result.SchemaCheckResult.MissingIndexes.Contains(Lr2PlayHistorySchemaService.TimeIndexName));
+            Assert.AreEqual(0, result.SchemaCheckResult.MissingTriggers.Count);
+            Assert.AreEqual(0, result.SchemaCheckResult.MismatchedTriggers.Count);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(scoreDbPath));
+        });
+    }
+
     [TestMethod]
     public void Lr2Reader_MapsSchemaStatusesToDiagnostics()
     {

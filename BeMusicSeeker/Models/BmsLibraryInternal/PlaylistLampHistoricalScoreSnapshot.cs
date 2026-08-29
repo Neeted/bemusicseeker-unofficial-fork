@@ -145,17 +145,13 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
                         IsLr2LinkedProfile = sourceContext.IsLr2LinkedProfile,
                         FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
                         DisableLimit = true,
-                        AllowRepairableIndexRead = true
+                        AllowRepairableIndexRead = true,
+                        RequireCompleteHistoryTriggers = true
                     },
                     cancellationToken);
                 if (result.HasErrors)
                 {
                     return ReadChangesResult.Unavailable(DescribeDiagnostics(result.Diagnostics));
-                }
-                if (result.SchemaCheckResult?.MissingTriggers.Count > 0
-                    || result.SchemaCheckResult?.MismatchedTriggers.Count > 0)
-                {
-                    return ReadChangesResult.Unavailable("Historical LR2 score history triggers are incomplete.");
                 }
                 var changes = new List<PlaylistLampHistoricalScoreChange>(result.Rows.Count);
                 foreach (Lr2PlayHistoryRecord row in result.Rows)
@@ -483,6 +479,11 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
             && !row.OldTotalNotes.HasValue;
         if (noOldScore)
         {
+            if (row.Source == ActiveScoreSource.Lr2)
+            {
+                failureMessage = "Historical LR2 score row has incomplete old score values.";
+                return false;
+            }
             explicitNoScore = true;
             return true;
         }
@@ -511,12 +512,6 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
         ClearType clear = row.Source == ActiveScoreSource.Lr2
             ? ClearTypeStorageConverter.FromLr2ScoreValue(oldClear, row.OldOperationHistory!.Value)
             : (ClearType)oldClear;
-        if (row.Source == ActiveScoreSource.Beatoraja
-            && (oldClear < (int)ClearType.NO_PLAY || oldClear > (int)ClearType.MAX))
-        {
-            failureMessage = "Historical beatoraja score row has an invalid clear value.";
-            return false;
-        }
         score = PlaylistLampScore.FromExScore(
             row.Source == ActiveScoreSource.Lr2 ? row.ChartKey : null,
             row.Source == ActiveScoreSource.Beatoraja ? row.ChartKey : null,

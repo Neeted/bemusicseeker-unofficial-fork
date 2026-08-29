@@ -26,6 +26,16 @@ internal sealed class Lr2PlayHistoryReader
 
         Lr2PlayHistorySchemaCheckResult schema = new Lr2PlayHistorySchemaService().Check(request.ScoreDbPath, request.IsLr2LinkedProfile);
         cancellationToken.ThrowIfCancellationRequested();
+        if (request.RequireCompleteHistoryTriggers
+            && (schema.MissingTriggers.Count > 0 || schema.MismatchedTriggers.Count > 0))
+        {
+            diagnostics.Add(CreateDiagnostic(
+                PlayHistoryDiagnosticSeverity.Error,
+                "play_history_lr2_schema_trigger_repair_required",
+                schema.Message,
+                request.ScoreDbPath));
+            return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status, schema);
+        }
         if (schema.Status == Lr2PlayHistorySchemaStatus.SkippedProfile)
         {
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Info, "play_history_lr2_skipped_profile", schema.Message, request.ScoreDbPath));

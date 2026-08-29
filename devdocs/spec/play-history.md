@@ -55,8 +55,10 @@ read の入力は `Lr2PlayHistoryReadRequest` である。
 | `FinalizationFilter` | LR2 row の確定状態 filter。通常期間は `FinalizedOnly`、Diagnostics node は `UnfinalizedOnly`。 |
 | `Limit` | 読み込み上限。UI の通常一覧は default limit を使い、archive period index には使わない。 |
 | `DisableLimit` | UI の read cache 構築など、source 全体を snapshot する内部用途で既定上限を無効化する。 |
+| `AllowRepairableIndexRead` | repairable な index missing / mismatch のときも read を許可するか。既定値は `false`。 |
+| `RequireCompleteHistoryTriggers` | missing / mismatched trigger を read 前に error とするか。既定値は `false` で、index read policy から独立する。 |
 
-reader は schema check を先に行う。`Installed` 以外の read 可能でない status では rows を空にし、diagnostics に原因を入れる。`Repairable` は index 以外の repairable mismatch なら warning diagnostic を付けて read を試みるが、missing / mismatched index がある場合は performance boundary を守るため read / period index を止め、error diagnostic を返す。read result は source profile、raw rows、diagnostics、schema status を保持する。
+reader は schema check を先に行う。`Installed` 以外の read 可能でない status では rows を空にし、diagnostics に原因を入れる。通常の `Read` は missing / mismatched index があり `AllowRepairableIndexRead` が `false` の場合、performance boundary を守るため rows を読まず error diagnostic を返す。`true` の場合は warning diagnostic を付けて read を続ける。一方、request policy を持たない `ReadPeriodIndex` は missing / mismatched index があれば常に停止する。`RequireCompleteHistoryTriggers` が `true` の場合は schema check 直後に missing / mismatched trigger を error として返し、history row query を開始しない。この判定は `AllowRepairableIndexRead` とは独立している。read result は source profile、raw rows、diagnostics、schema status を保持する。
 
 `ReadPeriodIndex` は `bms_lr2_play_history.played_at` から archive tree 用の日別代表 timestamp を読む。これは通常一覧の row limit に巻き込まれない。reader 単体の period index は SQL で日単位に group 化できるが、UI では下記の read cache から finalized row の `played_at` を取り出し、local date ごとの最大 timestamp を in-memory で作る。
 
