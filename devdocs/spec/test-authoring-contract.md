@@ -93,6 +93,7 @@ source text、private reflection、method body 文字列、行順、localized co
 - dispatcher 上の task 完了待ち: `TestUiDispatcherHost.AwaitTaskOnDispatcher`
 - test data: `TestBmsFactory` と既存の feature fixture builder
 - runner / distribution: production script の実行 seam。テスト側に同じ orchestration をコピーしない
+- Everything / OS scan と app-managed physical output: test ごとに immutable な captured surface を明示して渡す。live Everything service / index や、test-created file が即時に発見されることを fixture の前提にしない。共有 fake の incomplete default、service 有無 conditional、reflection、sleep / retry で surface を補完しない。production-shaped test factory は native bridge が存在しない application snapshot を使い、local Everything service を composition から隔離する。これは bridge failure を fallback success に読み替える仕組みではなく、consumer の scan 契約は explicit surface を受け取る owner fixture で検証する。
 
 共通 helper の契約が不足する場合は local copy を作らず、owner helper へ最小の拡張を行い、その契約を focused test で閉じる。
 

@@ -102,6 +102,27 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
+    /// Creates a successful, complete enumeration result from an immutable test entry surface.
+    /// </summary>
+    internal static RootFileEnumerationResult CreateRootFileEnumerationResult(
+        string groupName,
+        IEnumerable<RootFileEnumerationEntry> entries)
+    {
+        var result = new RootFileEnumerationResult
+        {
+            Success = true,
+            IsComplete = true,
+            BackendName = "deterministic-test"
+        };
+        result.InitializeGroup(groupName);
+        foreach (RootFileEnumerationEntry entry in entries ?? [])
+        {
+            result.AddEntry(groupName, entry);
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Captures file enumeration entries keyed with filesystem-compatible path comparison.
     /// </summary>
     internal static Dictionary<string, RootFileEnumerationEntry> CreateFileEntryMap(params string[] filePaths)

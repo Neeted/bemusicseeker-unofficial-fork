@@ -43,61 +43,6 @@ public sealed class EverythingNativeRuntimeTests
             "24863BFD06BFDFE0419DF767152575ADCD38B4104DC2063ED411AA7F956AA835");
     }
 
-    [TestMethod]
-    public void ProductionRouteLoadsBridgeAndReloadsAfterShutdown()
-    {
-        string runtimeRoot = ResolveRuntimeRoot();
-        string executablePath = Path.Combine(runtimeRoot, "BeMusicSeeker.exe");
-        Assert.IsTrue(File.Exists(executablePath), $"Runtime executable is missing: {executablePath}");
-        ApplicationPathSnapshot snapshot = ApplicationPathSnapshot.FromExecutablePath(executablePath);
-        string[] roots = [runtimeRoot];
-        string query = EverythingNative.BuildFilesQuery(roots, ["bms"]);
-
-        for (int attempt = 0; attempt < 2; attempt++)
-        {
-            var native = new EverythingNative(snapshot);
-            try
-            {
-                ChartScanExecutionResult result = native.ExecuteScan(query, query, query, query);
-                string reason = result.NativeBridgeReason ?? string.Empty;
-
-                Assert.IsFalse(reason.StartsWith("bridge_dll_not_found:", StringComparison.Ordinal), reason);
-                Assert.IsFalse(reason.StartsWith("bridge_dll_load_failed:", StringComparison.Ordinal), reason);
-                Assert.AreNotEqual("bridge_shutdown_export_missing", reason);
-                if (result.Success)
-                {
-                    Assert.IsTrue(result.NativeBridgeUsed);
-                }
-                else
-                {
-                    Assert.AreEqual("bridge_scan_failed:3", reason);
-                }
-
-                bool sourceRootSuccess = native.TryScanSourceRoots(
-                    roots,
-                    out _,
-                    out string sourceRootReason);
-                if (!sourceRootSuccess)
-                {
-                    Assert.AreEqual("bridge_source_root_scan_failed:3", sourceRootReason);
-                }
-
-                bool groupedSuccess = native.TryEnumerateGroupedFiles(
-                    [new EverythingNative.BridgeGroupedQuery(1u, EverythingNative.BuildAllFilesQuery(roots))],
-                    out _,
-                    out string groupedReason);
-                if (!groupedSuccess)
-                {
-                    Assert.AreEqual("bridge_grouped_query_failed:3", groupedReason);
-                }
-            }
-            finally
-            {
-                native.Dispose();
-            }
-        }
-    }
-
     private static void AssertX64AndHash(string path, string expectedHash)
     {
         byte[] image = File.ReadAllBytes(path);
@@ -128,14 +73,4 @@ public sealed class EverythingNativeRuntimeTests
         throw new DirectoryNotFoundException("Repository root was not found.");
     }
 
-    private static string ResolveRuntimeRoot()
-    {
-        string configuredRoot = Environment.GetEnvironmentVariable("BMS_EVERYTHING_NATIVE_RUNTIME_ROOT");
-        if (!string.IsNullOrWhiteSpace(configuredRoot))
-        {
-            return Path.GetFullPath(configuredRoot);
-        }
-
-        return Path.Combine(FindRepositoryRoot(), "bin", "x64", "Release", "net10.0-windows");
-    }
 }

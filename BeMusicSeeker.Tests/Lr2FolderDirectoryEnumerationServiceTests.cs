@@ -52,27 +52,19 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
         using TestDirectoryScope scope = TestDirectoryScope.Create();
         string root = Path.Combine(scope.DirectoryPath, "BMS");
         string target = Path.Combine(root, "#minbp", "InsaneTable");
-        Directory.CreateDirectory(target);
         DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
-        Directory.SetLastWriteTimeUtc(target, timestamp);
-        timestamp = Directory.GetLastWriteTimeUtc(target);
-
-        var result = new RootFileEnumerationResult
-        {
-            Success = true,
-            BackendName = "deterministic-test"
-        };
-        result.InitializeGroup(RootFileEnumerationService.DirectoriesGroupName);
-        result.AddEntry(
+        RootFileEnumerationResult result = Lr2SongDbSyncTestSupport.CreateRootFileEnumerationResult(
             RootFileEnumerationService.DirectoriesGroupName,
-            new RootFileEnumerationEntry(root, timestamp.AddMinutes(-1)));
+            [new RootFileEnumerationEntry(root, timestamp.AddMinutes(-1))]);
 
         IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
             Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedResult(
                 result,
                 [root + Path.DirectorySeparatorChar],
                 [root, target + Path.DirectorySeparatorChar, target],
-                RootFileEnumerationEntry.FromDirectoryInfo);
+                path => string.Equals(path, Lr2FolderPath.NormalizeDirectoryPath(target), StringComparison.OrdinalIgnoreCase)
+                    ? new RootFileEnumerationEntry(path, timestamp)
+                    : null);
 
         string normalizedRoot = Lr2FolderPath.NormalizeDirectoryPath(root);
         string normalizedTarget = Lr2FolderPath.NormalizeDirectoryPath(target);
@@ -91,8 +83,6 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
         string outside = Path.Combine(scope.DirectoryPath, "Outside");
         string missing = Path.Combine(root, "Missing");
         string inaccessible = Path.Combine(root, "Inaccessible");
-        Directory.CreateDirectory(inside);
-        Directory.CreateDirectory(outside);
         DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
         var readPaths = new List<string>();
 

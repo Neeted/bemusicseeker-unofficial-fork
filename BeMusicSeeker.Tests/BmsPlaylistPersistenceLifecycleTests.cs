@@ -155,7 +155,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             }
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
@@ -263,7 +263,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 setup.InsertOrReplace(firstEntry, typeof(LR2SongDBExtended.playlist_entry));
                 setup.InsertOrReplace(secondEntry, typeof(LR2SongDBExtended.playlist_entry));
             }
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>([firstTable, secondTable])
             };
@@ -344,7 +344,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>([new BMSTable { name = "Initial" }])
             };
@@ -411,7 +411,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9031;
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
@@ -473,7 +473,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             }
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
@@ -506,7 +506,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -556,7 +556,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             }
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
@@ -595,7 +595,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             var table = new BMSTable
             {
                 name = "NoUri",
@@ -638,7 +638,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable goodTable = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(goodHeaderPath));
             var badTable = new BMSTable
             {
@@ -689,7 +689,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable tableA = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerAPath));
             BMSTable tableB = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerBPath));
             tableA.playlist_id = 9502;
@@ -794,7 +794,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9501;
             table.name = "Local Name";
@@ -906,7 +906,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 db.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
             }
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[]
                     {
@@ -979,7 +979,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath);
+            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
             var tableA = new BMSTable
             {
                 playlist_id = 7603,
@@ -1064,19 +1064,19 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputDirA)
                 }, typeof(LR2SongDB.folder));
             }
-            synchronization.PhysicalSurfaceFactory = () =>
-            {
-                RootFileEnumerationEntry[] physicalEntries = Directory.Exists(outputBaseDir)
-                    ? Directory.EnumerateFiles(outputBaseDir, "*.lr2folder", SearchOption.AllDirectories)
-                        .Select(path => new FileInfo(path))
-                        .Select(file => new RootFileEnumerationEntry(
-                            file.FullName,
-                            file.LastWriteTimeUtc,
-                            file.Length))
-                        .ToArray()
-                    : [];
-                return CustomFolderOutputPhysicalSurface.FromEntries(physicalEntries, discoveryComplete: true);
-            };
+            RootFileEnumerationEntry[] physicalEntries = filesA
+                .Concat(filesB)
+                .Append(staleFile)
+                .Where(File.Exists)
+                .Select(path => new FileInfo(path))
+                .Select(file => new RootFileEnumerationEntry(
+                    file.FullName,
+                    file.LastWriteTimeUtc,
+                    file.Length))
+                .ToArray();
+            CustomFolderOutputPhysicalSurface capturedPhysicalSurface =
+                CustomFolderOutputPhysicalSurface.FromEntries(physicalEntries, discoveryComplete: true);
+            synchronization.PhysicalSurfaceFactory = () => capturedPhysicalSurface;
             PlaylistPersistenceRepository statusRepository = new(songDbPath);
             Dictionary<int, CustomFolderOutputStatusRow> seededStatusRows =
                 statusRepository.ReadCustomFolderOutputStatusRows();
@@ -1191,7 +1191,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Output_dir = persistedTable.Output_dir
             };
             table.MarkEntriesNotLoaded();
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1251,7 +1251,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Output_dir = "HydrationFailure"
             };
             table.MarkEntriesNotLoaded();
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1435,7 +1435,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 db.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, folder) VALUES (7101, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Song', '1');");
             }
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1491,7 +1491,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
                 }
             }
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1554,7 +1554,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 Output_dir = persistedTable.Output_dir
             };
             unloadedTable.MarkEntriesNotLoaded();
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { unloadedTable })
             };

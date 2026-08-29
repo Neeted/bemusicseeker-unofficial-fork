@@ -37,6 +37,27 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
     }
 
     [TestMethod]
+    public void ShouldIncludeCustomFolderFile_ExcludesDisabledBuiltinsButKeepsCourses()
+    {
+        string lr2Root = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDiscoveryServiceTests), "LR2");
+        string customFolder = Path.Combine(lr2Root, "LR2files", "CustomFolder");
+        var settings = new Lr2BuiltinCustomFolderSettings(0, titleFlashHours: 24, includeNewSongFolder: false);
+
+        Assert.IsFalse(settings.ShouldIncludeCustomFolderFile(
+            Path.Combine(customFolder, "favorite.lr2folder"),
+            lr2Root));
+        Assert.IsFalse(settings.ShouldIncludeCustomFolderFile(
+            Path.Combine(customFolder, "RANDOM", "random.lr2folder"),
+            lr2Root));
+        Assert.IsFalse(settings.ShouldIncludeCustomFolderFile(
+            Path.Combine(customFolder, "newsong.lr2folder"),
+            lr2Root));
+        Assert.IsTrue(settings.ShouldIncludeCustomFolderFile(
+            Path.Combine(customFolder, "course1.lr2folder"),
+            lr2Root));
+    }
+
+    [TestMethod]
     public void CreateDiscoveryDirectories_IncludesExistingBuiltinSourceAndOutputScopes()
     {
         using TestDirectoryScope scope = TestDirectoryScope.Create();

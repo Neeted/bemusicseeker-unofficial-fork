@@ -541,81 +541,62 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     }
 
     [TestMethod]
-    public void DirectoryEnumeration_ResolvesTargetSetFromGroupedEnumerationWithinRoots()
+    public void DirectoryProjection_ResolvesTargetSetFromCapturedGroupedResultWithinRoots()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
-        try
-        {
-            string rootDirectory = Path.Combine(tempDirectory, "BMS");
-            string packDirectory = Path.Combine(rootDirectory, "Pack");
-            string outsideDirectory = Path.Combine(tempDirectory, "Outside");
-            Directory.CreateDirectory(packDirectory);
-            Directory.CreateDirectory(outsideDirectory);
-            DateTime rootTimestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
-            DateTime packTimestamp = rootTimestamp.AddMinutes(1);
-            Directory.SetLastWriteTimeUtc(rootDirectory, rootTimestamp);
-            Directory.SetLastWriteTimeUtc(packDirectory, packTimestamp);
+        string rootDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), "BMS");
+        string packDirectory = Path.Combine(rootDirectory, "Pack");
+        string outsideDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), "Outside");
+        DateTime rootTimestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+        DateTime packTimestamp = rootTimestamp.AddMinutes(1);
+        RootFileEnumerationResult result = Lr2SongDbSyncTestSupport.CreateRootFileEnumerationResult(
+            RootFileEnumerationService.DirectoriesGroupName,
+            [
+                new RootFileEnumerationEntry(rootDirectory, rootTimestamp),
+                new RootFileEnumerationEntry(packDirectory, packTimestamp)
+            ]);
 
-            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries = Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
+            Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedResult(
+                result,
                 [rootDirectory],
                 [rootDirectory, packDirectory, outsideDirectory],
-                new EverythingNative(ApplicationPathPolicy.Current));
+                _ => throw new AssertFailedException("directory metadata reader must not run for a complete snapshot"));
 
-            Assert.AreEqual(2, entries.Count);
-            Assert.IsTrue(entries.TryGetValue(Normalize(rootDirectory), out RootFileEnumerationEntry rootEntry));
-            Assert.IsTrue(entries.TryGetValue(Normalize(packDirectory), out RootFileEnumerationEntry packEntry));
-            Assert.IsFalse(entries.ContainsKey(Normalize(outsideDirectory)));
-            Assert.AreEqual(rootTimestamp, rootEntry.LastWriteTimeUtc);
-            Assert.AreEqual(packTimestamp, packEntry.LastWriteTimeUtc);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
+        Assert.AreEqual(2, entries.Count);
+        Assert.IsTrue(entries.TryGetValue(Normalize(rootDirectory), out RootFileEnumerationEntry rootEntry));
+        Assert.IsTrue(entries.TryGetValue(Normalize(packDirectory), out RootFileEnumerationEntry packEntry));
+        Assert.IsFalse(entries.ContainsKey(Normalize(outsideDirectory)));
+        Assert.AreEqual(rootTimestamp, rootEntry.LastWriteTimeUtc);
+        Assert.AreEqual(packTimestamp, packEntry.LastWriteTimeUtc);
     }
 
     [TestMethod]
-    public void DirectoryEnumeration_ResolvesLargeTargetSetFromGroupedEnumerationWithinRoots()
+    public void DirectoryProjection_ResolvesLargeTargetSetFromCapturedGroupedResultWithinRoots()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
-        try
+        string rootDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), "BMS");
+        string existingDirectory = Path.Combine(rootDirectory, "Existing");
+        string outsideDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), "Outside");
+        DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
+        List<string> targets = [existingDirectory, outsideDirectory];
+        for (int index = 0; index < 600; index++)
         {
-            string rootDirectory = Path.Combine(tempDirectory, "BMS");
-            string existingDirectory = Path.Combine(rootDirectory, "Existing");
-            string outsideDirectory = Path.Combine(tempDirectory, "Outside");
-            Directory.CreateDirectory(existingDirectory);
-            Directory.CreateDirectory(outsideDirectory);
-            DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
-            DateTime outsideTimestamp = timestamp.AddMinutes(1);
-            Directory.SetLastWriteTimeUtc(existingDirectory, timestamp);
-            Directory.SetLastWriteTimeUtc(outsideDirectory, outsideTimestamp);
-            List<string> targets = [existingDirectory, outsideDirectory];
-            for (int index = 0; index < 600; index++)
-            {
-                targets.Add(Path.Combine(rootDirectory, "Missing" + index.ToString("D4")));
-            }
-
-            IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
-                Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(
-                    [rootDirectory],
-                    targets,
-                    new EverythingNative(ApplicationPathPolicy.Current));
-
-            Assert.AreEqual(1, entries.Count);
-            Assert.IsTrue(entries.TryGetValue(Normalize(existingDirectory), out RootFileEnumerationEntry entry));
-            Assert.AreEqual(timestamp, entry.LastWriteTimeUtc);
-            Assert.IsFalse(entries.ContainsKey(Normalize(outsideDirectory)));
+            targets.Add(Path.Combine(rootDirectory, "Missing" + index.ToString("D4")));
         }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
+
+        RootFileEnumerationResult result = Lr2SongDbSyncTestSupport.CreateRootFileEnumerationResult(
+            RootFileEnumerationService.DirectoriesGroupName,
+            [new RootFileEnumerationEntry(existingDirectory, timestamp)]);
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
+            Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedResult(
+                result,
+                [rootDirectory],
+                targets,
+                _ => null);
+
+        Assert.AreEqual(1, entries.Count);
+        Assert.IsTrue(entries.TryGetValue(Normalize(existingDirectory), out RootFileEnumerationEntry entry));
+        Assert.AreEqual(timestamp, entry.LastWriteTimeUtc);
+        Assert.IsFalse(entries.ContainsKey(Normalize(outsideDirectory)));
     }
 
     private static string Normalize(string path)

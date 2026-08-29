@@ -1,13 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
-using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
@@ -96,96 +90,6 @@ public sealed class OwnedChartCollectionRefreshTests
             Assert.IsFalse(batch.NotifiesStorageRows);
             Assert.IsFalse(batch.NotifiesBmsFiles);
             Assert.IsFalse(batch.NotifiesBmsonSongs);
-        });
-    }
-
-    [TestMethod]
-    public void ReloadFileDiff_ReplacesOwnedStorageRowsAndPublishesResourceHealthInvalidation()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string libraryRootPath = ResolveExistingDataFixtureDirectory();
-            string keptPath = Path.Combine(libraryRootPath, "fixture.bms");
-            string removedPath = Path.Combine(libraryRootPath, "removed-from-catalog.bms");
-            string addedPath = keptPath;
-            BMSFile kept = BMSFile.CreateBMSFileFromFile(keptPath);
-            BMSFile removed = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", removedPath);
-            kept.date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(keptPath));
-            var library = new TestBmsLibrary(
-                songDbPath,
-                getLR2Config: null,
-                _lr2ScoreDB: null,
-                startupRequiredFileScanReason: null,
-                optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot
-                {
-                    OperationModeLR2DB = false
-                })
-            {
-                SearchTargets = [libraryRootPath]
-            };
-            SetLibraryFilesWithoutNotification(library, [removed]);
-            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            Assert.IsTrue(initialLookup.ContainsPrimaryHash(removed.hash));
-            EnsureCurrentResourceHealthIndex(library);
-            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-
-            library.ReloadFileDiff();
-
-            Assert.IsTrue(library.BMSFiles.Any(file => file.path == keptPath));
-            Assert.IsTrue(library.BMSFiles.Any(file => file.path == addedPath));
-            Assert.IsFalse(library.BMSFiles.Any(file => file.path == removedPath));
-            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(removed.hash));
-            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(kept.hash));
-            Assert.IsTrue(HasNoCurrentResourceHealthIndex(library));
-            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
-            Assert.IsTrue(batch.NotifiesStorageRows);
-            Assert.IsTrue(batch.NotifiesBmsFiles);
-        });
-    }
-
-    [TestMethod]
-    public void ReloadFileDiff_NoDiffPublishesResourceHealthRefreshThroughRealScanRoute()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string libraryRootPath = ResolveExistingDataFixtureDirectory();
-            string chartPath = Path.Combine(libraryRootPath, "fixture.bms");
-            BMSFile chart = BMSFile.CreateBMSFileFromFile(chartPath);
-            chart.date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(chartPath));
-            var library = new TestBmsLibrary(
-                songDbPath,
-                getLR2Config: null,
-                _lr2ScoreDB: null,
-                startupRequiredFileScanReason: null,
-                optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot
-                {
-                    OperationModeLR2DB = false
-                })
-            {
-                SearchTargets = [libraryRootPath]
-            };
-            SetLibraryFilesWithoutNotification(library, [chart]);
-            EnsureCurrentResourceHealthIndex(library);
-            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-
-            library.ReloadFileDiff();
-
-            Assert.AreEqual(1, library.BMSFiles.Count);
-            Assert.AreSame(chart, library.BMSFiles[0]);
-            Assert.IsTrue(HasNoCurrentResourceHealthIndex(library));
-            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
-            Assert.IsTrue(batch.HasRefreshNotification);
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
-            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
-            Assert.IsFalse(batch.NotifiesStorageRows);
-            Assert.IsFalse(batch.NotifiesBmsFiles);
         });
     }
 

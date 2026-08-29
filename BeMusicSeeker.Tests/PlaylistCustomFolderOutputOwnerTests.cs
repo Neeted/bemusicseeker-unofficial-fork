@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -68,7 +69,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
     }
 
     [TestMethod]
-    public void Materialization_RepairsStaleFileAndDoesNotRewriteCurrentFileWhenPhysicalSurfaceHasNoEntry()
+    public void Materialization_RepairsStaleFileAndDoesNotRewriteExplicitlyCapturedCurrentFile()
     {
         string root = Path.Combine(Path.GetTempPath(), "bmseeker-custom-folder-owner-" + Guid.NewGuid().ToString("N"));
         var settings = new CustomFolderOutputSettingsSnapshot
@@ -110,6 +111,9 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
             PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult first = owner.MaterializeBatch([projection]);
             DateTime expectedTimestamp = new(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(filePath, expectedTimestamp);
+            projection.PhysicalSurface = CustomFolderOutputPhysicalSurface.FromEntries(
+                [new RootFileEnumerationEntry(filePath, expectedTimestamp, new FileInfo(filePath).Length)],
+                discoveryComplete: true);
 
             PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult second = owner.MaterializeBatch([projection]);
 

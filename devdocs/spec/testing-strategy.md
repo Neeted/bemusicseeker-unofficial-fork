@@ -134,6 +134,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Ful
 - 小さい合成入力または少数 fixture で完結する機能テスト。
 - in-memory / temp directory / deterministic fake で閉じる DB、filesystem、audio、dispatcher、network boundary のテスト。
 - test ごとの固有 resource を所有し、並列実行しても競合しないテスト。
+- Everything / OS scan や app-managed custom-folder output を観測する Functional test は、live Everything service / index や test-created file の即時発見に依存しない。各 test が immutable な captured scan / physical surface を明示的に供給し、その snapshot の範囲で結果を検証する。production-shaped test factory は missing-bridge application snapshot で local Everything service を隔離し、bridge failure を managed fallback や empty success に読み替えない。
 - timeout が機能契約そのものである場合を除き、wall clock の偶然ではなく signal、barrier、fake clock、完了通知で同期するテスト。
 
 Functional に含めないもの:

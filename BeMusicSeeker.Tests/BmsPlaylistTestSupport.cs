@@ -50,6 +50,20 @@ internal static class BmsPlaylistTestSupport
             synchronization ?? new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
     }
 
+    /// <summary>
+    /// Creates a synchronization port with the supplied immutable physical output snapshot.
+    /// </summary>
+    internal static TestLr2PlaylistFolderSynchronizationPort CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+        string songDbPath,
+        CustomFolderOutputPhysicalSurface physicalSurface)
+    {
+        ArgumentNullException.ThrowIfNull(physicalSurface);
+        return new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
+        {
+            PhysicalSurfaceFactory = () => physicalSurface
+        };
+    }
+
     internal static PlaylistWorkspaceViewModel CreatePlaylistWorkspace(
         BMSPlaylist playlist,
         BMSLibrary library,

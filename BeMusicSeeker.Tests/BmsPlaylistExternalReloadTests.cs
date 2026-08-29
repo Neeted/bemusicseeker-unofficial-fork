@@ -45,10 +45,10 @@ public sealed class BmsPlaylistExternalReloadTests
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "Output");
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
-            {
-                Failure = new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning)
-            };
+            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                songDbPath,
+                CustomFolderOutputPhysicalSurface.Empty);
+            synchronization.Failure = new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
             var table = new BMSTable
             {
                 playlist_id = 9001,
@@ -95,10 +95,10 @@ public sealed class BmsPlaylistExternalReloadTests
             {
             }
             var originalException = new InvalidOperationException("forced LR2 folder sync failure");
-            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
-            {
-                Failure = originalException
-            };
+            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                songDbPath,
+                CustomFolderOutputPhysicalSurface.Empty);
+            synchronization.Failure = originalException;
             var table = new BMSTable
             {
                 playlist_id = 9002,
@@ -147,7 +147,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
@@ -201,7 +201,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             table.playlist_id = 900001;
@@ -281,7 +281,7 @@ public sealed class BmsPlaylistExternalReloadTests
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootCustomFolder"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath);
+            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 null,
@@ -518,7 +518,7 @@ public sealed class BmsPlaylistExternalReloadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Progress Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
@@ -568,7 +568,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable externalTable = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(externalHeaderPath));
             externalTable.EnableExternalSync();
             var manualTable = new BMSTable
@@ -616,7 +616,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9001;
             table.DisableExternalSync();
@@ -669,7 +669,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(firstHeaderPath));
             table.playlist_id = 9002;
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
@@ -788,7 +788,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
             table.playlist_id = 9021;
             table.DisableExternalSync();
@@ -916,7 +916,7 @@ public sealed class BmsPlaylistExternalReloadTests
             var scheduler = new ControlledUiScheduler(TestUiDispatcherHost.Dispatcher);
             var playlist = new TestBmsPlaylist(
                 songDbPath,
-                new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty),
                 scheduler);
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9051;
@@ -964,7 +964,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9011;
             table.DisableExternalSync();
@@ -1353,9 +1353,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
         public CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
         {
-            return new CustomFolderOutputPhysicalSurface(
-                new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-                discoveryComplete: false);
+            return CustomFolderOutputPhysicalSurface.Empty;
         }
 
         public Lr2FolderFileDbSyncResult SyncPlaylistLr2FolderFileRows(
