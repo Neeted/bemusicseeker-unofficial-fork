@@ -91,6 +91,25 @@ Automated verification does not assert ARGB/brush identity, pixels, sizes,
 screenshots, hover rendering, XAML source text, or exact assistance popup
 placement targets.
 
+## UI-fix packet KSA-2026-01-TOOLTIP-WIDTH
+
+`KSA-TOOLTIP-03` keeps saved-row presentation attached to the current item
+when a virtualized Favorites or History surface is recycled or reassigned.
+The non-action row hover surface exposes the complete current `Query`, and the
+apply control's `AutomationProperties.Name` follows the current
+`DisplayText`. Fields, Values, and PlaylistSummary Fields do not expose a
+saved-query tooltip. Favorite and History action buttons retain their own
+localized, non-empty `ToolTip` and accessibility name; that action-owned value
+takes precedence over the row query tooltip.
+
+`KSA-WIDTH-03` keeps the popup's outer content width equal, within layout
+rounding, to the editor surface `ActualWidth` captured before opening. A long
+saved query remains intact in its underlying label text while the rendered
+label is constrained to one non-wrapping line with standard character
+ellipsis. The same width rule applies independently to the Fields-only
+PlaylistSummary popup. Width is a layout relationship, not a fixed-pixel
+oracle.
+
 ## Editing and row actions
 
 Field application replaces only the active field prefix, preserves a leading
@@ -174,6 +193,7 @@ and the 500 ms filter debounce remain compatible.
 | `KSA-INPUT-01`, `KSA-VIEW-01`, `KSA-FAV-01`, `KSA-HIST-01`, `KSA-COMPAT-01` | `MainWindowChartPresentationWpfTests` using `TestUiDispatcherHost` and `TestWindowPresentationScope` with routed-event and dispatcher/layout completion |
 | `KSA-FOCUS-02`, `KSA-CLEAR-02` | `MainWindowChartPresentationWpfTests` covering normal and PlaylistSummary scopes, including outside click with assistance already closed and the actual window preview/clear routes |
 | `KSA-VISUAL-02` | Manual/static review of semantic resources, row-owned declarative visuals, and popup separation; no pixel or screenshot test |
+| `KSA-TOOLTIP-03`, `KSA-WIDTH-03` | `MainWindowChartPresentationWpfTests` using `TestUiDispatcherHost` and `TestWindowPresentationScope`: virtualized saved-row realization/rebinding, localized action ownership, candidate tooltip absence, and pre-open surface-width relation with no `MaterializePopup` |
 | `KSA-LOC-01` | `LocalizationResourceParityTests` plus localized WPF ToolTip/Automation checks |
 
 Focused verification uses:

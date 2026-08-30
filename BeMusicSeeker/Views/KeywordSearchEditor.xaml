@@ -2,6 +2,7 @@
 <UserControl x:Class="BeMusicSeeker.Views.KeywordSearchEditor"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
              x:Name="editor"
              Focusable="False"
              PreviewKeyDown="EditorPreviewKeyDown"
@@ -73,6 +74,22 @@
         </Setter.Value>
       </Setter>
     </Style>
+    <Style x:Key="KeywordSearchApplyButtonStyle"
+           TargetType="{x:Type Button}"
+           BasedOn="{StaticResource KeywordSearchRowButtonStyle}">
+      <Setter Property="AutomationProperties.Name" Value="{Binding DisplayText}" />
+      <Setter Property="ToolTip" Value="{x:Null}" />
+      <Style.Triggers>
+        <DataTrigger Binding="{Binding Kind}"
+                     Value="{x:Static vm:KeywordSearchPresentationItemKind.Favorite}">
+          <Setter Property="ToolTip" Value="{Binding Query}" />
+        </DataTrigger>
+        <DataTrigger Binding="{Binding Kind}"
+                     Value="{x:Static vm:KeywordSearchPresentationItemKind.History}">
+          <Setter Property="ToolTip" Value="{Binding Query}" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
     <ControlTemplate x:Key="KeywordSearchListBoxTemplate" TargetType="{x:Type ListBox}">
       <Border Background="{TemplateBinding Background}"
               BorderBrush="{TemplateBinding BorderBrush}"
@@ -93,7 +110,8 @@
               Padding="2,1"
               MinHeight="26"
               Style="{StaticResource KeywordSearchItemRowStyle}"
-              Tag="{Binding}">
+              Tag="{Binding}"
+              ToolTip="{Binding ToolTip, ElementName=ApplyButton}">
         <Grid>
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
@@ -101,7 +119,7 @@
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
           <Button x:Name="ApplyButton"
-                  Style="{StaticResource KeywordSearchRowButtonStyle}"
+                  Style="{StaticResource KeywordSearchApplyButtonStyle}"
                   Grid.Column="0"
                   Tag="{Binding}"
                   HorizontalContentAlignment="Left"
@@ -109,8 +127,6 @@
                   Padding="6,2"
                   Focusable="False"
                   IsTabStop="False"
-                  ToolTip="{Binding DisplayText}"
-                  Loaded="ApplyButtonLoaded"
                   PreviewMouseLeftButtonDown="ApplyButtonPreviewMouseLeftButtonDown"
                   Click="ApplyButtonClick">
             <Button.Content>
@@ -118,6 +134,7 @@
                          FontFamily="Meiryo"
                          FontSize="12"
                          Foreground="{DynamicResource App.TextBrush}"
+                         TextWrapping="NoWrap"
                          TextTrimming="CharacterEllipsis" />
             </Button.Content>
           </Button>
@@ -222,7 +239,8 @@
               CornerRadius="4"
               Background="{DynamicResource App.PopupBackgroundBrush}"
               Padding="4"
-              MinWidth="{Binding ActualWidth, ElementName=editorSurface}">
+              Width="{Binding ActualWidth, ElementName=editorSurface}"
+              HorizontalAlignment="Left">
       <StackPanel x:Name="SectionsHost" />
       </Border>
     </Popup>

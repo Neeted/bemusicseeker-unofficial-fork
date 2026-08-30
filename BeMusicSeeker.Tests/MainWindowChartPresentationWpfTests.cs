@@ -1184,6 +1184,242 @@ public sealed class MainWindowChartPresentationWpfTests
     }
 
     [TestMethod]
+    public void SearchEditor_SavedRowTooltipsAndAccessibilityFollowRecycledDataContext()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    const int favoriteCount = 32;
+                    for (int index = 0; index < favoriteCount; index++)
+                    {
+                        Assert.IsTrue(owner.TryAddFavorite($"title:favorite-{index}").Succeeded);
+                    }
+                    const int historyCount = 6;
+                    for (int index = 0; index < historyCount; index++)
+                    {
+                        Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory($"artist:history-{index}").Succeeded);
+                    }
+
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        MaterializeMainWindow(window);
+
+                        foreach (KeywordSearchPresentationSectionKind sectionKind in new[]
+                        {
+                            KeywordSearchPresentationSectionKind.Favorites,
+                            KeywordSearchPresentationSectionKind.History
+                        })
+                        {
+                            KeywordSearchPresentationSection section = chrome.Editor.Presentation.Sections
+                                .Single(candidate => candidate.Kind == sectionKind);
+                            KeywordSearchPresentationItem firstItem = section.Items[0];
+                            KeywordSearchPresentationItem lastItem = section.Items[^1];
+                            ListBox rows = GetSectionRows(chrome.Editor, sectionKind);
+                            rows.ScrollIntoView(firstItem);
+                            MaterializeElement(rows, rows.ActualWidth, rows.ActualHeight);
+                            rows.ScrollIntoView(lastItem);
+                            MaterializeElement(rows, rows.ActualWidth, rows.ActualHeight);
+                            Border lastRow = FindSavedRow(chrome.Editor, lastItem.Query);
+                            Button lastApply = FindApplyButton(lastRow);
+                            Assert.IsNotNull(
+                                rows.ItemContainerGenerator.ContainerFromItem(lastItem),
+                                $"ScrollIntoView must realize the initially off-viewport {sectionKind} row.");
+                            Assert.AreEqual(lastItem.Query, lastRow.ToolTip?.ToString());
+                            Assert.AreEqual(lastItem.Query, lastApply.ToolTip?.ToString());
+                            Assert.AreEqual(lastItem.DisplayText, AutomationProperties.GetName(lastApply));
+
+                            Button[] lastActions = FindVisibleActionButtons(lastRow);
+                            Assert.IsTrue(lastActions.Length > 0);
+                            foreach (Button action in lastActions)
+                            {
+                                string actionName = AutomationProperties.GetName(action);
+                                Assert.IsFalse(string.IsNullOrWhiteSpace(actionName));
+                                Assert.AreEqual(actionName, action.ToolTip?.ToString());
+                                Assert.AreNotEqual(lastItem.Query, actionName);
+                            }
+
+                            // The virtualizing panel normally reuses this surface while it
+                            // scrolls. Reassigning the same realized surface is the approved
+                            // deterministic negative control when a runtime chooses to recreate
+                            // the template instead; Loaded handlers must not own row state.
+                            lastRow.SetCurrentValue(FrameworkElement.DataContextProperty, firstItem);
+                            TestUiDispatcherHost.Drain();
+                            Assert.AreSame(lastApply, FindApplyButton(lastRow));
+                            Assert.AreEqual(firstItem.Query, lastRow.ToolTip?.ToString());
+                            Assert.AreEqual(firstItem.Query, lastApply.ToolTip?.ToString());
+                            Assert.AreEqual(firstItem.DisplayText, AutomationProperties.GetName(lastApply));
+                            foreach (Button action in FindVisibleActionButtons(lastRow))
+                            {
+                                string actionName = AutomationProperties.GetName(action);
+                                Assert.IsFalse(string.IsNullOrWhiteSpace(actionName));
+                                Assert.AreEqual(actionName, action.ToolTip?.ToString());
+                                Assert.AreNotEqual(firstItem.Query, actionName);
+                            }
+                        }
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_QueryTooltipsAreLimitedToSavedRows()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    Assert.IsTrue(owner.TryAddFavorite("title:favorite").Succeeded);
+                    Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory("artist:history").Succeeded);
+
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        MaterializeMainWindow(window);
+
+                        Border favoriteRow = FindSavedRow(chrome.Editor, "title:favorite");
+                        Button favoriteApply = FindApplyButton(favoriteRow);
+                        Assert.AreEqual("title:favorite", favoriteApply.ToolTip?.ToString());
+                        Assert.AreEqual(
+                            "title:favorite",
+                            AutomationProperties.GetName(favoriteApply));
+
+                        chrome.TextBox.Text = "tit";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        Border fieldRow = FindRowForItemKind(
+                            chrome.Editor,
+                            KeywordSearchPresentationItemKind.Field);
+                        Button fieldApply = FindApplyButton(fieldRow);
+                        Assert.IsNull(fieldRow.ToolTip);
+                        Assert.IsNull(fieldApply.ToolTip);
+
+                        chrome.TextBox.Text = "clear:N";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        Border valueRow = FindRowForItemKind(
+                            chrome.Editor,
+                            KeywordSearchPresentationItemKind.Value);
+                        Button valueApply = FindApplyButton(valueRow);
+                        Assert.IsNull(valueRow.ToolTip);
+                        Assert.IsNull(valueApply.ToolTip);
+
+                        viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                        TestUiDispatcherHost.Drain();
+                        FocusSearchEditor(summary.Editor);
+                        summary.TextBox.Text = string.Empty;
+                        summary.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        Border summaryFieldRow = FindRowForItemKind(
+                            summary.Editor,
+                            KeywordSearchPresentationItemKind.Field);
+                        Button summaryFieldApply = FindApplyButton(summaryFieldRow);
+                        Assert.IsNull(summaryFieldRow.ToolTip);
+                        Assert.IsNull(summaryFieldApply.ToolTip);
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_SavedQueryPopupWidthIsBoundToPreOpenSurface()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    const string longQuery =
+                        "title:This-is-a-deliberately-long-saved-query-that-must-remain-intact-" +
+                        "0123456789abcdefghijklmnopqrstuvwxyz";
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    Assert.IsTrue(owner.TryAddFavorite(longQuery).Succeeded);
+
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        MaterializeMainWindow(window);
+                        Grid surface = GetEditorSurface(chrome.Editor);
+                        double baselineWidth = surface.ActualWidth;
+                        Assert.IsTrue(baselineWidth > 0d);
+                        surface.SetCurrentValue(
+                            FrameworkElement.WidthProperty,
+                            baselineWidth * 0.75d);
+                        TestUiDispatcherHost.Drain();
+                        MaterializeMainWindow(window);
+                        double preOpenWidth = surface.ActualWidth;
+                        Assert.IsTrue(preOpenWidth > 0d);
+
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        MaterializeMainWindow(window);
+
+                        Border popupChild = chrome.SuggestionPopup.Child as Border
+                            ?? throw new AssertFailedException("The search assistance popup has no outer Border.");
+                        Assert.AreEqual(preOpenWidth, popupChild.ActualWidth, 0.51d);
+                        Border longRow = FindSavedRow(chrome.Editor, longQuery);
+                        Button longApply = FindApplyButton(longRow);
+                        TextBlock longLabel = longApply.Content as TextBlock
+                            ?? throw new AssertFailedException("The saved-query apply button has no text label.");
+                        Assert.AreEqual(longQuery, longLabel.Text);
+                        Assert.AreEqual(TextWrapping.NoWrap, longLabel.TextWrapping);
+                        Assert.AreEqual(TextTrimming.CharacterEllipsis, longLabel.TextTrimming);
+                        Assert.IsTrue(longLabel.ActualWidth <= popupChild.ActualWidth + 0.51d);
+
+                        chrome.Editor.AssistancePopupControl.IsOpen = false;
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsFalse(chrome.SuggestionPopup.IsOpen);
+                        viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                        TestUiDispatcherHost.Drain();
+                        MaterializeMainWindow(window);
+                        Grid summarySurface = GetEditorSurface(summary.Editor);
+                        double summaryBaselineWidth = summarySurface.ActualWidth;
+                        Assert.IsTrue(summaryBaselineWidth > 0d);
+                        summarySurface.SetCurrentValue(
+                            FrameworkElement.WidthProperty,
+                            summaryBaselineWidth * 0.875d);
+                        TestUiDispatcherHost.Drain();
+                        MaterializeMainWindow(window);
+                        double summaryPreOpenWidth = summarySurface.ActualWidth;
+                        Assert.IsTrue(summaryPreOpenWidth > 0d);
+                        const double layoutRoundingTolerance = 0.51d;
+                        Assert.IsTrue(
+                            Math.Abs(preOpenWidth - summaryPreOpenWidth) > layoutRoundingTolerance,
+                            $"Normal and summary editor fixture widths must differ beyond layout rounding: normal={preOpenWidth}, summary={summaryPreOpenWidth}.");
+                        FocusSearchEditor(summary.Editor);
+                        summary.TextBox.Text = string.Empty;
+                        summary.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        MaterializeMainWindow(window);
+                        Border summaryPopupChild = summary.SuggestionPopup.Child as Border
+                            ?? throw new AssertFailedException("The summary assistance popup has no outer Border.");
+                        Assert.AreEqual(summaryPreOpenWidth, summaryPopupChild.ActualWidth, 0.51d);
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
     public void SearchEditor_ShortSectionsSizeToContentForSavedValuesAndFields()
     {
         WithSimpleTextBoxStyles(() =>
@@ -1801,6 +2037,56 @@ public sealed class MainWindowChartPresentationWpfTests
             $"Saved row '{query}' was not materialized; popupOpen={editor.AssistancePopupControl.IsOpen}, presentationOpen={editor.Presentation.IsOpen}, presentationItems={string.Join("|", editor.Presentation.VisibleItems.Select(item => $"{item.Kind}:{item.Query}"))}, visualItems={string.Join("|", FindVisualDescendants<Border>(popupChild).Select(border => border.Tag).OfType<KeywordSearchPresentationItem>().Select(item => $"{item.Kind}:{item.Query}"))}, focus={Keyboard.FocusedElement?.GetType().Name ?? "null"}.");
         return row!;
     }
+
+    private static ListBox GetSectionRows(
+        KeywordSearchEditor editor,
+        KeywordSearchPresentationSectionKind sectionKind)
+    {
+        DependencyObject popupChild = editor.AssistancePopupControl.Child
+            ?? throw new AssertFailedException("The search assistance popup has no rendered child.");
+        ListBox[] rows = FindVisualDescendants<ListBox>(popupChild).ToArray();
+        KeywordSearchPresentationSection[] sections = editor.Presentation.Sections
+            .Where(section => section.IsVisible)
+            .ToArray();
+        int sectionIndex = Array.FindIndex(
+            sections,
+            section => section.Kind == sectionKind);
+        Assert.IsTrue(sectionIndex >= 0, $"The assistance section {sectionKind} is not visible.");
+        Assert.IsTrue(rows.Length > sectionIndex, $"The assistance section {sectionKind} has no ListBox.");
+        return rows[sectionIndex];
+    }
+
+    private static Grid GetEditorSurface(KeywordSearchEditor editor)
+    {
+        Grid? surface = FindVisualDescendants<Grid>(editor)
+            .FirstOrDefault(candidate => string.Equals(candidate.Name, "editorSurface", StringComparison.Ordinal));
+        Assert.IsNotNull(surface, "The keyword-search editor surface must be materialized.");
+        return surface!;
+    }
+
+    private static Button FindApplyButton(Border row)
+        => FindVisualDescendants<Button>(row)
+            .Single(button => button.Content is TextBlock);
+
+    private static Border FindRowForItemKind(
+        KeywordSearchEditor editor,
+        KeywordSearchPresentationItemKind itemKind)
+    {
+        DependencyObject popupChild = editor.AssistancePopupControl.Child
+            ?? throw new AssertFailedException("The search assistance popup has no rendered child.");
+        return FindVisualDescendants<Border>(popupChild)
+            .First(border => border.Tag is KeywordSearchPresentationItem item
+                && item.Kind == itemKind);
+    }
+
+    private static Button[] FindVisibleActionButtons(Border row)
+        => FindVisualDescendants<Button>(row)
+            .Where(button => button.Focusable
+                && button.IsTabStop
+                && button.Visibility == Visibility.Visible
+                && button.IsVisible
+                && button.IsEnabled)
+            .ToArray();
 
     private static Button FindActionButton(Border row, string accessibleName)
     {

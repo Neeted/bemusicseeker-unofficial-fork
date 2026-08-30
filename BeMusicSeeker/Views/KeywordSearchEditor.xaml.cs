@@ -621,15 +621,6 @@ public partial class KeywordSearchEditor : UserControl
     private void DeleteHistoryButtonClick(object sender, RoutedEventArgs e)
         => HandleActionButton(sender, KeywordSearchEditorAction.DeleteHistory);
 
-    private void ApplyButtonLoaded(object sender, RoutedEventArgs e)
-    {
-        if (sender is Button button && button.Tag is KeywordSearchPresentationItem item)
-        {
-            AutomationProperties.SetName(button, item.DisplayText);
-            button.ToolTip = item.IsSavedQuery ? item.Query : item.DisplayText;
-        }
-    }
-
     private void RemoveFavoriteButtonLoaded(object sender, RoutedEventArgs e)
         => SetActionAccessibility(sender, AppResources.Keyword_search_remove_favorite_tooltip);
 
