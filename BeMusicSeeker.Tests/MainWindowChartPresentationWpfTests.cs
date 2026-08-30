@@ -569,8 +569,6 @@ public sealed class MainWindowChartPresentationWpfTests
                     AssertBindingPath(summary.HelpButton, ToggleButton.IsCheckedProperty, "PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen");
                     Assert.IsNull(BindingOperations.GetBindingExpression(normal.SuggestionPopup, Popup.IsOpenProperty));
                     Assert.IsNull(BindingOperations.GetBindingExpression(summary.SuggestionPopup, Popup.IsOpenProperty));
-                Assert.AreSame(normal.TextBox, normal.SuggestionPopup.PlacementTarget);
-                    Assert.AreSame(summary.TextBox, summary.SuggestionPopup.PlacementTarget);
                     Assert.AreSame(normal.HelpButton, normal.HelpPopup.PlacementTarget);
                     Assert.AreSame(summary.HelpButton, summary.HelpPopup.PlacementTarget);
                     Assert.IsNull(normal.HelpButton.FocusVisualStyle);
@@ -611,20 +609,6 @@ public sealed class MainWindowChartPresentationWpfTests
                     Assert.AreEqual(ownedFilterBeforeInteraction, viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter);
                     ChartModeFilter modeAfterNormalInteraction = viewModel.ChartFilters.ModeFilter;
 
-                    normal.TextBox.Text = "title:normal";
-                    BindingOperations.GetBindingExpression(normal.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
-                    RaiseMouseLeftButtonDown(normal.ClearIcon);
-                    BindingOperations.GetBindingExpression(normal.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
-                    Assert.AreEqual(string.Empty, normal.TextBox.Text);
-                    Assert.AreEqual(string.Empty, viewModel.ChartFilters.KeywordFilter);
-
-                    summary.TextBox.Text = "name:summary";
-                    BindingOperations.GetBindingExpression(summary.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
-                    RaiseMouseLeftButtonDown(summary.ClearIcon);
-                    BindingOperations.GetBindingExpression(summary.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
-                    Assert.AreEqual(string.Empty, summary.TextBox.Text);
-                    Assert.AreEqual(string.Empty, viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter);
-
                     viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
                     TestUiDispatcherHost.Drain();
                     MaterializeMainWindow(window);
@@ -652,7 +636,120 @@ public sealed class MainWindowChartPresentationWpfTests
                         BindingOperations.GetBindingExpression(
                             editor.AssistancePopupControl,
                             Popup.IsOpenProperty));
-                    Assert.AreSame(editor.InputTextBoxControl, editor.AssistancePopupControl.PlacementTarget);
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_OutsidePreviewMouseDownClearsFocusAndClosesAssistanceForBothScopes()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
+                    SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
+                    KeywordSearchAssistanceOwner normalOwner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    KeywordSearchAssistanceOwner summaryOwner = viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner;
+
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(normal.Editor);
+                        normal.TextBox.Text = "tit";
+                        normal.TextBox.CaretIndex = normal.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsTrue(normal.SuggestionPopup.IsOpen);
+                        Assert.IsTrue(normal.TextBox.IsKeyboardFocusWithin);
+
+                        RaisePreviewMouseDown(normal.FilterButton);
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsFalse(normal.TextBox.IsKeyboardFocusWithin);
+                        Assert.IsFalse(normal.SuggestionPopup.IsOpen);
+                        Assert.IsFalse(normalOwner.Presentation.IsOpen);
+                        CollectionAssert.Contains(normalOwner.SavedQueryOwner.History.ToArray(), "tit");
+
+                        viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                        TestUiDispatcherHost.Drain();
+                        FocusSearchEditor(summary.Editor);
+                        summary.TextBox.Text = "name:summary";
+                        summary.TextBox.CaretIndex = summary.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsFalse(summary.SuggestionPopup.IsOpen);
+                        Assert.IsTrue(summary.TextBox.IsKeyboardFocusWithin);
+
+                        RaisePreviewMouseDown(summary.FilterButton);
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsFalse(summary.TextBox.IsKeyboardFocusWithin);
+                        Assert.IsFalse(summary.SuggestionPopup.IsOpen);
+                        Assert.IsFalse(summaryOwner.Presentation.IsOpen);
+                        CollectionAssert.Contains(summaryOwner.SavedQueryOwner.History.ToArray(), "name:summary");
+                        CollectionAssert.DoesNotContain(normalOwner.SavedQueryOwner.History.ToArray(), "name:summary");
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_ClearMouseRouteRefocusesAndRefreshesEmptyAssistanceImmediately()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
+                    SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
+                    KeywordSearchAssistanceOwner normalOwner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+
+                    Assert.IsTrue(normalOwner.TryAddFavorite("title:favorite").Succeeded);
+                    Assert.IsTrue(normalOwner.SavedQueryOwner.TryCommitHistory("artist:history").Succeeded);
+
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(normal.Editor);
+                        normal.TextBox.Text = "title:normal";
+                        normal.TextBox.CaretIndex = normal.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+
+                        RaisePreviewMouseDown(normal.ClearIcon);
+                        RaiseMouseLeftButtonDown(normal.ClearIcon);
+                        CompleteNonActivatingLogicalFocusTransition(normal.TextBox);
+                        Assert.AreEqual(string.Empty, normal.TextBox.Text);
+                        Assert.IsTrue(normal.TextBox.IsKeyboardFocusWithin);
+                        Assert.IsTrue(normal.SuggestionPopup.IsOpen);
+                        CollectionAssert.AreEqual(
+                            new[]
+                            {
+                                KeywordSearchPresentationSectionKind.Favorites,
+                                KeywordSearchPresentationSectionKind.History,
+                                KeywordSearchPresentationSectionKind.Fields
+                            },
+                            normal.Editor.Presentation.Sections.Select(section => section.Kind).ToArray());
+
+                        viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                        TestUiDispatcherHost.Drain();
+                        FocusSearchEditor(summary.Editor);
+                        summary.TextBox.Text = "name:summary";
+                        summary.TextBox.CaretIndex = summary.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+
+                        RaisePreviewMouseDown(summary.ClearIcon);
+                        RaiseMouseLeftButtonDown(summary.ClearIcon);
+                        CompleteNonActivatingLogicalFocusTransition(summary.TextBox);
+                        Assert.AreEqual(string.Empty, summary.TextBox.Text);
+                        Assert.IsTrue(summary.TextBox.IsKeyboardFocusWithin);
+                        Assert.IsTrue(summary.SuggestionPopup.IsOpen);
+                        Assert.IsTrue(
+                            summary.Editor.Presentation.Sections.Any(
+                                section => section.Kind == KeywordSearchPresentationSectionKind.Fields));
+                        Assert.IsFalse(
+                            summary.Editor.Presentation.VisibleItems.Any(
+                                item => string.Equals(item.Query, "title:favorite", StringComparison.Ordinal)
+                                    || string.Equals(item.Query, "artist:history", StringComparison.Ordinal)));
+                    });
                 });
         });
     }
@@ -1800,6 +1897,14 @@ public sealed class MainWindowChartPresentationWpfTests
         element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
         {
             RoutedEvent = UIElement.MouseLeftButtonDownEvent
+        });
+    }
+
+    private static void RaisePreviewMouseDown(UIElement element)
+    {
+        element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+        {
+            RoutedEvent = UIElement.PreviewMouseDownEvent
         });
     }
 

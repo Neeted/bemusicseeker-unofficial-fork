@@ -21,6 +21,57 @@
       <Setter Property="Background" Value="Transparent" />
       <Setter Property="HorizontalContentAlignment" Value="Stretch" />
       <Setter Property="VerticalContentAlignment" Value="Stretch" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type ListBoxItem}">
+            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="KeywordSearchItemRowStyle" TargetType="{x:Type Border}">
+      <Setter Property="Background" Value="Transparent" />
+      <Style.Triggers>
+        <Trigger Property="IsMouseOver" Value="True">
+          <Setter Property="Background" Value="{DynamicResource App.ControlHoverBrush}" />
+        </Trigger>
+        <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType={x:Type ListBoxItem}}, Path=IsSelected}" Value="True">
+          <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundActiveBrush}" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+    <Style x:Key="KeywordSearchRowButtonStyle" TargetType="{x:Type Button}">
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+      <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type Button}">
+            <Grid Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+              <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                Margin="{TemplateBinding Padding}"
+                                RecognizesAccessKey="True"
+                                TextElement.Foreground="{TemplateBinding Foreground}" />
+              <Border x:Name="FocusCue"
+                      BorderBrush="Transparent"
+                      BorderThickness="2"
+                      CornerRadius="2"
+                      IsHitTestVisible="False" />
+            </Grid>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsKeyboardFocused" Value="True">
+                <Setter TargetName="FocusCue"
+                        Property="BorderBrush"
+                        Value="{DynamicResource App.InputFocusBorderBrush}" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
     <ControlTemplate x:Key="KeywordSearchListBoxTemplate" TargetType="{x:Type ListBox}">
       <Border Background="{TemplateBinding Background}"
@@ -41,7 +92,7 @@
       <Border x:Name="SearchItemBorder"
               Padding="2,1"
               MinHeight="26"
-              Background="Transparent"
+              Style="{StaticResource KeywordSearchItemRowStyle}"
               Tag="{Binding}">
         <Grid>
           <Grid.ColumnDefinitions>
@@ -50,12 +101,11 @@
             <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
           <Button x:Name="ApplyButton"
+                  Style="{StaticResource KeywordSearchRowButtonStyle}"
                   Grid.Column="0"
                   Tag="{Binding}"
                   HorizontalContentAlignment="Left"
                   HorizontalAlignment="Stretch"
-                  BorderThickness="0"
-                  Background="Transparent"
                   Padding="6,2"
                   Focusable="False"
                   IsTabStop="False"
@@ -67,6 +117,7 @@
               <TextBlock Text="{Binding DisplayText}"
                          FontFamily="Meiryo"
                          FontSize="12"
+                         Foreground="{DynamicResource App.TextBrush}"
                          TextTrimming="CharacterEllipsis" />
             </Button.Content>
           </Button>
@@ -78,8 +129,6 @@
                   Height="24"
                   Padding="0"
                   Margin="2,0,0,0"
-                  BorderThickness="0"
-                  Background="Transparent"
                   FontSize="14"
                   Focusable="True"
                   IsTabStop="True"
@@ -87,7 +136,7 @@
                   PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
                   Click="RemoveFavoriteButtonClick">
             <Button.Style>
-              <Style TargetType="{x:Type Button}">
+              <Style TargetType="{x:Type Button}" BasedOn="{StaticResource KeywordSearchRowButtonStyle}">
                 <Setter Property="Visibility" Value="Collapsed" />
                 <Style.Triggers>
                   <DataTrigger Binding="{Binding CanRemoveFavorite}" Value="True">
@@ -105,8 +154,6 @@
                   Height="24"
                   Padding="0"
                   Margin="2,0,0,0"
-                  BorderThickness="0"
-                  Background="Transparent"
                   FontSize="14"
                   Focusable="True"
                   IsTabStop="True"
@@ -114,7 +161,7 @@
                   PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
                   Click="AddFavoriteButtonClick">
             <Button.Style>
-              <Style TargetType="{x:Type Button}">
+              <Style TargetType="{x:Type Button}" BasedOn="{StaticResource KeywordSearchRowButtonStyle}">
                 <Setter Property="Visibility" Value="Collapsed" />
                 <Style.Triggers>
                   <DataTrigger Binding="{Binding CanAddFavorite}" Value="True">
@@ -132,8 +179,6 @@
                   Height="24"
                   Padding="0"
                   Margin="2,0,0,0"
-                  BorderThickness="0"
-                  Background="Transparent"
                   FontSize="14"
                   Focusable="True"
                   IsTabStop="True"
@@ -141,7 +186,7 @@
                   PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
                   Click="DeleteHistoryButtonClick">
             <Button.Style>
-              <Style TargetType="{x:Type Button}">
+              <Style TargetType="{x:Type Button}" BasedOn="{StaticResource KeywordSearchRowButtonStyle}">
                 <Setter Property="Visibility" Value="Collapsed" />
                 <Style.Triggers>
                   <DataTrigger Binding="{Binding CanDeleteHistory}" Value="True">
@@ -155,7 +200,7 @@
       </Border>
     </DataTemplate>
   </UserControl.Resources>
-  <Grid Width="390" Height="22" Background="Transparent">
+  <Grid x:Name="editorSurface" Width="390" Height="22" Background="Transparent">
     <TextBox x:Name="InputTextBox"
              Width="390"
              BorderThickness="0"
@@ -168,7 +213,8 @@
              PreviewKeyDown="InputTextBoxPreviewKeyDown" />
     <Popup x:Name="AssistancePopup"
            Placement="Bottom"
-           PlacementTarget="{Binding ElementName=InputTextBox}"
+           PlacementTarget="{Binding ElementName=editorSurface}"
+           VerticalOffset="4"
            StaysOpen="True"
            AllowsTransparency="True">
       <Border BorderBrush="{DynamicResource App.BorderBrush}"
@@ -176,7 +222,7 @@
               CornerRadius="4"
               Background="{DynamicResource App.PopupBackgroundBrush}"
               Padding="4"
-              MinWidth="{Binding ActualWidth, ElementName=InputTextBox}">
+              MinWidth="{Binding ActualWidth, ElementName=editorSurface}">
       <StackPanel x:Name="SectionsHost" />
       </Border>
     </Popup>

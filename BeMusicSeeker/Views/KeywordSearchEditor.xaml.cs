@@ -170,27 +170,19 @@ public partial class KeywordSearchEditor : UserControl
     }
 
     /// <summary>
-    /// Closes the local surface when a host-level mouse route observes an outside click.
+    /// Clears keyboard focus when a host-level mouse route observes an outside click.
+    /// The TextBox lost-focus handler remains the single owner-blur and history-commit
+    /// lifecycle so the route also works when assistance is already closed.
     /// </summary>
     /// <param name="clickedElement">The original element receiving the mouse event.</param>
-    internal void CloseIfOutside(DependencyObject clickedElement)
+    internal void ClearKeyboardFocusIfOutside(DependencyObject clickedElement)
     {
-        if (!AssistancePopup.IsOpen || IsOwnedElement(clickedElement))
+        if (IsOwnedElement(clickedElement) || !InputTextBox.IsKeyboardFocusWithin)
         {
             return;
         }
 
-        imeCompositionActive = false;
-        if (assistanceOwner != null)
-        {
-            CommitCurrentHistory();
-            ApplyPresentation(assistanceOwner.Blur());
-        }
-        else
-        {
-            AssistancePopup.IsOpen = false;
-            SectionsHost.Children.Clear();
-        }
+        Keyboard.ClearFocus();
     }
 
     private void KeywordSearchEditorLoaded(object sender, RoutedEventArgs e)
@@ -523,15 +515,16 @@ public partial class KeywordSearchEditor : UserControl
             string headerText = section.HeaderText;
             if (!string.IsNullOrWhiteSpace(headerText))
             {
-                sectionPanel.Children.Add(new TextBlock
+                var header = new TextBlock
                 {
                     Text = headerText,
                     FontFamily = new FontFamily("Meiryo"),
                     FontSize = 11,
                     FontWeight = FontWeights.Bold,
-                    Foreground = FindResource("App.SubtleTextBrush") as Brush,
                     Margin = new Thickness(4, 2, 4, 4)
-                });
+                };
+                header.SetResourceReference(TextBlock.ForegroundProperty, "App.SubtleTextBrush");
+                sectionPanel.Children.Add(header);
             }
 
             var rows = new ListBox
@@ -784,14 +777,9 @@ public partial class KeywordSearchEditor : UserControl
                     continue;
                 }
 
-                Border border = FindVisualDescendants<Border>(container)
-                    .FirstOrDefault(candidate => candidate.Tag is KeywordSearchPresentationItem);
-                if (border != null)
-                {
-                    border.Background = flattenedIndex == selectedIndex
-                        ? FindResource("App.ControlBackgroundActiveBrush") as Brush ?? Brushes.Transparent
-                        : Brushes.Transparent;
-                }
+                container.SetCurrentValue(
+                    ListBoxItem.IsSelectedProperty,
+                    flattenedIndex == selectedIndex);
                 flattenedIndex++;
             }
         }

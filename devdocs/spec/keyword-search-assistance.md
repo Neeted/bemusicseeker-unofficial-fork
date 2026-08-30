@@ -64,6 +64,33 @@ the flattened visible rows while preserving TextBox focus. Enter/Tab applies the
 selected row, or the first row if none is selected. An IME composition/commit
 Enter is never treated as candidate application.
 
+## UI-fix packet KSA-2026-01-UIFIX
+
+`KSA-FOCUS-02` makes the focused search TextBox the authority for an ordinary
+routed mouse click outside that editor and its popup-owned subtree. The window
+preview route clears WPF keyboard focus even when assistance is already closed;
+the existing TextBox `LostKeyboardFocus` handler remains the single owner-blur
+and history-commit lifecycle. Candidate and action interactions inside the
+popup remain owned by the editor. This applies independently to normal and
+PlaylistSummary search.
+
+`KSA-CLEAR-02` keeps the window preview-to-clear-affordance route synchronous:
+it clears the corresponding query, keeps or restores that editor's TextBox
+keyboard focus, and immediately presents the appropriate empty-input sections.
+The normal and PlaylistSummary scopes remain independent, and the outer
+500 ms filter delay is unchanged. No timer or delayed refocus is part of this
+route.
+
+`KSA-VISUAL-02` is a manual/static acceptance contract. Favorite and history
+action glyphs use semantic theme foreground resources and remain readable in
+both themes. A row owns one declarative hover/selection surface spanning its
+label and actions; action buttons do not render separate tiles. Assistance is
+anchored to the reusable editor surface with the existing semantic popup
+top-gap convention, visibly below and separate from the input chrome.
+Automated verification does not assert ARGB/brush identity, pixels, sizes,
+screenshots, hover rendering, XAML source text, or exact assistance popup
+placement targets.
+
 ## Editing and row actions
 
 Field application replaces only the active field prefix, preserves a leading
@@ -145,6 +172,8 @@ and the 500 ms filter debounce remain compatible.
 | `KSA-REFRESH-01`, `KSA-EMPTY-01`, `KSA-CONTEXT-01`, `KSA-EDIT-01`, `KSA-REV-01` | `KeywordSearchPresentationTests`, `GridKeywordSearchQueryTests`, `ChartListFilterViewModelTests`, `PlaylistWorkspacePresentationStateTests` |
 | `KSA-FAV-01`, `KSA-HIST-01`, `KSA-PERSIST-01` | `KeywordSearchSavedQueryStoreTests`, `ApplicationCompositionTests` |
 | `KSA-INPUT-01`, `KSA-VIEW-01`, `KSA-FAV-01`, `KSA-HIST-01`, `KSA-COMPAT-01` | `MainWindowChartPresentationWpfTests` using `TestUiDispatcherHost` and `TestWindowPresentationScope` with routed-event and dispatcher/layout completion |
+| `KSA-FOCUS-02`, `KSA-CLEAR-02` | `MainWindowChartPresentationWpfTests` covering normal and PlaylistSummary scopes, including outside click with assistance already closed and the actual window preview/clear routes |
+| `KSA-VISUAL-02` | Manual/static review of semantic resources, row-owned declarative visuals, and popup separation; no pixel or screenshot test |
 | `KSA-LOC-01` | `LocalizationResourceParityTests` plus localized WPF ToolTip/Automation checks |
 
 Focused verification uses:

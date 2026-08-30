@@ -2922,8 +2922,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void keywordSearchWindowPreviewMouseDown(object sender, MouseButtonEventArgs e)
     {
         DependencyObject clickedElement = e.OriginalSource as DependencyObject;
-        KeywordSearchEditor.CloseIfOutside(clickedElement);
-        PlaylistSummaryKeywordSearchEditor.CloseIfOutside(clickedElement);
+        KeywordSearchEditor.ClearKeyboardFocusIfOutside(clickedElement);
+        PlaylistSummaryKeywordSearchEditor.ClearKeyboardFocusIfOutside(clickedElement);
     }
 
     private void MainWindow_Deactivated(object sender, EventArgs e)
