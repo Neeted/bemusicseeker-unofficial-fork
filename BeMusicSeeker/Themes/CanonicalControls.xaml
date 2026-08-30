@@ -495,7 +495,7 @@
               <ControlTemplate TargetType="{x:Type Thumb}">
                 <Border x:Name="ThumbChrome"
                         Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}"
-                        CornerRadius="4" />
+                        CornerRadius="0" />
                 <ControlTemplate.Triggers>
                   <Trigger Property="IsMouseOver" Value="True">
                     <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
@@ -570,7 +570,7 @@
               <ControlTemplate TargetType="{x:Type Thumb}">
                 <Border x:Name="ThumbChrome"
                         Background="{DynamicResource ScrollBar.ThumbBackgroundBrush}"
-                        CornerRadius="4" />
+                        CornerRadius="0" />
                 <ControlTemplate.Triggers>
                   <Trigger Property="IsMouseOver" Value="True">
                     <Setter TargetName="ThumbChrome" Property="Background" Value="{DynamicResource ScrollBar.ThumbHoverBackgroundBrush}" />
