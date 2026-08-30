@@ -1136,7 +1136,19 @@ public class Resources
 
     public static string Keyword_search_completion_history_header => ResourceManager.GetString("Keyword_search_completion_history_header", resourceCulture);
 
-    public static string Keyword_search_completion_playlist_names_header => ResourceManager.GetString("Keyword_search_completion_playlist_names_header", resourceCulture);
+    public static string Keyword_search_completion_favorites_header => ResourceManager.GetString("Keyword_search_completion_favorites_header", resourceCulture);
+
+    public static string Keyword_search_completion_values_header => ResourceManager.GetString("Keyword_search_completion_values_header", resourceCulture);
+
+    public static string Keyword_search_remove_favorite_tooltip => ResourceManager.GetString("Keyword_search_remove_favorite_tooltip", resourceCulture);
+
+    public static string Keyword_search_add_favorite_tooltip => ResourceManager.GetString("Keyword_search_add_favorite_tooltip", resourceCulture);
+
+    public static string Keyword_search_delete_history_tooltip => ResourceManager.GetString("Keyword_search_delete_history_tooltip", resourceCulture);
+
+    public static string Keyword_search_editor_name => ResourceManager.GetString("Keyword_search_editor_name", resourceCulture);
+
+    public static string Keyword_search_summary_editor_name => ResourceManager.GetString("Keyword_search_summary_editor_name", resourceCulture);
 
     public static string Keyword_search_warning_unknown_field => ResourceManager.GetString("Keyword_search_warning_unknown_field", resourceCulture);
 

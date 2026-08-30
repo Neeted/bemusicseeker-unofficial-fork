@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -44,13 +45,15 @@ public sealed class ChartListFilterViewModelTests
     }
 
     [TestMethod]
-    public void KeywordSearchPresentation_UsesContextCandidatesAndPersistedHistory()
+    public void KeywordSearchAssistanceOwner_UsesContextCandidatesAndPersistedHistory()
     {
         var store = new InMemoryKeywordSearchHistorySettingsStore
         {
             KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["title:old"])
         };
-        var filters = new ChartListFilterViewModel(store);
+        var filters = new ChartListFilterViewModel(
+            store,
+            new InMemoryKeywordSearchFavoritesSettingsStore());
 
         filters.UpdateKeywordSearchContext(GridKeywordSearchContext.ChartList, []);
         filters.KeywordFilter = "memo:alpha";
@@ -62,21 +65,54 @@ public sealed class ChartListFilterViewModelTests
             ["Beta", "Alpha", "alpha"]);
         StringAssert.Contains(filters.KeywordSearchHelpText, "memo");
 
-        filters.RefreshKeywordSearchSuggestions("playlist:a", "playlist:a".Length, forceHistory: false);
-        Assert.AreEqual(1, filters.KeywordSearchSuggestions.Count);
-        Assert.AreEqual(KeywordSearchSuggestionKind.Value, filters.KeywordSearchSuggestions[0].Kind);
-        Assert.AreEqual("Alpha", filters.KeywordSearchSuggestions[0].DisplayText);
-        Assert.IsTrue(filters.IsKeywordSearchSuggestionPopupOpen);
+        const string valueText = "playlist:a";
+        KeywordSearchPresentationState valueState = filters.FocusKeywordSearch(valueText, valueText.Length);
+        KeywordSearchPresentationSection values = valueState.Sections.Single(
+            section => section.Kind == KeywordSearchPresentationSectionKind.Values);
+        Assert.AreEqual(1, values.Items.Count);
+        Assert.AreEqual("Alpha", values.Items[0].DisplayText);
 
-        filters.CloseKeywordSearchSuggestions();
-        Assert.IsFalse(filters.IsKeywordSearchSuggestionPopupOpen);
-
-        filters.RefreshKeywordSearchSuggestions(string.Empty, 0, forceHistory: true);
-        Assert.AreEqual(1, filters.KeywordSearchSuggestions.Count);
-        Assert.AreEqual("title:old", filters.KeywordSearchSuggestions[0].DisplayText);
+        KeywordSearchPresentationState emptyState = filters.FocusKeywordSearch(string.Empty, 0);
+        KeywordSearchPresentationSection history = emptyState.Sections.Single(
+            section => section.Kind == KeywordSearchPresentationSectionKind.History);
+        Assert.AreEqual("title:old", history.Items.Single().Query);
 
         filters.CommitKeywordSearchHistory("title:new");
         Assert.AreEqual("title:new", KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory)[0]);
+    }
+
+    [TestMethod]
+    public void KeywordSearchAssistanceAdapter_UsesImmutableContextSnapshotAndRevision()
+    {
+        var filters = new ChartListFilterViewModel(
+            new InMemoryKeywordSearchHistorySettingsStore(),
+            new InMemoryKeywordSearchFavoritesSettingsStore());
+
+        filters.UpdateKeywordSearchContext(
+            GridKeywordSearchContext.PlaylistDetail,
+            [" Beta ", "Alpha", "alpha"]);
+
+        const string text = "playlist:a";
+        KeywordSearchPresentationState state = filters.FocusKeywordSearch(text, text.Length);
+        KeywordSearchPresentationItem candidate = state.VisibleItems.Single(item => item.DisplayText == "Alpha");
+
+        Assert.AreEqual(GridKeywordSearchContext.PlaylistDetail, state.Context);
+        Assert.AreEqual(1L, state.CatalogRevision);
+        Assert.AreEqual(1, state.VisibleItems.Count);
+
+        KeywordSearchApplyResult result = filters.TryApplyKeywordSearchPresentationItem(
+            candidate,
+            text,
+            text.Length,
+            state.Context,
+            state.CatalogRevision);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual("playlist:Alpha ", result.Text);
+        Assert.AreEqual(result.Text.Length, result.CaretIndex);
+
+        KeywordSearchPresentationState closed = filters.BlurKeywordSearch();
+        Assert.IsFalse(closed.IsOpen);
     }
 
     [TestMethod]
@@ -124,7 +160,9 @@ public sealed class ChartListFilterViewModelTests
 
     private static ChartListFilterViewModel CreateFilters()
     {
-        return new ChartListFilterViewModel(new InMemoryKeywordSearchHistorySettingsStore());
+        return new ChartListFilterViewModel(
+            new InMemoryKeywordSearchHistorySettingsStore(),
+            new InMemoryKeywordSearchFavoritesSettingsStore());
     }
 
     private sealed class InMemoryKeywordSearchHistorySettingsStore : IKeywordSearchHistorySettingsStore
@@ -132,5 +170,12 @@ public sealed class ChartListFilterViewModelTests
         public string KeywordSearchHistory { get; set; } = string.Empty;
 
         public string PlaylistSummaryKeywordSearchHistory { get; set; } = string.Empty;
+    }
+
+    private sealed class InMemoryKeywordSearchFavoritesSettingsStore : IKeywordSearchFavoritesSettingsStore
+    {
+        public string KeywordSearchFavorites { get; set; } = string.Empty;
+
+        public string PlaylistSummaryKeywordSearchFavorites { get; set; } = string.Empty;
     }
 }

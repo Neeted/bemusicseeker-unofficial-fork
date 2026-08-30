@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using Livet;
 
@@ -13,9 +12,9 @@ public sealed class ChartListFilterViewModel : ViewModel
 {
     private readonly object syncRoot = new();
 
-    private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
+    private readonly KeywordSearchSavedQueryOwner keywordSearchSavedQueryOwner;
 
-    private readonly List<string> keywordSearchHistory = [];
+    private readonly KeywordSearchAssistanceOwner keywordSearchAssistanceOwner;
 
     private ChartModeFilter modeFilter = ChartModeFilter.All;
 
@@ -25,22 +24,31 @@ public sealed class ChartListFilterViewModel : ViewModel
 
     private IReadOnlyList<string> playlistNameCandidates = [];
 
+    private long keywordSearchCatalogRevision;
+
     private string keywordSearchWarningText = string.Empty;
 
     private bool isKeywordSearchHelpOpen;
 
-    private readonly ObservableCollection<KeywordSearchSuggestionItem> keywordSearchSuggestions = [];
-
-    private bool isKeywordSearchSuggestionPopupOpen;
-
-    private string keywordSearchSuggestionHeaderText = string.Empty;
-
-    internal ChartListFilterViewModel(IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore)
+    /// <summary>
+    /// Creates the normal chart-search feature state with explicit saved-query boundaries.
+    /// </summary>
+    /// <param name="keywordSearchHistorySettingsStore">The normal/summary History settings boundary.</param>
+    /// <param name="keywordSearchFavoritesSettingsStore">The normal/summary Favorites settings boundary.</param>
+    internal ChartListFilterViewModel(
+        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
+        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore)
     {
-        this.keywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
+        IKeywordSearchHistorySettingsStore historySettingsStore = keywordSearchHistorySettingsStore
             ?? throw new ArgumentNullException(nameof(keywordSearchHistorySettingsStore));
-        keywordSearchHistory.AddRange(
-            KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.KeywordSearchHistory));
+        keywordSearchSavedQueryOwner = new KeywordSearchSavedQueryOwner(
+            KeywordSearchSavedQueryScope.Normal,
+            historySettingsStore,
+            keywordSearchFavoritesSettingsStore);
+        keywordSearchAssistanceOwner = new KeywordSearchAssistanceOwner(
+            keywordSearchSavedQueryOwner,
+            GridKeywordSearchContext.ChartList,
+            new KeywordSearchCatalogSnapshot(keywordSearchCatalogRevision, []));
         UpdateKeywordSearchPresentation(raiseHelpText: false);
     }
 
@@ -154,34 +162,12 @@ public sealed class ChartListFilterViewModel : ViewModel
         }
     }
 
-    /// <summary>
-    /// Gets the normal chart search field, value, and history suggestions.
-    /// </summary>
-    public ObservableCollection<KeywordSearchSuggestionItem> KeywordSearchSuggestions => keywordSearchSuggestions;
-
-    /// <summary>
-    /// Gets or sets whether the normal chart search suggestion popup is open.
-    /// </summary>
-    public bool IsKeywordSearchSuggestionPopupOpen
-    {
-        get => isKeywordSearchSuggestionPopupOpen;
-        set
-        {
-            if (isKeywordSearchSuggestionPopupOpen == value)
-            {
-                return;
-            }
-            isKeywordSearchSuggestionPopupOpen = value;
-            RaisePropertyChanged(nameof(IsKeywordSearchSuggestionPopupOpen));
-        }
-    }
-
-    /// <summary>
-    /// Gets the normal chart search suggestion popup header.
-    /// </summary>
-    public string KeywordSearchSuggestionHeaderText => keywordSearchSuggestionHeaderText;
-
     internal GridKeywordSearchContext CurrentKeywordSearchContext => keywordSearchContext;
+
+    /// <summary>
+    /// Gets the immutable assistance owner consumed by the reusable keyword editor.
+    /// </summary>
+    internal KeywordSearchAssistanceOwner KeywordSearchAssistanceOwner => keywordSearchAssistanceOwner;
 
     /// <summary>
     /// Updates the context and immutable playlist-name candidate snapshot used by normal search presentation.
@@ -192,69 +178,82 @@ public sealed class ChartListFilterViewModel : ViewModel
     {
         keywordSearchContext = context;
         this.playlistNameCandidates = [.. (playlistNameCandidates ?? []).Where(name => !string.IsNullOrWhiteSpace(name))];
+        KeywordSearchCatalogSnapshot catalogSnapshot = new(
+            ++keywordSearchCatalogRevision,
+            this.playlistNameCandidates);
+        keywordSearchAssistanceOwner.UpdateContext(context, catalogSnapshot);
         UpdateKeywordSearchPresentation(raiseHelpText: true);
     }
 
     /// <summary>
-    /// Refreshes normal chart search field, value, and history suggestions.
+    /// Marks the normal keyword editor focused and returns its immutable presentation.
     /// </summary>
-    internal void RefreshKeywordSearchSuggestions(string keywordFilter, int caretIndex, bool forceHistory)
-    {
-        GridKeywordSearchCompletionResult fieldCompletion = GridKeywordSearchCompletion.CreateFieldCompletion(
-            keywordFilter,
-            caretIndex,
-            keywordSearchContext);
-        if (fieldCompletion.Items.Count > 0)
-        {
-            SetKeywordSearchSuggestions(fieldCompletion.Items, KeywordSearchSuggestionKind.Field);
-            return;
-        }
-
-        if (GridKeywordSearchCompletion.IsPlaylistValueCompletionContext(
-            keywordFilter,
-            caretIndex,
-            keywordSearchContext))
-        {
-            GridKeywordSearchCompletionResult playlistValueCompletion = GridKeywordSearchCompletion.CreatePlaylistValueCompletion(
-                keywordFilter,
-                caretIndex,
-                keywordSearchContext,
-                playlistNameCandidates);
-            if (playlistValueCompletion.Items.Count > 0)
-            {
-                SetKeywordSearchSuggestions(playlistValueCompletion.Items, KeywordSearchSuggestionKind.Value);
-                return;
-            }
-        }
-
-        if (forceHistory)
-        {
-            SetKeywordSearchSuggestions(
-                KeywordSearchPresentationText.BuildHistorySuggestions(keywordSearchHistory, keywordFilter),
-                KeywordSearchSuggestionKind.History);
-            return;
-        }
-
-        SetKeywordSearchSuggestions([], KeywordSearchSuggestionKind.Field);
-    }
+    internal KeywordSearchPresentationState FocusKeywordSearch(string text, int caretIndex)
+        => keywordSearchAssistanceOwner.Focus(text, caretIndex);
 
     /// <summary>
-    /// Closes the normal chart search suggestion popup.
+    /// Closes the normal keyword editor on focus loss.
     /// </summary>
-    internal void CloseKeywordSearchSuggestions()
-    {
-        IsKeywordSearchSuggestionPopupOpen = false;
-    }
+    internal KeywordSearchPresentationState BlurKeywordSearch()
+        => keywordSearchAssistanceOwner.Blur();
+
+    /// <summary>
+    /// Refreshes normal keyword assistance for the current editor snapshot.
+    /// </summary>
+    internal KeywordSearchPresentationState RefreshKeywordSearchAssistance(string text, int caretIndex)
+        => keywordSearchAssistanceOwner.Refresh(text, caretIndex);
+
+    /// <summary>
+    /// Suppresses the current normal editor snapshot until the input changes.
+    /// </summary>
+    internal KeywordSearchPresentationState SuppressKeywordSearchAssistance()
+        => keywordSearchAssistanceOwner.SuppressCurrentSnapshot();
+
+    /// <summary>
+    /// Forces normal keyword assistance to recalculate for the current input.
+    /// </summary>
+    internal KeywordSearchPresentationState ForceRefreshKeywordSearchAssistance()
+        => keywordSearchAssistanceOwner.ForceRefresh();
+
+    /// <summary>
+    /// Applies a normal keyword presentation item after revision validation.
+    /// </summary>
+    internal KeywordSearchApplyResult TryApplyKeywordSearchPresentationItem(
+        KeywordSearchPresentationItem item,
+        string text,
+        int caretIndex,
+        GridKeywordSearchContext itemContext,
+        long catalogRevision)
+        => keywordSearchAssistanceOwner.TryApply(item, text, caretIndex, itemContext, catalogRevision);
+
+    /// <summary>
+    /// Adds a normal keyword query to favorites.
+    /// </summary>
+    internal KeywordSearchSavedQueryMutationResult TryAddKeywordSearchFavorite(string query)
+        => keywordSearchAssistanceOwner.TryAddFavorite(query);
+
+    /// <summary>
+    /// Removes a normal keyword query from favorites.
+    /// </summary>
+    internal KeywordSearchSavedQueryMutationResult TryRemoveKeywordSearchFavorite(string query)
+        => keywordSearchAssistanceOwner.TryRemoveFavorite(query);
+
+    /// <summary>
+    /// Deletes a normal keyword history query.
+    /// </summary>
+    internal KeywordSearchSavedQueryMutationResult TryDeleteKeywordSearchHistory(string query)
+        => keywordSearchAssistanceOwner.TryDeleteHistory(query);
 
     /// <summary>
     /// Commits the normal chart search value to the persisted serialized history.
     /// </summary>
     internal void CommitKeywordSearchHistory(string keywordFilter)
     {
-        IReadOnlyList<string> nextHistory = KeywordSearchHistoryStore.AddEntry(keywordSearchHistory, keywordFilter);
-        keywordSearchHistory.Clear();
-        keywordSearchHistory.AddRange(nextHistory);
-        keywordSearchHistorySettingsStore.KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(keywordSearchHistory);
+        KeywordSearchSavedQueryMutationResult result = keywordSearchSavedQueryOwner.TryCommitHistory(keywordFilter);
+        if (!result.Succeeded)
+        {
+            throw result.Exception ?? new InvalidOperationException("Keyword search history persistence failed.");
+        }
     }
 
     private void UpdateKeywordSearchPresentation(bool raiseHelpText)
@@ -270,26 +269,6 @@ public sealed class ChartListFilterViewModel : ViewModel
         {
             RaisePropertyChanged(nameof(KeywordSearchHelpText));
         }
-    }
-
-    private void SetKeywordSearchSuggestions(
-        IReadOnlyList<KeywordSearchSuggestionItem> suggestions,
-        KeywordSearchSuggestionKind kind)
-    {
-        keywordSearchSuggestions.Clear();
-        foreach (KeywordSearchSuggestionItem suggestion in suggestions ?? [])
-        {
-            keywordSearchSuggestions.Add(suggestion);
-        }
-        string nextHeaderText = keywordSearchSuggestions.Count == 0
-            ? string.Empty
-            : KeywordSearchPresentationText.BuildSuggestionHeaderText(kind);
-        if (!string.Equals(keywordSearchSuggestionHeaderText, nextHeaderText, StringComparison.Ordinal))
-        {
-            keywordSearchSuggestionHeaderText = nextHeaderText;
-            RaisePropertyChanged(nameof(KeywordSearchSuggestionHeaderText));
-        }
-        IsKeywordSearchSuggestionPopupOpen = keywordSearchSuggestions.Count > 0;
     }
 
     /// <summary>

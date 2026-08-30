@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
@@ -463,16 +464,18 @@ public sealed class MainWindowChartPresentationWpfTests
                 new Settings(),
                 (viewModel, window) =>
                 {
-                    TextBox keyword = GetNamedElement<TextBox>(window, "KeywordSearchBox");
+                    KeywordSearchEditor searchEditor = GetNamedElement<KeywordSearchEditor>(window, "KeywordSearchEditor");
+                    TextBox keyword = searchEditor.InputTextBoxControl;
                     CustomTableView table = GetNamedElement<CustomTableView>(window, "customTableView");
 
-                    AssertBindingPath(keyword, TextBox.TextProperty, "ChartFilters.KeywordFilter");
+                    AssertBindingPath(searchEditor, KeywordSearchEditor.TextProperty, "ChartFilters.KeywordFilter");
+                    AssertBindingPath(keyword, TextBox.TextProperty, "Text");
                     Assert.AreSame(viewModel.MainChartList, table.DataContext);
                     AssertBindingPath(table, CustomTableView.ItemsSourceProperty, "Rows");
                     AssertBindingPath(table, CustomTableView.SelectedIndexProperty, "SelectedIndex");
 
                     keyword.Text = "wave6e-filter";
-                    BindingOperations.GetBindingExpression(keyword, TextBox.TextProperty)?.UpdateSource();
+                    BindingOperations.GetBindingExpression(searchEditor, KeywordSearchEditor.TextProperty)?.UpdateSource();
                     Assert.AreEqual("wave6e-filter", viewModel.ChartFilters.KeywordFilter);
                 });
         });
@@ -492,7 +495,7 @@ public sealed class MainWindowChartPresentationWpfTests
                 Grid rootGrid = GetNamedElement<Grid>(window, "grid");
                 Assert.AreEqual(27d, rootGrid.RowDefinitions[1].Height.Value, 0.01d);
 
-                SearchChrome normal = GetSearchChrome(window, "KeywordSearchBox");
+                SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
                 AssertSearchChromeGeometry(normal);
                 Point normalHelpBeforeWarning = GetRelativeOrigin(normal.HelpSlot, normal.Outer);
                 Point normalClearBeforeWarning = GetRelativeOrigin(normal.ClearSlot, normal.Outer);
@@ -517,7 +520,7 @@ public sealed class MainWindowChartPresentationWpfTests
                 TestUiDispatcherHost.Drain();
                 MaterializeMainWindow(window);
 
-                SearchChrome summary = GetSearchChrome(window, "KeywordSearchBoxPlaylistSummary");
+                SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
                 AssertSearchChromeGeometry(summary);
                 Assert.AreEqual(Visibility.Collapsed, summary.WarningContent.Visibility);
                 Point summaryHelpWithoutWarning = GetRelativeOrigin(summary.HelpSlot, summary.Outer);
@@ -550,20 +553,22 @@ public sealed class MainWindowChartPresentationWpfTests
                 new Settings(),
                 (viewModel, window) =>
                 {
-                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchBox");
-                    SearchChrome summary = GetSearchChrome(window, "KeywordSearchBoxPlaylistSummary");
+                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
+                    SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
                     AssertFilterAffordanceMaterialized(normal);
                     AssertFilterAffordanceMaterialized(summary);
                     MaterializeMainWindow(window);
                     AssertFilterAffordanceRendered(normal);
-                    Assert.AreSame(viewModel, normal.TextBox.DataContext);
-                    Assert.AreSame(viewModel, summary.TextBox.DataContext);
-                    AssertBindingPath(normal.TextBox, TextBox.TextProperty, "ChartFilters.KeywordFilter");
-                    AssertBindingPath(summary.TextBox, TextBox.TextProperty, "PlaylistWorkspace.PlaylistSummaryKeywordFilter");
+                    Assert.AreSame(viewModel, normal.Editor.DataContext);
+                    Assert.AreSame(viewModel, summary.Editor.DataContext);
+                    AssertBindingPath(normal.Editor, KeywordSearchEditor.TextProperty, "ChartFilters.KeywordFilter");
+                    AssertBindingPath(summary.Editor, KeywordSearchEditor.TextProperty, "PlaylistWorkspace.PlaylistSummaryKeywordFilter");
+                    AssertBindingPath(normal.TextBox, TextBox.TextProperty, "Text");
+                    AssertBindingPath(summary.TextBox, TextBox.TextProperty, "Text");
                     AssertBindingPath(normal.HelpButton, ToggleButton.IsCheckedProperty, "ChartFilters.IsKeywordSearchHelpOpen");
                     AssertBindingPath(summary.HelpButton, ToggleButton.IsCheckedProperty, "PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen");
-                    AssertBindingPath(normal.SuggestionPopup, Popup.IsOpenProperty, "ChartFilters.IsKeywordSearchSuggestionPopupOpen");
-                AssertBindingPath(summary.SuggestionPopup, Popup.IsOpenProperty, "PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen");
+                    Assert.IsNull(BindingOperations.GetBindingExpression(normal.SuggestionPopup, Popup.IsOpenProperty));
+                    Assert.IsNull(BindingOperations.GetBindingExpression(summary.SuggestionPopup, Popup.IsOpenProperty));
                 Assert.AreSame(normal.TextBox, normal.SuggestionPopup.PlacementTarget);
                     Assert.AreSame(summary.TextBox, summary.SuggestionPopup.PlacementTarget);
                     Assert.AreSame(normal.HelpButton, normal.HelpPopup.PlacementTarget);
@@ -607,18 +612,18 @@ public sealed class MainWindowChartPresentationWpfTests
                     ChartModeFilter modeAfterNormalInteraction = viewModel.ChartFilters.ModeFilter;
 
                     normal.TextBox.Text = "title:normal";
-                BindingOperations.GetBindingExpression(normal.TextBox, TextBox.TextProperty)?.UpdateSource();
-                RaiseMouseLeftButtonDown(normal.ClearIcon);
-                BindingOperations.GetBindingExpression(normal.TextBox, TextBox.TextProperty)?.UpdateSource();
-                Assert.AreEqual(string.Empty, normal.TextBox.Text);
-                Assert.AreEqual(string.Empty, viewModel.ChartFilters.KeywordFilter);
+                    BindingOperations.GetBindingExpression(normal.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
+                    RaiseMouseLeftButtonDown(normal.ClearIcon);
+                    BindingOperations.GetBindingExpression(normal.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
+                    Assert.AreEqual(string.Empty, normal.TextBox.Text);
+                    Assert.AreEqual(string.Empty, viewModel.ChartFilters.KeywordFilter);
 
-                summary.TextBox.Text = "name:summary";
-                BindingOperations.GetBindingExpression(summary.TextBox, TextBox.TextProperty)?.UpdateSource();
-                RaiseMouseLeftButtonDown(summary.ClearIcon);
-                BindingOperations.GetBindingExpression(summary.TextBox, TextBox.TextProperty)?.UpdateSource();
-                Assert.AreEqual(string.Empty, summary.TextBox.Text);
-                Assert.AreEqual(string.Empty, viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter);
+                    summary.TextBox.Text = "name:summary";
+                    BindingOperations.GetBindingExpression(summary.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
+                    RaiseMouseLeftButtonDown(summary.ClearIcon);
+                    BindingOperations.GetBindingExpression(summary.Editor, KeywordSearchEditor.TextProperty)?.UpdateSource();
+                    Assert.AreEqual(string.Empty, summary.TextBox.Text);
+                    Assert.AreEqual(string.Empty, viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter);
 
                     viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
                     TestUiDispatcherHost.Drain();
@@ -633,6 +638,636 @@ public sealed class MainWindowChartPresentationWpfTests
     }
 
     [TestMethod]
+    public void SearchEditorRouteOwnsPopupStateInsteadOfViewModel()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (_, window) =>
+                {
+                    KeywordSearchEditor editor = GetNamedElement<KeywordSearchEditor>(window, "KeywordSearchEditor");
+
+                    Assert.IsNull(
+                        BindingOperations.GetBindingExpression(
+                            editor.AssistancePopupControl,
+                            Popup.IsOpenProperty));
+                    Assert.AreSame(editor.InputTextBoxControl, editor.AssistancePopupControl.PlacementTarget);
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_RefreshesImmediatelyAndRestoresEmptySections()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    Assert.IsTrue(owner.TryAddFavorite("title:alpha").Succeeded);
+                    Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory("artist:beta").Succeeded);
+
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.SetCurrentValue(TextBox.TextProperty, string.Empty);
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+
+                        Assert.IsTrue(
+                            chrome.SuggestionPopup.IsOpen,
+                            $"popup={chrome.SuggestionPopup.IsOpen}, ownerOpen={owner.Presentation.IsOpen}, editorOpen={chrome.Editor.Presentation.IsOpen}, sections={owner.Presentation.Sections.Count}, focus={chrome.TextBox.IsKeyboardFocusWithin}");
+                        CollectionAssert.AreEqual(
+                            new[]
+                            {
+                                KeywordSearchPresentationSectionKind.Favorites,
+                                KeywordSearchPresentationSectionKind.History,
+                                KeywordSearchPresentationSectionKind.Fields
+                            },
+                            chrome.Editor.Presentation.Sections.Select(section => section.Kind).ToArray());
+                        Assert.AreEqual("title:alpha", chrome.Editor.Presentation.Sections[0].Items[0].Query);
+                        Assert.AreEqual("artist:beta", chrome.Editor.Presentation.Sections[1].Items[0].Query);
+
+                        chrome.TextBox.Text = "tit";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsTrue(chrome.SuggestionPopup.IsOpen);
+                        Assert.AreEqual(1, chrome.Editor.Presentation.Sections.Count);
+                        Assert.AreEqual(
+                            KeywordSearchPresentationSectionKind.Fields,
+                            chrome.Editor.Presentation.Sections[0].Kind);
+                        Assert.IsTrue(
+                            chrome.Editor.Presentation.Sections[0].Items.All(
+                                item => item.Kind == KeywordSearchPresentationItemKind.Field));
+
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsTrue(chrome.SuggestionPopup.IsOpen);
+                        Assert.AreEqual(3, chrome.Editor.Presentation.Sections.Count);
+
+                        SetKeyboardFocusForNonActivatingPresentation(chrome.HelpButton);
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsFalse(chrome.SuggestionPopup.IsOpen);
+                        Assert.IsFalse(owner.Presentation.IsOpen);
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_AppliesActiveFieldAndValueFragments()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (_, window) =>
+                {
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+
+                        chrome.TextBox.Text = "-tit suffix";
+                        chrome.TextBox.CaretIndex = 4;
+                        TestUiDispatcherHost.Drain();
+                        KeywordSearchPresentationItem field = chrome.Editor.Presentation.VisibleItems
+                            .Single(item => item.Kind == KeywordSearchPresentationItemKind.Field
+                                && string.Equals(item.DisplayText, "-title:", StringComparison.Ordinal));
+                        RaiseApplyButton(chrome.Editor, field.DisplayText);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual("-title: suffix", chrome.TextBox.Text);
+                        Assert.AreEqual(7, chrome.TextBox.CaretIndex);
+
+                        chrome.TextBox.Text = "clear:N  tail";
+                        chrome.TextBox.CaretIndex = 7;
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual(KeywordSearchPresentationSectionKind.Values, chrome.Editor.Presentation.Sections.Single().Kind);
+                        KeywordSearchPresentationItem value = chrome.Editor.Presentation.VisibleItems
+                            .Single(item => item.Kind == KeywordSearchPresentationItemKind.Value
+                                && string.Equals(item.DisplayText, "NP", StringComparison.Ordinal));
+                        RaiseApplyButton(chrome.Editor, value.DisplayText);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual("clear:NP tail", chrome.TextBox.Text);
+                        Assert.AreEqual(9, chrome.TextBox.CaretIndex);
+
+                        chrome.TextBox.Text = "clear:N";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        value = chrome.Editor.Presentation.VisibleItems
+                            .Single(item => item.Kind == KeywordSearchPresentationItemKind.Value
+                                && string.Equals(item.DisplayText, "NP", StringComparison.Ordinal));
+                        RaiseApplyButton(chrome.Editor, value.DisplayText);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual("clear:NP ", chrome.TextBox.Text);
+                        Assert.AreEqual(9, chrome.TextBox.CaretIndex);
+                        Assert.IsTrue(chrome.SuggestionPopup.IsOpen);
+                        Assert.AreEqual(KeywordSearchPresentationSectionKind.Fields, chrome.Editor.Presentation.Sections.Single().Kind);
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_NavigationAndImeKeepInputLifecycleOwnedByEditor()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    Assert.IsTrue(owner.TryAddFavorite("title:alpha").Succeeded);
+                    Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory("artist:beta").Succeeded);
+
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsTrue(chrome.TextBox.IsKeyboardFocusWithin);
+                        Assert.IsTrue(chrome.SuggestionPopup.IsOpen);
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsTrue(chrome.TextBox.IsKeyboardFocusWithin);
+
+                        string beforeIme = chrome.TextBox.Text;
+                        RaiseSearchKey(chrome.TextBox, Key.ImeProcessed);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual(beforeIme, chrome.TextBox.Text);
+                        Assert.IsTrue(chrome.SuggestionPopup.IsOpen);
+
+                        RaiseSearchKey(chrome.TextBox, Key.Enter);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual("artist:beta", chrome.TextBox.Text);
+                        Assert.AreEqual(chrome.TextBox.Text.Length, chrome.TextBox.CaretIndex);
+
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsTrue(chrome.SuggestionPopup.IsOpen);
+                        RaiseSearchKey(chrome.TextBox, Key.Escape);
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsFalse(chrome.SuggestionPopup.IsOpen);
+                        Assert.IsFalse(owner.Presentation.IsOpen);
+
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsTrue(chrome.SuggestionPopup.IsOpen);
+                        Assert.IsTrue(chrome.TextBox.IsKeyboardFocusWithin);
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_SavedRowActionsKeepQueryAndFocusUnchanged()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    Assert.IsTrue(owner.TryAddFavorite("title:favorite").Succeeded);
+                    Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory("artist:history").Succeeded);
+
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+
+                        Border favoriteRow = FindSavedRow(chrome.Editor, "title:favorite");
+                        Button removeFavorite = FindActionButton(
+                            favoriteRow,
+                            Resources.Keyword_search_remove_favorite_tooltip);
+                        Assert.IsFalse(removeFavorite.IsDefault);
+                        Assert.IsNotNull(removeFavorite.ToolTip);
+                        Assert.AreEqual(
+                            Resources.Keyword_search_remove_favorite_tooltip,
+                            AutomationProperties.GetName(removeFavorite));
+                        removeFavorite.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, removeFavorite));
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual(string.Empty, chrome.TextBox.Text);
+                        Assert.IsTrue(chrome.TextBox.IsKeyboardFocusWithin);
+                        CollectionAssert.DoesNotContain(owner.SavedQueryOwner.Favorites.ToArray(), "title:favorite");
+
+                        Border historyRow = FindSavedRow(chrome.Editor, "artist:history");
+                        Button addFavorite = FindActionButton(
+                            historyRow,
+                            Resources.Keyword_search_add_favorite_tooltip);
+                        addFavorite.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, addFavorite));
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual(string.Empty, chrome.TextBox.Text);
+                        Assert.IsTrue(chrome.TextBox.IsKeyboardFocusWithin);
+                        CollectionAssert.Contains(owner.SavedQueryOwner.Favorites.ToArray(), "artist:history");
+                        CollectionAssert.Contains(owner.SavedQueryOwner.History.ToArray(), "artist:history");
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_UsesIndependentSectionViewportsAndSummaryFieldCatalog()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    for (int index = 0; index < 6; index++)
+                    {
+                        Assert.IsTrue(owner.TryAddFavorite($"title:f{index}").Succeeded);
+                        Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory($"artist:h{index}").Succeeded);
+                    }
+
+                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(normal.Editor);
+                        normal.TextBox.Text = string.Empty;
+                        normal.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+
+                        ScrollViewer[] sectionViewports = FindVisualDescendants<ScrollViewer>(
+                                normal.Editor.AssistancePopupControl.Child!)
+                            .ToArray();
+                        Assert.AreEqual(3, sectionViewports.Length);
+                        Assert.AreEqual(130d, sectionViewports[0].MaxHeight, 0.01d);
+                        Assert.AreEqual(130d, sectionViewports[1].MaxHeight, 0.01d);
+                        Assert.AreEqual(260d, sectionViewports[2].MaxHeight, 0.01d);
+                        Assert.IsTrue(sectionViewports.All(viewport => viewport.VerticalScrollBarVisibility == ScrollBarVisibility.Auto));
+                        Button[] actionButtons = FindVisualDescendants<Button>(
+                                normal.Editor.AssistancePopupControl.Child!)
+                            .Where(button => !string.IsNullOrWhiteSpace(AutomationProperties.GetName(button)))
+                            .Where(button => button.Content is string)
+                            .Where(button => button.Visibility == Visibility.Visible && button.IsVisible)
+                            .ToArray();
+                        Assert.IsTrue(actionButtons.Length >= 6);
+                        Assert.IsTrue(actionButtons.All(button => button.ActualWidth > 0d && button.ActualHeight > 0d));
+                        Assert.IsTrue(actionButtons.All(button => button.IsHitTestVisible));
+
+                        viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                        TestUiDispatcherHost.Drain();
+                        SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
+                        FocusSearchEditor(summary.Editor);
+                        summary.TextBox.Text = string.Empty;
+                        summary.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual(
+                            Resources.Keyword_search_summary_editor_name,
+                            AutomationProperties.GetName(summary.TextBox));
+                        Assert.AreEqual(1, summary.Editor.Presentation.Sections.Count);
+                        Assert.AreEqual(
+                            KeywordSearchPresentationSectionKind.Fields,
+                            summary.Editor.Presentation.Sections.Single().Kind);
+                        Assert.IsTrue(
+                            summary.Editor.Presentation.VisibleItems.Any(
+                                item => string.Equals(item.DisplayText, "output:", StringComparison.Ordinal)));
+                        Assert.IsFalse(
+                            summary.Editor.Presentation.VisibleItems.Any(
+                                item => item.Kind == KeywordSearchPresentationItemKind.Value));
+
+                        summary.TextBox.Text = "output:x";
+                        summary.TextBox.CaretIndex = summary.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        Assert.IsFalse(summary.Editor.Presentation.IsOpen);
+                        Assert.IsFalse(summary.Editor.Presentation.Sections.Any(
+                            section => section.Kind == KeywordSearchPresentationSectionKind.Values));
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_RoutedTabAppliesCandidateAndShiftTabReachesSavedActions()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    Assert.IsTrue(owner.TryAddFavorite("title:favorite").Succeeded);
+                    Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory("artist:history").Succeeded);
+
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = "tit";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        RaiseSearchKey(chrome.TextBox, Key.Tab);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual("title:", chrome.TextBox.Text);
+                        Assert.AreEqual(chrome.TextBox.Text.Length, chrome.TextBox.CaretIndex);
+
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        MaterializePopup(chrome.Editor);
+                        Border favoriteRow = FindSavedRow(chrome.Editor, "title:favorite");
+                        Button favoriteAction = FindActionButton(
+                            favoriteRow,
+                            Resources.Keyword_search_remove_favorite_tooltip);
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        RaiseShiftTab(chrome.Editor);
+                        TestUiDispatcherHost.Drain();
+                        CompleteNonActivatingLogicalFocusTransition(favoriteAction);
+                        Assert.AreSame(favoriteAction, Keyboard.FocusedElement);
+                        Assert.AreEqual(
+                            Resources.Keyword_search_remove_favorite_tooltip,
+                            AutomationProperties.GetName(favoriteAction));
+
+                        RaiseRoutedKey(favoriteAction, Key.Space, Keyboard.KeyDownEvent);
+                        RaiseRoutedKey(favoriteAction, Key.Space, Keyboard.KeyUpEvent);
+                        TestUiDispatcherHost.Drain();
+                        CompleteNonActivatingLogicalFocusTransition(chrome.TextBox);
+                        Assert.IsTrue(chrome.TextBox.IsKeyboardFocusWithin);
+                        CollectionAssert.DoesNotContain(owner.SavedQueryOwner.Favorites.ToArray(), "title:favorite");
+
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        MaterializePopup(chrome.Editor);
+                        Border historyRow = FindSavedRow(chrome.Editor, "artist:history");
+                        Button[] historyActions = FindVisualDescendants<Button>(historyRow)
+                            .Where(button => button.Focusable
+                                && button.IsTabStop
+                                && button.Visibility == Visibility.Visible
+                                && button.IsVisible
+                                && button.IsEnabled)
+                            .ToArray();
+                        Assert.AreEqual(2, historyActions.Length);
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        RaiseShiftTab(chrome.Editor);
+                        TestUiDispatcherHost.Drain();
+                        CompleteNonActivatingLogicalFocusTransition(historyActions[0]);
+                        Assert.AreSame(historyActions[0], Keyboard.FocusedElement);
+                        Assert.AreEqual(
+                            Resources.Keyword_search_add_favorite_tooltip,
+                            AutomationProperties.GetName(historyActions[0]));
+                        Assert.AreEqual(
+                            Resources.Keyword_search_delete_history_tooltip,
+                            AutomationProperties.GetName(historyActions[1]));
+
+                        RaiseRoutedKey(historyActions[0], Key.Tab, UIElement.PreviewKeyDownEvent);
+                        TestUiDispatcherHost.Drain();
+                        CompleteNonActivatingLogicalFocusTransition(historyActions[1]);
+                        Assert.AreSame(historyActions[1], Keyboard.FocusedElement);
+                        RaiseRoutedKey(historyActions[1], Key.Tab, UIElement.PreviewKeyDownEvent);
+                        TestUiDispatcherHost.Drain();
+                        CompleteNonActivatingLogicalFocusTransition(chrome.TextBox);
+                        Assert.IsTrue(chrome.TextBox.IsKeyboardFocusWithin);
+                        Assert.IsTrue(chrome.SuggestionPopup.IsOpen);
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_LargeFavoritesVirtualizeOffViewportRows()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    const int favoriteCount = 32;
+                    for (int index = 0; index < favoriteCount; index++)
+                    {
+                        Assert.IsTrue(owner.TryAddFavorite($"title:favorite-{index}").Succeeded);
+                    }
+
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        MaterializeMainWindow(window);
+
+                        DependencyObject popupChild = chrome.SuggestionPopup.Child
+                            ?? throw new AssertFailedException("The search assistance popup has no rendered child.");
+                        int realizedFavorites = FindVisualDescendants<Border>(popupChild)
+                            .Count(border => border.Tag is KeywordSearchPresentationItem item
+                                && item.Kind == KeywordSearchPresentationItemKind.Favorite);
+                        Assert.IsTrue(realizedFavorites > 0);
+                        Assert.IsTrue(
+                            realizedFavorites < favoriteCount,
+                            $"The 5-row Favorites viewport materialized {realizedFavorites} of {favoriteCount} rows.");
+                        Assert.AreEqual(favoriteCount, owner.SavedQueryOwner.Favorites.Count);
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_ShortSectionsSizeToContentForSavedValuesAndFields()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    Assert.IsTrue(owner.TryAddFavorite("title:favorite").Succeeded);
+                    Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory("artist:history").Succeeded);
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        double[] oneSavedRowHeights = GetSectionViewportHeights(chrome.Editor);
+                        Assert.IsTrue(oneSavedRowHeights.Length >= 2);
+                        Assert.IsTrue(oneSavedRowHeights[0] > 0d && oneSavedRowHeights[1] > 0d);
+
+                        Assert.IsTrue(owner.TryAddFavorite("title:favorite-two").Succeeded);
+                        Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory("artist:history-two").Succeeded);
+                        TestUiDispatcherHost.Drain();
+                        double[] twoSavedRowHeights = GetSectionViewportHeights(chrome.Editor);
+                        Assert.IsTrue(twoSavedRowHeights[0] > oneSavedRowHeights[0]);
+                        Assert.IsTrue(twoSavedRowHeights[1] > oneSavedRowHeights[1]);
+
+                        chrome.TextBox.Text = "clear:NP";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        double oneValueHeight = GetSectionViewportHeights(chrome.Editor).Single();
+                        Assert.IsTrue(oneValueHeight > 0d);
+
+                        chrome.TextBox.Text = "clear:N";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        double twoValueHeight = GetSectionViewportHeights(chrome.Editor).Single();
+                        Assert.IsTrue(twoValueHeight > oneValueHeight);
+
+                        chrome.TextBox.Text = "cl";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        double oneFieldHeight = GetSectionViewportHeights(chrome.Editor).Single();
+                        Assert.IsTrue(oneFieldHeight > 0d);
+
+                        chrome.TextBox.Text = "c";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        double twoFieldHeight = GetSectionViewportHeights(chrome.Editor).Single();
+                        Assert.IsTrue(twoFieldHeight > oneFieldHeight);
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_ActiveImeCompositionRoutedEventsDoNotApplyOrCommitHistory()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    int historyCountBefore = owner.SavedQueryOwner.History.Count;
+
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = "tit";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        string textBeforeComposition = chrome.TextBox.Text;
+                        int caretBeforeComposition = chrome.TextBox.CaretIndex;
+
+                        TextComposition composition = new(
+                            InputManager.Current,
+                            chrome.TextBox,
+                            "title");
+                        RaiseCompositionEvent(
+                            chrome.TextBox,
+                            composition,
+                            TextCompositionManager.PreviewTextInputStartEvent);
+                        RaiseCompositionEvent(
+                            chrome.TextBox,
+                            composition,
+                            TextCompositionManager.PreviewTextInputUpdateEvent);
+                        RaiseSearchKey(chrome.TextBox, Key.Enter);
+                        TestUiDispatcherHost.Drain();
+
+                        Assert.AreEqual(textBeforeComposition, chrome.TextBox.Text);
+                        Assert.AreEqual(caretBeforeComposition, chrome.TextBox.CaretIndex);
+                        Assert.AreEqual(historyCountBefore, owner.SavedQueryOwner.History.Count);
+
+                        RaiseCompositionEvent(
+                            chrome.TextBox,
+                            new TextComposition(InputManager.Current, chrome.TextBox, "title"),
+                            TextCompositionManager.TextInputEvent);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual(textBeforeComposition + "title", chrome.TextBox.Text);
+                        Assert.AreEqual(historyCountBefore, owner.SavedQueryOwner.History.Count);
+
+                        // The committed composition was observed by the editor. Reset the
+                        // input to a fresh field prefix and prove ordinary terminal keys
+                        // are no longer blocked by the composition guard.
+                        chrome.TextBox.Text = "tit";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        RaiseSearchKey(chrome.TextBox, Key.Enter);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual("title:", chrome.TextBox.Text);
+                        Assert.AreEqual(chrome.TextBox.Text.Length, chrome.TextBox.CaretIndex);
+
+                        chrome.TextBox.Text = "tit";
+                        chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
+                        TestUiDispatcherHost.Drain();
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        RaiseSearchKey(chrome.TextBox, Key.Tab);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual("title:", chrome.TextBox.Text);
+                        Assert.AreEqual(chrome.TextBox.Text.Length, chrome.TextBox.CaretIndex);
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchEditor_ShiftTabFromSelectedFieldUsesFirstSavedActionWithoutApplyingField()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome chrome = GetSearchChrome(window, "KeywordSearchEditor");
+                    KeywordSearchAssistanceOwner owner = viewModel.ChartFilters.KeywordSearchAssistanceOwner;
+                    Assert.IsTrue(owner.TryAddFavorite("title:favorite").Succeeded);
+                    Assert.IsTrue(owner.SavedQueryOwner.TryCommitHistory("artist:history").Succeeded);
+
+                    WithPresentedMainWindow(window, () =>
+                    {
+                        FocusSearchEditor(chrome.Editor);
+                        chrome.TextBox.Text = string.Empty;
+                        chrome.TextBox.CaretIndex = 0;
+                        TestUiDispatcherHost.Drain();
+                        MaterializePopup(chrome.Editor);
+
+                        // Favorites, History, then the first Field in the flattened
+                        // keyboard order. Shift+Tab must fall back to the first saved
+                        // row instead of applying or targeting the Field.
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        RaiseSearchKey(chrome.TextBox, Key.Down);
+                        TestUiDispatcherHost.Drain();
+                        Assert.AreEqual(string.Empty, chrome.TextBox.Text);
+
+                        Border favoriteRow = FindSavedRow(chrome.Editor, "title:favorite");
+                        Button favoriteAction = FindActionButton(
+                            favoriteRow,
+                            Resources.Keyword_search_remove_favorite_tooltip);
+                        RaiseShiftTab(chrome.Editor);
+                        TestUiDispatcherHost.Drain();
+                        CompleteNonActivatingLogicalFocusTransition(favoriteAction);
+
+                        Assert.AreSame(favoriteAction, Keyboard.FocusedElement);
+                        Assert.AreEqual(string.Empty, chrome.TextBox.Text);
+                        CollectionAssert.Contains(owner.SavedQueryOwner.Favorites.ToArray(), "title:favorite");
+                        CollectionAssert.Contains(owner.SavedQueryOwner.History.ToArray(), "artist:history");
+                    });
+                });
+        });
+    }
+
+    [TestMethod]
     public void SearchTextBoxes_UseOuterFocusCueStyleAndKeepInnerChromeAtZero()
     {
         WithSimpleTextBoxStyles(() =>
@@ -641,8 +1276,8 @@ public sealed class MainWindowChartPresentationWpfTests
                 new Settings(),
                 (viewModel, window) =>
                 {
-                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchBox");
-                    SearchChrome summary = GetSearchChrome(window, "KeywordSearchBoxPlaylistSummary");
+                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
+                    SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
                     AssertSearchTextBoxChrome(normal.TextBox);
                     AssertSearchTextBoxChrome(summary.TextBox);
 
@@ -839,21 +1474,24 @@ public sealed class MainWindowChartPresentationWpfTests
             .SelectMany(canvas => canvas.Children.OfType<TextBox>())
             .SingleOrDefault();
 
-    private static SearchChrome GetSearchChrome(MainWindow window, string textBoxName)
+    private static SearchChrome GetSearchChrome(MainWindow window, string editorName)
     {
-        TextBox textBox = GetNamedElement<TextBox>(window, textBoxName);
-        string suffix = string.Equals(textBoxName, "KeywordSearchBox", StringComparison.Ordinal)
+        string suffix = string.Equals(editorName, "KeywordSearchEditor", StringComparison.Ordinal)
             ? string.Empty
             : "PlaylistSummary";
+        KeywordSearchEditor editor = GetNamedElement<KeywordSearchEditor>(
+            window,
+            editorName);
         return new SearchChrome(
-            textBox,
+            editor,
+            editor.InputTextBoxControl,
             GetNamedElement<Border>(window, $"{suffix}KeywordSearchComposite"),
             GetNamedElement<Grid>(window, $"{suffix}KeywordSearchWarningSlot"),
             GetNamedElement<ToggleButton>(window, $"{suffix}KeywordSearchHelpButton"),
             GetNamedElement<Grid>(window, $"{suffix}KeywordSearchHelpSlot"),
             GetNamedElement<TextBlock>(window, $"{suffix}KeywordSearchClearIcon"),
             GetNamedElement<Grid>(window, $"{suffix}KeywordSearchClearSlot"),
-            GetNamedElement<Popup>(window, $"{suffix}KeywordSearchSuggestionPopup"),
+            editor.AssistancePopupControl,
             GetNamedElement<Popup>(window, $"{suffix}KeywordSearchHelpPopup"));
     }
 
@@ -934,6 +1572,148 @@ public sealed class MainWindowChartPresentationWpfTests
         Assert.AreSame(target, Keyboard.FocusedElement);
     }
 
+    private static void CompleteNonActivatingLogicalFocusTransition(DependencyObject scopeElement)
+    {
+        if (ReferenceEquals(scopeElement, Keyboard.FocusedElement))
+        {
+            return;
+        }
+        DependencyObject focusScope = FocusManager.GetFocusScope(scopeElement);
+        IInputElement? target = FocusManager.GetFocusedElement(focusScope);
+        Assert.IsNotNull(
+            target,
+            $"{scopeElement.GetType().Name} has no production-nominated logical focus target; keyboardFocus={Keyboard.FocusedElement?.GetType().Name ?? "null"}, scope={focusScope.GetType().Name}.");
+        if (!ReferenceEquals(target, Keyboard.FocusedElement))
+        {
+            SetKeyboardFocusForNonActivatingPresentation(target);
+        }
+    }
+
+    private static void FocusSearchEditor(KeywordSearchEditor editor)
+    {
+        SetKeyboardFocusForNonActivatingPresentation(editor.InputTextBoxControl);
+        TestUiDispatcherHost.Drain();
+        Assert.IsTrue(editor.InputTextBoxControl.IsKeyboardFocusWithin);
+    }
+
+    private static void WithPresentedMainWindow(MainWindow window, Action action)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        ArgumentNullException.ThrowIfNull(action);
+        var presentationScope = new TestWindowPresentationScope(
+            Application.Current
+                ?? throw new InvalidOperationException("The shared WPF application host is unavailable."),
+            TestWindowPresentationScope.GetCurrentNativeThreadId());
+        object dataContext = window.DataContext;
+        RoutedEventHandler suppressStartupActivation = (_, _) =>
+        {
+            window.Dispatcher.BeginInvoke(
+                DispatcherPriority.Render,
+                new Action(() =>
+                {
+                    window.Left = SystemParameters.VirtualScreenLeft
+                        + (SystemParameters.VirtualScreenWidth * 4d)
+                        + 4096d;
+                    window.Top = SystemParameters.VirtualScreenTop
+                        + (SystemParameters.VirtualScreenHeight * 4d)
+                        + 4096d;
+                }));
+            window.Dispatcher.BeginInvoke(
+                DispatcherPriority.Loaded,
+                new Action(() => window.DataContext = null));
+        };
+        try
+        {
+            window.Loaded += suppressStartupActivation;
+            presentationScope.ShowAndWaitForContentRendered(window);
+            window.DataContext = dataContext;
+            TestUiDispatcherHost.Drain();
+            action();
+        }
+        finally
+        {
+            window.Loaded -= suppressStartupActivation;
+            presentationScope.Cleanup();
+            window.DataContext = dataContext;
+        }
+    }
+
+    private static void RaiseSearchKey(TextBox textBox, Key key)
+    {
+        RaiseRoutedKey(textBox, key, UIElement.PreviewKeyDownEvent);
+    }
+
+    private static void RaiseShiftTab(KeywordSearchEditor editor)
+    {
+        RaiseRoutedKey(editor.InputTextBoxControl, Key.LeftShift, UIElement.PreviewKeyDownEvent);
+        RaiseRoutedKey(editor.InputTextBoxControl, Key.Tab, UIElement.PreviewKeyDownEvent);
+        RaiseRoutedKey(editor.InputTextBoxControl, Key.LeftShift, UIElement.PreviewKeyUpEvent);
+    }
+
+    private static void RaiseRoutedKey(UIElement target, Key key, RoutedEvent routedEvent)
+    {
+        PresentationSource? source = PresentationSource.FromVisual(target);
+        Assert.IsNotNull(source);
+        target.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key)
+        {
+            RoutedEvent = routedEvent
+        });
+    }
+
+    private static double[] GetSectionViewportHeights(KeywordSearchEditor editor)
+    {
+        DependencyObject popupChild = editor.AssistancePopupControl.Child
+            ?? throw new AssertFailedException("The search assistance popup has no rendered child.");
+        return FindVisualDescendants<ScrollViewer>(popupChild)
+            .Select(viewport => viewport.ActualHeight)
+            .Where(height => height > 0d)
+            .ToArray();
+    }
+
+    private static void RaiseCompositionEvent(
+        TextBox textBox,
+        TextComposition composition,
+        RoutedEvent routedEvent)
+    {
+        textBox.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice, composition)
+        {
+            RoutedEvent = routedEvent
+        });
+    }
+
+    private static void RaiseApplyButton(KeywordSearchEditor editor, string displayText)
+    {
+        DependencyObject popupChild = editor.AssistancePopupControl.Child
+            ?? throw new AssertFailedException("The search assistance popup has no rendered child.");
+        Button button = FindVisualDescendants<Button>(popupChild)
+            .Single(candidate => candidate.Content is TextBlock label
+                && string.Equals(label.Text, displayText, StringComparison.Ordinal));
+        button.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, button));
+    }
+
+    private static Border FindSavedRow(KeywordSearchEditor editor, string query)
+    {
+        DependencyObject popupChild = editor.AssistancePopupControl.Child
+            ?? throw new AssertFailedException("The search assistance popup has no rendered child.");
+        Border? row = FindVisualDescendants<Border>(popupChild)
+            .SingleOrDefault(border => border.Tag is KeywordSearchPresentationItem item
+                && item.Kind is KeywordSearchPresentationItemKind.Favorite or KeywordSearchPresentationItemKind.History
+                && string.Equals(item.Query, query, StringComparison.Ordinal));
+        Assert.IsNotNull(
+            row,
+            $"Saved row '{query}' was not materialized; popupOpen={editor.AssistancePopupControl.IsOpen}, presentationOpen={editor.Presentation.IsOpen}, presentationItems={string.Join("|", editor.Presentation.VisibleItems.Select(item => $"{item.Kind}:{item.Query}"))}, visualItems={string.Join("|", FindVisualDescendants<Border>(popupChild).Select(border => border.Tag).OfType<KeywordSearchPresentationItem>().Select(item => $"{item.Kind}:{item.Query}"))}, focus={Keyboard.FocusedElement?.GetType().Name ?? "null"}.");
+        return row!;
+    }
+
+    private static Button FindActionButton(Border row, string accessibleName)
+    {
+        return FindVisualDescendants<Button>(row)
+            .Single(button => string.Equals(
+                AutomationProperties.GetName(button),
+                accessibleName,
+                StringComparison.Ordinal));
+    }
+
     private static void AssertTextBoxChrome(TextBox textBox, Thickness expectedThickness)
     {
         Assert.AreEqual(expectedThickness, textBox.BorderThickness);
@@ -1008,6 +1788,13 @@ public sealed class MainWindowChartPresentationWpfTests
         TestUiDispatcherHost.Drain();
     }
 
+    private static void MaterializePopup(KeywordSearchEditor editor)
+    {
+        FrameworkElement popupChild = editor.AssistancePopupControl.Child as FrameworkElement
+            ?? throw new AssertFailedException("The search assistance popup has no rendered child.");
+        MaterializeElement(popupChild, 600d, 400d);
+    }
+
     private static void RaiseMouseLeftButtonDown(UIElement element)
     {
         element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
@@ -1035,6 +1822,7 @@ public sealed class MainWindowChartPresentationWpfTests
     }
 
     private sealed record SearchChrome(
+        KeywordSearchEditor Editor,
         TextBox TextBox,
         Border Outer,
         Grid WarningSlot,

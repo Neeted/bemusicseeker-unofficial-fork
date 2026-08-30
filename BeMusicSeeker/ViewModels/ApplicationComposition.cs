@@ -42,6 +42,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
 
+    private readonly IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore;
+
     private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
 
     private readonly ISettingsEditSession settingsEditSession;
@@ -82,6 +84,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     /// <summary>Creates the application composition with replaceable process and audio catalog boundaries.</summary>
     /// <param name="scoreViewerRegistrationGateway">Score Viewer 登録の network boundary。未指定時は production gateway を使います。</param>
+    /// <param name="keywordSearchFavoritesSettingsStore">Keyword search Favorites persistence boundary。</param>
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -106,7 +109,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IUpdaterProcessGateway updaterProcessGateway = null,
         IAudioDeviceCatalog audioDeviceCatalog = null,
         IScoreViewerRegistrationGateway scoreViewerRegistrationGateway = null,
-        IExternalProgramLaunchGateway externalProgramLaunchGateway = null)
+        IExternalProgramLaunchGateway externalProgramLaunchGateway = null,
+        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -147,6 +151,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         mainWindowViewSettingsStore = new SettingsMainWindowViewSettingsStore(() => this.settingsEditSession.Values);
         this.keywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
             ?? new SettingsKeywordSearchHistorySettingsStore(() => this.settingsEditSession.Values);
+        this.keywordSearchFavoritesSettingsStore = keywordSearchFavoritesSettingsStore
+            ?? new SettingsKeywordSearchHistorySettingsStore(() => this.settingsEditSession.Values);
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
         this.installDestinationSettingsProvider = installDestinationSettingsProvider
@@ -170,6 +176,11 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     internal IMainWindowViewSettingsStore MainWindowViewSettingsStore => mainWindowViewSettingsStore;
 
     internal IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore => keywordSearchHistorySettingsStore;
+
+    /// <summary>
+    /// Gets the settings boundary used to persist normal and summary Favorites.
+    /// </summary>
+    internal IKeywordSearchFavoritesSettingsStore KeywordSearchFavoritesSettingsStore => keywordSearchFavoritesSettingsStore;
 
     internal IPlayHistoryDisplaySettingsStore PlayHistoryDisplaySettingsStore => playHistoryDisplaySettingsStore;
 
@@ -260,6 +271,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             mainChartColumnSettingsStore,
             new PlaylistSummaryBmtSortCoordinator(tablesProvider, tableSnapshotProvider),
             keywordSearchHistorySettingsStore,
+            keywordSearchFavoritesSettingsStore,
             tablesProvider,
             playlistPropertySaveService,
             libraryProvider,
@@ -444,7 +456,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             this.applicationPathSnapshot,
             this.updaterProcessGateway,
             settingsProvider: () => this.settingsEditSession.Values,
-            externalProgramLaunchGateway: this.externalProgramLaunchGateway);
+            externalProgramLaunchGateway: this.externalProgramLaunchGateway,
+            keywordSearchFavoritesSettingsStore: this.keywordSearchFavoritesSettingsStore);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -591,6 +604,10 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 /// </summary>
 internal sealed class MainWindowChildComposition
 {
+    /// <summary>
+    /// Creates the child owner graph with explicit search persistence boundaries.
+    /// </summary>
+    /// <param name="keywordSearchFavoritesSettingsStore">The explicit normal/summary Favorites settings boundary.</param>
     internal MainWindowChildComposition(
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor,
         MainChartListViewModel mainChartList,
@@ -648,7 +665,8 @@ internal sealed class MainWindowChildComposition
         ApplicationPathSnapshot applicationPathSnapshot = null,
         IUpdaterProcessGateway updaterProcessGateway = null,
         Func<BeMusicSeeker.Properties.Settings> settingsProvider = null,
-        IExternalProgramLaunchGateway externalProgramLaunchGateway = null)
+        IExternalProgramLaunchGateway externalProgramLaunchGateway = null,
+        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -667,7 +685,9 @@ internal sealed class MainWindowChildComposition
             new WpfPlaybackDialogService(new UiDialogCoordinator()),
             exception => NLogWrapper.TraceLogger?.Warn(exception),
             chartFileOperations);
-        ChartFilters = new ChartListFilterViewModel(keywordSearchHistorySettingsStore);
+        ChartFilters = new ChartListFilterViewModel(
+            keywordSearchHistorySettingsStore,
+            keywordSearchFavoritesSettingsStore);
         LibraryFolderTree = new LibraryFolderTreeViewModel(
             libraryFolderTreeDirectoryExists,
             libraryFolderTreeExplorerOpen,

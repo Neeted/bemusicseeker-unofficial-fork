@@ -45,6 +45,7 @@ internal static class PlaylistWorkspaceTestPorts
             PlaylistSummaryColumnSettingsStore,
             PlaylistSummaryBmtSortCoordinator,
             KeywordSearchHistorySettingsStore,
+            KeywordSearchFavoritesSettingsStore,
             PlaylistStoreProvider,
             PlaylistPropertySaveService,
             () => null!,
@@ -181,6 +182,12 @@ internal static class PlaylistWorkspaceTestPorts
     internal static IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore =>
         new InMemoryKeywordSearchHistorySettingsStore();
 
+    /// <summary>
+    /// Creates an isolated Favorites settings boundary for workspace fixtures.
+    /// </summary>
+    internal static IKeywordSearchFavoritesSettingsStore KeywordSearchFavoritesSettingsStore =>
+        new InMemoryKeywordSearchFavoritesSettingsStore();
+
     internal static Func<BMSPlaylist> PlaylistStoreProvider => () => null!;
 
     internal static Func<Action, Task> PlaylistRestoreUiApplyScheduler => action =>
@@ -268,5 +275,12 @@ internal static class PlaylistWorkspaceTestPorts
         public string KeywordSearchHistory { get; set; } = string.Empty;
 
         public string PlaylistSummaryKeywordSearchHistory { get; set; } = string.Empty;
+    }
+
+    private sealed class InMemoryKeywordSearchFavoritesSettingsStore : IKeywordSearchFavoritesSettingsStore
+    {
+        public string KeywordSearchFavorites { get; set; } = string.Empty;
+
+        public string PlaylistSummaryKeywordSearchFavorites { get; set; } = string.Empty;
     }
 }

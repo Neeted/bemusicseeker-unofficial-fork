@@ -7,9 +7,66 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private readonly List<string> playlistSummaryKeywordSearchHistory = [];
+    private readonly KeywordSearchSavedQueryOwner playlistSummaryKeywordSearchSavedQueryOwner;
 
-    private readonly IKeywordSearchHistorySettingsStore playlistSummaryKeywordSearchHistorySettingsStore;
+    private readonly KeywordSearchAssistanceOwner playlistSummaryKeywordSearchAssistanceOwner;
+
+    /// <summary>
+    /// Gets the immutable assistance owner used by the playlist-summary keyword editor.
+    /// </summary>
+    internal KeywordSearchAssistanceOwner PlaylistSummaryKeywordSearchAssistanceOwner
+        => playlistSummaryKeywordSearchAssistanceOwner;
+
+    /// <summary>
+    /// Marks playlist-summary keyword assistance focused and returns its immutable presentation.
+    /// </summary>
+    internal KeywordSearchPresentationState FocusPlaylistSummaryKeywordSearch(string text, int caretIndex)
+        => playlistSummaryKeywordSearchAssistanceOwner.Focus(text, caretIndex);
+
+    /// <summary>
+    /// Closes playlist-summary keyword assistance on focus loss.
+    /// </summary>
+    internal KeywordSearchPresentationState BlurPlaylistSummaryKeywordSearch()
+        => playlistSummaryKeywordSearchAssistanceOwner.Blur();
+
+    /// <summary>
+    /// Refreshes playlist-summary keyword assistance for the current editor snapshot.
+    /// </summary>
+    internal KeywordSearchPresentationState RefreshPlaylistSummaryKeywordSearchAssistance(string text, int caretIndex)
+        => playlistSummaryKeywordSearchAssistanceOwner.Refresh(text, caretIndex);
+
+    /// <summary>
+    /// Applies a playlist-summary keyword presentation item after revision validation.
+    /// </summary>
+    internal KeywordSearchApplyResult TryApplyPlaylistSummaryKeywordSearchPresentationItem(
+        KeywordSearchPresentationItem item,
+        string text,
+        int caretIndex,
+        long catalogRevision)
+        => playlistSummaryKeywordSearchAssistanceOwner.TryApply(
+            item,
+            text,
+            caretIndex,
+            GridKeywordSearchContext.PlaylistSummary,
+            catalogRevision);
+
+    /// <summary>
+    /// Adds a playlist-summary keyword query to favorites.
+    /// </summary>
+    internal KeywordSearchSavedQueryMutationResult TryAddPlaylistSummaryKeywordSearchFavorite(string query)
+        => playlistSummaryKeywordSearchAssistanceOwner.TryAddFavorite(query);
+
+    /// <summary>
+    /// Removes a playlist-summary keyword query from favorites.
+    /// </summary>
+    internal KeywordSearchSavedQueryMutationResult TryRemovePlaylistSummaryKeywordSearchFavorite(string query)
+        => playlistSummaryKeywordSearchAssistanceOwner.TryRemoveFavorite(query);
+
+    /// <summary>
+    /// Deletes a playlist-summary keyword history query.
+    /// </summary>
+    internal KeywordSearchSavedQueryMutationResult TryDeletePlaylistSummaryKeywordSearchHistory(string query)
+        => playlistSummaryKeywordSearchAssistanceOwner.TryDeleteHistory(query);
 
     internal IReadOnlyList<string> GetPlaylistKeywordValueCandidates()
     {
@@ -38,88 +95,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    internal void RefreshPlaylistSummaryKeywordSearchSuggestions(
-        string keywordFilter,
-        int caretIndex,
-        bool forceHistory)
-    {
-        GridKeywordSearchCompletionResult fieldCompletion = GridKeywordSearchCompletion.CreateFieldCompletion(
-            keywordFilter,
-            caretIndex,
-            GridKeywordSearchContext.PlaylistSummary);
-        if (fieldCompletion.Items.Count > 0)
-        {
-            SetPlaylistSummaryKeywordSearchSuggestions(
-                fieldCompletion.Items,
-                KeywordSearchSuggestionKind.Field);
-            return;
-        }
-
-        if (GridKeywordSearchCompletion.IsPlaylistValueCompletionContext(
-            keywordFilter,
-            caretIndex,
-            GridKeywordSearchContext.PlaylistSummary))
-        {
-            GridKeywordSearchCompletionResult playlistValueCompletion =
-                GridKeywordSearchCompletion.CreatePlaylistValueCompletion(
-                    keywordFilter,
-                    caretIndex,
-                    GridKeywordSearchContext.PlaylistSummary,
-                    []);
-            if (playlistValueCompletion.Items.Count > 0)
-            {
-                SetPlaylistSummaryKeywordSearchSuggestions(
-                    playlistValueCompletion.Items,
-                    KeywordSearchSuggestionKind.Value);
-                return;
-            }
-        }
-
-        if (forceHistory)
-        {
-            SetPlaylistSummaryKeywordSearchSuggestions(
-                KeywordSearchPresentationText.BuildHistorySuggestions(
-                    playlistSummaryKeywordSearchHistory,
-                    keywordFilter),
-                KeywordSearchSuggestionKind.History);
-            return;
-        }
-
-        SetPlaylistSummaryKeywordSearchSuggestions([], KeywordSearchSuggestionKind.Field);
-    }
-
-    internal void ClosePlaylistSummaryKeywordSearchSuggestions()
-    {
-        IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = false;
-    }
-
     internal void CommitPlaylistSummaryKeywordSearchHistory(string keywordFilter)
     {
-        IReadOnlyList<string> nextHistory = KeywordSearchHistoryStore.AddEntry(
-            playlistSummaryKeywordSearchHistory,
-            keywordFilter);
-        playlistSummaryKeywordSearchHistory.Clear();
-        playlistSummaryKeywordSearchHistory.AddRange(nextHistory);
-        playlistSummaryKeywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(
-            playlistSummaryKeywordSearchHistory);
-    }
-
-    private void SetPlaylistSummaryKeywordSearchSuggestions(
-        IReadOnlyList<KeywordSearchSuggestionItem> suggestions,
-        KeywordSearchSuggestionKind kind)
-    {
-        playlistSummaryKeywordSearchSuggestions.Clear();
-        foreach (KeywordSearchSuggestionItem suggestion in suggestions ?? [])
+        KeywordSearchSavedQueryMutationResult result = playlistSummaryKeywordSearchSavedQueryOwner.TryCommitHistory(keywordFilter);
+        if (!result.Succeeded)
         {
-            playlistSummaryKeywordSearchSuggestions.Add(suggestion);
+            throw result.Exception ?? new InvalidOperationException("Playlist summary keyword search history persistence failed.");
         }
-
-        SetPlaylistSummaryKeywordSearchSuggestionHeaderText(
-            playlistSummaryKeywordSearchSuggestions.Count == 0
-                ? string.Empty
-                : KeywordSearchPresentationText.BuildSuggestionHeaderText(kind));
-        IsPlaylistSummaryKeywordSearchSuggestionPopupOpen =
-            playlistSummaryKeywordSearchSuggestions.Count > 0;
     }
 
     private void UpdatePlaylistSummaryKeywordSearchPresentation()
@@ -143,15 +125,4 @@ public sealed partial class PlaylistWorkspaceViewModel
         RaisePropertyChanged(nameof(HasPlaylistSummaryKeywordSearchWarning));
     }
 
-    private void SetPlaylistSummaryKeywordSearchSuggestionHeaderText(string value)
-    {
-        string next = value ?? string.Empty;
-        if (playlistSummaryKeywordSearchSuggestionHeaderText == next)
-        {
-            return;
-        }
-
-        playlistSummaryKeywordSearchSuggestionHeaderText = next;
-        RaisePropertyChanged(nameof(PlaylistSummaryKeywordSearchSuggestionHeaderText));
-    }
 }

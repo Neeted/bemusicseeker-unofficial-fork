@@ -33,7 +33,7 @@ internal static class KeywordSearchHistoryStore
             try
             {
                 string entry = Encoding.UTF8.GetString(Convert.FromBase64String(line.Trim()));
-                string normalizedEntry = NormalizeEntry(entry);
+                string normalizedEntry = NormalizeEntryForIdentity(entry);
                 if (!string.IsNullOrEmpty(normalizedEntry) && !history.Contains(normalizedEntry, StringComparer.OrdinalIgnoreCase))
                 {
                     history.Add(normalizedEntry);
@@ -70,7 +70,7 @@ internal static class KeywordSearchHistoryStore
     /// <returns>追加後の履歴一覧。</returns>
     internal static IReadOnlyList<string> AddEntry(IEnumerable<string> history, string entry)
     {
-        string normalizedEntry = NormalizeEntry(entry);
+        string normalizedEntry = NormalizeEntryForIdentity(entry);
         if (string.IsNullOrEmpty(normalizedEntry))
         {
             return [.. NormalizeEntries(history)];
@@ -88,7 +88,7 @@ internal static class KeywordSearchHistoryStore
         List<string> entries = [];
         foreach (string entry in history ?? [])
         {
-            string normalizedEntry = NormalizeEntry(entry);
+            string normalizedEntry = NormalizeEntryForIdentity(entry);
             if (!string.IsNullOrEmpty(normalizedEntry) && !entries.Contains(normalizedEntry, StringComparer.OrdinalIgnoreCase))
             {
                 entries.Add(normalizedEntry);
@@ -101,7 +101,10 @@ internal static class KeywordSearchHistoryStore
         return entries;
     }
 
-    private static string NormalizeEntry(string entry)
+    /// <summary>
+    /// Normalizes a saved query for case-insensitive identity and legacy line compatibility.
+    /// </summary>
+    internal static string NormalizeEntryForIdentity(string entry)
     {
         return (entry ?? string.Empty)
             .Replace('\r', ' ')

@@ -1,162 +1,143 @@
-# Keyword Search Syntax Guide
+# Keyword Search Guide
 
 [![Japanese](https://img.shields.io/badge/lang-Japanese-blue.svg)](keyword-search-syntax-guide.ja.md)
 [![English](https://img.shields.io/badge/lang-English-red.svg)](keyword-search-syntax-guide.md)
 
-BeMusicSeeker search boxes support regular word search, multi-word AND search, field-qualified search, phrase search, exclusion conditions, OR, and regular expressions.
+The BeMusicSeeker search box can quickly narrow a list by title, artist, and other information. You can also choose where to search and combine multiple conditions.
 
-This syntax is mainly available in the following search boxes:
+The searches in this guide are mainly available in:
 
 - Main chart list
 - Playlist detail
 - Playlist list
 - Play Log
 
+Available search fields vary by screen. You can always check the candidates shown in the search box to see what is available.
+
 ---
 
-## Input Assistance
+## Searches to Try First
 
-Search boxes provide field completion for easier field-qualified search input, and search history for recalling previous searches.
+| What you want to find | Example |
+| :--- | :--- |
+| Charts containing `alpha` | `alpha` |
+| A specific TITLE and ARTIST | `title:alpha artist:xi` |
+| Charts from level 10 through 12 | `level:10..12` |
+| Anything outside a backup folder | `-path:backup` |
+| Charts referenced by a playlist | `playlist:"Satellite Sub"` |
+| Play Log entries from a date | `date:2026-08-27` |
 
-### Field Completion
+Separate conditions with spaces. Only rows matching every condition are shown.
 
-When you start typing a field name in a search box, available fields are shown as candidates.
+---
+
+## Suggestions, Favorites, and Search History
+
+Select a search box to see suggestions that match the current input.
+
+### Before You Type
+
+When the search box is empty, available groups appear in this order:
+
+1. Favorites
+2. Search history
+3. Search fields
+
+Favorites and Search history each show up to five rows at once; scroll to see additional rows. Search fields show up to ten rows at once.
+
+### As You Type
+
+Start typing a search field to narrow the suggestions to fields available on the current screen.
 
 ```text
-tit
+t
 ```
 
-In the example above, you can select `title:` as a candidate.
-
-Completion also works for exclusion conditions.
+In the main chart list and playlist detail, this can suggest `table:`, `tag:`, and `title:`. Suggestions also work when you begin an exclusion with `-`.
 
 ```text
 -ar
 ```
 
-In the example above, you can select `-artist:` as a candidate.
+This suggests `-artist:`.
 
-Candidate controls are as follows.
+Fields with a fixed set of choices show Search values after `:`.
 
-| Operation | Behavior |
-| :--- | :--- |
-| `↑` / `↓` | Select a candidate |
-| `Enter` / `Tab` | Confirm the selected candidate |
-| `Esc` | Close candidates |
-| `Ctrl+Space` | Show candidates |
-| Mouse click | Confirm a candidate |
+```text
+clear:
+rank:
+feature:
+```
 
-Field completion completes only field names.
-If you have already typed a search word after `:`, such as `title:alpha`, field completion is not shown.
+After you choose a value, a space is added so you can immediately enter another condition. Free-text fields such as `title:` do not show value suggestions.
 
-### Playlist Name Completion for `playlist:` / `ref:` / `table:`
-
-In the main chart list, playlist detail, and Play Log, entering a search term for `playlist:`, `ref:`, or `table:` shows installed playlist names as candidates.
+For `playlist:`, `ref:`, and `table:`, you can choose from installed playlist names.
 
 ```text
 playlist:Sat
 ```
 
-In the example above, you can select a playlist name such as `Satellite Sub`.
-When a candidate is confirmed, only names that contain spaces, quotes, backslashes, or `|` are automatically wrapped in double quotes.
+Playlist names are automatically placed in double quotes when needed.
 
 ```text
 playlist:"Satellite Sub"
-ref:GENOSIDE
-table:GENOSIDE
 ```
 
-### Search History
+Search fields and Search values show up to ten rows at once; scroll to see additional rows.
 
-Search history is shown when the search box is empty and focused, or when you press `↓`.
-Selecting a history item replaces the entire search box with that search string.
+### Using Favorites
 
-History is saved at the following times:
+Use **Add to Favorites** at the end of a Search history row to save that search. Use **Remove from Favorites** at the end of a Favorite row to remove it.
 
-- When you press `Enter`
-- When focus leaves the search box
-- When you select a history candidate
+- There is no limit to the number of Favorites.
+- Adding or removing a Favorite does not change what you are currently typing.
+- When the same search exists in both places, it is shown only in Favorites. Removing it from Favorites makes its history entry visible again if that entry still exists.
 
-History is stored separately for normal search boxes and the playlist-list search box.
-Each history keeps up to 20 entries. Duplicate search strings are not stored; when the same string is used again, it moves to the top.
+The main chart list, playlist detail, and Play Log share the same Favorites. The Playlist list keeps a separate set. A Favorite or history entry that uses a field unavailable on the current screen is hidden there but is not deleted.
+
+### Using Search History
+
+Pressing `Enter` after typing a search, or moving away from the search box, saves it to Search history. Choosing a Favorite or history row replaces the full contents of the search box and moves that search to the top of Search history.
+
+- Up to 20 searches are kept, most recent first.
+- Reusing the same search moves it to the top instead of creating a duplicate.
+- Use **Delete from search history** to delete an entry you no longer need.
+
+Search history is shared by the main chart list, playlist detail, and Play Log. The Playlist list keeps a separate history.
+
+### Keyboard Controls
+
+| Key | Result |
+| :--- | :--- |
+| `↑` / `↓` | Select a suggestion |
+| `Enter` / `Tab` | Insert the selected suggestion |
+| `Esc` | Close suggestions |
+| `Ctrl+Space` | Open suggestions again |
+| `Shift+Tab` | Move to the action buttons for the selected Favorite or history row |
+
+After moving to an action button, use `Tab` / `Shift+Tab` to move between buttons and `Enter` or `Space` to activate one. Pressing `Enter` to confirm IME text does not choose a suggestion.
 
 ---
 
 ## Basic Search
 
-Typing a search word shows rows where any target column contains that string.
-Matching is case-insensitive.
+### Search for Text
+
+Enter a word to show rows containing that text in any default search column. Matching is case-insensitive.
 
 ```text
 alpha
 ```
 
-When multiple words are separated by spaces, only rows matching all words are shown.
+Separate words with spaces to require every word.
 
 ```text
 alpha artist
 ```
 
-The example above shows rows that match both `alpha` and `artist`.
+### Choose Where to Search
 
----
-
-## Target Columns
-
-### Main Chart List
-
-Normal search targets the following columns:
-
-- TITLE
-- ARTIST
-- GENRE
-- TAG
-- PATH
-- Display symbols in the PLAYLIST column
-- MD5
-- SHA256
-
-### Playlist Detail
-
-Normal search targets the same columns as the main chart list, plus:
-
-- memo
-- comment
-
-### Playlist List
-
-Normal search targets:
-
-- playlist id
-- name
-- symbol
-
-### Play Log
-
-Normal search targets:
-
-- TITLE
-- ARTIST
-- PATH
-- Display labels in the FOLDER column
-- Referenced playlist names
-- raw hash
-- MD5
-- SHA256
-- TYPE
-- score write type
-- CLEAR
-- source name
-- source path
-- play date (for example, `2026-08-27`)
-
-In the Play Log, not every displayed column is part of normal search. BEST DJ, BEST RATE, BEST EXSCORE, BP, COMBO, OPTION, OP HISTORY, PLAY EXSCORE, and JUDGES are not currently targeted by normal search or field-qualified search.
-
----
-
-## Field-Qualified Search
-
-Use `field:keyword` to restrict the search target to a specific column.
+Use `field:value` to limit a condition to one kind of information.
 
 ```text
 title:alpha
@@ -164,59 +145,139 @@ artist:xi
 sha256:abcdef
 ```
 
-Tokens beginning with `A:` through `Z:` or `a:` through `z:` are treated as Windows paths containing drive letters, not as field-qualified terms.
-This means full paths and drive-relative paths can be searched as-is without quotes.
-
-```text
-D:\BMS\
-D:
-```
-
-Multiple field-qualified terms are combined with AND.
+Multiple conditions are combined with AND.
 
 ```text
 title:alpha artist:xi
 ```
 
-### Fields Available in the Main Chart List and Playlist Detail
+Text containing a Windows drive letter, such as `D:\BMS\`, can be searched as a path.
 
-| field | Target |
+### Search for Text Containing Spaces
+
+Place the text in double quotes.
+
+```text
+"alpha title"
+title:"alpha title"
+```
+
+### Exclude Matching Rows
+
+Place `-` before a condition.
+
+```text
+alpha -artist:beta
+-path:backup
+```
+
+### Match Either Value
+
+Use `|` within one condition.
+
+```text
+alpha|beta
+title:alpha|beta
+```
+
+`|` cannot join different fields, so cross-field OR searches such as `title:alpha|artist:beta` are not supported. Entering separate conditions combines them with AND instead.
+
+---
+
+## Search Fields by Screen
+
+### Main Chart List and Playlist Detail
+
+| Field | Information searched |
 | :--- | :--- |
 | `title` | TITLE |
 | `artist` | ARTIST |
 | `genre` | GENRE |
 | `tag` | TAG |
-| `path` | PATH |
-| `playlist` / `ref` / `table` | Referenced playlist name. Searches the full playlist name shown in the tooltip, not the short display symbol in the PLAYLIST column |
+| `path` | File or folder path |
+| `playlist` / `ref` / `table` | Referenced playlist name |
 | `md5` / `hash` | MD5 |
 | `sha256` | SHA256 |
-| `level` | `chart_info.level` |
-| `difficulty` | `chart_info.difficulty`. `beginner`, `normal`, `hyper`, `another`, and `insane` can also be specified |
-| `mainbpm` | `chart_info.mainbpm` |
-| `maxbpm` | `chart_info.maxbpm` |
-| `minbpm` | `chart_info.minbpm` |
-| `duration` / `length` | Play duration, specified in seconds |
-| `judge` / `judge%` / `judgepct` | Judge width multiplier. `judge` also accepts `veryhard`, `hard`, `normal`, `easy`, and `veryeasy` |
-| `feature` | `ln`, `mine`, `random`, `lnmode`, `cn`, `hcn`, `stop`, `scroll` |
+| `level` | Level |
+| `difficulty` | Difficulty. Also accepts `beginner`, `normal`, `hyper`, `another`, and `insane` |
+| `mainbpm` | Main BPM |
+| `maxbpm` | Maximum BPM |
+| `minbpm` | Minimum BPM |
+| `duration` / `length` | Play duration in seconds |
+| `judge` / `judge%` / `judgepct` | Judge width. Also accepts `veryhard`, `hard`, `normal`, `easy`, and `veryeasy` |
+| `feature` | Chart features: `ln`, `mine`, `random`, `lnmode`, `cn`, `hcn`, `stop`, `scroll` |
 | `notes` | Total notes |
 | `long` / `ln` | Long-note count |
-| `scratch` | Normal scratch + long scratch |
-| `total` | Effective TOTAL value |
-| `tn` / `t/n` | `total / notes` |
+| `scratch` | Scratch count |
+| `total` | TOTAL value |
+| `tn` / `t/n` | TOTAL divided by note count |
 | `density` | Average density |
-| `peak` / `peakdensity` | Maximum density in a 1-second window |
+| `peak` / `peakdensity` | Peak density |
 | `end` / `enddensity` | Ending density |
 | `soflan` | Number of speed changes |
-| `clear` | CLEAR. Accepts `NP`, `F`, `AE`, `LAE`, `EC`, `NC`, `HC`, `EXH`, `FC`, `PF`, `MAX`, or display names |
-| `rank` / `djlevel` / `dj` | DJ LEVEL. Accepts `F`, `E`, `D`, `C`, `B`, `A`, `AA`, `AAA`, `MAX` |
-| `rate` | RATE. This is the `rateDouble` value, so `0.95` means 95% |
+| `clear` | Clear status |
+| `rank` / `djlevel` / `dj` | DJ LEVEL |
+| `rate` | RATE. Enter `0.95` for 95% |
 | `score` | SCORE |
 | `combo` | COMBO |
 | `bp` | BP |
-| `memo` | memo. Playlist detail only |
-| `comment` | comment. Playlist detail only |
+| `memo` | Memo; Playlist detail only |
+| `comment` | Comment; Playlist detail only |
 
-Numeric fields support ranges and comparison operators.
+Without a field, the main chart list searches TITLE, ARTIST, GENRE, TAG, PATH, playlist display symbols, MD5, and SHA256. Playlist detail also searches memo and comment.
+
+### Playlist List
+
+| Field | Information searched |
+| :--- | :--- |
+| `id` | Playlist ID |
+| `output` | Output destination display name |
+| `name` | Playlist name |
+| `folder` / `foldername` | Folder name |
+| `prefix` | Folder prefix |
+| `symbol` | Display symbol |
+| `header` | Header URL |
+| `data` | Data URL |
+
+Without a field, the Playlist list searches all the information shown in this table.
+
+While you type, this screen suggests Search fields but not Search values.
+
+### Play Log
+
+| Field | Information searched |
+| :--- | :--- |
+| `title` | TITLE |
+| `artist` | ARTIST |
+| `path` | Chart path |
+| `folder` | Name shown in the FOLDER column |
+| `playlist` / `ref` / `table` | Referenced playlist name |
+| `md5` | MD5 |
+| `hash` | Hash recorded in the history: MD5 for LR2 and SHA256 for beatoraja |
+| `sha256` | SHA256 |
+| `date` | Play date and time |
+| `year` | Play year |
+| `month` | Play month, such as `2026-08`, `2026/08`, or `8` |
+| `type` / `kind` | Update type: `score`, `bp`, `clear`, `combo`, or `play` |
+| `clear` | Clear status before or after the update |
+| `oldclear` | Clear status before the update |
+| `newclear` | Clear status after the update |
+| `finalized` | Whether the entry is finalized: `true` or `false` |
+| `source` | History source name or path |
+
+Without a field, Play Log searches TITLE, ARTIST, PATH, the FOLDER display name, referenced playlist names, hashes, TYPE, clear status, source, and play date.
+
+Play Log does not support chart-list fields such as `level`, `difficulty`, `notes`, `rank`, `rate`, `score`, or `bp`.
+
+Summary cards above the list can be combined with the search box. For example, the SCORE update card is equivalent to `type:score`, and the EASY card is equivalent to `type:clear newclear:EC`. Card filters are combined with the search box using AND; multiple selected cards are combined with OR.
+
+---
+
+## Numbers, Statuses, and Dates
+
+### Compare Numbers
+
+Numeric fields accept ranges and comparison operators.
 
 ```text
 level:10..12
@@ -227,27 +288,44 @@ rate:0.95..
 bp:0..10
 ```
 
-`defined` / `undefined` are also available. `undefined` can also be written as `undef` or `null`.
-When `chart_info` has not been built, when `level` is NULL, or when `difficulty_defined=false` / `total_defined=false`, the value matches `undefined`.
-For numeric score-related fields, missing values such as scores that have not been acquired match `undefined`.
-`rank` matches `undefined` when DJ LEVEL is empty.
-`clear` always matches `defined` because `NO SONG` and `NO PLAY` are also treated as CLEAR types.
+- `10..12`: from 10 through 12
+- `>=2000`: 2000 or more
+- `<120`: less than 120
+- `2.0..`: 2.0 or more
+
+### Search by Whether Information Is Available
+
+Use `defined` for rows with a value and `undefined` for rows without one. You can also write `undefined` as `undef`.
 
 ```text
 total:undefined
-total:undef
-total:null
 difficulty:defined
--feature:random
 score:defined
 rank:undefined
 ```
 
-`clear` is an exact match against the CLEAR type.
-In addition to display names, the following abbreviations can be used.
+Missing chart-analysis or score information matches `undefined`. In the main chart list and playlist detail, `clear` always has a status, including NO SONG or NO PLAY, so it does not match `clear:undefined`. In Play Log, `clear:defined` shows rows that have a clear status recorded after the update.
 
-| Input | Target |
+### Common Suggested Values
+
+| Search field | Common values |
 | :--- | :--- |
+| `difficulty` | `beginner`, `normal`, `hyper`, `another`, `insane` |
+| `judge` | `veryhard`, `hard`, `normal`, `easy`, `veryeasy` |
+| `feature` | `ln`, `mine`, `random`, `lnmode`, `cn`, `hcn`, `stop`, `scroll` |
+| `rank` / `djlevel` / `dj` | `F`, `E`, `D`, `C`, `B`, `A`, `AA`, `AAA`, `MAX` |
+| Play Log `type` / `kind` | `score`, `bp`, `clear`, `combo`, `play` |
+| Play Log `finalized` | `true`, `false` |
+
+Fields that can distinguish missing information also suggest `defined` and `undefined`.
+
+### Search by Clear Status
+
+`clear`, `oldclear`, and `newclear` accept the displayed name or one of these abbreviations.
+
+| Input | Clear status |
+| :--- | :--- |
+| `nosong` | NO SONG |
 | `NP` | NO PLAY |
 | `F` | FAILED |
 | `AE` | ASSIST |
@@ -260,259 +338,69 @@ In addition to display names, the following abbreviations can be used.
 | `PF` | PERFECT |
 | `MAX` | MAX |
 
-### Fields Available in the Playlist List
+```text
+clear:HC
+oldclear:NC newclear:HC
+```
 
-| field | Target |
-| :--- | :--- |
-| `id` | playlist id |
-| `name` | name |
-| `folder` / `foldername` | folder name |
-| `prefix` | folder prefix |
-| `symbol` | symbol |
-| `header` | resolved header URI |
-| `data` | resolved data URI |
+### Search by Play Date and Time
 
-### Fields Available in the Play Log
+In Play Log, you can enter a date, a date and time, or a period.
 
-The Play Log uses a field set separate from the main chart list and playlist detail.
-
-| field | Target |
-| :--- | :--- |
-| `title` | TITLE |
-| `artist` | ARTIST |
-| `path` | PATH |
-| `folder` | Display labels in the FOLDER column |
-| `playlist` / `ref` / `table` | Referenced playlist name. Searches the resolved playlist name, not the short display label in the FOLDER column |
-| `md5` | MD5. In beatoraja history, this has a value only when MD5 can be resolved from an owned chart or similar source |
-| `hash` | raw hash. LR2 targets the recorded MD5, and beatoraja targets the recorded SHA256 |
-| `sha256` | SHA256 |
-| `date` | Play date and time. You can specify a date, a date and time, or a period from a start time through an end time |
-| `year` | Play year. Example: `2026` |
-| `month` | Play month. Accepts `yyyy-MM`, `yyyy/MM`, or `1` through `12` |
-| `type` / `kind` | TYPE and score write type. `type` is the primary name; `kind` is a compatibility alias. Examples: `score`, `bp`, `clear`, `combo`, `play` |
-| `clear` | CLEAR before or after the update. Accepts the same abbreviations as normal `clear:` |
-| `oldclear` | CLEAR before the update. Accepts the same abbreviations as normal `clear:` |
-| `newclear` | CLEAR after the update. Accepts the same abbreviations as normal `clear:` |
-| `finalized` | Whether the row is finalized. Accepts `true`, `1`, `yes`, `y`, `finalized` / `false`, `0`, `no`, `n`, `unfinalized`, `pending` |
-| `source` | source name and source path |
-
-#### Filtering by Play Date and Time
-
-To filter by date, enter a date after `date:`.
+For a specific time, an easy option is to copy the displayed DATE value, place it in double quotes, and add `date:` before it.
 
 ```text
 date:2026-08-27
 date:2026/8/27
 date:20260827
-```
-
-To filter by a specific date and time, copy the value from a DATE cell, wrap it in double quotes, and add `date:` before it.
-
-```text
 date:"2026/08/27 10:22:50"
-```
-
-To filter by a period, join the start and end times with `..` and wrap the entire value in double quotes. Plays at the start and end times are included in the results.
-
-```text
 date:"2026/08/27 10:22:50..2026/08/27 11:04:12"
 ```
 
-You can also select two or more Play Log rows, right-click, and choose **Add period to search**. This appends a condition covering the earliest through the latest selected play time while preserving any text already in the search box.
+A period includes plays at both its start and end times.
 
-Use one of the date, date-and-time, or period formats shown above with `date:`. Unsupported formats show a warning and do not match any results.
-
-In the Play Log, `clear:defined` matches rows that have a CLEAR value after the update. This differs from the main chart list and playlist detail, where `clear` always matches `defined` because `NO SONG` and `NO PLAY` are also treated as CLEAR types.
-Click filtering from the top summary cards also uses these search fields internally. For example, the SCORE update card is equivalent to `type:score`, and the EASY card is equivalent to `type:clear newclear:EC`. Card filters are applied with AND against the search-box filter. When multiple cards are selected, the cards are combined with OR.
-The Play Log also does not support main-chart-list / playlist-detail fields such as `level`, `difficulty`, `notes`, `rank`, `rate`, `score`, and `bp`. They are treated as unknown fields.
+You can also select two or more Play Log rows, right-click, and choose **Add period to search**. This adds a period from the earliest through the latest selected play while keeping the conditions already in the search box.
 
 ---
 
-## Phrase Search
+## Advanced Search
 
-To treat a string containing spaces as a single search word, wrap it in double quotes.
+### Regular Expressions
 
-```text
-"alpha title"
-title:"alpha title"
-```
-
-An unclosed quote is treated as a phrase through the end of the input.
+Enter a regular expression after `re:`. It can be combined with a field or exclusion.
 
 ```text
-"alpha title
+re:^alpha
+title:re:^alpha
+-title:re:^test
+path:re:\\BMS\\.*\.bms$
 ```
 
-The example above is almost equivalent to `"alpha title"`.
+Regular-expression matching is case-insensitive. An expression that takes too long is stopped and treated as not matching that condition.
 
-### Escapes in Quotes
+### Search for `"` or `\` Inside Double Quotes
 
-Inside quotes, only the following sequences are specially escaped.
-
-| Input | Meaning |
-| :--- | :--- |
-| `\"` | `"` |
-| `\\` | `\` |
-
-Example:
+Inside double quotes, use `\"` for `"` and `\\` for `\`.
 
 ```text
 title:"alpha \"quoted\""
 ```
 
----
-
-## Exclusion Search
-
-Prefix a search word with `-` to exclude rows that match that condition.
-
-```text
-alpha -artist:beta
-```
-
-The example above shows rows that match `alpha` and do not contain `beta` in ARTIST.
-
-Exclusion can be combined with field-qualified search, phrase search, and regular expressions.
-
-```text
--title:"old version"
--path:backup
--title:re:^test
-```
-
-A `-` that appears anywhere other than the start, such as in `foo-bar`, is treated as a normal character.
+For ordinary text searches, omitting the closing double quote treats the text through the end of the input as one search word. When quoting a date, time, or period after `date:`, include the closing double quote.
 
 ---
 
-## OR Search
+## When You See a Warning or No Results
 
-Use `|` inside a single search word for OR search.
+The following conditions show a warning and do not match any rows.
 
-```text
-alpha|beta
-```
-
-The example above shows rows that match either `alpha` or `beta`.
-
-When combined with a field qualifier, OR is evaluated only within that field.
-
-```text
-title:alpha|beta
-title:"alpha title"|beta
-```
-
-The examples above show rows whose TITLE contains `alpha` or `beta`.
-
-### OR Cautions
-
-Cross-column OR such as `title:alpha|artist:beta` is not supported.
-In that case, `artist:beta` is treated as a string to search for inside TITLE.
-
-Empty alternatives are ignored.
-
-```text
-alpha|
-|alpha
-alpha||beta
-```
-
-If all alternatives are empty, the condition is treated as invalid and matches nothing.
-
----
-
-## Regular Expression Search
-
-Use `re:pattern` for regular expression search.
-
-```text
-re:^alpha
-```
-
-When combining it with a field qualifier, write `field:re:pattern`.
-
-```text
-title:re:^alpha
-path:re:\\BMS\\.*\\.bms$
-```
-
-It can also be used as an exclusion condition.
-
-```text
--title:re:^test
-```
-
-Regular expressions are evaluated case-insensitively and culture-independently.
-
-### Regular Expression Timeout
-
-Regular expressions have a 100 ms timeout per condition as protection against runaway patterns.
-Very expensive regular expressions are stopped partway through and treated as not matching that condition.
-
----
-
-## Invalid Syntax Handling
-
-Invalid conditions do not show an error. They are treated as "conditions that do not match".
-Therefore, if an AND search contains an invalid condition, the result may become 0 rows.
-
-Examples treated as invalid:
-
-```text
-unknown:alpha
-title:
--
-|
-title:re:[
-```
-
-| Example | Reason |
+| Example | What to check |
 | :--- | :--- |
-| `unknown:alpha` | Unknown field |
-| `title:` | The search word for the field qualifier is empty |
-| `-` | The exclusion condition body is empty |
-| `\|` | All OR alternatives are empty |
-| `title:re:[` | Invalid as a regular expression |
+| `unknown:alpha` | Whether that field is available on the current screen |
+| `title:` | Whether a search value follows `:` |
+| `-` | Whether an exclusion follows `-` |
+| `|` | Whether search text appears before or after `|` |
+| `title:re:[` | Whether the regular expression is valid |
+| `date:2026-99-99` | Whether the date format and value are valid |
 
-If the field name is empty, as in `:alpha`, it is treated as a normal search word rather than a field qualifier.
-In other words, it searches for rows containing the string `:alpha`.
-
----
-
-## Common Examples
-
-Filter by both TITLE and ARTIST:
-
-```text
-title:alpha artist:xi
-```
-
-Search by part of an MD5 or SHA256:
-
-```text
-md5:abcdef
-sha256:123456
-```
-
-Search memo in playlist detail:
-
-```text
-memo:"favorite chart"
-```
-
-Exclude backup folders:
-
-```text
--path:backup
-```
-
-Search for charts whose TITLE starts with `alpha`:
-
-```text
-title:re:^alpha
-```
-
-Search for charts whose TITLE contains `alpha` or `beta`, and whose ARTIST does not contain `test`:
-
-```text
-title:alpha|beta -artist:test
-```
+Search fields differ by screen. If you are unsure, clear the search box and choose a field from the **Search fields** suggestions.

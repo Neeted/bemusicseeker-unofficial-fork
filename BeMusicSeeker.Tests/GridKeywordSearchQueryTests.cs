@@ -756,127 +756,250 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
-    public void CreateFieldCompletion_CompletesContextSpecificFields()
+    public void MatchesPlaylistSummary_OutputFieldUsesOutputBaseDisplayName()
     {
-        GridKeywordSearchCompletionResult bmsResult = GridKeywordSearchCompletion.CreateFieldCompletion("tit", 3, GridKeywordSearchContext.ChartList);
-        GridKeywordSearchCompletionResult negatedResult = GridKeywordSearchCompletion.CreateFieldCompletion("-ar", 3, GridKeywordSearchContext.ChartList);
-        GridKeywordSearchCompletionResult detailResult = GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.PlaylistDetail);
-        GridKeywordSearchCompletionResult summaryResult = GridKeywordSearchCompletion.CreateFieldCompletion("na", 2, GridKeywordSearchContext.PlaylistSummary);
-        GridKeywordSearchCompletionResult playHistoryResult = GridKeywordSearchCompletion.CreateFieldCompletion("fin", 3, GridKeywordSearchContext.PlayHistory);
-        GridKeywordSearchCompletionResult playHistoryTypeResult = GridKeywordSearchCompletion.CreateFieldCompletion("ty", 2, GridKeywordSearchContext.PlayHistory);
-        GridKeywordSearchCompletionResult playHistoryOldClearResult = GridKeywordSearchCompletion.CreateFieldCompletion("old", 3, GridKeywordSearchContext.PlayHistory);
-        GridKeywordSearchCompletionResult playHistoryNewClearResult = GridKeywordSearchCompletion.CreateFieldCompletion("new", 3, GridKeywordSearchContext.PlayHistory);
-        GridKeywordSearchCompletionResult clearResult = GridKeywordSearchCompletion.CreateFieldCompletion("cle", 3, GridKeywordSearchContext.ChartList);
-        GridKeywordSearchCompletionResult djResult = GridKeywordSearchCompletion.CreateFieldCompletion("dj", 2, GridKeywordSearchContext.ChartList);
-        GridKeywordSearchCompletionResult rateRankResult = GridKeywordSearchCompletion.CreateFieldCompletion("ra", 2, GridKeywordSearchContext.ChartList);
-        GridKeywordSearchCompletionResult tableResult = GridKeywordSearchCompletion.CreateFieldCompletion("tab", 3, GridKeywordSearchContext.ChartList);
+        PlaylistSummaryRow positive = new() { OutputBaseDisplayName = "Output Alpha" };
+        PlaylistSummaryRow negative = new() { OutputBaseDisplayName = "Output Beta" };
+        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("output:\"Output Alpha\"");
 
-        Assert.IsTrue(bmsResult.Items.Any(item => item.DisplayText == "title:"));
-        Assert.IsTrue(negatedResult.Items.Any(item => item.DisplayText == "-artist:"));
-        Assert.IsTrue(detailResult.Items.Any(item => item.DisplayText == "memo:"));
-        Assert.IsTrue(summaryResult.Items.Any(item => item.DisplayText == "name:"));
-        Assert.IsTrue(playHistoryResult.Items.Any(item => item.DisplayText == "finalized:"));
-        Assert.IsTrue(playHistoryTypeResult.Items.Any(item => item.DisplayText == "type:"));
-        Assert.IsTrue(playHistoryOldClearResult.Items.Any(item => item.DisplayText == "oldclear:"));
-        Assert.IsTrue(playHistoryNewClearResult.Items.Any(item => item.DisplayText == "newclear:"));
-        Assert.IsTrue(clearResult.Items.Any(item => item.DisplayText == "clear:"));
-        Assert.IsTrue(djResult.Items.Any(item => item.DisplayText == "dj:"));
-        Assert.IsTrue(djResult.Items.Any(item => item.DisplayText == "djlevel:"));
-        Assert.IsTrue(rateRankResult.Items.Any(item => item.DisplayText == "rank:"));
-        Assert.IsTrue(rateRankResult.Items.Any(item => item.DisplayText == "rate:"));
-        Assert.IsTrue(tableResult.Items.Any(item => item.DisplayText == "table:"));
-        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.ChartList).Items.Count);
-        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("memo", 4, GridKeywordSearchContext.PlayHistory).Items.Count);
-        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("D:", 2, GridKeywordSearchContext.ChartList).Items.Count);
+        Assert.IsTrue(query.MatchesPlaylistSummary(positive));
+        Assert.IsFalse(query.MatchesPlaylistSummary(negative));
     }
 
     [TestMethod]
-    public void CreateFieldCompletion_DoesNotCompleteTermsAfterFieldSeparator()
+    public void KeywordSearchAssistance_TabSeparatorUsesFieldsAndQuotedTabStaysValueContext()
     {
-        GridKeywordSearchCompletionResult result = GridKeywordSearchCompletion.CreateFieldCompletion("title:alpha", 11, GridKeywordSearchContext.ChartList);
+        SearchAssistanceSettingsStore store = new();
+        KeywordSearchSavedQueryOwner savedQueries = new(
+            KeywordSearchSavedQueryScope.Normal,
+            store,
+            store);
+        KeywordSearchAssistanceOwner assistance = new(
+            savedQueries,
+            GridKeywordSearchContext.ChartList,
+            new KeywordSearchCatalogSnapshot(52L, ["Alpha\tOne"]));
 
-        Assert.AreEqual(0, result.Items.Count);
+        const string unquotedSeparator = "clear:NP\t";
+        KeywordSearchPresentationState fields = assistance.Focus(
+            unquotedSeparator,
+            unquotedSeparator.Length);
+
+        Assert.AreEqual(KeywordSearchPresentationSectionKind.Fields, fields.Sections.Single().Kind);
+        Assert.IsTrue(fields.VisibleItems.Any(item => item.DisplayText == "title:"));
+
+        const string quotedTab = "playlist:\"Alpha\t";
+        KeywordSearchPresentationState values = assistance.Focus(quotedTab, quotedTab.Length);
+
+        Assert.AreEqual(KeywordSearchPresentationSectionKind.Values, values.Sections.Single().Kind);
+        Assert.IsTrue(values.VisibleItems.Any(item => item.DisplayText == "Alpha\tOne"));
+        Assert.IsFalse(values.Sections.Any(section => section.Kind == KeywordSearchPresentationSectionKind.Fields));
     }
 
     [TestMethod]
-    public void CreatePlaylistValueCompletion_CompletesPlaylistNames()
+    public void KeywordSearchAssistance_BackslashBeforeOpeningQuoteKeepsTabInUnmatchedQuotedToken()
     {
-        string[] names =
+        SearchAssistanceSettingsStore store = new();
+        KeywordSearchSavedQueryOwner savedQueries = new(
+            KeywordSearchSavedQueryScope.Normal,
+            store,
+            store);
+        KeywordSearchAssistanceOwner assistance = new(
+            savedQueries,
+            GridKeywordSearchContext.ChartList,
+            new KeywordSearchCatalogSnapshot(53L, ["Alpha\tOne"]));
+
+        const string unmatchedQuotedTab = "playlist:\\\"\t";
+        KeywordSearchPresentationState state = assistance.Focus(
+            unmatchedQuotedTab,
+            unmatchedQuotedTab.Length);
+
+        Assert.IsFalse(state.IsOpen);
+        Assert.IsFalse(state.Sections.Any(section =>
+            section.Kind == KeywordSearchPresentationSectionKind.Fields
+            || section.Kind == KeywordSearchPresentationSectionKind.Values));
+    }
+
+    [TestMethod]
+    public void KsaCatalog_UsesApprovedCanonicalValuesByContextAndField()
+    {
+        KeywordSearchCatalogSnapshot normal = new(1L, []);
+        KeywordSearchCatalogSnapshot playHistory = new(2L, []);
+
+        AssertSetEqual(
+            new[] { "nosong", "NP", "F", "AE", "LAE", "EC", "NC", "HC", "EXH", "FC", "PF", "MAX" },
+            normal.GetValues(GridKeywordSearchContext.ChartList, "clear"));
+        AssertSetEqual(
+            new[] { "F", "E", "D", "C", "B", "A", "AA", "AAA", "MAX", "defined", "undefined" },
+            normal.GetValues(GridKeywordSearchContext.PlaylistDetail, "djlevel"));
+        AssertSetEqual(
+            new[] { "beginner", "normal", "hyper", "another", "insane", "defined", "undefined" },
+            normal.GetValues(GridKeywordSearchContext.ChartList, "difficulty"));
+        AssertSetEqual(
+            new[] { "veryhard", "hard", "normal", "easy", "veryeasy", "defined", "undefined" },
+            normal.GetValues(GridKeywordSearchContext.ChartList, "judge"));
+        AssertSetEqual(new[] { "defined", "undefined" }, normal.GetValues(GridKeywordSearchContext.ChartList, "judgepct"));
+        AssertSetEqual(
+            new[] { "ln", "mine", "random", "lnmode", "cn", "hcn", "stop", "scroll", "defined", "undefined" },
+            normal.GetValues(GridKeywordSearchContext.ChartList, "feature"));
+        AssertSetEqual(new[] { "defined", "undefined" }, normal.GetValues(GridKeywordSearchContext.ChartList, "peakdensity"));
+        AssertSetEqual(new[] { "defined", "undefined" }, normal.GetValues(GridKeywordSearchContext.ChartList, "bp"));
+
+        AssertSetEqual(
+            new[] { "nosong", "NP", "F", "AE", "LAE", "EC", "NC", "HC", "EXH", "FC", "PF", "MAX", "defined", "undefined" },
+            playHistory.GetValues(GridKeywordSearchContext.PlayHistory, "oldclear"));
+        AssertSetEqual(new[] { "true", "false" }, playHistory.GetValues(GridKeywordSearchContext.PlayHistory, "finalized"));
+        AssertSetEqual(Enumerable.Range(1, 12).Select(value => value.ToString()), playHistory.GetValues(GridKeywordSearchContext.PlayHistory, "month"));
+        AssertSetEqual(new[] { "score", "bp", "clear", "combo", "play" }, playHistory.GetValues(GridKeywordSearchContext.PlayHistory, "type"));
+
+        Assert.AreEqual(0, normal.GetValues(GridKeywordSearchContext.ChartList, "clear").Count(value => value is "defined" or "undefined"));
+        AssertSetEqual(Array.Empty<string>(), normal.GetValues(GridKeywordSearchContext.ChartList, "clear").Where(value => value is "undef" or "null"));
+    }
+
+    [TestMethod]
+    public void KsaCatalog_ExactAuthoritySetsCoverEveryFieldAliasAndContext()
+    {
+        KeywordSearchCatalogSnapshot snapshot = new(41L, ["Alpha", "Beta"]);
+        string[] mainClear = ["nosong", "NP", "F", "AE", "LAE", "EC", "NC", "HC", "EXH", "FC", "PF", "MAX"];
+        string[] playHistoryClear = ["nosong", "NP", "F", "AE", "LAE", "EC", "NC", "HC", "EXH", "FC", "PF", "MAX", "defined", "undefined"];
+        string[] rank = ["F", "E", "D", "C", "B", "A", "AA", "AAA", "MAX", "defined", "undefined"];
+        string[] difficulty = ["beginner", "normal", "hyper", "another", "insane", "defined", "undefined"];
+        string[] judge = ["veryhard", "hard", "normal", "easy", "veryeasy", "defined", "undefined"];
+        string[] defined = ["defined", "undefined"];
+        string[] feature = ["ln", "mine", "random", "lnmode", "cn", "hcn", "stop", "scroll", "defined", "undefined"];
+        string[] months = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+        string[] playHistoryTypes = ["score", "bp", "clear", "combo", "play"];
+
+        AssertSetEqual(mainClear, snapshot.GetValues(GridKeywordSearchContext.ChartList, "clear"));
+        AssertSetEqual(mainClear, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, "clear"));
+        AssertSetEqual(playHistoryClear, snapshot.GetValues(GridKeywordSearchContext.PlayHistory, "clear"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, "clear"));
+        AssertSetEqual(playHistoryClear, snapshot.GetValues(GridKeywordSearchContext.PlayHistory, "oldclear"));
+        AssertSetEqual(playHistoryClear, snapshot.GetValues(GridKeywordSearchContext.PlayHistory, "newclear"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.ChartList, "oldclear"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.ChartList, "newclear"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, "oldclear"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, "newclear"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, "oldclear"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, "newclear"));
+
+        foreach (string field in new[] { "rank", "djlevel", "dj" })
+        {
+            AssertSetEqual(rank, snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
+            AssertSetEqual(rank, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlayHistory, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, field));
+        }
+        foreach (string field in new[] { "difficulty" })
+        {
+            AssertSetEqual(difficulty, snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
+            AssertSetEqual(difficulty, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlayHistory, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, field));
+        }
+        foreach (string field in new[] { "judge" })
+        {
+            AssertSetEqual(judge, snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
+            AssertSetEqual(judge, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlayHistory, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, field));
+        }
+        foreach (string field in new[] { "judge%", "judgepct" })
+        {
+            AssertSetEqual(defined, snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
+            AssertSetEqual(defined, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlayHistory, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, field));
+        }
+        foreach (string field in new[] { "feature" })
+        {
+            AssertSetEqual(feature, snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
+            AssertSetEqual(feature, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlayHistory, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, field));
+        }
+
+        string[] chartInfoAliases =
         [
-            "Satellite sl",
-            "NoSpace",
-            "A \"Quote\" \\ Path",
-            "Pipe|Name",
-            "Satellite sl"
+            "level", "mainbpm", "maxbpm", "minbpm", "duration", "length", "notes",
+            "long", "ln", "scratch", "total", "tn", "t/n", "density", "peak",
+            "peakdensity", "end", "enddensity", "soflan"
         ];
+        foreach (string field in chartInfoAliases)
+        {
+            AssertSetEqual(defined, snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
+            AssertSetEqual(defined, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlayHistory, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, field));
+        }
+        foreach (string field in new[] { "rate", "score", "combo", "bp" })
+        {
+            AssertSetEqual(defined, snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
+            AssertSetEqual(defined, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlayHistory, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, field));
+        }
 
-        KeywordSearchSuggestionItem spaced = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Sat", "playlist:Sat".Length, GridKeywordSearchContext.ChartList, names)
-            .Items
-            .Single(item => item.DisplayText == "Satellite sl");
-        KeywordSearchSuggestionItem noSpace = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("ref:No", "ref:No".Length, GridKeywordSearchContext.PlaylistDetail, names)
-            .Items
-            .Single(item => item.DisplayText == "NoSpace");
-        KeywordSearchSuggestionItem table = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("table:No", "table:No".Length, GridKeywordSearchContext.ChartList, names)
-            .Items
-            .Single(item => item.DisplayText == "NoSpace");
-        KeywordSearchSuggestionItem escaped = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:A", "playlist:A".Length, GridKeywordSearchContext.ChartList, names)
-            .Items
-            .Single(item => item.DisplayText == "A \"Quote\" \\ Path");
-        KeywordSearchSuggestionItem pipe = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Pipe", "playlist:Pipe".Length, GridKeywordSearchContext.ChartList, names)
-            .Items
-            .Single(item => item.DisplayText == "Pipe|Name");
-        KeywordSearchSuggestionItem quotedPrefix = GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:\"Satellite s", "playlist:\"Satellite s".Length, GridKeywordSearchContext.ChartList, names)
-            .Items
-            .Single(item => item.DisplayText == "Satellite sl");
+        AssertSetEqual(new[] { "true", "false" }, snapshot.GetValues(GridKeywordSearchContext.PlayHistory, "finalized"));
+        AssertSetEqual(months, snapshot.GetValues(GridKeywordSearchContext.PlayHistory, "month"));
+        AssertSetEqual(playHistoryTypes, snapshot.GetValues(GridKeywordSearchContext.PlayHistory, "type"));
+        AssertSetEqual(playHistoryTypes, snapshot.GetValues(GridKeywordSearchContext.PlayHistory, "kind"));
+        foreach (string field in new[] { "finalized", "month", "type", "kind" })
+        {
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));
+        }
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, "finalized"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, "month"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, "type"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, "kind"));
 
-        Assert.AreEqual("playlist:\"Satellite sl\"", spaced.Apply("playlist:Sat", out int spacedCaret));
-        Assert.AreEqual("playlist:\"Satellite sl\"".Length, spacedCaret);
-        Assert.AreEqual("ref:NoSpace", noSpace.Apply("ref:No", out int noSpaceCaret));
-        Assert.AreEqual("ref:NoSpace".Length, noSpaceCaret);
-        Assert.AreEqual("table:NoSpace", table.Apply("table:No", out int tableCaret));
-        Assert.AreEqual("table:NoSpace".Length, tableCaret);
-        Assert.AreEqual("playlist:\"A \\\"Quote\\\" \\\\ Path\"", escaped.Apply("playlist:A", out int escapedCaret));
-        Assert.AreEqual("playlist:\"A \\\"Quote\\\" \\\\ Path\"".Length, escapedCaret);
-        Assert.AreEqual("playlist:\"Pipe|Name\"", pipe.Apply("playlist:Pipe", out int pipeCaret));
-        Assert.AreEqual("playlist:\"Pipe|Name\"".Length, pipeCaret);
-        Assert.AreEqual("playlist:\"Satellite sl\"", quotedPrefix.Apply("playlist:\"Satellite s", out int quotedPrefixCaret));
-        Assert.AreEqual("playlist:\"Satellite sl\"".Length, quotedPrefixCaret);
-        Assert.AreEqual(0, GridKeywordSearchCompletion.CreatePlaylistValueCompletion("title:Sat", "title:Sat".Length, GridKeywordSearchContext.ChartList, names).Items.Count);
-        Assert.AreEqual(0, GridKeywordSearchCompletion.CreatePlaylistValueCompletion("playlist:Sat", "playlist:Sat".Length, GridKeywordSearchContext.PlaylistSummary, names).Items.Count);
+        foreach (string field in new[] { "playlist", "ref", "table" })
+        {
+            AssertSetEqual(new[] { "Alpha", "Beta" }, snapshot.GetValues(GridKeywordSearchContext.ChartList, field));
+            AssertSetEqual(new[] { "Alpha", "Beta" }, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, field));
+            AssertSetEqual(new[] { "Alpha", "Beta" }, snapshot.GetValues(GridKeywordSearchContext.PlayHistory, field));
+            AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, field));
+        }
+
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.ChartList, "undef"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.ChartList, "null"));
+        Assert.IsFalse(snapshot.GetValues(GridKeywordSearchContext.ChartList, "clear").Contains("defined"));
+        Assert.IsFalse(snapshot.GetValues(GridKeywordSearchContext.ChartList, "clear").Contains("undefined"));
     }
 
     [TestMethod]
-    public void KeywordSearchSuggestionItem_ApplyReplacesOnlyFieldPrefix()
+    public void KsaCatalog_DynamicPlaylistSnapshotIsTrimmedDedupedSortedAndRevisionStamped()
     {
-        KeywordSearchSuggestionItem suggestion = GridKeywordSearchCompletion.CreateFieldCompletion("foo tit bar", 7, GridKeywordSearchContext.ChartList)
-            .Items
-            .Single(item => item.DisplayText == "title:");
+        KeywordSearchCatalogSnapshot snapshot = new(
+            31L,
+            new[] { " Beta ", "alpha", "ALPHA", string.Empty, "  " });
 
-        string applied = suggestion.Apply("foo tit bar", out int caretIndex);
-
-        Assert.AreEqual("foo title: bar", applied);
-        Assert.AreEqual("foo title:".Length, caretIndex);
+        Assert.AreEqual(31L, snapshot.Revision);
+        CollectionAssert.AreEqual(new[] { "alpha", "Beta" }, snapshot.PlaylistNames.ToArray());
+        AssertSetEqual(new[] { "alpha", "Beta" }, snapshot.GetValues(GridKeywordSearchContext.ChartList, "playlist"));
+        AssertSetEqual(new[] { "alpha", "Beta" }, snapshot.GetValues(GridKeywordSearchContext.PlaylistDetail, "ref"));
+        AssertSetEqual(new[] { "alpha", "Beta" }, snapshot.GetValues(GridKeywordSearchContext.PlayHistory, "table"));
+        AssertSetEqual(Array.Empty<string>(), snapshot.GetValues(GridKeywordSearchContext.PlaylistSummary, "playlist"));
     }
 
-    [TestMethod]
-    public void KeywordSearchHistoryStore_RoundTripsDistinctCappedHistory()
+    private sealed class SearchAssistanceSettingsStore : IKeywordSearchHistorySettingsStore, IKeywordSearchFavoritesSettingsStore
     {
-        string[] entries = [.. Enumerable.Range(0, KeywordSearchHistoryStore.MaxHistoryCount + 5).Select(index => "title:" + index)];
-        string serialized = KeywordSearchHistoryStore.Serialize(entries);
+        public string KeywordSearchHistory { get; set; } = string.Empty;
 
-        string[] restored = [.. KeywordSearchHistoryStore.Deserialize(serialized)];
+        public string PlaylistSummaryKeywordSearchHistory { get; set; } = string.Empty;
 
-        Assert.AreEqual(KeywordSearchHistoryStore.MaxHistoryCount, restored.Length);
-        Assert.AreEqual("title:0", restored[0]);
-        CollectionAssert.DoesNotContain(restored, "title:24");
+        public string KeywordSearchFavorites { get; set; } = string.Empty;
+
+        public string PlaylistSummaryKeywordSearchFavorites { get; set; } = string.Empty;
     }
 
-    [TestMethod]
-    public void KeywordSearchHistoryStore_AddEntryMovesDuplicateToFront()
+    private static void AssertSetEqual<T>(IEnumerable<T> expected, IEnumerable<T> actual)
     {
-        string[] updated = [.. KeywordSearchHistoryStore.AddEntry(["alpha", "beta", "gamma"], " BETA ")];
-
-        CollectionAssert.AreEqual(new[] { "BETA", "alpha", "gamma" }, updated);
+        HashSet<T> expectedSet = new(expected);
+        HashSet<T> actualSet = new(actual);
+        Assert.IsTrue(
+            expectedSet.SetEquals(actualSet),
+            $"Expected {{{string.Join(", ", expectedSet)}}}, actual {{{string.Join(", ", actualSet)}}}.");
     }
 
     private static TestableBmsFile CreateFile()

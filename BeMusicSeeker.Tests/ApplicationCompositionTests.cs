@@ -1164,6 +1164,7 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+                PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => null!,
@@ -1561,7 +1562,62 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
-    public void PlaylistWorkspaceOwnsSummaryKeywordSearchSuggestionsAndHistory()
+    public void MainWindowKeywordSearchFavoritesDefaultUsesCompositionSettingsSession()
+    {
+        var values = new BeMusicSeeker.Properties.Settings();
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            settingsEditSession: new FakeSettingsEditSession { Values = values },
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+
+        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+        KeywordSearchSavedQueryMutationResult normalResult =
+            viewModel.ChartFilters.TryAddKeywordSearchFavorite("title:default");
+        KeywordSearchSavedQueryMutationResult summaryResult =
+            viewModel.PlaylistWorkspace.TryAddPlaylistSummaryKeywordSearchFavorite("output:default");
+
+        Assert.IsTrue(normalResult.Succeeded);
+        Assert.IsTrue(summaryResult.Succeeded);
+        CollectionAssert.AreEqual(
+            new[] { "title:default" },
+            KeywordSearchFavoritesStore.Deserialize(values.KeywordSearchFavorites).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "output:default" },
+            KeywordSearchFavoritesStore.Deserialize(values.PlaylistSummaryKeywordSearchFavorites).ToArray());
+    }
+
+    [TestMethod]
+    public void MainWindowKeywordSearchFavoritesUseCompositionSettingsStore()
+    {
+        var historyStore = new FakeKeywordSearchHistorySettingsStore();
+        var favoriteStore = new FakeKeywordSearchFavoritesSettingsStore();
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            keywordSearchHistorySettingsStore: historyStore,
+            keywordSearchFavoritesSettingsStore: favoriteStore,
+            settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+
+        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+
+        Assert.AreSame(favoriteStore, composition.KeywordSearchFavoritesSettingsStore);
+        KeywordSearchSavedQueryMutationResult normalResult =
+            viewModel.ChartFilters.TryAddKeywordSearchFavorite("title:normal");
+        KeywordSearchSavedQueryMutationResult summaryResult =
+            viewModel.PlaylistWorkspace.TryAddPlaylistSummaryKeywordSearchFavorite("output:summary");
+
+        Assert.IsTrue(normalResult.Succeeded);
+        Assert.IsTrue(summaryResult.Succeeded);
+        CollectionAssert.AreEqual(
+            new[] { "title:normal" },
+            KeywordSearchFavoritesStore.Deserialize(favoriteStore.KeywordSearchFavorites).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { "output:summary" },
+            KeywordSearchFavoritesStore.Deserialize(favoriteStore.PlaylistSummaryKeywordSearchFavorites).ToArray());
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceOwnsSummaryKeywordSearchAssistanceAndHistoryScope()
     {
         var store = new FakeKeywordSearchHistorySettingsStore
         {
@@ -1574,15 +1630,16 @@ public sealed class ApplicationCompositionTests
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
-        workspace.RefreshPlaylistSummaryKeywordSearchSuggestions(string.Empty, 0, forceHistory: true);
-
-        Assert.IsTrue(workspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen);
-        Assert.IsFalse(string.IsNullOrWhiteSpace(workspace.PlaylistSummaryKeywordSearchSuggestionHeaderText));
-        Assert.AreEqual(1, workspace.PlaylistSummaryKeywordSearchSuggestions.Count);
-        Assert.AreEqual("summary-old", workspace.PlaylistSummaryKeywordSearchSuggestions[0].DisplayText);
-
-        workspace.ClosePlaylistSummaryKeywordSearchSuggestions();
-        Assert.IsFalse(workspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen);
+        KeywordSearchAssistanceOwner assistance = workspace.PlaylistSummaryKeywordSearchAssistanceOwner;
+        Assert.IsNotNull(assistance);
+        KeywordSearchPresentationState state = assistance.Focus(string.Empty, 0);
+        KeywordSearchPresentationSection history = state.Sections.Single(
+            section => section.Kind == KeywordSearchPresentationSectionKind.History);
+        Assert.AreEqual("summary-old", history.Items.Single().Query);
+        Assert.IsTrue(state.Sections
+            .Single(section => section.Kind == KeywordSearchPresentationSectionKind.Fields)
+            .Items.Any(item => item.DisplayText == "output:"));
+        Assert.IsFalse(state.Sections.Any(section => section.Kind == KeywordSearchPresentationSectionKind.Values));
 
         workspace.PlaylistSummaryKeywordFilter = "memo:alpha";
         StringAssert.Contains(workspace.PlaylistSummaryKeywordSearchWarningText, "memo");
@@ -1596,6 +1653,13 @@ public sealed class ApplicationCompositionTests
         public string KeywordSearchHistory { get; set; } = string.Empty;
 
         public string PlaylistSummaryKeywordSearchHistory { get; set; } = string.Empty;
+    }
+
+    private sealed class FakeKeywordSearchFavoritesSettingsStore : IKeywordSearchFavoritesSettingsStore
+    {
+        public string KeywordSearchFavorites { get; set; } = string.Empty;
+
+        public string PlaylistSummaryKeywordSearchFavorites { get; set; } = string.Empty;
     }
 
     [TestMethod]

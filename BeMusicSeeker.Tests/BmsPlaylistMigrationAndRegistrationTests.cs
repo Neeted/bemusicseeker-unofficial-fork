@@ -916,6 +916,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+                PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => library,

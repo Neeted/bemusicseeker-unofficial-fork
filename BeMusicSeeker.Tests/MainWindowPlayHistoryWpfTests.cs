@@ -524,12 +524,13 @@ public sealed class MainWindowPlayHistoryWpfTests
                     string expectedClause = $"date:\"{start}..{end}\"";
 
                     table.SelectRowsByPredicate(row => ReferenceEquals(row, intermediate));
-                    UIElement keywordSearchBox = (UIElement)window.FindName("KeywordSearchBox");
-                    Assert.AreNotSame(keywordSearchBox, Keyboard.FocusedElement);
-                    bool keywordSearchBoxReceivedFocus = false;
+                    KeywordSearchEditor keywordSearchEditor = (KeywordSearchEditor)window.FindName("KeywordSearchEditor");
+                    Assert.IsNotNull(keywordSearchEditor);
+                    Assert.AreNotSame(keywordSearchEditor, Keyboard.FocusedElement);
+                    bool keywordSearchEditorReceivedFocus = false;
                     KeyboardFocusChangedEventHandler keywordFocusHandler =
-                        (_, _) => keywordSearchBoxReceivedFocus = true;
-                    keywordSearchBox.GotKeyboardFocus += keywordFocusHandler;
+                        (_, _) => keywordSearchEditorReceivedFocus = true;
+                    keywordSearchEditor.GotKeyboardFocus += keywordFocusHandler;
                     try
                     {
                         dateRange.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, dateRange));
@@ -541,13 +542,13 @@ public sealed class MainWindowPlayHistoryWpfTests
                     }
                     finally
                     {
-                        keywordSearchBox.GotKeyboardFocus -= keywordFocusHandler;
+                        keywordSearchEditor.GotKeyboardFocus -= keywordFocusHandler;
                     }
 
                     Assert.AreEqual(prefix + expectedClause, viewModel.ChartFilters.KeywordFilter);
                     Assert.AreEqual(1, keywordChangedCount);
-                    Assert.IsFalse(keywordSearchBoxReceivedFocus);
-                    Assert.AreNotSame(keywordSearchBox, Keyboard.FocusedElement);
+                    Assert.IsFalse(keywordSearchEditorReceivedFocus);
+                    Assert.AreNotSame(keywordSearchEditor, Keyboard.FocusedElement);
                     Assert.AreEqual(historyBeforeAction, settings.KeywordSearchHistory);
                 }
                 finally

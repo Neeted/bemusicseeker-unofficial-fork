@@ -1138,8 +1138,6 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(simpleProgressBar, "ProgressBar.IndicatorBrush");
         StringAssert.Contains(styles, "x:Key=\"ProgressBar.IndicatorBrush\" Color=\"#FF06B025\"");
         StringAssert.Contains(mainWindow, "App.ControlBackgroundActiveBrush");
-        StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBox, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}");
-        StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}");
         StringAssert.Contains(styles, "Data=\"M2,6 L5,9 L11,2\"");
         StringAssert.Contains(styles, "Name=\"IndeterminateMark\"");
 

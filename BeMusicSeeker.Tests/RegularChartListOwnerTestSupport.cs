@@ -115,6 +115,7 @@ internal static class RegularChartListOwnerTestSupport
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,

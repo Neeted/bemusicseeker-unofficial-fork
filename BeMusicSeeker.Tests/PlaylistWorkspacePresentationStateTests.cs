@@ -67,6 +67,23 @@ public sealed class PlaylistWorkspacePresentationStateTests
     }
 
     [TestMethod]
+    public void PlaylistSummaryKeywordSearchAssistance_IsFieldsOnlyAndIncludesOutput()
+    {
+        PlaylistWorkspaceViewModel workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
+
+        KeywordSearchPresentationState state = workspace.FocusPlaylistSummaryKeywordSearch("ou", 2);
+
+        Assert.IsTrue(state.IsOpen);
+        Assert.AreEqual(GridKeywordSearchContext.PlaylistSummary, state.Context);
+        Assert.AreEqual(KeywordSearchPresentationSectionKind.Fields, state.Sections.Single().Kind);
+        Assert.IsTrue(state.VisibleItems.Any(item => item.DisplayText == "output:"));
+        Assert.IsFalse(state.VisibleItems.Any(item => item.Kind == KeywordSearchPresentationItemKind.Value));
+
+        KeywordSearchPresentationState blurred = workspace.BlurPlaylistSummaryKeywordSearch();
+        Assert.IsFalse(blurred.IsOpen);
+    }
+
+    [TestMethod]
     public void MainTablePresentationCommit_CombinesWorkspaceStateBeforePublishingNotifications()
     {
         var workspace = new PlaylistWorkspaceViewModel(
@@ -90,6 +107,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
@@ -157,6 +175,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
@@ -320,6 +339,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
@@ -419,6 +439,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
@@ -479,6 +500,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
@@ -610,6 +632,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
@@ -670,6 +693,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
@@ -719,6 +743,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
@@ -833,6 +858,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
@@ -921,6 +947,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,

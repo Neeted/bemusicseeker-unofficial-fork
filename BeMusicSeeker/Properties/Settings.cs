@@ -1576,6 +1576,36 @@ internal sealed class Settings : ApplicationSettingsBase
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("")]
+    public string KeywordSearchFavorites
+    {
+        get
+        {
+            return (string)this["KeywordSearchFavorites"];
+        }
+        set
+        {
+            this["KeywordSearchFavorites"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("")]
+    public string PlaylistSummaryKeywordSearchFavorites
+    {
+        get
+        {
+            return (string)this["PlaylistSummaryKeywordSearchFavorites"];
+        }
+        set
+        {
+            this["PlaylistSummaryKeywordSearchFavorites"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("")]
     public string PlayHistoryDisplayTargetSetsJson
     {
         get

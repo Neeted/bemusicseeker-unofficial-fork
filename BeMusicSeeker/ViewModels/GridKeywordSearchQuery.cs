@@ -10,11 +10,18 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal enum GridKeywordSearchContext
+/// <summary>
+/// Identifies the result scope in which a keyword query is evaluated.
+/// </summary>
+public enum GridKeywordSearchContext
 {
+    /// <summary>Song and chart list scope.</summary>
     ChartList,
+    /// <summary>Playlist detail scope.</summary>
     PlaylistDetail,
+    /// <summary>Playlist summary scope.</summary>
     PlaylistSummary,
+    /// <summary>Play history scope.</summary>
     PlayHistory
 }
 

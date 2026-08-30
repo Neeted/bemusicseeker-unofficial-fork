@@ -1232,10 +1232,10 @@
                     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
                     <Setter Property="BorderBrush" Value="{DynamicResource App.StrongBorderBrush}" />
                     <Style.Triggers>
-                      <DataTrigger Binding="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}}" Value="True">
+                      <DataTrigger Binding="{Binding Text, ElementName=KeywordSearchEditor, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}}" Value="True">
                         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundActiveBrush}" />
                       </DataTrigger>
-                      <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=KeywordSearchBox}" Value="True">
+                      <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=KeywordSearchEditor}" Value="True">
                         <Setter Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
                       </DataTrigger>
                     </Style.Triggers>
@@ -1260,21 +1260,7 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <TextBox Grid.Column="1" Name="KeywordSearchBox" Style="{DynamicResource searchKeywordTextBoxStyle}" Text="{Binding ChartFilters.KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
-                  <Popup x:Name="KeywordSearchSuggestionPopup" Grid.Column="1" Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBox}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding ChartFilters.IsKeywordSearchSuggestionPopupOpen, Source={StaticResource vm}, Mode=TwoWay}">
-                    <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="4" MinWidth="{Binding ActualWidth, ElementName=KeywordSearchBox}">
-                      <StackPanel>
-                        <TextBlock FontFamily="Meiryo" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource App.SubtleTextBrush}" Margin="4,2,4,4" Text="{Binding ChartFilters.KeywordSearchSuggestionHeaderText, Source={StaticResource vm}}" />
-                        <ListBox Name="KeywordSearchSuggestionListBox" ItemsSource="{Binding ChartFilters.KeywordSearchSuggestions, Source={StaticResource vm}}" BorderThickness="0" Background="{DynamicResource App.PopupBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" MaxHeight="180" PreviewMouseLeftButtonDown="keywordSearchSuggestionPreviewMouseLeftButtonDown" PreviewKeyDown="keywordSearchSuggestionPreviewKeyDown">
-                          <ListBox.ItemTemplate>
-                            <DataTemplate>
-                              <TextBlock FontFamily="Meiryo" FontSize="12" Foreground="{DynamicResource App.TextBrush}" Text="{Binding DisplayText}" Padding="6,2" />
-                            </DataTemplate>
-                          </ListBox.ItemTemplate>
-                        </ListBox>
-                      </StackPanel>
-                    </Border>
-                  </Popup>
+                  <v:KeywordSearchEditor x:Name="KeywordSearchEditor" Grid.Column="1" Text="{Binding ChartFilters.KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
                   <Grid x:Name="KeywordSearchWarningSlot" Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
                     <TextBlock FontFamily="Meiryo" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding ChartFilters.KeywordSearchWarningText, Source={StaticResource vm}}" Visibility="{Binding ChartFilters.HasKeywordSearchWarning, Source={StaticResource vm}, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
                   </Grid>
@@ -1287,7 +1273,7 @@
                     </Border>
                   </Popup>
                   <Grid x:Name="KeywordSearchClearSlot" Grid.Column="4" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
-                    <TextBlock x:Name="KeywordSearchClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Text="close" Visibility="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="keywordSearchClearMouseLeftButtonDown" />
+                    <TextBlock x:Name="KeywordSearchClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Text="close" Visibility="{Binding Text, ElementName=KeywordSearchEditor, Mode=OneWay, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="keywordSearchClearMouseLeftButtonDown" />
                   </Grid>
                 </Grid>
               </Border>
@@ -1297,10 +1283,10 @@
                     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
                     <Setter Property="BorderBrush" Value="{DynamicResource App.StrongBorderBrush}" />
                     <Style.Triggers>
-                      <DataTrigger Binding="{Binding Text, ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}}" Value="True">
+                      <DataTrigger Binding="{Binding Text, ElementName=PlaylistSummaryKeywordSearchEditor, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}}" Value="True">
                         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundActiveBrush}" />
                       </DataTrigger>
-                      <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=KeywordSearchBoxPlaylistSummary}" Value="True">
+                      <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=PlaylistSummaryKeywordSearchEditor}" Value="True">
                         <Setter Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
                       </DataTrigger>
                     </Style.Triggers>
@@ -1323,21 +1309,7 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <TextBox Grid.Column="1" Name="KeywordSearchBoxPlaylistSummary" Style="{DynamicResource searchKeywordTextBoxStyle}" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
-                  <Popup x:Name="PlaylistSummaryKeywordSearchSuggestionPopup" Grid.Column="1" Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBoxPlaylistSummary}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen, Mode=TwoWay}">
-                    <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="4" MinWidth="{Binding ActualWidth, ElementName=KeywordSearchBoxPlaylistSummary}">
-                      <StackPanel>
-                        <TextBlock FontFamily="Meiryo" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource App.SubtleTextBrush}" Margin="4,2,4,4" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordSearchSuggestionHeaderText}" />
-                        <ListBox Name="PlaylistSummaryKeywordSearchSuggestionListBox" ItemsSource="{Binding PlaylistWorkspace.PlaylistSummaryKeywordSearchSuggestions}" BorderThickness="0" Background="{DynamicResource App.PopupBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" MaxHeight="180" PreviewMouseLeftButtonDown="keywordSearchSuggestionPreviewMouseLeftButtonDown" PreviewKeyDown="keywordSearchSuggestionPreviewKeyDown">
-                          <ListBox.ItemTemplate>
-                            <DataTemplate>
-                              <TextBlock FontFamily="Meiryo" FontSize="12" Foreground="{DynamicResource App.TextBrush}" Text="{Binding DisplayText}" Padding="6,2" />
-                            </DataTemplate>
-                          </ListBox.ItemTemplate>
-                        </ListBox>
-                      </StackPanel>
-                    </Border>
-                  </Popup>
+                  <v:KeywordSearchEditor x:Name="PlaylistSummaryKeywordSearchEditor" Grid.Column="1" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
                   <Grid x:Name="PlaylistSummaryKeywordSearchWarningSlot" Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
                     <TextBlock FontFamily="Meiryo" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText}" Visibility="{Binding PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
                   </Grid>
@@ -1350,7 +1322,7 @@
                     </Border>
                   </Popup>
                   <Grid x:Name="PlaylistSummaryKeywordSearchClearSlot" Grid.Column="4" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
-                    <TextBlock x:Name="PlaylistSummaryKeywordSearchClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Text="close" Visibility="{Binding Text, ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="keywordSearchPlaylistSummaryClearMouseLeftButtonDown" />
+                    <TextBlock x:Name="PlaylistSummaryKeywordSearchClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Text="close" Visibility="{Binding Text, ElementName=PlaylistSummaryKeywordSearchEditor, Mode=OneWay, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="keywordSearchPlaylistSummaryClearMouseLeftButtonDown" />
                   </Grid>
                 </Grid>
               </Border>

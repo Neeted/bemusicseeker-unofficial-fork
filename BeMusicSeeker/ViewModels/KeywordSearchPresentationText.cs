@@ -34,24 +34,6 @@ internal static class KeywordSearchPresentationText
         return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_help_template, fields);
     }
 
-    internal static string BuildSuggestionHeaderText(KeywordSearchSuggestionKind kind)
-    {
-        return kind switch
-        {
-            KeywordSearchSuggestionKind.History => BeMusicSeeker.Properties.Resources.Keyword_search_completion_history_header,
-            KeywordSearchSuggestionKind.Value => BeMusicSeeker.Properties.Resources.Keyword_search_completion_playlist_names_header,
-            _ => BeMusicSeeker.Properties.Resources.Keyword_search_completion_fields_header,
-        };
-    }
-
-    internal static IReadOnlyList<KeywordSearchSuggestionItem> BuildHistorySuggestions(IEnumerable<string> history, string currentText)
-    {
-        string safeText = currentText ?? string.Empty;
-        return [.. (history ?? [])
-            .Where(entry => !string.IsNullOrWhiteSpace(entry))
-            .Select(entry => new KeywordSearchSuggestionItem(KeywordSearchSuggestionKind.History, entry, entry, 0, safeText.Length))];
-    }
-
     private static string FormatDiagnostic(GridKeywordSearchDiagnostic diagnostic)
     {
         return diagnostic.Kind switch

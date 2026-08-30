@@ -395,7 +395,7 @@ title:re:^alpha
     <value>title, artist, genre, tag, path, playlist/ref/table, md5/hash, sha256, memo, comment, level, difficulty, mainbpm, maxbpm, minbpm, duration, judge/judge%/judgepct, feature, notes, long/ln, scratch, total, tn/t/n, density, peak, end, soflan, clear, rank/djlevel/dj, rate, score, combo, bp</value>
   </data>
   <data name="Keyword_search_help_fields_playlist_summary" xml:space="preserve">
-    <value>id, name, folder/foldername, prefix, symbol, header, data</value>
+    <value>id, output, name, folder/foldername, prefix, symbol, header, data</value>
   </data>
   <data name="Keyword_search_help_fields_play_history" xml:space="preserve">
     <value>title, artist, path, folder, playlist/ref/table, md5/hash, sha256, date, year, month, type/kind, clear, oldclear, newclear, finalized, source</value>
@@ -406,8 +406,26 @@ title:re:^alpha
   <data name="Keyword_search_completion_history_header" xml:space="preserve">
     <value>検索履歴</value>
   </data>
-  <data name="Keyword_search_completion_playlist_names_header" xml:space="preserve">
-    <value>プレイリスト名</value>
+  <data name="Keyword_search_completion_favorites_header" xml:space="preserve">
+    <value>お気に入り</value>
+  </data>
+  <data name="Keyword_search_completion_values_header" xml:space="preserve">
+    <value>検索値</value>
+  </data>
+  <data name="Keyword_search_remove_favorite_tooltip" xml:space="preserve">
+    <value>お気に入りから削除</value>
+  </data>
+  <data name="Keyword_search_add_favorite_tooltip" xml:space="preserve">
+    <value>お気に入りに追加</value>
+  </data>
+  <data name="Keyword_search_delete_history_tooltip" xml:space="preserve">
+    <value>検索履歴から削除</value>
+  </data>
+  <data name="Keyword_search_editor_name" xml:space="preserve">
+    <value>キーワード検索</value>
+  </data>
+  <data name="Keyword_search_summary_editor_name" xml:space="preserve">
+    <value>プレイリスト一覧キーワード検索</value>
   </data>
   <data name="Keyword_search_warning_unknown_field" xml:space="preserve">
     <value>未知の検索対象です: {0}</value>

@@ -115,6 +115,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         }
     }
 
+    /// <summary>
+    /// Creates playlist workspace state with explicit search persistence boundaries.
+    /// </summary>
+    /// <param name="keywordSearchFavoritesSettingsStore">The explicit normal/summary Favorites settings boundary.</param>
     internal PlaylistWorkspaceViewModel(
         Action<Action> dispatchPresentation,
         MainChartListViewModel mainChartList,
@@ -136,6 +140,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore,
         PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
+        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore,
         Func<BMSPlaylist> playlistStoreProvider,
         PlaylistPropertySaveService propertySaveService,
         Func<BMSLibrary> playlistLibraryProvider,
@@ -188,11 +193,15 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             ?? throw new ArgumentNullException(nameof(playlistSummaryColumnSettingsStore));
         this.playlistSummaryBmtSort = playlistSummaryBmtSort
             ?? throw new ArgumentNullException(nameof(playlistSummaryBmtSort));
-        playlistSummaryKeywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
+        IKeywordSearchHistorySettingsStore historySettingsStore = keywordSearchHistorySettingsStore
             ?? throw new ArgumentNullException(nameof(keywordSearchHistorySettingsStore));
-        playlistSummaryKeywordSearchHistory.AddRange(
-            KeywordSearchHistoryStore.Deserialize(
-                keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory));
+        playlistSummaryKeywordSearchSavedQueryOwner = new KeywordSearchSavedQueryOwner(
+            KeywordSearchSavedQueryScope.PlaylistSummary,
+            historySettingsStore,
+            keywordSearchFavoritesSettingsStore);
+        playlistSummaryKeywordSearchAssistanceOwner = new KeywordSearchAssistanceOwner(
+            playlistSummaryKeywordSearchSavedQueryOwner,
+            GridKeywordSearchContext.PlaylistSummary);
         getPlaylistStore = playlistStoreProvider
             ?? throw new ArgumentNullException(nameof(playlistStoreProvider));
         this.propertySaveService = propertySaveService
@@ -726,12 +735,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private bool isPlaylistSummaryKeywordSearchHelpOpen;
 
-    private readonly ObservableCollection<KeywordSearchSuggestionItem> playlistSummaryKeywordSearchSuggestions = [];
-
-    private bool isPlaylistSummaryKeywordSearchSuggestionPopupOpen;
-
-    private string playlistSummaryKeywordSearchSuggestionHeaderText = string.Empty;
-
     private PlaylistOwnedFilter playlistSummaryOwnedFilter = PlaylistOwnedFilter.All;
 
     private long lastPlaylistSummaryBuildCompletedTimestamp;
@@ -1210,32 +1213,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     /// Gets playlist summary keyword help text.
     /// </summary>
     public string PlaylistSummaryKeywordSearchHelpText => KeywordSearchPresentationText.BuildHelpText(GridKeywordSearchContext.PlaylistSummary);
-
-    /// <summary>
-    /// Gets playlist summary keyword suggestions.
-    /// </summary>
-    public ObservableCollection<KeywordSearchSuggestionItem> PlaylistSummaryKeywordSearchSuggestions => playlistSummaryKeywordSearchSuggestions;
-
-    /// <summary>
-    /// Gets or sets whether playlist summary keyword suggestion popup is open.
-    /// </summary>
-    public bool IsPlaylistSummaryKeywordSearchSuggestionPopupOpen
-    {
-        get => isPlaylistSummaryKeywordSearchSuggestionPopupOpen;
-        set
-        {
-            if (isPlaylistSummaryKeywordSearchSuggestionPopupOpen != value)
-            {
-                isPlaylistSummaryKeywordSearchSuggestionPopupOpen = value;
-                RaisePropertyChanged(nameof(IsPlaylistSummaryKeywordSearchSuggestionPopupOpen));
-            }
-        }
-    }
-
-    /// <summary>
-    /// Gets the playlist summary keyword suggestion popup header text.
-    /// </summary>
-    public string PlaylistSummaryKeywordSearchSuggestionHeaderText => playlistSummaryKeywordSearchSuggestionHeaderText;
 
     /// <summary>
     /// Gets or sets the playlist summary owned filter.

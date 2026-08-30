@@ -94,6 +94,7 @@ internal static class BmsPlaylistTestSupport
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
             () => playlist,
             new PlaylistPropertySaveService(
                 () => playlist,
