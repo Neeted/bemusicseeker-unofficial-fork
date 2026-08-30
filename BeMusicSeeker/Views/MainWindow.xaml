@@ -42,6 +42,56 @@
       <v:folderPathWhenColumnsHiddenVisibilityConverter x:Key="folderPathWhenColumnsHiddenVisibilityConverter" />
       <v:folderPathWhenColumnsVisibleVisibilityConverter x:Key="folderPathWhenColumnsVisibleVisibilityConverter" />
       <v:playHistorySummaryVisibilityConverter x:Key="playHistorySummaryVisibilityConverter" />
+      <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/resources/#LigatureSymbols</FontFamily>
+      <ControlTemplate x:Key="templateDropmenuButtonLoupe" TargetType="{x:Type ToggleButton}">
+        <Grid Background="#00FFFFFF">
+          <Viewbox Height="20" Width="20">
+            <Grid Height="100" Width="100">
+              <Ellipse Fill="#A0FFFFFF" HorizontalAlignment="Left" Height="50" VerticalAlignment="Top" Width="50" Margin="5,12.5,0,0" />
+              <Ellipse Stroke="#FF727272" StrokeThickness="8" HorizontalAlignment="Left" Height="50" VerticalAlignment="Top" Width="50" Margin="5,12.5,0,0" />
+              <Rectangle Fill="#FF727272" HorizontalAlignment="Left" Height="42.5" VerticalAlignment="Top" Width="9.849" Margin="58.013,49.937,0,0" RenderTransformOrigin="0.5,0.5">
+                <UIElement.RenderTransform>
+                  <TransformGroup>
+                    <ScaleTransform />
+                    <SkewTransform />
+                    <RotateTransform Angle="-45" />
+                    <TranslateTransform />
+                  </TransformGroup>
+                </UIElement.RenderTransform>
+              </Rectangle>
+            </Grid>
+          </Viewbox>
+          <Path Width="6" Height="5" Margin="13,0,0,0" Stretch="Fill" Data="F1 M57.5692,88 L99.1384,16 L16,16 L57.5692,88" Fill="{Binding Path=Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:DropDownMenuButton}}}" />
+        </Grid>
+      </ControlTemplate>
+      <Style x:Key="searchKeywordAffordanceSlotStyle" TargetType="{x:Type Grid}">
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+      </Style>
+      <Style x:Key="searchKeywordHelpButtonStyle" TargetType="{x:Type ToggleButton}">
+        <Setter Property="Width" Value="20" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{DynamicResource App.AccentBrush}" />
+        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+      </Style>
+      <Style x:Key="searchKeywordClearIconStyle" TargetType="{x:Type TextBlock}">
+        <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalAlignment" Value="Center" />
+        <Setter Property="FontSize" Value="16" />
+        <Setter Property="Foreground" Value="{DynamicResource App.AccentSubtleBrush}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Margin" Value="0" />
+      </Style>
       <Style x:Key="SidebarSplitterStyle" TargetType="{x:Type GridSplitter}">
         <Setter Property="Focusable" Value="False" />
         <Setter Property="IsTabStop" Value="False" />
@@ -511,7 +561,6 @@
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist, Mode=OneWay}" Click="playlistSummaryContextMenuRemoveClick" />
       </ContextMenu>
       <FontFamily x:Key="SovjetBox">/BeMusicSeeker;component/resources/#Sovjet Box</FontFamily>
-      <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/resources/#LigatureSymbols</FontFamily>
       <ControlTemplate x:Key="tempalteToggleButtonBMSPlayControls" TargetType="{x:Type ToggleButton}">
         <Grid Background="#00FFFFFF">
           <Border Name="borderTemplateToggleButtonBMSPlayControls" BorderBrush="#FF1976D2" Background="#FF4492F0" BorderThickness="0,0,2,2" HorizontalAlignment="Left" Height="22" VerticalAlignment="Top" Width="22" CornerRadius="2">
@@ -1177,44 +1226,30 @@
               <Border DockPanel.Dock="Right" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource App.StrongBorderBrush}" Background="{DynamicResource App.ControlBackgroundBrush}" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlayHistory.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
                 <ComboBox Width="180" Height="22" BorderThickness="0" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FontFamily="Meiryo" FontSize="12" ItemsSource="{Binding PlayHistory.DisplayTargets}" SelectedValue="{Binding PlayHistory.SelectedDisplayTargetIdentity, Mode=TwoWay}" SelectedValuePath="Identity" DisplayMemberPath="DisplayName" />
               </Border>
-              <Border DockPanel.Dock="Right" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource App.StrongBorderBrush}" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}">
+              <Border x:Name="KeywordSearchComposite" DockPanel.Dock="Right" CornerRadius="6" Height="24" BorderThickness="1" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}">
                 <Border.Style>
                   <Style TargetType="{x:Type Border}">
                     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource App.StrongBorderBrush}" />
                     <Style.Triggers>
                       <DataTrigger Binding="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}}" Value="True">
                         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundActiveBrush}" />
                       </DataTrigger>
+                      <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=KeywordSearchBox}" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
+                      </DataTrigger>
                     </Style.Triggers>
                   </Style>
                 </Border.Style>
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Right" Orientation="Horizontal">
-                  <v:DropDownMenuButton Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonLoupe}" Margin="2,0,0,0">
-                    <FrameworkElement.Resources>
-                      <ResourceDictionary>
-                        <ControlTemplate x:Key="templateDropmenuButtonLoupe" TargetType="{x:Type ToggleButton}">
-                          <Grid Background="#00FFFFFF">
-                            <Viewbox Height="20" Width="20">
-                              <Grid Height="100" Width="100">
-                                <Ellipse Fill="#A0FFFFFF" HorizontalAlignment="Left" Height="50" VerticalAlignment="Top" Width="50" Margin="5,12.5,0,0" />
-                                <Ellipse Stroke="#FF727272" StrokeThickness="8" HorizontalAlignment="Left" Height="50" VerticalAlignment="Top" Width="50" Margin="5,12.5,0,0" />
-                                <Rectangle Fill="#FF727272" HorizontalAlignment="Left" Height="42.5" VerticalAlignment="Top" Width="9.849" Margin="58.013,49.937,0,0" RenderTransformOrigin="0.5,0.5">
-                                  <UIElement.RenderTransform>
-                                    <TransformGroup>
-                                      <ScaleTransform />
-                                      <SkewTransform />
-                                      <RotateTransform Angle="-45" />
-                                      <TranslateTransform />
-                                    </TransformGroup>
-                                  </UIElement.RenderTransform>
-                                </Rectangle>
-                              </Grid>
-                            </Viewbox>
-                            <Path Width="6" Height="5" Margin="13,0,0,0" Stretch="Fill" Data="F1 M57.5692,88 L99.1384,16 L16,16 L57.5692,88" Fill="{Binding Path=Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:DropDownMenuButton}}}" />
-                          </Grid>
-                        </ControlTemplate>
-                      </ResourceDictionary>
-                    </FrameworkElement.Resources>
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Right">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="22" />
+                    <ColumnDefinition Width="390" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="20" />
+                  </Grid.ColumnDefinitions>
+                  <v:DropDownMenuButton Grid.Column="0" Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonLoupe}" Margin="2,0,0,0">
                     <v:DropDownMenuButton.DropDownContextMenu>
                       <ContextMenu>
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 5KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_5KEYS, Converter={StaticResource modeFilterConverter}}" />
@@ -1225,8 +1260,8 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <TextBox Name="KeywordSearchBox" Width="390" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Text="{Binding ChartFilters.KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
-                  <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBox}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding ChartFilters.IsKeywordSearchSuggestionPopupOpen, Source={StaticResource vm}, Mode=TwoWay}">
+                  <TextBox Grid.Column="1" Name="KeywordSearchBox" Style="{DynamicResource searchKeywordTextBoxStyle}" Text="{Binding ChartFilters.KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
+                  <Popup x:Name="KeywordSearchSuggestionPopup" Grid.Column="1" Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBox}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding ChartFilters.IsKeywordSearchSuggestionPopupOpen, Source={StaticResource vm}, Mode=TwoWay}">
                     <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="4" MinWidth="{Binding ActualWidth, ElementName=KeywordSearchBox}">
                       <StackPanel>
                         <TextBlock FontFamily="Meiryo" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource App.SubtleTextBrush}" Margin="4,2,4,4" Text="{Binding ChartFilters.KeywordSearchSuggestionHeaderText, Source={StaticResource vm}}" />
@@ -1240,54 +1275,46 @@
                       </StackPanel>
                     </Border>
                   </Popup>
-                      <TextBlock FontFamily="Meiryo" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding ChartFilters.KeywordSearchWarningText, Source={StaticResource vm}}" Visibility="{Binding ChartFilters.HasKeywordSearchWarning, Source={StaticResource vm}, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
-                  <ToggleButton x:Name="KeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.AccentBrush}" FocusVisualStyle="{x:Null}" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding ChartFilters.IsKeywordSearchHelpOpen, Source={StaticResource vm}, Mode=TwoWay}" />
-                  <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding ChartFilters.IsKeywordSearchHelpOpen, Source={StaticResource vm}, Mode=TwoWay}">
+                  <Grid x:Name="KeywordSearchWarningSlot" Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <TextBlock FontFamily="Meiryo" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding ChartFilters.KeywordSearchWarningText, Source={StaticResource vm}}" Visibility="{Binding ChartFilters.HasKeywordSearchWarning, Source={StaticResource vm}, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
+                  </Grid>
+                  <Grid x:Name="KeywordSearchHelpSlot" Grid.Column="3" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <ToggleButton x:Name="KeywordSearchHelpButton" Style="{StaticResource searchKeywordHelpButtonStyle}" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding ChartFilters.IsKeywordSearchHelpOpen, Source={StaticResource vm}, Mode=TwoWay}" />
+                  </Grid>
+                  <Popup x:Name="KeywordSearchHelpPopup" Grid.Column="3" Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding ChartFilters.IsKeywordSearchHelpOpen, Source={StaticResource vm}, Mode=TwoWay}">
                     <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="8" MaxWidth="380">
                       <TextBlock FontFamily="Meiryo" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource App.TextBrush}" Text="{Binding ChartFilters.KeywordSearchHelpText, Source={StaticResource vm}}" />
                     </Border>
                   </Popup>
-                   <TextBlock FontFamily="{StaticResource LigatureSymbols}" VerticalAlignment="Center" FontSize="16" Text="close" Margin="0,0,3,0.5" Foreground="{DynamicResource App.AccentSubtleBrush}" Cursor="Hand" Visibility="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="keywordSearchClearMouseLeftButtonDown" />
-                </StackPanel>
+                  <Grid x:Name="KeywordSearchClearSlot" Grid.Column="4" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <TextBlock x:Name="KeywordSearchClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Text="close" Visibility="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="keywordSearchClearMouseLeftButtonDown" />
+                  </Grid>
+                </Grid>
               </Border>
-              <Border DockPanel.Dock="Right" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource App.StrongBorderBrush}" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
+              <Border x:Name="PlaylistSummaryKeywordSearchComposite" DockPanel.Dock="Right" CornerRadius="6" Height="24" BorderThickness="1" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
                 <Border.Style>
                   <Style TargetType="{x:Type Border}">
                     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource App.StrongBorderBrush}" />
                     <Style.Triggers>
                       <DataTrigger Binding="{Binding Text, ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={StaticResource stringToBooleanConverter}}" Value="True">
                         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundActiveBrush}" />
                       </DataTrigger>
+                      <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=KeywordSearchBoxPlaylistSummary}" Value="True">
+                        <Setter Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
+                      </DataTrigger>
                     </Style.Triggers>
                   </Style>
                 </Border.Style>
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Right" Orientation="Horizontal">
-                  <v:DropDownMenuButton Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonLoupe}" Margin="2,0,0,0">
-                    <FrameworkElement.Resources>
-                      <ResourceDictionary>
-                        <ControlTemplate x:Key="templateDropmenuButtonLoupe" TargetType="{x:Type ToggleButton}">
-                          <Grid Background="#00FFFFFF">
-                            <Viewbox Height="20" Width="20">
-                              <Grid Height="100" Width="100">
-                                <Ellipse Fill="#A0FFFFFF" HorizontalAlignment="Left" Height="50" VerticalAlignment="Top" Width="50" Margin="5,12.5,0,0" />
-                                <Ellipse Stroke="#FF727272" StrokeThickness="8" HorizontalAlignment="Left" Height="50" VerticalAlignment="Top" Width="50" Margin="5,12.5,0,0" />
-                                <Rectangle Fill="#FF727272" HorizontalAlignment="Left" Height="42.5" VerticalAlignment="Top" Width="9.849" Margin="58.013,49.937,0,0" RenderTransformOrigin="0.5,0.5">
-                                  <UIElement.RenderTransform>
-                                    <TransformGroup>
-                                      <ScaleTransform />
-                                      <SkewTransform />
-                                      <RotateTransform Angle="-45" />
-                                      <TranslateTransform />
-                                    </TransformGroup>
-                                  </UIElement.RenderTransform>
-                                </Rectangle>
-                              </Grid>
-                            </Viewbox>
-                            <Path Width="6" Height="5" Margin="13,0,0,0" Stretch="Fill" Data="F1 M57.5692,88 L99.1384,16 L16,16 L57.5692,88" Fill="{Binding Path=Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:DropDownMenuButton}}}" />
-                          </Grid>
-                        </ControlTemplate>
-                      </ResourceDictionary>
-                    </FrameworkElement.Resources>
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Right">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="22" />
+                    <ColumnDefinition Width="390" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="20" />
+                    <ColumnDefinition Width="20" />
+                  </Grid.ColumnDefinitions>
+                  <v:DropDownMenuButton Grid.Column="0" Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonLoupe}" Margin="2,0,0,0">
                     <v:DropDownMenuButton.DropDownContextMenu>
                       <ContextMenu>
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="All" IsChecked="{Binding PlaylistWorkspace.PlaylistSummaryOwnedFilter, Source={StaticResource vm}, ConverterParameter=All, Converter={StaticResource playlistSummaryOwnedFilterConverter}}" />
@@ -1296,8 +1323,8 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <TextBox Name="KeywordSearchBoxPlaylistSummary" Width="390" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
-                  <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBoxPlaylistSummary}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen, Mode=TwoWay}">
+                  <TextBox Grid.Column="1" Name="KeywordSearchBoxPlaylistSummary" Style="{DynamicResource searchKeywordTextBoxStyle}" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
+                  <Popup x:Name="PlaylistSummaryKeywordSearchSuggestionPopup" Grid.Column="1" Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBoxPlaylistSummary}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen, Mode=TwoWay}">
                     <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="4" MinWidth="{Binding ActualWidth, ElementName=KeywordSearchBoxPlaylistSummary}">
                       <StackPanel>
                         <TextBlock FontFamily="Meiryo" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource App.SubtleTextBrush}" Margin="4,2,4,4" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordSearchSuggestionHeaderText}" />
@@ -1311,15 +1338,21 @@
                       </StackPanel>
                     </Border>
                   </Popup>
-                  <TextBlock FontFamily="Meiryo" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText}" Visibility="{Binding PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
-                  <ToggleButton x:Name="PlaylistSummaryKeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.AccentBrush}" FocusVisualStyle="{x:Null}" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}" />
-                  <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=PlaylistSummaryKeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}">
+                  <Grid x:Name="PlaylistSummaryKeywordSearchWarningSlot" Grid.Column="2" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <TextBlock FontFamily="Meiryo" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="{DynamicResource App.WarningTextBrush}" ToolTip="{Binding PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText}" Visibility="{Binding PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" />
+                  </Grid>
+                  <Grid x:Name="PlaylistSummaryKeywordSearchHelpSlot" Grid.Column="3" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <ToggleButton x:Name="PlaylistSummaryKeywordSearchHelpButton" Style="{StaticResource searchKeywordHelpButtonStyle}" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}" />
+                  </Grid>
+                  <Popup x:Name="PlaylistSummaryKeywordSearchHelpPopup" Grid.Column="3" Placement="Bottom" PlacementTarget="{Binding ElementName=PlaylistSummaryKeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}">
                     <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="8" MaxWidth="380">
                       <TextBlock FontFamily="Meiryo" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource App.TextBrush}" Text="{Binding PlaylistWorkspace.PlaylistSummaryKeywordSearchHelpText}" />
                     </Border>
                   </Popup>
-                   <TextBlock FontFamily="{StaticResource LigatureSymbols}" VerticalAlignment="Center" FontSize="16" Text="close" Margin="0,0,3,0.5" Foreground="{DynamicResource App.AccentSubtleBrush}" Cursor="Hand" Visibility="{Binding Text, ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="keywordSearchPlaylistSummaryClearMouseLeftButtonDown" />
-                </StackPanel>
+                  <Grid x:Name="PlaylistSummaryKeywordSearchClearSlot" Grid.Column="4" Style="{StaticResource searchKeywordAffordanceSlotStyle}">
+                    <TextBlock x:Name="PlaylistSummaryKeywordSearchClearIcon" Style="{StaticResource searchKeywordClearIconStyle}" Text="close" Visibility="{Binding Text, ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={StaticResource stringToVisibilityHiddenConverter}}" MouseLeftButtonDown="keywordSearchPlaylistSummaryClearMouseLeftButtonDown" />
+                  </Grid>
+                </Grid>
               </Border>
                <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Text="{Binding MainChartList.SummaryText}">
                  <TextBlock.Visibility>

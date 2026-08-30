@@ -61,13 +61,6 @@ public sealed class WpfChromeBoundaryTests
         Assert.IsTrue(source.Contains("SystemCommands.MinimizeWindowCommand", StringComparison.Ordinal));
         Assert.IsTrue(codeBehind.Contains("windowBorder.Margin = new Thickness(8.0);", StringComparison.Ordinal));
         Assert.IsTrue(codeBehind.Contains("windowBorder.Margin = new Thickness(0.0);", StringComparison.Ordinal));
-        Assert.AreEqual(
-            2,
-            document.Descendants().Count(element =>
-                element.Name.LocalName == "Ellipse"
-                && string.Equals((string)element.Attribute("Stroke"), "#FF727272", StringComparison.Ordinal)
-                && string.Equals((string)element.Attribute("StrokeThickness"), "8", StringComparison.Ordinal)));
-
         foreach (string legacyToken in new[]
         {
             "MetroChromeBehavior",

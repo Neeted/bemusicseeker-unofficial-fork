@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -21,25 +23,59 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowChartPresentationWpfTests
 {
+    private static void WithSimpleTextBoxStyles(Action action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current
+                ?? throw new InvalidOperationException("The shared WPF application host is unavailable.");
+            if (application.TryFindResource("SimpleTextBox") is Style)
+            {
+                action();
+                return;
+            }
+
+            var styles = new ResourceDictionary
+            {
+                Source = new Uri(
+                    "/BeMusicSeeker;component/Simple Styles.xaml",
+                    UriKind.RelativeOrAbsolute)
+            };
+            application.Resources.MergedDictionaries.Insert(0, styles);
+            try
+            {
+                action();
+            }
+            finally
+            {
+                application.Resources.MergedDictionaries.Remove(styles);
+            }
+        });
+    }
+
     [TestMethod]
     public void MainColumnResetClickUsesActualCompiledMenuRoute()
     {
         int calls = 0;
         var terminal = new MainWindowColumnResetTerminal(_ => calls++);
 
-        MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
-            (_, window) =>
-            {
-                ContextMenu menu = (ContextMenu)window.FindResource("tableColumnHeaderContextMenu");
-                MenuItem reset = menu.Items.OfType<MenuItem>().Last();
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (_, window) =>
+                {
+                    ContextMenu menu = (ContextMenu)window.FindResource("tableColumnHeaderContextMenu");
+                    MenuItem reset = menu.Items.OfType<MenuItem>().Last();
 
-                reset.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, reset));
+                    reset.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, reset));
 
-                Assert.AreEqual(1, calls);
-            },
-            allowStartupUiInteraction: true,
-            columnResetTerminal: terminal);
+                    Assert.AreEqual(1, calls);
+                },
+                allowStartupUiInteraction: true,
+                columnResetTerminal: terminal);
+        });
     }
 
     [TestMethod]
@@ -50,10 +86,12 @@ public sealed class MainWindowChartPresentationWpfTests
         var completed = new List<MainChartListCellEditEndedEventArgs>();
         const string expectedText = @"C:\wave6e-cell-edit\destination";
 
-        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
-            (viewModel, window) =>
-            {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
                 viewModel.MainChartList.CellEditBeginningRequested += (_, request) => beginning.Add(request.Context);
                 viewModel.MainChartList.CellEditStarted += (_, context) => started.Add(context);
                 viewModel.MainChartList.CellEditEndedRequested += (_, request) => completed.Add(request);
@@ -119,7 +157,8 @@ public sealed class MainWindowChartPresentationWpfTests
                 Assert.AreEqual(expectedText, completed[0].Text);
                 Assert.IsTrue(completed[0].Commit);
                 Assert.AreSame(file, row.Chart.GetBmsStorageOwner());
-            });
+                });
+        });
     }
 
     [TestMethod]
@@ -418,22 +457,286 @@ public sealed class MainWindowChartPresentationWpfTests
     [TestMethod]
     public void ConstructorBindsChartFilterAndMainChartOwner()
     {
-        MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
-            (viewModel, window) =>
-            {
-                TextBox keyword = GetNamedElement<TextBox>(window, "KeywordSearchBox");
-                CustomTableView table = GetNamedElement<CustomTableView>(window, "customTableView");
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    TextBox keyword = GetNamedElement<TextBox>(window, "KeywordSearchBox");
+                    CustomTableView table = GetNamedElement<CustomTableView>(window, "customTableView");
 
-                AssertBindingPath(keyword, TextBox.TextProperty, "ChartFilters.KeywordFilter");
-                Assert.AreSame(viewModel.MainChartList, table.DataContext);
-                AssertBindingPath(table, CustomTableView.ItemsSourceProperty, "Rows");
-                AssertBindingPath(table, CustomTableView.SelectedIndexProperty, "SelectedIndex");
+                    AssertBindingPath(keyword, TextBox.TextProperty, "ChartFilters.KeywordFilter");
+                    Assert.AreSame(viewModel.MainChartList, table.DataContext);
+                    AssertBindingPath(table, CustomTableView.ItemsSourceProperty, "Rows");
+                    AssertBindingPath(table, CustomTableView.SelectedIndexProperty, "SelectedIndex");
 
-                keyword.Text = "wave6e-filter";
-                BindingOperations.GetBindingExpression(keyword, TextBox.TextProperty)?.UpdateSource();
-                Assert.AreEqual("wave6e-filter", viewModel.ChartFilters.KeywordFilter);
-            });
+                    keyword.Text = "wave6e-filter";
+                    BindingOperations.GetBindingExpression(keyword, TextBox.TextProperty)?.UpdateSource();
+                    Assert.AreEqual("wave6e-filter", viewModel.ChartFilters.KeywordFilter);
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchToolbars_UseFixedCompositeGeometryAndWarningSlots()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                MaterializeMainWindow(window);
+
+                Grid rootGrid = GetNamedElement<Grid>(window, "grid");
+                Assert.AreEqual(27d, rootGrid.RowDefinitions[1].Height.Value, 0.01d);
+
+                SearchChrome normal = GetSearchChrome(window, "KeywordSearchBox");
+                AssertSearchChromeGeometry(normal);
+                Point normalHelpBeforeWarning = GetRelativeOrigin(normal.HelpSlot, normal.Outer);
+                Point normalClearBeforeWarning = GetRelativeOrigin(normal.ClearSlot, normal.Outer);
+                Assert.AreEqual(Visibility.Collapsed, normal.WarningContent.Visibility);
+                normal.WarningContent.SetCurrentValue(
+                    UIElement.VisibilityProperty,
+                    Visibility.Visible);
+                MaterializeMainWindow(window);
+                Assert.AreEqual(Visibility.Visible, normal.WarningContent.Visibility);
+                AssertSlotChildCentered(normal.WarningSlot, normal.WarningContent, normal.Outer);
+                AssertSamePoint(normalHelpBeforeWarning, GetRelativeOrigin(normal.HelpSlot, normal.Outer));
+                AssertSamePoint(normalClearBeforeWarning, GetRelativeOrigin(normal.ClearSlot, normal.Outer));
+                normal.WarningContent.SetCurrentValue(
+                    UIElement.VisibilityProperty,
+                    Visibility.Collapsed);
+                MaterializeMainWindow(window);
+                Assert.AreEqual(Visibility.Collapsed, normal.WarningContent.Visibility);
+                AssertSamePoint(normalHelpBeforeWarning, GetRelativeOrigin(normal.HelpSlot, normal.Outer));
+                AssertSamePoint(normalClearBeforeWarning, GetRelativeOrigin(normal.ClearSlot, normal.Outer));
+
+                viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                TestUiDispatcherHost.Drain();
+                MaterializeMainWindow(window);
+
+                SearchChrome summary = GetSearchChrome(window, "KeywordSearchBoxPlaylistSummary");
+                AssertSearchChromeGeometry(summary);
+                Assert.AreEqual(Visibility.Collapsed, summary.WarningContent.Visibility);
+                Point summaryHelpWithoutWarning = GetRelativeOrigin(summary.HelpSlot, summary.Outer);
+                Point summaryClearWithoutWarning = GetRelativeOrigin(summary.ClearSlot, summary.Outer);
+                summary.WarningContent.SetCurrentValue(
+                    UIElement.VisibilityProperty,
+                    Visibility.Visible);
+                MaterializeMainWindow(window);
+                Assert.AreEqual(Visibility.Visible, summary.WarningContent.Visibility);
+                AssertSlotChildCentered(summary.WarningSlot, summary.WarningContent, summary.Outer);
+                AssertSamePoint(summaryHelpWithoutWarning, GetRelativeOrigin(summary.HelpSlot, summary.Outer));
+                AssertSamePoint(summaryClearWithoutWarning, GetRelativeOrigin(summary.ClearSlot, summary.Outer));
+                summary.WarningContent.SetCurrentValue(
+                    UIElement.VisibilityProperty,
+                    Visibility.Collapsed);
+                MaterializeMainWindow(window);
+                Assert.AreEqual(Visibility.Collapsed, summary.WarningContent.Visibility);
+                AssertSamePoint(summaryHelpWithoutWarning, GetRelativeOrigin(summary.HelpSlot, summary.Outer));
+                AssertSamePoint(summaryClearWithoutWarning, GetRelativeOrigin(summary.ClearSlot, summary.Outer));
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchVariants_PreserveBindingsPopupTargetsAndClearRoutes()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchBox");
+                    SearchChrome summary = GetSearchChrome(window, "KeywordSearchBoxPlaylistSummary");
+                    AssertFilterAffordanceMaterialized(normal);
+                    AssertFilterAffordanceMaterialized(summary);
+                    MaterializeMainWindow(window);
+                    AssertFilterAffordanceRendered(normal);
+                    Assert.AreSame(viewModel, normal.TextBox.DataContext);
+                    Assert.AreSame(viewModel, summary.TextBox.DataContext);
+                    AssertBindingPath(normal.TextBox, TextBox.TextProperty, "ChartFilters.KeywordFilter");
+                    AssertBindingPath(summary.TextBox, TextBox.TextProperty, "PlaylistWorkspace.PlaylistSummaryKeywordFilter");
+                    AssertBindingPath(normal.HelpButton, ToggleButton.IsCheckedProperty, "ChartFilters.IsKeywordSearchHelpOpen");
+                    AssertBindingPath(summary.HelpButton, ToggleButton.IsCheckedProperty, "PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen");
+                    AssertBindingPath(normal.SuggestionPopup, Popup.IsOpenProperty, "ChartFilters.IsKeywordSearchSuggestionPopupOpen");
+                AssertBindingPath(summary.SuggestionPopup, Popup.IsOpenProperty, "PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen");
+                Assert.AreSame(normal.TextBox, normal.SuggestionPopup.PlacementTarget);
+                    Assert.AreSame(summary.TextBox, summary.SuggestionPopup.PlacementTarget);
+                    Assert.AreSame(normal.HelpButton, normal.HelpPopup.PlacementTarget);
+                    Assert.AreSame(summary.HelpButton, summary.HelpPopup.PlacementTarget);
+                    Assert.IsNull(normal.HelpButton.FocusVisualStyle);
+                    Assert.IsNull(summary.HelpButton.FocusVisualStyle);
+                    AssertBindingPathAndOwner(
+                        normal.WarningContent,
+                        UIElement.VisibilityProperty,
+                        "ChartFilters.HasKeywordSearchWarning",
+                        viewModel);
+                    AssertBindingPathAndOwner(
+                        normal.WarningContent,
+                        FrameworkElement.ToolTipProperty,
+                        "ChartFilters.KeywordSearchWarningText",
+                        viewModel);
+                    AssertBindingPathAndOwner(
+                        summary.WarningContent,
+                        UIElement.VisibilityProperty,
+                        "PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning",
+                        viewModel);
+                    AssertBindingPathAndOwner(
+                        summary.WarningContent,
+                        FrameworkElement.ToolTipProperty,
+                        "PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText",
+                        viewModel);
+                    AssertFilterMenuBindings(
+                        normal.FilterButton,
+                        "ChartFilters.ModeFilter",
+                        viewModel);
+                    AssertFilterMenuBindings(
+                        summary.FilterButton,
+                        "PlaylistWorkspace.PlaylistSummaryOwnedFilter",
+                        viewModel);
+                    ChartModeFilter modeBeforeInteraction = viewModel.ChartFilters.ModeFilter;
+                    PlaylistOwnedFilter ownedFilterBeforeInteraction = viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter;
+                    MenuItem normalFilterItem = GetFilterMenuItem(normal.FilterButton.DropDownContextMenu!, true);
+                    SetFilterMenuItemChecked(normalFilterItem, false);
+                    Assert.AreNotEqual(modeBeforeInteraction, viewModel.ChartFilters.ModeFilter);
+                    Assert.AreEqual(ownedFilterBeforeInteraction, viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter);
+                    ChartModeFilter modeAfterNormalInteraction = viewModel.ChartFilters.ModeFilter;
+
+                    normal.TextBox.Text = "title:normal";
+                BindingOperations.GetBindingExpression(normal.TextBox, TextBox.TextProperty)?.UpdateSource();
+                RaiseMouseLeftButtonDown(normal.ClearIcon);
+                BindingOperations.GetBindingExpression(normal.TextBox, TextBox.TextProperty)?.UpdateSource();
+                Assert.AreEqual(string.Empty, normal.TextBox.Text);
+                Assert.AreEqual(string.Empty, viewModel.ChartFilters.KeywordFilter);
+
+                summary.TextBox.Text = "name:summary";
+                BindingOperations.GetBindingExpression(summary.TextBox, TextBox.TextProperty)?.UpdateSource();
+                RaiseMouseLeftButtonDown(summary.ClearIcon);
+                BindingOperations.GetBindingExpression(summary.TextBox, TextBox.TextProperty)?.UpdateSource();
+                Assert.AreEqual(string.Empty, summary.TextBox.Text);
+                Assert.AreEqual(string.Empty, viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter);
+
+                    viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                    TestUiDispatcherHost.Drain();
+                    MaterializeMainWindow(window);
+                    AssertFilterAffordanceRendered(summary);
+                    MenuItem summaryFilterItem = GetFilterMenuItem(summary.FilterButton.DropDownContextMenu!, false);
+                    SetFilterMenuItemChecked(summaryFilterItem, true);
+                    Assert.AreEqual(modeAfterNormalInteraction, viewModel.ChartFilters.ModeFilter);
+                    Assert.AreNotEqual(ownedFilterBeforeInteraction, viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter);
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SearchTextBoxes_UseOuterFocusCueStyleAndKeepInnerChromeAtZero()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (viewModel, window) =>
+                {
+                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchBox");
+                    SearchChrome summary = GetSearchChrome(window, "KeywordSearchBoxPlaylistSummary");
+                    AssertSearchTextBoxChrome(normal.TextBox);
+                    AssertSearchTextBoxChrome(summary.TextBox);
+
+                    var presentationScope = new TestWindowPresentationScope(
+                        Application.Current
+                            ?? throw new InvalidOperationException("The shared WPF application host is unavailable."),
+                        TestWindowPresentationScope.GetCurrentNativeThreadId());
+                    object dataContext = window.DataContext;
+                    RoutedEventHandler suppressStartupActivation = (_, _) =>
+                    {
+                        window.Dispatcher.BeginInvoke(
+                            DispatcherPriority.Render,
+                            new Action(() =>
+                            {
+                                window.Left = SystemParameters.VirtualScreenLeft
+                                    + (SystemParameters.VirtualScreenWidth * 4d)
+                                    + 4096d;
+                                window.Top = SystemParameters.VirtualScreenTop
+                                    + (SystemParameters.VirtualScreenHeight * 4d)
+                                    + 4096d;
+                            }));
+                        window.Dispatcher.BeginInvoke(
+                            DispatcherPriority.Loaded,
+                            new Action(() => window.DataContext = null));
+                    };
+                    try
+                    {
+                        // ContentRendered normally starts the whole application. Consuming that one-shot
+                        // handler without its view model keeps this real-window presentation scoped to chrome.
+                        // Keep the view model through SourceInitialized because child controls need it there.
+                        window.Loaded += suppressStartupActivation;
+                        presentationScope.ShowAndWaitForContentRendered(window);
+                        window.DataContext = dataContext;
+                        TestUiDispatcherHost.Drain();
+
+                        AssertFocusCueForPresentedSearch(normal);
+                        viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                        TestUiDispatcherHost.Drain();
+                        AssertFocusCueForPresentedSearch(summary);
+                    }
+                    finally
+                    {
+                        window.Loaded -= suppressStartupActivation;
+                        presentationScope.Cleanup();
+                        window.DataContext = dataContext;
+                    }
+                });
+        });
+    }
+
+    [TestMethod]
+    public void SimpleTextBox_TemplateChromeFollowsEffectiveBorderThickness()
+    {
+        WithSimpleTextBoxStyles(() =>
+        {
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                new Settings(),
+                (_, _) =>
+                {
+                var host = new Grid();
+                host.Resources.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri(
+                        "/BeMusicSeeker;component/Simple Styles.xaml",
+                        UriKind.RelativeOrAbsolute)
+                });
+                host.Resources.MergedDictionaries.Add(new ResourceDictionary
+                {
+                    Source = new Uri(
+                        "/BeMusicSeeker;component/Themes/Light.xaml",
+                        UriKind.RelativeOrAbsolute)
+                });
+                Style simpleTextBoxStyle = (Style)host.FindResource("SimpleTextBox");
+                host.Resources.Add(typeof(TextBox), simpleTextBoxStyle);
+                var implicitTextBox = new TextBox();
+                var explicitTextBox = new TextBox { BorderThickness = new Thickness(0d) };
+                var editableTextBlock = new EditableTextBlock
+                {
+                    Width = 220d,
+                    Height = 30d,
+                    Text = "editable",
+                    IsInEditMode = true
+                };
+                host.Children.Add(implicitTextBox);
+                host.Children.Add(explicitTextBox);
+                host.Children.Add(editableTextBlock);
+                MaterializeElement(host, 500d, 120d);
+
+                AssertTextBoxChrome(implicitTextBox, new Thickness(1d));
+                AssertTextBoxChrome(explicitTextBox, new Thickness(0d));
+                TextBox editor = FindVisualDescendants<TextBox>(editableTextBlock).Single();
+                AssertTextBoxChrome(editor, new Thickness(0d));
+                });
+        });
     }
 
     private static T GetNamedElement<T>(MainWindow window, string name)
@@ -454,11 +757,300 @@ public sealed class MainWindowChartPresentationWpfTests
         Assert.AreEqual(expectedPath, ((Binding)binding!).Path?.Path);
     }
 
+    private static void AssertBindingPathAndOwner(
+        DependencyObject element,
+        DependencyProperty property,
+        string expectedPath,
+        object expectedOwner)
+    {
+        BindingBase? bindingBase = BindingOperations.GetBindingBase(element, property);
+        Assert.IsInstanceOfType(bindingBase, typeof(Binding), expectedPath);
+        Binding binding = (Binding)bindingBase!;
+        Assert.AreEqual(expectedPath, binding.Path?.Path);
+        object? owner = binding.Source ?? (element as FrameworkElement)?.DataContext;
+        Assert.AreSame(expectedOwner, owner);
+    }
+
+    private static void AssertFilterMenuBindings(
+        DropDownMenuButton filterButton,
+        string expectedPath,
+        object expectedOwner)
+    {
+        ContextMenu menu = filterButton.DropDownContextMenu
+            ?? throw new AssertFailedException("The search filter menu must be present.");
+        MenuItem[] items = menu.Items.OfType<MenuItem>().ToArray();
+        Assert.IsTrue(items.Length > 0);
+        foreach (MenuItem item in items)
+        {
+            AssertBindingPathAndOwner(
+                item,
+                MenuItem.IsCheckedProperty,
+                expectedPath,
+                expectedOwner);
+        }
+    }
+
+    private static void AssertFilterAffordanceMaterialized(SearchChrome chrome)
+    {
+        Assert.IsNotNull(chrome.FilterButton.DropDownContextMenu);
+        Assert.IsTrue(
+            chrome.FilterButton.ApplyTemplate(),
+            "The search filter affordance must materialize its control template.");
+        Assert.IsNotNull(chrome.FilterButton.Template);
+    }
+
+    private static void AssertFilterAffordanceRendered(SearchChrome chrome)
+    {
+        MaterializeElement(chrome.FilterButton, 20d, 20d);
+        FrameworkElement[] descendants = FindVisualDescendants<FrameworkElement>(chrome.FilterButton).ToArray();
+        FrameworkElement? renderedDescendant = descendants
+            .FirstOrDefault(element => element.ActualWidth > 0d && element.ActualHeight > 0d);
+        Assert.IsNotNull(
+            renderedDescendant,
+            "The search filter affordance must expose a rendered descendant with non-zero bounds.");
+        Rect descendantBounds = VisualTreeHelper.GetDescendantBounds(chrome.FilterButton);
+        Assert.IsFalse(descendantBounds.IsEmpty);
+        Assert.IsTrue(descendantBounds.Width > 0d && descendantBounds.Height > 0d);
+    }
+
+    private static MenuItem GetFilterMenuItem(ContextMenu menu, bool checkedState)
+    {
+        MenuItem[] items = menu.Items.OfType<MenuItem>().ToArray();
+        foreach (MenuItem item in items)
+        {
+            BindingOperations.GetBindingExpression(item, MenuItem.IsCheckedProperty)?.UpdateTarget();
+        }
+
+        MenuItem? match = items.FirstOrDefault(item => item.IsChecked == checkedState);
+        Assert.IsNotNull(match, $"The filter menu must expose a bound item with IsChecked={checkedState}.");
+        return match!;
+    }
+
+    private static void SetFilterMenuItemChecked(MenuItem item, bool checkedState)
+    {
+        item.SetCurrentValue(MenuItem.IsCheckedProperty, checkedState);
+        BindingOperations.GetBindingExpression(item, MenuItem.IsCheckedProperty)?.UpdateSource();
+        TestUiDispatcherHost.Drain();
+    }
+
     private static TextBox? GetInstalledEditor(CustomTableView table)
         => table.Children
             .OfType<Canvas>()
             .SelectMany(canvas => canvas.Children.OfType<TextBox>())
             .SingleOrDefault();
+
+    private static SearchChrome GetSearchChrome(MainWindow window, string textBoxName)
+    {
+        TextBox textBox = GetNamedElement<TextBox>(window, textBoxName);
+        string suffix = string.Equals(textBoxName, "KeywordSearchBox", StringComparison.Ordinal)
+            ? string.Empty
+            : "PlaylistSummary";
+        return new SearchChrome(
+            textBox,
+            GetNamedElement<Border>(window, $"{suffix}KeywordSearchComposite"),
+            GetNamedElement<Grid>(window, $"{suffix}KeywordSearchWarningSlot"),
+            GetNamedElement<ToggleButton>(window, $"{suffix}KeywordSearchHelpButton"),
+            GetNamedElement<Grid>(window, $"{suffix}KeywordSearchHelpSlot"),
+            GetNamedElement<TextBlock>(window, $"{suffix}KeywordSearchClearIcon"),
+            GetNamedElement<Grid>(window, $"{suffix}KeywordSearchClearSlot"),
+            GetNamedElement<Popup>(window, $"{suffix}KeywordSearchSuggestionPopup"),
+            GetNamedElement<Popup>(window, $"{suffix}KeywordSearchHelpPopup"));
+    }
+
+    private static void AssertSearchChromeGeometry(SearchChrome chrome)
+    {
+        MaterializeElement(chrome.Outer, 600d, 24d);
+        Assert.AreEqual(24d, chrome.Outer.Height, 0.01d);
+        Assert.AreEqual(24d, chrome.Outer.ActualHeight, 0.01d);
+        Assert.IsTrue(chrome.Outer.ActualHeight > 0d);
+        Assert.AreEqual(new Thickness(1d), chrome.Outer.BorderThickness);
+        Assert.IsNotNull(chrome.Outer.BorderBrush);
+        Assert.IsTrue(chrome.Outer.IsVisible || chrome.Outer.Visibility == Visibility.Visible);
+        Assert.AreEqual(390d, chrome.TextBox.Width, 0.01d);
+        Assert.AreEqual(390d, chrome.TextBox.ActualWidth, 0.01d);
+        Assert.AreEqual(new Thickness(0d), chrome.TextBox.BorderThickness);
+        Assert.AreEqual(390d, chrome.Layout.ColumnDefinitions[1].Width.Value, 0.01d);
+        Assert.AreEqual(20d, chrome.Layout.ColumnDefinitions[2].Width.Value, 0.01d);
+        Assert.AreEqual(20d, chrome.Layout.ColumnDefinitions[3].Width.Value, 0.01d);
+        Assert.AreEqual(20d, chrome.Layout.ColumnDefinitions[4].Width.Value, 0.01d);
+        Assert.AreEqual(20d, chrome.WarningSlot.Width, 0.01d);
+        Assert.AreEqual(20d, chrome.HelpSlot.Width, 0.01d);
+        Assert.AreEqual(20d, chrome.ClearSlot.Width, 0.01d);
+        Assert.AreEqual(2, Grid.GetColumn(chrome.WarningSlot));
+        Assert.AreEqual(3, Grid.GetColumn(chrome.HelpSlot));
+        Assert.AreEqual(4, Grid.GetColumn(chrome.ClearSlot));
+        Assert.AreEqual(Visibility.Visible, chrome.WarningSlot.Visibility);
+        Assert.IsTrue(chrome.WarningContent.Visibility is Visibility.Visible or Visibility.Collapsed);
+        Assert.IsTrue(chrome.HelpButton.IsVisible || chrome.HelpButton.Visibility == Visibility.Visible);
+        Assert.IsTrue(chrome.ClearSlot.IsVisible || chrome.ClearSlot.Visibility == Visibility.Visible);
+        AssertSlotBounds(chrome.WarningSlot);
+        AssertSlotBounds(chrome.HelpSlot);
+        AssertSlotBounds(chrome.ClearSlot);
+        AssertSlotChildCentered(chrome.HelpSlot, chrome.HelpButton, chrome.Outer);
+        AssertSlotChildCentered(chrome.ClearSlot, chrome.ClearIcon, chrome.Outer);
+        AssertIntegerThickness(chrome.WarningContent.Margin);
+        AssertIntegerThickness(chrome.HelpButton.Margin);
+        AssertIntegerThickness(chrome.ClearIcon.Margin);
+    }
+
+    private static void AssertSearchTextBoxChrome(TextBox textBox)
+    {
+        Assert.AreEqual(new Thickness(0d), textBox.BorderThickness);
+        Assert.AreEqual(new Thickness(0d), GetTemplateBorder(textBox).BorderThickness);
+    }
+
+    private static void AssertFocusCueForPresentedSearch(SearchChrome chrome)
+    {
+        Brush unfocusedBrush = chrome.Outer.BorderBrush;
+        SetKeyboardFocusForNonActivatingPresentation(chrome.TextBox);
+        Assert.IsTrue(chrome.TextBox.IsKeyboardFocusWithin);
+        Brush focusedBrush = chrome.Outer.BorderBrush;
+        Assert.AreNotSame(unfocusedBrush, focusedBrush);
+        Assert.AreEqual(new Thickness(0d), chrome.TextBox.BorderThickness);
+        Assert.AreEqual(new Thickness(0d), GetTemplateBorder(chrome.TextBox).BorderThickness);
+
+        SetKeyboardFocusForNonActivatingPresentation(chrome.HelpButton);
+        Assert.IsFalse(chrome.TextBox.IsKeyboardFocusWithin);
+        Assert.AreSame(unfocusedBrush, chrome.Outer.BorderBrush);
+        Assert.AreEqual(new Thickness(0d), chrome.TextBox.BorderThickness);
+        Assert.AreEqual(new Thickness(0d), GetTemplateBorder(chrome.TextBox).BorderThickness);
+    }
+
+    private static void SetKeyboardFocusForNonActivatingPresentation(IInputElement target)
+    {
+        // WS_EX_NOACTIVATE intentionally makes the public Focus route reject this off-screen
+        // presentation. ChangeFocus exercises WPF's keyboard-focus state and routed events without
+        // activating the HWND or synthesizing physical input. Retire this reflection when the shared
+        // WPF harness exposes the same non-native transition as a typed test seam.
+        MethodInfo changeFocus = typeof(KeyboardDevice).GetMethod(
+                "ChangeFocus",
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                [typeof(DependencyObject), typeof(int)],
+                modifiers: null)
+            ?? throw new AssertFailedException(
+                "The WPF keyboard device no longer exposes the non-native ChangeFocus transition.");
+        changeFocus.Invoke(Keyboard.PrimaryDevice, [target, Environment.TickCount]);
+        Assert.AreSame(target, Keyboard.FocusedElement);
+    }
+
+    private static void AssertTextBoxChrome(TextBox textBox, Thickness expectedThickness)
+    {
+        Assert.AreEqual(expectedThickness, textBox.BorderThickness);
+        Assert.AreEqual(expectedThickness, GetTemplateBorder(textBox).BorderThickness);
+    }
+
+    private static Border GetTemplateBorder(TextBox textBox)
+    {
+        textBox.ApplyTemplate();
+        Assert.IsNotNull(textBox.Template);
+        Border? border = FindVisualDescendants<Border>(textBox).FirstOrDefault();
+        Assert.IsNotNull(border, $"{textBox.Name} did not materialize a template Border.");
+        return border!;
+    }
+
+    private static Point GetRelativeOrigin(FrameworkElement element, FrameworkElement ancestor)
+        => element.TranslatePoint(new Point(0d, 0d), ancestor);
+
+    private static void AssertSamePoint(Point expected, Point actual)
+    {
+        Assert.AreEqual(expected.X, actual.X, 0.01d);
+        Assert.AreEqual(expected.Y, actual.Y, 0.01d);
+    }
+
+    private static void AssertSlotBounds(Grid slot)
+    {
+        Assert.AreEqual(20d, slot.ActualWidth, 0.01d);
+        Assert.AreEqual(20d, slot.ActualHeight, 0.01d);
+    }
+
+    private static void AssertSlotChildCentered(
+        FrameworkElement slot,
+        FrameworkElement child,
+        FrameworkElement ancestor)
+    {
+        Point slotOrigin = GetRelativeOrigin(slot, ancestor);
+        Point childOrigin = GetRelativeOrigin(child, ancestor);
+        var slotCenter = new Point(
+            slotOrigin.X + slot.ActualWidth / 2d,
+            slotOrigin.Y + slot.ActualHeight / 2d);
+        var childCenter = new Point(
+            childOrigin.X + child.ActualWidth / 2d,
+            childOrigin.Y + child.ActualHeight / 2d);
+        const double devicePixelTolerance = 0.51d;
+        Assert.AreEqual(slotCenter.X, childCenter.X, devicePixelTolerance);
+        Assert.AreEqual(slotCenter.Y, childCenter.Y, devicePixelTolerance);
+    }
+
+    private static void AssertIntegerThickness(Thickness margin)
+    {
+        Assert.AreEqual(Math.Truncate(margin.Left), margin.Left);
+        Assert.AreEqual(Math.Truncate(margin.Top), margin.Top);
+        Assert.AreEqual(Math.Truncate(margin.Right), margin.Right);
+        Assert.AreEqual(Math.Truncate(margin.Bottom), margin.Bottom);
+    }
+
+    private static void MaterializeMainWindow(MainWindow window)
+    {
+        window.Width = 1200d;
+        window.Height = 800d;
+        window.Measure(new Size(window.Width, window.Height));
+        window.Arrange(new Rect(0d, 0d, window.Width, window.Height));
+        window.UpdateLayout();
+        TestUiDispatcherHost.Drain();
+    }
+
+    private static void MaterializeElement(FrameworkElement element, double width, double height)
+    {
+        element.Measure(new Size(width, height));
+        element.Arrange(new Rect(0d, 0d, width, height));
+        element.UpdateLayout();
+        TestUiDispatcherHost.Drain();
+    }
+
+    private static void RaiseMouseLeftButtonDown(UIElement element)
+    {
+        element.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+        {
+            RoutedEvent = UIElement.MouseLeftButtonDownEvent
+        });
+    }
+
+    private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        int childCount = VisualTreeHelper.GetChildrenCount(root);
+        for (int index = 0; index < childCount; index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match)
+            {
+                yield return match;
+            }
+            foreach (T descendant in FindVisualDescendants<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
+    private sealed record SearchChrome(
+        TextBox TextBox,
+        Border Outer,
+        Grid WarningSlot,
+        ToggleButton HelpButton,
+        Grid HelpSlot,
+        TextBlock ClearIcon,
+        Grid ClearSlot,
+        Popup SuggestionPopup,
+        Popup HelpPopup)
+    {
+        internal Grid Layout => (Grid)Outer.Child;
+
+        internal DropDownMenuButton FilterButton => Layout.Children.OfType<DropDownMenuButton>().Single();
+
+        internal TextBlock WarningContent => WarningSlot.Children.OfType<TextBlock>().Single();
+    }
 
     private static CustomTableView CreateEditableTable(CustomTableColumn column, double width, double height)
     {

@@ -454,12 +454,13 @@
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="CaretBrush" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource SolidBorderBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type TextBox}">
           <Grid>
-            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="1" Padding="2" CornerRadius="2">
+            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" Padding="2" CornerRadius="2">
               <ScrollViewer Name="PART_ContentHost" Margin="0" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" Style="{DynamicResource SimpleScrollViewer}" Background="{TemplateBinding Control.Background}" />
             </Border>
           </Grid>
@@ -476,6 +477,14 @@
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+  </Style>
+  <Style x:Key="searchKeywordTextBoxStyle" TargetType="{x:Type TextBox}" BasedOn="{StaticResource SimpleTextBox}">
+    <Setter Property="Width" Value="390" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="HorizontalAlignment" Value="Left" />
+    <Setter Property="Margin" Value="0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="Background" Value="Transparent" />
   </Style>
   <Style x:Key="SimpleLabel" TargetType="{x:Type Label}">
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
