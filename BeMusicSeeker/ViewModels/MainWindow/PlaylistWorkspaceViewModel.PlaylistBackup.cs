@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -40,14 +41,27 @@ public sealed partial class PlaylistWorkspaceViewModel
     private async Task BackupPlaylistAsync(BMSPlaylist tables, string fileName)
     {
         using PlaylistOperationNotificationOwner.OperationNotificationSession session = tables.OperationNotificationOwner.BeginSession();
+        ExceptionDispatchInfo failure = null;
         try
         {
             await Task.Run(() => BackupPlaylist(tables, fileName)).ConfigureAwait(false);
         }
+        catch (Exception ex)
+        {
+            failure = ExceptionDispatchInfo.Capture(ex);
+        }
         finally
         {
-            PublishPlaylistOperationNotificationReceipt(session, "playlist backup notification");
+            try
+            {
+                PublishPlaylistOperationNotificationReceipt(session, "playlist backup notification");
+            }
+            catch (Exception ex)
+            {
+                failure ??= ExceptionDispatchInfo.Capture(ex);
+            }
         }
+        failure?.Throw();
     }
 
     private void BackupPlaylist(BMSPlaylist tables, string fileName)
@@ -80,6 +94,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + Environment.NewLine
                     + ex.Message,
                 BeMusicSeeker.Properties.Resources.Failure);
+            throw;
         }
     }
 

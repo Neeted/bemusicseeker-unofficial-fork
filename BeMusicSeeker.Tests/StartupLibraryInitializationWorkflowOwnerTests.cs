@@ -149,4 +149,58 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
             [new Uri("https://example.test/later.json")],
             out _));
     }
+
+    [TestMethod]
+    public async Task StartupReadiness_FailedInitializationTerminalizesPendingImportDrain()
+    {
+        var coordinator = new StartupReadinessCoordinator();
+        coordinator.BeginPlaylistInitialization("test");
+        Assert.IsTrue(coordinator.TryAdmitExternalPlaylistImports(
+            [new Uri("https://example.test/table.json")],
+            out bool shouldStartDrain));
+        Assert.IsTrue(shouldStartDrain);
+        Assert.IsTrue(coordinator.TryBeginExternalPlaylistImportDrain());
+        Task readinessWaiter = coordinator.WaitForRequiredPlaylistReadinessAsync();
+        var failure = new InvalidOperationException("playlist initialization failed");
+
+        coordinator.FailRequiredPlaylistReadiness(failure);
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => readinessWaiter.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(coordinator.CompleteExternalPlaylistImportDrain());
+        Assert.AreEqual(0, coordinator.DequeueExternalPlaylistImportBatch().Count);
+        Assert.IsFalse(coordinator.TryAdmitExternalPlaylistImports(
+            [new Uri("https://example.test/later.json")],
+            out _));
+    }
+
+    [TestMethod]
+    public void InitializationService_RunInitialize_PropagatesContinuationFailure()
+    {
+        var service = new BmsLibraryInitializationService();
+        using var semaphore = new SemaphoreSlim(1, 1);
+        var failure = new InvalidOperationException("initialization continuation failed");
+
+        AggregateException exception = Assert.ThrowsException<AggregateException>(() =>
+            service.RunInitialize(
+                [
+                    () =>
+                    {
+                        try
+                        {
+                            throw failure;
+                        }
+                        finally
+                        {
+                            semaphore.Release();
+                        }
+                    }
+                ],
+                semaphore,
+                phase1: null,
+                phase2: null,
+                phase3: null));
+
+        Assert.AreSame(failure, exception.InnerException);
+    }
 }

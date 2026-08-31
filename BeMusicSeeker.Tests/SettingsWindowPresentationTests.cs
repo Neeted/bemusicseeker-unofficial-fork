@@ -402,6 +402,84 @@ public sealed class SettingsWindowPresentationTests
     }
 
     [TestMethod]
+    public void SettingsWindow_RestoreFailureDoesNotAuthorizeCloseOrShutdown()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string scope = Path.Combine(
+                Path.GetTempPath(),
+                "bemusicseeker-settings-restore-failure-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(scope);
+            string songDbPath = Path.Combine(scope, "song.db");
+            string backupPath = Path.Combine(scope, "restore.sql");
+            File.WriteAllText(backupPath, "restore fixture");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+
+            SettingsWindow window = null;
+            MainWindowViewModel owner = null;
+            try
+            {
+                owner = MainWindowViewModelTestFactory.Create(new Settings
+                {
+                    OperationModeLR2DB = false,
+                    BMSRootPath = Path.GetTempPath(),
+                    StandaloneBmsRootPaths = Path.GetTempPath(),
+                    BMSInstallDir = Path.GetTempPath(),
+                    ScanBmsFilesOnStartup = false,
+                    SkipInitPlaylistLoad = true
+                });
+                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(
+                    songDbPath,
+                    [new BMSTable { playlist_id = 1, name = "Existing", symbol = "E" }],
+                    out _,
+                    out _,
+                    restoreUiApplyScheduler: _ => throw new InvalidOperationException("restore durable failure"));
+                var dialogs = new RecordingSettingsRouteDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes),
+                    FileResult = new UiFilePickerResult(UiDialogStatus.Accepted, [backupPath])
+                };
+                window = new SettingsWindow(dialogs)
+                {
+                    DataContext = owner.SettingDialog,
+                    PlaylistWorkspace = workspace
+                };
+                dialogs.ExpectedOwner = window;
+                windowTest.ShowAndWaitForContentRendered(window);
+
+                Task restoreTask = window.HandlePlaylistRestoreAsync();
+                InvalidOperationException? failure = null;
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(restoreTask, "settings restore failure");
+                }
+                catch (InvalidOperationException exception)
+                {
+                    failure = exception;
+                }
+                Assert.IsNotNull(failure);
+
+                StringAssert.Contains(failure!.Message, "restore durable failure");
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(SettingsWindowCloseReason.None, window.CloseReason);
+                Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+                Assert.AreEqual(1, dialogs.FileRequests.Count);
+            }
+            finally
+            {
+                if (window?.IsVisible == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                owner?.SettingDialog.Dispose();
+                Directory.Delete(scope, recursive: true);
+            }
+        });
+    }
+
+    [TestMethod]
     public void SettingsWindow_BmsSearchRootPickerPreservesAcceptedOrderSelectionAndFailureContract()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>

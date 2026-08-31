@@ -5,6 +5,8 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -22,6 +24,8 @@ using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views.Settings.Pages;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -119,6 +123,90 @@ public sealed class PlaylistSummaryBulkEditTests
         dialog.OutputLastPlaySortFolder = true;
 
         Assert.IsTrue(dialog.CanApplyCustomFolderOutput);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistSummaryBulkExternalPropertyInitialization_DurableFailureSuppressesLatePresentation()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistSummaryBulkEditTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerPath = Path.Combine(tempDirectory, "header.json");
+            string scorePath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(
+                headerPath,
+                CreateUtf8BomBytes("{\"name\":\"External Name\",\"symbol\":\"E\",\"data_url\":\"./score.json\"}"));
+            File.WriteAllBytes(
+                scorePath,
+                CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                    songDbPath,
+                    CustomFolderOutputPhysicalSurface.Empty));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerPath));
+            table.playlist_id = 8101;
+            table.name = "Local Name";
+            table.symbol = "L";
+            table.Header_url = new Uri(headerPath);
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+
+            PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(
+                playlist,
+                library: null,
+                settingsProvider: () => new CustomFolderOutputSettingsSnapshot
+                {
+                    OperationModeLR2DB = false
+                });
+            int summaryRefreshCount = 0;
+            int catalogChangedCount = 0;
+            int keywordValueCandidatesChangedCount = 0;
+            workspace.PlaylistPresentationRefreshRequested += (_, _) => summaryRefreshCount++;
+            workspace.PlaylistCatalogChanged += (_, _) => catalogChangedCount++;
+            workspace.PlaylistKeywordValueCandidatesChanged += (_, _) => keywordValueCandidatesChangedCount++;
+
+            File.Delete(songDbPath);
+            Directory.CreateDirectory(songDbPath);
+
+            Exception? failure = null;
+            try
+            {
+                await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+                    [new PlaylistSummaryRow { TableRef = table }],
+                    new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions
+                    {
+                        Name = true,
+                        Symbol = true
+                    });
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            Assert.IsNotNull(failure);
+
+            Assert.AreEqual(0, summaryRefreshCount);
+            Assert.AreEqual(0, catalogChangedCount);
+            Assert.AreEqual(0, keywordValueCandidatesChangedCount);
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]

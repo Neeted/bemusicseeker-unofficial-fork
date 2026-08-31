@@ -217,7 +217,7 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
     {
         try
         {
-            await Task.Run(async () => await apply(bulkEditDialogViewModel).ConfigureAwait(false)).Logging(logName);
+            await Task.Run(async () => await apply(bulkEditDialogViewModel).ConfigureAwait(false)).LoggingAndPropagate(logName);
             afterApply?.Invoke(bulkEditDialogViewModel);
         }
         catch (Exception ex)

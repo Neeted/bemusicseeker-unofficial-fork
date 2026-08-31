@@ -49,6 +49,8 @@ internal sealed class StartupReadinessCoordinator
 
     private bool playlistInitializationActive;
 
+    private bool requiredPlaylistReadinessFaulted;
+
     private bool externalImportDrainActive;
 
     private bool externalImportDrainStarted;
@@ -103,6 +105,20 @@ internal sealed class StartupReadinessCoordinator
             lock (syncRoot)
             {
                 return requiredPlaylistReady;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets whether the current required playlist readiness boundary faulted.
+    /// </summary>
+    internal bool IsRequiredPlaylistReadinessFaulted
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return requiredPlaylistReadinessFaulted;
             }
         }
     }
@@ -163,6 +179,10 @@ internal sealed class StartupReadinessCoordinator
             }
             playlistInitializationActive = true;
             requiredPlaylistReady = false;
+            if (!externalImportDrainActive && pendingExternalPlaylistImports.Count == 0)
+            {
+                requiredPlaylistReadinessFaulted = false;
+            }
             requiredPlaylistReadiness = CreatePendingCompletion();
         }
     }
@@ -181,6 +201,7 @@ internal sealed class StartupReadinessCoordinator
             }
             playlistInitializationActive = false;
             requiredPlaylistReady = true;
+            requiredPlaylistReadinessFaulted = false;
             completion = requiredPlaylistReadiness;
         }
         completion.TrySetResult(true);
@@ -205,6 +226,7 @@ internal sealed class StartupReadinessCoordinator
             }
             playlistInitializationActive = false;
             requiredPlaylistReady = false;
+            requiredPlaylistReadinessFaulted = true;
             completion = requiredPlaylistReadiness;
         }
         completion.TrySetException(exception);
@@ -288,7 +310,7 @@ internal sealed class StartupReadinessCoordinator
 
         lock (syncRoot)
         {
-            if (IsShutdownRequested)
+            if (IsShutdownRequested || requiredPlaylistReadinessFaulted)
             {
                 return false;
             }
@@ -318,6 +340,14 @@ internal sealed class StartupReadinessCoordinator
             {
                 return false;
             }
+            if (requiredPlaylistReadinessFaulted)
+            {
+                pendingExternalPlaylistImports.Clear();
+                externalImportDrainActive = false;
+                externalImportDrainStarted = false;
+                externalImportDrainCompletion.TrySetResult(true);
+                return false;
+            }
             externalImportDrainStarted = true;
             return true;
         }
@@ -330,6 +360,14 @@ internal sealed class StartupReadinessCoordinator
     {
         lock (syncRoot)
         {
+            if (requiredPlaylistReadinessFaulted)
+            {
+                pendingExternalPlaylistImports.Clear();
+                externalImportDrainActive = false;
+                externalImportDrainStarted = false;
+                externalImportDrainCompletion.TrySetResult(true);
+                return [];
+            }
             if (pendingExternalPlaylistImports.Count == 0)
             {
                 externalImportDrainActive = false;
@@ -351,7 +389,7 @@ internal sealed class StartupReadinessCoordinator
     {
         lock (syncRoot)
         {
-            if (IsShutdownRequested)
+            if (IsShutdownRequested || requiredPlaylistReadinessFaulted)
             {
                 pendingExternalPlaylistImports.Clear();
                 externalImportDrainActive = false;
@@ -2224,7 +2262,7 @@ internal sealed class BmsLibraryInitializationService
         {
             for (int i = 0; i < tasksContinuation.Count; i++)
             {
-                continuationTasks.Add(Task.Run(tasksContinuation[i]).Logging("Initialize"));
+                continuationTasks.Add(Task.Run(tasksContinuation[i]).LoggingAndPropagate("Initialize"));
             }
         }
 

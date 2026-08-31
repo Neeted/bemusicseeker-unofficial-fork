@@ -74,21 +74,21 @@ public static class TaskEx
         return task.Logging(log2file, memberName, filePath, lineNumber);
     }
 
+    /// <summary>
+    /// Logs a task fault after the task settles while preserving its success, fault, or cancellation outcome.
+    /// </summary>
+    /// <param name="task">The task whose outcome remains observable to the caller.</param>
+    /// <param name="memberName">The originating member name.</param>
+    /// <param name="filePath">The originating source path.</param>
+    /// <param name="lineNumber">The originating source line.</param>
+    /// <returns>A task that completes with the same outcome as <paramref name="task"/>.</returns>
     public static async Task LoggingAndPropagate(this Task task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
     {
         if (task == null)
         {
             throw new ArgumentNullException(nameof(task));
         }
-        Task loggingTask = task.Logging(log2file, memberName, filePath, lineNumber);
-        try
-        {
-            await task.ConfigureAwait(false);
-        }
-        finally
-        {
-            await loggingTask.ConfigureAwait(false);
-        }
+        await task.LoggingAndPropagate(log2file, memberName, filePath, lineNumber).ConfigureAwait(false);
     }
 
     public static Task<T> Logging<T>(this Task<T> task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)

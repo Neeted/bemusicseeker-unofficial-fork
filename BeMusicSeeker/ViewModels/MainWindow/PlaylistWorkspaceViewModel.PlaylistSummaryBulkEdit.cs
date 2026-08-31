@@ -773,6 +773,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool referenceDisplayRefreshRequired = false;
         bool referenceSortInvalidationPublishedByEntryChange = false;
         bool playlistKeywordValueCandidatesChanged = false;
+        bool operationFailed = false;
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
         BeginPlaylistSyncProgressOperation();
         try
@@ -1017,11 +1018,16 @@ public sealed partial class PlaylistWorkspaceViewModel
             summaryRefreshAttempted = true;
             RequestPlaylistSummaryRefresh(reason);
         }
+        catch
+        {
+            operationFailed = true;
+            throw;
+        }
         finally
         {
             try
             {
-                if (summaryRefreshRequired && !summaryRefreshAttempted)
+                if (!operationFailed && summaryRefreshRequired && !summaryRefreshAttempted)
                 {
                     summaryRefreshAttempted = true;
                     RequestPlaylistSummaryRefresh(reason);
@@ -1034,11 +1040,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                     tables.FreeReaderLockBMSTables();
                     playlistTablesReaderLockHeld = false;
                 }
-                if (playlistKeywordValueCandidatesChanged)
+                if (!operationFailed && playlistKeywordValueCandidatesChanged)
                 {
                     DispatchPlaylistKeywordValueCandidatesChanged();
                 }
-                if (referenceDisplayRefreshRequired && !referenceSortInvalidationPublishedByEntryChange)
+                if (!operationFailed
+                    && referenceDisplayRefreshRequired
+                    && !referenceSortInvalidationPublishedByEntryChange)
                 {
                     RequestPlaylistReferenceSortInvalidation();
                 }

@@ -47,19 +47,39 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (!request.Commit
                 || !IsDetailEditableProperty(request.Context.PropertyName)
-                || !GridRowResolver.CanEditPlaylistCell(playlistRow, request.Context.PropertyName)
-                || !TryApplyEdit(playlistRow, request.Context.PropertyName, request.Text))
+                || !GridRowResolver.CanEditPlaylistCell(playlistRow, request.Context.PropertyName))
             {
                 return Task.CompletedTask;
             }
-            SynchronizeSourceRow(playlistRow);
+            BMSTableEntry originalEntry = playlistRow.Entry.CreatePlaylistReloadSnapshot();
+            if (!TryApplyEdit(playlistRow, request.Context.PropertyName, request.Text))
+            {
+                return Task.CompletedTask;
+            }
             string editedPropertyName = request.Context.PropertyName;
-            return Task.Run(() => CommitRow(playlistRow, editedPropertyName));
+            return CommitRowAndSynchronizeSourceAsync(playlistRow, editedPropertyName, originalEntry);
         }
         finally
         {
             CompleteDetailEditSession();
         }
+    }
+
+    private async Task CommitRowAndSynchronizeSourceAsync(
+        PlaylistDetailRow playlistRow,
+        string editedPropertyName,
+        BMSTableEntry originalEntry)
+    {
+        try
+        {
+            await Task.Run(() => CommitRow(playlistRow, editedPropertyName)).ConfigureAwait(true);
+        }
+        catch
+        {
+            playlistRow.Entry.ApplyPlaylistEditableStateFrom(originalEntry, editedPropertyName);
+            throw;
+        }
+        SynchronizeSourceRow(playlistRow);
     }
 
     private void SynchronizeSourceRow(PlaylistDetailRow playlistRow)

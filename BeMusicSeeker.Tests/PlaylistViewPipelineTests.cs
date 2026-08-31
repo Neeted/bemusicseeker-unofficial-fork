@@ -2701,6 +2701,37 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public async Task PlaylistDetailEditing_DurableFailureDoesNotSynchronizeLiveSource()
+    {
+        var entry = new TestablePlaylistEntry
+        {
+            parent = new BMSTable { is_external_sync = false },
+            memo = "before"
+        };
+        var sourceRow = new PlaylistDetailSourceRow(entry, resolvedChart: null);
+        PlaylistDetailRow row = sourceRow.CreateViewRow();
+        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(
+            out _,
+            playlistStoreProvider: () => throw new InvalidOperationException("durable detail failure"));
+        workspace.DetailViewState.Source.Rows = [sourceRow];
+        var context = new MainChartListCellEditContext(
+            row,
+            nameof(PlaylistDetailRow.memo),
+            ChartOperationSourceScope.PlaylistOwned,
+            MainViewOperationSection.Playlist);
+
+        workspace.BeginDetailEdit(context);
+        Task commitTask = workspace.CompleteDetailEdit(
+            new MainChartListCellEditEndedEventArgs(context, "after", commit: true));
+
+        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => commitTask.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.AreEqual("durable detail failure", exception.Message);
+        Assert.AreEqual("before", sourceRow.memo);
+    }
+
+    [TestMethod]
     public void PlaylistDetailEditing_InvalidUriDoesNotMutateOrPersist()
     {
         var entry = new TestablePlaylistEntry

@@ -310,6 +310,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             if (notificationSession != null
                 && !readiness.IsShutdownRequested
+                && !readiness.IsRequiredPlaylistReadinessFaulted
                 && !tables.IsShutdownRequested)
             {
                 PlaylistOperationNotificationPresentationRequested?.Invoke(
@@ -320,12 +321,17 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             notificationSession?.Dispose();
             bool drainComplete = readiness.CompleteExternalPlaylistImportDrain();
-            if (!drainComplete && !readiness.IsShutdownRequested && !tables.IsShutdownRequested)
+            if (!drainComplete
+                && !readiness.IsShutdownRequested
+                && !readiness.IsRequiredPlaylistReadinessFaulted
+                && !tables.IsShutdownRequested)
             {
                 _ = DrainExternalPlaylistImportQueueAsync().Logging("DrainExternalPlaylistImportQueueAsync");
             }
         }
-        if (readiness.IsShutdownRequested || tables.IsShutdownRequested)
+        if (readiness.IsShutdownRequested
+            || readiness.IsRequiredPlaylistReadinessFaulted
+            || tables.IsShutdownRequested)
         {
             return;
         }

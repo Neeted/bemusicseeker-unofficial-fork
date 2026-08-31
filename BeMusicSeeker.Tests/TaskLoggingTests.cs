@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -23,5 +24,15 @@ public sealed class TaskLoggingTests
             () => Task.FromException(failure).LoggingAndPropagate());
 
         Assert.AreSame(failure, exception);
+    }
+
+    [TestMethod]
+    public async Task LoggingAndPropagate_PreservesCancellation()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsExceptionAsync<TaskCanceledException>(
+            () => Task.FromCanceled(cancellation.Token).LoggingAndPropagate());
     }
 }

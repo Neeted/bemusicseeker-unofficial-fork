@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -28,6 +29,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             tables.OperationNotificationOwner.BeginSession();
         bool unlockAfterOperation = !LR2SongDBExtended.IsProcessLockEnteredByCurrentThread();
         bool lockAcquired = false;
+        ExceptionDispatchInfo failure = null;
         try
         {
             if (!playlistRestoreUiThreadCheck())
@@ -48,6 +50,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         catch (Exception ex)
         {
+            failure = ExceptionDispatchInfo.Capture(ex);
             tables.OperationNotificationOwner.QueueError(
                 BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore
                     + Environment.NewLine
@@ -57,11 +60,26 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         finally
         {
-            if (unlockAfterOperation && lockAcquired)
+            try
             {
-                LR2SongDBExtended.Unlock();
+                if (unlockAfterOperation && lockAcquired)
+                {
+                    LR2SongDBExtended.Unlock();
+                }
             }
-            PublishPlaylistOperationNotificationReceipt(session, "playlist restore notification");
+            catch (Exception ex)
+            {
+                failure ??= ExceptionDispatchInfo.Capture(ex);
+            }
+            try
+            {
+                PublishPlaylistOperationNotificationReceipt(session, "playlist restore notification");
+            }
+            catch (Exception ex)
+            {
+                failure ??= ExceptionDispatchInfo.Capture(ex);
+            }
         }
+        failure?.Throw();
     }
 }

@@ -3854,7 +3854,7 @@ public partial class MainWindowViewModel : ViewModel,
         await Task.Run(delegate
         {
             ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult, startupSettings.LR2SongDBPath);
-        }).Logging("AppSchemaStartupRepair");
+        }).LoggingAndPropagate("AppSchemaStartupRepair");
         return true;
     }
 

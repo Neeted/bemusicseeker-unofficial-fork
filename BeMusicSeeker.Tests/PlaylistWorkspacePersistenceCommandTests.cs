@@ -129,7 +129,16 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 out failureNotifications);
             string invalidPath = Path.Combine(tempDirectory, "missing", "backup.sql");
 
-            await failureWorkspace.BackupPlaylistAsync(invalidPath);
+            Exception? backupFailure = null;
+            try
+            {
+                await failureWorkspace.BackupPlaylistAsync(invalidPath);
+            }
+            catch (Exception exception)
+            {
+                backupFailure = exception;
+            }
+            Assert.IsNotNull(backupFailure);
 
             Assert.IsFalse(File.Exists(invalidPath));
             Assert.AreEqual(1, failureNotifications.Count);
@@ -142,6 +151,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 failureNotification.Message,
                 BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup);
             StringAssert.Contains(failureNotification.Message, "missing");
+            StringAssert.Contains(failureNotification.Message, backupFailure!.Message);
             Assert.IsFalse(failureNotifications.Any(request => request.Receipt.Notifications.Any(
                 notification => notification.Message.IndexOf(
                     BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
@@ -244,7 +254,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             string backupPath = Path.Combine(tempDirectory, "restore.sql");
             File.WriteAllText(backupPath, CreatePlaylistRestoreDump(2, "Should not apply", "rejected"), Encoding.UTF8);
 
-            await workspace.RestorePlaylistBackupAsync(backupPath);
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => workspace.RestorePlaylistBackupAsync(backupPath));
 
             Assert.AreEqual(1, notifications.Count);
             PlaylistOperationNotificationOwner.OperationNotification failure = notifications[0].Receipt.Notifications.Single();
@@ -296,12 +307,22 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 string.Join("\v" + Environment.NewLine, ["THIS IS NOT SQL", string.Empty, string.Empty]),
                 Encoding.UTF8);
 
-            await workspace.RestorePlaylistBackupAsync(invalidBackupPath);
+            Exception? restoreFailure = null;
+            try
+            {
+                await workspace.RestorePlaylistBackupAsync(invalidBackupPath);
+            }
+            catch (Exception ex)
+            {
+                restoreFailure = ex;
+            }
+            Assert.IsNotNull(restoreFailure);
 
             Assert.AreEqual(1, notifications.Count);
             PlaylistOperationNotificationOwner.OperationNotification failure = notifications[0].Receipt.Notifications.Single();
             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
             StringAssert.Contains(failure.Message, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
+            StringAssert.Contains(failure.Message, restoreFailure!.Message);
             using (var verify = new LR2SongDBExtended(songDbPath))
             {
                 Assert.AreEqual("Keep on failure", verify.Table<BMSTable>().Single().name);

@@ -362,7 +362,7 @@ internal sealed class PlaylistDetailSourceRow
 
     /// <summary>
     /// 編集済み view row の値で editable snapshot を更新します。
-    /// 再 sort/filter 時の再生成元となるため、playlist row の保存前に同期します。
+    /// 再 sort/filter 時の再生成元となるため、playlist row の durable 保存成功後に同期します。
     /// </summary>
     /// <param name="editedRow">編集済み row。</param>
     internal void SynchronizeEditableSnapshot(PlaylistDetailRow editedRow)

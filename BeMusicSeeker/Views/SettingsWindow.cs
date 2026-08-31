@@ -917,7 +917,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         if (result.Status == UiDialogStatus.Accepted)
         {
             await RunViewOperationAsync(() => playlistWorkspace.BackupPlaylistAsync(result.FileName)
-                .Logging("detailTabItemBackupButtonClicked"));
+                .LoggingAndPropagate("detailTabItemBackupButtonClicked"));
         }
     }
 
@@ -975,7 +975,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         if (result.Status == UiDialogStatus.Accepted)
         {
             await RunViewOperationAsync(() => playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)
-                .Logging("detailTabItemRestoreButtonClicked"));
+                .LoggingAndPropagate("detailTabItemRestoreButtonClicked"));
             Func<Task> closeAfterRestore = async () =>
             {
                 UiDialogResult shutdownNotification = await dialogService.ShowMessageAsync(new UiMessageRequest(
