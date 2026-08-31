@@ -265,10 +265,10 @@ URL acquisition と external playlist sync は別 owner/allowlist のままに�
 | `U2` Actual v2 first hop and release outcome gate | Verified | implementation-worker closed | U1 | `UPD-V216-*`, `UPD-NOTE`, `REL-*` | commit `1e9f576a`; actual receipt `artifacts/verification/v216-first-hop/v216-first-hop-acceptance.json`; integrated Quick `tests-quick-20260831-113927` 50/50 pass |
 | `U3` Raw SQLite completion | Verified | implementation-worker closed | U0 | `DB-STEP`, `DB-PRIMARY`, `DB-PARTIAL` | commit `88cda4e8`; integrated Quick artifact `tests-quick-20260831-102226`, 10/10 pass |
 | `U4` App schema transaction ownership | Verified | implementation-worker closed | U0 | `DB-OUTER-ROLLBACK`, `DB-RETRY` | commit `3a8cf6cc`; head Quick `tests-quick-20260831-105151` 26/26 pass; integrated Quick `tests-quick-20260831-113927` 50/50 pass |
-| `U5` Startup readiness and import admission | Pending | unassigned worker | U0 | `START-*` | dispatcher/readiness barrierを先に作る |
+| `U5` Startup readiness and import admission | Verified | implementation-worker closed | U0 | `START-*` | commit `e83127e8`; head Quick `tests-quick-20260831-124531` 77/77 pass; integrated Quick `tests-quick-20260831-125110` 154 pass + approved symlink skip |
 | `U6` Failure propagation and success suppression | Pending | unassigned worker | U4, U5 | `FAIL-*` | startup/schema shared pathsのhandoff後に着手 |
 | `U7` Package/folder file+DB boundary | Pending | unassigned worker | U0 | `COMP-*` | primitive→package→folderの直列handoff |
-| `U8` URI and drop ingress boundaries | Pending | unassigned worker | U0 | `ING-*` | URL ownerとdrop ownerは同unit内でpath ownershipを分けてもよい |
+| `U8` URI and drop ingress boundaries | Verified | implementation-worker closed | U0 | `ING-*` | commit `bb90d8bd`; head 77 pass + deterministic reparse coverage + privilege symlink skip `tests-quick-20260831-123039`; integrated `tests-quick-20260831-125110` |
 | `U9` Integration, release qualification, static review | Pending | root | U1–U8 | full roster | exact FQN freeze、focused Quick、Full内canonical Functional、review |
 
 ## Implementation units
@@ -679,6 +679,8 @@ U0 packet freeze
 | 2026-08-31 | U1 | Pending -> Verified | implementation-worker + root | preflight/post-mutation/dual-fault negative controls; head 27 pass + approved skip `tests-quick-20260831-101855`; integrated同結果 `tests-quick-20260831-102226`; commit `b13ab8fe` | U2がactual v2 first-hopとrelease gateを所有 |
 | 2026-08-31 | U4 | Pending -> Verified | implementation-worker + root | base-red `tests-quick-20260831-103335`; commit mutant negative control `tests-quick-20260831-104916`; head 26/26 `tests-quick-20260831-105151`; integrated 50/50 `tests-quick-20260831-113927`; commit `3a8cf6cc` | U6へtransaction owner/failure propagation、U9へstartup/playlist spec deltaをhandoff |
 | 2026-08-31 | U2 | Pending -> Verified | implementation-worker + root | exact public artifact 11,260,709 bytes / SHA-256 `C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2`; head 24/24 `tests-quick-20260831-113439`; integrated 50/50 `tests-quick-20260831-113927`; cache-path normalization後 identity 2/2 `tests-quick-20260831-114320`; actual happy/lock receipt `artifacts/verification/v216-first-hop/v216-first-hop-acceptance.json`; commit `1e9f576a` | U9でcomplete exact-FQN roster/optional allowlistをfreezeし、final Fullへ統合 |
+| 2026-08-31 | U5 | Pending -> Verified | implementation-worker + root | readiness negative control、head 77/77 `tests-quick-20260831-124531`; integrated 154 pass + approved privilege symlink skip `tests-quick-20260831-125110`; commit `e83127e8` | U6でstartup failure時のpending drain終端とfailure propagationを統合確認、U9へreadiness/FIFO/shutdown spec deltaをhandoff |
+| 2026-08-31 | U8 | Pending -> Verified | implementation-worker + root | URL base-red `tests-quick-20260831-115337`; drop base-red `tests-quick-20260831-115448`; head 77 pass + privilege symlink skip `tests-quick-20260831-123039`; integrated同結果を含む `tests-quick-20260831-125110`; commit `bb90d8bd` | U9へexternal drive/file/relative/UNC preservation spec deltaをhandoff。handle-based TOCTOUは対象外 |
 
 ## Final evidence checklist
 
