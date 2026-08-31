@@ -390,7 +390,13 @@ function Assert-VerificationTestOutcomes {
         }
         $result = $matches[0]
         if ($result.Outcome -cne 'Passed') {
-            if ($result.Outcome -cne 'Skipped') {
+            # MSTest serializes Assert.Inconclusive as NotExecuted in TRX, while
+            # JSON receipts and synthetic contract inputs may retain Inconclusive.
+            # Keep the source outcome unchanged in the receipt; only these exact
+            # optional outcomes are accepted as provisioned skips.
+            if ($result.Outcome -cne 'Skipped' -and
+                $result.Outcome -cne 'Inconclusive' -and
+                $result.Outcome -cne 'NotExecuted') {
                 throw "Optional verification FQN has unsupported non-passed outcome: $($entry.FullyQualifiedName) outcome=$($result.Outcome)"
             }
             [void]$optionalReceipt.Add([ordered]@{

@@ -653,6 +653,7 @@ public sealed class VerificationRunnerContractTests
     {
         const string requiredFqn = "BeMusicSeeker.Tests.Synthetic.Required.ReleaseOutcome";
         const string optionalFqn = "BeMusicSeeker.Tests.Synthetic.Optional.ReleaseOutcome";
+        const string optionalReason = "provisioned acceptance dependency";
         string root = Path.Combine(
             Path.GetTempPath(),
             "BeMusicSeeker-VerificationOptionalOutcomeContractTests",
@@ -666,9 +667,26 @@ public sealed class VerificationRunnerContractTests
                 allowedResults,
                 requiredFqn,
                 optionalFqn,
-                "provisioned acceptance dependency");
-            Assert.IsTrue(GetProperty(allowed.RootElement, "Passed").GetBoolean(), allowed.RootElement.GetRawText());
-            Assert.AreEqual(1, GetProperty(allowed.RootElement, "OptionalSkips").GetArrayLength());
+                optionalReason);
+            AssertOptionalReceipt(allowed, optionalFqn, "Skipped", optionalReason);
+
+            string notExecutedResults = Path.Combine(root, "not-executed.trx");
+            WriteSyntheticTrx(notExecutedResults, (requiredFqn, "Passed"), (optionalFqn, "NotExecuted"));
+            using JsonDocument notExecuted = ReadOutcomeGateProbe(
+                notExecutedResults,
+                requiredFqn,
+                optionalFqn,
+                optionalReason);
+            AssertOptionalReceipt(notExecuted, optionalFqn, "NotExecuted", optionalReason);
+
+            string inconclusiveResults = Path.Combine(root, "inconclusive.json");
+            WriteSyntheticJson(inconclusiveResults, (requiredFqn, "Passed"), (optionalFqn, "Inconclusive"));
+            using JsonDocument inconclusive = ReadOutcomeGateProbe(
+                inconclusiveResults,
+                requiredFqn,
+                optionalFqn,
+                optionalReason);
+            AssertOptionalReceipt(inconclusive, optionalFqn, "Inconclusive", optionalReason);
 
             string unknownResults = Path.Combine(root, "unknown.trx");
             WriteSyntheticTrx(
@@ -679,13 +697,37 @@ public sealed class VerificationRunnerContractTests
                 unknownResults,
                 requiredFqn,
                 optionalFqn,
-                "provisioned acceptance dependency");
+                optionalReason);
             AssertGateFailure(unknown, "Unknown");
+
+            string unknownNotExecutedResults = Path.Combine(root, "unknown-not-executed.trx");
+            WriteSyntheticTrx(
+                unknownNotExecutedResults,
+                (requiredFqn, "Passed"),
+                ("BeMusicSeeker.Tests.Synthetic.Unknown.NotExecuted.ReleaseOutcome", "NotExecuted"));
+            using JsonDocument unknownNotExecuted = ReadOutcomeGateProbe(
+                unknownNotExecutedResults,
+                requiredFqn,
+                optionalFqn,
+                optionalReason);
+            AssertGateFailure(unknownNotExecuted);
 
             string emptyReasonResults = Path.Combine(root, "empty-reason.trx");
             WriteSyntheticTrx(emptyReasonResults, (requiredFqn, "Passed"), (optionalFqn, "Skipped"));
             using JsonDocument emptyReason = ReadOutcomeGateProbe(emptyReasonResults, requiredFqn, optionalFqn, "");
             AssertGateFailure(emptyReason, "reason");
+
+            foreach (string outcome in new[] { "Failed", "Error", "Aborted" })
+            {
+                string failedResults = Path.Combine(root, "allowlisted-" + outcome + ".trx");
+                WriteSyntheticTrx(failedResults, (requiredFqn, "Passed"), (optionalFqn, outcome));
+                using JsonDocument failed = ReadOutcomeGateProbe(
+                    failedResults,
+                    requiredFqn,
+                    optionalFqn,
+                    optionalReason);
+                AssertGateFailure(failed);
+            }
         }
         finally
         {
@@ -749,7 +791,7 @@ public sealed class VerificationRunnerContractTests
             "try {",
             "  $gate = Assert-VerificationTestOutcomes -ResultPaths @(" + resultLiteral + ") -RequiredFqns @(" + requiredLiteral + ") -OptionalSkipAllowlist " + optionalExpression,
             "} catch { $caught = $_.Exception.Message }",
-            "[pscustomobject]@{ Passed = $null -eq $caught; Message = if ($null -eq $caught) { [string]::Empty } else { [string]$caught }; OptionalSkips = if ($null -eq $caught) { ,@($gate.OptionalSkips) } else { @() } } | ConvertTo-Json -Depth 8 -Compress");
+            "[pscustomobject]@{ Passed = $null -eq $caught; Message = if ($null -eq $caught) { [string]::Empty } else { [string]$caught }; Receipt = if ($null -eq $caught) { $gate.Receipt } else { $null } } | ConvertTo-Json -Depth 8 -Compress");
         return ReadPowerShellJson(new[] { "-Command", command });
     }
 
@@ -773,11 +815,32 @@ public sealed class VerificationRunnerContractTests
 
     private static void AssertGateFailure(JsonDocument result, string expectedMessagePart)
     {
-        Assert.IsFalse(GetProperty(result.RootElement, "Passed").GetBoolean(), result.RootElement.GetRawText());
+        AssertGateFailure(result);
         StringAssert.Contains(
             GetProperty(result.RootElement, "Message").GetString()!,
             expectedMessagePart,
             result.RootElement.GetRawText());
+    }
+
+    private static void AssertGateFailure(JsonDocument result)
+    {
+        Assert.IsFalse(GetProperty(result.RootElement, "Passed").GetBoolean(), result.RootElement.GetRawText());
+    }
+
+    private static void AssertOptionalReceipt(
+        JsonDocument result,
+        string expectedFullyQualifiedName,
+        string expectedOutcome,
+        string expectedReason)
+    {
+        Assert.IsTrue(GetProperty(result.RootElement, "Passed").GetBoolean(), result.RootElement.GetRawText());
+        JsonElement receipt = GetProperty(result.RootElement, "Receipt");
+        JsonElement optionalSkips = GetProperty(receipt, "optionalSkips");
+        Assert.AreEqual(1, optionalSkips.GetArrayLength(), result.RootElement.GetRawText());
+        JsonElement optional = optionalSkips[0];
+        Assert.AreEqual(expectedFullyQualifiedName, GetProperty(optional, "fullyQualifiedName").GetString());
+        Assert.AreEqual(expectedOutcome, GetProperty(optional, "outcome").GetString());
+        Assert.AreEqual(expectedReason, GetProperty(optional, "reason").GetString());
     }
 
     private static void WriteSyntheticTrx(string path, params (string FullyQualifiedName, string Outcome)[] results)
@@ -795,6 +858,21 @@ public sealed class VerificationRunnerContractTests
         }
         builder.Append("</Results></TestRun>");
         File.WriteAllText(path, builder.ToString(), Encoding.UTF8);
+    }
+
+    private static void WriteSyntheticJson(string path, params (string FullyQualifiedName, string Outcome)[] results)
+    {
+        string json = JsonSerializer.Serialize(new
+        {
+            results = results
+                .Select(result => new
+                {
+                    fullyQualifiedName = result.FullyQualifiedName,
+                    outcome = result.Outcome
+                })
+                .ToArray()
+        });
+        File.WriteAllText(path, json, Encoding.UTF8);
     }
 
     private static void WriteSyntheticRoster(string path, string requiredFqn)
