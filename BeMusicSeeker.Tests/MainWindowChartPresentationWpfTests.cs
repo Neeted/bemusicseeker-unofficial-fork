@@ -93,71 +93,71 @@ public sealed class MainWindowChartPresentationWpfTests
                 new Settings(),
                 (viewModel, window) =>
                 {
-                viewModel.MainChartList.CellEditBeginningRequested += (_, request) => beginning.Add(request.Context);
-                viewModel.MainChartList.CellEditStarted += (_, context) => started.Add(context);
-                viewModel.MainChartList.CellEditEndedRequested += (_, request) => completed.Add(request);
-                window.Width = 1000d;
-                window.Height = 700d;
-                using var visualHost = new HwndSource(new HwndSourceParameters("MainWindowCellEditRouteTest")
-                {
-                    Width = 1000,
-                    Height = 700,
-                    PositionX = 0,
-                    PositionY = 0
-                });
-                visualHost.RootVisual = (System.Windows.Media.Visual)window.Content;
-                window.Measure(new Size(window.Width, window.Height));
-                window.Arrange(new Rect(0d, 0d, window.Width, window.Height));
-                window.UpdateLayout();
+                    viewModel.MainChartList.CellEditBeginningRequested += (_, request) => beginning.Add(request.Context);
+                    viewModel.MainChartList.CellEditStarted += (_, context) => started.Add(context);
+                    viewModel.MainChartList.CellEditEndedRequested += (_, request) => completed.Add(request);
+                    window.Width = 1000d;
+                    window.Height = 700d;
+                    using var visualHost = new HwndSource(new HwndSourceParameters("MainWindowCellEditRouteTest")
+                    {
+                        Width = 1000,
+                        Height = 700,
+                        PositionX = 0,
+                        PositionY = 0
+                    });
+                    visualHost.RootVisual = (System.Windows.Media.Visual)window.Content;
+                    window.Measure(new Size(window.Width, window.Height));
+                    window.Arrange(new Rect(0d, 0d, window.Width, window.Height));
+                    window.UpdateLayout();
 
-                var file = new BMSFile
-                {
-                    path = @"C:\wave6e-cell-edit\pending\chart.bms",
-                    hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-                    title = "Pending cell edit"
-                };
-                PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
-                LibraryChartRow row = LibraryChartRow.FromPackageChartEntry(entry);
-                CustomTableView table = (CustomTableView)window.FindName("customTableView");
-                table.Width = 900d;
-                table.Height = 220d;
-                table.HeaderHeight = 0d;
-                table.RowHeight = 70d;
-                table.ItemsSource = new List<object> { row };
-                var columnSettings = new CustomTableColumnSettings();
-                columnSettings.InstallDst.Visibility = Visibility.Visible;
-                table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columnSettings)
+                    var file = new BMSFile
+                    {
+                        path = @"C:\wave6e-cell-edit\pending\chart.bms",
+                        hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                        title = "Pending cell edit"
+                    };
+                    PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
+                    LibraryChartRow row = LibraryChartRow.FromPackageChartEntry(entry);
+                    CustomTableView table = (CustomTableView)window.FindName("customTableView");
+                    table.Width = 900d;
+                    table.Height = 220d;
+                    table.HeaderHeight = 0d;
+                    table.RowHeight = 70d;
+                    table.ItemsSource = new List<object> { row };
+                    var columnSettings = new CustomTableColumnSettings();
+                    columnSettings.InstallDst.Visibility = Visibility.Visible;
+                    table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columnSettings)
                     .Where(candidate => string.Equals(candidate.EditPropertyName, "instl_dst", StringComparison.Ordinal))];
-                table.SelectRowsByPredicate(_ => true);
-                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
-                table.Measure(new Size(table.Width, table.Height));
-                table.Arrange(new Rect(0d, 0d, table.Width, table.Height));
-                table.UpdateLayout();
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                    table.Measure(new Size(table.Width, table.Height));
+                    table.Arrange(new Rect(0d, 0d, table.Width, table.Height));
+                    table.UpdateLayout();
 
-                CustomTableColumn column = table.Columns
-                    .Single(candidate => string.Equals(candidate.EditPropertyName, "instl_dst", StringComparison.Ordinal));
-                Assert.AreEqual(0, table.SelectedIndex);
-                Assert.IsTrue(table.IsCurrentCell(0, column));
-                RaiseKey(table, Key.F2);
-                Assert.AreEqual(1, beginning.Count);
-                Assert.AreEqual(1, started.Count);
-                Assert.IsNotNull(GetInstalledEditor(table));
-                TextBox editor = GetInstalledEditor(table);
-                editor!.Text = expectedText;
-                RaiseKey(table, Key.Return);
+                    CustomTableColumn column = table.Columns
+                        .Single(candidate => string.Equals(candidate.EditPropertyName, "instl_dst", StringComparison.Ordinal));
+                    Assert.AreEqual(0, table.SelectedIndex);
+                    Assert.IsTrue(table.IsCurrentCell(0, column));
+                    RaiseKey(table, Key.F2);
+                    Assert.AreEqual(1, beginning.Count);
+                    Assert.AreEqual(1, started.Count);
+                    Assert.IsNotNull(GetInstalledEditor(table));
+                    TextBox editor = GetInstalledEditor(table);
+                    editor!.Text = expectedText;
+                    RaiseKey(table, Key.Return);
 
-                Assert.AreEqual(1, beginning.Count);
-                Assert.AreEqual(1, started.Count);
-                Assert.AreEqual(1, completed.Count);
-                Assert.AreSame(row, beginning[0].Row);
-                Assert.AreSame(row, started[0].Row);
-                Assert.AreSame(row, completed[0].Context.Row);
-                Assert.AreEqual("instl_dst", beginning[0].PropertyName);
-                Assert.AreEqual("instl_dst", started[0].PropertyName);
-                Assert.AreEqual("instl_dst", completed[0].Context.PropertyName);
-                Assert.AreEqual(expectedText, completed[0].Text);
-                Assert.IsTrue(completed[0].Commit);
-                Assert.AreSame(file, row.Chart.GetBmsStorageOwner());
+                    Assert.AreEqual(1, beginning.Count);
+                    Assert.AreEqual(1, started.Count);
+                    Assert.AreEqual(1, completed.Count);
+                    Assert.AreSame(row, beginning[0].Row);
+                    Assert.AreSame(row, started[0].Row);
+                    Assert.AreSame(row, completed[0].Context.Row);
+                    Assert.AreEqual("instl_dst", beginning[0].PropertyName);
+                    Assert.AreEqual("instl_dst", started[0].PropertyName);
+                    Assert.AreEqual("instl_dst", completed[0].Context.PropertyName);
+                    Assert.AreEqual(expectedText, completed[0].Text);
+                    Assert.IsTrue(completed[0].Commit);
+                    Assert.AreSame(file, row.Chart.GetBmsStorageOwner());
                 });
         });
     }
@@ -490,56 +490,56 @@ public sealed class MainWindowChartPresentationWpfTests
                 new Settings(),
                 (viewModel, window) =>
                 {
-                MaterializeMainWindow(window);
+                    MaterializeMainWindow(window);
 
-                Grid rootGrid = GetNamedElement<Grid>(window, "grid");
-                Assert.AreEqual(27d, rootGrid.RowDefinitions[1].Height.Value, 0.01d);
+                    Grid rootGrid = GetNamedElement<Grid>(window, "grid");
+                    Assert.AreEqual(27d, rootGrid.RowDefinitions[1].Height.Value, 0.01d);
 
-                SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
-                AssertSearchChromeGeometry(normal);
-                Point normalHelpBeforeWarning = GetRelativeOrigin(normal.HelpSlot, normal.Outer);
-                Point normalClearBeforeWarning = GetRelativeOrigin(normal.ClearSlot, normal.Outer);
-                Assert.AreEqual(Visibility.Collapsed, normal.WarningContent.Visibility);
-                normal.WarningContent.SetCurrentValue(
-                    UIElement.VisibilityProperty,
-                    Visibility.Visible);
-                MaterializeMainWindow(window);
-                Assert.AreEqual(Visibility.Visible, normal.WarningContent.Visibility);
-                AssertSlotChildCentered(normal.WarningSlot, normal.WarningContent, normal.Outer);
-                AssertSamePoint(normalHelpBeforeWarning, GetRelativeOrigin(normal.HelpSlot, normal.Outer));
-                AssertSamePoint(normalClearBeforeWarning, GetRelativeOrigin(normal.ClearSlot, normal.Outer));
-                normal.WarningContent.SetCurrentValue(
-                    UIElement.VisibilityProperty,
-                    Visibility.Collapsed);
-                MaterializeMainWindow(window);
-                Assert.AreEqual(Visibility.Collapsed, normal.WarningContent.Visibility);
-                AssertSamePoint(normalHelpBeforeWarning, GetRelativeOrigin(normal.HelpSlot, normal.Outer));
-                AssertSamePoint(normalClearBeforeWarning, GetRelativeOrigin(normal.ClearSlot, normal.Outer));
+                    SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
+                    AssertSearchChromeGeometry(normal);
+                    Point normalHelpBeforeWarning = GetRelativeOrigin(normal.HelpSlot, normal.Outer);
+                    Point normalClearBeforeWarning = GetRelativeOrigin(normal.ClearSlot, normal.Outer);
+                    Assert.AreEqual(Visibility.Collapsed, normal.WarningContent.Visibility);
+                    normal.WarningContent.SetCurrentValue(
+                        UIElement.VisibilityProperty,
+                        Visibility.Visible);
+                    MaterializeMainWindow(window);
+                    Assert.AreEqual(Visibility.Visible, normal.WarningContent.Visibility);
+                    AssertSlotChildCentered(normal.WarningSlot, normal.WarningContent, normal.Outer);
+                    AssertSamePoint(normalHelpBeforeWarning, GetRelativeOrigin(normal.HelpSlot, normal.Outer));
+                    AssertSamePoint(normalClearBeforeWarning, GetRelativeOrigin(normal.ClearSlot, normal.Outer));
+                    normal.WarningContent.SetCurrentValue(
+                        UIElement.VisibilityProperty,
+                        Visibility.Collapsed);
+                    MaterializeMainWindow(window);
+                    Assert.AreEqual(Visibility.Collapsed, normal.WarningContent.Visibility);
+                    AssertSamePoint(normalHelpBeforeWarning, GetRelativeOrigin(normal.HelpSlot, normal.Outer));
+                    AssertSamePoint(normalClearBeforeWarning, GetRelativeOrigin(normal.ClearSlot, normal.Outer));
 
-                viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
-                TestUiDispatcherHost.Drain();
-                MaterializeMainWindow(window);
+                    viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
+                    TestUiDispatcherHost.Drain();
+                    MaterializeMainWindow(window);
 
-                SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
-                AssertSearchChromeGeometry(summary);
-                Assert.AreEqual(Visibility.Collapsed, summary.WarningContent.Visibility);
-                Point summaryHelpWithoutWarning = GetRelativeOrigin(summary.HelpSlot, summary.Outer);
-                Point summaryClearWithoutWarning = GetRelativeOrigin(summary.ClearSlot, summary.Outer);
-                summary.WarningContent.SetCurrentValue(
-                    UIElement.VisibilityProperty,
-                    Visibility.Visible);
-                MaterializeMainWindow(window);
-                Assert.AreEqual(Visibility.Visible, summary.WarningContent.Visibility);
-                AssertSlotChildCentered(summary.WarningSlot, summary.WarningContent, summary.Outer);
-                AssertSamePoint(summaryHelpWithoutWarning, GetRelativeOrigin(summary.HelpSlot, summary.Outer));
-                AssertSamePoint(summaryClearWithoutWarning, GetRelativeOrigin(summary.ClearSlot, summary.Outer));
-                summary.WarningContent.SetCurrentValue(
-                    UIElement.VisibilityProperty,
-                    Visibility.Collapsed);
-                MaterializeMainWindow(window);
-                Assert.AreEqual(Visibility.Collapsed, summary.WarningContent.Visibility);
-                AssertSamePoint(summaryHelpWithoutWarning, GetRelativeOrigin(summary.HelpSlot, summary.Outer));
-                AssertSamePoint(summaryClearWithoutWarning, GetRelativeOrigin(summary.ClearSlot, summary.Outer));
+                    SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
+                    AssertSearchChromeGeometry(summary);
+                    Assert.AreEqual(Visibility.Collapsed, summary.WarningContent.Visibility);
+                    Point summaryHelpWithoutWarning = GetRelativeOrigin(summary.HelpSlot, summary.Outer);
+                    Point summaryClearWithoutWarning = GetRelativeOrigin(summary.ClearSlot, summary.Outer);
+                    summary.WarningContent.SetCurrentValue(
+                        UIElement.VisibilityProperty,
+                        Visibility.Visible);
+                    MaterializeMainWindow(window);
+                    Assert.AreEqual(Visibility.Visible, summary.WarningContent.Visibility);
+                    AssertSlotChildCentered(summary.WarningSlot, summary.WarningContent, summary.Outer);
+                    AssertSamePoint(summaryHelpWithoutWarning, GetRelativeOrigin(summary.HelpSlot, summary.Outer));
+                    AssertSamePoint(summaryClearWithoutWarning, GetRelativeOrigin(summary.ClearSlot, summary.Outer));
+                    summary.WarningContent.SetCurrentValue(
+                        UIElement.VisibilityProperty,
+                        Visibility.Collapsed);
+                    MaterializeMainWindow(window);
+                    Assert.AreEqual(Visibility.Collapsed, summary.WarningContent.Visibility);
+                    AssertSamePoint(summaryHelpWithoutWarning, GetRelativeOrigin(summary.HelpSlot, summary.Outer));
+                    AssertSamePoint(summaryClearWithoutWarning, GetRelativeOrigin(summary.ClearSlot, summary.Outer));
                 });
         });
     }
@@ -1670,39 +1670,39 @@ public sealed class MainWindowChartPresentationWpfTests
                 new Settings(),
                 (_, _) =>
                 {
-                var host = new Grid();
-                host.Resources.MergedDictionaries.Add(new ResourceDictionary
-                {
-                    Source = new Uri(
-                        "/BeMusicSeeker;component/Simple Styles.xaml",
-                        UriKind.RelativeOrAbsolute)
-                });
-                host.Resources.MergedDictionaries.Add(new ResourceDictionary
-                {
-                    Source = new Uri(
-                        "/BeMusicSeeker;component/Themes/Light.xaml",
-                        UriKind.RelativeOrAbsolute)
-                });
-                Style simpleTextBoxStyle = (Style)host.FindResource("SimpleTextBox");
-                host.Resources.Add(typeof(TextBox), simpleTextBoxStyle);
-                var implicitTextBox = new TextBox();
-                var explicitTextBox = new TextBox { BorderThickness = new Thickness(0d) };
-                var editableTextBlock = new EditableTextBlock
-                {
-                    Width = 220d,
-                    Height = 30d,
-                    Text = "editable",
-                    IsInEditMode = true
-                };
-                host.Children.Add(implicitTextBox);
-                host.Children.Add(explicitTextBox);
-                host.Children.Add(editableTextBlock);
-                MaterializeElement(host, 500d, 120d);
+                    var host = new Grid();
+                    host.Resources.MergedDictionaries.Add(new ResourceDictionary
+                    {
+                        Source = new Uri(
+                            "/BeMusicSeeker;component/Simple Styles.xaml",
+                            UriKind.RelativeOrAbsolute)
+                    });
+                    host.Resources.MergedDictionaries.Add(new ResourceDictionary
+                    {
+                        Source = new Uri(
+                            "/BeMusicSeeker;component/Themes/Light.xaml",
+                            UriKind.RelativeOrAbsolute)
+                    });
+                    Style simpleTextBoxStyle = (Style)host.FindResource("SimpleTextBox");
+                    host.Resources.Add(typeof(TextBox), simpleTextBoxStyle);
+                    var implicitTextBox = new TextBox();
+                    var explicitTextBox = new TextBox { BorderThickness = new Thickness(0d) };
+                    var editableTextBlock = new EditableTextBlock
+                    {
+                        Width = 220d,
+                        Height = 30d,
+                        Text = "editable",
+                        IsInEditMode = true
+                    };
+                    host.Children.Add(implicitTextBox);
+                    host.Children.Add(explicitTextBox);
+                    host.Children.Add(editableTextBlock);
+                    MaterializeElement(host, 500d, 120d);
 
-                AssertTextBoxChrome(implicitTextBox, new Thickness(1d));
-                AssertTextBoxChrome(explicitTextBox, new Thickness(0d));
-                TextBox editor = FindVisualDescendants<TextBox>(editableTextBlock).Single();
-                AssertTextBoxChrome(editor, new Thickness(0d));
+                    AssertTextBoxChrome(implicitTextBox, new Thickness(1d));
+                    AssertTextBoxChrome(explicitTextBox, new Thickness(0d));
+                    TextBox editor = FindVisualDescendants<TextBox>(editableTextBlock).Single();
+                    AssertTextBoxChrome(editor, new Thickness(0d));
                 });
         });
     }
