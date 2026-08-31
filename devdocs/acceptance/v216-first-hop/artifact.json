@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "BeMusicSeeker.V216Artifact",
+  "artifactId": "public-v2.1.6.0",
+  "version": "2.1.6.0",
+  "packageFormatVersion": 1,
+  "fileName": "published-bemusicseeker-unofficial-fork-v2.1.6.0.zip",
+  "artifactPath": ".tmp/v216-first-hop/published-bemusicseeker-unofficial-fork-v2.1.6.0.zip",
+  "sizeBytes": 11260709,
+  "sha256": "C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2",
+  "sealed": true,
+  "releaseOutcome": {
+    "schemaVersion": 1,
+    "required": [
+      {
+        "contractId": "UPD-V3-LOCK",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.UpdaterPackageSyncTests.ApplyUpdate_PreflightManagedLockLeavesCanonicalAndPreservedTreesUnchanged"
+      },
+      {
+        "contractId": "UPD-V3-POSTMUTATION",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.UpdaterPackageSyncTests.ApplyUpdate_RollbackRestoresAppManagedMetadataArtifactsAfterFailure"
+      },
+      {
+        "contractId": "UPD-V3-ROLLBACK-FAIL",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.UpdaterPackageSyncTests.RecoverCommand_RollbackSecondFaultRetainsPrimaryReceiptAndRecoveryMaterial"
+      },
+      {
+        "contractId": "DB-STEP",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.SQLiteProviderRuntimeTests.SQLiteCommandExtended_ForEachRawValue_ThrowsWhenStepReturnsError"
+      },
+      {
+        "contractId": "DB-PRIMARY",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.SQLiteProviderRuntimeTests.SQLiteCommandExtended_GetRawValues_ThrowsStepErrorWithoutReplacingItDuringFinalize"
+      },
+      {
+        "contractId": "DB-PARTIAL",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistSchemaMigrationTests.LoadPlaylistDump_StepFailureAfterPartialRowsPreservesPriorGeneration"
+      },
+      {
+        "contractId": "REL-V216-ID",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.DistributionArtifactContractTests.V216ArtifactIdentityRequiresPinnedSizeAndHashWithoutFallback"
+      },
+      {
+        "contractId": "REL-CRITICAL-ROSTER",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.VerificationRunnerContractTests.ReleaseOutcomeGateRequiresExactPassedCardinality"
+      },
+      {
+        "contractId": "REL-OPTIONAL-SKIP",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.VerificationRunnerContractTests.ReleaseOutcomeGateAllowsOnlyExactOptionalSkipWithReason"
+      }
+    ],
+    "optionalSkipAllowlist": []
+  }
+}

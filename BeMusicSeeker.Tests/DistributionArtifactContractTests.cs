@@ -237,6 +237,100 @@ Assert-DistributionArtifactIdentity `
         AssertPowerShellFailure(result, "Distribution manifest SHA-256 mismatch");
     }
 
+    [TestMethod]
+    public void V216ArtifactIdentityRequiresPinnedSizeAndHashWithoutFallback()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string metadataPath = Path.Combine(
+            repositoryRoot,
+            "devdocs",
+            "acceptance",
+            "v216-first-hop",
+            "artifact.json");
+        PowerShellResult result = RunPowerShell(repositoryRoot, $@"
+. $env:BMS_TEST_SCRIPT
+$artifact = Assert-V216ArtifactIdentity -MetadataPath {QuotePowerShellLiteral(metadataPath)} -RepositoryRoot {QuotePowerShellLiteral(repositoryRoot)}
+[ordered]@{{ version = $artifact.Version; size = $artifact.ExpectedSizeBytes; sha256 = $artifact.ExpectedSha256; path = $artifact.ArtifactPath }} | ConvertTo-Json -Compress
+");
+
+        AssertPowerShellSuccess(result);
+        using JsonDocument document = JsonDocument.Parse(result.Output.Trim());
+        Assert.AreEqual("2.1.6.0", document.RootElement.GetProperty("version").GetString());
+        Assert.AreEqual(11260709, document.RootElement.GetProperty("size").GetInt64());
+        Assert.AreEqual(
+            "c2c460b6757478816912a59fea535209b2a960528c8996ffe12225ec7ced7bb2",
+            document.RootElement.GetProperty("sha256").GetString());
+        Assert.AreEqual(
+            "published-bemusicseeker-unofficial-fork-v2.1.6.0.zip",
+            Path.GetFileName(document.RootElement.GetProperty("path").GetString()));
+    }
+
+    [TestMethod]
+    public void V216ArtifactIdentityFailsClosedForSizeHashAndMissingCandidate()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string metadataPath = Path.Combine(
+            repositoryRoot,
+            "devdocs",
+            "acceptance",
+            "v216-first-hop",
+            "artifact.json");
+        string tempRoot = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker-V216ArtifactContractTests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string exactArtifact = ReadMetadataArtifactPath(metadataPath);
+            string sizeCandidate = Path.Combine(tempRoot, "size", "published-bemusicseeker-unofficial-fork-v2.1.6.0.zip");
+            string hashCandidate = Path.Combine(tempRoot, "hash", "published-bemusicseeker-unofficial-fork-v2.1.6.0.zip");
+            Directory.CreateDirectory(Path.GetDirectoryName(sizeCandidate)!);
+            Directory.CreateDirectory(Path.GetDirectoryName(hashCandidate)!);
+            File.Copy(exactArtifact, sizeCandidate);
+            File.Copy(exactArtifact, hashCandidate);
+            File.AppendAllText(sizeCandidate, "size mutation", Encoding.ASCII);
+            byte[] hashMutation = File.ReadAllBytes(hashCandidate);
+            hashMutation[^1] ^= 0x01;
+            File.WriteAllBytes(hashCandidate, hashMutation);
+            string sizeMismatchMetadata = Path.Combine(tempRoot, "size-mismatch.json");
+            string hashMismatchMetadata = Path.Combine(tempRoot, "hash-mismatch.json");
+            string missingMetadata = Path.Combine(tempRoot, "missing.json");
+            WriteV216Metadata(sizeMismatchMetadata, sizeCandidate, 11260709, "C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2");
+            WriteV216Metadata(hashMismatchMetadata, hashCandidate, 11260709, "C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2");
+            WriteV216Metadata(
+                missingMetadata,
+                Path.Combine(tempRoot, "missing", "published-bemusicseeker-unofficial-fork-v2.1.6.0.zip"),
+                11260709,
+                "C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2");
+
+            PowerShellResult result = RunPowerShell(tempRoot, $@"
+. $env:BMS_TEST_SCRIPT
+Assert-V216ArtifactIdentity -MetadataPath {QuotePowerShellLiteral(sizeMismatchMetadata)} -RepositoryRoot {QuotePowerShellLiteral(repositoryRoot)} | Out-Null
+");
+            AssertPowerShellFailure(result, "artifact size mismatch");
+
+            result = RunPowerShell(tempRoot, $@"
+. $env:BMS_TEST_SCRIPT
+Assert-V216ArtifactIdentity -MetadataPath {QuotePowerShellLiteral(hashMismatchMetadata)} -RepositoryRoot {QuotePowerShellLiteral(repositoryRoot)} | Out-Null
+");
+            AssertPowerShellFailure(result, "artifact SHA-256 mismatch");
+
+            result = RunPowerShell(tempRoot, $@"
+. $env:BMS_TEST_SCRIPT
+Assert-V216ArtifactIdentity -MetadataPath {QuotePowerShellLiteral(missingMetadata)} -RepositoryRoot {QuotePowerShellLiteral(repositoryRoot)} | Out-Null
+");
+            AssertPowerShellFailure(result, "artifact is missing");
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
     private static PowerShellResult CreateManifest(ManifestFixture fixture, string artifactId, string runId)
     {
         return RunPowerShell(fixture.Root, $@"
@@ -255,6 +349,44 @@ $manifest = New-DistributionArtifactManifest `
     -BaselineCommit 'baseline-commit'
 $manifest.ManifestPath
 ");
+    }
+
+    private static string ReadMetadataArtifactPath(string metadataPath)
+    {
+        using JsonDocument metadata = JsonDocument.Parse(File.ReadAllText(metadataPath));
+        string relativePath = metadata.RootElement.GetProperty("artifactPath").GetString()!;
+        return Path.GetFullPath(Path.Combine(FindRepositoryRoot(), relativePath));
+    }
+
+    private static void WriteV216Metadata(string path, string artifactPath, long sizeBytes, string sha256)
+    {
+        var metadata = new
+        {
+            schemaVersion = 1,
+            manifestType = "BeMusicSeeker.V216Artifact",
+            artifactId = "public-v2.1.6.0",
+            version = "2.1.6.0",
+            packageFormatVersion = 1,
+            fileName = "published-bemusicseeker-unofficial-fork-v2.1.6.0.zip",
+            artifactPath,
+            sizeBytes,
+            sha256,
+            sealedArtifact = true
+        };
+        string json = JsonSerializer.Serialize(new
+        {
+            schemaVersion = metadata.schemaVersion,
+            manifestType = metadata.manifestType,
+            artifactId = metadata.artifactId,
+            version = metadata.version,
+            packageFormatVersion = metadata.packageFormatVersion,
+            fileName = metadata.fileName,
+            artifactPath = metadata.artifactPath,
+            sizeBytes = metadata.sizeBytes,
+            sha256 = metadata.sha256,
+            @sealed = metadata.sealedArtifact
+        });
+        File.WriteAllText(path, json);
     }
 
     private static ManifestFixture CreateFixture()
@@ -477,6 +609,11 @@ $manifest.ManifestPath
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private static string QuotePowerShellLiteral(string value)
+    {
+        return "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
     }
 
     private sealed class ManifestFixture : IDisposable

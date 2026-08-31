@@ -25,12 +25,15 @@ $toolExecutables = @(
 $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
 $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existing-data.ps1'
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
+$v216FirstHopAcceptanceScript = Join-Path $repoRoot 'scripts\accept-v216-first-hop.ps1'
+$v216ArtifactMetadataPath = Join-Path $repoRoot 'devdocs\acceptance\v216-first-hop\artifact.json'
 $functionalFailureCleanupWindowSeconds = 10
 $functionalReportingTargetSeconds = 180
 $monitoredCommandCleanupSeconds = 5
 . (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
 . (Join-Path $PSScriptRoot 'verification-process-lifecycle.ps1')
 . (Join-Path $PSScriptRoot 'distribution-artifact.ps1')
+. (Join-Path $PSScriptRoot 'verification-test-outcomes.ps1')
 $verificationRunnerContract = Get-VerificationRunnerContract
 Assert-VerificationRunnerContract -Contract $verificationRunnerContract
 
@@ -1924,6 +1927,56 @@ function Invoke-UpdateAcceptance {
         -DiagnosticsDirectory (Join-Path $PhaseDirectory 'command')
 }
 
+function Invoke-V216FirstHopAcceptance {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.Stopwatch]$Stopwatch,
+
+        [Parameter(Mandatory)]
+        [int]$BudgetSeconds,
+
+        [Parameter(Mandatory)]
+        [string]$PhaseDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$ArtifactManifestPath
+    )
+
+    if (-not (Test-Path -LiteralPath $v216FirstHopAcceptanceScript -PathType Leaf)) {
+        throw "v2.1.6.0 first-hop acceptance runner is missing: $v216FirstHopAcceptanceScript"
+    }
+    $pinned = Assert-V216ArtifactIdentity `
+        -MetadataPath $v216ArtifactMetadataPath `
+        -RepositoryRoot $repoRoot
+    $artifactManifest = Read-DistributionArtifactManifest -ManifestPath $ArtifactManifestPath
+    $currentPackagePath = [string]$artifactManifest.Current.packagePath
+    $currentVersion = [string]$artifactManifest.Current.version
+    if ([string]::IsNullOrWhiteSpace($currentPackagePath) -or
+        [string]::IsNullOrWhiteSpace($currentVersion)) {
+        throw 'Current distribution manifest does not identify a release package for v2.1.6.0 first-hop acceptance.'
+    }
+    $outputDirectory = Join-Path $PhaseDirectory 'v216-first-hop'
+    Invoke-FullPhaseCommand `
+        -Stopwatch $Stopwatch `
+        -BudgetSeconds $BudgetSeconds `
+        -PhaseName 'ReleaseAcceptance' `
+        -Label 'v2.1.6.0 first-hop acceptance' `
+        -CommandPath 'pwsh' `
+        -Arguments @(
+            '-NoProfile'
+            '-File'
+            $v216FirstHopAcceptanceScript
+            '-ArtifactMetadataPath'
+            $pinned.MetadataPath
+            '-CurrentPackagePath'
+            $currentPackagePath
+            '-CurrentVersion'
+            $currentVersion
+            '-OutputDirectory'
+            $outputDirectory) `
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'v216-first-hop-command')
+}
+
 function Assert-RepositoryWhitespace {
     Invoke-CheckedCommand git diff '--check' 'HEAD' '--'
 
@@ -2211,6 +2264,8 @@ try {
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
         })
 
+        $processIntegrationResultsPath = $null
+        $releaseAcceptanceResultsPath = $null
         [void](Invoke-MonitoredFullPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory)
             $descriptor = Get-FullPhaseDescriptor -Name 'ProcessIntegration'
@@ -2221,10 +2276,12 @@ try {
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             $timeout = Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'ProcessIntegration test lane'
+            $processIntegrationTestDirectory = Join-Path $phaseDirectory 'test'
+            $processIntegrationResultsPath = Join-Path $processIntegrationTestDirectory 'results.trx'
             Invoke-TestLane `
                 -Name 'Process integration' `
                 -Filter 'TestCategory=ProcessIntegration' `
-                -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
+                -DiagnosticsDirectory $processIntegrationTestDirectory `
                 -TimeoutSeconds $timeout `
                 -UsePhaseCleanupDeadline `
                 -NoBuild
@@ -2244,14 +2301,43 @@ try {
                 -ExpectedArtifactId $expectedFullArtifactId `
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+            Invoke-V216FirstHopAcceptance `
+                -Stopwatch $phaseStopwatch `
+                -BudgetSeconds (Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'v2.1.6.0 first-hop acceptance') `
+                -PhaseDirectory $phaseDirectory `
+                -ArtifactManifestPath $artifactManifestPath
+            Assert-V216ArtifactIdentity `
+                -MetadataPath $v216ArtifactMetadataPath `
+                -RepositoryRoot $repoRoot | Out-Null
             $timeout = Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'ReleaseAcceptance test lane'
+            $releaseAcceptanceTestDirectory = Join-Path $phaseDirectory 'test'
+            $releaseAcceptanceResultsPath = Join-Path $releaseAcceptanceTestDirectory 'results.trx'
             Invoke-TestLane `
                 -Name 'Release acceptance' `
                 -Filter 'TestCategory=ReleaseAcceptance' `
-                -DiagnosticsDirectory (Join-Path $phaseDirectory 'test') `
+                -DiagnosticsDirectory $releaseAcceptanceTestDirectory `
                 -TimeoutSeconds $timeout `
                 -UsePhaseCleanupDeadline `
                 -NoBuild
+            $functionalResultsDirectory = Join-Path $testDiagnosticsDirectory 'functional'
+            if (-not (Test-Path -LiteralPath $functionalResultsDirectory -PathType Container)) {
+                throw "Canonical Functional result directory is missing for the release outcome gate: $functionalResultsDirectory"
+            }
+            $functionalResultPaths = @(
+                Get-ChildItem -LiteralPath $functionalResultsDirectory -Recurse -File -Filter 'results.trx' |
+                    Sort-Object -Property FullName |
+                    ForEach-Object { $_.FullName })
+            if ($functionalResultPaths.Count -eq 0) {
+                throw "Canonical Functional produced no TRX result receipts for the release outcome gate: $functionalResultsDirectory"
+            }
+            $outcomeResultPaths = @(
+                $functionalResultPaths +
+                $processIntegrationResultsPath +
+                $releaseAcceptanceResultsPath)
+            [void](Assert-VerificationTestOutcomes `
+                    -ResultPaths $outcomeResultPaths `
+                    -RosterPath $v216ArtifactMetadataPath `
+                    -ReceiptPath (Join-Path $phaseDirectory 'release-outcomes.json'))
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
                 -ExpectedRunId $expectedFullRunId `

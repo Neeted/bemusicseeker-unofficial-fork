@@ -152,3 +152,24 @@ restart executable の起動に成功した時点を更新の commit point と�
 `raw.githubusercontent.com` は GitHub 側のキャッシュやブランチ参照の反映遅延により、release commit を push した直後に古い内容を返すことがあるため、publish 成功判定には使わない。
 
 既存 draft を更新する場合、今回の local zip に存在しない余剰 Release asset は削除してから asset を再アップロードする。これにより、古い metadata 同梱 zip などが draft に残ったまま publish されることを避ける。
+
+## v2.1.6.0 から v3 への first hop
+
+公開済み v2.1.6.0 から v3.0.0.0 への最初の更新は、checked-in の
+`devdocs/acceptance/v216-first-hop/artifact.json` が指す一つの zip を正本とする。
+この artifact は size `11,260,709` bytes、SHA-256
+`C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2` と完全一致する
+場合だけ受け入れ、見つからない場合や一致しない場合に source build、最新 zip、
+`ab9d97ed3f53dab80fb2894f20f44abdfb6fed32` baseline へ切り替えない。
+
+リリース受入では、この実 zip に含まれる protocol-1 の legacy updater を実行し、
+v3 の current package を適用する。updater の bounded process exit と stdout/stderr の
+drain が完了した時点で、更新直前に保存した `data/` と `config/` の tree を比較し、
+v3 の初回 `startup_ready_operable` 後に fixture の設定と DB 意味状態が残ることを
+確認する。legacy updater の managed-file lock は characterization として、非 zero
+exit、legacy stderr の非空診断、`data/` と `config/` の不変だけを要求する。旧 managed
+tree の自動復旧や現行 updater の handshake をこの first-hop contract に混ぜない。
+
+現行 v3 updater の互換性・recovery baseline は上記の公開 artifact とは別 lane として
+`ab9d97ed3f53dab80fb2894f20f44abdfb6fed32` を使う。公開 first-hop の identity oracleを
+baseline build で置き換えることはできない。

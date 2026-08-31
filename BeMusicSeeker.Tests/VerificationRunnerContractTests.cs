@@ -566,6 +566,256 @@ public sealed class VerificationRunnerContractTests
         Assert.AreEqual(
             "before-and-after-every-consumer-and-final",
             GetProperty(identity, "Revalidation").GetString());
+
+        JsonElement v216 = GetProperty(contract.RootElement, "V216FirstHop");
+        CollectionAssert.AreEqual(
+            new[] { "UPD-V216-HAPPY", "UPD-V216-LOCK", "REL-V216-ID" },
+            ReadStringArray(GetProperty(v216, "ContractIds")));
+        Assert.AreEqual("devdocs/acceptance/v216-first-hop/artifact.json", GetProperty(v216, "ArtifactMetadataPath").GetString());
+        Assert.AreEqual("scripts/accept-v216-first-hop.ps1", GetProperty(v216, "AcceptanceScript").GetString());
+        Assert.AreEqual("2.1.6.0", GetProperty(v216, "ArtifactVersion").GetString());
+        Assert.AreEqual(11260709, GetProperty(v216, "ArtifactSizeBytes").GetInt64());
+        Assert.AreEqual(
+            "C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2",
+            GetProperty(v216, "ArtifactSha256").GetString());
+        Assert.AreEqual("checked-in-single-path", GetProperty(v216, "ArtifactSelection").GetString());
+        Assert.AreEqual("fail-closed", GetProperty(v216, "MissingOrMismatch").GetString());
+        Assert.IsTrue(GetProperty(v216, "NoFallback").GetBoolean());
+        Assert.AreEqual("protocol-1-legacy-arguments-and-close", GetProperty(v216, "LegacyUpdaterProtocol").GetString());
+        Assert.AreEqual("bounded-exit-and-full-stream-pid-drain", GetProperty(v216, "StartupCompletion").GetString());
+        Assert.AreEqual("ab9d97ed3f53dab80fb2894f20f44abdfb6fed32", GetProperty(v216, "CurrentUpdaterBaseline").GetString());
+
+        JsonElement outcomeGate = GetProperty(contract.RootElement, "ReleaseOutcomeGate");
+        Assert.AreEqual("Assert-VerificationTestOutcomes", GetProperty(outcomeGate, "Owner").GetString());
+        CollectionAssert.AreEqual(
+            new[] { "REL-CRITICAL-ROSTER", "REL-OPTIONAL-SKIP" },
+            ReadStringArray(GetProperty(outcomeGate, "ContractIds")));
+        Assert.AreEqual("devdocs/acceptance/v216-first-hop/artifact.json", GetProperty(outcomeGate, "RosterPath").GetString());
+        Assert.AreEqual("exactly-once", GetProperty(outcomeGate, "RequiredFqnCardinality").GetString());
+        Assert.AreEqual("Passed", GetProperty(outcomeGate, "RequiredOutcome").GetString());
+        Assert.AreEqual("exact-fqn-allowlist-with-non-empty-reason", GetProperty(outcomeGate, "OptionalSkip").GetString());
+        CollectionAssert.AreEqual(
+            new[] { "Functional", "ProcessIntegration", "ReleaseAcceptance" },
+            ReadStringArray(GetProperty(outcomeGate, "Inputs")));
+        Assert.AreEqual("release-outcomes.json", GetProperty(outcomeGate, "ReceiptFileName").GetString());
+    }
+
+    [TestMethod]
+    public void ReleaseOutcomeGateRequiresExactPassedCardinality()
+    {
+        const string requiredFqn = "BeMusicSeeker.Tests.Synthetic.Required.ReleaseOutcome";
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker-VerificationOutcomeContractTests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string emptyResults = Path.Combine(root, "empty.trx");
+            WriteSyntheticTrx(emptyResults);
+            JsonDocument missing = ReadOutcomeGateProbe(emptyResults, requiredFqn);
+            AssertGateFailure(missing, "missing");
+
+            string duplicateResults = Path.Combine(root, "duplicate.trx");
+            WriteSyntheticTrx(duplicateResults, (requiredFqn, "Passed"), (requiredFqn, "Passed"));
+            JsonDocument duplicate = ReadOutcomeGateProbe(duplicateResults, requiredFqn);
+            AssertGateFailure(duplicate, "duplicate");
+
+            string caseVariantResults = Path.Combine(root, "case-variant.trx");
+            WriteSyntheticTrx(caseVariantResults, (requiredFqn.ToLowerInvariant(), "Passed"));
+            using JsonDocument caseVariant = ReadOutcomeGateProbe(caseVariantResults, requiredFqn);
+            AssertGateFailure(caseVariant, "missing");
+
+            foreach (string outcome in new[] { "Skipped", "Inconclusive", "NotExecuted", "Failed" })
+            {
+                string nonPassedResults = Path.Combine(root, outcome + ".trx");
+                WriteSyntheticTrx(nonPassedResults, (requiredFqn, outcome));
+                using JsonDocument nonPassed = ReadOutcomeGateProbe(nonPassedResults, requiredFqn);
+                AssertGateFailure(nonPassed, outcome);
+            }
+
+            string passedResults = Path.Combine(root, "passed.trx");
+            WriteSyntheticTrx(passedResults, (requiredFqn, "Passed"));
+            using JsonDocument passed = ReadOutcomeGateProbe(passedResults, requiredFqn);
+            Assert.IsTrue(GetProperty(passed.RootElement, "Passed").GetBoolean(), passed.RootElement.GetRawText());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ReleaseOutcomeGateAllowsOnlyExactOptionalSkipWithReason()
+    {
+        const string requiredFqn = "BeMusicSeeker.Tests.Synthetic.Required.ReleaseOutcome";
+        const string optionalFqn = "BeMusicSeeker.Tests.Synthetic.Optional.ReleaseOutcome";
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker-VerificationOptionalOutcomeContractTests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string allowedResults = Path.Combine(root, "allowed.trx");
+            WriteSyntheticTrx(allowedResults, (requiredFqn, "Passed"), (optionalFqn, "Skipped"));
+            using JsonDocument allowed = ReadOutcomeGateProbe(
+                allowedResults,
+                requiredFqn,
+                optionalFqn,
+                "provisioned acceptance dependency");
+            Assert.IsTrue(GetProperty(allowed.RootElement, "Passed").GetBoolean(), allowed.RootElement.GetRawText());
+            Assert.AreEqual(1, GetProperty(allowed.RootElement, "OptionalSkips").GetArrayLength());
+
+            string unknownResults = Path.Combine(root, "unknown.trx");
+            WriteSyntheticTrx(
+                unknownResults,
+                (requiredFqn, "Passed"),
+                ("BeMusicSeeker.Tests.Synthetic.Unknown.ReleaseOutcome", "Skipped"));
+            using JsonDocument unknown = ReadOutcomeGateProbe(
+                unknownResults,
+                requiredFqn,
+                optionalFqn,
+                "provisioned acceptance dependency");
+            AssertGateFailure(unknown, "Unknown");
+
+            string emptyReasonResults = Path.Combine(root, "empty-reason.trx");
+            WriteSyntheticTrx(emptyReasonResults, (requiredFqn, "Passed"), (optionalFqn, "Skipped"));
+            using JsonDocument emptyReason = ReadOutcomeGateProbe(emptyReasonResults, requiredFqn, optionalFqn, "");
+            AssertGateFailure(emptyReason, "reason");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ReleaseOutcomeGateLoadsRequiredRosterFromMetadataPath()
+    {
+        const string requiredFqn = "BeMusicSeeker.Tests.Synthetic.MetadataRoster.ReleaseOutcome";
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker-VerificationMetadataRosterContractTests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string resultsPath = Path.Combine(root, "passed.trx");
+            string rosterPath = Path.Combine(root, "roster.json");
+            WriteSyntheticTrx(resultsPath, (requiredFqn, "Passed"));
+            WriteSyntheticRoster(rosterPath, requiredFqn);
+
+            using JsonDocument result = ReadOutcomeRosterGateProbe(resultsPath, rosterPath);
+            Assert.IsTrue(GetProperty(result.RootElement, "Passed").GetBoolean(), result.RootElement.GetRawText());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    private static JsonDocument ReadOutcomeGateProbe(
+        string resultPath,
+        string requiredFqn,
+        string? optionalFqn = null,
+        string? optionalReason = null)
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string helperPath = QuotePowerShellLiteral(Path.Combine(repositoryRoot, "scripts", "verification-test-outcomes.ps1"));
+        string resultLiteral = QuotePowerShellLiteral(resultPath);
+        string requiredLiteral = QuotePowerShellLiteral(requiredFqn);
+        string optionalExpression = optionalFqn is null
+            ? "@()"
+            : "@([pscustomobject]@{ fullyQualifiedName = "
+              + QuotePowerShellLiteral(optionalFqn)
+              + "; reason = "
+              + QuotePowerShellLiteral(optionalReason ?? string.Empty)
+              + " })";
+        string command = string.Join(
+            Environment.NewLine,
+            "$ErrorActionPreference = 'Stop'",
+            ". " + helperPath,
+            "$caught = $null",
+            "try {",
+            "  $gate = Assert-VerificationTestOutcomes -ResultPaths @(" + resultLiteral + ") -RequiredFqns @(" + requiredLiteral + ") -OptionalSkipAllowlist " + optionalExpression,
+            "} catch { $caught = $_.Exception.Message }",
+            "[pscustomobject]@{ Passed = $null -eq $caught; Message = if ($null -eq $caught) { [string]::Empty } else { [string]$caught }; OptionalSkips = if ($null -eq $caught) { ,@($gate.OptionalSkips) } else { @() } } | ConvertTo-Json -Depth 8 -Compress");
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static JsonDocument ReadOutcomeRosterGateProbe(string resultPath, string rosterPath)
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string helperPath = QuotePowerShellLiteral(Path.Combine(repositoryRoot, "scripts", "verification-test-outcomes.ps1"));
+        string resultLiteral = QuotePowerShellLiteral(resultPath);
+        string rosterLiteral = QuotePowerShellLiteral(rosterPath);
+        string command = string.Join(
+            Environment.NewLine,
+            "$ErrorActionPreference = 'Stop'",
+            ". " + helperPath,
+            "$caught = $null",
+            "try {",
+            "  $gate = Assert-VerificationTestOutcomes -ResultPaths @(" + resultLiteral + ") -RosterPath " + rosterLiteral,
+            "} catch { $caught = $_.Exception.Message }",
+            "[pscustomobject]@{ Passed = $null -eq $caught; Message = if ($null -eq $caught) { [string]::Empty } else { [string]$caught } } | ConvertTo-Json -Depth 8 -Compress");
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
+    private static void AssertGateFailure(JsonDocument result, string expectedMessagePart)
+    {
+        Assert.IsFalse(GetProperty(result.RootElement, "Passed").GetBoolean(), result.RootElement.GetRawText());
+        StringAssert.Contains(
+            GetProperty(result.RootElement, "Message").GetString()!,
+            expectedMessagePart,
+            result.RootElement.GetRawText());
+    }
+
+    private static void WriteSyntheticTrx(string path, params (string FullyQualifiedName, string Outcome)[] results)
+    {
+        var builder = new StringBuilder(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><TestRun><Results>",
+            256);
+        foreach ((string fullyQualifiedName, string outcome) in results)
+        {
+            builder.Append("<UnitTestResult fullyQualifiedName=\"")
+                .Append(System.Security.SecurityElement.Escape(fullyQualifiedName))
+                .Append("\" outcome=\"")
+                .Append(System.Security.SecurityElement.Escape(outcome))
+                .Append("\" />");
+        }
+        builder.Append("</Results></TestRun>");
+        File.WriteAllText(path, builder.ToString(), Encoding.UTF8);
+    }
+
+    private static void WriteSyntheticRoster(string path, string requiredFqn)
+    {
+        string json = JsonSerializer.Serialize(new
+        {
+            releaseOutcome = new
+            {
+                schemaVersion = 1,
+                required = new[]
+                {
+                    new
+                    {
+                        contractId = "SYNTHETIC-REQUIRED",
+                        fullyQualifiedName = requiredFqn
+                    }
+                },
+                optionalSkipAllowlist = Array.Empty<object>()
+            }
+        });
+        File.WriteAllText(path, json, Encoding.UTF8);
     }
 
     private static void AssertModeMapping(

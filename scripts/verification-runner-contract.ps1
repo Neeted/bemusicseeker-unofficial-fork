@@ -100,9 +100,39 @@ function Get-VerificationRunnerContract {
             FailureContract = 'primary-failure-preserved;cleanup-failure-diagnostic;success-cleanup-failure'
         })
 
+    $releaseOutcomeGate = [ordered]@{
+        Owner = 'Assert-VerificationTestOutcomes'
+        ContractIds = @('REL-CRITICAL-ROSTER', 'REL-OPTIONAL-SKIP')
+        RosterPath = 'devdocs/acceptance/v216-first-hop/artifact.json'
+        RequiredFqnCardinality = 'exactly-once'
+        RequiredOutcome = 'Passed'
+        OptionalSkip = 'exact-fqn-allowlist-with-non-empty-reason'
+        UnknownNonPassed = 'fail'
+        Inputs = @('Functional', 'ProcessIntegration', 'ReleaseAcceptance')
+        ReceiptFileName = 'release-outcomes.json'
+    }
+
+    $v216FirstHop = [ordered]@{
+        ContractIds = @('UPD-V216-HAPPY', 'UPD-V216-LOCK', 'REL-V216-ID')
+        ArtifactMetadataPath = 'devdocs/acceptance/v216-first-hop/artifact.json'
+        AcceptanceScript = 'scripts/accept-v216-first-hop.ps1'
+        ArtifactVersion = '2.1.6.0'
+        ArtifactSizeBytes = 11260709
+        ArtifactSha256 = 'C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2'
+        ArtifactSelection = 'checked-in-single-path'
+        MissingOrMismatch = 'fail-closed'
+        NoFallback = $true
+        LegacyUpdaterProtocol = 'protocol-1-legacy-arguments-and-close'
+        StartupCompletion = 'bounded-exit-and-full-stream-pid-drain'
+        CurrentUpdaterBaseline = 'ab9d97ed3f53dab80fb2894f20f44abdfb6fed32'
+        CurrentUpdaterBaselinePurpose = 'separate-current-updater-compatibility-and-recovery-lane'
+    }
+
     return [pscustomobject][ordered]@{
         Schema = 'BeMusicSeeker.VerifyRefactor.RunnerContract.v1'
         CanonicalFunctional = [pscustomobject]$canonicalFunctional
+        V216FirstHop = [pscustomobject]$v216FirstHop
+        ReleaseOutcomeGate = [pscustomobject]$releaseOutcomeGate
         ModeMappings = @(
             [pscustomobject][ordered]@{
                 Name = 'Quick-no-filter'
@@ -198,6 +228,7 @@ function Get-VerificationRunnerContract {
                     ExactMatch = $true
                     Revalidation = 'before-and-after-every-consumer-and-final'
                 }
+                ReleaseOutcomeGate = [pscustomobject]$releaseOutcomeGate
             }
         }
     }
@@ -272,6 +303,38 @@ function Assert-VerificationRunnerContract {
         -not [bool]$Contract.Full.DistributionArtifact.CreationIdentity.ExactMatch -or
         $Contract.Full.DistributionArtifact.CreationIdentity.Revalidation -cne 'before-and-after-every-consumer-and-final') {
         throw 'Full runner contract must delegate Functional work exactly once to the canonical owner.'
+    }
+
+    foreach ($gate in @($Contract.ReleaseOutcomeGate, $Contract.Full.DistributionArtifact.ReleaseOutcomeGate)) {
+        if ($null -eq $gate -or
+            $gate.Owner -cne 'Assert-VerificationTestOutcomes' -or
+            [string]::Join('|', @($gate.ContractIds)) -cne 'REL-CRITICAL-ROSTER|REL-OPTIONAL-SKIP' -or
+            $gate.RosterPath -cne 'devdocs/acceptance/v216-first-hop/artifact.json' -or
+            $gate.RequiredFqnCardinality -cne 'exactly-once' -or
+            $gate.RequiredOutcome -cne 'Passed' -or
+            $gate.OptionalSkip -cne 'exact-fqn-allowlist-with-non-empty-reason' -or
+            $gate.UnknownNonPassed -cne 'fail' -or
+            [string]::Join('|', @($gate.Inputs)) -cne 'Functional|ProcessIntegration|ReleaseAcceptance' -or
+            $gate.ReceiptFileName -cne 'release-outcomes.json') {
+            throw 'Release outcome gate contract is invalid.'
+        }
+    }
+    $v216 = $Contract.V216FirstHop
+    if ($null -eq $v216 -or
+        [string]::Join('|', @($v216.ContractIds)) -cne 'UPD-V216-HAPPY|UPD-V216-LOCK|REL-V216-ID' -or
+        $v216.ArtifactMetadataPath -cne 'devdocs/acceptance/v216-first-hop/artifact.json' -or
+        $v216.AcceptanceScript -cne 'scripts/accept-v216-first-hop.ps1' -or
+        $v216.ArtifactVersion -cne '2.1.6.0' -or
+        $v216.ArtifactSizeBytes -ne 11260709 -or
+        $v216.ArtifactSha256 -cne 'C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2' -or
+        $v216.ArtifactSelection -cne 'checked-in-single-path' -or
+        $v216.MissingOrMismatch -cne 'fail-closed' -or
+        -not [bool]$v216.NoFallback -or
+        $v216.LegacyUpdaterProtocol -cne 'protocol-1-legacy-arguments-and-close' -or
+        $v216.StartupCompletion -cne 'bounded-exit-and-full-stream-pid-drain' -or
+        $v216.CurrentUpdaterBaseline -cne 'ab9d97ed3f53dab80fb2894f20f44abdfb6fed32' -or
+        $v216.CurrentUpdaterBaselinePurpose -cne 'separate-current-updater-compatibility-and-recovery-lane') {
+        throw 'v2.1.6.0 first-hop contract is invalid.'
     }
 }
 

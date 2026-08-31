@@ -358,3 +358,119 @@ function Assert-DistributionArtifactIdentity {
     }
     return $loaded
 }
+
+# The public v2.1.6.0 first-hop is deliberately kept outside the generated
+# current/baseline distribution manifest.  A release lane must consume one
+# sealed, checked-in identity and must not discover a newer or locally-built
+# candidate when that identity is unavailable.
+function Read-V216ArtifactMetadata {
+    param(
+        [Parameter(Mandatory)]
+        [string]$MetadataPath,
+
+        [string]$RepositoryRoot
+    )
+
+    $resolvedMetadataPath = Resolve-DistributionFullPath $MetadataPath
+    if (-not (Test-Path -LiteralPath $resolvedMetadataPath -PathType Leaf)) {
+        throw "Pinned v2.1.6.0 artifact metadata is missing: $resolvedMetadataPath"
+    }
+
+    try {
+        $metadata = Get-Content -LiteralPath $resolvedMetadataPath -Raw | ConvertFrom-Json
+    }
+    catch {
+        throw "Pinned v2.1.6.0 artifact metadata is not valid JSON: $resolvedMetadataPath"
+    }
+
+    if ([int](Get-DistributionManifestValue $metadata 'schemaVersion') -ne 1 -or
+        (Get-DistributionManifestValue $metadata 'manifestType') -cne 'BeMusicSeeker.V216Artifact') {
+        throw "Unsupported pinned v2.1.6.0 artifact metadata schema: $resolvedMetadataPath"
+    }
+
+    $artifactId = [string](Get-DistributionManifestValue $metadata 'artifactId')
+    $version = [string](Get-DistributionManifestValue $metadata 'version')
+    $fileName = [string](Get-DistributionManifestValue $metadata 'fileName')
+    $artifactPath = [string](Get-DistributionManifestValue $metadata 'artifactPath')
+    $expectedSize = [long](Get-DistributionManifestValue $metadata 'sizeBytes')
+    $expectedSha256 = [string](Get-DistributionManifestValue $metadata 'sha256')
+    $sealed = [bool](Get-DistributionManifestValue $metadata 'sealed')
+
+    if ($artifactId -cne 'public-v2.1.6.0' -or
+        $version -cne '2.1.6.0' -or
+        $fileName -cne 'published-bemusicseeker-unofficial-fork-v2.1.6.0.zip' -or
+        [string]::IsNullOrWhiteSpace($artifactPath) -or
+        $expectedSize -ne 11260709 -or
+        $expectedSha256.Trim().ToUpperInvariant() -cne 'C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2' -or
+        -not $sealed) {
+        throw "Pinned v2.1.6.0 artifact metadata identity is invalid: $resolvedMetadataPath"
+    }
+
+    $rootPath = if (-not [string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+        Resolve-DistributionFullPath $RepositoryRoot
+    }
+    else {
+        $candidate = Get-Item -LiteralPath $resolvedMetadataPath
+        while ($null -ne $candidate -and -not (Test-Path -LiteralPath (Join-Path $candidate.FullName 'BeMusicSeeker.sln') -PathType Leaf)) {
+            $candidate = $candidate.Parent
+        }
+        if ($null -eq $candidate) {
+            throw "Unable to locate repository root for pinned v2.1.6.0 artifact metadata: $resolvedMetadataPath"
+        }
+        $candidate.FullName
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $rootPath 'BeMusicSeeker.sln') -PathType Leaf)) {
+        throw "Pinned v2.1.6.0 artifact repository root is invalid: $rootPath"
+    }
+
+    if ([IO.Path]::IsPathRooted($artifactPath)) {
+        $resolvedArtifactPath = Resolve-DistributionFullPath $artifactPath
+    }
+    else {
+        $resolvedArtifactPath = Resolve-DistributionFullPath (Join-Path $rootPath $artifactPath)
+    }
+    if ([IO.Path]::GetFileName($resolvedArtifactPath) -cne $fileName) {
+        throw "Pinned v2.1.6.0 artifact file name does not match metadata: $resolvedArtifactPath"
+    }
+    if (-not (Test-Path -LiteralPath $resolvedArtifactPath -PathType Leaf)) {
+        throw "Pinned v2.1.6.0 artifact is missing: $resolvedArtifactPath"
+    }
+
+    $actualSize = (Get-Item -LiteralPath $resolvedArtifactPath).Length
+    if ($actualSize -ne $expectedSize) {
+        throw "Pinned v2.1.6.0 artifact size mismatch: expected=$expectedSize actual=$actualSize path=$resolvedArtifactPath"
+    }
+    $actualSha256 = Get-DistributionSha256 $resolvedArtifactPath
+    if ($actualSha256.ToUpperInvariant() -cne $expectedSha256.Trim().ToUpperInvariant()) {
+        throw "Pinned v2.1.6.0 artifact SHA-256 mismatch: expected=$($expectedSha256.Trim().ToLowerInvariant()) actual=$actualSha256 path=$resolvedArtifactPath"
+    }
+
+    return [pscustomobject][ordered]@{
+        Metadata = $metadata
+        MetadataPath = $resolvedMetadataPath
+        RepositoryRoot = $rootPath
+        ArtifactId = $artifactId
+        Version = $version
+        PackageFormatVersion = [int](Get-DistributionManifestValue $metadata 'packageFormatVersion')
+        FileName = $fileName
+        ArtifactPath = $resolvedArtifactPath
+        ExpectedSizeBytes = $expectedSize
+        ExpectedSha256 = $expectedSha256.Trim().ToLowerInvariant()
+        Sealed = $sealed
+    }
+}
+
+function Assert-V216ArtifactIdentity {
+    param(
+        [Parameter(Mandatory)]
+        [string]$MetadataPath,
+
+        [string]$RepositoryRoot
+    )
+
+    $metadata = Read-V216ArtifactMetadata -MetadataPath $MetadataPath -RepositoryRoot $RepositoryRoot
+    if ($metadata.PackageFormatVersion -ne 1) {
+        throw "Pinned v2.1.6.0 artifact package format is unsupported: $($metadata.PackageFormatVersion)"
+    }
+    return $metadata
+}

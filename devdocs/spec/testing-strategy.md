@@ -187,6 +187,37 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 
 Chart-info metadata lifecycle coverage uses the five distinct owner fixtures `ChartInfoMetadataSchemaExportImportTests`, `ChartInfoParserBehaviorTests`, `ChartInfoBackfillStorageTests`, `ChartInfoInlineHydrationTests`, and `ChartInfoInstallFailureRetryTests`. They remain in the catch-all `remaining` ClassLevel route with no named selector; normal hydration and backfill completion is awaited from `BMSLibrary.PropertyChanged` state transitions, while cleanup, lock, and timeout-contract bounds remain local.
 
+## v2.1.6.0 first-hop と release outcome gate
+
+Full の release acceptance は、checked-in の
+`devdocs/acceptance/v216-first-hop/artifact.json` が指す公開 v2.1.6.0 zip だけを
+使用する。metadata が無い、size が `11,260,709` bytes と違う、または SHA-256 が
+`C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2` と一致しない場合は
+fail closed とし、source build、最新ファイル、`ab9d97ed3f53dab80fb2894f20f44abdfb6fed32`
+baseline へ fallback しない。`ab9d` は current v3 updater の互換性・recovery を確認する
+独立 baseline lane としてのみ扱う。
+
+`scripts/accept-v216-first-hop.ps1` はこの artifact の legacy protocol-1 updater を
+実際に起動し、v3 package を適用する。process の bounded exit、stdout/stderr の full
+drain、legacy app の close、v3 初回 `startup_ready_operable` を completion signal とし、
+ready/decision handshake の存在を first-hop 完了条件にしない。適用直後は `data/` と
+`config/` を byte-identical と比較し、v3 初回起動後に設定と fixture の DB semantic
+state が保持されることを検証する。managed-file lock の characterization は非 zero
+exit、非空 legacy stderr、`data/config` 不変を要求し、旧 managed tree の自動 rollback
+や current handshake は要求しない。
+
+Full の `ProcessIntegration` と `ReleaseAcceptance` はそれぞれ TRX receipt を保存し、
+`Assert-VerificationTestOutcomes` が canonical Functional の全 shard と
+ProcessIntegration/ReleaseAcceptance の receipt を合成して
+`release-outcomes.json` を作る。artifact metadata の `releaseOutcome.required` にある
+各 exact FQN は結果がちょうど一件で、状態が `Passed` でなければ release failure と
+する。missing、duplicate、`Skipped`、`Inconclusive`、`NotExecuted`、その他の non-passed
+結果は受け入れない。optional は exact FQN の allowlist に明示された場合だけ `Skipped`
+を許し、allowlist entry と receipt の reason は空であってはならない。category 全体の
+skip や unknown FQN の skip は許可しない。release gate は結果 cardinality、status、
+optional reason を synthetic TRX/JSON receipt でも確認し、source text snapshot や広域
+snapshot を oracle にしない。
+
 ## 新しいテストを追加するとき
 
 詳細は [test-authoring-contract.md](test-authoring-contract.md) と `BeMusicSeeker.Tests/AGENTS.md` を正本とする。
