@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -158,6 +159,73 @@ public sealed class PlaylistSchemaMigrationTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_sha256';"));
             string uniqueIndexSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_uniq';");
             StringAssert.Contains(uniqueIndexSql, "sha256");
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void LoadPlaylistDump_StepFailureAfterPartialRowsPreservesPriorGeneration()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            var previousTable = new BMSTable
+            {
+                playlist_id = 71,
+                name = "Prior generation",
+                symbol = "prior"
+            };
+            using (var setup = new LR2SongDBExtended(tempDbPath))
+            {
+                setup.InsertOrReplace(previousTable, typeof(LR2SongDBExtended.playlist));
+            }
+
+            var playlist = new TestBmsPlaylist(tempDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([previousTable])
+            };
+            const string separator = "\v" + "\r\n";
+            string partialPlaylistInsert =
+                "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, is_external_sync, is_root_folder) "
+                + "VALUES (72, 'Partial generation', 'partial', '', 0, 1, 0, 0, 0);";
+            string abortTrigger =
+                "CREATE TRIGGER restore_abort BEFORE INSERT ON playlist_course "
+                + "BEGIN SELECT RAISE(ABORT, 'deterministic restore step failure'); END;";
+            string failingCourseInsert =
+                "INSERT INTO playlist_course (playlist_id, course_order, course_json) VALUES (72, 0, '{}');";
+            string partialDump = string.Join(separator, [partialPlaylistInsert, abortTrigger, failingCourseInsert]);
+
+            Exception? failure = null;
+            try
+            {
+                playlist.LoadPlaylistDump(partialDump);
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+
+            Assert.IsNotNull(failure);
+            Assert.AreEqual(1, playlist.BMSTables.Count);
+            BMSTable liveTable = playlist.BMSTables.Single();
+            Assert.AreEqual(71, liveTable.playlist_id);
+            Assert.AreEqual("Prior generation", liveTable.name);
+            Assert.AreEqual("prior", liveTable.symbol);
+            using var verify = new LR2SongDBExtended(tempDbPath);
+            Assert.AreEqual(
+                "Prior generation",
+                verify.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = 71;"));
+            Assert.AreEqual(
+                0L,
+                verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist WHERE playlist_id = 72;"));
+            Assert.AreEqual(
+                0L,
+                verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_course WHERE playlist_id = 72;"));
         }
         finally
         {

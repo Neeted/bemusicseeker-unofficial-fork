@@ -1210,6 +1210,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
     public class SQLiteCommandExtended : SQLiteCommand
     {
+        private const string FinalizeExceptionDataKey = "SQLiteCommandExtended.FinalizeException";
+
         private readonly SQLiteConnection connection;
 
         internal SQLiteCommandExtended(SQLiteConnection conn)
@@ -1228,23 +1230,90 @@ public sealed class LR2SongDBExtended : LR2SongDB
             return statement;
         }
 
+        private int StepRawStatement(sqlite3_stmt statement)
+        {
+            int result = raw.sqlite3_step(statement);
+            if (result == raw.SQLITE_ROW || result == raw.SQLITE_DONE)
+            {
+                return result;
+            }
+
+            string message = raw.sqlite3_errmsg(connection.Handle).utf8_to_string();
+            throw SQLiteException.New(
+                (SQLite3.Result)result,
+                $"sqlite3_step returned result {result} ({(SQLite3.Result)result}): {message}");
+        }
+
+        private SQLiteException CreateFinalizeException(int result)
+        {
+            string message = raw.sqlite3_errmsg(connection.Handle).utf8_to_string();
+            return SQLiteException.New(
+                (SQLite3.Result)result,
+                $"sqlite3_finalize returned result {result} ({(SQLite3.Result)result}): {message}");
+        }
+
+        private void FinalizeRawStatement(sqlite3_stmt statement, Exception primaryException)
+        {
+            try
+            {
+                int result = raw.sqlite3_finalize(statement);
+                if (result == raw.SQLITE_OK)
+                {
+                    return;
+                }
+
+                SQLiteException finalizeException = CreateFinalizeException(result);
+                if (primaryException == null)
+                {
+                    throw finalizeException;
+                }
+                AttachFinalizeException(primaryException, finalizeException);
+            }
+            catch (Exception cleanupException)
+            {
+                if (primaryException == null)
+                {
+                    throw;
+                }
+                AttachFinalizeException(primaryException, cleanupException);
+            }
+        }
+
+        private static void AttachFinalizeException(Exception primaryException, Exception cleanupException)
+        {
+            try
+            {
+                primaryException.Data[FinalizeExceptionDataKey] = cleanupException;
+            }
+            catch
+            {
+                // A cleanup diagnostic must never replace the operation's primary exception.
+            }
+        }
+
         public List<string[]> GetRawValuesAsString()
         {
             List<string[]> list = [];
             sqlite3_stmt stmt = PrepareRawStatement();
+            Exception primaryException = null;
             try
             {
                 int count = raw.sqlite3_column_count(stmt);
-                while (raw.sqlite3_step(stmt) == raw.SQLITE_ROW)
+                while (StepRawStatement(stmt) == raw.SQLITE_ROW)
                 {
                     list.Add([.. (from i in Enumerable.Range(0, count)
                               select raw.sqlite3_column_text(stmt, i).utf8_to_string())]);
                 }
                 return list;
             }
+            catch (Exception exception)
+            {
+                primaryException = exception;
+                throw;
+            }
             finally
             {
-                raw.sqlite3_finalize(stmt);
+                FinalizeRawStatement(stmt, primaryException);
             }
         }
 
@@ -1255,11 +1324,12 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 throw new ArgumentNullException(nameof(rowAction));
             }
             sqlite3_stmt stmt = PrepareRawStatement();
-            int count = raw.sqlite3_column_count(stmt);
+            Exception primaryException = null;
             int rowCount = 0;
             try
             {
-                while (raw.sqlite3_step(stmt) == raw.SQLITE_ROW)
+                int count = raw.sqlite3_column_count(stmt);
+                while (StepRawStatement(stmt) == raw.SQLITE_ROW)
                 {
                     string[] values = new string[count];
                     for (int i = 0; i < count; i++)
@@ -1270,9 +1340,14 @@ public sealed class LR2SongDBExtended : LR2SongDB
                     rowCount++;
                 }
             }
+            catch (Exception exception)
+            {
+                primaryException = exception;
+                throw;
+            }
             finally
             {
-                raw.sqlite3_finalize(stmt);
+                FinalizeRawStatement(stmt, primaryException);
             }
             return rowCount;
         }
