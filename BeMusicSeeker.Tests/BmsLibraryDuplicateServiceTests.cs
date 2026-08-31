@@ -731,6 +731,31 @@ public sealed class BmsLibraryDuplicateServiceTests
             Directory.Move(sourcePath, destinationPath);
         }
 
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectory))
+            {
+                Directory.CreateDirectory(destinationDirectory);
+            }
+            File.Copy(sourcePath, destinationPath, overwrite);
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            Directory.CreateDirectory(destinationPath);
+            foreach (string directoryPath in Directory.GetDirectories(sourcePath, "*", System.IO.SearchOption.AllDirectories))
+            {
+                Directory.CreateDirectory(directoryPath.Replace(sourcePath, destinationPath, System.StringComparison.OrdinalIgnoreCase));
+            }
+            foreach (string filePath in Directory.GetFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories))
+            {
+                string destinationFilePath = filePath.Replace(sourcePath, destinationPath, System.StringComparison.OrdinalIgnoreCase);
+                Directory.CreateDirectory(Path.GetDirectoryName(destinationFilePath)!);
+                File.Copy(filePath, destinationFilePath, overwrite);
+            }
+        }
+
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
         {
             if (File.Exists(filePath))

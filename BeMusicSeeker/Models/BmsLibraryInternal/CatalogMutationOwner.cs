@@ -1165,7 +1165,8 @@ internal sealed class CatalogMutationOwner
         IEnumerable<BMSFile> bmsRows,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
         out CatalogWriteFailureFact failureFact,
-        Action onValidationPassed = null)
+        Action onValidationPassed = null,
+        string installPathToDelete = null)
     {
         CatalogWriteFailureFact capturedFailureFact = null;
         try
@@ -1174,7 +1175,7 @@ internal sealed class CatalogMutationOwner
             using (maintenanceWriteGate.GetWriterGuard())
             {
                 CatalogInstalledTargetUpsertReceipt receipt = ApplyInstalledTargetUpsertUnsafe(
-                    CreateInstalledTargetUpsertRequestUnsafe(bmsRows, bmsonRows),
+                    CreateInstalledTargetUpsertRequestUnsafe(bmsRows, bmsonRows, installPathToDelete),
                     onValidationPassed,
                     fact => capturedFailureFact = fact);
                 failureFact = null;
@@ -1255,14 +1256,16 @@ internal sealed class CatalogMutationOwner
 
     private CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequestUnsafe(
         IEnumerable<BMSFile> bmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows)
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
+        string installPathToDelete = null)
     {
         StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
         return new CatalogInstalledTargetUpsertRequest(
             bmsRows,
             bmsonRows,
             currentVersions.BmsRowsVersion,
-            currentVersions.BmsonRowsVersion);
+            currentVersions.BmsonRowsVersion,
+            installPathToDelete);
     }
 
     private CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertUnsafe(
@@ -1280,7 +1283,8 @@ internal sealed class CatalogMutationOwner
         ChartStorageTargetSet targets = ChartStorageTargetSet.FromRows(
             request.BmsRows,
             request.BmsonRows);
-        if (targets.BmsFiles.Count == 0 && targets.BmsonSongs.Count == 0)
+        bool hasInstallRowDeletion = !string.IsNullOrWhiteSpace(request.InstallPathToDelete);
+        if (targets.BmsFiles.Count == 0 && targets.BmsonSongs.Count == 0 && !hasInstallRowDeletion)
         {
             return CatalogInstalledTargetUpsertReceipt.NotApplied;
         }
@@ -1315,6 +1319,10 @@ internal sealed class CatalogMutationOwner
                         songDb.InsertOrReplace(bmsonSong, typeof(LR2SongDBExtended.bmson_song));
                     }
                 }
+                if (hasInstallRowDeletion)
+                {
+                    songDb.Delete<LR2SongDBExtended.install>(request.InstallPathToDelete);
+                }
             });
         }
         catch (Exception ex)
@@ -1335,7 +1343,9 @@ internal sealed class CatalogMutationOwner
                 requirePath: true,
                 includeResourceReferences: false,
                 includeScoreSnapshot: false));
-        StorageRowsVersionSnapshot versions = storageRowsOwner.ApplyInstalledTargets(targets);
+        StorageRowsVersionSnapshot versions = targets.BmsFiles.Count == 0 && targets.BmsonSongs.Count == 0
+            ? storageRowsOwner.CaptureVersionSnapshot()
+            : storageRowsOwner.ApplyInstalledTargets(targets);
         bool ownedCollectionApplied = ownedCollectionOwner.ApplyMutation(
             [],
             [],
@@ -1346,11 +1356,12 @@ internal sealed class CatalogMutationOwner
             ? ownedCollectionOwner.IncrementVersion()
             : ownedCollectionOwner.CollectionVersion;
         return new CatalogInstalledTargetUpsertReceipt(
-            applied: targets.BmsFiles.Count > 0 || targets.BmsonSongs.Count > 0,
+            applied: targets.BmsFiles.Count > 0 || targets.BmsonSongs.Count > 0 || hasInstallRowDeletion,
             ownedCollectionApplied,
             versions,
             ownedCollectionVersion,
-            addedCharts);
+            addedCharts,
+            installRowDeleted: hasInstallRowDeletion);
     }
 
     internal CatalogDigestMutationRequest CreateDigestMutationRequest(
@@ -1539,12 +1550,14 @@ internal sealed class CatalogInstalledTargetUpsertRequest
         IEnumerable<BMSFile> bmsRows,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
         int previousBmsRowsVersion,
-        int previousBmsonRowsVersion)
+        int previousBmsonRowsVersion,
+        string installPathToDelete = null)
     {
         BmsRows = Snapshot(bmsRows);
         BmsonRows = Snapshot(bmsonRows);
         PreviousBmsRowsVersion = previousBmsRowsVersion;
         PreviousBmsonRowsVersion = previousBmsonRowsVersion;
+        InstallPathToDelete = installPathToDelete;
         AddedCharts = CatalogChartMutationFact.CreateFacts(
             ChartFileProjection.FromStorageRows(
                 BmsRows,
@@ -1562,6 +1575,8 @@ internal sealed class CatalogInstalledTargetUpsertRequest
     internal int PreviousBmsRowsVersion { get; }
 
     internal int PreviousBmsonRowsVersion { get; }
+
+    internal string InstallPathToDelete { get; }
 
     internal IReadOnlyList<CatalogChartMutationFact> AddedCharts { get; }
 
@@ -1589,7 +1604,8 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
         bool ownedCollectionApplied,
         StorageRowsVersionSnapshot storageRowsVersion,
         int ownedCollectionVersion,
-        IEnumerable<CatalogChartMutationFact> addedCharts)
+        IEnumerable<CatalogChartMutationFact> addedCharts,
+        bool installRowDeleted = false)
     {
         Applied = applied;
         Kind = applied
@@ -1599,6 +1615,7 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
         StorageRowsVersion = storageRowsVersion;
         OwnedCollectionVersion = ownedCollectionVersion;
         AddedCharts = Array.AsReadOnly([.. addedCharts ?? []]);
+        InstallRowDeleted = installRowDeleted;
     }
 
     internal bool Applied { get; }
@@ -1612,6 +1629,8 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
     internal int OwnedCollectionVersion { get; }
 
     internal IReadOnlyList<CatalogChartMutationFact> AddedCharts { get; }
+
+    internal bool InstallRowDeleted { get; }
 }
 
 /// <summary>

@@ -5551,7 +5551,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 NLogWrapper.FileLogger?.Warn(result.Failure, "duplicate_merge_failed");
             }
+            if (result.ManualRecoveryRequired)
+            {
+                NLogWrapper.FileLogger?.Error(
+                    "duplicate_merge_manual_recovery recoveryPaths="
+                    + string.Join("|", result.RecoveryPaths ?? []));
+            }
             return;
+        }
+        if (result.CompletedWithCleanupFailure)
+        {
+            NLogWrapper.FileLogger?.Warn(
+                "duplicate_merge_completed_with_cleanup_failure recoveryPaths="
+                + string.Join("|", result.RecoveryPaths ?? []));
         }
         NLogWrapper.FileLogger?.Info(string.Format(
             BeMusicSeeker.Properties.Resources.Msg_merge_bms_completed,

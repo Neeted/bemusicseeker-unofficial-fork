@@ -102,6 +102,13 @@ internal interface ISelectedChartMutationStore
         string encoding);
 }
 
+internal interface ISelectedChartMutationTerminalStore
+{
+    FileDbMutationBatchReceipt MoveLibraryChartsWithReceipt(
+        BMSLibrary library,
+        ChartLibraryMoveRequest request);
+}
+
 internal sealed class SelectedChartDeleteRequest
 {
     internal SelectedChartDeleteRequest(
@@ -153,17 +160,39 @@ internal sealed class SelectedChartMoveRequest
 
 internal sealed class SelectedChartMutationResult
 {
-    private SelectedChartMutationResult(bool succeeded, Exception failure)
+    private SelectedChartMutationResult(
+        bool succeeded,
+        Exception failure,
+        FileDbMutationBatchReceipt mutationReceipt = null)
     {
         Succeeded = succeeded;
         Failure = failure;
+        MutationReceipt = mutationReceipt;
     }
 
     internal bool Succeeded { get; }
 
     internal Exception Failure { get; }
 
+    internal FileDbMutationBatchReceipt MutationReceipt { get; }
+
+    internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+
+    internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+
+    internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+
+    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+
     internal static SelectedChartMutationResult Completed { get; } = new(true, null);
+
+    internal static SelectedChartMutationResult FromReceipt(FileDbMutationBatchReceipt mutationReceipt)
+    {
+        return new SelectedChartMutationResult(
+            mutationReceipt?.ManualRecoveryRequired != true,
+            null,
+            mutationReceipt);
+    }
 
     internal static SelectedChartMutationResult Failed(Exception failure)
     {
@@ -450,6 +479,15 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 return SelectedChartMutationResult.Completed;
             }
 
+            if (store is ISelectedChartMutationTerminalStore terminalStore)
+            {
+                return await Task.Run(() => ExecuteMutation(
+                    SelectedChartMutationRefreshScope.Library,
+                    () => playback.StopPlaybackForLibraryCharts(moveRequest.Charts),
+                    mutation: null,
+                    mutationWithReceipt: library => terminalStore.MoveLibraryChartsWithReceipt(library, moveRequest),
+                    publishMutationApplied: true)).ConfigureAwait(false);
+            }
             return await Task.Run(() => ExecuteMutation(
                 SelectedChartMutationRefreshScope.Library,
                 () => playback.StopPlaybackForLibraryCharts(moveRequest.Charts),
@@ -487,7 +525,9 @@ internal sealed class SelectedChartMutationWorkflowOwner
     private SelectedChartMutationResult ExecuteMutation(
         SelectedChartMutationRefreshScope refreshScope,
         Action stopPlayback,
-        Action<BMSLibrary> mutation)
+        Action<BMSLibrary> mutation,
+        Func<BMSLibrary, FileDbMutationBatchReceipt> mutationWithReceipt = null,
+        bool publishMutationApplied = false)
     {
         BMSLibrary library;
         try
@@ -503,6 +543,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         IDisposable operationGate = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
+        FileDbMutationBatchReceipt mutationReceipt = null;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
@@ -512,7 +553,15 @@ internal sealed class SelectedChartMutationWorkflowOwner
             stopPlayback?.Invoke();
             suppressionStarted = true;
             PublishRefreshSuppressionChanged(isSuppressed: true, scope: refreshScope);
-            mutation(library);
+            mutationReceipt = mutationWithReceipt?.Invoke(library);
+            if (mutationWithReceipt == null)
+            {
+                mutation(library);
+            }
+            if (publishMutationApplied && mutationReceipt?.HasDurableCommit == true)
+            {
+                PublishMutationApplied(libraryPathChanged: true);
+            }
         }
         catch (Exception ex)
         {
@@ -542,7 +591,9 @@ internal sealed class SelectedChartMutationWorkflowOwner
         }
         return failures.Count switch
         {
-            0 => SelectedChartMutationResult.Completed,
+            0 => mutationReceipt == null
+                ? SelectedChartMutationResult.Completed
+                : SelectedChartMutationResult.FromReceipt(mutationReceipt),
             1 => SelectedChartMutationResult.Failed(failures[0].SourceException),
             _ => SelectedChartMutationResult.Failed(
                 new AggregateException(failures.Select(failure => failure.SourceException))),
@@ -640,7 +691,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
     }
 }
 
-internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutationStore
+internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutationStore, ISelectedChartMutationTerminalStore
 {
     public IReadOnlyList<string> GetLibraryWholeFolderDeleteConfirmationPaths(
         BMSLibrary library,
@@ -686,7 +737,17 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
 
     public void MoveLibraryCharts(BMSLibrary library, ChartLibraryMoveRequest request)
     {
-        library.MoveLibraryRootFolder(request.Charts, request.NewParentDirectory, false);
+        _ = MoveLibraryChartsWithReceipt(library, request);
+    }
+
+    public FileDbMutationBatchReceipt MoveLibraryChartsWithReceipt(
+        BMSLibrary library,
+        ChartLibraryMoveRequest request)
+    {
+        return library.MoveLibraryRootFolderWithReceipt(
+            request.Charts,
+            request.NewParentDirectory,
+            false);
     }
 
     public void SetBMSFilesEncoding(

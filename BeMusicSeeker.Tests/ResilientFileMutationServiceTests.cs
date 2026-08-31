@@ -1,6 +1,8 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -386,6 +388,163 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
+    /// <summary>
+    /// durable DB receipt 前の失敗では compensation を一度だけ行い、source と旧 destination を保持することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_PrecommitFailureCompensatesOnceAndPreservesPriorFilesystem()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination.bms");
+            File.WriteAllText(sourcePath, "source");
+            File.WriteAllText(destinationPath, "prior");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
+            bool callbackSawSource = false;
+            bool callbackSawPromotedDestination = false;
+            var executor = new FileDbMutationExecutor(
+                plan,
+                resilientFileMutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+            {
+                callbackSawSource = File.Exists(sourcePath);
+                callbackSawPromotedDestination = File.ReadAllText(destinationPath) == "source";
+                return FileDbMutationCommitResult.Failed(new InvalidOperationException("db-before-receipt"));
+            });
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.AreEqual(1, receipt.CompensationAttemptCount);
+            Assert.IsTrue(callbackSawSource);
+            Assert.IsTrue(callbackSawPromotedDestination);
+            Assert.AreEqual("source", File.ReadAllText(sourcePath));
+            Assert.AreEqual("prior", File.ReadAllText(destinationPath));
+            Assert.IsFalse(File.Exists(plan.Paths[0].StagingPath));
+            Assert.IsFalse(File.Exists(plan.Paths[0].BackupPath));
+        });
+    }
+
+    /// <summary>
+    /// durable receipt 後は source cleanup を完了してから post-commit callback を呼ぶことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_DurableReceiptFinalizesBeforePostCommitCallback()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination.bms");
+            File.WriteAllText(sourcePath, "source");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
+            bool callbackSawSource = false;
+            bool postCommitSawSource = true;
+            var executor = new FileDbMutationExecutor(
+                plan,
+                resilientFileMutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+            {
+                callbackSawSource = File.Exists(sourcePath);
+                return FileDbMutationCommitResult.Durable(() => postCommitSawSource = File.Exists(sourcePath));
+            });
+
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.AreEqual(0, receipt.CompensationAttemptCount);
+            Assert.IsTrue(callbackSawSource);
+            Assert.IsFalse(postCommitSawSource);
+            Assert.IsFalse(File.Exists(sourcePath));
+            Assert.AreEqual("source", File.ReadAllText(destinationPath));
+        });
+    }
+
+    /// <summary>
+    /// durable receipt 後の source cleanup failure は authoritative destination を維持し、cleanup failure として返すことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_CleanupFailureReturnsCompletedWithCleanupFailureWithoutCompensation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination.bms");
+            File.WriteAllText(sourcePath, "source");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
+            var executor = new FileDbMutationExecutor(
+                plan,
+                new FailingDeleteFileMutationService(sourcePath),
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+            bool postCommitCalled = false;
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+                FileDbMutationCommitResult.Durable(() => postCommitCalled = true));
+
+            Assert.AreEqual(FileDbMutationTerminalState.CompletedWithCleanupFailure, receipt.TerminalState);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.AreEqual(0, receipt.CompensationAttemptCount);
+            Assert.IsTrue(receipt.CleanupAttemptCount > 0);
+            Assert.IsTrue(postCommitCalled);
+            Assert.IsTrue(File.Exists(sourcePath));
+            Assert.AreEqual("source", File.ReadAllText(destinationPath));
+        });
+    }
+
+    /// <summary>
+    /// compensation failure は ManualRecoveryRequired で停止し、後続 cleanup を行わないことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_CompensationFailureReturnsManualRecoveryAndRetainsRecoveryPaths()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination.bms");
+            File.WriteAllText(sourcePath, "source");
+            File.WriteAllText(destinationPath, "prior");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
+            var executor = new FileDbMutationExecutor(
+                plan,
+                new FailingDeleteFileMutationService(destinationPath),
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+                FileDbMutationCommitResult.Failed(new InvalidOperationException("db-before-receipt")));
+
+            Assert.AreEqual(FileDbMutationTerminalState.ManualRecoveryRequired, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.AreEqual(1, receipt.CompensationAttemptCount);
+            Assert.IsTrue(receipt.RecoveryPaths.Contains(sourcePath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(receipt.RecoveryPaths.Contains(destinationPath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(receipt.RecoveryPaths.Contains(plan.Paths[0].BackupPath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(File.Exists(sourcePath));
+            Assert.IsTrue(File.Exists(destinationPath));
+            Assert.IsTrue(File.Exists(plan.Paths[0].BackupPath));
+            Assert.IsFalse(File.Exists(plan.Paths[0].StagingPath));
+        });
+    }
+
+    private static FileDbMutationPlan CreateFileDbMutationPlan(string sourcePath, string destinationPath)
+    {
+        string stagingPath = LongPathFileSystem.CreateMutationSiblingPath(destinationPath, "stage");
+        string backupPath = LongPathFileSystem.EntryExists(destinationPath)
+            ? LongPathFileSystem.CreateMutationSiblingPath(destinationPath, "backup")
+            : string.Empty;
+        return new FileDbMutationPlan(
+            Guid.NewGuid(),
+            [new FileDbMutationPathPlan(sourcePath, destinationPath, stagingPath, backupPath, isDirectory: false)],
+            [sourcePath],
+            [],
+            recursiveSourceCleanup: false);
+    }
+
     private static void WithTemporaryDirectory(Action<string> testAction)
     {
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FileMutationTests_" + Guid.NewGuid().ToString("N"));
@@ -449,5 +608,46 @@ public sealed class ResilientFileMutationServiceTests
 
         LongPathFileSystem.SetAttributes(directoryPath, FileAttributes.Normal);
         LongPathFileSystem.DeleteDirectory(directoryPath, recursive: true);
+    }
+
+    private sealed class FailingDeleteFileMutationService(string failurePath) : IFileMutationService
+    {
+        private readonly ResilientFileMutationService inner = new();
+
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null)
+            => inner.EnsureDirectory(directoryPath, options);
+
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+            => inner.MoveFile(sourcePath, destinationPath, overwrite, options);
+
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+            => inner.MoveDirectory(sourcePath, destinationPath, overwrite, options);
+
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+            => inner.CopyFile(sourcePath, destinationPath, overwrite, options);
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+            => inner.CopyDirectory(sourcePath, destinationPath, overwrite, options);
+
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
+        {
+            if (string.Equals(filePath, failurePath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("injected-delete-failure");
+            }
+            inner.DeleteFileDirect(filePath, options);
+        }
+
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+            => inner.DeleteFileShell(filePath, uiOption, recycleOption, options);
+
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null)
+            => inner.DeleteDirectoryDirect(directoryPath, recursive, options);
+
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+            => inner.DeleteDirectoryShell(directoryPath, uiOption, recycleOption, options);
+
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
+            => inner.SetTimestamps(path, isDirectory, creationTime, lastWriteTime, options);
     }
 }

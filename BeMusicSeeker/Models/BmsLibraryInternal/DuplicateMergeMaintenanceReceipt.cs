@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
@@ -17,7 +19,8 @@ internal sealed class DuplicateMergeMaintenanceReceipt
             maintenanceHadUpdates: false,
             resourceHealthIndexDeferred: false,
             resourceHealthIndexDeltaApplied: false,
-            resourceHealthIndexFullRebuilt: false);
+            resourceHealthIndexFullRebuilt: false,
+            mutationReceipt: null);
 
     internal DuplicateMergeMaintenanceReceipt(
         bool mergeApplied,
@@ -27,7 +30,8 @@ internal sealed class DuplicateMergeMaintenanceReceipt
         bool maintenanceHadUpdates,
         bool resourceHealthIndexDeferred,
         bool resourceHealthIndexDeltaApplied,
-        bool resourceHealthIndexFullRebuilt)
+        bool resourceHealthIndexFullRebuilt,
+        FileDbMutationReceipt mutationReceipt = null)
     {
         MergeApplied = mergeApplied;
         IntermediateMode = intermediateMode;
@@ -37,6 +41,7 @@ internal sealed class DuplicateMergeMaintenanceReceipt
         ResourceHealthIndexDeferred = resourceHealthIndexDeferred;
         ResourceHealthIndexDeltaApplied = resourceHealthIndexDeltaApplied;
         ResourceHealthIndexFullRebuilt = resourceHealthIndexFullRebuilt;
+        MutationReceipt = mutationReceipt;
     }
 
     /// <summary>
@@ -78,4 +83,17 @@ internal sealed class DuplicateMergeMaintenanceReceipt
     /// Gets whether resource-health dispatch rebuilt the full index.
     /// </summary>
     internal bool ResourceHealthIndexFullRebuilt { get; }
+
+    /// <summary>
+    /// Gets the immutable filesystem/DB terminal receipt for the merge.
+    /// </summary>
+    internal FileDbMutationReceipt MutationReceipt { get; }
+
+    internal bool HasDurableCommit => MutationReceipt?.DurableCommit == true;
+
+    internal bool ManualRecoveryRequired => MutationReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired;
+
+    internal bool CompletedWithCleanupFailure => MutationReceipt?.TerminalState == FileDbMutationTerminalState.CompletedWithCleanupFailure;
+
+    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
 }

@@ -1676,6 +1676,21 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Directory.Delete(sourcePath, recursive: true);
         }
 
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
+            {
+                Directory.CreateDirectory(destinationDirectoryPath);
+            }
+            File.Copy(sourcePath, destinationPath, overwrite);
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            CopyDirectory(sourcePath, destinationPath);
+        }
+
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
         {
             if (File.Exists(filePath))

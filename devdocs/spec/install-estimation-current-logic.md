@@ -397,3 +397,15 @@ metadata frontier が発生した場合は `estimate_install metadata_frontier` 
 - `devdocs/plan/bmson/install-estimation-relative-path-foundation.md`
 - `devdocs/plan/bmson/install-estimation-performance-foundation.md`
 - `devdocs/plan/bmson/library-scan-fast-path-resource-index-plan.md`
+
+## Estimated install mutation boundary
+
+推定処理が選んだ destination へ実際に pending package を導入する処理は、推定結果の計算とは別に、`FileDbMutationBoundary` の receipt-aware route を使う。estimated install、cleanup-only、smart overwrite、auto-install の user-visible route は同じ durable boundary を通り、旧来の source-first delete / copy-default route へ意味を変えた fallback をしない。
+
+- preflight では対象と destination を immutable に snapshot し、filesystem / DB を変更しない。
+- staging、overwrite backup、promote は destination filesystem 内の sibling に限定する。
+- source package と install row は destination と DB の durable receipt が確定するまで保持する。install row の削除は対象 chart upsert と同じ DB durable mutation に含める。
+- durable receipt 前の failure は一回だけ compensation し、compensation failure は `ManualRecoveryRequired` として batch の後続 mutation を停止する。source / backup / staging / recovery paths は保持する。
+- durable receipt 後は compensation せず、source / staging / backup の cleanup を一度だけ行う。cleanup failure は `CompletedWithCleanupFailure` とし、leftover を保持したまま terminal result として通知する。fresh install retry や pending への自動復帰はしない。
+
+package batch、folder move、merge、auto-rename の command result は durable receipt、terminal state、recovery paths を direct caller / UI workflow まで伝播する。receipt 前の collection projection、notification、task start は行わず、durable success 後の projection と notification は post-commit phase に限定する。persistent journal、crash replay、cross-volume atomicity は保証しない。

@@ -570,6 +570,84 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// folder move の DB precommit failure に対する compensation failure は、recovery tree を残して後続 folder を開始しないことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MoveLibraryRootFolder_StopsAfterManualRecoveryRequired()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderManualRecovery_" + Guid.NewGuid().ToString("N"));
+            string sourceRootPath = Path.Combine(tempRootPath, "SourceRoot");
+            string firstSourceDirectoryPath = Path.Combine(sourceRootPath, "First");
+            string secondSourceDirectoryPath = Path.Combine(sourceRootPath, "Second");
+            string destinationRootPath = Path.Combine(tempRootPath, "DestinationRoot");
+            string firstChartPath = Path.Combine(firstSourceDirectoryPath, "first.bms");
+            string secondChartPath = Path.Combine(secondSourceDirectoryPath, "second.bms");
+            Directory.CreateDirectory(firstSourceDirectoryPath);
+            Directory.CreateDirectory(secondSourceDirectoryPath);
+            Directory.CreateDirectory(destinationRootPath);
+            File.WriteAllText(firstChartPath, "#PLAYER 1\r\n#TITLE First");
+            File.WriteAllText(secondChartPath, "#PLAYER 1\r\n#TITLE Second");
+            try
+            {
+                var fileMutationService = new TestFileMutationService
+                {
+                    DeleteDirectoryFailurePath = Path.Combine(destinationRootPath, "First")
+                };
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    null,
+                    null,
+                    fileMutationService,
+                    new RecordingDialogService());
+                var firstFile = new TestableBmsFile { path = firstChartPath };
+                firstFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                var secondFile = new TestableBmsFile { path = secondChartPath };
+                secondFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+                SetLibraryFilesWithoutNotification(library, [firstFile, secondFile]);
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(firstFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(secondFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    string firstDestinationChartPath = Path.Combine(destinationRootPath, "First", "first.bms");
+                    string escapedPath = firstDestinationChartPath.Replace("'", "''");
+                    songDb.Execute(
+                        "CREATE TRIGGER fail_folder_move BEFORE INSERT ON song WHEN NEW.path = '"
+                        + escapedPath
+                        + "' BEGIN SELECT RAISE(ABORT, 'forced folder move failure'); END;");
+                }
+
+                library.MoveLibraryRootFolder(
+                    [
+                        LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(firstFile)),
+                        LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(secondFile))
+                    ],
+                    destinationRootPath);
+
+                string firstDestinationDirectoryPath = Path.Combine(destinationRootPath, "First");
+                Assert.IsTrue(Directory.Exists(firstSourceDirectoryPath));
+                Assert.IsTrue(Directory.Exists(firstDestinationDirectoryPath));
+                Assert.IsTrue(Directory.Exists(secondSourceDirectoryPath));
+                Assert.IsFalse(Directory.Exists(Path.Combine(destinationRootPath, "Second")));
+                Assert.AreEqual(firstChartPath, firstFile.path);
+                Assert.AreEqual(secondChartPath, secondFile.path);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == firstChartPath));
+                Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == secondChartPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
     [TestMethod]
     public void MoveLibraryRootFolder_BmsonChart_NotifiesBmsonStorageRowsThroughRefreshNotification()
     {
@@ -2121,6 +2199,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     {
         public string? MoveDirectoryFailureSourcePath { get; set; }
 
+        public string? DeleteDirectoryFailurePath { get; set; }
+
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -2163,6 +2243,26 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Directory.Delete(sourcePath, recursive: true);
         }
 
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
+            {
+                Directory.CreateDirectory(destinationDirectoryPath);
+            }
+            File.Copy(sourcePath, destinationPath, overwrite);
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            if (!string.IsNullOrWhiteSpace(MoveDirectoryFailureSourcePath)
+                && string.Equals(sourcePath, MoveDirectoryFailureSourcePath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("Synthetic directory move failure for batch behavior test.");
+            }
+            CopyDirectoryTree(sourcePath, destinationPath, overwrite);
+        }
+
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
         {
             if (File.Exists(filePath))
@@ -2178,6 +2278,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
         {
+            if (!string.IsNullOrWhiteSpace(DeleteDirectoryFailurePath)
+                && string.Equals(directoryPath, DeleteDirectoryFailurePath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("Synthetic directory delete failure for manual recovery test.");
+            }
             if (Directory.Exists(directoryPath))
             {
                 Directory.Delete(directoryPath, recursive);
@@ -2209,6 +2314,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Directory.CreateDirectory(destinationDirectoryPath);
                 }
                 File.Copy(filePath, destinationFilePath, overwrite: true);
+            }
+        }
+
+        private static void CopyDirectoryTree(string sourcePath, string destinationPath, bool overwrite)
+        {
+            CopyDirectory(sourcePath, destinationPath);
+            if (!overwrite)
+            {
+                return;
             }
         }
     }

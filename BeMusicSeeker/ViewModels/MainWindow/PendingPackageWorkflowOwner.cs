@@ -69,12 +69,14 @@ internal sealed class PendingPackageMutationResult
         bool succeeded,
         Exception failure,
         bool shouldApplyView,
-        PackageCatalogSection? emptySection)
+        PackageCatalogSection? emptySection,
+        FileDbMutationBatchReceipt mutationReceipt = null)
     {
         Succeeded = succeeded;
         Failure = failure;
         ShouldApplyView = shouldApplyView;
         EmptySection = emptySection;
+        MutationReceipt = mutationReceipt;
     }
 
     internal bool Succeeded { get; }
@@ -85,13 +87,25 @@ internal sealed class PendingPackageMutationResult
 
     internal PackageCatalogSection? EmptySection { get; }
 
+    internal FileDbMutationBatchReceipt MutationReceipt { get; }
+
+    internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+
+    internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+
+    internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+
+    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+
     internal static PendingPackageMutationResult Completed { get; } = new(true, null, true, null);
 
     internal static PendingPackageMutationResult Rejected { get; } = new(false, null, false, null);
 
-    internal static PendingPackageMutationResult CompletedFor(PackageCatalogSection? emptySection)
+    internal static PendingPackageMutationResult CompletedFor(
+        PackageCatalogSection? emptySection,
+        FileDbMutationBatchReceipt mutationReceipt = null)
     {
-        return new PendingPackageMutationResult(true, null, true, emptySection);
+        return new PendingPackageMutationResult(true, null, true, emptySection, mutationReceipt);
     }
 
     internal static PendingPackageMutationResult FailedBeforeMutation(Exception failure)
@@ -105,13 +119,31 @@ internal sealed class PendingPackageMutationResult
 
     internal static PendingPackageMutationResult FailedAfterMutation(
         Exception failure,
-        PackageCatalogSection? emptySection = null)
+        PackageCatalogSection? emptySection = null,
+        FileDbMutationBatchReceipt mutationReceipt = null)
     {
         return new PendingPackageMutationResult(
             false,
             failure ?? throw new ArgumentNullException(nameof(failure)),
             true,
-            emptySection);
+            emptySection,
+            mutationReceipt);
+    }
+
+    internal static PendingPackageMutationResult FromTerminal(
+        FileDbMutationBatchReceipt mutationReceipt,
+        PackageCatalogSection? emptySection = null)
+    {
+        if (mutationReceipt?.ManualRecoveryRequired == true)
+        {
+            return new PendingPackageMutationResult(
+                false,
+                null,
+                true,
+                emptySection,
+                mutationReceipt);
+        }
+        return CompletedFor(emptySection, mutationReceipt);
     }
 }
 
@@ -196,6 +228,18 @@ internal interface IPendingPackageStore
         IReadOnlyList<ChartPackage> packages,
         CancellationToken cancellationToken,
         Action onEachProcessed);
+}
+
+internal interface IPendingPackageTerminalMutationStore
+{
+    FileDbMutationBatchReceipt ForceInstallPackagesWithReceipt(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages,
+        ISet<ChartPackage> approvedNormalInstallOverridePackages);
+
+    PendingInstallBatchResult ManualInstallPackagesWithReceipt(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages);
 }
 
 internal sealed class PendingPackageWorkflowOwner
@@ -744,10 +788,25 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 case PendingInstallPackageOperationKind.ForceInstall:
                     ISet<ChartPackage> approvedPackages = await ConfirmNormalInstallOverridesAsync(packages);
+                    if (store is IPendingPackageTerminalMutationStore terminalStore)
+                    {
+                        return await ExecuteInstallAsync(
+                            library => terminalStore.ForceInstallPackagesWithReceipt(
+                                library,
+                                packages,
+                                approvedPackages),
+                            packages);
+                    }
                     return await ExecuteInstallAsync(
                         library => store.ForceInstallPackages(library, packages, approvedPackages),
                         packages);
                 case PendingInstallPackageOperationKind.ManualInstall:
+                    if (store is IPendingPackageTerminalMutationStore terminalManualStore)
+                    {
+                        return await ExecuteInstallAsync(
+                            library => terminalManualStore.ManualInstallPackagesWithReceipt(library, packages)?.MutationReceipt,
+                            packages);
+                    }
                     return await ExecuteInstallAsync(
                         library => store.ManualInstallPackages(library, packages),
                         packages);
@@ -765,22 +824,38 @@ internal sealed class PendingPackageWorkflowOwner
         Action<BMSLibrary> mutation,
         IReadOnlyList<ChartPackage> packages)
     {
+        return await ExecuteInstallAsync(
+            library =>
+            {
+                mutation(library);
+                return null;
+            },
+            packages);
+    }
+
+    private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
+        Func<BMSLibrary, FileDbMutationBatchReceipt> mutationWithReceipt,
+        IReadOnlyList<ChartPackage> packages)
+    {
         bool pendingSectionEmpty = false;
+        FileDbMutationBatchReceipt mutationReceipt = null;
         try
         {
             await Task.Run(() => Execute(
-                mutation,
+                library => mutationReceipt = mutationWithReceipt(library),
                 PendingPackageRefreshScope.PackageMutation,
                 CreatePlaybackTargetSnapshot(packages),
                 captureMutationFacts: library => pendingSectionEmpty = store.IsPendingSectionEmpty(library)));
-            return PendingPackageMutationResult.CompletedFor(
+            return PendingPackageMutationResult.FromTerminal(
+                mutationReceipt,
                 pendingSectionEmpty ? PackageCatalogSection.Pending : null);
         }
         catch (Exception exception)
         {
             return PendingPackageMutationResult.FailedAfterMutation(
                 exception,
-                pendingSectionEmpty ? PackageCatalogSection.Pending : null);
+                pendingSectionEmpty ? PackageCatalogSection.Pending : null,
+                mutationReceipt);
         }
     }
 
@@ -1258,7 +1333,7 @@ internal sealed class PendingPackageWorkflowOwner
     }
 }
 
-internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
+internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore, IPendingPackageTerminalMutationStore
 {
     public void SearchPackages(
         BMSLibrary library,
@@ -1385,6 +1460,24 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         IReadOnlyList<ChartPackage> packages)
     {
         library.InstallPendingPackagesToEstimatedDestinations(packages);
+    }
+
+    public FileDbMutationBatchReceipt ForceInstallPackagesWithReceipt(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages,
+        ISet<ChartPackage> approvedNormalInstallOverridePackages)
+    {
+        return library.ForceInstallPendingPackagesWithReceipt(
+            packages,
+            approveNormalInstallOverride: false,
+            approvedNormalInstallOverridePackages: approvedNormalInstallOverridePackages);
+    }
+
+    public PendingInstallBatchResult ManualInstallPackagesWithReceipt(
+        BMSLibrary library,
+        IReadOnlyList<ChartPackage> packages)
+    {
+        return library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
     }
 
     public bool IsPendingSectionEmpty(BMSLibrary library)

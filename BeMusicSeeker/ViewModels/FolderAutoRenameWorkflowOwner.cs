@@ -5,6 +5,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
@@ -28,7 +29,15 @@ internal interface IFolderAutoRenameMutationPort
         Action<int, int, string> progressReporter);
 }
 
-internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort
+internal interface IFolderAutoRenameTerminalMutationPort
+{
+    AutoRenameBatchResult RenameAllWithReceipt(
+        BMSLibrary library,
+        string parentDirectory,
+        Action<int, int, string> progressReporter);
+}
+
+internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort, IFolderAutoRenameTerminalMutationPort
 {
     public bool HasTargets(BMSLibrary library, string parentDirectory)
     {
@@ -40,8 +49,10 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
         ChartFolderAutoRenameRequest request,
         Action<int, int, string> progressReporter)
     {
-        library?.AutoRenameChartFolders(request?.Charts ?? [], progressReporter: progressReporter);
-        return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+        AutoRenameBatchResult result = library?.AutoRenameChartFoldersWithResult(
+            request?.Charts ?? [],
+            progressReporter: progressReporter);
+        return FolderAutoRenameExecutionResult.From(result);
     }
 
     public bool RenameAll(
@@ -50,6 +61,15 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
         Action<int, int, string> progressReporter)
     {
         return library?.AutoRenameAllChartFolders(parentDirectory, progressReporter) == true;
+    }
+
+    public AutoRenameBatchResult RenameAllWithReceipt(
+        BMSLibrary library,
+        string parentDirectory,
+        Action<int, int, string> progressReporter)
+    {
+        return library?.AutoRenameAllChartFoldersWithResult(parentDirectory, progressReporter)
+            ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
     }
 }
 
@@ -84,6 +104,25 @@ internal sealed class FolderAutoRenameProgressSnapshot
 internal sealed class FolderAutoRenameExecutionResult
 {
     internal bool RefreshRequired { get; init; }
+
+    internal AutoRenameBatchResult MutationResult { get; init; }
+
+    internal bool HasDurableCommit => MutationResult?.HasDurableCommit == true;
+
+    internal bool ManualRecoveryRequired => MutationResult?.ManualRecoveryRequired == true;
+
+    internal bool CompletedWithCleanupFailure => MutationResult?.CompletedWithCleanupFailure == true;
+
+    internal IReadOnlyList<string> RecoveryPaths => MutationResult?.RecoveryPaths ?? [];
+
+    internal static FolderAutoRenameExecutionResult From(AutoRenameBatchResult result)
+    {
+        return new FolderAutoRenameExecutionResult
+        {
+            RefreshRequired = result?.HasDurableCommit == true,
+            MutationResult = result
+        };
+    }
 }
 
 internal sealed class FolderAutoRenameCompletionReceipt
@@ -93,6 +132,10 @@ internal sealed class FolderAutoRenameCompletionReceipt
         Generation = generation;
         AllFolders = allFolders;
         RefreshRequired = result?.RefreshRequired == true;
+        HasDurableCommit = result?.HasDurableCommit == true;
+        ManualRecoveryRequired = result?.ManualRecoveryRequired == true;
+        CompletedWithCleanupFailure = result?.CompletedWithCleanupFailure == true;
+        RecoveryPaths = result?.RecoveryPaths ?? [];
     }
 
     internal long Generation { get; }
@@ -100,6 +143,14 @@ internal sealed class FolderAutoRenameCompletionReceipt
     internal bool AllFolders { get; }
 
     internal bool RefreshRequired { get; }
+
+    internal bool HasDurableCommit { get; }
+
+    internal bool ManualRecoveryRequired { get; }
+
+    internal bool CompletedWithCleanupFailure { get; }
+
+    internal IReadOnlyList<string> RecoveryPaths { get; }
 }
 
 internal sealed class FolderAutoRenameFailure
@@ -428,17 +479,30 @@ internal sealed class FolderAutoRenameWorkflowOwner
             FolderAutoRenameExecutionResult result = null;
             if (run.AllFolders)
             {
-                bool changed = false;
                 if (!ExecuteMutation(
                     run,
                     playback.StopPlaybackForFolderMutation,
-                    () => changed = mutationPort.RenameAll(run.Library, run.ParentDirectory, progressReporter),
+                    () =>
+                    {
+                        if (mutationPort is IFolderAutoRenameTerminalMutationPort terminalMutationPort)
+                        {
+                            result = FolderAutoRenameExecutionResult.From(
+                                terminalMutationPort.RenameAllWithReceipt(
+                                    run.Library,
+                                    run.ParentDirectory,
+                                    progressReporter));
+                        }
+                        else
+                        {
+                            bool changed = mutationPort.RenameAll(run.Library, run.ParentDirectory, progressReporter);
+                            result = new FolderAutoRenameExecutionResult { RefreshRequired = changed };
+                        }
+                    },
                     refreshSuppression: true))
                 {
                     CompleteStale(run);
                     return;
                 }
-                result = new FolderAutoRenameExecutionResult { RefreshRequired = changed };
             }
             else
             {

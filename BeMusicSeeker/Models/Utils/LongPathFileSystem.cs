@@ -241,6 +241,40 @@ internal static class LongPathFileSystem
         }
     }
 
+    /// <summary>
+    /// 指定パスと同じ filesystem の sibling path を一意に生成します。
+    /// 生成だけを行い、filesystem へは何も書き込みません。
+    /// </summary>
+    /// <param name="path">対象 destination path です。</param>
+    /// <param name="purpose">一時 path の識別子です。</param>
+    /// <returns>対象 path と同じ親を持つ未使用の path です。</returns>
+    public static string CreateMutationSiblingPath(string path, string purpose)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new ArgumentNullException(nameof(path));
+        }
+
+        string directoryPath = Path.GetDirectoryName(path) ?? string.Empty;
+        string normalizedPurpose = string.IsNullOrWhiteSpace(purpose)
+            ? "mutation"
+            : new string(purpose.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(normalizedPurpose))
+        {
+            normalizedPurpose = "mutation";
+        }
+
+        string candidatePath;
+        do
+        {
+            candidatePath = Path.Combine(
+                directoryPath,
+                ".bemusicseeker-" + normalizedPurpose + "-" + Guid.NewGuid().ToString("N") + ".tmp");
+        }
+        while (EntryExists(candidatePath));
+        return candidatePath;
+    }
+
     public static void MoveDirectory(string sourcePath, string destinationPath, bool overwrite)
     {
         ThrowIfSamePath(sourcePath, destinationPath);
@@ -394,7 +428,7 @@ internal static class LongPathFileSystem
 
     private static void ReplaceFileByMovingSource(string sourcePath, string destinationPath)
     {
-        string replacementPath = CreateTemporarySiblingPath(destinationPath);
+        string replacementPath = CreateMutationSiblingPath(destinationPath, "replace");
         bool sourceMovedToReplacement = false;
         try
         {
@@ -439,7 +473,7 @@ internal static class LongPathFileSystem
 
     private static void CopyAndReplaceFileAcrossVolumeRoots(string sourcePath, string destinationPath)
     {
-        string replacementPath = CreateTemporarySiblingPath(destinationPath);
+        string replacementPath = CreateMutationSiblingPath(destinationPath, "replace");
         try
         {
             CopyFile(sourcePath, replacementPath, overwrite: false);
@@ -456,18 +490,6 @@ internal static class LongPathFileSystem
     {
         CopyDirectory(sourcePath, destinationPath, overwrite);
         DeleteDirectory(sourcePath, recursive: true);
-    }
-
-    private static string CreateTemporarySiblingPath(string path)
-    {
-        string directoryPath = Path.GetDirectoryName(path) ?? string.Empty;
-        string candidatePath;
-        do
-        {
-            candidatePath = Path.Combine(directoryPath, ".bemusicseeker-replace-" + Guid.NewGuid().ToString("N") + ".tmp");
-        }
-        while (EntryExists(candidatePath));
-        return candidatePath;
     }
 
     private static Exception TryRestoreSourceAfterReplaceFailure(string replacementPath, string sourcePath)

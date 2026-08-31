@@ -1042,11 +1042,20 @@ internal sealed class RegularChartListOwner : IDisposable
                         normalLibraryRefreshApplySuppressed = true;
                         normalRefreshApplySuppressed = true;
                     }
-                    library.RenameChartFolder(directoryName, newFolder, false);
+                    FileDbMutationReceipt mutationReceipt = library.RenameChartFolderWithReceipt(directoryName, newFolder, false);
                     lock (syncRoot)
                     {
                         normalLibraryRefreshApplySuppressed = false;
                         normalRefreshApplySuppressed = false;
+                    }
+                    if (mutationReceipt?.DurableCommit != true)
+                    {
+                        logWarning(
+                            "regular_chart_folder_rename_not_committed state="
+                            + mutationReceipt?.TerminalState
+                            + " recoveryPaths="
+                            + string.Join("|", mutationReceipt?.RecoveryPaths ?? []));
+                        return;
                     }
                     CaptureCleanupFailure(operationGate.Dispose, failures);
                     operationGate = null;

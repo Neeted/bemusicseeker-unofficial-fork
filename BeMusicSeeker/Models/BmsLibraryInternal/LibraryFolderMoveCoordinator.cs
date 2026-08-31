@@ -15,6 +15,16 @@ internal static class LibraryFolderMoveCoordinator
         bool? unregister,
         bool renameRootFolder)
     {
+        RenameChartFolderWithReceipt(host, srcDir, newName, unregister, renameRootFolder);
+    }
+
+    internal static FileDbMutationReceipt RenameChartFolderWithReceipt(
+        LibraryFileOperationOwner host,
+        string srcDir,
+        string newName,
+        bool? unregister,
+        bool renameRootFolder)
+    {
         if (srcDir == null)
         {
             throw new ArgumentNullException(nameof(srcDir));
@@ -26,58 +36,61 @@ internal static class LibraryFolderMoveCoordinator
         if (!renameRootFolder && host.IsLibraryRootFolder(srcDir))
         {
             host.ShowCannotRenameRootFolder(srcDir);
-            return;
+            return null;
         }
         newName = host.NormalizeAutoRenameFolderName(newName);
         if (string.IsNullOrWhiteSpace(newName) || Path.GetPathRoot(srcDir).Equals(srcDir, StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return null;
         }
         if (!host.DirectoryExists(srcDir))
         {
             host.ShowRenameFolderNotExists(srcDir);
-            return;
+            return null;
         }
+        FileDbMutationReceipt receipt = null;
         host.RunWithFolderMoveWriteLocks(() =>
         {
             string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
-            MoveLibraryChartFolder(
+            receipt = MoveLibraryChartFolder(
                 host,
                 srcDir,
                 dstDir,
                 unregister,
                 notifyStorageRowPathChanges: false);
-            if (unregister == false)
+            if (receipt?.DurableCommit == true && unregister == false)
             {
                 host.InvalidateDuplicateChartGroupsCache();
             }
         });
+        return receipt;
     }
 
-    internal static void MoveLibraryChartFolder(
+    internal static FileDbMutationReceipt MoveLibraryChartFolder(
         LibraryFileOperationOwner host,
         string srcDir,
         string dstDir,
         bool? unregister,
         bool notifyStorageRowPathChanges)
     {
-        if (!TryMoveLibraryChartFolder(host, srcDir, dstDir))
-        {
-            return;
-        }
-        if (unregister != false && unregister != true)
-        {
-            return;
-        }
-        LibraryMutationDelta delta = host.BuildFolderMoveDelta(
+        return TryMoveLibraryChartFolder(
+            host,
             srcDir,
             dstDir,
-            unregister == true,
+            unregister,
             notifyStorageRowPathChanges);
-        host.ApplyLibraryMutationDelta(delta);
     }
 
     internal static void MoveLibraryRootFolder(
+        LibraryFileOperationOwner host,
+        IEnumerable<LibraryChartRef> charts,
+        string dstDir,
+        bool? unregister)
+    {
+        MoveLibraryRootFolderWithReceipt(host, charts, dstDir, unregister);
+    }
+
+    internal static FileDbMutationBatchReceipt MoveLibraryRootFolderWithReceipt(
         LibraryFileOperationOwner host,
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
@@ -91,6 +104,7 @@ internal static class LibraryFolderMoveCoordinator
         {
             throw new ArgumentNullException(nameof(dstDir));
         }
+        List<FileDbMutationReceipt> receipts = [];
         host.RunWithFolderMoveWriteLocks(() =>
         {
             if (!host.DirectoryExists(dstDir))
@@ -102,21 +116,35 @@ internal static class LibraryFolderMoveCoordinator
             List<ChartFile> chartSnapshots = [.. chartRefs
                 .Select(chart => chart?.ToChartFile())
                 .Where(chart => chart != null)];
-            List<FolderAutoRenamePlan> plans = host.BuildRootFolderMovePlans(chartSnapshots, dstDir);
+            List<FolderAutoRenamePlan> plans = null;
+            host.RunWithFolderMoveSnapshotLocks(
+                () => plans = host.BuildRootFolderMovePlans(chartSnapshots, dstDir));
             if (ContainsDriveRootSource(chartRefs))
             {
                 host.ShowDriveRootCannotChangeRoot();
             }
             foreach (FolderAutoRenamePlan plan in plans)
             {
-                MoveLibraryChartFolder(
+                FileDbMutationReceipt receipt = MoveLibraryChartFolder(
                     host,
                     plan.SourceDirectory,
                     plan.DestinationDirectory,
                     unregister,
                     notifyStorageRowPathChanges: true);
+                if (receipt != null)
+                {
+                    receipts.Add(receipt);
+                }
+                if (receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+                {
+                    // The first compensation failure leaves an uncertain
+                    // source/backup/staging tree.  No later folder mutation may
+                    // start until that tree is recovered manually.
+                    break;
+                }
             }
         });
+        return new FileDbMutationBatchReceipt(receipts);
     }
 
     private static bool ContainsDriveRootSource(IEnumerable<LibraryChartRef> charts)
@@ -127,27 +155,78 @@ internal static class LibraryFolderMoveCoordinator
             .Any(f => !string.IsNullOrWhiteSpace(f) && Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool TryMoveLibraryChartFolder(LibraryFileOperationOwner host, string srcDir, string dstDir)
+    private static FileDbMutationReceipt TryMoveLibraryChartFolder(
+        LibraryFileOperationOwner host,
+        string srcDir,
+        string dstDir,
+        bool? unregister,
+        bool notifyStorageRowPathChanges)
     {
         if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return null;
         }
         if (host.EntryExists(dstDir))
         {
             host.ShowMoveDestinationAlreadyExists(srcDir, dstDir);
-            return false;
+            return null;
         }
         try
         {
-            DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = host.MoveFolderAndUpdateReferences(srcDir, dstDir);
-            host.LogReverseLookupMutationAndQueueWarmupIfNeeded("move_folder", reverseLookupMutation);
-            return true;
+            FileDbMutationPlan plan = null;
+            LibraryMutationDelta delta = null;
+            host.RunWithFolderMoveSnapshotLocks(() =>
+            {
+                plan = host.BuildFolderMoveMutationPlan(srcDir, dstDir);
+                delta = unregister.HasValue
+                    ? host.BuildFolderMoveDelta(
+                        srcDir,
+                        dstDir,
+                        unregister.Value,
+                        notifyStorageRowPathChanges)
+                    : null;
+            });
+            FileDbMutationExecutor executor = host.CreateFileDbMutationExecutor(plan);
+            DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+                DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+            {
+                FileDbMutationCommitResult databaseResult = delta == null
+                    ? FileDbMutationCommitResult.Durable()
+                    : host.ApplyLibraryMutationDeltaForFileMutation(delta, "move_folder");
+                if (!databaseResult.DurableCommit)
+                {
+                    return databaseResult;
+                }
+                return FileDbMutationCommitResult.Durable(() =>
+                {
+                    try
+                    {
+                        reverseLookupMutation = host.MoveFolderReferencesAfterCommit(srcDir, dstDir);
+                        host.LogReverseLookupMutationAndQueueWarmupIfNeeded(
+                            "move_folder",
+                            reverseLookupMutation);
+                    }
+                    finally
+                    {
+                        // The catalog owner has already crossed the durable
+                        // point.  Its deferred notification must still run if
+                        // the resource-index publication faults.
+                        databaseResult.PostCommit?.Invoke();
+                    }
+                }, databaseResult.Failure);
+            });
+            if (!receipt.DurableCommit)
+            {
+                host.ShowFolderMoveFailed(srcDir, dstDir, receipt.Failure ?? new IOException("Folder move failed."));
+                return receipt;
+            }
+            return receipt;
         }
         catch (Exception moveException)
         {
             host.ShowFolderMoveFailed(srcDir, dstDir, moveException);
-            return false;
+            return null;
         }
     }
 }

@@ -38,121 +38,118 @@ internal sealed partial class LibraryFileOperationOwner
         {
             return RunWithMergeDirectoryWriteLocks(operationId, () =>
             {
-                List<ChartFile> sourceChartSnapshots = CreateOwnedRealPathChartSnapshotsUnsafe(sourceDirectory);
-                InstallDestinationOverlayChartRefSnapshot overlayChartRefs = CreateInstallDestinationOverlayChartRefSnapshot();
-                LibraryMutationDelta catalogDelta = PrepareMergeDirectory(
-                    sourceDirectory,
-                    destinationDirectory,
-                    sourceChartSnapshots,
-                    overlayChartRefs,
-                    "duplicate_merge_prepare",
-                    operationId,
-                    out bool mergePrepared,
-                    out List<ChartFile> preparedSourceCharts,
-                    out IPrimaryHashLookup existingHashes);
+                bool mergePrepared = false;
+                List<ChartFile> preparedSourceCharts = [];
+                IPrimaryHashLookup existingHashes = EmptyPrimaryHashLookup.Instance;
+                LibraryMutationDelta catalogDelta = null;
+                DetachedMergePackage detachedPackage = null;
+                RunWithMergeSnapshotLocks(() =>
+                {
+                    List<ChartFile> sourceChartSnapshots = CreateOwnedRealPathChartSnapshotsUnsafe(sourceDirectory);
+                    InstallDestinationOverlayChartRefSnapshot overlayChartRefs = CreateInstallDestinationOverlayChartRefSnapshot();
+                    catalogDelta = PrepareMergeDirectory(
+                        sourceDirectory,
+                        destinationDirectory,
+                        sourceChartSnapshots,
+                        overlayChartRefs,
+                        "duplicate_merge_prepare",
+                        operationId,
+                        out mergePrepared,
+                        out preparedSourceCharts,
+                        out existingHashes);
+                    if (mergePrepared)
+                    {
+                        detachedPackage = CreateDetachedMergePackage(preparedSourceCharts, sourceDirectory);
+                    }
+                });
                 if (!mergePrepared)
                 {
                     LogInstallPerformance("duplicate_merge_model skipped op=" + operationId + " reason=no_source_charts totalMs=" + totalStopwatch.ElapsedMilliseconds);
                     return DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
 
-                List<BMSFile> sourceBmsFiles = [.. preparedSourceCharts
-                        .Select(chart => chart?.GetBmsStorageOwner())
-                        .Where(ChartFileKindResolver.IsBmsChartFile)];
-                List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = [.. preparedSourceCharts
-                        .Select(chart => chart?.GetBmsonStorageOwner())
-                        .Where(song => song != null)
-                        .Distinct()];
-                HashSet<string> sourceBmsPaths = new(
-                    sourceBmsFiles.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-                    StringComparer.OrdinalIgnoreCase);
-                HashSet<string> sourceBmsonPaths = new(
-                    sourceBmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-                    StringComparer.OrdinalIgnoreCase);
-
-                DetachedMergePackage detachedPackage = CreateDetachedMergePackage(preparedSourceCharts, sourceDirectory);
-
-                IReadOnlyList<ChartFile> mergePackageCharts = [.. (detachedPackage.Package.ChartEntries ?? [])
-                        .Select(entry => entry?.Chart)
-                        .Where(chart => chart != null)];
-                if (!MoveChartPackageFilesForMerge(
-                    mergePackageCharts,
-                    sourceDirectory,
+                ChartStorageTargetSet movedTargets = null;
+                MaintenanceWorkflowResult maintenanceResult = null;
+                FileDbMutationReceipt mutationReceipt = packageInstallService.MovePackageFilesWithReceipt(
+                    detachedPackage.Package,
                     destinationDirectory,
-                    existingHashes))
+                    lr2SynchronizationOwner.CurrentOptionsSnapshot,
+                    createChartFolderPathFromCharts,
+                    DisplayedExceptionMessage.Format,
+                    fileMutationService,
+                    dialogService,
+                    targetOnlyFileMutationOptions,
+                    recursiveDirectoryTreeFileMutationOptions,
+                    LogInstallPerformance,
+                    installResult =>
+                    {
+                        if (catalogDelta == null)
+                        {
+                            return FileDbMutationCommitResult.Durable();
+                        }
+                        FileDbMutationCommitResult databaseResult = applyLibraryMutationDeltaWithReceipt(
+                            catalogDelta,
+                            "duplicate_merge_catalog_transition op=" + operationId,
+                            false);
+                        if (!databaseResult.DurableCommit)
+                        {
+                            return databaseResult;
+                        }
+                        return FileDbMutationCommitResult.Durable(
+                            () =>
+                            {
+                                try
+                                {
+                                    if (ChartDirectoryScanBuilder.TryBuildFromRoots(
+                                        [destinationDirectory],
+                                        out ChartScanResult scan,
+                                        out string scanFailureReason))
+                                    {
+                                        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+                                            resourceIndexOwner.ReplaceSourceDirectoryWithScan(sourceDirectory, scan).MutationResult;
+                                        LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
+                                    }
+                                    else
+                                    {
+                                        LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
+                                    }
+                                    List<ChartFile> destinationMaintenanceChartSnapshots =
+                                        CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);
+                                    maintenanceResult = ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
+                                    LogInstallPerformance("duplicate_merge_model done op=" + operationId
+                                        + " movedBms=" + (movedTargets?.BmsFiles.Count ?? 0)
+                                        + " movedBmson=" + (movedTargets?.BmsonSongs.Count ?? 0)
+                                        + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                                }
+                                finally
+                                {
+                                    databaseResult.PostCommit?.Invoke();
+                                }
+                            },
+                            databaseResult.Failure);
+                    },
+                    showMessageBoxOnInstallFail: false,
+                    deleteAllContents: true,
+                    existingHashes: existingHashes,
+                    onPreflightPrepared: installResult =>
+                    {
+                        List<ChartFile> destinationCharts = [.. (installResult?.AddedCharts ?? [])
+                            .Where(chart => chart != null && IsFilePathUnderDirectory(chart.Path, destinationDirectory))];
+                        using IDisposable destinationOwnerPaths = TemporarilyApplyDestinationStorageOwnerPaths(destinationCharts);
+                        movedTargets = ChartStorageTargetSet.FromCharts(destinationCharts);
+                        BuildMergeCatalogDelta(
+                            catalogDelta,
+                            preparedSourceCharts,
+                            detachedPackage,
+                            movedTargets);
+                    });
+                if (!mutationReceipt.DurableCommit)
                 {
                     this.invalidateInstalledDirectoryIndex();
                     ShowFolderMergeFailed(sourceDirectory, destinationDirectory);
-                    return DuplicateMergeMaintenanceReceipt.NotApplied;
+                    return CreateMergeMaintenanceReceipt(maintenanceResult, mutationReceipt);
                 }
-
-                ChartScanResult mergedDirectoryScan = null;
-                if (ChartDirectoryScanBuilder.TryBuildFromRoots([destinationDirectory], out ChartScanResult scan, out string scanFailureReason))
-                {
-                    mergedDirectoryScan = scan;
-                }
-                else
-                {
-                    LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
-                }
-
-                ChartStorageTargetSet movedTargets = ChartStorageTargetSet.FromCharts(
-                    detachedPackage.Package.ChartEntries
-                        .Select(entry => entry?.Chart)
-                        .Where(chart => chart != null && IsFilePathUnderDirectory(chart.Path, destinationDirectory)));
-
-                HashSet<string> movedBmsSourcePaths = new(StringComparer.OrdinalIgnoreCase);
-                HashSet<string> movedBmsonSourcePaths = new(StringComparer.OrdinalIgnoreCase);
-                foreach (BMSFile movedBmsFile in movedTargets.BmsFiles)
-                {
-                    if (detachedPackage.CanonicalBmsByDetached.TryGetValue(movedBmsFile, out BMSFile canonicalBmsFile))
-                    {
-                        movedBmsSourcePaths.Add(canonicalBmsFile.path);
-                        catalogDelta.ChartPathChanges.Add(new LibraryChartPathChange
-                        {
-                            Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(canonicalBmsFile),
-                            OldPath = canonicalBmsFile.path,
-                            NewPath = movedBmsFile.path
-                        });
-                    }
-                }
-                foreach (LR2SongDBExtended.bmson_song movedBmsonSong in movedTargets.BmsonSongs)
-                {
-                    if (detachedPackage.CanonicalBmsonByDetached.TryGetValue(movedBmsonSong, out LR2SongDBExtended.bmson_song canonicalBmsonSong))
-                    {
-                        movedBmsonSourcePaths.Add(canonicalBmsonSong.path);
-                        catalogDelta.ChartPathChanges.Add(new LibraryChartPathChange
-                        {
-                            Chart = ChartFileProjection.FromBmsonStorageOwnerIdentity(canonicalBmsonSong),
-                            OldPath = canonicalBmsonSong.path,
-                            NewPath = movedBmsonSong.path
-                        });
-                    }
-                }
-                foreach (string sourcePath in sourceBmsPaths.Where(path => !movedBmsSourcePaths.Contains(path)))
-                {
-                    catalogDelta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, sourcePath));
-                }
-                foreach (string sourcePath in sourceBmsonPaths.Where(path => !movedBmsonSourcePaths.Contains(path)))
-                {
-                    catalogDelta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, sourcePath));
-                }
-                catalogDelta.InvalidateInstalledDirectoryIndex = true;
-                catalogDelta.InvalidateParentFolderCache = true;
-                catalogDelta.ClearDuplicatedCache = true;
-                ApplyLibraryMutationDeltaWithPerformanceContext(catalogDelta, "duplicate_merge_catalog_transition op=" + operationId);
-
-                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
-                    resourceIndexOwner.ReplaceSourceDirectoryWithScan(sourceDirectory, mergedDirectoryScan).MutationResult;
-                LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
-
-                List<ChartFile> destinationMaintenanceChartSnapshots = CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);
-                MaintenanceWorkflowResult maintenanceResult = ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
-                LogInstallPerformance("duplicate_merge_model done op=" + operationId
-                    + " movedBms=" + movedTargets.BmsFiles.Count
-                    + " movedBmson=" + movedTargets.BmsonSongs.Count
-                    + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                return CreateMergeMaintenanceReceipt(maintenanceResult);
+                return CreateMergeMaintenanceReceipt(maintenanceResult, mutationReceipt, movedTargets);
             });
         }
         catch (Exception ex)
@@ -328,19 +325,6 @@ internal sealed partial class LibraryFileOperationOwner
         return action();
     }
 
-    private bool MoveChartPackageFilesForMerge(
-        IReadOnlyList<ChartFile> chartSnapshots,
-        string sourceDirectory,
-        string destinationDirectory,
-        IPrimaryHashLookup existingHashes)
-    {
-        return MoveMergePackageFiles(
-            chartSnapshots,
-            sourceDirectory,
-            destinationDirectory,
-            existingHashes: existingHashes);
-    }
-
     private MaintenanceWorkflowResult ApplyMergeFolderMaintenance(IEnumerable<ChartFile> charts)
     {
         return ApplyCatalogMaintenance(
@@ -351,18 +335,90 @@ internal sealed partial class LibraryFileOperationOwner
     }
 
     private static DuplicateMergeMaintenanceReceipt CreateMergeMaintenanceReceipt(
-        MaintenanceWorkflowResult maintenanceResult)
+        MaintenanceWorkflowResult maintenanceResult,
+        FileDbMutationReceipt mutationReceipt,
+        ChartStorageTargetSet movedTargets = null)
     {
         maintenanceResult ??= new MaintenanceWorkflowResult();
         return new DuplicateMergeMaintenanceReceipt(
-            mergeApplied: true,
+            mergeApplied: mutationReceipt?.DurableCommit == true,
             intermediateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
             maintenanceResult: MaintenanceWorkflowResultFacts.From(maintenanceResult),
             intermediateDeferred: maintenanceResult.ResourceHealthIndexDeferred,
             maintenanceHadUpdates: maintenanceResult.HasUpdates,
             resourceHealthIndexDeferred: maintenanceResult.ResourceHealthIndexDeferred,
             resourceHealthIndexDeltaApplied: maintenanceResult.ResourceHealthIndexDeltaApplied,
-            resourceHealthIndexFullRebuilt: maintenanceResult.ResourceHealthIndexFullRebuilt);
+            resourceHealthIndexFullRebuilt: maintenanceResult.ResourceHealthIndexFullRebuilt,
+            mutationReceipt: mutationReceipt);
+    }
+
+    private static void BuildMergeCatalogDelta(
+        LibraryMutationDelta catalogDelta,
+        IEnumerable<ChartFile> preparedSourceCharts,
+        DetachedMergePackage detachedPackage,
+        ChartStorageTargetSet movedTargets)
+    {
+        if (catalogDelta == null || detachedPackage == null)
+        {
+            return;
+        }
+
+        HashSet<string> sourceBmsPaths = new(
+            (preparedSourceCharts ?? [])
+                .Select(chart => chart?.GetBmsStorageOwner()?.path)
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        HashSet<string> sourceBmsonPaths = new(
+            (preparedSourceCharts ?? [])
+                .Select(chart => chart?.GetBmsonStorageOwner()?.path)
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        HashSet<string> movedBmsSourcePaths = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> movedBmsonSourcePaths = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (BMSFile movedBmsFile in movedTargets?.BmsFiles ?? [])
+        {
+            if (!detachedPackage.CanonicalBmsByDetached.TryGetValue(movedBmsFile, out BMSFile canonicalBmsFile)
+                || string.IsNullOrWhiteSpace(canonicalBmsFile?.path)
+                || string.IsNullOrWhiteSpace(movedBmsFile?.path))
+            {
+                continue;
+            }
+            movedBmsSourcePaths.Add(canonicalBmsFile.path);
+            catalogDelta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(canonicalBmsFile),
+                OldPath = canonicalBmsFile.path,
+                NewPath = movedBmsFile.path
+            });
+        }
+        foreach (LR2SongDBExtended.bmson_song movedBmsonSong in movedTargets?.BmsonSongs ?? [])
+        {
+            if (!detachedPackage.CanonicalBmsonByDetached.TryGetValue(movedBmsonSong, out LR2SongDBExtended.bmson_song canonicalBmsonSong)
+                || string.IsNullOrWhiteSpace(canonicalBmsonSong?.path)
+                || string.IsNullOrWhiteSpace(movedBmsonSong?.path))
+            {
+                continue;
+            }
+            movedBmsonSourcePaths.Add(canonicalBmsonSong.path);
+            catalogDelta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsonStorageOwnerIdentity(canonicalBmsonSong),
+                OldPath = canonicalBmsonSong.path,
+                NewPath = movedBmsonSong.path
+            });
+        }
+        foreach (string sourcePath in sourceBmsPaths.Where(path => !movedBmsSourcePaths.Contains(path)))
+        {
+            catalogDelta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, sourcePath));
+        }
+        foreach (string sourcePath in sourceBmsonPaths.Where(path => !movedBmsonSourcePaths.Contains(path)))
+        {
+            catalogDelta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, sourcePath));
+        }
+        catalogDelta.InvalidateInstalledDirectoryIndex = true;
+        catalogDelta.InvalidateParentFolderCache = true;
+        catalogDelta.ClearDuplicatedCache = true;
     }
 
     private void ShowFolderMergeFailed(string sourceDirectory, string destinationDirectory)
@@ -382,5 +438,73 @@ internal sealed partial class LibraryFileOperationOwner
             && filePath.StartsWith(
                 directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar,
                 StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static IDisposable TemporarilyApplyDestinationStorageOwnerPaths(IEnumerable<ChartFile> charts)
+    {
+        return new DestinationStorageOwnerPathScope(charts);
+    }
+
+    private sealed class DestinationStorageOwnerPathScope : IDisposable
+    {
+        private readonly Dictionary<BMSFile, string> bmsPaths = [];
+        private readonly Dictionary<LR2SongDBExtended.bmson_song, (string Path, string Folder)> bmsonPaths = [];
+        private bool disposed;
+
+        internal DestinationStorageOwnerPathScope(IEnumerable<ChartFile> charts)
+        {
+            try
+            {
+                foreach (ChartFile chart in charts ?? [])
+                {
+                    if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+                    {
+                        continue;
+                    }
+
+                    BMSFile bmsFile = chart.GetBmsStorageOwner();
+                    if (bmsFile != null)
+                    {
+                        if (bmsPaths.TryAdd(bmsFile, bmsFile.path))
+                        {
+                            bmsFile.path = chart.Path;
+                        }
+                        continue;
+                    }
+
+                    LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
+                    if (bmsonSong != null && bmsonPaths.TryAdd(
+                        bmsonSong,
+                        (bmsonSong.path, bmsonSong.folder)))
+                    {
+                        bmsonSong.path = chart.Path;
+                        bmsonSong.folder = Path.GetDirectoryName(chart.Path) ?? string.Empty;
+                    }
+                }
+            }
+            catch
+            {
+                Dispose();
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+            disposed = true;
+            foreach ((BMSFile bmsFile, string path) in bmsPaths)
+            {
+                bmsFile.path = path;
+            }
+            foreach ((LR2SongDBExtended.bmson_song bmsonSong, (string Path, string Folder) state) in bmsonPaths)
+            {
+                bmsonSong.path = state.Path;
+                bmsonSong.folder = state.Folder;
+            }
+        }
     }
 }

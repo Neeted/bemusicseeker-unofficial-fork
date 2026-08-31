@@ -13,6 +13,16 @@ internal sealed class PendingInstallBatchResult
 
     public List<string> InstallRowsToDelete { get; } = [];
 
+    public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
+
+    public bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+
+    public bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+
+    public bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+
+    public IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+
     public int CleanupOnlySucceeded { get; set; }
 
     public int CleanupOnlyFailed { get; set; }

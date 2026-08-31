@@ -81,18 +81,29 @@ internal interface IDuplicateMaintenanceStore
     void RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts);
 }
 
+internal interface IDuplicateMaintenanceTerminalStore
+{
+    DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
+        BMSLibrary library,
+        string sourceDirectory,
+        string destinationDirectory,
+        long operationId);
+}
+
 internal sealed class DuplicateMaintenanceMutationResult
 {
     private DuplicateMaintenanceMutationResult(
         bool succeeded,
         string selectionHeader,
         int removedChartCount,
-        Exception failure)
+        Exception failure,
+        DuplicateMergeMaintenanceReceipt mutationReceipt = null)
     {
         Succeeded = succeeded;
         SelectionHeader = selectionHeader;
         RemovedChartCount = removedChartCount;
         Failure = failure;
+        MutationReceipt = mutationReceipt;
     }
 
     internal bool Succeeded { get; }
@@ -103,11 +114,22 @@ internal sealed class DuplicateMaintenanceMutationResult
 
     internal Exception Failure { get; }
 
+    internal DuplicateMergeMaintenanceReceipt MutationReceipt { get; }
+
+    internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+
+    internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+
+    internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+
+    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+
     internal static DuplicateMaintenanceMutationResult Completed(
         string selectionHeader,
-        int removedChartCount = 0)
+        int removedChartCount = 0,
+        DuplicateMergeMaintenanceReceipt mutationReceipt = null)
     {
-        return new DuplicateMaintenanceMutationResult(true, selectionHeader, removedChartCount, null);
+        return new DuplicateMaintenanceMutationResult(true, selectionHeader, removedChartCount, null, mutationReceipt);
     }
 
     internal static DuplicateMaintenanceMutationResult Rejected(string selectionHeader)
@@ -123,13 +145,35 @@ internal sealed class DuplicateMaintenanceMutationResult
     internal static DuplicateMaintenanceMutationResult Failed(
         string selectionHeader,
         Exception failure,
-        int removedChartCount = 0)
+        int removedChartCount = 0,
+        DuplicateMergeMaintenanceReceipt mutationReceipt = null)
     {
         return new DuplicateMaintenanceMutationResult(
             false,
             selectionHeader,
             removedChartCount,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
+            failure ?? throw new ArgumentNullException(nameof(failure)),
+            mutationReceipt);
+    }
+
+    internal static DuplicateMaintenanceMutationResult FromMergeReceipt(
+        string selectionHeader,
+        DuplicateMergeMaintenanceReceipt mutationReceipt)
+    {
+        if (mutationReceipt?.ManualRecoveryRequired == true)
+        {
+            return new DuplicateMaintenanceMutationResult(
+                false,
+                selectionHeader,
+                0,
+                null,
+                mutationReceipt);
+        }
+        if (mutationReceipt?.MergeApplied != true)
+        {
+            return NoWork(selectionHeader);
+        }
+        return Completed(selectionHeader, mutationReceipt: mutationReceipt);
     }
 }
 
@@ -417,6 +461,19 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             return DuplicateMaintenanceMutationResult.Rejected(request.SelectionHeader);
         }
 
+        if (store is IDuplicateMaintenanceTerminalStore terminalStore)
+        {
+            return await Task.Run(() => ExecuteMutation(
+                request.SelectionHeader,
+                mutation: null,
+                stopPlayback: playback.StopPlaybackForMerge,
+                refreshPriorityReason: "merge_folder",
+                mutationWithReceipt: library => terminalStore.MergeFolderWithReceipt(
+                    library,
+                    request.SourceDirectory,
+                    request.DestinationDirectory,
+                    Stopwatch.GetTimestamp())));
+        }
         return await Task.Run(() => ExecuteMutation(
             request.SelectionHeader,
             library => store.MergeFolder(
@@ -497,10 +554,12 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Action<BMSLibrary> mutation,
         Action stopPlayback,
         string refreshPriorityReason,
-        int removedChartCount = 0)
+        int removedChartCount = 0,
+        Func<BMSLibrary, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null)
     {
         var failures = new List<ExceptionDispatchInfo>();
         BMSLibrary library = null;
+        DuplicateMergeMaintenanceReceipt mutationReceipt = null;
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable operationGate = null;
         IDisposable activityLease = null;
@@ -526,7 +585,11 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 PublishRefreshPriorityWindowChanged(isActive: true, reason: refreshPriorityReason);
                 refreshPriorityStarted = true;
             }
-            mutation(library);
+            mutationReceipt = mutationWithReceipt?.Invoke(library);
+            if (mutationWithReceipt == null)
+            {
+                mutation(library);
+            }
         }
         catch (Exception exception)
         {
@@ -562,14 +625,17 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         }
         if (failures.Count == 0)
         {
-            return DuplicateMaintenanceMutationResult.Completed(selectionHeader, removedChartCount);
+            return mutationReceipt == null
+                ? DuplicateMaintenanceMutationResult.Completed(selectionHeader, removedChartCount)
+                : DuplicateMaintenanceMutationResult.FromMergeReceipt(selectionHeader, mutationReceipt);
         }
         return DuplicateMaintenanceMutationResult.Failed(
             selectionHeader,
             failures.Count == 1
                 ? failures[0].SourceException
                 : new AggregateException(failures.Select(failure => failure.SourceException)),
-            removedChartCount);
+            removedChartCount,
+            mutationReceipt);
     }
 
     private void PublishRefreshSuppressionChanged(bool isSuppressed)
@@ -675,7 +741,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
 }
 
-internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanceStore
+internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanceStore, IDuplicateMaintenanceTerminalStore
 {
     public void MergeFolder(
         BMSLibrary library,
@@ -684,6 +750,18 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
         long operationId)
     {
         library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId);
+    }
+
+    public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
+        BMSLibrary library,
+        string sourceDirectory,
+        string destinationDirectory,
+        long operationId)
+    {
+        return library.MergeChartDirectory(
+            sourceDirectory,
+            destinationDirectory,
+            operationId);
     }
 
     public void RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts)

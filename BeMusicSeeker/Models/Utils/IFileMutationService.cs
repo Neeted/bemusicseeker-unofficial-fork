@@ -34,6 +34,24 @@ internal interface IFileMutationService
     void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null);
 
     /// <summary>
+    /// ファイルを destination filesystem 内の staging path へコピーします。
+    /// </summary>
+    /// <param name="sourcePath">コピー元ファイルパスです。</param>
+    /// <param name="destinationPath">コピー先ファイルパスです。</param>
+    /// <param name="overwrite">既存ファイルを上書きする場合は true です。</param>
+    /// <param name="options">ReadOnly 補正とリトライの設定です。</param>
+    void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null);
+
+    /// <summary>
+    /// ディレクトリを destination filesystem 内の staging path へ再帰コピーします。
+    /// </summary>
+    /// <param name="sourcePath">コピー元ディレクトリパスです。</param>
+    /// <param name="destinationPath">コピー先ディレクトリパスです。</param>
+    /// <param name="overwrite">既存ファイルを上書きする場合は true です。</param>
+    /// <param name="options">ReadOnly 補正とリトライの設定です。</param>
+    void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null);
+
+    /// <summary>
     /// ファイルを直接削除します。
     /// </summary>
     /// <param name="filePath">削除対象のファイルパスです。</param>

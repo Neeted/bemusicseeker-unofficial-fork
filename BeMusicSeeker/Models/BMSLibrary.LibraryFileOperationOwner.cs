@@ -53,6 +53,10 @@ internal sealed partial class LibraryFileOperationOwner
 
     private readonly Action<LibraryMutationDelta, string> applyLibraryMutationDelta;
 
+    private readonly Func<LibraryMutationDelta, string, bool, FileDbMutationCommitResult> applyLibraryMutationDeltaWithReceipt;
+
+    private readonly Action publishAutoRenameBatchRefreshNotification;
+
     private readonly Func<IEnumerable<ChartFile>, bool, ResourceHealthIndexUpdateMode, string, MaintenanceWorkflowResult> applyCatalogMaintenance;
 
     private readonly Action invalidateDuplicateChartGroupsCache;
@@ -100,7 +104,9 @@ internal sealed partial class LibraryFileOperationOwner
         Action<string> logFileInfo,
         Action<Exception, string> logFileWarning,
         FileMutationOptions targetOnlyFileMutationOptions,
-        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
+        Func<LibraryMutationDelta, string, bool, FileDbMutationCommitResult> applyLibraryMutationDeltaWithReceipt = null,
+        Action publishAutoRenameBatchRefreshNotification = null)
     {
         this.synchronization = synchronization ?? throw new ArgumentNullException(nameof(synchronization));
         this.libraryFileOperationsService = libraryFileOperationsService ?? throw new ArgumentNullException(nameof(libraryFileOperationsService));
@@ -117,6 +123,13 @@ internal sealed partial class LibraryFileOperationOwner
         this.createChartFolderPathFromCharts = createChartFolderPathFromCharts ?? throw new ArgumentNullException(nameof(createChartFolderPathFromCharts));
         this.getDuplicateInstallRepairPaths = getDuplicateInstallRepairPaths ?? throw new ArgumentNullException(nameof(getDuplicateInstallRepairPaths));
         this.applyLibraryMutationDelta = applyLibraryMutationDelta ?? throw new ArgumentNullException(nameof(applyLibraryMutationDelta));
+        this.applyLibraryMutationDeltaWithReceipt = applyLibraryMutationDeltaWithReceipt
+            ?? ((delta, reason, _) =>
+            {
+                applyLibraryMutationDelta(delta, reason);
+                return FileDbMutationCommitResult.Durable();
+            });
+        this.publishAutoRenameBatchRefreshNotification = publishAutoRenameBatchRefreshNotification ?? (() => { });
         this.applyCatalogMaintenance = applyCatalogMaintenance ?? throw new ArgumentNullException(nameof(applyCatalogMaintenance));
         this.invalidateDuplicateChartGroupsCache = invalidateDuplicateChartGroupsCache ?? throw new ArgumentNullException(nameof(invalidateDuplicateChartGroupsCache));
         this.invalidateInstalledDirectoryIndex = invalidateInstalledDirectoryIndex ?? throw new ArgumentNullException(nameof(invalidateInstalledDirectoryIndex));
@@ -191,6 +204,12 @@ internal sealed partial class LibraryFileOperationOwner
         return synchronization.EnterMergeWriteScope(operationId);
     }
 
+    internal void RunWithMergeSnapshotLocks(Action action)
+    {
+        using IDisposable snapshotScope = synchronization.EnterMergeSnapshotScope();
+        action();
+    }
+
     private bool TryBlockMutation(string operation, bool showMessage)
     {
         return synchronization.TryBlockMutation(operation, showMessage);
@@ -208,6 +227,17 @@ internal sealed partial class LibraryFileOperationOwner
         {
             return;
         }
+        action();
+    }
+
+    /// <summary>
+    /// Captures the minimum chart/package model snapshot needed to build a
+    /// filesystem mutation plan.  The scope is deliberately short-lived and
+    /// must be disposed before executing the plan.
+    /// </summary>
+    internal void RunWithFolderMoveSnapshotLocks(Action action)
+    {
+        using IDisposable snapshotScope = synchronization.EnterFolderMoveSnapshotScope();
         action();
     }
 
@@ -266,6 +296,44 @@ internal sealed partial class LibraryFileOperationOwner
             destinationDirectory,
             fileMutationService,
             recursiveDirectoryTreeFileMutationOptions);
+        return resourceIndexOwner.MoveFolderReferences(sourceDirectory, destinationDirectory).MutationResult;
+    }
+
+    internal FileDbMutationPlan BuildFolderMoveMutationPlan(
+        string sourceDirectory,
+        string destinationDirectory)
+    {
+        return libraryFileOperationsService.BuildFolderMoveMutationPlan(
+            sourceDirectory,
+            destinationDirectory);
+    }
+
+    internal FileDbMutationExecutor CreateFileDbMutationExecutor(FileDbMutationPlan plan)
+    {
+        return new FileDbMutationExecutor(
+            plan,
+            fileMutationService,
+            targetOnlyFileMutationOptions,
+            recursiveDirectoryTreeFileMutationOptions);
+    }
+
+    internal FileDbMutationCommitResult ApplyLibraryMutationDeltaForFileMutation(
+        LibraryMutationDelta delta,
+        string reason,
+        bool suppressNormalRefreshNotification = false)
+    {
+        return applyLibraryMutationDeltaWithReceipt(delta, reason, suppressNormalRefreshNotification);
+    }
+
+    internal void PublishAutoRenameBatchRefreshNotification()
+    {
+        publishAutoRenameBatchRefreshNotification();
+    }
+
+    internal DirectoryResourceLookupCache.ReverseLookupMutationResult MoveFolderReferencesAfterCommit(
+        string sourceDirectory,
+        string destinationDirectory)
+    {
         return resourceIndexOwner.MoveFolderReferences(sourceDirectory, destinationDirectory).MutationResult;
     }
 
@@ -490,6 +558,13 @@ internal sealed partial class LibraryFileOperationOwner
         return autoRenameBatchCoordinator.Apply(plans, progressReporter);
     }
 
+    internal AutoRenameBatchResult ApplyAutoRenamePlansWithReceipt(
+        IEnumerable<FolderAutoRenamePlan> plans,
+        Action<int, int, string> progressReporter)
+    {
+        return autoRenameBatchCoordinator.ApplyWithReceipts(plans, progressReporter);
+    }
+
     internal InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlayChartRefSnapshot()
     {
         return installDestinationStateOwner.CreateOverlaySnapshot(out _);
@@ -651,35 +726,6 @@ internal sealed partial class LibraryFileOperationOwner
         return sourceResult.ReferenceMutationDelta;
     }
 
-    private void MoveFolder(string sourceDirectory, string destinationDirectory)
-    {
-        libraryFileOperationsService.MoveFolder(
-            sourceDirectory,
-            destinationDirectory,
-            fileMutationService,
-            recursiveDirectoryTreeFileMutationOptions);
-    }
-
-    private bool MoveMergePackageFiles(
-        IReadOnlyList<ChartFile> chartSnapshots,
-        string sourceDirectory,
-        string destinationDirectory,
-        IPrimaryHashLookup existingHashes)
-    {
-        List<PackageChartEntry> entries = [.. (chartSnapshots ?? [])
-            .Select(PackageChartEntry.FromChart)
-            .Where(entry => entry != null)];
-        ChartPackage package = ChartPackage.FromChartEntries(entries);
-        package.path = sourceDirectory;
-        package.delete_parent = false;
-        return MoveChartPackageFiles(
-            package,
-            destinationDirectory,
-            false,
-            true,
-            existingHashes);
-    }
-
     private MaintenanceWorkflowResult ApplyCatalogMaintenance(
         IEnumerable<ChartFile> charts,
         bool forceUpdate,
@@ -808,29 +854,6 @@ internal sealed partial class LibraryFileOperationOwner
         return [.. (charts ?? [])
             .Select(LibraryChartRef.FromChartFile)
             .Where(chart => chart != null)];
-    }
-
-    internal bool TryMoveLibraryChartFolderFileOnly(string sourceDirectory, string destinationDirectory)
-    {
-        if (sourceDirectory.Equals(destinationDirectory, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-        if (LongPathFileSystem.EntryExists(destinationDirectory))
-        {
-            ShowMoveDestinationAlreadyExists(sourceDirectory, destinationDirectory);
-            return false;
-        }
-        try
-        {
-            MoveFolder(sourceDirectory, destinationDirectory);
-            return true;
-        }
-        catch (Exception moveException)
-        {
-            ShowFolderMoveFailed(sourceDirectory, destinationDirectory, moveException);
-            return false;
-        }
     }
 
     internal MovedFolderReferenceUpdateResult UpdateMovedFolderReferences(

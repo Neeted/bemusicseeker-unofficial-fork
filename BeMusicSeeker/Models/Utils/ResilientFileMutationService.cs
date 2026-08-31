@@ -57,6 +57,65 @@ internal sealed class ResilientFileMutationService : IFileMutationService
     }
 
     /// <inheritdoc />
+    public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+    {
+        FileMutationOptions resolvedOptions = ResolveOptions(options);
+        bool destinationExistedBeforeFirstAttempt = LongPathFileSystem.EntryExists(destinationPath);
+        ExecuteMutation(
+            FileMutationKind.CopyFile,
+            sourcePath,
+            destinationPath,
+            resolvedOptions,
+            () =>
+            {
+                // A failed copy may leave a partial destination.  It is safe to
+                // overwrite that path only when this invocation created it;
+                // an existing destination from the caller must retain the
+                // requested overwrite contract on every attempt.
+                bool overwriteForAttempt = overwrite
+                    || (!destinationExistedBeforeFirstAttempt
+                        && LongPathFileSystem.EntryExists(destinationPath));
+                LongPathFileSystem.CopyFile(sourcePath, destinationPath, overwriteForAttempt);
+            },
+            () => NormalizeCopyPath(destinationPath, isDirectory: false, options: resolvedOptions),
+            () => NormalizeCopyPath(destinationPath, isDirectory: false, options: resolvedOptions),
+            () => CleanupAttemptCreatedCopyTarget(
+                destinationPath,
+                isDirectory: false,
+                destinationExistedBeforeFirstAttempt));
+    }
+
+    /// <inheritdoc />
+    public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+    {
+        FileMutationOptions resolvedOptions = ResolveOptions(options);
+        bool destinationExistedBeforeFirstAttempt = LongPathFileSystem.EntryExists(destinationPath);
+        ExecuteMutation(
+            FileMutationKind.CopyDirectory,
+            sourcePath,
+            destinationPath,
+            resolvedOptions,
+            () =>
+            {
+                // LongPathFileSystem.CopyDirectory creates the destination as
+                // it walks the source.  A retry can therefore see a partial
+                // tree even when overwrite was false.  Permit replacement of
+                // only that invocation-created tree; never delete or adopt a
+                // pre-existing destination as our cleanup responsibility.
+                bool overwriteForAttempt = overwrite
+                    || (!destinationExistedBeforeFirstAttempt
+                        && LongPathFileSystem.EntryExists(destinationPath));
+                LongPathFileSystem.CopyDirectory(sourcePath, destinationPath, overwriteForAttempt);
+            },
+            () => NormalizeCopyPath(destinationPath, isDirectory: true, options: resolvedOptions),
+            () => NormalizeCopyPath(destinationPath, isDirectory: true, options: resolvedOptions),
+            () => CleanupAttemptCreatedCopyTarget(
+                destinationPath,
+                isDirectory: true,
+                destinationExistedBeforeFirstAttempt));
+    }
+
+    /// <inheritdoc />
     public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
     {
         FileMutationOptions resolvedOptions = ResolveOptions(options);
@@ -189,7 +248,8 @@ internal sealed class ResilientFileMutationService : IFileMutationService
         FileMutationOptions options,
         Action mutationAction,
         Func<int> normalizeBeforeFirstAttempt,
-        Func<int> normalizeAfterAccessDenied)
+        Func<int> normalizeAfterAccessDenied,
+        Action cleanupAttemptCreatedPartial = null)
     {
         if (primaryPath == null)
         {
@@ -237,6 +297,16 @@ internal sealed class ResilientFileMutationService : IFileMutationService
 
                     if (accessDeniedRetryCount < options.MaxRetryCountOnAccessDenied)
                     {
+                        CleanupAttemptCreatedPartialOrThrow(
+                            cleanupAttemptCreatedPartial,
+                            mutationKind,
+                            primaryPath,
+                            secondaryPath,
+                            attemptCount,
+                            normalizedReadOnlyCount,
+                            win32ErrorCode,
+                            wasRetried,
+                            exception);
                         accessDeniedRetryCount++;
                         wasRetried = true;
                         LogRetry(mutationKind, primaryPath, secondaryPath, attemptCount, normalizedReadOnlyCount, win32ErrorCode, exception, "access_denied");
@@ -249,6 +319,16 @@ internal sealed class ResilientFileMutationService : IFileMutationService
                 {
                     if (sharingRetryCount < options.MaxRetryCountOnSharingViolation)
                     {
+                        CleanupAttemptCreatedPartialOrThrow(
+                            cleanupAttemptCreatedPartial,
+                            mutationKind,
+                            primaryPath,
+                            secondaryPath,
+                            attemptCount,
+                            normalizedReadOnlyCount,
+                            win32ErrorCode,
+                            wasRetried,
+                            exception);
                         sharingRetryCount++;
                         wasRetried = true;
                         LogRetry(mutationKind, primaryPath, secondaryPath, attemptCount, normalizedReadOnlyCount, win32ErrorCode, exception, "sharing_or_lock");
@@ -269,6 +349,69 @@ internal sealed class ResilientFileMutationService : IFileMutationService
                 LogFailure(fileMutationException);
                 throw fileMutationException;
             }
+        }
+    }
+
+    private static void CleanupAttemptCreatedPartialOrThrow(
+        Action cleanupAttemptCreatedPartial,
+        FileMutationKind mutationKind,
+        string primaryPath,
+        string secondaryPath,
+        int attemptCount,
+        int normalizedReadOnlyCount,
+        int win32ErrorCode,
+        bool wasRetried,
+        Exception originalFailure)
+    {
+        if (cleanupAttemptCreatedPartial == null)
+        {
+            return;
+        }
+
+        try
+        {
+            cleanupAttemptCreatedPartial();
+        }
+        catch (Exception cleanupFailure)
+        {
+            var wrappedFailure = new FileMutationException(
+                mutationKind,
+                primaryPath,
+                secondaryPath,
+                attemptCount,
+                normalizedReadOnlyCount,
+                win32ErrorCode,
+                wasRetried,
+                new AggregateException(originalFailure, cleanupFailure));
+            LogFailure(wrappedFailure);
+            throw wrappedFailure;
+        }
+    }
+
+    private static void CleanupAttemptCreatedCopyTarget(
+        string destinationPath,
+        bool isDirectory,
+        bool destinationExistedBeforeFirstAttempt)
+    {
+        if (destinationExistedBeforeFirstAttempt || !LongPathFileSystem.EntryExists(destinationPath))
+        {
+            return;
+        }
+
+        if (isDirectory)
+        {
+            NormalizePath(destinationPath, ReadOnlyNormalizationScope.RecursiveDirectoryTree);
+            if (LongPathFileSystem.DirectoryExists(destinationPath))
+            {
+                LongPathFileSystem.DeleteDirectory(destinationPath, recursive: true);
+            }
+            return;
+        }
+
+        NormalizePath(destinationPath, ReadOnlyNormalizationScope.TargetOnly);
+        if (LongPathFileSystem.FileExists(destinationPath))
+        {
+            LongPathFileSystem.DeleteFile(destinationPath);
         }
     }
 
@@ -303,6 +446,29 @@ internal sealed class ResilientFileMutationService : IFileMutationService
     private static int NormalizePrimaryPath(string primaryPath, ReadOnlyNormalizationScope normalizationScope)
     {
         return NormalizePath(primaryPath, normalizationScope);
+    }
+
+    private static int NormalizeCopyPath(
+        string destinationPath,
+        bool isDirectory,
+        FileMutationOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(destinationPath)
+            || options.ReadOnlyNormalizationScope == ReadOnlyNormalizationScope.None)
+        {
+            return 0;
+        }
+
+        if (LongPathFileSystem.EntryExists(destinationPath))
+        {
+            return NormalizePath(
+                destinationPath,
+                isDirectory
+                    ? ReadOnlyNormalizationScope.RecursiveDirectoryTree
+                    : ReadOnlyNormalizationScope.TargetOnly);
+        }
+
+        return NormalizeNearestExistingAncestorDirectory(destinationPath);
     }
 
     private static int NormalizeNearestExistingAncestorDirectory(string directoryPath)

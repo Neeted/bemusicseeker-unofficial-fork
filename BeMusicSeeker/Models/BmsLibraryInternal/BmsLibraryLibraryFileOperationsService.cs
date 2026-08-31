@@ -76,6 +76,34 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
     }
 
+    /// <summary>
+    /// destination filesystem 内で完結する folder move の immutable preflight を作成します。
+    /// </summary>
+    public FileDbMutationPlan BuildFolderMoveMutationPlan(
+        string srcDir,
+        string dstDir)
+    {
+        if (string.IsNullOrWhiteSpace(srcDir))
+        {
+            throw new ArgumentException("A source directory is required.", nameof(srcDir));
+        }
+        if (string.IsNullOrWhiteSpace(dstDir))
+        {
+            throw new ArgumentException("A destination directory is required.", nameof(dstDir));
+        }
+        if (LongPathFileSystem.EntryExists(dstDir))
+        {
+            throw new IOException("Destination directory already exists.");
+        }
+        string stagingPath = LongPathFileSystem.CreateMutationSiblingPath(dstDir, "stage");
+        return new FileDbMutationPlan(
+            Guid.NewGuid(),
+            [new FileDbMutationPathPlan(srcDir, dstDir, stagingPath, string.Empty, isDirectory: true)],
+            [],
+            [new FileDbMutationCleanupPathPlan(srcDir, recursive: true)],
+            recursiveSourceCleanup: true);
+    }
+
     public LibraryRemovalResult DeleteLibraryCharts(
         IEnumerable<LibraryChartRef> charts,
         ILibraryChartCanonicalLookup libraryChartLookup,

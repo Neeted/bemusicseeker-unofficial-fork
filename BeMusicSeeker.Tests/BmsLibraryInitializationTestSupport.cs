@@ -414,6 +414,16 @@ internal static class BmsLibraryInitializationTestSupport
             throw new NotSupportedException();
         }
 
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
         {
             if (File.Exists(filePath))
@@ -463,6 +473,16 @@ internal static class BmsLibraryInitializationTestSupport
         }
 
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             throw new NotSupportedException();
         }

@@ -29,6 +29,20 @@ internal sealed class PendingResourceOverwriteExecutionResult
 
     public List<string> InstallRowsToDelete { get; } = [];
 
+    /// <summary>
+    /// Per-package filesystem/DB terminal facts.  A cleanup failure or
+    /// manual-recovery stop must remain observable to the command owner.
+    /// </summary>
+    public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
+
+    public bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+
+    public bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+
+    public bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+
+    public IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+
     public PendingInstalledOnlyResourceOverwriteResult ToPublicResult()
     {
         return new PendingInstalledOnlyResourceOverwriteResult
@@ -42,7 +56,11 @@ internal sealed class PendingResourceOverwriteExecutionResult
             SkippedMultiDestination = SkippedMultiDestination,
             SkippedNoComponentTarget = SkippedNoComponentTarget,
             Failed = Failed,
-            Canceled = Canceled
+            Canceled = Canceled,
+            HasDurableCommit = HasDurableCommit,
+            ManualRecoveryRequired = ManualRecoveryRequired,
+            CompletedWithCleanupFailure = CompletedWithCleanupFailure,
+            RecoveryPaths = RecoveryPaths
         };
     }
 }

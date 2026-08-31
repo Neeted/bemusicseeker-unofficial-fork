@@ -296,6 +296,21 @@ internal static class OwnedChartCollectionTestSupport
             Directory.Move(sourcePath, destinationPath);
         }
 
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectory))
+            {
+                Directory.CreateDirectory(destinationDirectory);
+            }
+            File.Copy(sourcePath, destinationPath, overwrite);
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            CopyDirectoryTree(sourcePath, destinationPath, overwrite);
+        }
+
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
         {
             if (File.Exists(filePath))
@@ -324,6 +339,21 @@ internal static class OwnedChartCollectionTestSupport
 
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
+        }
+
+        private static void CopyDirectoryTree(string sourcePath, string destinationPath, bool overwrite)
+        {
+            Directory.CreateDirectory(destinationPath);
+            foreach (string directoryPath in Directory.GetDirectories(sourcePath, "*", System.IO.SearchOption.AllDirectories))
+            {
+                Directory.CreateDirectory(directoryPath.Replace(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase));
+            }
+            foreach (string filePath in Directory.GetFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories))
+            {
+                string destinationFilePath = filePath.Replace(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase);
+                Directory.CreateDirectory(Path.GetDirectoryName(destinationFilePath)!);
+                File.Copy(filePath, destinationFilePath, overwrite);
+            }
         }
     }
 

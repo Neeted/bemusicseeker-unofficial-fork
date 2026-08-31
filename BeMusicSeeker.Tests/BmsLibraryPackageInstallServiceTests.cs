@@ -868,6 +868,39 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
     }
 
+    /// <summary>
+    /// force-install の package batch は ManualRecoveryRequired を受けた時点で
+    /// 後続 package の mutation callback を開始しません。
+    /// </summary>
+    [TestMethod]
+    public void ForceInstallPackagesWithFileMutationReceipts_StopsAfterManualRecoveryRequired()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        ChartPackage firstPackage = ChartPackage.FromChartEntries([]);
+        firstPackage.path = "C:\\Pending\\Pkg1";
+        ChartPackage secondPackage = ChartPackage.FromChartEntries([]);
+        secondPackage.path = "C:\\Pending\\Pkg2";
+        int callbackCount = 0;
+
+        ForceInstallBatchResult result = service.ForceInstallPackagesWithFileMutationReceipts(
+            [firstPackage, secondPackage],
+            [firstPackage, secondPackage],
+            _ => true,
+            (packages, _) =>
+            {
+                callbackCount++;
+                Assert.AreSame(firstPackage, packages.Single());
+                return new ForceInstallPackageApplyResult([firstPackage], manualRecoveryRequired: true);
+            });
+
+        Assert.AreEqual(2, result.Requested);
+        Assert.AreEqual(1, result.Processed);
+        Assert.AreEqual(1, result.Failed);
+        Assert.AreEqual(1, callbackCount);
+        Assert.AreEqual(0, result.PendingPackagesToRemove.Count);
+    }
+
     [TestMethod]
     public void ChartPackage_ClearEntryInstallDestinations_DoesNotMaterializeAdapterlessBmsonEntries()
     {
@@ -2189,6 +2222,291 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual("C:\\Original", entry.Chart.InstallDestination);
         Assert.AreEqual("Original", entry.Chart.InstallDestinationTitle);
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+    }
+
+    /// <summary>
+    /// durable DB receipt 前は source と package owner の path を保持し、失敗時に destination を compensation することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MovePackageFilesWithReceipt_PrecommitFailureRetainsSourceAndRestoresPackageOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Receipt\r\n");
+            TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+            var service = new BmsLibraryPackageInstallService();
+            bool callbackSawSource = false;
+            bool callbackSawDestination = false;
+
+            FileDbMutationReceipt receipt = service.MovePackageFilesWithReceipt(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                exception => exception.Message,
+                new RealFileMutationService(),
+                null,
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                _ => { },
+                installResult =>
+                {
+                    callbackSawSource = Directory.Exists(sourceDirectoryPath) && File.Exists(chartPath);
+                    callbackSawDestination = File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms"));
+                    Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), installResult.AddedCharts.Single().Path);
+                    return FileDbMutationCommitResult.Failed(new InvalidOperationException("db-before-receipt"));
+                },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.AreEqual(1, receipt.CompensationAttemptCount);
+            Assert.IsTrue(callbackSawSource);
+            Assert.IsTrue(callbackSawDestination);
+            Assert.IsTrue(Directory.Exists(sourceDirectoryPath));
+            Assert.IsTrue(File.Exists(chartPath));
+            Assert.IsFalse(File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms")));
+            Assert.AreEqual(sourceDirectoryPath, package.path);
+            Assert.AreEqual(chartPath, chart.path);
+        });
+    }
+
+    /// <summary>
+    /// durable DB receipt 後にだけ source を finalize cleanup し、post-commit callback がその事実を観測することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MovePackageFilesWithReceipt_DurableCommitFinalizesSourceBeforePostCommit()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Receipt success\r\n");
+            TestableBmsFile chart = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", chartPath);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+            var service = new BmsLibraryPackageInstallService();
+            bool callbackSawSource = false;
+            bool postCommitSawSource = true;
+
+            FileDbMutationReceipt receipt = service.MovePackageFilesWithReceipt(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                exception => exception.Message,
+                new RealFileMutationService(),
+                null,
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                _ => { },
+                _ =>
+                {
+                    callbackSawSource = Directory.Exists(sourceDirectoryPath) && File.Exists(chartPath);
+                    return FileDbMutationCommitResult.Durable(() => postCommitSawSource = Directory.Exists(sourceDirectoryPath));
+                },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.AreEqual(0, receipt.CompensationAttemptCount);
+            Assert.IsTrue(callbackSawSource);
+            Assert.IsFalse(postCommitSawSource);
+            Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms")));
+            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), chart.path);
+        });
+    }
+
+    /// <summary>
+    /// 異なる path の同一 component を smart skip した場合も、source delete は durable receipt 後の finalize で行うことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MovePackageFilesWithReceipt_SmartSameComponentDeletesSourceDuringFinalize()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingSame");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledSame");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            string sourcePath = Path.Combine(sourceDirectoryPath, "notes.txt");
+            string destinationPath = Path.Combine(destinationDirectoryPath, "notes.txt");
+            File.WriteAllText(sourcePath, "same-content");
+            File.WriteAllText(destinationPath, "same-content");
+            File.SetLastWriteTimeUtc(destinationPath, File.GetLastWriteTimeUtc(sourcePath));
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<BMSFile>());
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+            var service = new BmsLibraryPackageInstallService();
+            bool callbackSawSource = false;
+
+            FileDbMutationReceipt receipt = service.MovePackageFilesWithReceipt(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = true,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                exception => exception.Message,
+                new RealFileMutationService(),
+                null,
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                _ => { },
+                _ =>
+                {
+                    callbackSawSource = File.Exists(sourcePath);
+                    return FileDbMutationCommitResult.Durable();
+                },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.IsTrue(callbackSawSource);
+            Assert.IsFalse(File.Exists(sourcePath));
+            Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+            Assert.IsTrue(File.Exists(destinationPath));
+        });
+    }
+
+    /// <summary>
+    /// single-file package は source を directory として列挙せず、file cleanup だけを finalize することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MovePackageFilesWithReceipt_SingleFilePackageFinalizesFileSource()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "single.bms");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledSingle");
+            File.WriteAllText(sourcePath, "#PLAYER 1\r\n#TITLE Single");
+            TestableBmsFile chart = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", sourcePath);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
+            package.path = sourcePath;
+            package.delete_parent = false;
+            var service = new BmsLibraryPackageInstallService();
+
+            FileDbMutationReceipt receipt = service.MovePackageFilesWithReceipt(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                exception => exception.Message,
+                new RealFileMutationService(),
+                null,
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                _ => { },
+                _ => FileDbMutationCommitResult.Durable(),
+                showMessageBoxOnInstallFail: false);
+
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.IsFalse(File.Exists(sourcePath));
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "single.bms")));
+            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "single.bms"), chart.path);
+        });
+    }
+
+    /// <summary>
+    /// compensation failure では package batch の後続 mutation を開始しないことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void InstallPackagesWithFileMutationReceipts_StopsBatchAfterManualRecoveryRequired()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string firstSourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingFirst");
+            string secondSourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingSecond");
+            Directory.CreateDirectory(firstSourceDirectoryPath);
+            Directory.CreateDirectory(secondSourceDirectoryPath);
+            string firstChartPath = Path.Combine(firstSourceDirectoryPath, "first.bms");
+            string secondChartPath = Path.Combine(secondSourceDirectoryPath, "second.bms");
+            File.WriteAllText(firstChartPath, "first");
+            File.WriteAllText(secondChartPath, "second");
+            ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([
+                CreateFile("cccccccccccccccccccccccccccccccc", firstChartPath)]);
+            firstPackage.path = firstSourceDirectoryPath;
+            ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage([
+                CreateFile("dddddddddddddddddddddddddddddddd", secondChartPath)]);
+            secondPackage.path = secondSourceDirectoryPath;
+            string firstDestinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledFirst");
+            string secondDestinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledSecond");
+            int moveInvocationCount = 0;
+            var service = new BmsLibraryPackageInstallService();
+
+            PackageInstallExecutionResult result = service.InstallPackagesWithFileMutationReceipts(
+                [firstPackage, secondPackage],
+                string.Empty,
+                (package, _, _, _, _, applyDurableCommit) =>
+                {
+                    moveInvocationCount++;
+                    string destinationDirectoryPath = ReferenceEquals(package, firstPackage)
+                        ? firstDestinationDirectoryPath
+                        : secondDestinationDirectoryPath;
+                    IFileMutationService fileMutationService = ReferenceEquals(package, firstPackage)
+                        ? new FailingDestinationDeleteFileMutationService(Path.Combine(firstDestinationDirectoryPath, "first.bms"))
+                        : new RealFileMutationService();
+                    return service.MovePackageFilesWithReceipt(
+                        package,
+                        destinationDirectoryPath,
+                        new BmsLibraryOptionsSnapshot
+                        {
+                            EnableSmartComponentOverwrite = false,
+                            KeepSmartOverwriteProtectedFilesByRenaming = false
+                        },
+                        (_, _) => destinationDirectoryPath,
+                        exception => exception.Message,
+                        fileMutationService,
+                        null,
+                        new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                        new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                        _ => { },
+                        _ => FileDbMutationCommitResult.Failed(new InvalidOperationException("db-before-receipt")),
+                        showMessageBoxOnInstallFail: false);
+                },
+                _ => FileDbMutationCommitResult.Durable(),
+                _ => { },
+                _ => { },
+                _ => { });
+
+            Assert.AreEqual(1, moveInvocationCount);
+            Assert.AreEqual(1, result.FailedPackages.Count);
+            Assert.AreSame(firstPackage, result.FailedPackages[0]);
+            Assert.IsTrue(Directory.Exists(firstSourceDirectoryPath));
+            Assert.IsTrue(Directory.Exists(secondSourceDirectoryPath));
+            Assert.IsFalse(Directory.Exists(secondDestinationDirectoryPath));
+        });
     }
 
     [TestMethod]
@@ -3828,6 +4146,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
             throw new NotSupportedException();
         }
 
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
         {
             if (File.Exists(filePath))
@@ -3875,6 +4203,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }
 
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             throw new NotSupportedException();
         }
@@ -3983,6 +4321,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
             throw new NotSupportedException();
         }
 
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
         {
             if (File.Exists(filePath))
@@ -4009,6 +4357,53 @@ public sealed class BmsLibraryPackageInstallServiceTests
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
         }
+    }
+
+    private sealed class FailingDestinationDeleteFileMutationService(string failurePath) : IFileMutationService
+    {
+        private readonly RealFileMutationService inner = new();
+
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
+            => inner.EnsureDirectory(directoryPath, options);
+
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+            => inner.MoveFile(sourcePath, destinationPath, overwrite, options);
+
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+            => inner.MoveDirectory(sourcePath, destinationPath, overwrite, options);
+
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+            => inner.CopyFile(sourcePath, destinationPath, overwrite, options);
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+            => inner.CopyDirectory(sourcePath, destinationPath, overwrite, options);
+
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
+        {
+            if (string.Equals(filePath, failurePath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("injected-destination-delete-failure");
+            }
+            inner.DeleteFileDirect(filePath, options);
+        }
+
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
+            => inner.DeleteFileShell(filePath, uiOption, recycleOption, options);
+
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
+        {
+            if (string.Equals(directoryPath, failurePath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("injected-destination-delete-failure");
+            }
+            inner.DeleteDirectoryDirect(directoryPath, recursive, options);
+        }
+
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
+            => inner.DeleteDirectoryShell(directoryPath, uiOption, recycleOption, options);
+
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
+            => inner.SetTimestamps(path, isDirectory, creationTime, lastWriteTime, options);
     }
 
     private sealed class RealFileMutationService : IFileMutationService
@@ -4047,6 +4442,31 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Directory.CreateDirectory(destinationParentDirectoryPath);
             }
             Directory.Move(sourcePath, destinationPath);
+        }
+
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            string destinationParent = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationParent))
+            {
+                Directory.CreateDirectory(destinationParent);
+            }
+            File.Copy(sourcePath, destinationPath, overwrite);
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            Directory.CreateDirectory(destinationPath);
+            foreach (string directoryPath in Directory.GetDirectories(sourcePath, "*", System.IO.SearchOption.AllDirectories))
+            {
+                Directory.CreateDirectory(directoryPath.Replace(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase));
+            }
+            foreach (string filePath in Directory.GetFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories))
+            {
+                string destinationFilePath = filePath.Replace(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase);
+                Directory.CreateDirectory(Path.GetDirectoryName(destinationFilePath)!);
+                File.Copy(filePath, destinationFilePath, overwrite);
+            }
         }
 
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)

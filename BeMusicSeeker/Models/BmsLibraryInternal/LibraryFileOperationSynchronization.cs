@@ -51,12 +51,19 @@ internal sealed class LibraryFileOperationSynchronization
 
     internal IDisposable EnterFolderMoveWriteScope()
     {
-        return EnterWriteScope(
-            "library_folder_move",
-            includePendingInstallCharts: true,
-            includeSongDbInstall: false,
-            showMessage: true,
-            includeInitializedAll: false);
+        // Admission/reservation is intentionally separate from the short
+        // model snapshot scope.  Filesystem staging, the DB callback,
+        // finalize cleanup, and notifications must never retain collection or
+        // model locks.
+        return EnterMutationReservation("library_folder_move", showMessage: true);
+    }
+
+    internal IDisposable EnterFolderMoveSnapshotScope()
+    {
+        return AcquireScopes(
+            () => bmsFilesInitializedMin.GetReaderGuard(),
+            () => pendingInstallCharts.GetWriterGuard(),
+            () => bmsFiles.GetWriterGuard());
     }
 
     internal IDisposable EnterFolderMoveReadScope()
@@ -107,34 +114,15 @@ internal sealed class LibraryFileOperationSynchronization
 
     internal IDisposable EnterMergeWriteScope(long operationId)
     {
-        List<IDisposable> existingScopes = [];
-        try
-        {
-            existingScopes.Add(mutationBoundary.EnterMutationSequence());
-            IDisposable reservation = mutationBoundary.TryBeginMutation(
-                "duplicate_merge_catalog_transition",
-                showMessage: true);
-            if (reservation == null)
-            {
-                new CompositeDisposable(existingScopes).Dispose();
-                return null;
-            }
-            existingScopes.Add(reservation);
-        }
-        catch
-        {
-            CompositeDisposable.DisposeScopesSafely(existingScopes);
-            throw;
-        }
-        return AcquireScopesWithExisting(
-            existingScopes,
-            new List<Func<IDisposable>>
-            {
-                () => mutationBoundary.BeginCollectionMutationScope(),
-                () => bmsFilesInitializedMin.GetReaderGuard(),
-                () => pendingInstallCharts.GetWriterGuard(),
-                () => bmsFiles.GetWriterGuard()
-            });
+        return EnterMutationReservation("duplicate_merge_catalog_transition", showMessage: true);
+    }
+
+    internal IDisposable EnterMergeSnapshotScope()
+    {
+        return AcquireScopes(
+            () => bmsFilesInitializedMin.GetReaderGuard(),
+            () => pendingInstallCharts.GetWriterGuard(),
+            () => bmsFiles.GetWriterGuard());
     }
 
     internal bool TryBlockMutation(string operation, bool showMessage)
@@ -181,6 +169,28 @@ internal sealed class LibraryFileOperationSynchronization
             acquisitions.Add(() => songDbInstall.GetWriterGuard());
         }
         return AcquireScopesWithExisting(existingScopes, acquisitions);
+    }
+
+    private IDisposable EnterMutationReservation(string operation, bool showMessage)
+    {
+        List<IDisposable> existingScopes = [];
+        try
+        {
+            existingScopes.Add(mutationBoundary.EnterMutationSequence());
+            IDisposable reservation = mutationBoundary.TryBeginMutation(operation, showMessage);
+            if (reservation == null)
+            {
+                new CompositeDisposable(existingScopes).Dispose();
+                return null;
+            }
+            existingScopes.Add(reservation);
+            return new CompositeDisposable(existingScopes);
+        }
+        catch
+        {
+            CompositeDisposable.DisposeScopesSafely(existingScopes);
+            throw;
+        }
     }
 
     private static IDisposable AcquireScopes(

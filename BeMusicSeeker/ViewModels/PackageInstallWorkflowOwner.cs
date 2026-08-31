@@ -6,6 +6,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
@@ -20,7 +21,17 @@ internal interface IPackageInstallMutationPort
         Action<string, int, int> onEachArchiveExtractStarted);
 }
 
-internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMutationPort
+internal interface IPackageInstallTerminalMutationPort
+{
+    PackageInstallCommandResult InstallWithResult(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        Action onEachPathProcessed,
+        Action<string, int, int> onEachArchiveExtractStarted);
+}
+
+internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMutationPort, IPackageInstallTerminalMutationPort
 {
     public IReadOnlyList<ChartPackage> Install(
         BMSLibrary library,
@@ -34,6 +45,21 @@ internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMuta
             token,
             onEachPathProcessed,
             onEachArchiveExtractStarted) ?? [];
+    }
+
+    public PackageInstallCommandResult InstallWithResult(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        Action onEachPathProcessed,
+        Action<string, int, int> onEachArchiveExtractStarted)
+    {
+        return library?.InstallChartPackagesAutoWithResult(
+            installPaths,
+            token,
+            onEachPathProcessed,
+            onEachArchiveExtractStarted)
+            ?? new PackageInstallCommandResult([], null);
     }
 }
 
@@ -49,15 +75,29 @@ internal sealed class PackageInstallRefreshSuppressionChangedEventArgs : EventAr
 
 internal sealed class PackageInstallCompletionReceipt : EventArgs
 {
-    internal PackageInstallCompletionReceipt(long generation, IEnumerable<ChartPackage> packages)
+    internal PackageInstallCompletionReceipt(
+        long generation,
+        IEnumerable<ChartPackage> packages,
+        PackageInstallCommandResult commandResult = null)
     {
         Generation = generation;
         Packages = [.. (packages ?? []).Where(package => package != null)];
+        MutationReceipt = commandResult?.MutationReceipt;
     }
 
     internal long Generation { get; }
 
     internal IReadOnlyList<ChartPackage> Packages { get; }
+
+    internal FileDbMutationBatchReceipt MutationReceipt { get; }
+
+    internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+
+    internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+
+    internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+
+    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
 }
 
 internal sealed class PackageInstallFailure : EventArgs
@@ -363,7 +403,7 @@ internal sealed class PackageInstallWorkflowOwner
         }
 
         int completedPathCount = 0;
-        IReadOnlyList<ChartPackage> packages = ExecuteInstallBatch(
+        PackageInstallCommandResult commandResult = ExecuteInstallBatch(
             currentGeneration,
             currentLibrary,
             request,
@@ -373,16 +413,19 @@ internal sealed class PackageInstallWorkflowOwner
                 index,
                 total,
                 GetInstallPathDisplayName(path)));
-        packages ??= [];
+        commandResult ??= new PackageInstallCommandResult([], null);
+        IReadOnlyList<ChartPackage> packages = commandResult.RegisteredPackages;
         if (!IsCurrentGeneration(currentGeneration, currentLibrary))
         {
             return;
         }
-        if (packages.Count == 0)
+        if (packages.Count == 0
+            && !commandResult.ManualRecoveryRequired
+            && !commandResult.CompletedWithCleanupFailure)
         {
             return;
         }
-        var receipt = new PackageInstallCompletionReceipt(currentGeneration, packages);
+        var receipt = new PackageInstallCompletionReceipt(currentGeneration, packages, commandResult);
         DispatchNotification(() =>
         {
             if (IsCurrentGeneration(currentGeneration, currentLibrary))
@@ -392,7 +435,7 @@ internal sealed class PackageInstallWorkflowOwner
         });
     }
 
-    private IReadOnlyList<ChartPackage> ExecuteInstallBatch(
+    private PackageInstallCommandResult ExecuteInstallBatch(
         long expectedGeneration,
         BMSLibrary library,
         DroppedInstallBatchRequest request,
@@ -404,7 +447,7 @@ internal sealed class PackageInstallWorkflowOwner
             .Where(path => !string.IsNullOrWhiteSpace(path))];
         if (normalizedInstallPaths.Length == 0 || token.IsCancellationRequested)
         {
-            return [];
+            return new PackageInstallCommandResult([], null);
         }
 
         BMSLibrary.OperationDialogScope dialogScope = null;
@@ -414,6 +457,7 @@ internal sealed class PackageInstallWorkflowOwner
         bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
         IReadOnlyList<ChartPackage> packages = [];
+        PackageInstallCommandResult commandResult = null;
         try
         {
             dialogScope = library.BeginOperationDialogScope();
@@ -434,12 +478,25 @@ internal sealed class PackageInstallWorkflowOwner
                 }
                 else
                 {
-                    packages = mutationPort.Install(
-                        library,
-                        normalizedInstallPaths,
-                        token,
-                        onEachPathProcessed,
-                        onEachArchiveExtractStarted) ?? [];
+                    if (mutationPort is IPackageInstallTerminalMutationPort terminalMutationPort)
+                    {
+                        commandResult = terminalMutationPort.InstallWithResult(
+                            library,
+                            normalizedInstallPaths,
+                            token,
+                            onEachPathProcessed,
+                            onEachArchiveExtractStarted);
+                        packages = commandResult?.RegisteredPackages ?? [];
+                    }
+                    else
+                    {
+                        packages = mutationPort.Install(
+                            library,
+                            normalizedInstallPaths,
+                            token,
+                            onEachPathProcessed,
+                            onEachArchiveExtractStarted) ?? [];
+                    }
                 }
             }
         }
@@ -471,14 +528,16 @@ internal sealed class PackageInstallWorkflowOwner
         switch (failures.Count)
         {
             case 0:
-                return mutationAllowed ? packages : [];
+                return mutationAllowed
+                    ? commandResult ?? new PackageInstallCommandResult(packages, null)
+                    : new PackageInstallCommandResult([], commandResult?.MutationReceipt);
             case 1:
                 failures[0].Throw();
                 break;
             default:
                 throw new AggregateException(failures.Select(failure => failure.SourceException));
         }
-        return [];
+        return new PackageInstallCommandResult([], commandResult?.MutationReceipt);
     }
 
     private void PublishRefreshSuppressionChanged(bool isSuppressed)

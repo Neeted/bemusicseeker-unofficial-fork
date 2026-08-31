@@ -21,6 +21,16 @@ internal enum FileMutationKind
     MoveDirectory,
 
     /// <summary>
+    /// ファイルをコピーします。
+    /// </summary>
+    CopyFile,
+
+    /// <summary>
+    /// ディレクトリを再帰的にコピーします。
+    /// </summary>
+    CopyDirectory,
+
+    /// <summary>
     /// ファイルを直接削除します。
     /// </summary>
     DeleteFileDirect,

@@ -92,3 +92,20 @@ The old `BmsLibraryInitializationServiceTests` selector is absent from the route
 - [architecture.md](architecture.md): UI / model concurrency boundary。
 - [path-length-and-io.md](path-length-and-io.md): 長パス対応 I/O、`LongPathFileSystem`、`IFileMutationService`。
 - [warning-model.md](warning-model.md): warning の表示仕様。
+
+## File / DB durable boundary
+
+package install、estimated install、smart overwrite、folder move、merge、自動リネームは、共通の file/DB mutation boundary を使う。各 command は immutable な preflight plan を完成させてから executor を呼び、executor は destination filesystem 内の sibling staging / backup を使う。source は DB の durable success まで削除しない。
+
+executor の receipt は commit 前後を区別する terminal state を持つ。
+
+- `COMP-PREFLIGHT`: plan 完成まで filesystem / DB mutation は 0。staging と backup は destination の sibling でなければならない。
+- `COMP-PRECOMMIT`: durable receipt 前の failure は source と DB の prior state を保持し、batch に一つだけ指定された owner が exactly once の best-effort compensation を行う。
+- `COMP-MANUAL`: compensation failure は `ManualRecoveryRequired` とし、処理を直ちに停止する。source / backup / staging と recovery paths を保持し、後続 cleanup、再帰補償、自動 replay を行わない。
+- `COMP-DURABLE`: durable success 後は compensate しない。destination と DB を authoritative とし、receipt 前の cleanup は行わない。
+- `COMP-CLEANUP`: durable success 後の cleanup failure は `CompletedWithCleanupFailure` とし、leftover と recovery paths を保持する。fresh install / pending retry には戻さない。
+- `COMP-SUCCESS`: destination と DB が authoritative で、apply と post-commit cleanup / notification は各一回で完了する。
+
+receipt と recovery paths は package / folder command の public result と UI workflow completion まで保持する。legacy の void / failure-list だけで terminal outcome を表現してはならない。model の admission / reservation と短い snapshot lock は executor、DB callback、cleanup、notification、task start の前に解放する。
+
+batch で compensation を所有するのは一つの owner だけであり、per-item owner や rollback-of-rollback は追加しない。crash replay、persistent journal、cross-volume atomicity、TOCTOU の解消はこの境界の主張に含めない。destination-exists の folder move は従来どおり reject とし、merge / overwrite は新設しない。

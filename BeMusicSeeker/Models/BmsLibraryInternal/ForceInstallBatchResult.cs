@@ -17,4 +17,14 @@ internal sealed class ForceInstallBatchResult
     public List<ChartPackage> PendingPackagesToRemove { get; } = [];
 
     public List<ChartPackage> DeferredInstalledPackages { get; } = [];
+
+    public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
+
+    public bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+
+    public bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+
+    public bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
+
+    public IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
 }
