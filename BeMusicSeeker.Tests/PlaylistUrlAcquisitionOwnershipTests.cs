@@ -85,27 +85,34 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    [DataTestMethod]
-    [DataRow("file:///C:/secret.zip")]
-    [DataRow("ftp://example.invalid/package.zip")]
-    [DataRow("custom+scheme://example.invalid/package.zip")]
-    [DataRow("custom+scheme://drive.google.com/file/d/id/package.zip")]
-    public async Task DownloadCandidate_UnsupportedInitialSchemeFailsBeforeGatewayOrTemp(string uriText)
+    [TestMethod]
+    public async Task DownloadCandidate_UnsupportedInitialSchemeFailsBeforeGatewayOrTemp()
     {
         string temporaryDirectory = Path.Combine(
             Path.GetTempPath(),
             nameof(PlaylistUrlAcquisitionOwnershipTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
+        string[] unsupportedInitialUris =
+        [
+            "file:///C:/secret.zip",
+            "ftp://example.invalid/package.zip",
+            "custom+scheme://example.invalid/package.zip",
+            "custom+scheme://drive.google.com/file/d/id/package.zip"
+        ];
         try
         {
             var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
             var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
 
-            PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(new Uri(uriText));
+            foreach (string uriText in unsupportedInitialUris)
+            {
+                PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(new Uri(uriText));
 
-            Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, result.Kind);
-            Assert.IsTrue(result.IsUnsupportedScheme);
+                Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, result.Kind, uriText);
+                Assert.IsTrue(result.IsUnsupportedScheme, uriText);
+            }
+
             Assert.AreEqual(0, gateway.RequestedUris.Count);
             Assert.AreEqual(0, gateway.GetTemporaryDirectoryCount);
             Assert.AreEqual(0, gateway.OpenWriteCount);
@@ -329,6 +336,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             nameof(PlaylistUrlAcquisitionOwnershipTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
+        Uri responseRequestUri = new("https://example.invalid/download/package.zip");
+        Uri responseUri = new("file:///C:/secret.zip");
         var cases = new (Uri PageUri, string Html)[]
         {
             (
@@ -347,6 +356,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         try
         {
             var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            gateway.AddResponse(responseRequestUri, () => new AppHttpResponse(
+                responseUri,
+                new MemoryStream([0x41, 0x42, 0x43], writable: false)));
             foreach ((Uri pageUri, string html) in cases)
             {
                 gateway.AddResponse(pageUri, () => CreateHttpResponse(
@@ -355,6 +367,17 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                     "text/html"));
             }
             var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            PlaylistUrlDownloadResult responseResult = await workflow.DownloadCandidateAsync(responseRequestUri);
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, responseResult.Kind);
+            Assert.IsTrue(responseResult.IsUnsupportedScheme);
+            CollectionAssert.AreEqual(
+                new[] { responseRequestUri.AbsoluteUri },
+                gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
+            Assert.AreEqual(1, gateway.GetTemporaryDirectoryCount);
+            Assert.AreEqual(0, gateway.OpenWriteCount);
+            Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
 
             foreach ((Uri pageUri, string _) in cases)
             {
@@ -366,7 +389,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
             CollectionAssert.AreEqual(
                 cases.Select(testCase => testCase.PageUri.AbsoluteUri).ToArray(),
-                gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
+                gateway.RequestedUris.Skip(1).Select(uri => uri.AbsoluteUri).ToArray());
             Assert.AreEqual(0, gateway.OpenWriteCount);
             Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
         }

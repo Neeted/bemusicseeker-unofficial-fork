@@ -426,37 +426,13 @@ public sealed class AppSchemaPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void RepairAppOwnedSchema_LateFailureRollsBackNormalizationSchemaVersionDigestAndData_AndRetryConverges()
+    public void RepairAppOwnedSchema_LateFailureRollsBackNormalizationSchemaVersionDigestAndData()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
+            SeedLateFailureSchemaRepairDatabase(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
-            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            gateway.EnsureAppOwnedSchema();
-
-            using (var seed = new LR2SongDBExtended(tempDbPath))
-            {
-                seed.DropTable<LR2SongDBExtended.playlist_entry>();
-                seed.Execute(
-                    "CREATE TABLE playlist_entry (playlist_id INTEGER NOT NULL, md5 TEXT NULL, level REAL NULL, title TEXT, artist TEXT, folder TEXT, lr2_bmsid TEXT, url TEXT, url_diff TEXT, name_diff TEXT, org_md5 TEXT, adddate TEXT, comment TEXT, memo TEXT, is_removed INTEGER NOT NULL DEFAULT 0);");
-                seed.Execute(
-                    "CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
-                seed.Execute(
-                    "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, is_external_sync, is_root_folder, bmt_sort, is_bmt_output) "
-                    + "VALUES (91, 'Legacy playlist', 'legacy', '', 0, 1, 0, 0, 0, NULL, NULL);");
-                seed.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, level, title, artist, folder, is_removed) "
-                    + "VALUES (91, '0123456789abcdef0123456789abcdef', 12, 'Legacy entry', 'Artist', '', 0);");
-                seed.Execute(
-                    "INSERT OR REPLACE INTO chart_digest_map (md5, sha256) "
-                    + "VALUES ('0123456789abcdef0123456789abcdef', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');");
-                seed.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema';");
-                seed.Execute(
-                    "CREATE TRIGGER app_schema_repair_late_failure BEFORE INSERT ON app_schema_version "
-                    + "BEGIN SELECT RAISE(ABORT, 'deterministic late schema repair failure'); END;");
-            }
-
             SchemaRepairSnapshot before = ReadSchemaRepairSnapshot(tempDbPath);
             Exception failure = null;
             try
@@ -481,13 +457,39 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.AreEqual(before.PlaylistRowCount, afterFailure.PlaylistRowCount);
             Assert.AreEqual(before.PlaylistEntryRowCount, afterFailure.PlaylistEntryRowCount);
             Assert.AreEqual(before.DigestRowCount, afterFailure.DigestRowCount);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void RepairAppOwnedSchema_LateFailureRetryConvergesOnSameDatabase()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            SeedLateFailureSchemaRepairDatabase(tempDbPath);
+            SchemaRepairSnapshot before = ReadSchemaRepairSnapshot(tempDbPath);
+            Exception failure = null;
+            try
+            {
+                new BmsLibraryDbGateway(tempDbPath).RepairAppOwnedSchema();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+
+            Assert.IsNotNull(failure);
             using (var removeFailure = new LR2SongDBExtended(tempDbPath))
             {
                 removeFailure.Execute("DROP TRIGGER app_schema_repair_late_failure;");
             }
 
-            gateway.RepairAppOwnedSchema();
+            new BmsLibraryDbGateway(tempDbPath).RepairAppOwnedSchema();
 
             AppSchemaPreflightResult result = new AppSchemaPreflightService().Inspect(tempDbPath);
             Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
@@ -833,6 +835,33 @@ public sealed class AppSchemaPreflightServiceTests
         {
         }
         return tempDbPath;
+    }
+
+    private static void SeedLateFailureSchemaRepairDatabase(string songDbPath)
+    {
+        var gateway = new BmsLibraryDbGateway(songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        gateway.EnsureAppOwnedSchema();
+
+        using var seed = new LR2SongDBExtended(songDbPath);
+        seed.DropTable<LR2SongDBExtended.playlist_entry>();
+        seed.Execute(
+            "CREATE TABLE playlist_entry (playlist_id INTEGER NOT NULL, md5 TEXT NULL, level REAL NULL, title TEXT, artist TEXT, folder TEXT, lr2_bmsid TEXT, url TEXT, url_diff TEXT, name_diff TEXT, org_md5 TEXT, adddate TEXT, comment TEXT, memo TEXT, is_removed INTEGER NOT NULL DEFAULT 0);");
+        seed.Execute(
+            "CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
+        seed.Execute(
+            "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, is_external_sync, is_root_folder, bmt_sort, is_bmt_output) "
+            + "VALUES (91, 'Legacy playlist', 'legacy', '', 0, 1, 0, 0, 0, NULL, NULL);");
+        seed.Execute(
+            "INSERT INTO playlist_entry (playlist_id, md5, level, title, artist, folder, is_removed) "
+            + "VALUES (91, '0123456789abcdef0123456789abcdef', 12, 'Legacy entry', 'Artist', '', 0);");
+        seed.Execute(
+            "INSERT OR REPLACE INTO chart_digest_map (md5, sha256) "
+            + "VALUES ('0123456789abcdef0123456789abcdef', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');");
+        seed.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema';");
+        seed.Execute(
+            "CREATE TRIGGER app_schema_repair_late_failure BEFORE INSERT ON app_schema_version "
+            + "BEGIN SELECT RAISE(ABORT, 'deterministic late schema repair failure'); END;");
     }
 
     private static void DeleteTempSongDbDirectory(string songDbPath)
