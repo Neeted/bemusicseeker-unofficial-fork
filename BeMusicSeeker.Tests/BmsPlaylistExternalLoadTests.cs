@@ -193,6 +193,34 @@ public sealed class BmsPlaylistExternalLoadTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void BMSTable_ExternalDataUrlResolutionPreservesDriveFileAndUncRoutes()
+    {
+        var driveTable = new BMSTable
+        {
+            Header_url = new Uri("file:///C:/tables/header.json"),
+            Data_url = new Uri("../data/score.json", UriKind.Relative)
+        };
+
+        Uri driveDataUri = driveTable.GetAbsoluteDataUrl();
+
+        Assert.AreEqual("file", driveDataUri.Scheme);
+        Assert.AreEqual("C:/data/score.json", driveDataUri.AbsolutePath);
+
+        var uncTable = new BMSTable
+        {
+            Header_url = new Uri("file://server/share/tables/header.json"),
+            Data_url = new Uri("../data/score.json", UriKind.Relative)
+        };
+
+        Uri uncDataUri = uncTable.GetAbsoluteDataUrl();
+
+        Assert.AreEqual("file", uncDataUri.Scheme);
+        Assert.AreEqual("server", uncDataUri.Host);
+        Assert.AreEqual("/share/data/score.json", uncDataUri.AbsolutePath);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void LoadExternalTable_HtmlWithoutHeaderMeta_ThrowsHeaderUriNotFound()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));

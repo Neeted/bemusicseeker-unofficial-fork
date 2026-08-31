@@ -113,16 +113,6 @@ internal sealed class DroppedInstallIngressMaterializer
             for (int index = 0; index < normalizedPaths.Length; index++)
             {
                 string source = normalizedPaths[index];
-                if (!transient[index])
-                {
-                    if (!LongPathFileSystem.EntryExists(source))
-                    {
-                        return SourceUnavailable(source);
-                    }
-                    sourceIsDirectory[index] = LongPathFileSystem.DirectoryExists(source);
-                    continue;
-                }
-
                 if (string.Equals(
                     NormalizeDirectoryPath(source),
                     systemTempRoot,
@@ -133,7 +123,10 @@ internal sealed class DroppedInstallIngressMaterializer
 
                 try
                 {
-                    FileAttributes attributes = GetTrustedRootDescendantAttributes(source);
+                    FileAttributes attributes = transient[index] || IsUnderSystemTempRoot(source)
+                        ? GetTrustedRootDescendantAttributes(source)
+                        : GetStableSourceAttributesWithAncestors(source);
+                    EnsureSourceTreeIsNotReparsePoints(source, attributes);
                     sourceIsDirectory[index] = (attributes & FileAttributes.Directory) != 0;
                 }
                 catch (Exception exception) when (exception is FileNotFoundException
@@ -227,6 +220,13 @@ internal sealed class DroppedInstallIngressMaterializer
             && !isCurrentSessionManagedPath(normalizedPath);
     }
 
+    private bool IsUnderSystemTempRoot(string normalizedPath)
+    {
+        return LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(
+            NormalizeDirectoryPath(normalizedPath),
+            systemTempRoot);
+    }
+
     private static IEnumerable<string> GetMinimalCopySources(
         string[] paths,
         bool[] transient,
@@ -305,6 +305,48 @@ internal sealed class DroppedInstallIngressMaterializer
             }
         }
         return attributes;
+    }
+
+    private FileAttributes GetStableSourceAttributesWithAncestors(string source)
+    {
+        string root = Path.GetPathRoot(source);
+        string relativePath = string.IsNullOrWhiteSpace(root)
+            ? string.Empty
+            : Path.GetRelativePath(root, source);
+        ValidateRelativePath(relativePath);
+        string[] components = relativePath.Split(
+            [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
+            StringSplitOptions.RemoveEmptyEntries);
+        string current = root;
+        FileAttributes attributes = default;
+        for (int index = 0; index < components.Length; index++)
+        {
+            current = LongPathFileSystem.NormalizePathForStorage(
+                Path.Combine(current, components[index]));
+            attributes = getAttributes(current);
+            EnsureAttributesAreNotReparsePoint(attributes);
+            if (index < components.Length - 1
+                && (attributes & FileAttributes.Directory) == 0)
+            {
+                throw new DirectoryNotFoundException(
+                    "A dropped install source ancestor is not a directory: " + current);
+            }
+        }
+        return attributes;
+    }
+
+    private void EnsureSourceTreeIsNotReparsePoints(string source, FileAttributes attributes)
+    {
+        EnsureAttributesAreNotReparsePoint(attributes);
+        if ((attributes & FileAttributes.Directory) == 0)
+        {
+            return;
+        }
+        foreach (string entry in LongPathFileSystem.EnumerateFileSystemEntries(source))
+        {
+            FileAttributes entryAttributes = getAttributes(entry);
+            EnsureSourceTreeIsNotReparsePoints(entry, entryAttributes);
+        }
     }
 
     private void EnsureEntryIsNotReparsePoint(string path)

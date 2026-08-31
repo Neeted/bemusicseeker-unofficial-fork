@@ -562,6 +562,8 @@ LR2互換性警告画面は LR2 連携モード / standalone mode の両方で�
 - プレイリストサマリー `ROOT`: root folder 出力の ON/OFF。
 - プレイリストサマリー `BMT OUTPUT`: `.bmt` 出力対象の ON/OFF。
 
+`Url1` / `Url2` の URL action は、入力 URI と正規化後 URI が HTTP または HTTPS の場合だけ acquisition を開始する。file、ftp、その他の initial scheme は明示的な acquisition failure とし、download gateway、temporary file、browser fallback、install sink へ渡さない。HTTP 応答の final URI と HTML / JSON などから得た redirect・recursive URI も各 hop で同じ scheme 検証を行い、HTTP(S) 以外なら次の hop、temporary file、install sink、browser fallbackへ進めず失敗とする。外部 playlist の header / data URI は、この URL1 / URL2 action とは別の external sync 契約に従う。
+
 ## 描画と性能計測
 
 `CustomTableView` は `CustomTableSurface.OnRender(...)` でヘッダーと可視行だけを描画する。

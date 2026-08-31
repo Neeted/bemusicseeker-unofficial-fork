@@ -214,7 +214,19 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private async Task RunSinglePlaylistUrlCoreAsync(Uri url)
     {
-
+        if (url == null || !url.IsAbsoluteUri)
+        {
+            return;
+        }
+        if (!PlaylistUrlAcquisitionWorkflow.IsHttpOrHttpsUri(url))
+        {
+            return;
+        }
+        Uri normalizedUrl = PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(url);
+        if (!PlaylistUrlAcquisitionWorkflow.IsHttpOrHttpsUri(normalizedUrl))
+        {
+            return;
+        }
         if (GetPlaylistUrlAcquisitionOptions().ShouldAutoInstall)
         {
             PlaylistUrlDownloadResult result = await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url).ConfigureAwait(false);
@@ -227,12 +239,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return;
             }
+            if (result.Kind == PlaylistUrlDownloadResultKind.Failed
+                && result.IsUnsupportedScheme)
+            {
+                return;
+            }
         }
 
-        if (!url.IsAbsoluteUri)
-        {
-            return;
-        }
         await playlistUrlAcquisitionPresentationScheduler(
             () => playlistUrlBrowserOpenSink(url)).ConfigureAwait(true);
     }

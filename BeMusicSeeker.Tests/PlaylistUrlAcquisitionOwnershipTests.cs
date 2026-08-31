@@ -85,6 +85,41 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    [DataTestMethod]
+    [DataRow("file:///C:/secret.zip")]
+    [DataRow("ftp://example.invalid/package.zip")]
+    [DataRow("custom+scheme://example.invalid/package.zip")]
+    [DataRow("custom+scheme://drive.google.com/file/d/id/package.zip")]
+    public async Task DownloadCandidate_UnsupportedInitialSchemeFailsBeforeGatewayOrTemp(string uriText)
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(new Uri(uriText));
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, result.Kind);
+            Assert.IsTrue(result.IsUnsupportedScheme);
+            Assert.AreEqual(0, gateway.RequestedUris.Count);
+            Assert.AreEqual(0, gateway.GetTemporaryDirectoryCount);
+            Assert.AreEqual(0, gateway.OpenWriteCount);
+            Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
     [TestMethod]
     public async Task DownloadCandidate_UsesContentDispositionForExtensionlessQueryUri()
     {
@@ -156,6 +191,184 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             CollectionAssert.AreEqual(
                 new[] { pageUri.AbsoluteUri, directUri.AbsoluteUri },
                 gateway.RequestedUris.Select(requestedUri => requestedUri.AbsoluteUri).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadCandidate_UnsupportedResponseSchemeFailsBeforeWriting()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        Uri requestUri = new("https://example.invalid/download/package.zip");
+        Uri responseUri = new("file:///C:/secret.zip");
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            gateway.AddResponse(requestUri, () => new AppHttpResponse(
+                responseUri,
+                new MemoryStream([0x41, 0x42, 0x43], writable: false)));
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(requestUri);
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, result.Kind);
+            Assert.IsTrue(result.IsUnsupportedScheme);
+            CollectionAssert.AreEqual(new[] { requestUri.AbsoluteUri }, gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
+            Assert.AreEqual(1, gateway.GetTemporaryDirectoryCount);
+            Assert.AreEqual(0, gateway.OpenWriteCount);
+            Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task WorkspaceDoesNotBrowserFallbackAfterUnsupportedResponseScheme()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        Uri requestUri = new("https://example.invalid/download/package.zip");
+        Uri responseUri = new("file:///C:/secret.zip");
+        int installCount = 0;
+        int browserOpenCount = 0;
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            gateway.AddResponse(requestUri, () => new AppHttpResponse(
+                responseUri,
+                new MemoryStream([0x41, 0x42, 0x43], writable: false)));
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+                action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot
+                {
+                    ScanBmsFilesOnStartup = true,
+                    AutoInstall = true
+                },
+                acquisitionWorkflow: workflow,
+                installSink: _ => installCount++,
+                browserSink: _ => browserOpenCount++);
+
+            await workspace.RunSinglePlaylistUrlAsync(requestUri);
+
+            Assert.AreEqual(0, installCount);
+            Assert.AreEqual(1, gateway.RequestedUris.Count);
+            Assert.AreEqual(0, browserOpenCount);
+            Assert.AreEqual(1, gateway.GetTemporaryDirectoryCount);
+            Assert.AreEqual(0, gateway.OpenWriteCount);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadCandidate_UnsupportedRecursiveHtmlSchemeFailsWithoutSecondGatewayHop()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        Uri pageUri = new("https://www.mediafire.com/file/test-page/playlist");
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            string html = "<html><body><a id=\"downloadButton\" href=\"file:///C:/secret.zip\">Download</a></body></html>";
+            gateway.AddResponse(pageUri, () => CreateHttpResponse(
+                pageUri,
+                Encoding.UTF8.GetBytes(html),
+                "text/html"));
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(pageUri);
+
+            Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, result.Kind);
+            Assert.IsTrue(result.IsUnsupportedScheme);
+            CollectionAssert.AreEqual(new[] { pageUri.AbsoluteUri }, gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
+            Assert.AreEqual(1, gateway.GetTemporaryDirectoryCount);
+            Assert.AreEqual(0, gateway.OpenWriteCount);
+            Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task DownloadCandidate_UnsupportedRecursiveSchemeFailsForKnownHtmlAndJsonSourceForms()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        var cases = new (Uri PageUri, string Html)[]
+        {
+            (
+                new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"),
+                "<form id=\"download-form\" method=\"get\" action=\"file:///C:/secret.zip\"><input type=\"hidden\" name=\"id\" value=\"abc123\"></form>"),
+            (
+                new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1"),
+                "<Th>DownLoadAddress</Th><td><a href=\"file:///C:/secret.zip\">Download</a></td>"),
+            (
+                new Uri("https://venue.bmssearch.net/freebattle/30"),
+                "<script>self.__next_f.push([1,\"2c:{\\\"downloadURL\\\":\\\"file:///C:/secret.zip\\\",\\\"type\\\":\\\"CORE\\\"}\"])</script>"),
+            (
+                new Uri("https://bmssearch.net/bmses/2uLp8a8bJYLmrx"),
+                "<script>self.__next_f.push([1,\"7:{\\\"downloads\\\":[{\\\"url\\\":\\\"file:///C:/secret.zip\\\"}]}\"])</script>")
+        };
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            foreach ((Uri pageUri, string html) in cases)
+            {
+                gateway.AddResponse(pageUri, () => CreateHttpResponse(
+                    pageUri,
+                    Encoding.UTF8.GetBytes(html),
+                    "text/html"));
+            }
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+
+            foreach ((Uri pageUri, string _) in cases)
+            {
+                PlaylistUrlDownloadResult result = await workflow.DownloadCandidateAsync(pageUri);
+
+                Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, result.Kind, pageUri.ToString());
+                Assert.IsTrue(result.IsUnsupportedScheme, pageUri.ToString());
+            }
+
+            CollectionAssert.AreEqual(
+                cases.Select(testCase => testCase.PageUri.AbsoluteUri).ToArray(),
+                gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
+            Assert.AreEqual(0, gateway.OpenWriteCount);
+            Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
         }
         finally
         {
@@ -297,6 +510,90 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
         Assert.AreEqual("https://example.invalid/folder/", openedUri?.ToString());
         Assert.AreEqual(1, dispatchCount);
+    }
+
+    [DataTestMethod]
+    [DataRow("file:///C:/secret.zip")]
+    [DataRow("custom+scheme://drive.google.com/file/d/id/package.zip")]
+    public async Task WorkspaceDoesNotOpenOrInstallUnsupportedInitialSchemeWhenAutoInstallIsDisabled(string uriText)
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        int installCount = 0;
+        int browserOpenCount = 0;
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+                action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot
+                {
+                    ScanBmsFilesOnStartup = false,
+                    AutoInstall = false
+                },
+                acquisitionWorkflow: workflow,
+                installSink: _ => installCount++,
+                browserSink: _ => browserOpenCount++);
+
+            await workspace.RunSinglePlaylistUrlAsync(new Uri(uriText));
+
+            Assert.AreEqual(0, installCount);
+            Assert.AreEqual(0, browserOpenCount);
+            Assert.AreEqual(0, gateway.RequestedUris.Count);
+            Assert.AreEqual(0, gateway.GetTemporaryDirectoryCount);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task WorkspaceBrowserFallbackRemainsAvailableAfterOrdinaryHttpAcquisitionFailure()
+    {
+        string temporaryDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlAcquisitionOwnershipTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        Uri requestUri = new("https://example.invalid/download/package.zip");
+        int browserOpenCount = 0;
+        try
+        {
+            var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory)
+            {
+                TransportException = new HttpRequestException("transport failure")
+            };
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+                action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot
+                {
+                    ScanBmsFilesOnStartup = true,
+                    AutoInstall = true
+                },
+                acquisitionWorkflow: workflow,
+                browserSink: _ => browserOpenCount++);
+
+            await workspace.RunSinglePlaylistUrlAsync(requestUri);
+
+            Assert.AreEqual(1, gateway.RequestedUris.Count);
+            Assert.AreEqual(1, browserOpenCount);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
@@ -1237,6 +1534,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
         internal int OpenWriteCount { get; private set; }
 
+        internal int GetTemporaryDirectoryCount { get; private set; }
+
         internal Exception? TransportException { get; set; }
 
         internal void AddResponse(Uri uri, Func<AppHttpResponse> responseFactory)
@@ -1259,7 +1558,11 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             return Task.FromResult(responseFactory());
         }
 
-        public string GetTemporaryDirectory() => temporaryDirectory;
+        public string GetTemporaryDirectory()
+        {
+            GetTemporaryDirectoryCount++;
+            return temporaryDirectory;
+        }
 
         public FileStream OpenWrite(string path, FileMode mode, FileAccess access, FileShare share)
         {

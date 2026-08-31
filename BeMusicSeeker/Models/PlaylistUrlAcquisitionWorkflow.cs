@@ -26,11 +26,12 @@ internal enum PlaylistUrlDownloadResultKind
 
 internal sealed class PlaylistUrlDownloadResult
 {
-    private PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind kind, string filePath = null, string downloadKey = null)
+    private PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind kind, string filePath = null, string downloadKey = null, bool isUnsupportedScheme = false)
     {
         Kind = kind;
         FilePath = filePath ?? string.Empty;
         DownloadKey = downloadKey ?? string.Empty;
+        IsUnsupportedScheme = isUnsupportedScheme;
     }
 
     internal PlaylistUrlDownloadResultKind Kind { get; }
@@ -38,6 +39,11 @@ internal sealed class PlaylistUrlDownloadResult
     internal string FilePath { get; }
 
     internal string DownloadKey { get; }
+
+    /// <summary>
+    /// Gets whether a failed acquisition was caused by a URI scheme rejected at an ingress boundary.
+    /// </summary>
+    internal bool IsUnsupportedScheme { get; }
 
     internal static PlaylistUrlDownloadResult Downloaded(string filePath, string downloadKey)
     {
@@ -59,9 +65,9 @@ internal sealed class PlaylistUrlDownloadResult
         return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Duplicate, downloadKey: downloadKey);
     }
 
-    internal static PlaylistUrlDownloadResult Failed(string downloadKey = null)
+    internal static PlaylistUrlDownloadResult Failed(string downloadKey = null, bool isUnsupportedScheme = false)
     {
-        return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Failed, downloadKey: downloadKey);
+        return new PlaylistUrlDownloadResult(PlaylistUrlDownloadResultKind.Failed, downloadKey: downloadKey, isUnsupportedScheme: isUnsupportedScheme);
     }
 }
 
@@ -146,7 +152,17 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
             return PlaylistUrlDownloadResult.BrowserFallback();
         }
         cancellationToken.ThrowIfCancellationRequested();
+        if (!IsHttpOrHttps(uri))
+        {
+            LogDownload("playlist_url_download rejected_unsupported_scheme source=" + uri);
+            return PlaylistUrlDownloadResult.Failed(CreatePlaylistUrlDownloadKey(uri), isUnsupportedScheme: true);
+        }
         Uri normalizedUri = NormalizeDownloadUri(uri);
+        if (!IsHttpOrHttps(normalizedUri))
+        {
+            LogDownload("playlist_url_download rejected_unsupported_scheme source=" + uri + " normalized=" + normalizedUri);
+            return PlaylistUrlDownloadResult.Failed(CreatePlaylistUrlDownloadKey(normalizedUri), isUnsupportedScheme: true);
+        }
         if (IsBrowserFallbackDownloadUri(normalizedUri))
         {
             return PlaylistUrlDownloadResult.BrowserFallback(CreatePlaylistUrlDownloadKey(normalizedUri));
@@ -177,8 +193,14 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
     private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth, HashSet<string> resolvedPageUris, HashSet<string> downloadedKeys, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        Uri responseUri = response?.ResponseUri;
+        if (!IsHttpOrHttps(requestedUri) || !IsHttpOrHttps(responseUri))
+        {
+            LogDownload("playlist_url_download rejected_unsupported_response_scheme requested=" + requestedUri + " response=" + (responseUri?.ToString() ?? string.Empty));
+            return PlaylistUrlDownloadResult.Failed(CreatePlaylistUrlDownloadKey(responseUri ?? requestedUri), isUnsupportedScheme: true);
+        }
         AddUriWithoutFragment(resolvedPageUris, requestedUri);
-        AddUriWithoutFragment(resolvedPageUris, response?.ResponseUri);
+        AddUriWithoutFragment(resolvedPageUris, responseUri);
         if (response.ContentLength.HasValue)
         {
             if (response.ContentLength.Value == 0L)
@@ -193,7 +215,13 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         }
         if (remainingSharedPageResolutionDepth > 0 && ShouldResolveSharedDownloadPageBeforeFileName(requestedUri, response))
         {
-            Uri resolvedUri = await TryResolveSharedDownloadPageUriAsync(requestedUri, response, cancellationToken).ConfigureAwait(false);
+            (Uri resolvedUri, bool unsupportedScheme) resolution = await TryResolveSharedDownloadPageUriAsync(requestedUri, response, cancellationToken).ConfigureAwait(false);
+            if (resolution.unsupportedScheme)
+            {
+                LogDownload("playlist_url_download rejected_unsupported_recursive_scheme source=" + requestedUri + " response=" + responseUri);
+                return PlaylistUrlDownloadResult.Failed(CreatePlaylistUrlDownloadKey(responseUri ?? requestedUri), isUnsupportedScheme: true);
+            }
+            Uri resolvedUri = resolution.resolvedUri;
             if (resolvedUri != null && AddUriWithoutFragment(resolvedPageUris, resolvedUri))
             {
                 string resolvedDownloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
@@ -217,7 +245,15 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         }
         if (!IsDownloadAndInstallCandidateFileName(fileName))
         {
-            Uri resolvedUri = remainingSharedPageResolutionDepth > 0 ? await TryResolveSharedDownloadPageUriAsync(requestedUri, response, cancellationToken).ConfigureAwait(false) : null;
+            (Uri resolvedUri, bool unsupportedScheme) resolution = remainingSharedPageResolutionDepth > 0
+                ? await TryResolveSharedDownloadPageUriAsync(requestedUri, response, cancellationToken).ConfigureAwait(false)
+                : (null, false);
+            if (resolution.unsupportedScheme)
+            {
+                LogDownload("playlist_url_download rejected_unsupported_recursive_scheme source=" + requestedUri + " response=" + responseUri);
+                return PlaylistUrlDownloadResult.Failed(CreatePlaylistUrlDownloadKey(responseUri ?? requestedUri), isUnsupportedScheme: true);
+            }
+            Uri resolvedUri = resolution.resolvedUri;
             if (resolvedUri != null && AddUriWithoutFragment(resolvedPageUris, resolvedUri))
             {
                 string resolvedDownloadKey = CreatePlaylistUrlDownloadKey(resolvedUri);
@@ -475,28 +511,146 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         return string.IsNullOrWhiteSpace(fileId) ? null : fileId;
     }
 
-    private static async Task<Uri> TryResolveSharedDownloadPageUriAsync(Uri requestedUri, AppHttpResponse response, CancellationToken cancellationToken = default)
+    private static async Task<(Uri resolvedUri, bool unsupportedScheme)> TryResolveSharedDownloadPageUriAsync(Uri requestedUri, AppHttpResponse response, CancellationToken cancellationToken = default)
     {
         if (!IsSharedDownloadPageResolutionCandidate(requestedUri) && !IsSharedDownloadPageResolutionCandidate(response?.ResponseUri))
         {
-            return null;
+            return (null, false);
         }
         if (response?.ContentLength > SharedDownloadPageResolverMaxBytes)
         {
-            return null;
+            return (null, false);
         }
         string html = await ReadTextWithLimitAsync(response?.ResponseStream, response?.ContentHeaders?.ContentType?.CharSet, SharedDownloadPageResolverMaxBytes, cancellationToken).ConfigureAwait(false);
         if (html == null)
         {
-            return null;
+            return (null, false);
         }
         Uri resolvedUri = ResolveSharedDownloadPageUri(response.ResponseUri ?? requestedUri, html);
-        return resolvedUri != null && resolvedUri.IsAbsoluteUri && !IsSameUriWithoutFragment(resolvedUri, requestedUri) ? resolvedUri : null;
+        if (resolvedUri != null && resolvedUri.IsAbsoluteUri && !IsSameUriWithoutFragment(resolvedUri, requestedUri))
+        {
+            return IsHttpOrHttps(resolvedUri)
+                ? (resolvedUri, false)
+                : (null, true);
+        }
+        return ContainsUnsupportedSharedDownloadUri(response.ResponseUri ?? requestedUri, html)
+            ? (null, true)
+            : (null, false);
+    }
+
+    /// <summary>
+    /// Determines whether a URL acquisition hop is permitted to use the HTTP transport.
+    /// </summary>
+    /// <param name="uri">The URI to validate.</param>
+    /// <returns><see langword="true"/> when <paramref name="uri"/> uses HTTP or HTTPS.</returns>
+    internal static bool IsHttpOrHttpsUri(Uri uri)
+    {
+        return IsHttpOrHttps(uri);
     }
 
     private static bool IsHttpOrHttps(Uri uri)
     {
         return uri != null && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool ContainsUnsupportedSharedDownloadUri(Uri pageUri, string html)
+    {
+        if (!IsSharedDownloadPageResolutionCandidate(pageUri) || string.IsNullOrWhiteSpace(html))
+        {
+            return false;
+        }
+        bool isMediaFirePage = IsExactHostOrSubdomain(pageUri.Host, "mediafire.com");
+        bool isDownloadSourcePage = IsDownloadSourcePageUri(pageUri);
+        foreach (Match anchorMatch in Regex.Matches(html, "<a\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            Dictionary<string, string> attributes = ParseHtmlAttributes(anchorMatch.Value);
+            if (!attributes.TryGetValue("href", out string href)
+                || string.IsNullOrWhiteSpace(href))
+            {
+                continue;
+            }
+            if (isMediaFirePage)
+            {
+                attributes.TryGetValue("id", out string id);
+                attributes.TryGetValue("class", out string className);
+                if (!string.Equals(id, "downloadButton", StringComparison.OrdinalIgnoreCase)
+                    && !(className?.IndexOf("popsok", StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    continue;
+                }
+                if (IsUnsupportedAbsoluteDownloadUri(pageUri, href))
+                {
+                    return true;
+                }
+                continue;
+            }
+            if (isDownloadSourcePage
+                && IsUnsupportedAbsoluteDownloadUri(pageUri, href))
+            {
+                return true;
+            }
+        }
+        foreach (Match formMatch in Regex.Matches(html, "<form\\b(?=[^>]*\\bid\\s*=\\s*[\"']download-form[\"'])[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            Dictionary<string, string> attributes = ParseHtmlAttributes(formMatch.Value);
+            if (attributes.TryGetValue("action", out string action)
+                && IsUnsupportedAbsoluteDownloadUri(pageUri, action))
+            {
+                return true;
+            }
+        }
+        string decodedJson = DecodeEmbeddedJsonText(html);
+        foreach (Match uriMatch in Regex.Matches(
+            decodedJson,
+            "\"downloadURL\"\\s*:\\s*\"(?<url>[^\"<>]+)\"",
+            RegexOptions.IgnoreCase))
+        {
+            if (IsUnsupportedAbsoluteDownloadUri(pageUri, uriMatch.Groups["url"].Value))
+            {
+                return true;
+            }
+        }
+        foreach (Match blockMatch in Regex.Matches(decodedJson, "\"downloads\"\\s*:\\s*\\[(?<body>.*?)\\]", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            foreach (Match uriMatch in Regex.Matches(
+                blockMatch.Groups["body"].Value,
+                "\"url\"\\s*:\\s*\"(?<url>[^\"<>]+)\"",
+                RegexOptions.IgnoreCase))
+            {
+                if (IsUnsupportedAbsoluteDownloadUri(pageUri, uriMatch.Groups["url"].Value))
+                {
+                    return true;
+                }
+            }
+        }
+        foreach (Match downloadMatch in Regex.Matches(html, "(?:Down\\s*Load|Download)Address.*?<a\\b[^>]*>", RegexOptions.IgnoreCase | RegexOptions.Singleline))
+        {
+            Dictionary<string, string> attributes = ParseHtmlAttributes(downloadMatch.Value);
+            if (attributes.TryGetValue("href", out string href)
+                && IsUnsupportedAbsoluteDownloadUri(pageUri, href))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsUnsupportedAbsoluteDownloadUri(Uri pageUri, string candidateText)
+    {
+        if (string.IsNullOrWhiteSpace(candidateText))
+        {
+            return false;
+        }
+        string decodedCandidate = WebUtility.HtmlDecode(candidateText.Trim());
+        if (!Uri.TryCreate(pageUri, decodedCandidate, out Uri candidate))
+        {
+            return false;
+        }
+        if (!candidate.IsAbsoluteUri || IsHttpOrHttps(candidate))
+        {
+            return false;
+        }
+        return true;
     }
 
     private static bool IsExactHostOrSubdomain(string host, string rootDomain)

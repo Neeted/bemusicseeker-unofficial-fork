@@ -55,6 +55,46 @@ public sealed class DroppedInstallIngressMaterializerTests
     }
 
     [TestMethod]
+    public void Acquire_StableDirectoryContainingInjectedReparseDescendantRejectsWholeBatch()
+    {
+        using var fixture = new MaterializerFixture();
+        string stableDirectory = fixture.CreateStableDirectory("stable/reparse-tree");
+        string descendant = Path.Combine(stableDirectory, "unsafe-child");
+        Directory.CreateDirectory(descendant);
+        File.WriteAllText(Path.Combine(descendant, "chart.bms"), "chart");
+        fixture.ReportedReparsePath = descendant;
+
+        DroppedInstallIngressAcquisitionResult result = fixture.Materializer.Acquire([stableDirectory]);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(DroppedInstallIngressFailureKind.UnsafeSource, result.FailureKind);
+        Assert.IsNull(result.Request);
+        Assert.IsNull(fixture.LastIngressRoot);
+        Assert.IsTrue(Directory.Exists(stableDirectory));
+        Assert.IsTrue(File.Exists(Path.Combine(descendant, "chart.bms")));
+    }
+
+    [TestMethod]
+    public void Acquire_ManagedDirectoryContainingInjectedReparseDescendantRejectsWholeBatch()
+    {
+        using var fixture = new MaterializerFixture();
+        string managedDirectory = fixture.CreateManagedDirectory("current/reparse-tree");
+        string descendant = Path.Combine(managedDirectory, "unsafe-child");
+        Directory.CreateDirectory(descendant);
+        File.WriteAllText(Path.Combine(descendant, "chart.bms"), "chart");
+        fixture.ReportedReparsePath = descendant;
+
+        DroppedInstallIngressAcquisitionResult result = fixture.Materializer.Acquire([managedDirectory]);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(DroppedInstallIngressFailureKind.UnsafeSource, result.FailureKind);
+        Assert.IsNull(result.Request);
+        Assert.IsNull(fixture.LastIngressRoot);
+        Assert.IsTrue(Directory.Exists(managedDirectory));
+        Assert.IsTrue(File.Exists(Path.Combine(descendant, "chart.bms")));
+    }
+
+    [TestMethod]
     public void Acquire_MultipleSourcesPreserveSystemTempRelativeLayout()
     {
         using var fixture = new MaterializerFixture();
@@ -102,6 +142,7 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(DroppedInstallIngressFailureKind.CopyFailed, result.FailureKind);
         Assert.IsFalse(Directory.Exists(fixture.LastIngressRoot));
+        Assert.AreEqual(1, fixture.DeleteIngressRootCount);
         Assert.IsTrue(File.Exists(first));
         Assert.IsTrue(File.Exists(locked));
     }
@@ -121,6 +162,7 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.IsTrue(Directory.Exists(sourceDirectory));
         Assert.IsTrue(File.Exists(Path.Combine(sourceDirectory, "chart.bms")));
         Assert.IsFalse(Directory.Exists(fixture.LastIngressRoot));
+        Assert.AreEqual(1, fixture.DeleteIngressRootCount);
     }
 
     [TestMethod]
@@ -254,6 +296,8 @@ public sealed class DroppedInstallIngressMaterializerTests
 
         internal string? ReportedReparsePath { get; set; }
 
+        internal int DeleteIngressRootCount { get; private set; }
+
         internal List<string> AttributeProbes { get; } = [];
 
         internal string CreateExternalFile(string relativePath, string contents)
@@ -294,6 +338,13 @@ public sealed class DroppedInstallIngressMaterializerTests
             return path;
         }
 
+        internal string CreateManagedDirectory(string relativePath)
+        {
+            string path = Path.Combine(managedRoot, relativePath);
+            Directory.CreateDirectory(path);
+            return path;
+        }
+
         private string CreateIngressRoot()
         {
             LastIngressRoot = createIngressInsideSource
@@ -303,8 +354,9 @@ public sealed class DroppedInstallIngressMaterializerTests
             return LastIngressRoot;
         }
 
-        private static void DeleteIngressRoot(string path)
+        private void DeleteIngressRoot(string path)
         {
+            DeleteIngressRootCount++;
             if (Directory.Exists(path))
             {
                 Directory.Delete(path, recursive: true);

@@ -22,7 +22,7 @@ WPF `FileDrop` が返すパスは、Explorer などの通常ファイルだけ�
 
 コピー先は正規化済み system-temp root からの相対 path を managed ingress root に結合する。同じ source tree 内の相対配置を維持し、basename に平坦化しない。destination が ingress root 外へ出る path、system-temp root 自体、destination の祖先となる source directory は拒否する。
 
-正規化済み system-temp root は OS またはテスト構成から与えられる単一の trusted lexical anchor とする。root entry 自体が reparse point であることだけでは logical descendant を拒否しない。external transient source は、root 自体を除き、root 直下から source までの component を root-to-leaf 順に検査してから存在種別の判定やコピーを行う。root より下の ancestor、source、列挙した entry にある reparse point は拒否し、junction や symbolic link を再帰またはコピーしない。この契約は検査時点で存在する reparse point を対象とし、検査後に能動的に entry を差し替える adversarial race に対する handle-based traversal は対象外である。
+正規化済み system-temp root は OS またはテスト構成から与えられる単一の trusted lexical anchor とする。root entry 自体が reparse point であることだけでは logical descendant を拒否しない。stable、現在セッションの managed、external transient のすべての source について、source とその trusted lexical root 配下の ancestor を root-to-leaf 順に検査してから存在種別の判定を行う。directory source は source と全 descendant を再帰検査し、root より下の ancestor、source、列挙した entry にある reparse point は batch 全体を拒否する。external transient のコピーでも同じ検査を維持し、junction や symbolic link を再帰またはコピーしない。root 自体は trusted anchor として検査対象に含めない。この契約は検査時点で存在する reparse point を対象とし、検査後に能動的に entry を差し替える adversarial race に対する handle-based traversal は対象外である。
 
 acquisition は batch atomic である。正規化、存在確認、安全性検証、または一件でもコピーに失敗した場合は request を作らず、作成済み ingress root だけを best-effort で削除する。external original は成功、失敗、cancel のいずれでも move または delete しない。cleanup 失敗はログへ残すが、元の acquisition failure の意味を置き換えない。
 
