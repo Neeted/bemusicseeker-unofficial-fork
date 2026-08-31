@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Windows;
+using BeMusicSeeker;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -124,31 +126,125 @@ public sealed class DialogRouteConsolidationTests
     [TestMethod]
     public void StandardMessageBox_IsLimitedToEmergencyDialog()
     {
-        string root = FindRepositoryRoot();
-        List<string> offenders = Directory
-            .EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-            .Where(IsProductionAppSourceFile)
-            .Where(path => File.ReadAllText(path).Contains("MessageBox.Show("))
-            .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
-            .ToList();
-        List<string> emergencyCallers = Directory
-            .EnumerateFiles(root, "*.cs", SearchOption.AllDirectories)
-            .Where(IsProductionAppSourceFile)
-            .Where(path => File.ReadAllText(path).Contains("EmergencyDialog.Show("))
-            .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .ToList();
+        Assembly productionAssembly = typeof(App).Assembly;
+        IReadOnlyList<(MethodBase Caller, MethodBase Callee)> nativeMessageBoxCalls =
+            FindCallsTo(
+                productionAssembly,
+                method => method.DeclaringType == typeof(MessageBox)
+                    && method.Name == nameof(MessageBox.Show));
+        IReadOnlyList<(MethodBase Caller, MethodBase Callee)> emergencyDialogCalls =
+            FindCallsTo(
+                productionAssembly,
+                method => method.DeclaringType == typeof(EmergencyDialog)
+                    && method.Name == nameof(EmergencyDialog.Show));
 
-        CollectionAssert.AreEquivalent(
-            new[] { "BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs" },
-            offenders,
-            "Standard MessageBox.Show is allowed only in the explicit emergency dialog boundary.");
-        CollectionAssert.AreEquivalent(
-            new[] { "BeMusicSeeker/App.cs" },
-            emergencyCallers,
-            "EmergencyDialog.Show may be called only from App startup/shutdown/unhandled-exception emergency routes.");
+        Assert.AreEqual(
+            1,
+            nativeMessageBoxCalls.Count,
+            "The compiled production call graph must contain exactly one System.Windows.MessageBox.Show call.\n"
+                + FormatCalls(nativeMessageBoxCalls));
+        foreach (var call in nativeMessageBoxCalls)
+        {
+            Assert.AreEqual(
+                typeof(EmergencyDialog),
+                GetTopLevelDeclaringType(call.Caller),
+                $"System.Windows.MessageBox.Show must be called by top-level EmergencyDialog, but was {DescribeMethod(call.Caller)}.\n"
+                    + FormatCalls(nativeMessageBoxCalls));
+        }
+
+        Assert.IsTrue(
+            emergencyDialogCalls.Count > 0,
+            "The compiled production call graph must contain an EmergencyDialog.Show call from App.\n"
+                + FormatCalls(emergencyDialogCalls));
+        foreach (var call in emergencyDialogCalls)
+        {
+            Assert.AreEqual(
+                typeof(App),
+                GetTopLevelDeclaringType(call.Caller),
+                $"EmergencyDialog.Show must be called by top-level App, but was {DescribeMethod(call.Caller)}.\n"
+                    + FormatCalls(emergencyDialogCalls));
+        }
     }
+
+    private static IReadOnlyList<(MethodBase Caller, MethodBase Callee)> FindCallsTo(
+        Assembly assembly,
+        Func<MethodBase, bool> calleePredicate)
+    {
+        List<(MethodBase Caller, MethodBase Callee)> calls = [];
+        foreach (Type type in assembly
+            .GetTypes()
+            .OrderBy(type => type.FullName ?? type.Name, StringComparer.Ordinal))
+        {
+            foreach (MethodBase caller in EnumerateDeclaredMembers(type)
+                .OrderBy(method => DescribeMethod(method), StringComparer.Ordinal))
+            {
+                foreach (MethodBase callee in StartupLibraryConstructionTestSupport.EnumerateCalledMethods(caller))
+                {
+                    if (calleePredicate(callee))
+                    {
+                        calls.Add((caller, callee));
+                    }
+                }
+            }
+        }
+
+        return calls;
+    }
+
+    private static IEnumerable<MethodBase> EnumerateDeclaredMembers(Type type)
+    {
+        const BindingFlags flags = BindingFlags.Public
+            | BindingFlags.NonPublic
+            | BindingFlags.Instance
+            | BindingFlags.Static
+            | BindingFlags.DeclaredOnly;
+        HashSet<MethodBase> yielded = [];
+
+        foreach (MethodBase method in type.GetMethods(flags).Cast<MethodBase>())
+        {
+            if (yielded.Add(method))
+            {
+                yield return method;
+            }
+        }
+
+        foreach (ConstructorInfo constructor in type.GetConstructors(flags))
+        {
+            if (yielded.Add(constructor))
+            {
+                yield return constructor;
+            }
+        }
+
+        if (type.TypeInitializer is ConstructorInfo typeInitializer && yielded.Add(typeInitializer))
+        {
+            yield return typeInitializer;
+        }
+    }
+
+    private static Type? GetTopLevelDeclaringType(MethodBase method)
+    {
+        Type? declaringType = method.DeclaringType;
+        while (declaringType?.DeclaringType != null)
+        {
+            declaringType = declaringType.DeclaringType;
+        }
+
+        return declaringType;
+    }
+
+    private static string FormatCalls(IEnumerable<(MethodBase Caller, MethodBase Callee)> calls)
+    {
+        string[] descriptions = calls
+            .Select(call => $"{DescribeMethod(call.Caller)} -> {DescribeMethod(call.Callee)}")
+            .ToArray();
+        return descriptions.Length == 0
+            ? "(no matching compiled call edges)"
+            : string.Join(Environment.NewLine, descriptions);
+    }
+
+    private static string DescribeMethod(MethodBase method)
+        => $"{method.DeclaringType?.FullName ?? "<global>"}.{method.Name}";
 
     private static IReadOnlyList<string> ReadDocumentedLegacySourceFiles(string inventory)
     {
@@ -176,18 +272,6 @@ public sealed class DialogRouteConsolidationTests
             .Select(file => file.RelativePath)
             .OrderBy(path => path, StringComparer.Ordinal)
             .ToList();
-    }
-
-    private static bool IsProductionAppSourceFile(string path)
-    {
-        string relativePath = NormalizeRelativePath(GetRelativePath(FindRepositoryRoot(), path));
-        return !relativePath.StartsWith("BeMusicSeeker.Tests/", StringComparison.Ordinal)
-            && !relativePath.StartsWith("BeMusicSeeker.Updater/", StringComparison.Ordinal)
-            && !relativePath.StartsWith("tools/", StringComparison.Ordinal)
-            && !relativePath.StartsWith("obj/", StringComparison.Ordinal)
-            && !relativePath.StartsWith("bin/", StringComparison.Ordinal)
-            && relativePath.IndexOf("/obj/", StringComparison.Ordinal) < 0
-            && relativePath.IndexOf("/bin/", StringComparison.Ordinal) < 0;
     }
 
     private static string FindRepositoryRoot()
