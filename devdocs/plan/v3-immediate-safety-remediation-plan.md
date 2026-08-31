@@ -266,8 +266,8 @@ URL acquisition と external playlist sync は別 owner/allowlist のままに�
 | `U3` Raw SQLite completion | Verified | implementation-worker closed | U0 | `DB-STEP`, `DB-PRIMARY`, `DB-PARTIAL` | commit `88cda4e8`; integrated Quick artifact `tests-quick-20260831-102226`, 10/10 pass |
 | `U4` App schema transaction ownership | Verified | implementation-worker closed | U0 | `DB-OUTER-ROLLBACK`, `DB-RETRY` | commit `3a8cf6cc`; head Quick `tests-quick-20260831-105151` 26/26 pass; integrated Quick `tests-quick-20260831-113927` 50/50 pass |
 | `U5` Startup readiness and import admission | Verified | implementation-worker closed | U0 | `START-*` | commit `e83127e8`; head Quick `tests-quick-20260831-124531` 77/77 pass; integrated Quick `tests-quick-20260831-125110` 154 pass + approved symlink skip |
-| `U6` Failure propagation and success suppression | Pending | unassigned worker | U4, U5 | `FAIL-*` | startup/schema shared pathsのhandoff後に着手 |
-| `U7` Package/folder file+DB boundary | Pending | unassigned worker | U0 | `COMP-*` | primitive→package→folderの直列handoff |
+| `U6` Failure propagation and success suppression | Implemented | implementation-worker closed | U4, U5 | `FAIL-*` | focused Quick `tests-quick-20260831-141114` 13/13 pass。U7完了後に統合検証して単独commit |
+| `U7` Package/folder file+DB boundary | Replanned / In progress | implementation-worker | U0 | `COMP-*` | initial implementation後のissue-resolver静的調査で4 blocking gapを確認。下記replan addendumを実装して再検証 |
 | `U8` URI and drop ingress boundaries | Verified | implementation-worker closed | U0 | `ING-*` | commit `bb90d8bd`; head 77 pass + deterministic reparse coverage + privilege symlink skip `tests-quick-20260831-123039`; integrated `tests-quick-20260831-125110` |
 | `U9` Integration, release qualification, static review | Pending | root | U1–U8 | full roster | exact FQN freeze、focused Quick、Full内canonical Functional、review |
 
@@ -498,15 +498,21 @@ Observable outcome:
 Writable paths:
 
 - `BeMusicSeeker/Models/Utils/IFileMutationService.cs`
+- `BeMusicSeeker/Models/Utils/FileMutationKind.cs`
 - `BeMusicSeeker/Models/Utils/ResilientFileMutationService.cs`
 - `BeMusicSeeker/Models/Utils/LongPathFileSystem.cs`
 - new narrowly scoped immutable plan/receipt type
+- `BeMusicSeeker/Models/BmsLibraryInternal/LibraryFileOperationSynchronization.cs`
 - `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryPackageInstallService.cs`
 - `BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs`
 - `BeMusicSeeker/Models/BMSLibrary.cs`
+- `BeMusicSeeker/Models/BmsLibraryInternal/CatalogMutationOwner.cs` のinstall-row transaction seam
 - `BeMusicSeeker/Models/BmsLibraryInternal/LibraryFolderMoveCoordinator.cs`
 - `BeMusicSeeker/Models/BMSLibrary.LibraryFileOperationOwner.cs`
+- `BeMusicSeeker/Models/BMSLibrary.LibraryFileOperationOwner.Merge.cs`
 - `BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryLibraryFileOperationsService.cs`
+- `BeMusicSeeker/Models/BmsLibraryInternal/AutoRenameBatchCoordinator.cs`
+- package / pending / selected / merge / auto-rename のterminal result contractと、そのdirect workflow/UI consumer
 - `BeMusicSeeker.Tests/ResilientFileMutationServiceTests.cs`
 - `BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs`
 - `BeMusicSeeker.Tests/BmsLibraryLibraryFileOperationsServiceTests.cs`
@@ -528,6 +534,17 @@ Replan if:
 - batchではなくper-package durable commitが必要になる。
 - crash/power-loss replay、auto-rename/merge、cross-volume atomicityまでscopeを広げる必要がある。
 - failure resultへrecovery pathsを載せることが既存UI/APIでは不可能である。
+
+#### Replan addendum — issue-resolver result (2026-08-31)
+
+初回実装の静的調査で次の4点をblocking gapとして確認した。いずれも `D-09`–`D-11` から一意に決まり、新しいobservable semanticsの判断は追加しない。
+
+1. `LibraryFileOperationSynchronization` はadmission/reservationと短いsnapshot lockを分離する。executor、DB apply、cleanup、notification、task startの間はmodel/collection/queue lockを保持せず、catalog/live publicationはfinalize後に行う。
+2. receipt-aware routeをcanonicalにする。estimated/cleanup-onlyを含むinstall、merge、auto-renameをsource-first legacy routeへ残さない。per-package durable commit後、`ManualRecoveryRequired` でbatchを停止し、`CompletedWithCleanupFailure` はcommit済みとしてfresh retryしない。
+3. package、pending、selected chart、folder、merge、auto-renameのpublic command/UI seamまでtyped terminal resultとrecovery pathを伝播する。legacy `void` / failure-listでmanual recovery情報を隠さない。
+4. `IFileMutationService` のcopy default implementationを廃止し、`CopyFile` / `CopyDirectory` をresilient retry分類へ追加する。retry時はattemptが作成したpartial destinationだけを処理し、sourceを正規化・削除しない。
+
+追加所有pathは上記Writable pathsに含める。`duplicate-file-check.md` の恒久仕様差分はU7からhandoffし、shared specと合わせてU9で統合する。
 
 ### U8 — URI scheme policy and drop descendant reparse rejection
 
