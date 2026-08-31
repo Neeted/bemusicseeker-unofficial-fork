@@ -12,7 +12,7 @@ Target release: `v3.0.0.0`
 
 Last updated: 2026-08-31
 
-Implementation status: not started
+Implementation status: in progress
 
 ## この計画の運用
 
@@ -261,9 +261,9 @@ URL acquisition と external playlist sync は別 owner/allowlist のままに�
 | Unit | Status | Owner | Depends on | Contract IDs | Evidence / next action |
 | --- | --- | --- | --- | --- | --- |
 | `U0` Plan and oracle freeze | Completed | root | none | all packets | plan-clarifier: questions none。7 packets frozen。implementation未開始 |
-| `U1` Current updater safety | Pending | unassigned worker | U0 | `UPD-V3-LOCK`, `UPD-V3-POSTMUTATION`, `UPD-V3-ROLLBACK-FAIL` | preflight lock、post-mutation、dual-faultのbase-failから開始 |
+| `U1` Current updater safety | Verified | implementation-worker closed | U0 | `UPD-V3-LOCK`, `UPD-V3-POSTMUTATION`, `UPD-V3-ROLLBACK-FAIL` | commit `b13ab8fe`; integrated Quick artifact `tests-quick-20260831-102226`, 27 updater pass + approved reparse skip |
 | `U2` Actual v2 first hop and release outcome gate | Pending | unassigned worker | U1 | `UPD-V216-*`, `UPD-NOTE`, `REL-*` | exact artifact availabilityを最初に検証 |
-| `U3` Raw SQLite completion | Pending | unassigned worker | U0 | `DB-STEP`, `DB-PRIMARY`, `DB-PARTIAL` | U1とpath-disjointなら並列可 |
+| `U3` Raw SQLite completion | Verified | implementation-worker closed | U0 | `DB-STEP`, `DB-PRIMARY`, `DB-PARTIAL` | commit `88cda4e8`; integrated Quick artifact `tests-quick-20260831-102226`, 10/10 pass |
 | `U4` App schema transaction ownership | Pending | unassigned worker | U0 | `DB-OUTER-ROLLBACK`, `DB-RETRY` | borrowed participant commit routeを退役 |
 | `U5` Startup readiness and import admission | Pending | unassigned worker | U0 | `START-*` | dispatcher/readiness barrierを先に作る |
 | `U6` Failure propagation and success suppression | Pending | unassigned worker | U4, U5 | `FAIL-*` | startup/schema shared pathsのhandoff後に着手 |
@@ -675,6 +675,8 @@ U0 packet freeze
 | --- | --- | --- | --- | --- | --- |
 | 2026-08-31 | U0 | Pending -> Completed | root + plan-clarifier + test-contract-designer | decisions closed、7 packets frozen、authority gap none | U1/U3のbase-failから開始 |
 | 2026-08-31 | U0 | QA remediation | two independent plan QA sessions | updater post-mutation/dual-fault contracts、legacy failure surface、full packet metadata、exclusive shared-spec ownership、single final Fullを反映 | prose/link/whitespace validation後にU1/U3へhandoff可能 |
+| 2026-08-31 | U3 | Pending -> Verified | implementation-worker + root | base-red `tests-quick-20260831-094841`; head 10/10 `tests-quick-20260831-100427`; integrated 10/10 `tests-quick-20260831-102226`; commit `88cda4e8` | U9へraw completion/partial-publicationのspec deltaをhandoff済み |
+| 2026-08-31 | U1 | Pending -> Verified | implementation-worker + root | preflight/post-mutation/dual-fault negative controls; head 27 pass + approved skip `tests-quick-20260831-101855`; integrated同結果 `tests-quick-20260831-102226`; commit `b13ab8fe` | U2がactual v2 first-hopとrelease gateを所有 |
 
 ## Final evidence checklist
 
