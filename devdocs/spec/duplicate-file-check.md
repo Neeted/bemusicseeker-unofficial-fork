@@ -78,12 +78,17 @@ merge flow:
 1. 再生中 chart を停止する。
 2. UI update suppression を開始する。
 3. duplicate refresh priority window を開始し、playlist resolve prewarm を duplicate refresh 後へ defer できるようにする。
-4. source folder の chart refs を owner-backed remove として unregister する。
-5. source の chart / resource files を destination へ移動する。
-6. destination directory を scan し、reverse lookup と DB / owned collection / maintenance を更新する。
-7. UI suppression を解除し、duplicate refresh 後に auto-select を試みる。
+4. model snapshot lock の内側で source chart、hash、catalog delta、immutable detached package を準備し、lock を解放する。
+5. source を保持したまま destination-local sibling staging と overwrite backup を作り、preflight を完了する。
+6. staged files を destination へ promote し、catalog delta を 1 つの DB durable transaction で commit する。durable receipt より前の失敗は単一 owner が filesystem compensation を一度だけ試す。
+7. durable receipt 後に source delete、空 source directory cleanup、reverse lookup、maintenance、notification を finalize / post-commit として行う。
+8. UI suppression を解除し、terminal receipt に応じて recovery 案内または duplicate refresh 後の auto-select を行う。
 
-merge の resource-health maintenance は `ResourceHealthIndexUpdateMode.DeferOnUpdates` を使う。内部 route は `DuplicateMergeMaintenanceReceipt` として、merge 成否、maintenance の更新有無、intermediate defer、delta/full rebuild の dispatch facts を返す。merge 中は resource-health の delta 適用と full rebuild を行わず、次の canonical `GetResourceHealthIndexSnapshotForView()` read が current owned target snapshot を一度だけ full rebuildし、続く read は同じ snapshot reference/version を再利用する。公開 `BMSLibrary.MergeChartDirectory(string, string)` は従来どおり `void` で receipt を破棄し、filesystem・DB・lock・exception の契約は変えない。
+merge の resource-health maintenance は `ResourceHealthIndexUpdateMode.DeferOnUpdates` を使う。canonical workflow route は `DuplicateMergeMaintenanceReceipt` として、merge 成否、file/DB mutation terminal state、manual recovery path、cleanup failure、maintenance の更新有無、intermediate defer、delta/full rebuild の dispatch facts を UI owner まで返す。merge 中は resource-health の delta 適用と full rebuild を行わず、次の canonical `GetResourceHealthIndexSnapshotForView()` read が current owned target snapshot を一度だけ full rebuildし、続く read は同じ snapshot reference/version を再利用する。公開 `BMSLibrary.MergeChartDirectory(string, string)` の `void` 入口は互換用に残すが、通常の duplicate UI/workflow は receipt-aware overload を使い、terminal result を破棄しない。
+
+durable DB receipt 前の compensation が成功した場合は source と DB prior state を authoritative とし、失敗として終了する。compensation 自体に失敗した場合は `ManualRecoveryRequired(paths)` として batch を停止し、stage / backup / source の recovery path を保持して自動 retry や後続 cleanup を行わない。durable receipt 後の source cleanup だけが失敗した場合は `CompletedWithCleanupFailure` とし、destination と DB は commit 済みのため DB rollback、filesystem compensation、fresh install retryを行わない。directory/file operation gate は持てるが、model/collection/queue lock を filesystem executor、DB transaction、cleanup、UI notification の待機をまたいで保持しない。
+
+この境界は process crash / power loss を replay する persistent journal、あらゆる cross-volume filesystem の atomicity を保証するものではない。destination-local staging、source retention、one-shot compensation、typed terminal receipt を通常運用での安全境界とし、それでも回復不能な場合は recovery paths を失わず手動復旧へ移す。
 
 source chart を除外した owned installed primary MD5 lookup に同一 MD5 が既にある場合、その source chart file は移動対象から外す。これは destination folder に限らず、library 内に同一 MD5 の current owned chart が残る場合も含む。chart ファイル名だけが衝突する場合は別名へずらす。component resource の衝突は smart overwrite 設定に従う。
 

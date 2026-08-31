@@ -83,6 +83,10 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 `URLを指定して読み込む` の複数行インポートは、キュー内の URL をバッチとして取り出し、外部表 snapshot 取得を `LoadExternalTableSnapshotsAsync` で並列実行する。重複プレイリスト名は登録前に既存 playlist 名と同一バッチ内予約名を照合し、従来仕様どおりリネームせずスキップする。ただし同期的に処理全体は止めず、スキップ件数と対象名を完了時の結果ダイアログで通知する。新規登録は `RegistrateExternalTablesAsync(..., renameDuplicateName: false, ...)` にまとめ、参照更新、プレイリストサマリー更新、playlist URL completion refresh は登録済み table 群に対して一括で行う。進捗表示は外部取得件数に加えて、重複確認、登録、参照更新、完了処理の後処理フェーズを含め、外部リクエスト完了後に処理が止まって見えないようにする。
 
+playlist 一覧の URL1 / URL2 など、外部 table を取得する acquisition route は initial URI、HTTP redirect 後の final URI、HTML / JSON から辿る recursive URI の各 hop で `http` / `https` だけを許可する。`file`、drive path、UNC、FTP、custom scheme は明示的な入力エラーとし、gateway、temporary file、browser fallback、playlist 登録を開始しない。許可済み HTTP(S) URI で通常の取得に失敗した場合だけ、従来の browser fallback を使ってよい。最終 response や recursive link が非 HTTP(S) へ変わった場合も同じ失敗契約を適用し、途中まで取得した内容を table snapshot として公開しない。
+
+この acquisition 境界は、保存済み playlist の外部同期 source path とは別である。外部同期では従来どおり relative/local path、drive path、`file:` URI、UNC を許可し、UNC による SMB 接続も supported behavior とする。HTTP-only acquisition の validator をこの経路へ流用して local/file/UNC support を失わせない。
+
 更新判定は header JSON と data JSON の hash を分けて扱う。
 
 | 判定 | 内容 | `last_update` | DB 保存 | `.bmt` 出力 |
@@ -126,6 +130,12 @@ entry folder projection を更新した場合は、DB 保存だけで終わら�
 DB 保存後、LR2 linked profile でのみ `.lr2folder` の移動・再生成や `config.xml` の BMS search directory 更新を行う。standalone profile では `.lr2folder` 実出力は行わないが、プレイリスト header / entry の DB 保存と beatoraja `.bmt` 再出力要求は行う。
 
 entry の追加・削除・folder 編集など、`playlist_entry` の全置換が必要なローカル編集では、DB 全体保存を行った後に LR2 linked profile でのみ custom folder を再出力する。custom folder 出力処理は DB 保存の副作用を持たず、DB 保存の有無は呼び出し元の正本更新処理で決める。プレイリストへの drag & drop 追加は、通常譜面行、プレイリスト詳細行、または `PlayHistoryRow.ResolvedChart` を持つプレイログ行を入力にできる。プレイログ未解決行を含む selection は playlist entry へ変換せず、部分追加もしない。
+
+### 永続化失敗の契約
+
+playlist detail edit は DB / durable file mutation が成功した後だけ live source synchronization、success callback、`afterApply` を実行する。durable operation が失敗した場合は edit state を復元し、失敗前の active source を正本として維持する。playlist summary の bulk operation も同様に、durable failure 後の catalog / keyword / sort / live source 更新、`afterApply`、dialog close を抑止し、遅れて到着した presentation continuation を成功として適用しない。
+
+playlist backup / restore の file read/write または DB apply failure は caller へ terminal failure として伝播させ、成功 receipt、成功 dialog、後続 export、settings close、application shutdown の authorization を発行しない。restore input が不正、raw SQLite read が途中で失敗、または dump が partial の場合は既存 playlist tables と live collection を変更しない。raw reader は `SQLITE_ROW` / `SQLITE_DONE` 以外を failure とし、step failure を finalize failure より primary に保ち、partial rows を dump、restore、UI projectionへ公開しない。
 
 ## LR2 Custom Folder 出力
 

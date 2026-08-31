@@ -151,6 +151,8 @@ app schema repair 後は必ず final preflight を行い、上記の未収束が
 
 `BmsLibraryDbGateway.EnsureAppOwnedSchema()` は playlist / bmson / chart_info / IR / lookup index を現行 schema へ揃え、`app_schema = 1` を記録する。既存 `chart_digest_map` の `md5` / `sha256` row を保持しながら current schema へ正規化する場合は `RepairAppOwnedSchema()` を使う。
 
+app-owned schema の ensure / repair は `BmsLibraryDbGateway` が開始した 1 つの outer transaction を rollback unit とする。borrowed connection を受け取る playlist schema、digest、index などの participant は、自身で transaction を commit / rollback しない。schema/version/digest/data の途中まで進んだ後で後段が失敗した場合も outer owner が全変更を rollback し、最初の例外を primary failure として呼び出し元へ伝える。同じ DB ファイルで通常起動を再試行した場合は、途中状態を前提にせず同じ repair から収束できなければならない。
+
 app schema repair は `song` table 全件を走査して実ファイルから SHA-256 を生成しない。missing digest は file diff / install / inline `chart_info` / chart info backfill など、譜面 bytes を読む後続 pipeline の責務とする。
 
 初回設定後の `Msg_init_completed` は `files_initialize_done` 直後ではなく、required local initialization が完了して `startup_initialization_complete` を記録した後に表示する。自動外部同期、physical consistency audit、export、prewarm まで完了したことは意味しない。scheduler 管理下の post task は `startup_post_initialization_maintenance_complete` で別に観測し、scheduler 外の ranking/XML refresh と遅延 presentation flush は独立した lifecycle で観測する。
@@ -209,6 +211,10 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 - pending package state: pending package list と、source package resource surface を復元済みまたは推定開始時に構築可能であること。
 
 `StartupInstallReadinessState` は `CatalogLoaded && DestinationResourceIndexReady && PendingPackagesRestored` を満たしたとき `InstallEstimationReady` に遷移する。`maintenance_hydration`、`chart_info_hydration`、playlist hydration、score/ranking refresh は install readiness の blocker にしない。
+
+playlist readiness と install estimation readiness は別の milestone であり、`StartupReadinessCoordinator` が required playlist hydration、外部 playlist import admission、deferred import drain、shutdown を一元管理する。外部同期 playlist とおすすめ playlist の import request は playlist initialization 中でも受理でき、呼び出し元は network / parse / DB 保存の完了を同期的に待たずに戻る。受理済み request は FIFO queue に保持し、required playlist readiness が完了するまで network access、playlist 永続化、active collection mutation を開始しない。readiness 後の drain は一度だけ開始し、model / queue lock を保持したまま import、UI callback、外部同期完了を待たない。
+
+required playlist initialization が fault した場合、coordinator は readiness waiter と受理済み import を同じ terminal failure へ収束させ、queue を reopen したり空の成功 summary を後から発行したりしない。shutdown は producer、consumer、drain waiter を cancel/terminalize し、その後の late network、DB、collection mutation を許可しない。startup/schema continuation の fault も root initialization task へ伝播し、`startup_ready_*` / `startup_initialization_complete` を成功として publish したり、失敗後の continuation で状態を変更したりしない。
 
 導入可能 readiness の支配項は起動状態で異なる。通常起動 / 差分なしに近い起動では Everything scan / native bridge が支配項である。`song_tbl_load` 由来の catalog load は 3 秒台まで短縮済みだが、file enumeration と並走しており、現状の導入可能 wall clock では Everything scan に隠れる。`song_tbl_load` の micro optimization は、通常起動の導入可能短縮の主対象にはしない。
 
@@ -272,6 +278,7 @@ startup scheduler 管理下の post-initialization task の concurrency は 1 �
 - library folder tree の最終 refresh、maintenance 固有表示、自動 URL / reference / external sync は eventual consistency を許容する。
 - sort order prewarm は従来どおり optional で、未完なら on-demand build を使う。
 - external sync 完了までを「初期化完了」に含める必要がある製品要件へ変更する場合は、network を core initialization へ戻さず、別の `online synchronization complete` milestone を設ける。
+- initialization 中に受理した外部 / おすすめ playlist import は required playlist readiness まで defer するが、install estimation readiness を待たせない。initialization failure または shutdown 後は受理済み request を成功扱いせず terminalize する。
 
 ## DB Access Policy
 
@@ -283,6 +290,8 @@ read-only hydration loader のルール:
 - DB read phase は row / DTO / dictionary を返すだけにし、DB connection を閉じてから session index 更新や owner runtime state 反映を行う。
 - cleanup、backfill、metadata update、`ir_score` replace、`ir_data` upsert、file diff commit は短い write-capable transaction path として明示する。
 - loader log は `readOnly=true` と `dbLockWaitMs` を出す。
+
+raw SQLite reader は `sqlite3_step` の `SQLITE_ROW` だけを row 継続、`SQLITE_DONE` だけを正常完了として扱い、それ以外の result code を例外にする。`sqlite3_finalize` failure も捨てず、step failure が既にある場合は step failure を primary のまま finalize failure を診断情報として保持する。step failure までに読み取れた partial rows を dump、restore、session/publication の入力として返してはならない。
 
 読み取り専用化済みの主な処理:
 
