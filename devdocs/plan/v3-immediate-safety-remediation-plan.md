@@ -266,10 +266,10 @@ URL acquisition と external playlist sync は別 owner/allowlist のままに�
 | `U3` Raw SQLite completion | Verified | implementation-worker closed | U0 | `DB-STEP`, `DB-PRIMARY`, `DB-PARTIAL` | commit `88cda4e8`; integrated Quick artifact `tests-quick-20260831-102226`, 10/10 pass |
 | `U4` App schema transaction ownership | Verified | implementation-worker closed | U0 | `DB-OUTER-ROLLBACK`, `DB-RETRY` | commit `3a8cf6cc`; head Quick `tests-quick-20260831-105151` 26/26 pass; integrated Quick `tests-quick-20260831-113927` 50/50 pass |
 | `U5` Startup readiness and import admission | Verified | implementation-worker closed | U0 | `START-*` | commit `e83127e8`; head Quick `tests-quick-20260831-124531` 77/77 pass; integrated Quick `tests-quick-20260831-125110` 154 pass + approved symlink skip |
-| `U6` Failure propagation and success suppression | Implemented | implementation-worker closed | U4, U5 | `FAIL-*` | focused Quick `tests-quick-20260831-141114` 13/13 pass。U7完了後に統合検証して単独commit |
-| `U7` Package/folder file+DB boundary | Replanned / In progress | implementation-worker | U0 | `COMP-*` | initial implementation後のissue-resolver静的調査で4 blocking gapを確認。下記replan addendumを実装して再検証 |
+| `U6` Failure propagation and success suppression | Verified | implementation-worker closed | U4, U5 | `FAIL-*` | commit `9cc94a51`; focused Quick `tests-quick-20260831-141114` 13/13 pass; U7/outcome gateとの統合 Quick `tests-quick-20260831-165123` 376 pass + approved 7 cross-volume skips |
+| `U7` Package/folder file+DB boundary | Verified | implementation-worker + issue-resolver closed | U0 | `COMP-*` | commit `0ae8e615`; focused Quick `tests-quick-20260831-164409` 346 pass + approved 7 cross-volume skips; integrated `tests-quick-20260831-165123` |
 | `U8` URI and drop ingress boundaries | Verified | implementation-worker closed | U0 | `ING-*` | commit `bb90d8bd`; head 77 pass + deterministic reparse coverage + privilege symlink skip `tests-quick-20260831-123039`; integrated `tests-quick-20260831-125110` |
-| `U9` Integration, release qualification, static review | Pending | root | U1–U8 | full roster | exact FQN freeze、focused Quick、Full内canonical Functional、review |
+| `U9` Integration, release qualification, static review | In progress | root + implementation-worker | U1–U8 | full roster | optional outcome gate `a2417f80`; roster cardinality `e4a39294`; format blocker `a4023804`; shared specs `1d8abf51`; actual-v2 Full receipt gate `ad237eb1`; roster freeze、final Full、reviewが残る |
 
 ## Implementation units
 
@@ -698,6 +698,9 @@ U0 packet freeze
 | 2026-08-31 | U2 | Pending -> Verified | implementation-worker + root | exact public artifact 11,260,709 bytes / SHA-256 `C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2`; head 24/24 `tests-quick-20260831-113439`; integrated 50/50 `tests-quick-20260831-113927`; cache-path normalization後 identity 2/2 `tests-quick-20260831-114320`; actual happy/lock receipt `artifacts/verification/v216-first-hop/v216-first-hop-acceptance.json`; commit `1e9f576a` | U9でcomplete exact-FQN roster/optional allowlistをfreezeし、final Fullへ統合 |
 | 2026-08-31 | U5 | Pending -> Verified | implementation-worker + root | readiness negative control、head 77/77 `tests-quick-20260831-124531`; integrated 154 pass + approved privilege symlink skip `tests-quick-20260831-125110`; commit `e83127e8` | U6でstartup failure時のpending drain終端とfailure propagationを統合確認、U9へreadiness/FIFO/shutdown spec deltaをhandoff |
 | 2026-08-31 | U8 | Pending -> Verified | implementation-worker + root | URL base-red `tests-quick-20260831-115337`; drop base-red `tests-quick-20260831-115448`; head 77 pass + privilege symlink skip `tests-quick-20260831-123039`; integrated同結果を含む `tests-quick-20260831-125110`; commit `bb90d8bd` | U9へexternal drive/file/relative/UNC preservation spec deltaをhandoff。handle-based TOCTOUは対象外 |
+| 2026-08-31 | U6 | Implemented -> Verified | implementation-worker + root | focused 13/13 `tests-quick-20260831-141114`; commit `9cc94a51`; U7/outcome gateとの統合 376 pass + approved 7 cross-volume skips `tests-quick-20260831-165123` | failureはsource identityを保って伝播し、detail/bulk/restore/settings/startupのsuccess side effectを抑止。恒久仕様はU9で統合済み |
+| 2026-08-31 | U7 | Replanned -> Verified | implementation-worker + issue-resolver + root | 4 blocking gapをaddendumどおり解消; focused 346 pass + approved 7 cross-volume skips `tests-quick-20260831-164409`; integrated `tests-quick-20260831-165123`; commit `0ae8e615` | persistent crash journalとcross-volume atomicityは明示対象外。canonical receipt routeとmanual recovery pathをU9仕様へ統合済み |
+| 2026-08-31 | U9 | Pending -> In progress | root + implementation-workers | optional outcome parser `a2417f80`; exact cardinality tests 4/4 `tests-quick-20260831-170358` / commit `e4a39294`; prior Full format blockerをwhitespace-only修正 `a4023804`; shared specs `1d8abf51`; actual-v2 receipt gate 18/18 `tests-quick-20260831-171710` / commit `ad237eb1` | 33件roster/13件optional allowlistのgate検証、final Full、frozen static reviewが残る |
 
 ## Final evidence checklist
 
@@ -707,12 +710,12 @@ U0 packet freeze
 - [ ] current updater preflight-lock receipt
 - [ ] current updater post-mutation rollback exact-tree receipt
 - [ ] current updater rollback-second-fault and recovery receipt
-- [ ] Contract ID -> exact FQN checked-in roster
-- [ ] optional skip allowlist and non-empty reason receipts
-- [ ] all focused Quick artifacts
+- [x] Contract ID -> exact FQN checked-in roster
+- [x] optional skip allowlist and non-empty reason receipts
+- [x] all focused Quick artifacts
 - [ ] final Full artifact including its canonical Functional and update/distribution phases
 - [ ] Functional phase elapsed time（180秒超の場合は明示）
-- [ ] public release note manual-recovery review
+- [x] public release note manual-recovery review
 - [ ] `git diff --check`
 - [ ] frozen snapshot static review with no blocking finding
 - [ ] fresh review after any blocking-finding remediation

@@ -13,6 +13,14 @@
     "schemaVersion": 1,
     "required": [
       {
+        "contractId": "UPD-V216-HAPPY",
+        "fullyQualifiedName": "BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.HappyPath"
+      },
+      {
+        "contractId": "UPD-V216-LOCK",
+        "fullyQualifiedName": "BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.ManagedFileLockCharacterization"
+      },
+      {
         "contractId": "UPD-V3-LOCK",
         "fullyQualifiedName": "BeMusicSeeker.Tests.UpdaterPackageSyncTests.ApplyUpdate_PreflightManagedLockLeavesCanonicalAndPreservedTreesUnchanged"
       },
@@ -23,6 +31,38 @@
       {
         "contractId": "UPD-V3-ROLLBACK-FAIL",
         "fullyQualifiedName": "BeMusicSeeker.Tests.UpdaterPackageSyncTests.RecoverCommand_RollbackSecondFaultRetainsPrimaryReceiptAndRecoveryMaterial"
+      },
+      {
+        "contractId": "REL-V216-ID",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.DistributionArtifactContractTests.V216ArtifactIdentityRequiresPinnedSizeAndHashWithoutFallback"
+      },
+      {
+        "contractId": "REL-CRITICAL-ROSTER",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.VerificationRunnerContractTests.ReleaseOutcomeGateRequiresExactPassedCardinality"
+      },
+      {
+        "contractId": "REL-OPTIONAL-SKIP",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.VerificationRunnerContractTests.ReleaseOutcomeGateAllowsOnlyExactOptionalSkipWithReason"
+      },
+      {
+        "contractId": "START-ADMIT",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.StartupLibraryInitializationWorkflowOwnerTests.StartupReadiness_AdmitsImportBeforeReadinessAndRunsItAfterward"
+      },
+      {
+        "contractId": "START-DEFER",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistWorkspaceActionWorkflowTests.PlaylistWorkspaceRecommendedImportAdmitsDuringInitializationAndDefersUntilReadiness"
+      },
+      {
+        "contractId": "START-SHUTDOWN",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.StartupLibraryInitializationWorkflowOwnerTests.StartupReadiness_ShutdownTerminalizesWaiterAndImportQueue"
+      },
+      {
+        "contractId": "DB-OUTER-ROLLBACK",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.AppSchemaPreflightServiceTests.RepairAppOwnedSchema_LateFailureRollsBackNormalizationSchemaVersionDigestAndData"
+      },
+      {
+        "contractId": "DB-RETRY",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.AppSchemaPreflightServiceTests.RepairAppOwnedSchema_LateFailureRetryConvergesOnSameDatabase"
       },
       {
         "contractId": "DB-STEP",
@@ -37,18 +77,127 @@
         "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistSchemaMigrationTests.LoadPlaylistDump_StepFailureAfterPartialRowsPreservesPriorGeneration"
       },
       {
-        "contractId": "REL-V216-ID",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.DistributionArtifactContractTests.V216ArtifactIdentityRequiresPinnedSizeAndHashWithoutFallback"
+        "contractId": "FAIL-LOG",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.TaskLoggingTests.LoggingAndPropagate_RethrowsOriginalFailure"
       },
       {
-        "contractId": "REL-CRITICAL-ROSTER",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.VerificationRunnerContractTests.ReleaseOutcomeGateRequiresExactPassedCardinality"
+        "contractId": "FAIL-STARTUP",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.StartupLibraryInitializationWorkflowOwnerTests.InitializationService_RunInitialize_PropagatesContinuationFailure"
       },
       {
-        "contractId": "REL-OPTIONAL-SKIP",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.VerificationRunnerContractTests.ReleaseOutcomeGateAllowsOnlyExactOptionalSkipWithReason"
+        "contractId": "FAIL-DETAIL",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistViewPipelineTests.PlaylistDetailEditing_DurableFailureDoesNotSynchronizeLiveSource"
+      },
+      {
+        "contractId": "FAIL-BULK",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistSummaryBulkEditTests.PlaylistSummaryBulkExternalPropertyInitialization_DurableFailureSuppressesLatePresentation"
+      },
+      {
+        "contractId": "FAIL-RESTORE",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests.PlaylistWorkspaceRestorePlaylistBackupAsync_PropagatesFileReadFailureWithoutReceipt"
+      },
+      {
+        "contractId": "FAIL-SHUTDOWN",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.SettingsWindowPresentationTests.SettingsWindow_RestoreFailureDoesNotAuthorizeCloseOrShutdown"
+      },
+      {
+        "contractId": "COMP-PREFLIGHT",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.BmsLibraryPackageInstallServiceTests.MovePackageFilesWithReceipt_PrecommitFailureRetainsSourceAndRestoresPackageOwner"
+      },
+      {
+        "contractId": "COMP-PRECOMMIT",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.FileDbMutationExecutor_PrecommitFailureCompensatesOnceAndPreservesPriorFilesystem"
+      },
+      {
+        "contractId": "COMP-MANUAL",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.FileDbMutationExecutor_CompensationFailureReturnsManualRecoveryAndRetainsRecoveryPaths"
+      },
+      {
+        "contractId": "COMP-DURABLE",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.FileDbMutationExecutor_DurableReceiptFinalizesBeforePostCommitCallback"
+      },
+      {
+        "contractId": "COMP-CLEANUP",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.FileDbMutationExecutor_CleanupFailureReturnsCompletedWithCleanupFailureWithoutCompensation"
+      },
+      {
+        "contractId": "COMP-SUCCESS",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.BmsLibraryPackageInstallServiceTests.MovePackageFilesWithReceipt_SingleFilePackageFinalizesFileSource"
+      },
+      {
+        "contractId": "ING-URL-INITIAL",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests.DownloadCandidate_UnsupportedInitialSchemeFailsBeforeGatewayOrTemp"
+      },
+      {
+        "contractId": "ING-URL-HOPS",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistUrlAcquisitionOwnershipTests.DownloadCandidate_UnsupportedRecursiveSchemeFailsForKnownHtmlAndJsonSourceForms"
+      },
+      {
+        "contractId": "ING-EXTERNAL-LOCAL",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.BmsPlaylistExternalLoadTests.BMSTable_ExternalDataUrlResolutionPreservesDriveFileAndUncRoutes"
+      },
+      {
+        "contractId": "ING-DROP-REPARSE",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.DroppedInstallIngressMaterializerTests.Acquire_StableDirectoryContainingInjectedReparseDescendantRejectsWholeBatch"
+      },
+      {
+        "contractId": "ING-DROP-CLEANUP",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.DroppedInstallIngressMaterializerTests.Acquire_PartialCopyFailureDeletesIngressRootButNotExternalOriginals"
       }
     ],
-    "optionalSkipAllowlist": []
+    "optionalSkipAllowlist": [
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.BmsLibraryLibraryFileOperationsServiceTests.MoveFolderAndUpdateReferences_CrossVolumeMoveRewritesDirectoryIndex",
+        "reason": "Requires two writable local volume roots; normal single-volume hosts skip."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.BmsLibraryPackageInstallServiceTests.MovePackageFiles_AutoNamingDirectoryPackageMovesAcrossVolumes",
+        "reason": "Requires two writable local volume roots; normal single-volume hosts skip."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.BmsLibraryPackageInstallServiceTests.MovePackageFiles_ExplicitDestinationMovesFilePlanAcrossVolumes",
+        "reason": "Requires two writable local volume roots; normal single-volume hosts skip."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ChartInfoParserBehaviorTests.ChartStringDumpTool_BuildsAndDumpsReferenceChartString",
+        "reason": "Manual compatibility smoke requires a local JDK and reference repositories."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.DroppedInstallIngressMaterializerTests.Acquire_DirectoryContainingReparsePointRejectsBatchAndPreservesTarget",
+        "reason": "Requires Windows symbolic-link privilege; deterministic injected reparse coverage remains required separately."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ExternalAudioEncoderSmokeTests.AvailableExternalEncodersProduceRecognizableOutput",
+        "reason": "Requires explicitly provisioned user-supplied external encoder executables."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource",
+        "reason": "Requires two writable local volume roots; normal single-volume hosts skip."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides",
+        "reason": "Requires two writable local volume roots; normal single-volume hosts skip."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging",
+        "reason": "Requires two writable local volume roots; normal single-volume hosts skip."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource",
+        "reason": "Requires two writable local volume roots; normal single-volume hosts skip."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.UpdateDownloadServiceTests.PrepareUpdaterLaunchRejectsReparsePointInCurrentWorkDirectory",
+        "reason": "Requires Windows symbolic-link privilege; deterministic injected reparse coverage remains required separately."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.UpdateDownloadServiceTests.TryDeleteDownloadedPackageRejectsReparsePointDownloadsDirectory",
+        "reason": "Requires Windows symbolic-link privilege; deterministic injected reparse coverage remains required separately."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.UpdaterPackageSyncTests.ApplyUpdate_RejectsReparseAncestorBeforeMovingManagedPath",
+        "reason": "Requires Windows symbolic-link privilege; deterministic injected reparse coverage remains required separately."
+      }
+    ]
   }
 }

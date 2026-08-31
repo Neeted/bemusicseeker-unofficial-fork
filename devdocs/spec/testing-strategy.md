@@ -206,14 +206,16 @@ state が保持されることを検証する。managed-file lock の characteri
 exit、非空 legacy stderr、`data/config` 不変を要求し、旧 managed tree の自動 rollback
 や current handshake は要求しない。
 
-Full の `ProcessIntegration` と `ReleaseAcceptance` はそれぞれ TRX receipt を保存し、
+Full の `ProcessIntegration` と `ReleaseAcceptance` は、それぞれ TRX または exact-FQN JSON
+result receipt を保存し、
 `Assert-VerificationTestOutcomes` が canonical Functional の全 shard と
 ProcessIntegration/ReleaseAcceptance の receipt を合成して
 `release-outcomes.json` を作る。artifact metadata の `releaseOutcome.required` にある
 各 exact FQN は結果がちょうど一件で、状態が `Passed` でなければ release failure と
 する。missing、duplicate、`Skipped`、`Inconclusive`、`NotExecuted`、その他の non-passed
-結果は受け入れない。optional は exact FQN の allowlist に明示された場合だけ `Skipped`
-を許し、allowlist entry と receipt の reason は空であってはならない。category 全体の
+結果は受け入れない。optional は exact FQN の allowlist に明示された場合だけ `Skipped`、
+`Inconclusive`、`NotExecuted` を許し、allowlist entry と receipt の reason は空であっては
+ならない。category 全体の
 skip や unknown FQN の skip は許可しない。release gate は結果 cardinality、status、
 optional reason を synthetic TRX/JSON receipt でも確認し、source text snapshot や広域
 snapshot を oracle にしない。
