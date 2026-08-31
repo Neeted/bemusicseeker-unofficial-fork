@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
@@ -369,22 +370,16 @@ internal static class ChartInfoMetadataTestSupport
 
     internal static void InvokeInstallChartPackages(BMSLibrary library, IEnumerable<ChartPackage> packages, string installDirectory)
     {
-        MethodInfo method = typeof(BMSLibrary).GetMethod("installChartPackages", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(method, "installChartPackages method was not found.");
-        method.Invoke(
-            library,
-            [
-                packages,
-                installDirectory,
-                null,
-                new List<ChartPackage>(),
-                null,
-                null,
-                false,
-                false,
-                null,
-                null
-            ]);
+        List<ChartPackage> packageList = [.. (packages ?? [])];
+        foreach (PackageChartEntry entry in packageList
+            .SelectMany(package => package?.ChartEntries ?? [])
+            .Where(entry => entry?.Chart != null))
+        {
+            entry.SetInstallDestinationPathOnly(installDirectory);
+        }
+
+        library.ChartPackagesPending = new ObservableCollection<ChartPackage>(packageList);
+        library.InstallPendingPackagesToEstimatedDestinations(packageList);
     }
 
     internal static Task AwaitChartInfoBackfillAsync(BMSLibrary library)
