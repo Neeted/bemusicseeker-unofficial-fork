@@ -34,6 +34,10 @@ if ([string]::IsNullOrWhiteSpace($SqliteAssemblyRoot)) {
 . (Join-Path $repoRoot 'scripts\distribution-artifact.ps1')
 . (Join-Path $repoRoot 'scripts\verification-process-lifecycle.ps1')
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
+. (Join-Path $repoRoot 'scripts\verification-runner-contract.ps1')
+$verificationRunnerContract = Get-VerificationRunnerContract
+Assert-VerificationRunnerContract -Contract $verificationRunnerContract
+$v216AcceptanceReceiptContract = $verificationRunnerContract.V216FirstHop.AcceptanceReceipt
 
 if (-not ('BeMusicSeekerV216AcceptanceWindowMessage' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -748,11 +752,22 @@ try {
     $afterLockTrees = Get-PreservedTrees -AppRoot $lockApp
     Assert-PreservedTreesEqual -Before $beforeLockTrees -After $afterLockTrees -Label 'managed-file lock characterization'
 
+    # The result receipt is intentionally assembled only after both real first-hop
+    # assertions above have succeeded.  The release gate consumes these exact names
+    # as results; the detailed happy/locked evidence remains alongside them below.
+    $receiptResults = @(
+        foreach ($requiredResult in @($v216AcceptanceReceiptContract.RequiredResults)) {
+            [ordered]@{
+                fullyQualifiedName = [string]$requiredResult.FullyQualifiedName
+                outcome = [string]$v216AcceptanceReceiptContract.RequiredOutcome
+            }
+        })
     $script:successReceipt = [ordered]@{
         schemaVersion = 1
         manifestType = 'BeMusicSeeker.V216FirstHopAcceptance'
         status = 'passed'
         generatedUtc = [DateTime]::UtcNow.ToString('o')
+        results = $receiptResults
         artifact = [ordered]@{
             metadataPath = $artifactMetadata.MetadataPath
             artifactId = $artifactMetadata.ArtifactId

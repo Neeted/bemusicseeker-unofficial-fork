@@ -100,6 +100,24 @@ function Get-VerificationRunnerContract {
             FailureContract = 'primary-failure-preserved;cleanup-failure-diagnostic;success-cleanup-failure'
         })
 
+    $v216AcceptanceReceiptRelativePath = 'release-acceptance/v216-first-hop/v216-first-hop-acceptance.json'
+    $v216AcceptanceReceiptResults = @(
+        [ordered]@{
+            ContractId = 'UPD-V216-HAPPY'
+            FullyQualifiedName = 'BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.HappyPath'
+        }
+        [ordered]@{
+            ContractId = 'UPD-V216-LOCK'
+            FullyQualifiedName = 'BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.ManagedFileLockCharacterization'
+        })
+    $v216AcceptanceReceipt = [ordered]@{
+        RelativePath = $v216AcceptanceReceiptRelativePath
+        Format = 'json'
+        RequiredCardinality = 'exactly-once'
+        RequiredOutcome = 'Passed'
+        RequiredResults = $v216AcceptanceReceiptResults
+    }
+
     $releaseOutcomeGate = [ordered]@{
         Owner = 'Assert-VerificationTestOutcomes'
         ContractIds = @('REL-CRITICAL-ROSTER', 'REL-OPTIONAL-SKIP')
@@ -110,6 +128,12 @@ function Get-VerificationRunnerContract {
         UnknownNonPassed = 'fail'
         Inputs = @('Functional', 'ProcessIntegration', 'ReleaseAcceptance')
         ReceiptFileName = 'release-outcomes.json'
+        ReceiptInputs = @(
+            [ordered]@{
+                Name = 'V216FirstHopAcceptance'
+                RelativePath = $v216AcceptanceReceiptRelativePath
+                Format = 'json'
+            })
     }
 
     $v216FirstHop = [ordered]@{
@@ -126,6 +150,7 @@ function Get-VerificationRunnerContract {
         StartupCompletion = 'bounded-exit-and-full-stream-pid-drain'
         CurrentUpdaterBaseline = 'ab9d97ed3f53dab80fb2894f20f44abdfb6fed32'
         CurrentUpdaterBaselinePurpose = 'separate-current-updater-compatibility-and-recovery-lane'
+        AcceptanceReceipt = [pscustomobject]$v216AcceptanceReceipt
     }
 
     return [pscustomobject][ordered]@{
@@ -318,6 +343,13 @@ function Assert-VerificationRunnerContract {
             $gate.ReceiptFileName -cne 'release-outcomes.json') {
             throw 'Release outcome gate contract is invalid.'
         }
+        $receiptInputs = @($gate.ReceiptInputs)
+        if ($receiptInputs.Count -ne 1 -or
+            $receiptInputs[0].Name -cne 'V216FirstHopAcceptance' -or
+            $receiptInputs[0].RelativePath -cne 'release-acceptance/v216-first-hop/v216-first-hop-acceptance.json' -or
+            $receiptInputs[0].Format -cne 'json') {
+            throw 'Release outcome gate receipt inputs are invalid.'
+        }
     }
     $v216 = $Contract.V216FirstHop
     if ($null -eq $v216 -or
@@ -335,6 +367,20 @@ function Assert-VerificationRunnerContract {
         $v216.CurrentUpdaterBaseline -cne 'ab9d97ed3f53dab80fb2894f20f44abdfb6fed32' -or
         $v216.CurrentUpdaterBaselinePurpose -cne 'separate-current-updater-compatibility-and-recovery-lane') {
         throw 'v2.1.6.0 first-hop contract is invalid.'
+    }
+    $acceptanceReceipt = $v216.AcceptanceReceipt
+    $requiredResults = @($acceptanceReceipt.RequiredResults)
+    if ($null -eq $acceptanceReceipt -or
+        $acceptanceReceipt.RelativePath -cne 'release-acceptance/v216-first-hop/v216-first-hop-acceptance.json' -or
+        $acceptanceReceipt.Format -cne 'json' -or
+        $acceptanceReceipt.RequiredCardinality -cne 'exactly-once' -or
+        $acceptanceReceipt.RequiredOutcome -cne 'Passed' -or
+        $requiredResults.Count -ne 2 -or
+        $requiredResults[0].ContractId -cne 'UPD-V216-HAPPY' -or
+        $requiredResults[0].FullyQualifiedName -cne 'BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.HappyPath' -or
+        $requiredResults[1].ContractId -cne 'UPD-V216-LOCK' -or
+        $requiredResults[1].FullyQualifiedName -cne 'BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.ManagedFileLockCharacterization') {
+        throw 'v2.1.6.0 first-hop acceptance receipt contract is invalid.'
     }
 }
 

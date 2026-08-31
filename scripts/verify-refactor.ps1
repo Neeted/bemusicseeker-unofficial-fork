@@ -1975,6 +1975,12 @@ function Invoke-V216FirstHopAcceptance {
             '-OutputDirectory'
             $outputDirectory) `
         -DiagnosticsDirectory (Join-Path $PhaseDirectory 'v216-first-hop-command')
+
+    $receiptPath = Join-Path $outputDirectory 'v216-first-hop-acceptance.json'
+    if (-not (Test-Path -LiteralPath $receiptPath -PathType Leaf)) {
+        throw "v2.1.6.0 first-hop acceptance receipt is missing: $receiptPath"
+    }
+    return (Resolve-Path -LiteralPath $receiptPath).Path
 }
 
 function Assert-RepositoryWhitespace {
@@ -2266,7 +2272,14 @@ try {
 
         $processIntegrationResultsPath = $null
         $releaseAcceptanceResultsPath = $null
-        [void](Invoke-MonitoredFullPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        $v216FirstHopAcceptanceReceiptPath = $null
+        $v216ReceiptInputs = @($verificationRunnerContract.ReleaseOutcomeGate.ReceiptInputs)
+        if ($v216ReceiptInputs.Count -ne 1) {
+            throw 'Release outcome gate must declare exactly one v2.1.6.0 first-hop receipt input.'
+        }
+        $expectedV216FirstHopAcceptanceReceiptPath = [IO.Path]::GetFullPath(
+            (Join-Path $testDiagnosticsDirectory ([string]$v216ReceiptInputs[0].RelativePath).Replace('/', '\')))
+        $processIntegrationResultsPath = @(Invoke-MonitoredFullPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory)
             $descriptor = Get-FullPhaseDescriptor -Name 'ProcessIntegration'
             Assert-DistributionArtifactIdentity `
@@ -2291,8 +2304,9 @@ try {
                 -ExpectedArtifactId $expectedFullArtifactId `
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
-        })
-        [void](Invoke-MonitoredFullPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            return $processIntegrationResultsPath
+        })[-1]
+        $releaseAcceptancePaths = @(Invoke-MonitoredFullPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory)
             $descriptor = Get-FullPhaseDescriptor -Name 'ReleaseAcceptance'
             Assert-DistributionArtifactIdentity `
@@ -2301,11 +2315,16 @@ try {
                 -ExpectedArtifactId $expectedFullArtifactId `
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
-            Invoke-V216FirstHopAcceptance `
-                -Stopwatch $phaseStopwatch `
-                -BudgetSeconds (Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'v2.1.6.0 first-hop acceptance') `
-                -PhaseDirectory $phaseDirectory `
-                -ArtifactManifestPath $artifactManifestPath
+            $v216FirstHopAcceptanceReceiptPath = @(Invoke-V216FirstHopAcceptance `
+                    -Stopwatch $phaseStopwatch `
+                    -BudgetSeconds (Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'v2.1.6.0 first-hop acceptance') `
+                    -PhaseDirectory $phaseDirectory `
+                    -ArtifactManifestPath $artifactManifestPath)[-1]
+            if ([string]::IsNullOrWhiteSpace([string]$v216FirstHopAcceptanceReceiptPath) -or
+                [IO.Path]::GetFullPath([string]$v216FirstHopAcceptanceReceiptPath) -cne $expectedV216FirstHopAcceptanceReceiptPath -or
+                -not (Test-Path -LiteralPath $expectedV216FirstHopAcceptanceReceiptPath -PathType Leaf)) {
+                throw "v2.1.6.0 first-hop acceptance receipt path is missing or unexpected: $expectedV216FirstHopAcceptanceReceiptPath"
+            }
             Assert-V216ArtifactIdentity `
                 -MetadataPath $v216ArtifactMetadataPath `
                 -RepositoryRoot $repoRoot | Out-Null
@@ -2333,7 +2352,8 @@ try {
             $outcomeResultPaths = @(
                 $functionalResultPaths +
                 $processIntegrationResultsPath +
-                $releaseAcceptanceResultsPath)
+                $releaseAcceptanceResultsPath +
+                $v216FirstHopAcceptanceReceiptPath)
             [void](Assert-VerificationTestOutcomes `
                     -ResultPaths $outcomeResultPaths `
                     -RosterPath $v216ArtifactMetadataPath `
@@ -2344,7 +2364,13 @@ try {
                 -ExpectedArtifactId $expectedFullArtifactId `
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
-        })
+            return [pscustomobject][ordered]@{
+                AcceptanceReceiptPath = $v216FirstHopAcceptanceReceiptPath
+                ResultsPath = $releaseAcceptanceResultsPath
+            }
+        })[-1]
+        $v216FirstHopAcceptanceReceiptPath = [string]$releaseAcceptancePaths.AcceptanceReceiptPath
+        $releaseAcceptanceResultsPath = [string]$releaseAcceptancePaths.ResultsPath
 
         [void](Invoke-MonitoredFullPhase -Name 'format' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory)

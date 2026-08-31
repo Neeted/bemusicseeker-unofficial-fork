@@ -17,6 +17,10 @@ public sealed class VerificationRunnerContractTests
 {
     private const int FunctionalHardTimeoutSeconds = 300;
     private const int FunctionalReportingTargetSeconds = 180;
+    private const string V216HappyPathResultName =
+        "BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.HappyPath";
+    private const string V216ManagedFileLockResultName =
+        "BeMusicSeeker.ReleaseAcceptance.V216FirstHopAcceptance.ManagedFileLockCharacterization";
 
     [TestMethod]
     public void ModeMappings_UseCanonicalFunctionalExactlyOnceForUnfilteredRoutes()
@@ -598,6 +602,98 @@ public sealed class VerificationRunnerContractTests
             new[] { "Functional", "ProcessIntegration", "ReleaseAcceptance" },
             ReadStringArray(GetProperty(outcomeGate, "Inputs")));
         Assert.AreEqual("release-outcomes.json", GetProperty(outcomeGate, "ReceiptFileName").GetString());
+
+        JsonElement receiptInputs = GetProperty(outcomeGate, "ReceiptInputs");
+        Assert.AreEqual(1, receiptInputs.GetArrayLength());
+        Assert.AreEqual("V216FirstHopAcceptance", GetProperty(receiptInputs, 0, "Name").GetString());
+        Assert.AreEqual(
+            "release-acceptance/v216-first-hop/v216-first-hop-acceptance.json",
+            GetProperty(receiptInputs, 0, "RelativePath").GetString());
+        Assert.AreEqual("json", GetProperty(receiptInputs, 0, "Format").GetString());
+
+        JsonElement acceptanceReceipt = GetProperty(v216, "AcceptanceReceipt");
+        Assert.AreEqual(
+            "release-acceptance/v216-first-hop/v216-first-hop-acceptance.json",
+            GetProperty(acceptanceReceipt, "RelativePath").GetString());
+        Assert.AreEqual("json", GetProperty(acceptanceReceipt, "Format").GetString());
+        Assert.AreEqual("exactly-once", GetProperty(acceptanceReceipt, "RequiredCardinality").GetString());
+        Assert.AreEqual("Passed", GetProperty(acceptanceReceipt, "RequiredOutcome").GetString());
+        Assert.AreEqual(
+            GetProperty(acceptanceReceipt, "RelativePath").GetString(),
+            GetProperty(receiptInputs, 0, "RelativePath").GetString());
+        JsonElement requiredResults = GetProperty(acceptanceReceipt, "RequiredResults");
+        Assert.AreEqual(2, requiredResults.GetArrayLength());
+        AssertV216ResultContract(requiredResults[0], "UPD-V216-HAPPY", V216HappyPathResultName);
+        AssertV216ResultContract(requiredResults[1], "UPD-V216-LOCK", V216ManagedFileLockResultName);
+    }
+
+    [TestMethod]
+    public void V216FirstHopReceiptGateRequiresBothExactPassedResultsAndReceiptInput()
+    {
+        const string happyContractId = "UPD-V216-HAPPY";
+        const string lockContractId = "UPD-V216-LOCK";
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker-V216FirstHopReceiptContractTests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string rosterPath = Path.Combine(root, "roster.json");
+            WriteSyntheticRoster(
+                rosterPath,
+                (happyContractId, V216HappyPathResultName),
+                (lockContractId, V216ManagedFileLockResultName));
+
+            string passedReceiptPath = Path.Combine(root, "passed.json");
+            WriteSyntheticJson(
+                passedReceiptPath,
+                (V216HappyPathResultName, "Passed"),
+                (V216ManagedFileLockResultName, "Passed"));
+            using JsonDocument passed = ReadOutcomeRosterGateProbe(passedReceiptPath, rosterPath);
+            Assert.IsTrue(GetProperty(passed.RootElement, "Passed").GetBoolean(), passed.RootElement.GetRawText());
+
+            string missingResultPath = Path.Combine(root, "missing-result.json");
+            WriteSyntheticJson(missingResultPath, (V216HappyPathResultName, "Passed"));
+            using JsonDocument missingResult = ReadOutcomeRosterGateProbe(missingResultPath, rosterPath);
+            AssertGateFailure(missingResult, V216ManagedFileLockResultName);
+
+            string duplicateResultPath = Path.Combine(root, "duplicate-result.json");
+            WriteSyntheticJson(
+                duplicateResultPath,
+                (V216HappyPathResultName, "Passed"),
+                (V216HappyPathResultName, "Passed"),
+                (V216ManagedFileLockResultName, "Passed"));
+            using JsonDocument duplicateResult = ReadOutcomeRosterGateProbe(duplicateResultPath, rosterPath);
+            AssertGateFailure(duplicateResult, "duplicate");
+
+            string nonPassedResultPath = Path.Combine(root, "non-passed-result.json");
+            WriteSyntheticJson(
+                nonPassedResultPath,
+                (V216HappyPathResultName, "Passed"),
+                (V216ManagedFileLockResultName, "Failed"));
+            using JsonDocument nonPassedResult = ReadOutcomeRosterGateProbe(nonPassedResultPath, rosterPath);
+            AssertGateFailure(nonPassedResult, "not Passed");
+
+            string detailedOnlyReceiptPath = Path.Combine(root, "detailed-only.json");
+            File.WriteAllText(
+                detailedOnlyReceiptPath,
+                "{\"status\":\"passed\",\"happy\":{},\"locked\":{}}",
+                Encoding.UTF8);
+            using JsonDocument detailedOnly = ReadOutcomeRosterGateProbe(detailedOnlyReceiptPath, rosterPath);
+            AssertGateFailure(detailedOnly, "fullyQualifiedName and outcome");
+
+            string missingReceiptPath = Path.Combine(root, "missing-receipt.json");
+            using JsonDocument missingReceipt = ReadOutcomeRosterGateProbe(missingReceiptPath, rosterPath);
+            AssertGateFailure(missingReceipt, "missing");
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
@@ -752,7 +848,7 @@ public sealed class VerificationRunnerContractTests
             string resultsPath = Path.Combine(root, "passed.trx");
             string rosterPath = Path.Combine(root, "roster.json");
             WriteSyntheticTrx(resultsPath, (requiredFqn, "Passed"));
-            WriteSyntheticRoster(rosterPath, requiredFqn);
+            WriteSyntheticRoster(rosterPath, ("SYNTHETIC-REQUIRED", requiredFqn));
 
             using JsonDocument result = ReadOutcomeRosterGateProbe(resultsPath, rosterPath);
             Assert.IsTrue(GetProperty(result.RootElement, "Passed").GetBoolean(), result.RootElement.GetRawText());
@@ -875,25 +971,33 @@ public sealed class VerificationRunnerContractTests
         File.WriteAllText(path, json, Encoding.UTF8);
     }
 
-    private static void WriteSyntheticRoster(string path, string requiredFqn)
+    private static void WriteSyntheticRoster(string path, params (string ContractId, string FullyQualifiedName)[] requiredEntries)
     {
         string json = JsonSerializer.Serialize(new
         {
             releaseOutcome = new
             {
                 schemaVersion = 1,
-                required = new[]
-                {
-                    new
+                required = requiredEntries
+                    .Select(entry => new
                     {
-                        contractId = "SYNTHETIC-REQUIRED",
-                        fullyQualifiedName = requiredFqn
-                    }
-                },
+                        contractId = entry.ContractId,
+                        fullyQualifiedName = entry.FullyQualifiedName
+                    })
+                    .ToArray(),
                 optionalSkipAllowlist = Array.Empty<object>()
             }
         });
         File.WriteAllText(path, json, Encoding.UTF8);
+    }
+
+    private static void AssertV216ResultContract(
+        JsonElement result,
+        string expectedContractId,
+        string expectedFullyQualifiedName)
+    {
+        Assert.AreEqual(expectedContractId, GetProperty(result, "ContractId").GetString());
+        Assert.AreEqual(expectedFullyQualifiedName, GetProperty(result, "FullyQualifiedName").GetString());
     }
 
     private static void AssertModeMapping(
