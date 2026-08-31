@@ -19,11 +19,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <returns><see langword="true"/> when the import was enqueued.</returns>
     internal async Task<bool> EnqueueRecommendedPlaylistImportAsync(string rawTag)
     {
-        if (IsWriteLockHeldBMSTablesInitializeMin)
-        {
-            return false;
-        }
-
         Uri uri = new(rawTag);
         BMSLibrary library = getPlaylistLibrary();
         int lr2Id = library?.LR2ID ?? 0;
@@ -55,13 +50,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             return false;
         }
 
-        if (IsWriteLockHeldBMSTablesInitializeMin)
-        {
-            return false;
-        }
-
-        EnqueueExternalPlaylistBMSTableImports([uri]);
-        return true;
+        return EnqueueExternalPlaylistBMSTableImports([uri]);
     }
 
     private async Task<bool> ConfirmPlaylistWorkspaceDialogAsync(

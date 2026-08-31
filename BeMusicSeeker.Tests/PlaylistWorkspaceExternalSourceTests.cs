@@ -115,13 +115,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
     [TestMethod]
-    public void ExternalPlaylistSourceRequestsApplyLockGateBeforeUriConstruction()
+    public void ExternalPlaylistSourceRequestsRejectUnavailableStoreBeforeQueueing()
     {
-        PlaylistWorkspaceViewModel lockedWorkspace = CreateDetailWorkspace(out _);
+        PlaylistWorkspaceViewModel unavailableWorkspace = CreateDetailWorkspace(out _);
 
-        Assert.IsFalse(lockedWorkspace.TryEnqueueExternalPlaylistCollectionImport(
+        Assert.IsFalse(unavailableWorkspace.TryEnqueueExternalPlaylistCollectionImport(
             new BMSTableSimple { url = new Uri("https://example.test/collection.json") }));
-        Assert.IsFalse(lockedWorkspace.TryEnqueueBuiltInExternalPlaylistImport("http://["));
+        Assert.IsFalse(unavailableWorkspace.TryEnqueueBuiltInExternalPlaylistImport("https://example.test/built-in.json"));
     }
 
     [TestMethod]

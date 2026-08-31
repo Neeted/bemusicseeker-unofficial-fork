@@ -153,13 +153,16 @@ internal sealed class PlaylistExternalSyncOwner
         BMSTable baseTable = null,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (pageUri == null || !pageUri.IsAbsoluteUri)
         {
             throw new ArgumentException(Resources.Error_URIMustBeAbsolute, nameof(pageUri));
         }
         if (pageUri.Scheme == "bmseeker")
         {
-            return recommendedTableOwner.LoadWalkureTable(pageUri, baseTable);
+            BMSTable recommendedTable = recommendedTableOwner.LoadWalkureTable(pageUri, baseTable);
+            cancellationToken.ThrowIfCancellationRequested();
+            return recommendedTable;
         }
 
         Uri originalPageUri = pageUri;
@@ -374,6 +377,7 @@ internal sealed class PlaylistExternalSyncOwner
         Func<BMSTable, Uri> uriProvider = null,
         bool publishReferenceReceipts = false)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         enterPlaylistUpdating?.Invoke();
         try
         {
@@ -533,6 +537,7 @@ internal sealed class PlaylistExternalSyncOwner
         CancellationToken cancellationToken = default,
         bool publishReferenceReceipts = false)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         enterPlaylistUpdating?.Invoke();
         try
         {
@@ -739,12 +744,15 @@ internal sealed class PlaylistExternalSyncOwner
                     customFolderOutputTargets.Add((table, resolveCustomFolderOutputDirectory?.Invoke(table, settings)));
                 }
             }
+            cancellationToken.ThrowIfCancellationRequested();
             await CommitAndAddBMSTablesAsync(tableList).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
         finally
         {
             playlistAggregatePersistenceOwner.EndRegistration();
         }
+        cancellationToken.ThrowIfCancellationRequested();
         foreach ((BMSTable table, string directory) target in customFolderOutputTargets)
         {
             InvokeResidualAction(
@@ -760,6 +768,7 @@ internal sealed class PlaylistExternalSyncOwner
                 operationReason + ":custom-folder-migration",
                 target.table?.name);
         }
+        cancellationToken.ThrowIfCancellationRequested();
         InvokeResidualAction(
             () => queueBeatorajaBmtExports?.Invoke(tableList, operationReason),
             operationReason + ":bmt-export");
@@ -916,7 +925,9 @@ internal sealed class PlaylistExternalSyncOwner
         Exception failure = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             ensurePlaylistEntriesLoaded?.Invoke(table, reason);
+            cancellationToken.ThrowIfCancellationRequested();
             using (table.ReaderWriterLock.GetWriterGuard())
             {
                 sourceEntriesRevision = table.PlaylistEntriesRevision;
@@ -930,6 +941,7 @@ internal sealed class PlaylistExternalSyncOwner
                     "Playlist reload request no longer matches the active playlist source URI.");
             }
             BMSTable reloadedTable = await LoadExternalTableAsync(uri, table, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             using (table.ReaderWriterLock.GetWriterGuard())
             {
                 if (table.PlaylistEntriesRevision != sourceEntriesRevision
@@ -969,6 +981,7 @@ internal sealed class PlaylistExternalSyncOwner
                     }
                 }
             }
+            cancellationToken.ThrowIfCancellationRequested();
             if (!await playlistAggregatePersistenceOwner.TryApplyReloadedTableAsync(
                 table,
                 newTable,

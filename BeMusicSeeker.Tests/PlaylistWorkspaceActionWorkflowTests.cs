@@ -2101,7 +2101,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     [TestMethod]
-    public async Task PlaylistWorkspaceRecommendedImportRechecksInitializationLockAfterConfirmation()
+    public async Task PlaylistWorkspaceRecommendedImportAdmitsDuringInitializationAndDefersUntilReadiness()
     {
         string databasePath = Path.Combine(
             Path.GetTempPath(),
@@ -2110,22 +2110,22 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             "song.db");
         Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
         File.WriteAllBytes(databasePath, []);
-        Exception? primaryFailure = null;
+        string headerPath = Path.Combine(Path.GetDirectoryName(databasePath)!, "recommended-header.json");
+        string dataPath = Path.Combine(Path.GetDirectoryName(databasePath)!, "recommended-data.json");
+        File.WriteAllText(
+            headerPath,
+            "{\"name\":\"DeferredRecommended\",\"symbol\":\"D\",\"output_dir\":\"DeferredRecommended\",\"data_url\":\"./recommended-data.json\"}");
+        File.WriteAllText(
+            dataPath,
+            "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Deferred song\",\"artist\":\"Artist\",\"level\":\"1\"}]");
+        TestBmsPlaylist playlist = null;
         try
         {
+            PlaylistPersistenceRepository.EnsureSchema(databasePath);
             BMSLibrary library = CreateLibraryWithLr2Id(databasePath);
-            string lr2RootPath = Path.Combine(Path.GetDirectoryName(databasePath)!, "lr2");
-            string configPath = Path.Combine(lr2RootPath, "LR2files", "Config", "config.xml");
-            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
-            File.WriteAllText(
-                configPath,
-                "<config><system><customfolder>0</customfolder><titleflash>24</titleflash></system><jukebox /></config>",
-                Encoding.UTF8);
-            LR2Config config = new(configPath);
-            var playlist = new TestBmsPlaylist(databasePath, () => config)
+            playlist = new TestBmsPlaylist(databasePath)
             {
-                BMSTables = new ObservableCollection<BMSTable>([
-                    new BMSTable { playlist_id = 8201, name = "initialization barrier" }])
+                BMSTables = new ObservableCollection<BMSTable>()
             };
             var dialogs = new BlockingConfirmationDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
@@ -2134,84 +2134,42 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 playlistLibraryProvider: () => library,
                 playlistWorkspaceDialogService: dialogs);
             workspace.RefreshPlaylistTreeTables(playlist);
-
-            var initializationEntered = new TaskCompletionSource<bool>(
+            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
-            var releaseInitialization = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            playlist.PropertyChanged += (_, eventArgs) =>
-            {
-                if (eventArgs.PropertyName == nameof(BMSPlaylist.IsWriteLockHeldBMSTablesInitializeMin)
-                    && playlist.IsWriteLockHeldBMSTablesInitializeMin
-                    && initializationEntered.TrySetResult(true))
-                {
-                    releaseInitialization.Task
-                        .WaitAsync(TimeSpan.FromSeconds(5))
-                        .GetAwaiter()
-                        .GetResult();
-                }
-            };
+            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
+                summaryReady.TrySetResult(request.Summary);
+            playlist.StartupReadiness.BeginPlaylistInitialization("test");
 
-            Task<bool>? importTask = null;
-            Task? initializationTask = null;
-            try
-            {
-                importTask = workspace.EnqueueRecommendedPlaylistImportAsync(
-                    "bmseeker:table.recommended?mode=update");
-                initializationTask = Task.Run(() => playlist.Initialize(
-                    reloadExtPlaylist: false,
-                    queueBeatorajaBmtExportAfterHydration: false));
+            Task<bool> importTask = workspace.EnqueueRecommendedPlaylistImportAsync(
+                new Uri(headerPath).AbsoluteUri);
+            await dialogs.ConfirmationShown.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsFalse(playlist.StartupReadiness.IsRequiredPlaylistReady);
+            Assert.IsFalse(importTask.IsCompleted, "The request must remain in confirmation until the user accepts it.");
 
-                await Task.WhenAll(
-                        dialogs.ConfirmationShown.Task,
-                        initializationEntered.Task)
-                    .WaitAsync(TimeSpan.FromSeconds(5));
-                Assert.IsTrue(initializationEntered.Task.IsCompletedSuccessfully);
-                Assert.IsTrue(playlist.IsWriteLockHeldBMSTablesInitializeMin);
-                Assert.IsFalse(importTask.IsCompleted, "The import must remain in confirmation while initialization is active.");
+            dialogs.ReleaseConfirmation();
+            Assert.IsTrue(await importTask.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.AreEqual(0, playlist.BMSTables.Count, "Admission must not mutate the playlist before readiness.");
+            Assert.IsFalse(summaryReady.Task.IsCompleted, "The import consumer must await readiness.");
 
-                dialogs.ReleaseConfirmation();
-                Assert.IsFalse(await importTask, "The second lock check must reject enqueueing after initialization begins.");
-                Assert.IsFalse(initializationTask.IsCompleted, "The scheduler barrier must keep initialization active until released.");
-
-                releaseInitialization.TrySetResult(true);
-                await Task.WhenAll(importTask, initializationTask)
-                    .WaitAsync(TimeSpan.FromSeconds(5));
-                Assert.IsFalse(playlist.IsWriteLockHeldBMSTablesInitializeMin);
-            }
-            catch (Exception failure)
-            {
-                primaryFailure = failure;
-                throw;
-            }
-            finally
-            {
-                dialogs.ReleaseConfirmation();
-                releaseInitialization.TrySetResult(true);
-                Task[] pendingTasks = [
-                    .. new[] { importTask, initializationTask }
-                        .Where(task => task != null)
-                        .Cast<Task>()];
-                if (pendingTasks.Length > 0)
-                {
-                    try
-                    {
-                        await Task.WhenAll(pendingTasks).WaitAsync(TimeSpan.FromSeconds(5));
-                    }
-                    catch when (primaryFailure != null)
-                    {
-                    }
-                }
-            }
+            playlist.StartupReadiness.MarkRequiredPlaylistReady();
+            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task
+                .WaitAsync(TimeSpan.FromSeconds(30))
+                .ConfigureAwait(false);
+            Assert.AreEqual(1, summary.ImportedCount);
+            Assert.AreEqual(0, summary.FailedCount);
+            Assert.AreEqual(1, playlist.BMSTables.Count);
+            Assert.AreEqual("DeferredRecommended", playlist.BMSTables[0].name);
         }
         finally
         {
             try
             {
+                playlist?.RequestShutdown("test_cleanup");
                 Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
             }
-            catch when (primaryFailure != null)
+            catch
             {
+                // Preserve the primary test failure while keeping temporary test data disposable.
             }
         }
     }

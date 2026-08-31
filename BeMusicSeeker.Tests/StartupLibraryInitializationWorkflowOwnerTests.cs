@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -75,5 +77,76 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
         var owner = new StartupLibraryInitializationWorkflowOwner(gate);
 
         await Assert.ThrowsExceptionAsync<ArgumentNullException>(() => owner.InitializeAsync(null));
+    }
+
+    [TestMethod]
+    public async Task StartupReadiness_AdmitsImportBeforeReadinessAndRunsItAfterward()
+    {
+        var coordinator = new StartupReadinessCoordinator();
+        coordinator.BeginPlaylistInitialization("test");
+        Uri uri = new("https://example.test/table.json");
+        Assert.IsTrue(coordinator.TryAdmitExternalPlaylistImports([uri], out bool shouldStartDrain));
+        Assert.IsTrue(shouldStartDrain);
+        Task readinessWait = coordinator.WaitForRequiredPlaylistReadinessAsync();
+        Assert.IsFalse(readinessWait.IsCompleted, "The import consumer must await the readiness task.");
+
+        Task<IReadOnlyList<Uri>> consumer = Task.Run(async () =>
+        {
+            Assert.IsTrue(coordinator.TryBeginExternalPlaylistImportDrain());
+            await readinessWait;
+            return coordinator.DequeueExternalPlaylistImportBatch();
+        });
+        Assert.IsFalse(consumer.IsCompleted, "The import consumer must await the readiness task.");
+
+        coordinator.MarkRequiredPlaylistReady();
+        IReadOnlyList<Uri> admittedUris = await consumer.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(1, admittedUris.Count);
+        Assert.AreEqual(uri, admittedUris[0]);
+        Assert.IsTrue(coordinator.IsRequiredPlaylistReady);
+        Assert.IsFalse(coordinator.IsInstallEstimationReady);
+    }
+
+    [TestMethod]
+    public async Task StartupReadiness_ShutdownTerminalizesWaiterAndImportQueue()
+    {
+        var coordinator = new StartupReadinessCoordinator();
+        coordinator.BeginPlaylistInitialization("test");
+        Task readinessWaiter = coordinator.WaitForRequiredPlaylistReadinessAsync();
+        Assert.IsTrue(coordinator.TryAdmitExternalPlaylistImports(
+            [new Uri("https://example.test/table.json")],
+            out _));
+        var consumerEntered = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        int lateMutationCount = 0;
+        Task consumer = Task.Run(async () =>
+        {
+            Assert.IsTrue(coordinator.TryBeginExternalPlaylistImportDrain());
+            consumerEntered.TrySetResult(true);
+            try
+            {
+                await coordinator.WaitForRequiredPlaylistReadinessAsync();
+                Interlocked.Increment(ref lateMutationCount);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            finally
+            {
+                coordinator.CompleteExternalPlaylistImportDrain();
+            }
+        });
+        await consumerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        coordinator.RequestShutdown("test");
+
+        await Assert.ThrowsExceptionAsync<TaskCanceledException>(
+            () => readinessWaiter.WaitAsync(TimeSpan.FromSeconds(5)));
+        await consumer.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(0, lateMutationCount);
+        Assert.IsTrue(coordinator.ExternalImportDrainCompletion.IsCompleted);
+        Assert.AreEqual(0, coordinator.DequeueExternalPlaylistImportBatch().Count);
+        Assert.IsFalse(coordinator.TryAdmitExternalPlaylistImports(
+            [new Uri("https://example.test/later.json")],
+            out _));
     }
 }

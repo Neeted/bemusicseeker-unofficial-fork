@@ -359,7 +359,6 @@ public sealed class PlaylistRecommendedTableOwnerTests
         return new PlaylistRecommendedTableOwner(
             lr2ScoreDbPath: lr2ScoreDbPath,
             bmsScoresProvider: bmsScoresProvider ?? (() => null!),
-            initializationSemaphoreProvider: () => null,
             externalTableLoader: externalTableLoader ?? (_ => null!),
             httpClient: httpClient ?? new FakeHttpClient(),
             notificationOwner: notificationOwner ?? new PlaylistOperationNotificationOwner(),

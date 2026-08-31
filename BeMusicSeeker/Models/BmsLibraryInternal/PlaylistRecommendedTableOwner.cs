@@ -156,8 +156,6 @@ internal sealed class PlaylistRecommendedTableOwner
 
     private readonly Func<List<BMSScore>> bmsScoresProvider;
 
-    private readonly Func<SemaphoreSlim> initializationSemaphoreProvider;
-
     private readonly Func<Uri, BMSTable> externalTableLoader;
 
     private readonly PlaylistOperationNotificationOwner notificationOwner;
@@ -189,7 +187,6 @@ internal sealed class PlaylistRecommendedTableOwner
     internal PlaylistRecommendedTableOwner(
         string lr2ScoreDbPath,
         Func<List<BMSScore>> bmsScoresProvider,
-        Func<SemaphoreSlim> initializationSemaphoreProvider,
         Func<Uri, BMSTable> externalTableLoader,
         IPlaylistRecommendedTableHttpClient httpClient,
         PlaylistOperationNotificationOwner notificationOwner,
@@ -197,7 +194,6 @@ internal sealed class PlaylistRecommendedTableOwner
     {
         this.lr2ScoreDbPath = lr2ScoreDbPath;
         this.bmsScoresProvider = bmsScoresProvider;
-        this.initializationSemaphoreProvider = initializationSemaphoreProvider;
         this.externalTableLoader = externalTableLoader ?? throw new ArgumentNullException(nameof(externalTableLoader));
         this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         this.notificationOwner = notificationOwner ?? throw new ArgumentNullException(nameof(notificationOwner));
@@ -762,9 +758,6 @@ internal sealed class PlaylistRecommendedTableOwner
                           md5 = grouped.Key,
                           bmsid = grouped.First().lr2_bmsid
                       };
-        SemaphoreSlim initializationSemaphore = initializationSemaphoreProvider?.Invoke();
-        initializationSemaphore?.Wait();
-        initializationSemaphore?.Release();
         List<BMSScore> scores = bmsScoresProvider?.Invoke() ?? throw new InvalidOperationException(Resources.Error_LocalScoreDataNotFetched);
         int threshold = filter switch
         {

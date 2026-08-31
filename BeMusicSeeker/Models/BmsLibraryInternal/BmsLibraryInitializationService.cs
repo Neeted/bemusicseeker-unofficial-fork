@@ -21,6 +21,405 @@ using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// Owns startup readiness boundaries and the deferred external-playlist import queue.
+/// </summary>
+/// <remarks>
+/// Playlist readiness is deliberately independent from install-estimation readiness.  A
+/// caller may therefore admit a playlist request as soon as the command is received while
+/// still deferring all playlist I/O until the required local playlist hydration boundary.
+/// The coordinator also owns the queue lifecycle so shutdown cannot leave a producer or
+/// consumer alive after the playlist model has become terminal.
+/// </remarks>
+internal sealed class StartupReadinessCoordinator
+{
+    private readonly object syncRoot = new();
+
+    private readonly Queue<Uri> pendingExternalPlaylistImports = new();
+
+    private readonly CancellationTokenSource shutdownCancellation = new();
+
+    private TaskCompletionSource<bool> requiredPlaylistReadiness = CreateCompletedCompletion();
+
+    private TaskCompletionSource<bool> installEstimationReadiness = CreatePendingCompletion();
+
+    private TaskCompletionSource<bool> externalImportDrainCompletion = CreateCompletedCompletion();
+
+    private bool requiredPlaylistReady = true;
+
+    private bool playlistInitializationActive;
+
+    private bool externalImportDrainActive;
+
+    private bool externalImportDrainStarted;
+
+    private int shutdownRequested;
+
+    /// <summary>
+    /// Gets the required local playlist readiness task.
+    /// </summary>
+    internal Task RequiredPlaylistReadiness
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return requiredPlaylistReadiness.Task;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the independent install-estimation readiness task.
+    /// </summary>
+    internal Task InstallEstimationReadiness
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return installEstimationReadiness.Task;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the cancellation token shared by readiness waiters and deferred imports.
+    /// </summary>
+    internal CancellationToken ShutdownToken => shutdownCancellation.Token;
+
+    /// <summary>
+    /// Gets whether this coordinator has entered terminal shutdown.
+    /// </summary>
+    internal bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
+
+    /// <summary>
+    /// Gets whether required playlist hydration has reached its current boundary.
+    /// </summary>
+    internal bool IsRequiredPlaylistReady
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return requiredPlaylistReady;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets whether install-estimation readiness has been published independently.
+    /// </summary>
+    internal bool IsInstallEstimationReady
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return installEstimationReadiness.Task.IsCompletedSuccessfully;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets whether an external import drain is active or queued.
+    /// </summary>
+    internal bool HasExternalImportWork
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return externalImportDrainActive || pendingExternalPlaylistImports.Count > 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the current external import drain completion task.
+    /// </summary>
+    internal Task ExternalImportDrainCompletion
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return externalImportDrainCompletion.Task;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Starts a required playlist initialization boundary.
+    /// </summary>
+    /// <param name="reason">Diagnostic reason for the boundary.</param>
+    internal void BeginPlaylistInitialization(string reason = null)
+    {
+        lock (syncRoot)
+        {
+            if (IsShutdownRequested || playlistInitializationActive)
+            {
+                return;
+            }
+            playlistInitializationActive = true;
+            requiredPlaylistReady = false;
+            requiredPlaylistReadiness = CreatePendingCompletion();
+        }
+    }
+
+    /// <summary>
+    /// Publishes completion of the required local playlist readiness boundary.
+    /// </summary>
+    internal void MarkRequiredPlaylistReady()
+    {
+        TaskCompletionSource<bool> completion;
+        lock (syncRoot)
+        {
+            if (IsShutdownRequested || requiredPlaylistReadiness.Task.IsCompleted)
+            {
+                return;
+            }
+            playlistInitializationActive = false;
+            requiredPlaylistReady = true;
+            completion = requiredPlaylistReadiness;
+        }
+        completion.TrySetResult(true);
+    }
+
+    /// <summary>
+    /// Faults the current readiness boundary without converting the failure into success.
+    /// </summary>
+    /// <param name="exception">The readiness failure.</param>
+    internal void FailRequiredPlaylistReadiness(Exception exception)
+    {
+        if (exception == null)
+        {
+            return;
+        }
+        TaskCompletionSource<bool> completion;
+        lock (syncRoot)
+        {
+            if (IsShutdownRequested || requiredPlaylistReadiness.Task.IsCompleted)
+            {
+                return;
+            }
+            playlistInitializationActive = false;
+            requiredPlaylistReady = false;
+            completion = requiredPlaylistReadiness;
+        }
+        completion.TrySetException(exception);
+    }
+
+    /// <summary>
+    /// Publishes independent install-estimation readiness.
+    /// </summary>
+    internal void MarkInstallEstimationReady()
+    {
+        lock (syncRoot)
+        {
+            if (IsShutdownRequested)
+            {
+                return;
+            }
+            installEstimationReadiness.TrySetResult(true);
+        }
+    }
+
+    /// <summary>
+    /// Resets install-estimation readiness for a new startup operation.
+    /// </summary>
+    internal void ResetInstallEstimationReadiness()
+    {
+        lock (syncRoot)
+        {
+            if (IsShutdownRequested || !installEstimationReadiness.Task.IsCompleted)
+            {
+                return;
+            }
+            installEstimationReadiness = CreatePendingCompletion();
+        }
+    }
+
+    /// <summary>
+    /// Waits asynchronously for required playlist readiness or terminal cancellation.
+    /// </summary>
+    /// <param name="cancellationToken">An optional caller cancellation token.</param>
+    internal async Task WaitForRequiredPlaylistReadinessAsync(CancellationToken cancellationToken = default)
+    {
+        Task readinessTask;
+        CancellationToken shutdownToken;
+        lock (syncRoot)
+        {
+            if (IsShutdownRequested)
+            {
+                throw new OperationCanceledException(shutdownCancellation.Token);
+            }
+            if (requiredPlaylistReady)
+            {
+                return;
+            }
+            readinessTask = requiredPlaylistReadiness.Task;
+            shutdownToken = shutdownCancellation.Token;
+        }
+
+        using CancellationTokenSource linkedCancellation = cancellationToken.CanBeCanceled
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, shutdownToken)
+            : null;
+        await readinessTask.WaitAsync(
+            linkedCancellation?.Token ?? shutdownToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Atomically admits external-playlist URI requests into the shared deferred queue.
+    /// </summary>
+    /// <param name="uris">Absolute URI requests in caller order.</param>
+    /// <param name="shouldStartDrain">Whether the caller owns starting the single consumer.</param>
+    /// <returns><see langword="true"/> when all valid requests were admitted.</returns>
+    internal bool TryAdmitExternalPlaylistImports(
+        IEnumerable<Uri> uris,
+        out bool shouldStartDrain)
+    {
+        List<Uri> validUris = [.. (uris ?? []).Where(uri => uri != null && uri.IsAbsoluteUri)];
+        shouldStartDrain = false;
+        if (validUris.Count == 0)
+        {
+            return false;
+        }
+
+        lock (syncRoot)
+        {
+            if (IsShutdownRequested)
+            {
+                return false;
+            }
+            foreach (Uri uri in validUris)
+            {
+                pendingExternalPlaylistImports.Enqueue(uri);
+            }
+            if (!externalImportDrainActive)
+            {
+                externalImportDrainActive = true;
+                externalImportDrainCompletion = CreatePendingCompletion();
+                shouldStartDrain = true;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Claims the single external-import consumer after a producer admitted work.
+    /// </summary>
+    /// <returns><see langword="true"/> when this caller owns the drain lifecycle.</returns>
+    internal bool TryBeginExternalPlaylistImportDrain()
+    {
+        lock (syncRoot)
+        {
+            if (IsShutdownRequested || !externalImportDrainActive || externalImportDrainStarted)
+            {
+                return false;
+            }
+            externalImportDrainStarted = true;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Dequeues one FIFO import batch for the coordinator's single consumer.
+    /// </summary>
+    internal IReadOnlyList<Uri> DequeueExternalPlaylistImportBatch()
+    {
+        lock (syncRoot)
+        {
+            if (pendingExternalPlaylistImports.Count == 0)
+            {
+                externalImportDrainActive = false;
+                externalImportDrainStarted = false;
+                externalImportDrainCompletion.TrySetResult(true);
+                return [];
+            }
+            List<Uri> batch = [.. pendingExternalPlaylistImports];
+            pendingExternalPlaylistImports.Clear();
+            return batch;
+        }
+    }
+
+    /// <summary>
+    /// Completes a consumer cycle, preserving a pending cycle if a producer raced the drain.
+    /// </summary>
+    /// <returns><see langword="true"/> when no follow-up consumer is needed.</returns>
+    internal bool CompleteExternalPlaylistImportDrain()
+    {
+        lock (syncRoot)
+        {
+            if (IsShutdownRequested)
+            {
+                pendingExternalPlaylistImports.Clear();
+                externalImportDrainActive = false;
+                externalImportDrainStarted = false;
+                externalImportDrainCompletion.TrySetResult(true);
+                return true;
+            }
+            if (pendingExternalPlaylistImports.Count > 0)
+            {
+                externalImportDrainStarted = false;
+                return false;
+            }
+            externalImportDrainActive = false;
+            externalImportDrainStarted = false;
+            externalImportDrainCompletion.TrySetResult(true);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Requests terminal shutdown for readiness waiters and deferred import producers/consumers.
+    /// </summary>
+    /// <param name="reason">Diagnostic shutdown reason.</param>
+    internal void RequestShutdown(string reason = null)
+    {
+        if (Interlocked.Exchange(ref shutdownRequested, 1) != 0)
+        {
+            return;
+        }
+
+        TaskCompletionSource<bool> readinessCompletion;
+        TaskCompletionSource<bool> installCompletion;
+        TaskCompletionSource<bool> drainCompletion;
+        lock (syncRoot)
+        {
+            requiredPlaylistReady = false;
+            playlistInitializationActive = false;
+            pendingExternalPlaylistImports.Clear();
+            readinessCompletion = requiredPlaylistReadiness;
+            installCompletion = installEstimationReadiness;
+            drainCompletion = externalImportDrainCompletion;
+            if (!externalImportDrainStarted)
+            {
+                externalImportDrainActive = false;
+                drainCompletion.TrySetResult(true);
+            }
+        }
+        shutdownCancellation.Cancel();
+        readinessCompletion.TrySetCanceled(shutdownCancellation.Token);
+        installCompletion.TrySetCanceled(shutdownCancellation.Token);
+        // A running consumer completes the drain receipt from its finally block after
+        // observing shutdown cancellation.  If no consumer was started, the queue was
+        // terminalized above and the receipt is already complete.
+    }
+
+    private static TaskCompletionSource<bool> CreatePendingCompletion()
+    {
+        return new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private static TaskCompletionSource<bool> CreateCompletedCompletion()
+    {
+        TaskCompletionSource<bool> completion = CreatePendingCompletion();
+        completion.TrySetResult(true);
+        return completion;
+    }
+}
+
 internal sealed class Lr2NormalFolderMtimeSnapshot(
     IReadOnlyList<string> rootDirectories,
     IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,

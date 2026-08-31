@@ -121,6 +121,8 @@ public partial class BMSPlaylist : ObservableObject
 
     private readonly PlaylistShutdownCoordinator shutdownCoordinator = new();
 
+    private readonly StartupReadinessCoordinator startupReadinessCoordinator = new();
+
     private readonly PlaylistBmtOutputOwner bmtOutput;
 
     private readonly PlaylistOperationNotificationOwner operationNotificationOwner;
@@ -162,9 +164,9 @@ public partial class BMSPlaylist : ObservableObject
     private readonly Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher;
 
     /// <summary>
-    /// 初期化処理の連携用に一時保持するセマフォです。
+    /// Initializes startup/readiness admission for this playlist model.
     /// </summary>
-    private SemaphoreSlim initSemaphore;
+    internal StartupReadinessCoordinator StartupReadiness => startupReadinessCoordinator;
 
     /// <summary>
     /// 全件初期化工程全体を直列化するための書き込みロックです。
@@ -195,6 +197,10 @@ public partial class BMSPlaylist : ObservableObject
 
     internal void RequestShutdown(string reason)
     {
+        // Terminalize readiness waiters and deferred import work before invoking the
+        // existing shutdown callbacks.  A callback may surface its own failure; the
+        // startup admission boundary must still be closed in that case.
+        startupReadinessCoordinator.RequestShutdown(reason);
         shutdownCoordinator.Request(
             reason,
             () => BmtOutput.RequestShutdown(reason),
@@ -205,12 +211,14 @@ public partial class BMSPlaylist : ObservableObject
     internal bool HasShutdownBlockingWork =>
         IsPlaylistUpdating
         || playlistEntriesHydrationOwner.HasBlockingWork
-        || BmtOutput.HasBlockingWork;
+        || BmtOutput.HasBlockingWork
+        || startupReadinessCoordinator.HasExternalImportWork;
 
     internal string GetShutdownBlockingWorkLogFields()
     {
         return "playlistUpdating=" + IsPlaylistUpdating.ToString().ToLowerInvariant()
             + " playlistEntriesHydrationRunning=" + playlistEntriesHydrationOwner.PlaylistEntriesHydrationRunning.ToString().ToLowerInvariant()
+            + " startupReadinessExternalImport=" + startupReadinessCoordinator.HasExternalImportWork.ToString().ToLowerInvariant()
             + " " + BmtOutput.GetShutdownBlockingWorkLogFields();
     }
 
@@ -559,9 +567,13 @@ public partial class BMSPlaylist : ObservableObject
             () => IsShutdownRequested,
             () => StartupBackgroundTaskScheduler,
             LogPlaylistPerformance,
-            (exception, reason) => Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
-                exception,
-                "playlist_entries_hydration_completion_failed reason=" + FormatTextForLog(reason)));
+            (exception, reason) =>
+            {
+                startupReadinessCoordinator.FailRequiredPlaylistReadiness(exception);
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
+                    exception,
+                    "playlist_entries_hydration_completion_failed reason=" + FormatTextForLog(reason));
+            });
         bmtOutput = new PlaylistBmtOutputOwner(
             playlistAggregatePersistenceOwner,
             playlistEntriesHydrationOwner,
@@ -575,7 +587,6 @@ public partial class BMSPlaylist : ObservableObject
         recommendedTableOwner = new PlaylistRecommendedTableOwner(
             _lr2ScoreDB,
             getBMSScores ?? (() => null),
-            () => initSemaphore,
             uri => externalSyncOwnerLocal.LoadExternalTable(uri),
             new AppPlaylistRecommendedTableHttpClient(playlistHttpClient),
             operationNotificationOwner,
@@ -715,6 +726,7 @@ public partial class BMSPlaylist : ObservableObject
         playlistEntriesHydrationOwner.HydrationCompleted += version =>
         {
             RaisePropertyChanged(nameof(PlaylistEntriesHydrationCompletedVersion));
+            startupReadinessCoordinator.MarkRequiredPlaylistReady();
             PlaylistEntriesHydrationCompleted?.Invoke(
                 this,
                 new PlaylistHydrationVersionEventArgs(version));
@@ -756,12 +768,10 @@ public partial class BMSPlaylist : ObservableObject
         {
             throw new InvalidOperationException("Playlist initialization cannot run while another playlist persistence transition is active.");
         }
+        startupReadinessCoordinator.BeginPlaylistInitialization("Initialize");
+        bool initializationSemaphoreReleased = semaphore == null;
         try
         {
-            if (semaphore != null)
-            {
-                initSemaphore = semaphore;
-            }
             List<BMSTable> list = null;
             long expectedGeneration = 0L;
             long expectedPersistenceGeneration;
@@ -811,7 +821,6 @@ public partial class BMSPlaylist : ObservableObject
             }
             using (rwlockBMSTablesInitializeAll.GetWriterGuard())
             {
-                initSemaphore?.Release();
                 updateTablesMs = 0L;
                 var stopwatchLr2configSync = Stopwatch.StartNew();
                 bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
@@ -824,13 +833,26 @@ public partial class BMSPlaylist : ObservableObject
                     runCustomFolderOutputRepairAfterHydration: true,
                     verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged);
             }
+            if (semaphore != null)
+            {
+                semaphore.Release();
+                initializationSemaphoreReleased = true;
+            }
             stopwatchInitialize.Stop();
             LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
             SchedulePlaylistUrlCompletionRefresh("Initialize");
-            initSemaphore = null;
+        }
+        catch (Exception exception)
+        {
+            startupReadinessCoordinator.FailRequiredPlaylistReadiness(exception);
+            throw;
         }
         finally
         {
+            if (!initializationSemaphoreReleased)
+            {
+                semaphore?.Release();
+            }
             playlistAggregatePersistenceOwner.EndReload();
         }
     }
@@ -848,6 +870,7 @@ public partial class BMSPlaylist : ObservableObject
         {
             throw new InvalidOperationException("Playlist reload cannot run while another playlist persistence transition is active.");
         }
+        startupReadinessCoordinator.BeginPlaylistInitialization("ReloadTables");
         try
         {
             List<BMSTable> previousTables;
@@ -905,6 +928,11 @@ public partial class BMSPlaylist : ObservableObject
             stopwatchReloadTables.Stop();
             LogPlaylistPerformance("playlist_reload_tables lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchReloadTables.ElapsedMilliseconds);
             SchedulePlaylistUrlCompletionRefresh("ReloadTables");
+        }
+        catch (Exception exception)
+        {
+            startupReadinessCoordinator.FailRequiredPlaylistReadiness(exception);
+            throw;
         }
         finally
         {
@@ -979,15 +1007,13 @@ public partial class BMSPlaylist : ObservableObject
         bool externalSyncLeaseRequired = continuation?.RunExternalSyncAfterHydration == true;
         if (continuation?.RunExternalSyncAfterHydration == true)
         {
-            bool externalSyncCompleted = false;
             try
             {
                 if (IsShutdownRequested)
                 {
                     return;
                 }
-                externalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true).GetAwaiter().GetResult();
-                externalSyncCompleted = true;
+                QueueExternalPlaylistSyncAfterHydration(receipt.Reason);
                 if (IsShutdownRequested)
                 {
                     return;
@@ -1003,10 +1029,8 @@ public partial class BMSPlaylist : ObservableObject
                     return;
                 }
                 eventArgs.CompositionFailure = ex;
-                eventArgs.RetryContinuation = externalSyncCompleted
-                    ? continuation.WithoutExternalSync()
-                    : continuation;
-                eventArgs.RetryRequested = externalSyncCompleted && !IsShutdownRequested;
+                eventArgs.RetryContinuation = continuation.WithoutExternalSync();
+                eventArgs.RetryRequested = false;
                 NLogWrapper.FileLogger?.Warn(
                     ex,
                     "playlist_entries_hydration_external_sync_failed reason=" + FormatTextForLog(receipt.Reason));
@@ -1124,6 +1148,46 @@ public partial class BMSPlaylist : ObservableObject
                 "Playlist hydration receipt became stale before presentation publication.");
             eventArgs.RetryContinuation = publishedReceipt.Continuation;
             eventArgs.RetryRequested = true;
+        }
+    }
+
+    private void QueueExternalPlaylistSyncAfterHydration(string reason)
+    {
+        if (TrySkipForShutdown("external_sync_after_hydration", reason))
+        {
+            return;
+        }
+
+        async Task Work()
+        {
+            if (IsShutdownRequested)
+            {
+                return;
+            }
+            await externalSyncOwner.UpdateBMSTablesInternalAsync(
+                reloadExtPlaylist: true,
+                cancellationToken: startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
+        }
+
+        Func<string, string, string, Func<Task>, bool> startupScheduler = StartupBackgroundTaskScheduler;
+        if (startupScheduler != null)
+        {
+            if (startupScheduler(
+                "external_playlist_sync",
+                reason ?? "playlist_entries_hydration",
+                "playlist_entries_hydration",
+                Work))
+            {
+                return;
+            }
+            LogPlaylistPerformance(
+                "external_sync_after_hydration skipped reason=startup_scheduler_rejected requestReason="
+                + FormatTextForLog(reason));
+            return;
+        }
+        if (!IsShutdownRequested)
+        {
+            Task.Run(Work).Logging("QueueExternalPlaylistSyncAfterHydration");
         }
     }
 
