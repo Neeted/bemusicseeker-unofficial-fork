@@ -262,9 +262,9 @@ URL acquisition と external playlist sync は別 owner/allowlist のままに�
 | --- | --- | --- | --- | --- | --- |
 | `U0` Plan and oracle freeze | Completed | root | none | all packets | plan-clarifier: questions none。7 packets frozen。implementation未開始 |
 | `U1` Current updater safety | Verified | implementation-worker closed | U0 | `UPD-V3-LOCK`, `UPD-V3-POSTMUTATION`, `UPD-V3-ROLLBACK-FAIL` | commit `b13ab8fe`; integrated Quick artifact `tests-quick-20260831-102226`, 27 updater pass + approved reparse skip |
-| `U2` Actual v2 first hop and release outcome gate | Pending | unassigned worker | U1 | `UPD-V216-*`, `UPD-NOTE`, `REL-*` | exact artifact availabilityを最初に検証 |
+| `U2` Actual v2 first hop and release outcome gate | Verified | implementation-worker closed | U1 | `UPD-V216-*`, `UPD-NOTE`, `REL-*` | commit `1e9f576a`; actual receipt `artifacts/verification/v216-first-hop/v216-first-hop-acceptance.json`; integrated Quick `tests-quick-20260831-113927` 50/50 pass |
 | `U3` Raw SQLite completion | Verified | implementation-worker closed | U0 | `DB-STEP`, `DB-PRIMARY`, `DB-PARTIAL` | commit `88cda4e8`; integrated Quick artifact `tests-quick-20260831-102226`, 10/10 pass |
-| `U4` App schema transaction ownership | Pending | unassigned worker | U0 | `DB-OUTER-ROLLBACK`, `DB-RETRY` | borrowed participant commit routeを退役 |
+| `U4` App schema transaction ownership | Verified | implementation-worker closed | U0 | `DB-OUTER-ROLLBACK`, `DB-RETRY` | commit `3a8cf6cc`; head Quick `tests-quick-20260831-105151` 26/26 pass; integrated Quick `tests-quick-20260831-113927` 50/50 pass |
 | `U5` Startup readiness and import admission | Pending | unassigned worker | U0 | `START-*` | dispatcher/readiness barrierを先に作る |
 | `U6` Failure propagation and success suppression | Pending | unassigned worker | U4, U5 | `FAIL-*` | startup/schema shared pathsのhandoff後に着手 |
 | `U7` Package/folder file+DB boundary | Pending | unassigned worker | U0 | `COMP-*` | primitive→package→folderの直列handoff |
@@ -677,12 +677,14 @@ U0 packet freeze
 | 2026-08-31 | U0 | QA remediation | two independent plan QA sessions | updater post-mutation/dual-fault contracts、legacy failure surface、full packet metadata、exclusive shared-spec ownership、single final Fullを反映 | prose/link/whitespace validation後にU1/U3へhandoff可能 |
 | 2026-08-31 | U3 | Pending -> Verified | implementation-worker + root | base-red `tests-quick-20260831-094841`; head 10/10 `tests-quick-20260831-100427`; integrated 10/10 `tests-quick-20260831-102226`; commit `88cda4e8` | U9へraw completion/partial-publicationのspec deltaをhandoff済み |
 | 2026-08-31 | U1 | Pending -> Verified | implementation-worker + root | preflight/post-mutation/dual-fault negative controls; head 27 pass + approved skip `tests-quick-20260831-101855`; integrated同結果 `tests-quick-20260831-102226`; commit `b13ab8fe` | U2がactual v2 first-hopとrelease gateを所有 |
+| 2026-08-31 | U4 | Pending -> Verified | implementation-worker + root | base-red `tests-quick-20260831-103335`; commit mutant negative control `tests-quick-20260831-104916`; head 26/26 `tests-quick-20260831-105151`; integrated 50/50 `tests-quick-20260831-113927`; commit `3a8cf6cc` | U6へtransaction owner/failure propagation、U9へstartup/playlist spec deltaをhandoff |
+| 2026-08-31 | U2 | Pending -> Verified | implementation-worker + root | exact public artifact 11,260,709 bytes / SHA-256 `C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2`; head 24/24 `tests-quick-20260831-113439`; integrated 50/50 `tests-quick-20260831-113927`; cache-path normalization後 identity 2/2 `tests-quick-20260831-114320`; actual happy/lock receipt `artifacts/verification/v216-first-hop/v216-first-hop-acceptance.json`; commit `1e9f576a` | U9でcomplete exact-FQN roster/optional allowlistをfreezeし、final Fullへ統合 |
 
 ## Final evidence checklist
 
-- [ ] public v2 artifact seal receipt
-- [ ] actual v2 happy first-hop receipt
-- [ ] actual v2 locked-file characterization receipt
+- [x] public v2 artifact seal receipt
+- [x] actual v2 happy first-hop receipt
+- [x] actual v2 locked-file characterization receipt
 - [ ] current updater preflight-lock receipt
 - [ ] current updater post-mutation rollback exact-tree receipt
 - [ ] current updater rollback-second-fault and recovery receipt
