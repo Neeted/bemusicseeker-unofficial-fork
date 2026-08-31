@@ -269,7 +269,7 @@ URL acquisition と external playlist sync は別 owner/allowlist のままに�
 | `U6` Failure propagation and success suppression | Verified | implementation-worker closed | U4, U5 | `FAIL-*` | commit `9cc94a51`; focused Quick `tests-quick-20260831-141114` 13/13 pass; U7/outcome gateとの統合 Quick `tests-quick-20260831-165123` 376 pass + approved 7 cross-volume skips |
 | `U7` Package/folder file+DB boundary | Verified | implementation-worker + issue-resolver closed | U0 | `COMP-*` | commit `0ae8e615`; focused Quick `tests-quick-20260831-164409` 346 pass + approved 7 cross-volume skips; integrated `tests-quick-20260831-165123` |
 | `U8` URI and drop ingress boundaries | Verified | implementation-worker closed | U0 | `ING-*` | commit `bb90d8bd`; head 77 pass + deterministic reparse coverage + privilege symlink skip `tests-quick-20260831-123039`; integrated `tests-quick-20260831-125110` |
-| `U9` Integration, release qualification, static review | In progress | root + implementation-worker | U1–U8 | full roster | optional outcome gate `a2417f80`; roster cardinality `e4a39294`; format blocker `a4023804`; shared specs `1d8abf51`; actual-v2 Full receipt gate `ad237eb1`; exact roster Quick `tests-quick-20260831-232239` 31/31 pass; final Full、reviewが残る |
+| `U9` Integration, release qualification, static review | In progress | root + implementation-worker | U1–U8 | full roster | optional outcome gate `a2417f80`; roster cardinality `e4a39294`; format blocker `a4023804`; shared specs `1d8abf51`; actual-v2 Full receipt gate `ad237eb1`; exact roster Quick `tests-quick-20260831-232239` 31/31 pass; first Fullで検出したshutdown failure isolationを`cde646a2`で修正、focused Quick `tests-quick-20260901-000851` 34/34 pass; final Full再実行、reviewが残る |
 
 ## Implementation units
 
@@ -595,6 +595,30 @@ Tasks:
 6. implementation agentsを閉じ、snapshotをfreezeして`repo-static-review`へPacket、base/head、diff、base-red/negative controls、verificationを渡す。
 7. P0/P1/acceptance-direct P2を修正した場合はfocused Quickと必要なintegration laneを再実行し、fresh reviewerへ修正snapshotを渡す。snapshotが変わった場合だけFullを再実行する。
 
+#### U9 Full blocker addendum — shutdown failure isolation
+
+最初の Full `artifacts/verification/tests-full-20260831-232440` は canonical Functional の
+`serial-state-a` で 405 件中 2 件が失敗し、post-Functional phaseへ進まなかった。直接の失敗は
+uninitialized playlist fixtureで追加済みreadiness ownerが初期化されていなかったことだが、調査により
+`StartupReadinessCoordinator.RequestShutdown` の cancellation callback failureが
+`PlaylistShutdownCoordinator` のrequested publicationと残りのshutdown callbackを全て迂回し、
+shellがshutdown blocking workを待ち続け得るproduction failure isolation gapを確認した。fixtureだけの
+workaroundは採用せず、次のpacketで既存`START-SHUTDOWN`契約を補強した。凍結済みrequired rosterの
+FQNと33件cardinalityは変更しない。
+
+- Packet: `START-SHUTDOWN-FAILURE-ISOLATION`
+- Owner fan-out: requestedを先にpublishし、readiness、BMT、hydration、logを順に各一回試行する。
+  callback failure後も残りを実行し、最初のexception identityとthrow-siteを保持して再送出する。
+- Readiness terminalization: required/install receiptと未開始drain receiptはcancellation callback failureでも
+  terminalにする。実行中drainは早期成功にせず、consumerの`finally`までblocking receiptを保持する。
+- Coverage: `PlaylistShutdownCoordinatorTests`をextendし、exact roster FQN
+  `StartupReadiness_ShutdownTerminalizesWaiterAndImportQueue`をin-placeで強化する。shared resource、
+  fixed wait、追加`DoNotParallelize`はない。
+- Evidence: base-red `tests-quick-20260831-235112` 32/34 pass、fan-out targeted mutant
+  `tests-quick-20260901-000010`でfailure、head `tests-quick-20260901-000851` 34/34 pass、
+  implementation commit `cde646a2`。
+- Requalification: snapshotが変わったためFullを再実行する。standalone Functionalは重ねない。
+
 Expected writable paths:
 
 - all unit specs and tests listed above
@@ -701,6 +725,7 @@ U0 packet freeze
 | 2026-08-31 | U6 | Implemented -> Verified | implementation-worker + root | focused 13/13 `tests-quick-20260831-141114`; commit `9cc94a51`; U7/outcome gateとの統合 376 pass + approved 7 cross-volume skips `tests-quick-20260831-165123` | failureはsource identityを保って伝播し、detail/bulk/restore/settings/startupのsuccess side effectを抑止。恒久仕様はU9で統合済み |
 | 2026-08-31 | U7 | Replanned -> Verified | implementation-worker + issue-resolver + root | 4 blocking gapをaddendumどおり解消; focused 346 pass + approved 7 cross-volume skips `tests-quick-20260831-164409`; integrated `tests-quick-20260831-165123`; commit `0ae8e615` | persistent crash journalとcross-volume atomicityは明示対象外。canonical receipt routeとmanual recovery pathをU9仕様へ統合済み |
 | 2026-08-31 | U9 | Pending -> In progress | root + implementation-workers | optional outcome parser `a2417f80`; exact cardinality tests 4/4 `tests-quick-20260831-170358` / commit `e4a39294`; prior Full format blockerをwhitespace-only修正 `a4023804`; shared specs `1d8abf51`; actual-v2 receipt gate 18/18 `tests-quick-20260831-171710` / commit `ad237eb1`; exact MSTest roster 31/31 `tests-quick-20260831-232239` | actual v2の2 JSON resultsを含むfinal Fullと、frozen static reviewが残る |
+| 2026-09-01 | U9 | Full failed -> blocking remediation verified | test-contract-designer + implementation-worker + root | Full `tests-full-20260831-232440` の`serial-state-a`は403/405 pass、shutdown 2件が失敗。Packet `START-SHUTDOWN-FAILURE-ISOLATION`; base-red `tests-quick-20260831-235112`; targeted mutant `tests-quick-20260901-000010`; head 34/34 `tests-quick-20260901-000851`; commit `cde646a2` | 実行中drainの早期成功を統合時に除去済み。変更snapshotでFullを再実行し、成功後にfrozen static reviewへ進む |
 
 ## Final evidence checklist
 
