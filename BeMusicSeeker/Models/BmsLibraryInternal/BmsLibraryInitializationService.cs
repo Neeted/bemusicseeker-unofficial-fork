@@ -434,15 +434,13 @@ internal sealed class StartupReadinessCoordinator
             if (!externalImportDrainStarted)
             {
                 externalImportDrainActive = false;
+                externalImportDrainStarted = false;
                 drainCompletion.TrySetResult(true);
             }
+            readinessCompletion.TrySetCanceled(shutdownCancellation.Token);
+            installCompletion.TrySetCanceled(shutdownCancellation.Token);
         }
         shutdownCancellation.Cancel();
-        readinessCompletion.TrySetCanceled(shutdownCancellation.Token);
-        installCompletion.TrySetCanceled(shutdownCancellation.Token);
-        // A running consumer completes the drain receipt from its finally block after
-        // observing shutdown cancellation.  If no consumer was started, the queue was
-        // terminalized above and the receipt is already complete.
     }
 
     private static TaskCompletionSource<bool> CreatePendingCompletion()

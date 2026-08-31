@@ -197,12 +197,9 @@ public partial class BMSPlaylist : ObservableObject
 
     internal void RequestShutdown(string reason)
     {
-        // Terminalize readiness waiters and deferred import work before invoking the
-        // existing shutdown callbacks.  A callback may surface its own failure; the
-        // startup admission boundary must still be closed in that case.
-        startupReadinessCoordinator.RequestShutdown(reason);
         shutdownCoordinator.Request(
             reason,
+            () => startupReadinessCoordinator.RequestShutdown(reason),
             () => BmtOutput.RequestShutdown(reason),
             () => playlistEntriesHydrationOwner.ClearPendingForShutdown(reason),
             LogPlaylistPerformance);

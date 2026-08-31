@@ -111,10 +111,13 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
     {
         var coordinator = new StartupReadinessCoordinator();
         coordinator.BeginPlaylistInitialization("test");
+        Task capturedRequiredReadiness = coordinator.RequiredPlaylistReadiness;
+        Task capturedInstallEstimationReadiness = coordinator.InstallEstimationReadiness;
         Task readinessWaiter = coordinator.WaitForRequiredPlaylistReadinessAsync();
         Assert.IsTrue(coordinator.TryAdmitExternalPlaylistImports(
             [new Uri("https://example.test/table.json")],
             out _));
+        Task capturedImportDrain = coordinator.ExternalImportDrainCompletion;
         var consumerEntered = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         int lateMutationCount = 0;
@@ -137,13 +140,58 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
         });
         await consumerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        coordinator.RequestShutdown("test");
+        var cancellationCallbackFailure = new InvalidOperationException("shutdown cancellation callback failed");
+        bool callbackAfterFailureRan = false;
+        using CancellationTokenRegistration callbackAfterFailure = coordinator.ShutdownToken.Register(
+            () => callbackAfterFailureRan = true);
+        using CancellationTokenRegistration failingCallback = coordinator.ShutdownToken.Register(
+            () => throw cancellationCallbackFailure);
 
+        AggregateException shutdownFailure = Assert.ThrowsException<AggregateException>(
+            () => coordinator.RequestShutdown("test"));
+
+        Assert.AreSame(cancellationCallbackFailure, shutdownFailure.Flatten().InnerExceptions[0]);
+        Assert.IsTrue(callbackAfterFailureRan, "Cancellation must attempt callbacks after the first callback failure.");
+        Assert.IsTrue(capturedRequiredReadiness.IsCanceled);
+        Assert.IsTrue(capturedInstallEstimationReadiness.IsCanceled);
         await Assert.ThrowsExceptionAsync<TaskCanceledException>(
             () => readinessWaiter.WaitAsync(TimeSpan.FromSeconds(5)));
         await consumer.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(capturedImportDrain.IsCompleted);
         Assert.AreEqual(0, lateMutationCount);
         Assert.IsTrue(coordinator.ExternalImportDrainCompletion.IsCompleted);
+        Assert.AreEqual(0, coordinator.DequeueExternalPlaylistImportBatch().Count);
+        Assert.IsFalse(coordinator.TryAdmitExternalPlaylistImports(
+            [new Uri("https://example.test/later.json")],
+            out _));
+    }
+
+    [TestMethod]
+    public void StartupReadiness_ShutdownCallbackFailureTerminalizesIdleImportDrain()
+    {
+        var coordinator = new StartupReadinessCoordinator();
+        coordinator.BeginPlaylistInitialization("test");
+        Task capturedRequiredReadiness = coordinator.RequiredPlaylistReadiness;
+        Task capturedInstallEstimationReadiness = coordinator.InstallEstimationReadiness;
+        Assert.IsTrue(coordinator.TryAdmitExternalPlaylistImports(
+            [new Uri("https://example.test/table.json")],
+            out _));
+        Task capturedImportDrain = coordinator.ExternalImportDrainCompletion;
+        var cancellationCallbackFailure = new InvalidOperationException("idle shutdown cancellation callback failed");
+        bool callbackAfterFailureRan = false;
+        using CancellationTokenRegistration callbackAfterFailure = coordinator.ShutdownToken.Register(
+            () => callbackAfterFailureRan = true);
+        using CancellationTokenRegistration failingCallback = coordinator.ShutdownToken.Register(
+            () => throw cancellationCallbackFailure);
+
+        AggregateException shutdownFailure = Assert.ThrowsException<AggregateException>(
+            () => coordinator.RequestShutdown("test"));
+
+        Assert.AreSame(cancellationCallbackFailure, shutdownFailure.Flatten().InnerExceptions[0]);
+        Assert.IsTrue(callbackAfterFailureRan, "Cancellation must attempt callbacks after the first callback failure.");
+        Assert.IsTrue(capturedRequiredReadiness.IsCanceled);
+        Assert.IsTrue(capturedInstallEstimationReadiness.IsCanceled);
+        Assert.IsTrue(capturedImportDrain.IsCompletedSuccessfully);
         Assert.AreEqual(0, coordinator.DequeueExternalPlaylistImportBatch().Count);
         Assert.IsFalse(coordinator.TryAdmitExternalPlaylistImports(
             [new Uri("https://example.test/later.json")],
