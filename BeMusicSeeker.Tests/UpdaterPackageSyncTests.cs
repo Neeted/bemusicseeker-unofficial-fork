@@ -4,8 +4,11 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Win32;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -454,6 +457,132 @@ public sealed class UpdaterPackageSyncTests
     }
 
     [TestMethod]
+    public void ApplyUpdate_PreflightManagedLockLeavesCanonicalAndPreservedTreesUnchanged()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string restartExecutablePath = Path.Combine(appDirectoryPath, "restart.cmd");
+            string restartMarkerPath = Path.Combine(appDirectoryPath, "restart-marker.txt");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(appDirectoryPath, "restart.cmd", "@echo restarted>restart-marker.txt");
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.cmd");
+            WriteTextFile(appDirectoryPath, "data/settings.db", "preserved-data");
+            WriteTextFile(appDirectoryPath, "config/user.config", "preserved-config");
+            WriteTextFile(appDirectoryPath, "unmanaged.txt", "user-content");
+
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@echo updated>restart-marker.txt");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", "BeMusicSeeker.exe\nrestart.cmd");
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            string canonicalBefore = ComputeCanonicalTreeHash(appDirectoryPath);
+            string preservedBefore = ComputePreservedTreeHash(appDirectoryPath);
+            using FileStream managedLock = new(
+                Path.Combine(appDirectoryPath, "BeMusicSeeker.exe"),
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read);
+
+            RunUpdaterExpectFailure(
+                appDirectoryPath,
+                packagePath,
+                backupDirectoryPath,
+                restartExecutablePath);
+
+            Assert.AreEqual(canonicalBefore, ComputeCanonicalTreeHash(appDirectoryPath));
+            Assert.AreEqual(preservedBefore, ComputePreservedTreeHash(appDirectoryPath));
+            Assert.IsTrue(File.Exists(packagePath), "A preflight failure must leave the verified package available.");
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath), "Preflight must fail before backup rotation.");
+            Assert.IsFalse(
+                File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-transaction.json")),
+                "Preflight failure must not leave a mutation journal.");
+            string failureReceiptPath = Path.Combine(appDirectoryPath, "update_work", "update-failure.txt");
+            Assert.IsTrue(File.Exists(failureReceiptPath), "The preflight failure must be durably receipted.");
+            StringAssert.Contains(File.ReadAllText(failureReceiptPath), "exclusive access");
+            Assert.IsFalse(File.Exists(restartMarkerPath), "A preflight failure must not restart the application.");
+        });
+    }
+
+    [TestMethod]
+    public void RecoverCommand_RollbackSecondFaultRetainsPrimaryReceiptAndRecoveryMaterial()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
+            string extractDirectoryPath = Path.Combine(appDirectoryPath, "update_work", "extracted");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+            string failureReceiptPath = Path.Combine(appDirectoryPath, "update_work", "update-failure.txt");
+            string managedPath = Path.Combine(appDirectoryPath, "BeMusicSeeker.exe");
+            string rollbackFaultPath = Path.Combine(appDirectoryPath, "restart.exe");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "data/settings.db", "preserved-data");
+            WriteTextFile(appDirectoryPath, "config/user.config", "preserved-config");
+            WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            File.Copy(
+                FindUpdaterExecutable(),
+                Path.Combine(previousDirectoryPath, "restart.exe"),
+                overwrite: true);
+            WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "package");
+            WriteTextFile(appDirectoryPath, "update_work/update-failure.txt", "primary-failure-sentinel");
+            WriteTextFile(
+                appDirectoryPath,
+                "update_work/update-transaction.json",
+                JsonSerializer.Serialize(new
+                {
+                    Version = 1,
+                    Phase = "applying",
+                    AppDirectory = appDirectoryPath,
+                    PackagePath = packagePath,
+                    BackupDirectory = backupDirectoryPath,
+                    PreviousDirectory = previousDirectoryPath,
+                    ExtractDirectory = extractDirectoryPath,
+                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
+                    BackupComplete = true,
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe", "restart.exe" }
+                }));
+
+            using (FileStream managedLock = new(rollbackFaultPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                using Process recovery = StartUpdaterRecoveryProcess(appDirectoryPath);
+                Task<string> standardOutput = recovery.StandardOutput.ReadToEndAsync();
+                Task<string> standardError = recovery.StandardError.ReadToEndAsync();
+                Assert.IsTrue(recovery.WaitForExit(30000), "Recovery must report the rollback second fault.");
+                Assert.AreNotEqual(0, recovery.ExitCode, "Rollback second fault must not be reported as success.");
+                _ = standardOutput.GetAwaiter().GetResult();
+                _ = standardError.GetAwaiter().GetResult();
+            }
+
+            Assert.IsTrue(File.Exists(journalPath), "Rollback failure must retain the transaction journal.");
+            Assert.IsTrue(Directory.Exists(backupDirectoryPath), "Rollback failure must retain the only backup.");
+            Assert.AreEqual(
+                "old-app",
+                File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")),
+                "The deterministic second fault must occur after an earlier managed path promotion.");
+            string failureReceipt = File.ReadAllText(failureReceiptPath);
+            StringAssert.Contains(failureReceipt, "primary-failure-sentinel");
+            StringAssert.Contains(failureReceipt, "rollback");
+
+            RunUpdaterRecovery(appDirectoryPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(managedPath));
+            Assert.AreEqual("preserved-data", File.ReadAllText(Path.Combine(appDirectoryPath, "data", "settings.db")));
+            Assert.AreEqual("preserved-config", File.ReadAllText(Path.Combine(appDirectoryPath, "config", "user.config")));
+            Assert.IsFalse(File.Exists(journalPath), "Recovery after the fault is removed must converge and retire the journal.");
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath), "Recovery after the fault is removed must retire the backup.");
+        });
+    }
+
+    [TestMethod]
     public void RecoverCommandSerializesRunOnceConsumersWhenTransactionLeaseIsUnavailable()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -755,6 +884,11 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(appDirectoryPath, "chart-info-metadata.7z", "old-root-archive");
             WriteTextFile(appDirectoryPath, "chart-info-metadata.db", "old-root-db");
             WriteTextFile(appDirectoryPath, "imported_metadata/chart-info-metadata.7z", "old-imported-archive");
+            WriteTextFile(appDirectoryPath, "data/settings.db", "preserved-data");
+            WriteTextFile(appDirectoryPath, "config/user.config", "preserved-config");
+            WriteTextFile(appDirectoryPath, "unmanaged.txt", "user-content");
+            string canonicalBefore = ComputeCanonicalTreeHash(appDirectoryPath);
+            string preservedBefore = ComputePreservedTreeHash(appDirectoryPath);
 
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
             WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
@@ -770,12 +904,18 @@ public sealed class UpdaterPackageSyncTests
 
             RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
 
+            Assert.AreEqual(canonicalBefore, ComputeCanonicalTreeHash(appDirectoryPath));
+            Assert.AreEqual(preservedBefore, ComputePreservedTreeHash(appDirectoryPath));
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.AreEqual("old-root-archive", File.ReadAllText(Path.Combine(appDirectoryPath, "chart-info-metadata.7z")));
             Assert.AreEqual("old-root-db", File.ReadAllText(Path.Combine(appDirectoryPath, "chart-info-metadata.db")));
             Assert.AreEqual("old-imported-archive", File.ReadAllText(Path.Combine(appDirectoryPath, "imported_metadata", "chart-info-metadata.7z")));
             Assert.IsFalse(File.Exists(packagePath));
             Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "update_work", "extracted")));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath), "A successful rollback must retire the previous-generation backup.");
+            Assert.IsFalse(
+                File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-transaction.json")),
+                "A successful rollback must retire the transaction journal without committing the update.");
             Assert.IsTrue(File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-failure.txt")));
         });
     }
@@ -1328,19 +1468,23 @@ public sealed class UpdaterPackageSyncTests
     {
         string effectiveRestartExecutablePath = restartExecutablePath ?? Path.Combine(appDirectoryPath, "restart.exe");
         using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
+        Task<string> standardOutput = process.StandardOutput.ReadToEndAsync();
+        Task<string> standardError = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(30000))
         {
             process.Kill();
+            _ = standardOutput.GetAwaiter().GetResult();
+            _ = standardError.GetAwaiter().GetResult();
             Assert.Fail("Updater process timed out.");
         }
 
         WaitForFileAvailable(effectiveRestartExecutablePath);
+        string output = standardOutput.GetAwaiter().GetResult();
+        string error = standardError.GetAwaiter().GetResult();
 
         if (process.ExitCode == 0)
         {
-            string standardOutput = process.StandardOutput.ReadToEnd();
-            string standardError = process.StandardError.ReadToEnd();
-            Assert.Fail("Updater unexpectedly succeeded." + Environment.NewLine + standardOutput + Environment.NewLine + standardError);
+            Assert.Fail("Updater unexpectedly succeeded." + Environment.NewLine + output + Environment.NewLine + error);
         }
     }
 
@@ -1649,6 +1793,52 @@ public sealed class UpdaterPackageSyncTests
         }
 
         File.WriteAllText(filePath, contents);
+    }
+
+    private static string ComputeCanonicalTreeHash(string appDirectoryPath)
+    {
+        return ComputeTreeHash(appDirectoryPath, includePreservedTopLevel: false);
+    }
+
+    private static string ComputePreservedTreeHash(string appDirectoryPath)
+    {
+        return ComputeTreeHash(appDirectoryPath, includePreservedTopLevel: true);
+    }
+
+    private static string ComputeTreeHash(string rootDirectoryPath, bool includePreservedTopLevel)
+    {
+        string[] preservedNames = ["config", "data", "log", "logs", "update_backup", "update_work"];
+        var entries = new List<string>();
+        foreach (string path in Directory.EnumerateFileSystemEntries(rootDirectoryPath, "*", SearchOption.AllDirectories))
+        {
+            string relativePath = Path.GetRelativePath(rootDirectoryPath, path)
+                .Replace(Path.DirectorySeparatorChar, '/');
+            string topLevelName = relativePath.Split('/')[0];
+            bool isPreserved = preservedNames.Contains(topLevelName, StringComparer.OrdinalIgnoreCase);
+            if (isPreserved != includePreservedTopLevel
+                || (includePreservedTopLevel
+                    && !string.Equals(topLevelName, "config", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(topLevelName, "data", StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            if (Directory.Exists(path))
+            {
+                entries.Add("D|" + relativePath);
+            }
+            else
+            {
+                entries.Add(
+                    "F|"
+                    + relativePath
+                    + "|"
+                    + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+            }
+        }
+
+        entries.Sort(StringComparer.Ordinal);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join("\n", entries))));
     }
 
     private static void CopyRestartExecutable(string rootDirectoryPath)

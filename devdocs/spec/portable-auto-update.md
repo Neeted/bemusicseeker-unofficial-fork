@@ -62,7 +62,7 @@ asset 種別:
 
 検証後、アプリは packaged updater の self-contained single-file exe だけを `update_work/current/` にコピーして、同じディレクトリから起動する。updater は request を parse できた時点で `current/updater-ready.txt` を公開し、アプリはこの ready handshake を確認してから shutdown preparation を行う。preparation 成功時だけ `current/updater-decision.txt` に `proceed` を公開し、updater はそれを受けてから親プロセス終了待ちと適用を開始する。preparation が長引いてもアプリ process が生存している間は decision 待ちを延長し、`proceed` 前に 60 秒の終了待ちを消費しない。preparation 失敗や中断時は `cancel` を公開し、updater は適用せず終了する。ready 前に updater が終了または起動できなかった場合、アプリは終了せず既存の update failure dialog へ通知する。再起動直後のアプリ初期化は、実行中 updater が保持している `current/` を削除対象にせず、`downloads/` や `extracted/` などの一時領域だけを掃除する。`current/` は次回の updater payload 準備時に上書きする。
 
-updater がアプリ終了後に適用または rollback に失敗した場合は、`update_work/update-failure.txt` を一時ファイルから atomic に公開して失敗内容を記録してから終了する。atomic 移動に失敗しても `update-failure.txt.tmp` を durable fallback として残し、次回起動時に同じ receipt として扱う。startup cleanup は receipt を読み取って一時領域を掃除し、既存の update failure dialog が正常に戻った後で receipt を acknowledge（削除）する。shell 終了などで dialog を抑止した場合は acknowledge を延期して receipt を保持する。これにより updater の stderr だけに失敗を残さず、再起動後のユーザー操作で失敗を観測できる。
+updater がアプリ終了後に適用または rollback に失敗した場合は、`update_work/update-failure.txt` を一時ファイルから atomic に公開して失敗内容を記録してから終了する。atomic 移動に失敗しても `update-failure.txt.tmp` を durable fallback として残し、次回起動時に同じ receipt として扱う。startup cleanup は receipt を読み取って一時領域を掃除し、既存の update failure dialog が正常に戻った後で receipt を acknowledge（削除）する。shell 終了などで dialog を抑止した場合は acknowledge を延期して receipt を保持する。これにより updater の stderr だけに失敗を残さず、再起動後のユーザー操作で失敗を観測できる。rollback 自体が失敗した場合は primary failure と rollback failure の両方を receipt に残し、既存の backup、work、journal を保持して次回の recovery に委ねる。
 transaction の preflight journal が作成された時点で、`update_work/current/BeMusicSeeker.Updater.exe --recover --app-dir <app-dir>` を実行する per-user `RunOnce` recovery handoff と、同じ command を持つ persistent `Run` supervisor を登録する。`RunOnce` value 名は `!` prefix と retry generation suffix を持ち、recovery は開始時に新しい generation の handoff を登録して lease contention、rollback failure、recovery 自身の中断後にも次回ログオンで再試行できる状態を維持する（RunOnce 実行後に旧 generation が削除されても persistent supervisor が consumer を提供する）。cancel、commit、または recovery 完了時だけ app directory hash に紐づく handoff／supervisor をすべて削除する。rollback は復元完了を `rolled-back` phase として journal に durable に記録し、旧 restart executable の起動成功後に backup／journal を掃除するため、cleanup 中断時に復元処理を再実行しない。Process.Start 成功後に記録された `Restarting` の正の PID は commit evidence として扱い、PID がない起動未確定窓だけを executable identity で判定する。startup recovery または通常 updater が同一 app executable の生存を検出した場合は app tree を変更せず exit 2 と handoff 保持で watchdog／次回ログオンへ委ねる。
 
 ## Updater
@@ -109,7 +109,11 @@ updater は `--pid` の終了を最大 60 秒待つ。
 
 更新前の管理ファイルは `update_backup/previous/` に退避する。保持数は 1 世代。
 
-更新適用から restart executable の `Process.Start` 成功までは rollback 可能な段階とし、失敗時は今回の package path と extracted directory を掃除して `update_backup/previous/` から復元する。ユーザー追加ファイルや保持対象ディレクトリは rollback でも触らない。アプリ終了後にこの段階で失敗した場合、updater は復元後に旧 restart executable の再起動を試み、更新失敗でアプリが閉じたままになることを避ける（再起動自体の失敗は stderr に記録する）。
+`BackingUp` または live tree の mutation に入る前に、既存の managed path を preflight する。ファイルは排他アクセスで開けることを確認し、managed directory は配下の managed file 全体を確認する。排他 lock などで確認できない path が一つでもあれば、backup rotation と canonical tree の mutation を開始せず、package と `data/`、`config/`、unmanaged file を保持したまま failure receipt を残して終了する。この preflight 後に発生する TOCTOU race や OS の電源断を完全に吸収する契約ではない。
+
+更新適用から restart executable の `Process.Start` 成功までは rollback 可能な段階とし、失敗時は今回の package path と extracted directory を掃除して `update_backup/previous/` から復元する。rollback は canonical の新しい path を先に一括削除せず、`update_work/` 配下の sibling staging に backup をコピーしてから、既存 file は replace、型が変わる entry は sibling quarantine を経由して promote する。これにより rollback 中も backup と現在の tree の authority を失わない。ユーザー追加ファイルや保持対象ディレクトリは rollback でも触らない。通常の適用失敗では復元後に旧 restart executable を自動起動せず、failure receipt と recovery material を残して終了する。
+
+rollback 自体が失敗した場合は適用を成功扱いにせず、restart と commit を行わない。primary failure と rollback failure を同じ persistent receipt に残し、唯一の backup、work、journal を削除しない。lock などの fault が除去された後は、既存の journal recovery が保持された backup から old または new の complete tree へ収束できる状態を維持する。
 
 restart executable の起動に成功した時点を更新の commit point とする。適用後、restart 前に zip／extract directory の cleanup を試み、失敗しても rollback せず警告を stderr に出して、再起動後の startup cleanup に委ねる。restart 後に updater が一時領域を同時に掃除しないことで、起動済み新プロセスとの cleanup 競合を避ける。
 

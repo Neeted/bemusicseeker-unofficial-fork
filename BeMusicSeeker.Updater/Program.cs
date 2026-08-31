@@ -32,6 +32,8 @@ namespace BeMusicSeeker.Updater
         private const string TransactionJournalFileName = "update-transaction.json";
         private const string TransactionJournalTemporaryFileName = "update-transaction.json.tmp";
         private const string TransactionLeaseFileName = "update-transaction.lock";
+        private const string RollbackStagingDirectoryName = "rollback-staging";
+        private const string RollbackOriginalDirectoryPrefix = "rollback-original-";
         private const string RecoveryRunOnceSubKey = @"Software\Microsoft\Windows\CurrentVersion\RunOnce";
         private const string RecoveryRunSubKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
         // The leading ! keeps the value present until the recovery command exits. Recovery
@@ -325,7 +327,6 @@ namespace BeMusicSeeker.Updater
             {
                 TryDiscardPreparedTransactionJournal(request.AppDirectory);
                 TryWriteFailureReceipt(request, exception);
-                TryRestartApplicationAfterFailure(request);
                 throw;
             }
         }
@@ -458,7 +459,6 @@ namespace BeMusicSeeker.Updater
             journal.NewPackagePaths = [.. newPackagePaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
             bool restartStarted = false;
             var appliedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var backupEntries = new List<BackupEntry>();
             var createdDirectories = new List<string>();
             bool applicationMutationStarted = false;
             bool backupRotationStarted = false;
@@ -479,8 +479,7 @@ namespace BeMusicSeeker.Updater
                 HashSet<string> previousManagedPaths = PrepareTransactionBackup(
                     appDirectory,
                     previousDirectory,
-                    newPackagePaths,
-                    backupEntries);
+                    newPackagePaths);
                 journal.BackupComplete = true;
                 journal.Phase = TransactionPhase.Applying;
                 WriteTransactionJournal(journal);
@@ -545,7 +544,7 @@ namespace BeMusicSeeker.Updater
                     {
                         if (applicationMutationStarted)
                         {
-                            TryRollback(appDirectory, previousDirectory, appliedPaths, backupEntries, createdDirectories);
+                            TryRollback(appDirectory, previousDirectory, appliedPaths, createdDirectories);
                             MarkTransactionRolledBack(journal);
                         }
                         TryCleanupFailedUpdateArtifacts(packagePath, extractDirectory);
@@ -1025,29 +1024,6 @@ namespace BeMusicSeeker.Updater
             return false;
         }
 
-        private static void TryRestartApplicationAfterFailure(UpdateRequest request)
-        {
-            try
-            {
-                string appDirectory = NormalizeExistingDirectory(request.AppDirectory);
-                string restartExePath = NormalizeExistingFile(request.RestartExePath);
-                EnsurePathUnderDirectory(appDirectory, restartExePath, "restart executable");
-                Process restartProcess = Process.Start(new ProcessStartInfo(restartExePath)
-                {
-                    UseShellExecute = true,
-                    WorkingDirectory = Path.GetDirectoryName(restartExePath) ?? appDirectory
-                });
-                if (restartProcess == null)
-                {
-                    throw new InvalidOperationException("The previous application could not be restarted after update failure.");
-                }
-            }
-            catch (Exception restartException)
-            {
-                Console.Error.WriteLine("The update failed and the previous application could not be restarted: " + restartException);
-            }
-        }
-
         private static void TryWriteFailureReceipt(UpdateRequest request, Exception exception)
         {
             if (request != null)
@@ -1075,7 +1051,32 @@ namespace BeMusicSeeker.Updater
                 UpdaterFileSystem.CreateDirectory(workDirectory);
                 EnsureNoReparsePointIfPresent(receiptPath);
                 EnsureNoReparsePointIfPresent(temporaryReceiptPath);
-                byte[] details = Encoding.UTF8.GetBytes(exception?.ToString() ?? "The updater failed without exception details.");
+                string detailsText = exception?.ToString() ?? "The updater failed without exception details.";
+                if (exception is RollbackFailureException
+                    && UpdaterFileSystem.FileExists(receiptPath))
+                {
+                    try
+                    {
+                        using FileStream existingReceiptStream = UpdaterFileSystem.OpenRead(receiptPath);
+                        using var existingReceiptReader = new StreamReader(existingReceiptStream, Encoding.UTF8);
+                        string existingDetails = existingReceiptReader.ReadToEnd();
+                        if (!string.IsNullOrWhiteSpace(existingDetails)
+                            && !detailsText.Contains(existingDetails, StringComparison.Ordinal))
+                        {
+                            detailsText = existingDetails.TrimEnd()
+                                + Environment.NewLine
+                                + "--- rollback failure ---"
+                                + Environment.NewLine
+                                + detailsText;
+                        }
+                    }
+                    catch (Exception existingReceiptException)
+                    {
+                        Console.Error.WriteLine("The updater could not read the previous failure receipt while retaining rollback diagnostics: " + existingReceiptException);
+                    }
+                }
+
+                byte[] details = Encoding.UTF8.GetBytes(detailsText);
                 using (FileStream stream = UpdaterFileSystem.Open(temporaryReceiptPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
                     stream.Write(details, 0, details.Length);
@@ -1221,61 +1222,20 @@ namespace BeMusicSeeker.Updater
 
         private static void TryRollbackFromJournal(TransactionJournalRecord journal, bool removeNewPackagePaths)
         {
-            var failures = new List<Exception>();
-            if (removeNewPackagePaths)
-            {
-                foreach (string relativePath in (journal.NewPackagePaths ?? [])
-                    .OrderByDescending(path => path.Length))
-                {
-                    try
-                    {
-                        string normalizedRelativePath = NormalizeRelativePackagePath(relativePath);
-                        EnsureNoReparsePointAncestors(journal.AppDirectory, normalizedRelativePath);
-                        string path = Path.Combine(journal.AppDirectory, normalizedRelativePath);
-                        EnsureNoReparsePointIfPresent(path);
-                        if (UpdaterFileSystem.DirectoryExists(path))
-                        {
-                            EnsureNoReparsePoint(path);
-                        }
-                        SafeDeletePath(path);
-                    }
-                    catch (Exception exception)
-                    {
-                        failures.Add(exception);
-                    }
-                }
-            }
-
-            if (removeNewPackagePaths)
-            {
-                try
-                {
-                    RemoveEmptyDirectories(journal.AppDirectory);
-                }
-                catch (Exception exception)
-                {
-                    failures.Add(exception);
-                }
-            }
-
             try
             {
-                if (UpdaterFileSystem.DirectoryExists(journal.PreviousDirectory))
-                {
-                    EnsureNoReparsePoint(journal.PreviousDirectory);
-                    RestoreBackupDirectoryContents(journal.PreviousDirectory, journal.AppDirectory);
-                }
+                TryRollbackManagedTree(
+                    journal.AppDirectory,
+                    journal.PreviousDirectory,
+                    removeNewPackagePaths ? (journal.NewPackagePaths ?? []) : [],
+                    createdDirectories: [],
+                    requirePreviousDirectory: removeNewPackagePaths);
             }
             catch (Exception exception)
             {
-                failures.Add(exception);
-            }
-
-            if (failures.Count > 0)
-            {
                 throw new RollbackFailureException(
                     "The updater recovered an incomplete transaction, but rollback could not restore every managed path.",
-                    new AggregateException(failures));
+                    exception);
             }
         }
 
@@ -1591,8 +1551,7 @@ namespace BeMusicSeeker.Updater
         private static HashSet<string> PrepareTransactionBackup(
             string appDirectory,
             string previousDirectory,
-            HashSet<string> newPackagePaths,
-            ICollection<BackupEntry> backupEntries)
+            HashSet<string> newPackagePaths)
         {
             bool hasManagedFilesManifest = UpdaterFileSystem.FileExists(Path.Combine(appDirectory, ManagedFilesManifestName));
             HashSet<string> previousManagedPaths = ReadManagedFilesManifest(appDirectory, newPackagePaths);
@@ -1600,11 +1559,11 @@ namespace BeMusicSeeker.Updater
             AddAppManagedMetadataArtifactPaths(previousManagedPaths, appDirectory);
             ValidateExistingPackagePathsBeforeMutation(appDirectory, previousManagedPaths, newPackagePaths, hasManagedFilesManifest);
             ValidateFileToDirectoryTransitions(appDirectory, previousManagedPaths, newPackagePaths);
-            CopyExistingPathToBackup(appDirectory, previousDirectory, ManagedFilesManifestName, backupEntries);
+            CopyExistingPathToBackup(appDirectory, previousDirectory, ManagedFilesManifestName);
             foreach (string relativePath in previousManagedPaths.Except(newPackagePaths, StringComparer.OrdinalIgnoreCase))
             {
                 EnsureNoReparsePointAncestors(appDirectory, relativePath);
-                CopyExistingPathToBackup(appDirectory, previousDirectory, relativePath, backupEntries);
+                CopyExistingPathToBackup(appDirectory, previousDirectory, relativePath);
             }
 
             foreach (string relativePath in newPackagePaths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
@@ -1615,7 +1574,7 @@ namespace BeMusicSeeker.Updater
                 }
 
                 EnsureNoReparsePointAncestors(appDirectory, relativePath);
-                CopyExistingPathToBackup(appDirectory, previousDirectory, relativePath, backupEntries);
+                CopyExistingPathToBackup(appDirectory, previousDirectory, relativePath);
             }
 
             return previousManagedPaths;
@@ -1630,6 +1589,54 @@ namespace BeMusicSeeker.Updater
             AddAppManagedMetadataArtifactPaths(previousManagedPaths, appDirectory);
             ValidateExistingPackagePathsBeforeMutation(appDirectory, previousManagedPaths, newPackagePaths, hasManagedFilesManifest);
             ValidateFileToDirectoryTransitions(appDirectory, previousManagedPaths, newPackagePaths);
+            PreflightManagedPathsForMutation(appDirectory, previousManagedPaths, newPackagePaths);
+        }
+
+        private static void PreflightManagedPathsForMutation(
+            string appDirectory,
+            HashSet<string> previousManagedPaths,
+            HashSet<string> newPackagePaths)
+        {
+            foreach (string relativePath in previousManagedPaths.Union(newPackagePaths, StringComparer.OrdinalIgnoreCase))
+            {
+                string normalizedRelativePath = NormalizeRelativePackagePath(relativePath);
+                string path = Path.Combine(appDirectory, normalizedRelativePath);
+                if (!UpdaterFileSystem.EntryExists(path))
+                {
+                    continue;
+                }
+
+                EnsureNoReparsePointAncestors(appDirectory, normalizedRelativePath);
+                EnsureNoReparsePoint(path);
+                if (UpdaterFileSystem.FileExists(path))
+                {
+                    EnsureManagedFileHasExclusiveAccess(path);
+                    continue;
+                }
+
+                foreach (string managedFile in UpdaterFileSystem.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+                {
+                    EnsureManagedFileHasExclusiveAccess(managedFile);
+                }
+            }
+        }
+
+        private static void EnsureManagedFileHasExclusiveAccess(string path)
+        {
+            try
+            {
+                using FileStream stream = UpdaterFileSystem.Open(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.None);
+            }
+            catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException)
+            {
+                throw new IOException(
+                    "Managed path is not available for exclusive access before update mutation: " + path,
+                    exception);
+            }
         }
 
         private static void AddAppManagedMetadataArtifactPaths(HashSet<string> managedPaths, string appDirectory)
@@ -1829,46 +1836,340 @@ namespace BeMusicSeeker.Updater
             string appDirectory,
             string previousDirectory,
             HashSet<string> appliedPaths,
-            IEnumerable<BackupEntry> backupEntries,
             IEnumerable<string> createdDirectories)
         {
-            var failures = new List<Exception>();
-            foreach (string relativePath in appliedPaths.OrderByDescending(path => path.Length))
+            try
             {
-                try
+                TryRollbackManagedTree(
+                    appDirectory,
+                    previousDirectory,
+                    appliedPaths,
+                    createdDirectories,
+                    requirePreviousDirectory: true);
+            }
+            catch (Exception exception)
+            {
+                throw new RollbackFailureException(
+                    "The update failed and rollback could not restore every managed path.",
+                    exception);
+            }
+        }
+
+        private static void TryRollbackManagedTree(
+            string appDirectory,
+            string previousDirectory,
+            IEnumerable<string> pathsToRemove,
+            IEnumerable<string> createdDirectories,
+            bool requirePreviousDirectory)
+        {
+            string normalizedAppDirectory = NormalizeExistingDirectory(appDirectory);
+            string normalizedPreviousDirectory = NormalizeDirectoryPath(previousDirectory);
+            string workDirectory = Path.Combine(normalizedAppDirectory, "update_work");
+            string stagingDirectory = Path.Combine(workDirectory, RollbackStagingDirectoryName);
+            string rollbackOriginalDirectory = Path.Combine(
+                workDirectory,
+                RollbackOriginalDirectoryPrefix + Guid.NewGuid().ToString("N"));
+
+            EnsureNoReparsePointAncestors(normalizedAppDirectory, "update_work/" + RollbackStagingDirectoryName);
+            EnsureNoReparsePointIfPresent(workDirectory);
+            EnsureNoReparsePointIfPresent(stagingDirectory);
+            if (UpdaterFileSystem.FileExists(stagingDirectory))
+            {
+                throw new IOException("Rollback staging path is occupied by a file: " + stagingDirectory);
+            }
+            if (UpdaterFileSystem.DirectoryExists(stagingDirectory))
+            {
+                EnsureNoReparsePoint(stagingDirectory);
+                UpdaterFileSystem.DeleteDirectory(stagingDirectory, recursive: true);
+            }
+            UpdaterFileSystem.CreateDirectory(stagingDirectory);
+            UpdaterFileSystem.CreateDirectory(rollbackOriginalDirectory);
+
+            if (UpdaterFileSystem.FileExists(normalizedPreviousDirectory))
+            {
+                throw new IOException("The previous-generation backup path is a file: " + normalizedPreviousDirectory);
+            }
+            if (requirePreviousDirectory
+                && !UpdaterFileSystem.DirectoryExists(normalizedPreviousDirectory))
+            {
+                throw new DirectoryNotFoundException(
+                    "The previous-generation backup path was not available for rollback: "
+                    + normalizedPreviousDirectory);
+            }
+            if (UpdaterFileSystem.DirectoryExists(normalizedPreviousDirectory))
+            {
+                EnsureNoReparsePoint(normalizedPreviousDirectory);
+                CopyDirectoryContentsToBackup(normalizedPreviousDirectory, stagingDirectory);
+            }
+
+            PromoteRollbackStaging(
+                normalizedAppDirectory,
+                normalizedPreviousDirectory,
+                stagingDirectory,
+                rollbackOriginalDirectory,
+                pathsToRemove,
+                createdDirectories);
+
+            CleanupRollbackArtifacts(workDirectory);
+        }
+
+        private static void PromoteRollbackStaging(
+            string appDirectory,
+            string previousDirectory,
+            string stagingDirectory,
+            string rollbackOriginalDirectory,
+            IEnumerable<string> pathsToRemove,
+            IEnumerable<string> createdDirectories)
+        {
+            HashSet<string> normalizedPathsToRemove = NormalizeRollbackCandidatePaths(pathsToRemove);
+            string[] stagedEntries = UpdaterFileSystem.EnumerateFileSystemEntries(stagingDirectory)
+                .OrderBy(path => UpdaterFileSystem.DirectoryExists(path) ? 0 : 1)
+                .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            foreach (string stagedEntry in stagedEntries)
+            {
+                string destination = Path.Combine(appDirectory, Path.GetFileName(stagedEntry));
+                PromoteRollbackEntry(
+                    stagedEntry,
+                    destination,
+                    appDirectory,
+                    rollbackOriginalDirectory,
+                    normalizedPathsToRemove);
+            }
+
+            RemovePathsAbsentFromPreviousGeneration(
+                appDirectory,
+                previousDirectory,
+                normalizedPathsToRemove);
+            RemoveCreatedDirectories(createdDirectories ?? []);
+        }
+
+        private static void PromoteRollbackEntry(
+            string stagedPath,
+            string destinationPath,
+            string appDirectory,
+            string rollbackOriginalDirectory,
+            HashSet<string> pathsToRemove)
+        {
+            EnsureNoReparsePointEntry(stagedPath);
+            EnsureNoReparsePointAncestors(
+                appDirectory,
+                GetRelativePath(appDirectory, destinationPath));
+            EnsureNoReparsePointIfPresent(destinationPath);
+            EnsureRollbackDestinationParent(destinationPath);
+            if (UpdaterFileSystem.FileExists(stagedPath))
+            {
+                if (UpdaterFileSystem.FileExists(destinationPath))
                 {
-                    SafeDeletePath(Path.Combine(appDirectory, relativePath));
+                    EnsureNoReparsePointEntry(destinationPath);
+                    UpdaterFileSystem.ReplaceFile(stagedPath, destinationPath);
+                    return;
                 }
-                catch (Exception exception)
+
+                if (UpdaterFileSystem.DirectoryExists(destinationPath))
                 {
-                    failures.Add(exception);
+                    EnsureRollbackDirectoryContainsOnlyCandidatePaths(
+                        appDirectory,
+                        destinationPath,
+                        pathsToRemove);
+                    MoveRollbackDestinationToOriginal(
+                        destinationPath,
+                        appDirectory,
+                        rollbackOriginalDirectory);
+                }
+
+                UpdaterFileSystem.MoveFile(stagedPath, destinationPath);
+                UpdaterFileSystem.FlushFile(destinationPath);
+                return;
+            }
+
+            if (!UpdaterFileSystem.DirectoryExists(stagedPath))
+            {
+                return;
+            }
+
+            if (UpdaterFileSystem.FileExists(destinationPath))
+            {
+                MoveRollbackDestinationToOriginal(
+                    destinationPath,
+                    appDirectory,
+                    rollbackOriginalDirectory);
+            }
+            else if (!UpdaterFileSystem.DirectoryExists(destinationPath))
+            {
+                UpdaterFileSystem.MoveDirectory(stagedPath, destinationPath);
+                return;
+            }
+
+            string[] stagedChildren = UpdaterFileSystem.EnumerateFileSystemEntries(stagedPath)
+                .OrderBy(path => UpdaterFileSystem.DirectoryExists(path) ? 0 : 1)
+                .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            foreach (string stagedChild in stagedChildren)
+            {
+                PromoteRollbackEntry(
+                    stagedChild,
+                    Path.Combine(destinationPath, Path.GetFileName(stagedChild)),
+                    appDirectory,
+                    rollbackOriginalDirectory,
+                    pathsToRemove);
+            }
+        }
+
+        private static void EnsureRollbackDestinationParent(string destinationPath)
+        {
+            string parentDirectory = Path.GetDirectoryName(destinationPath);
+            if (string.IsNullOrWhiteSpace(parentDirectory)
+                || UpdaterFileSystem.DirectoryExists(parentDirectory))
+            {
+                return;
+            }
+
+            if (UpdaterFileSystem.FileExists(parentDirectory))
+            {
+                throw new IOException("A file blocks the rollback destination directory: " + parentDirectory);
+            }
+
+            UpdaterFileSystem.CreateDirectory(parentDirectory);
+        }
+
+        private static void MoveRollbackDestinationToOriginal(
+            string destinationPath,
+            string appDirectory,
+            string rollbackOriginalDirectory)
+        {
+            EnsureNoReparsePointEntry(destinationPath);
+            string relativePath = GetRelativePath(appDirectory, destinationPath);
+            string originalPath = Path.Combine(rollbackOriginalDirectory, relativePath);
+            string originalParentDirectory = Path.GetDirectoryName(originalPath);
+            if (!string.IsNullOrWhiteSpace(originalParentDirectory))
+            {
+                UpdaterFileSystem.CreateDirectory(originalParentDirectory);
+            }
+
+            if (UpdaterFileSystem.FileExists(destinationPath))
+            {
+                UpdaterFileSystem.MoveFile(destinationPath, originalPath);
+            }
+            else if (UpdaterFileSystem.DirectoryExists(destinationPath))
+            {
+                EnsureNoReparsePoint(destinationPath);
+                UpdaterFileSystem.MoveDirectory(destinationPath, originalPath);
+            }
+        }
+
+        private static void RemovePathsAbsentFromPreviousGeneration(
+            string appDirectory,
+            string previousDirectory,
+            IEnumerable<string> pathsToRemove)
+        {
+            HashSet<string> normalizedPaths = NormalizeRollbackCandidatePaths(pathsToRemove);
+
+            foreach (string relativePath in normalizedPaths
+                .OrderByDescending(path => path.Length)
+                .ThenBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                string previousPath = Path.Combine(previousDirectory, relativePath);
+                if (UpdaterFileSystem.EntryExists(previousPath))
+                {
+                    continue;
+                }
+
+                EnsureNoReparsePointAncestors(appDirectory, relativePath);
+                string destinationPath = Path.Combine(appDirectory, relativePath);
+                EnsureNoReparsePointIfPresent(destinationPath);
+                if (!UpdaterFileSystem.EntryExists(destinationPath))
+                {
+                    continue;
+                }
+
+                if (UpdaterFileSystem.DirectoryExists(destinationPath))
+                {
+                    EnsureNoReparsePoint(destinationPath);
+                    EnsureRollbackDirectoryContainsOnlyCandidatePaths(
+                        appDirectory,
+                        destinationPath,
+                        normalizedPaths);
+                }
+
+                SafeDeletePath(destinationPath);
+            }
+        }
+
+        private static HashSet<string> NormalizeRollbackCandidatePaths(IEnumerable<string> pathsToRemove)
+        {
+            var normalizedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string relativePath in pathsToRemove ?? [])
+            {
+                string normalized = NormalizeRelativePackagePath(relativePath);
+                if (!string.IsNullOrWhiteSpace(normalized))
+                {
+                    normalizedPaths.Add(normalized);
                 }
             }
 
+            return normalizedPaths;
+        }
+
+        private static void EnsureRollbackDirectoryContainsOnlyCandidatePaths(
+            string appDirectory,
+            string directoryPath,
+            HashSet<string> candidatePaths)
+        {
+            foreach (string filePath in UpdaterFileSystem.EnumerateFiles(directoryPath, "*", SearchOption.AllDirectories))
+            {
+                string relativePath = GetRelativePath(appDirectory, filePath);
+                if (!candidatePaths.Contains(relativePath))
+                {
+                    throw new IOException("Rollback refused to delete an unmanaged descendant: " + filePath);
+                }
+            }
+        }
+
+        private static void CleanupRollbackArtifacts(string workDirectory)
+        {
+            var failures = new List<Exception>();
             try
             {
-                RemoveCreatedDirectories(createdDirectories);
+                foreach (string directory in UpdaterFileSystem.EnumerateDirectories(
+                    workDirectory,
+                    RollbackOriginalDirectoryPrefix + "*",
+                    SearchOption.TopDirectoryOnly)
+                    .ToArray())
+                {
+                    try
+                    {
+                        EnsureNoReparsePoint(directory);
+                        UpdaterFileSystem.DeleteDirectory(directory, recursive: true);
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(exception);
+                    }
+                }
             }
             catch (Exception exception)
             {
                 failures.Add(exception);
             }
 
-            foreach (BackupEntry backupEntry in backupEntries.OrderBy(entry => entry.RelativePath.Length))
+            try
             {
-                try
+                string stagingDirectory = Path.Combine(workDirectory, RollbackStagingDirectoryName);
+                if (UpdaterFileSystem.DirectoryExists(stagingDirectory))
                 {
-                    RestoreBackupPath(backupEntry, appDirectory, previousDirectory);
+                    EnsureNoReparsePoint(stagingDirectory);
+                    UpdaterFileSystem.DeleteDirectory(stagingDirectory, recursive: true);
                 }
-                catch (Exception exception)
-                {
-                    failures.Add(exception);
-                }
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
             }
 
             if (failures.Count > 0)
             {
-                throw new AggregateException("The update failed and rollback could not restore every managed path.", failures);
+                throw new AggregateException("Rollback temporary artifacts could not be cleaned up.", failures);
             }
         }
 
@@ -2021,8 +2322,7 @@ namespace BeMusicSeeker.Updater
         private static void CopyExistingPathToBackup(
             string appDirectory,
             string previousDirectory,
-            string relativePath,
-            ICollection<BackupEntry> backupEntries)
+            string relativePath)
         {
             relativePath = NormalizeRelativePackagePath(relativePath);
             if (string.IsNullOrWhiteSpace(relativePath))
@@ -2049,13 +2349,11 @@ namespace BeMusicSeeker.Updater
             {
                 UpdaterFileSystem.CreateDirectory(Path.GetDirectoryName(destination));
                 UpdaterFileSystem.CopyFile(source, destination, overwrite: false);
-                backupEntries.Add(new BackupEntry(relativePath, isDirectory: false));
             }
             else if (UpdaterFileSystem.DirectoryExists(source))
             {
                 UpdaterFileSystem.CreateDirectory(destination);
                 CopyDirectoryContentsToBackup(source, destination);
-                backupEntries.Add(new BackupEntry(relativePath, isDirectory: true));
             }
         }
 
@@ -2076,101 +2374,6 @@ namespace BeMusicSeeker.Updater
                     UpdaterFileSystem.CreateDirectory(destinationChild);
                     CopyDirectoryContentsToBackup(sourceChild, destinationChild);
                 }
-            }
-        }
-
-        private static void RestoreBackupPath(BackupEntry backupEntry, string appDirectory, string previousDirectory)
-        {
-            string source = Path.Combine(previousDirectory, backupEntry.RelativePath);
-            if (!UpdaterFileSystem.EntryExists(source))
-            {
-                return;
-            }
-
-            string destination = Path.Combine(appDirectory, backupEntry.RelativePath);
-            EnsureNoReparsePointAncestors(appDirectory, backupEntry.RelativePath);
-            if (backupEntry.IsDirectory)
-            {
-                if (UpdaterFileSystem.FileExists(destination))
-                {
-                    EnsureNoReparsePointEntry(destination);
-                    UpdaterFileSystem.DeleteFile(destination);
-                }
-                else if (!UpdaterFileSystem.DirectoryExists(destination))
-                {
-                    UpdaterFileSystem.CreateDirectory(destination);
-                }
-
-                RestoreBackupDirectoryContents(source, destination);
-                return;
-            }
-
-            UpdaterFileSystem.CreateDirectory(Path.GetDirectoryName(destination));
-            if (UpdaterFileSystem.FileExists(destination))
-            {
-                EnsureNoReparsePointEntry(destination);
-                UpdaterFileSystem.DeleteFile(destination);
-            }
-            else if (UpdaterFileSystem.DirectoryExists(destination))
-            {
-                EnsureNoReparsePointEntry(destination);
-                if (UpdaterFileSystem.EnumerateFileSystemEntries(destination).Any())
-                {
-                    throw new IOException("Cannot restore a file over a non-empty directory: " + destination);
-                }
-                UpdaterFileSystem.DeleteDirectory(destination, recursive: false);
-            }
-
-            UpdaterFileSystem.CopyFile(source, destination, overwrite: true);
-        }
-
-        private static void RestoreBackupDirectoryContents(string source, string destination)
-        {
-            foreach (string sourceChild in UpdaterFileSystem.EnumerateFileSystemEntries(source))
-            {
-                string childName = Path.GetFileName(sourceChild);
-                string destinationChild = Path.Combine(destination, childName);
-                if (UpdaterFileSystem.FileExists(sourceChild))
-                {
-                    if (UpdaterFileSystem.FileExists(destinationChild))
-                    {
-                        EnsureNoReparsePointEntry(destinationChild);
-                        UpdaterFileSystem.DeleteFile(destinationChild);
-                    }
-                    else if (UpdaterFileSystem.DirectoryExists(destinationChild))
-                    {
-                        EnsureNoReparsePointEntry(destinationChild);
-                        if (UpdaterFileSystem.EnumerateFileSystemEntries(destinationChild).Any())
-                        {
-                            throw new IOException("Cannot restore a file over a non-empty directory: " + destinationChild);
-                        }
-                        UpdaterFileSystem.DeleteDirectory(destinationChild, recursive: false);
-                    }
-
-                    UpdaterFileSystem.CopyFile(sourceChild, destinationChild, overwrite: true);
-                    continue;
-                }
-
-                if (!UpdaterFileSystem.DirectoryExists(sourceChild))
-                {
-                    continue;
-                }
-
-                if (UpdaterFileSystem.FileExists(destinationChild))
-                {
-                    EnsureNoReparsePointEntry(destinationChild);
-                    UpdaterFileSystem.DeleteFile(destinationChild);
-                }
-                else if (UpdaterFileSystem.DirectoryExists(destinationChild))
-                {
-                    EnsureNoReparsePointEntry(destinationChild);
-                }
-                else
-                {
-                    UpdaterFileSystem.CreateDirectory(destinationChild);
-                }
-
-                RestoreBackupDirectoryContents(sourceChild, destinationChild);
             }
         }
 
@@ -2451,19 +2654,6 @@ namespace BeMusicSeeker.Updater
             public bool BackupComplete { get; set; }
 
             public List<string> NewPackagePaths { get; set; } = [];
-        }
-
-        private sealed class BackupEntry
-        {
-            public BackupEntry(string relativePath, bool isDirectory)
-            {
-                RelativePath = relativePath;
-                IsDirectory = isDirectory;
-            }
-
-            public string RelativePath { get; }
-
-            public bool IsDirectory { get; }
         }
 
         private sealed class RollbackFailureException : Exception
