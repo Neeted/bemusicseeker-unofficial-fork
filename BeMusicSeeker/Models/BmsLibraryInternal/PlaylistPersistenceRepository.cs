@@ -51,6 +51,9 @@ internal sealed class PlaylistPersistenceRepository
         this.songDbPath = songDbPath ?? throw new ArgumentNullException(nameof(songDbPath));
     }
 
+    /// <summary>
+    /// 指定された song.db の playlist schema を transaction 単位で現在の形へ揃えます。
+    /// </summary>
     internal static void EnsureSchema(string songDbPath)
     {
         if (songDbPath == null)
@@ -62,10 +65,31 @@ internal sealed class PlaylistPersistenceRepository
             throw new ArgumentException(string.Format(Resources.Error_LR2SongDBNotFound, songDbPath), nameof(songDbPath));
         }
         using var db = new LR2SongDBExtended(songDbPath);
-        EnsureSchema(db);
+        string savepoint = db.SaveTransactionPoint();
+        try
+        {
+            EnsureSchemaOnConnection(db);
+            db.Commit();
+        }
+        catch
+        {
+            try
+            {
+                db.RollbackTo(savepoint);
+            }
+            catch
+            {
+                // Keep the schema failure authoritative when rollback itself fails.
+            }
+            throw;
+        }
     }
 
-    internal static void EnsureSchema(LR2SongDBExtended db)
+    /// <summary>
+    /// 借用済み connection 上で playlist schema を準備します。
+    /// transaction の開始、commit、rollback は connection owner が行います。
+    /// </summary>
+    internal static void EnsureSchemaOnConnection(LR2SongDBExtended db)
     {
         if (db == null)
         {
@@ -486,7 +510,7 @@ internal sealed class PlaylistPersistenceRepository
             db.DropTable<LR2SongDBExtended.playlist>();
             db.DropTable<LR2SongDBExtended.playlist_course>();
             db.DropTable<LR2SongDBExtended.playlist_entry>();
-            EnsureSchema(db);
+            EnsureSchemaOnConnection(db);
             string[] source = sql.Split(["\v" + Environment.NewLine], StringSplitOptions.None);
             if (source.Count() <= 1)
             {
@@ -508,7 +532,14 @@ internal sealed class PlaylistPersistenceRepository
         }
         catch
         {
-            db.RollbackTo(savepoint);
+            try
+            {
+                db.RollbackTo(savepoint);
+            }
+            catch
+            {
+                // Keep the restore failure authoritative when rollback itself fails.
+            }
             throw;
         }
     }
@@ -735,19 +766,9 @@ internal sealed class PlaylistPersistenceRepository
         {
             return;
         }
-        string savepoint = db.SaveTransactionPoint();
-        try
+        foreach (BMSTable table in tables)
         {
-            foreach (BMSTable table in tables)
-            {
-                db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
-            }
-            db.Commit();
-        }
-        catch
-        {
-            db.RollbackTo(savepoint);
-            throw;
+            db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
         }
     }
 

@@ -426,6 +426,94 @@ public sealed class AppSchemaPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void RepairAppOwnedSchema_LateFailureRollsBackNormalizationSchemaVersionDigestAndData_AndRetryConverges()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            var gateway = new BmsLibraryDbGateway(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
+            gateway.EnsureAppOwnedSchema();
+
+            using (var seed = new LR2SongDBExtended(tempDbPath))
+            {
+                seed.DropTable<LR2SongDBExtended.playlist_entry>();
+                seed.Execute(
+                    "CREATE TABLE playlist_entry (playlist_id INTEGER NOT NULL, md5 TEXT NULL, level REAL NULL, title TEXT, artist TEXT, folder TEXT, lr2_bmsid TEXT, url TEXT, url_diff TEXT, name_diff TEXT, org_md5 TEXT, adddate TEXT, comment TEXT, memo TEXT, is_removed INTEGER NOT NULL DEFAULT 0);");
+                seed.Execute(
+                    "CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
+                seed.Execute(
+                    "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, is_external_sync, is_root_folder, bmt_sort, is_bmt_output) "
+                    + "VALUES (91, 'Legacy playlist', 'legacy', '', 0, 1, 0, 0, 0, NULL, NULL);");
+                seed.Execute(
+                    "INSERT INTO playlist_entry (playlist_id, md5, level, title, artist, folder, is_removed) "
+                    + "VALUES (91, '0123456789abcdef0123456789abcdef', 12, 'Legacy entry', 'Artist', '', 0);");
+                seed.Execute(
+                    "INSERT OR REPLACE INTO chart_digest_map (md5, sha256) "
+                    + "VALUES ('0123456789abcdef0123456789abcdef', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');");
+                seed.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema';");
+                seed.Execute(
+                    "CREATE TRIGGER app_schema_repair_late_failure BEFORE INSERT ON app_schema_version "
+                    + "BEGIN SELECT RAISE(ABORT, 'deterministic late schema repair failure'); END;");
+            }
+
+            SchemaRepairSnapshot before = ReadSchemaRepairSnapshot(tempDbPath);
+            Exception failure = null;
+            try
+            {
+                gateway.RepairAppOwnedSchema();
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+
+            Assert.IsNotNull(failure);
+            SchemaRepairSnapshot afterFailure = ReadSchemaRepairSnapshot(tempDbPath);
+            Assert.AreEqual(before.PlaylistEntryTableSql, afterFailure.PlaylistEntryTableSql);
+            Assert.AreEqual(before.PlaylistEntryUniqueIndexSql, afterFailure.PlaylistEntryUniqueIndexSql);
+            Assert.AreEqual(before.PlaylistEntrySha256IndexCount, afterFailure.PlaylistEntrySha256IndexCount);
+            Assert.AreEqual(before.AppSchemaVersion, afterFailure.AppSchemaVersion);
+            Assert.AreEqual(before.DigestSha256, afterFailure.DigestSha256);
+            Assert.AreEqual(before.PlaylistBmtSort, afterFailure.PlaylistBmtSort);
+            Assert.AreEqual(before.PlaylistIsBmtOutput, afterFailure.PlaylistIsBmtOutput);
+            Assert.AreEqual(before.EntryTitle, afterFailure.EntryTitle);
+            Assert.AreEqual(before.PlaylistRowCount, afterFailure.PlaylistRowCount);
+            Assert.AreEqual(before.PlaylistEntryRowCount, afterFailure.PlaylistEntryRowCount);
+            Assert.AreEqual(before.DigestRowCount, afterFailure.DigestRowCount);
+
+            using (var removeFailure = new LR2SongDBExtended(tempDbPath))
+            {
+                removeFailure.Execute("DROP TRIGGER app_schema_repair_late_failure;");
+            }
+
+            gateway.RepairAppOwnedSchema();
+
+            AppSchemaPreflightResult result = new AppSchemaPreflightService().Inspect(tempDbPath);
+            Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
+            Assert.IsFalse(result.NeedsAppSchemaVersionRepair);
+            Assert.IsFalse(result.RepairRequired);
+            SchemaRepairSnapshot afterRetry = ReadSchemaRepairSnapshot(tempDbPath);
+            StringAssert.Contains(afterRetry.PlaylistEntryTableSql, "sha256");
+            StringAssert.Contains(afterRetry.PlaylistEntryUniqueIndexSql, "sha256");
+            Assert.AreEqual(1L, afterRetry.PlaylistEntrySha256IndexCount);
+            Assert.AreEqual(1, afterRetry.AppSchemaVersion);
+            Assert.AreEqual(before.DigestSha256, afterRetry.DigestSha256);
+            Assert.AreEqual(1, afterRetry.PlaylistBmtSort);
+            Assert.IsTrue(afterRetry.PlaylistIsBmtOutput);
+            Assert.AreEqual(before.EntryTitle, afterRetry.EntryTitle);
+            Assert.AreEqual(before.PlaylistRowCount, afterRetry.PlaylistRowCount);
+            Assert.AreEqual(before.PlaylistEntryRowCount, afterRetry.PlaylistEntryRowCount);
+            Assert.AreEqual(before.DigestRowCount, afterRetry.DigestRowCount);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void EnsureBmsonSchema_RecreatesMissingBmsonIndexesWithoutDroppingRows()
     {
         string tempDbPath = CreateEmptySongDbPath();
@@ -759,6 +847,46 @@ public sealed class AppSchemaPreflightServiceTests
             Directory.Delete(directoryPath, recursive: true);
         }
     }
+
+    private static SchemaRepairSnapshot ReadSchemaRepairSnapshot(string songDbPath)
+    {
+        using var db = new LR2SongDBExtended(songDbPath);
+        SchemaRepairRow row = db.Query<SchemaRepairRow>(
+                "SELECT bmt_sort AS BmtSort, is_bmt_output AS IsBmtOutput FROM playlist WHERE playlist_id = 91;")
+            .Single();
+        return new SchemaRepairSnapshot(
+            db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';"),
+            db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_uniq';"),
+            db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_sha256';"),
+            db.ExecuteScalar<int>("SELECT version FROM app_schema_version WHERE name = 'app_schema';"),
+            db.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = '0123456789abcdef0123456789abcdef';"),
+            row.BmtSort,
+            row.IsBmtOutput,
+            db.ExecuteScalar<string>("SELECT title FROM playlist_entry WHERE playlist_id = 91;") ?? string.Empty,
+            db.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist;"),
+            db.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry;"),
+            db.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+    }
+
+    private sealed class SchemaRepairRow
+    {
+        public int? BmtSort { get; set; }
+
+        public bool? IsBmtOutput { get; set; }
+    }
+
+    private sealed record SchemaRepairSnapshot(
+        string PlaylistEntryTableSql,
+        string PlaylistEntryUniqueIndexSql,
+        long PlaylistEntrySha256IndexCount,
+        int AppSchemaVersion,
+        string DigestSha256,
+        int? PlaylistBmtSort,
+        bool? PlaylistIsBmtOutput,
+        string EntryTitle,
+        long PlaylistRowCount,
+        long PlaylistEntryRowCount,
+        long DigestRowCount);
 
     private sealed class ColumnNameRow
     {

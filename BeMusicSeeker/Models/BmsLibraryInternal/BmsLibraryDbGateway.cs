@@ -918,17 +918,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
     public void EnsureAppOwnedSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
-        string savepoint = songDb.SaveTransactionPoint();
-        try
-        {
-            EnsureAppOwnedSchema(songDb);
-            songDb.Commit();
-        }
-        catch (Exception)
-        {
-            songDb.RollbackTo(savepoint);
-            throw;
-        }
+        ExecuteAppOwnedSchemaTransaction(songDb, EnsureAppOwnedSchema);
     }
 
     public void EnsureLibraryStartupSchema()
@@ -965,15 +955,29 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
     public void RepairAppOwnedSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
+        ExecuteAppOwnedSchemaTransaction(songDb, RepairAppOwnedSchemaOnConnection);
+    }
+
+    private static void ExecuteAppOwnedSchemaTransaction(
+        LR2SongDBExtended songDb,
+        Action<LR2SongDBExtended> participant)
+    {
         string savepoint = songDb.SaveTransactionPoint();
         try
         {
-            RepairAppOwnedSchema(songDb);
+            participant(songDb);
             songDb.Commit();
         }
-        catch (Exception)
+        catch
         {
-            songDb.RollbackTo(savepoint);
+            try
+            {
+                songDb.RollbackTo(savepoint);
+            }
+            catch
+            {
+                // Keep the schema failure authoritative when rollback itself fails.
+            }
             throw;
         }
     }
@@ -2111,6 +2115,11 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
     /// <param name="songDb">対象 song.db 接続。</param>
     internal static void EnsureChartInfoSchema(LR2SongDBExtended songDb)
     {
+        EnsureChartInfoSchemaOnConnection(songDb, stampVersion: true);
+    }
+
+    private static void EnsureChartInfoSchemaOnConnection(LR2SongDBExtended songDb, bool stampVersion)
+    {
         if (songDb == null)
         {
             throw new ArgumentNullException(nameof(songDb));
@@ -2140,7 +2149,10 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         }
         songDb.CreateTable<LR2SongDBExtended.chart_info_import_history>();
         EnsureIndex(songDb, "chart_info_import_history_idx_bundle_sha256", importHistoryTableName, SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetColumnName(row => row.bundle_sha256));
-        SetCurrentAppSchemaVersion(songDb);
+        if (stampVersion)
+        {
+            SetCurrentAppSchemaVersion(songDb);
+        }
     }
 
     internal static void UpsertChartDigest(LR2SongDBExtended songDb, BMSFile file)
@@ -2161,7 +2173,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_digest_map));
     }
 
-    internal static void RepairAppOwnedSchema(LR2SongDBExtended songDb)
+    private static void RepairAppOwnedSchemaOnConnection(LR2SongDBExtended songDb)
     {
         if (songDb == null)
         {
@@ -2173,6 +2185,10 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         SetCurrentAppSchemaVersion(songDb);
     }
 
+    /// <summary>
+    /// 借用済み song.db connection 上で app-owned schema を準備します。
+    /// transaction の開始、commit、rollback は呼び出し側の owner が行います。
+    /// </summary>
     internal static void EnsureAppOwnedSchema(LR2SongDBExtended songDb)
     {
         EnsureAppOwnedSchema(songDb, stampVersion: true);
@@ -2184,10 +2200,10 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             throw new ArgumentNullException(nameof(songDb));
         }
-        PlaylistPersistenceRepository.EnsureSchema(songDb);
+        PlaylistPersistenceRepository.EnsureSchemaOnConnection(songDb);
         EnsureBmsonSchema(songDb);
         EnsureMaintenanceSchema(songDb);
-        EnsureChartInfoSchema(songDb);
+        EnsureChartInfoSchemaOnConnection(songDb, stampVersion);
         EnsureIrDataSchema(songDb);
         EnsureSongLookupIndexes(songDb);
         EnsureLr2SongDbSyncStatusSchema(songDb);
