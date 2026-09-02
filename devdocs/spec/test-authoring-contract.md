@@ -1,6 +1,6 @@
 # テスト実装・既存 coverage 確認契約
 
-最終更新: 2026-08-27
+最終更新: 2026-09-02
 
 この文書は、BeMusicSeeker でテストを追加・変更・削除するときの実装契約である。`testing-strategy.md` は lane、時間予算、shard、共有 resource の正本、この文書は test oracle の authority、独立設計、既存 coverage の調べ方、テストの形、例外的 seam、Codex handoff の正本とする。機能固有の observable behavior は各 feature spec を正とする。
 
@@ -27,7 +27,7 @@ assertion、expected value、snapshot、golden、source / reflection contract �
 
 `Test Contract Packet` は、implementation body や current output を読む前に oracle を凍結し、少なくとも次を含む。
 
-| Contract ID | Observable behavior / failure | Authority | Public seam | Required invariant / outcome | Allowed variation | Plausible wrong implementation | Evidence strategy |
+| Contract ID | User-observable behavior / failure | Authority | Production ingress / reachability evidence | Required invariant / outcome | Allowed variation | Plausible wrong implementation | Evidence strategy |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | | | | | | | | |
 
@@ -35,6 +35,10 @@ assertion、expected value、snapshot、golden、source / reflection contract �
 - `Evidence strategy` は、bugfix なら原則 base-fail / head-pass とする。base で test を構造上実行できない場合は理由と targeted mutant / negative control を示す。
 - `characterization` は正しさの証明ではない。current behavior を authority にする root decision、凍結対象、利用目的、退役条件を packet に明記する。
 - exact string、snapshot、source artifact、private reflection は detail 自体が contract である authority、owner、退役条件が packet にある場合だけ使う。
+
+runtime Contract ID は、canonical production ingress から target state を経て user-observable behavior または durable / external-data impact へ至る route を示す。supported public API は ingress になり得るが、public / private symbol の直接呼出し、reflection、fake が任意状態を生成できること、code 上の representability だけは reachability evidence ではない。承認済み新機能で ingress 自体を追加する場合は、final plan がその route と impact を authority として示す。
+
+process-exclusive DB、single writer、外部 filesystem / index の out-of-process mutation 可否、snapshot / refresh boundary などは、authority と owner entrance の assumption として packet に記録する。fake はその assumption 内の production surface を表現するために使い、assumption 違反を downstream recovery の新契約へ変換しない。invalid input は、承認済みの entrance prevention / explicit rejection を検証する negative control として扱える。
 
 packet 承認後、worker は fixture、helper、data setup、assertion API などの mechanics を repository に適合させてよいが、authority、expected outcome、allowed variation、wrong implementation を current implementation に合わせて変更してはいけない。packet を保ったまま解消できる可能性がある技術的な seam / ownership 不足は workflow の resolver trigger に従う。authority や expected semantics の変更が必要なら `NEEDS_ROOT_INPUT` を返す。
 
@@ -68,13 +72,15 @@ canonical fixture を新設、移動、分割した場合は、対象 feature sp
 
 テストは次の順に実現可能性を検討する。
 
-1. **Behavior contract**: public / internal owner 境界から observable result、persisted state、notification、failure、cancel、cleanup を検証する。
+1. **Behavior contract**: 実 UI / command / event / startup / scheduler / owner / supported public ingress から到達する observable result、persisted state、notification、failure、cancel、cleanup を検証する。internal owner や test seam を直接呼べるだけでは product contract にしない。
 2. **Semantic / compiled structure contract**: behavior だけでは保証できない thread affinity、interface 実装、XAML materialization、compiled symbol / operation を検証する。
 3. **Source artifact contract**: source generator input、resource key、build / release script、禁止 route など、source artifact そのものが契約である場合に限定する。
 4. **Legacy absence contract**: 廃止 route が再導入されないことが migration 完了条件の場合に限定する。
 5. **Characterization contract**: 明示された behavior-preserving migration の安全網として限定し、仕様テストと区別する。
 
 source text、private reflection、method body 文字列、行順、localized copy、docs prose、broad snapshot の assertion は、便利だから、または current output が取得できるからという理由では選ばない。使用する場合は packet と近傍 comment に次を残す。
+
+private API、reflection、fake でしか作れない runtime state は downstream recovery の behavior test にしない。earliest owned ingress の invariant / rejection、または到達可能な contract に対する wrong implementation の negative control である場合だけ使用する。
 
 - artifact / exact detail 自体がなぜ contract なのか
 - behavior / compiled semantic test では検出できない理由
@@ -133,8 +139,8 @@ runner、lane、parallelization、fixture placement、shared WPF / process infra
 
 ## 6. Red evidence と negative control
 
-- bugfix で既存 interface から再現できる場合は、production 修正前に focused regression test を作り、対象 bug の observable mismatch で失敗することを確認する。compile error、fixture setup failure、unrelated exception は red evidence にしない。
-- new API など base で test を構造上実行できない場合は、その理由を packet と handoff に残す。実装後、packet の plausible wrong implementation を一時的な targeted mutant、fake、input variation で表現し、test が落とすことを確認する。
+- bugfix で承認済みの production ingress から再現できる場合は、production 修正前に focused regression test を作り、対象 bug の observable mismatch で失敗することを確認する。compile error、fixture setup failure、unrelated exception は red evidence にしない。
+- new API など base で test を構造上実行できない場合は、その理由を packet と handoff に残す。実装後、packet の plausible wrong implementation を一時的な targeted mutant、fake、input variation で表現し、test が落とすことを確認する。fake / mutant は到達可能な production input に対する wrong implementation を表すために使い、fake が表現できること自体を supported state の authority にしない。
 - behavior-preserving replacement や characterization test は base で green でもよいが、少なくとも packet が定める wrong variant / invariant violation を検出する evidence を残す。
 - mutation score や coverage は診断値であり、それだけを completion signal にしない。changed decision logic に対応する少数の targeted negative control を優先する。
 
@@ -185,7 +191,7 @@ reviewer はテスト変更がある場合、green result だけでなく次を�
 - assertion semantics が承認済み packet / Contract ID に対応し、authority、expected outcome、allowed variation と一致するか
 - expected value が current implementation、current output、existing expected、translation copy、snapshot、repository prose から写経されていないか
 - packet の plausible wrong implementation を test が実際に区別し、red / negative-control evidence が妥当か
-- actual executable seam を通っているか。test fixture が production logic や期待値導出をコピーしていないか
+- packet の production ingress から対象 state と observable impact まで実際に到達するか。private direct call、reflection、fake-only route が entrance invariant を迂回していないか。test fixture が production logic や期待値導出をコピーしていないか
 - canonical existing fixture を無視した重複 test / local helper が増えていないか
 - failure、cancel、retry / reentry、shutdown、cleanup が正常系と同じ owner で閉じているか
 - raw dispatcher pump、visible HWND、physical cursor、process、settings、filesystem などの shared resource が documented policy に従うか
@@ -193,4 +199,4 @@ reviewer はテスト変更がある場合、green result だけでなく次を�
 - exact string / snapshot / source-artifact / reflection / characterization / legacy-absence test に authority、owner、退役条件があるか
 - test 移動後に旧 coverage が重複して残らず、feature spec の Verification map が current か
 
-assertion semantics が変わるのに packet がない場合、または packet と diff が矛盾する場合は、明示された受入条件に対する test-design gap として扱う。Recommendations と blocking finding を分離し、既存の例外を一括整理するために現在の bounded unit を無制限に広げない。
+assertion semantics が変わるのに packet がない場合、または packet と diff が矛盾する場合は、明示された受入条件に対する test-design gap として扱う。finding の evidence と分類は `codex-agent-workflow.md` の reachability / impact gate に従う。production reachability または observable impact を示せない事項は recommendation / theoretical / out-of-scope とし、現在の bounded unit に production seam、persistent state、retry / replay / rollback、recovery abstraction、追加 test を要求しない。

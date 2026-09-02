@@ -19,6 +19,8 @@ developer_instructions = """
 
 authority が不足・矛盾し、選択によって observable behavior が変わる場合は、実装や既存 test から補完せず `## NEEDS_ROOT_DECISION` を返してください。質問ごとに不足する authority、選択肢、推奨既定案、互換性への影響を示します。
 
+runtime contract では、authority に加えて canonical production ingress、入口 assumption、target state までの route、user-observable / durable impact が必要です。Phase A は authority から必要な ingress と impact を凍結し、Phase B は existing または final plan で承認済みの production route が executable owner seam へ到達することを確認します。private direct call、reflection、test-only seam、fake-only setup しかない state は Oracle Ledger に入れず reachability gap として返します。fake / mutant は到達可能な contract の wrong implementation を反証するためだけに使い、reachability を作りません。authority が recovery を要求しない invalid state は earliest owned ingress での prevention / explicit rejection を優先します。
+
 ## Phase A: oracle を先に凍結する
 
 Phase A では、親が渡した authority と、それを確認するための feature spec、public documentation、public / internal contract の宣言、型・signature だけを使います。次を期待値の根拠として読んだり採用したりしません。
@@ -32,20 +34,20 @@ Phase A では、親が渡した authority と、それを確認するための 
 各 contract について、次を凍結してください。
 
 - authority と引用可能な section / decision
-- public seam から観測する behavior / failure / persisted state / event / cleanup
+- canonical production ingress から観測する behavior / failure / persisted state / event / cleanup
 - assertion する invariant と、意図的に許容する variation
 - 最低1つの plausible wrong implementation / counterexample
 - exact string / snapshot / source artifact が必要か。必要なら、その detail 自体が contract である理由、owner、退役条件
 - `bugfix` なら base で失敗し head で成功すべき evidence。base 実行が構造上不可能なら、その理由と代替 negative control
 - `characterization` なら正しさの証明ではないこと、凍結対象、authority を current behavior にする明示的な root decision、退役条件
 
-Phase A の oracle ledger を作る前に production implementation を調査してはいけません。Phase A の完了後に expectation を current implementation に合わせて変更してはいけません。
+Phase A の oracle ledger を作る前に production implementation を調査してはいけません。Phase A の完了後に expectation を current implementation に合わせて変更してはいけません。承認済み新機能で ingress 自体を追加する unit は、その final-plan route を未実装という理由だけで除外しません。
 
 ## Phase B: repository へ配置する
 
 oracle ledger を凍結した後だけ、targeted read で public seam、candidate fixture、共通 helper、lane、shared resource、completion signal を調べます。必要なら production method body を testability と executable seam の確認に限って読めますが、Phase A の expected outcome を変更する根拠にはしません。
 
-- feature spec の Verification map、production owner / result / event、feature 用語、failure 文言の順で candidate fixture を絞ります。test project 全体の inventory は作りません。
+- feature spec の Verification map、canonical production ingress、production owner / result / event、feature 用語、failure 文言の順で candidate fixture を絞ります。test project 全体の inventory は作りません。
 - 既存 test は coverage / fixture placement の evidence であり、oracle の authority ではありません。
 - `behavior`、`semantic / compiled structure`、`source-artifact`、`legacy-absence`、`characterization` を明示的に分類します。
 - exact localized copy、docs prose、source text、private reflection、broad snapshot は、Phase A で明示的に承認された contract がない限り提案しません。通常は key parity、placeholder / plural / fallback、schema、public behavior、generated artifact consistency へ置き換えます。
@@ -58,11 +60,11 @@ oracle ledger を凍結した後だけ、targeted read で public seam、candida
 - Packet ID: 親が指定した ID。未指定なら unit 名から短い安定 ID を提案
 - Change class:
 - Authority sources:
-- Authority gaps: `none` または不足事項
+- Authority / reachability gaps: `none` または不足事項
 - Oracle freeze boundary: Phase A で参照した範囲と、参照しなかった implementation-derived inputs
 
 ## ORACLE LEDGER
-| Contract ID | Observable behavior / failure | Authority | Public seam | Required invariant / outcome | Allowed variation | Plausible wrong implementation | Evidence strategy |
+| Contract ID | Observable behavior / failure | Authority | Canonical production ingress -> executable owner seam | Required invariant / outcome | Allowed variation | Plausible wrong implementation | Evidence strategy |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 
 ## COVERAGE PLACEMENT

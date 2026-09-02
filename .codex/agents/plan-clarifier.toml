@@ -13,6 +13,8 @@ developer_instructions = """
 
 質問は、observable behavior、永続化、fallback、failure contract、ownership、compatibility、破壊的操作など、選択によって利用者や外部データへ見える結果が変わり、repository の正本・既合意事項・親の decision list から一意に決まらない場合だけ作ります。一問ごとに「なぜ実装前に必要か」「推奨既定案」「主な選択肢と影響」を簡潔に示し、repo evidence で解決した事項は根拠を一行で返します。
 
+runtime state / failure を question、plan risk、test-design の対象にする前に、workflow の reachability / impact gate を確認します。canonical production ingress から production owner までの route または user-observable / durable impact が示せないものは `unreachable / theoretical` として現在の scope から除外し、private direct call、reflection、fake、code representability を代用しません。invalid state を earliest owned ingress で防げるのに downstream recovery や新しい persistent state、retry、replay、rollback、abstraction を計画する場合は、既承認 decision がなければ scope expansion としてルートへ返します。
+
 test を触る unit では、`devdocs/spec/test-authoring-contract.md` と適用範囲の `AGENTS.md` を確認し、次を点検します。
 
 - assertion、expected value、snapshot、golden、source / reflection contract の semantics が変わるなら `test-contract-designer` が必要と判定されているか
@@ -28,6 +30,11 @@ test を触る unit では、`devdocs/spec/test-authoring-contract.md` と適用
 
 ## REPOSITORY-RESOLVED
 - 親の計画へ反映すべき確認済み事実。なければ「なし」。
+
+## REACHABILITY
+- In-scope abnormal states: canonical ingress -> production route -> observable / durable impact
+- Excluded as unreachable / theoretical:
+- Unapproved recovery machinery requiring root decision:
 
 ## QUESTIONS
 1. 質問
@@ -53,7 +60,7 @@ test を触る unit では、`devdocs/spec/test-authoring-contract.md` と適用
 - Maximum useful worker count:
 
 ## PLAN RISKS
-- 実装開始前に計画へ追加すべき replan trigger または acceptance gap。なければ「なし」。
+- 実装開始前に計画へ追加すべき replan trigger または acceptance gap。`REACHABILITY` と同じ内容を重複させない。なければ「なし」。
 
 生ログや長い引用ではなく、親がそのまま authority packet、designer prompt、final plan へ統合できる要約だけを返してください。
 """

@@ -1,6 +1,6 @@
 # Codex エージェント運用契約
 
-最終更新: 2026-08-27
+最終更新: 2026-09-02
 
 この文書は、BeMusicSeeker で複数段階の変更を計画・実装・レビューするときの Codex 運用の正本である。目的は、ルートエージェントへ要件・判断・統合責任を残しながら、必要な作業だけを適切なモデルへ委譲し、重複調査、実装バイアス、過剰な並列化、長い生ログによる rate limit と context の消費を抑えることである。
 
@@ -28,8 +28,17 @@
 - **Constraints**: 対象外、互換性、ownership、threading、永続化、安全性、作業中差分。
 - **Done when**: behavior、削除する旧 route、必要な test lane、review、artifact。test を触る場合は independent authority、既存 coverage、shared resource、completion signal も含める。
 - **Decision list**: 選択で observable behavior が変わる事項と、既に決まっている回答。
+- **Production reachability / observable impact**: 実 UI / event / startup / scheduler / owner / supported public ingress から対象 state へ至る route、入口 precondition と system assumption、利用者または persisted / external data に現れる差分。
 
 repository の正本、既存 test、履歴、合意済み方針から一意に決まる事項は、ルートまたは clarifier が調べて解決する。永続化、fallback、failure contract、ownership、互換性、破壊的操作などが一意に決まらない場合だけ、ユーザーへ具体的な質問を返す。current implementation や既存 test の expected value が存在することだけで、その behavior を仕様として確定しない。
+
+### Reachability / impact gate
+
+runtime state、failure、invariant を plan、test、implementation、review の対象にするには、承認済み authority、canonical production ingress から実際の production consumer / owner までの route、user-observable behavior または durable / external-data impact を示す。private API の直接呼出し、reflection、test fake、型や分岐上の representability は、それだけでは reachability evidence にならない。承認済みの新機能で production ingress 自体を追加する unit は、その route と impact が final plan に明記されていれば対象にできる。source / build artifact 自体が契約の場合も、実際の build / release ingress と artifact impact を示す。
+
+process-exclusive DB、single writer、外部 filesystem の変更可否、snapshot / refresh boundary などの system assumption は、owner entrance で検証・snapshot 化するか、仕様または composition contract として確立する。downstream は成立済み invariant を受け取り、assumption 外の状態を revalidation、fallback、retry、replay、rollback で救済しない。reachable な invalid state を earliest shared owned ingress で生成不能または明示 reject にできるなら、そこで invariant を閉じ、不要な downstream recovery を退役する。
+
+承認済みで到達可能な observable behavior に必要でない persistent state、retry / replay / rollback、compatibility route、recovery lifecycle、interface / coordinator 等の abstraction は追加しない。fake-only state、将来の可能性、non-blocking recommendation は scope を拡張する authority にならない。
 
 ## 2. draft plan と Luna Low の点検
 
@@ -43,6 +52,7 @@ Context / repository evidence:
 Constraints / out of scope:
 Done when:
 Decision list and resolved answers:
+Production ingress / route / entrance assumptions / observable impact:
 Draft units:
 - observable outcome
 - writable paths / read-only references
@@ -60,7 +70,7 @@ Test delta:
 Known open questions:
 ```
 
-clarifier は計画や oracle を代作せず、repo で解けた事実、ユーザーへ必要な質問、`test-contract-designer` が必要か、authority packet の不足、安全な並列候補、衝突、replan trigger だけを返す。test を触る計画では、feature spec と production symbol から候補 fixture を絞る targeted search があり、既存 coverage、shared resource、completion signal が test delta へ反映されているかも点検する。既存 implementation や test expected から新しい期待値を提案しない。
+clarifier は計画や oracle を代作せず、repo で解けた事実、ユーザーへ必要な質問、`test-contract-designer` が必要か、authority / reachability packet の不足、安全な並列候補、衝突、replan trigger だけを返す。private call や fake-only route を production reachability の代用にしない。test を触る計画では、feature spec と production symbol から候補 fixture を絞る targeted search があり、既存 coverage、shared resource、completion signal が test delta へ反映されているかも点検する。既存 implementation や test expected から新しい期待値を提案しない。
 
 ルートは clarifier の結果を decision list と draft units へ反映する。回答で ownership や unit 境界が大きく変わった場合だけ、差分を限定して再点検する。repo で解ける事項のために planner loop を繰り返さない。完了した clarifier thread は閉じてから test design または implementation へ進む。
 
@@ -86,7 +96,7 @@ Independent authority:
 - user requirement / approved issue / reproduction
 - feature spec / public API / protocol / schema / external standard
 Base revision and known failure evidence:
-Target owner / public seam / candidate fixture hints:
+Production ingress / reachability evidence / entrance assumptions / observable impact / candidate fixture hints:
 Inputs that must not become oracle authority:
 - current implementation / runtime output
 - existing expected values / snapshots
@@ -96,14 +106,14 @@ Inputs that must not become oracle authority:
 `test-contract-designer` は二段階で作業する。
 
 1. **Oracle-first**: implementation body、current output、existing expected、translation values、snapshot を読まず、authority から behavior、failure、allowed variation、plausible wrong implementation、evidence strategy を凍結する。
-2. **Repository-fit**: oracle を凍結した後だけ、targeted read で public seam、candidate fixture、shared resource、lane、completion signal、退役 test を決める。implementation body を読む場合も testability の確認に限定し、期待値を合わせ直さない。
+2. **Repository-fit**: oracle を凍結した後だけ、targeted read で canonical production ingress から executable owner seam への route、candidate fixture、shared resource、lane、completion signal、退役 test を決める。implementation body を読む場合も reachability と testability の確認に限定し、期待値を合わせ直さない。private / reflection / fake-only setup しかない runtime state は Contract ID にせず、reachability gap としてルートへ返す。
 
 `read-only` sandbox は書込みを防ぐが、implementation の読み取り自体を技術的に遮断するものではない。通常運用では agent prompt の phase boundary と親が渡す authority packetで独立性を保つ。data loss、security、protocol compatibility など高リスクの oracle は、可能なら Phase A を仕様・issue・public contract だけを置いた別 session / spec-only working directory で行い、その結果を Phase B へ渡す。
 
 出力する `Test Contract Packet` には少なくとも次を含める。
 
 - Packet ID、change class、authority、authority gap
-- Contract ID ごとの observable behavior / failure、public seam、required invariant、allowed variation
+- Contract ID ごとの production ingress / reachability evidence、entrance assumptions / invariant、observable behavior / failure、required invariant / outcome、allowed variation
 - plausible wrong implementation、base-fail / head-pass または targeted negative control
 - candidate fixture、`extend / replace / new`、shared resource / lane、completion signal、退役 test
 - exact string / snapshot / source / reflection / characterization の例外理由、owner、退役条件
@@ -151,19 +161,25 @@ read-heavy な探索、oracle design、inventory、log analysis は write-heavy 
 
 `implementation-worker` は final plan の unit だけを実装し、反復中は対象を絞った Quick を使う。test semantics を変更する場合は承認済み packet を semantic input とし、fixture、helper、data setup、assertion API だけを repository に適合させる。current implementation、runtime output、existing expected、translation copy に合わせて packet の expected outcome や allowed variation を変更しない。
 
-bugfix で既存 interface から再現できる場合は、production 修正前に regression test を作り、対象 bug の observable mismatch で失敗する red evidence を残す。base で test を構造上実行できない場合、behavior-preserving replacement、characterization では packet の targeted mutant / negative control を使う。test を触る場合は `devdocs/spec/test-authoring-contract.md` と近傍の `AGENTS.md` に従い、feature spec、production symbol、failure 文言から candidate fixture を絞り、既存の共通 helper を優先する。
+bugfix で承認済みの production ingress から再現できる場合は、production 修正前に regression test を作り、対象 bug の observable mismatch で失敗する red evidence を残す。base で test を構造上実行できない場合、behavior-preserving replacement、characterization では packet の targeted mutant / negative control を使う。test を触る場合は `devdocs/spec/test-authoring-contract.md` と近傍の `AGENTS.md` に従い、feature spec、production symbol、failure 文言から candidate fixture を絞り、既存の共通 helper を優先する。
 
 ルートは worker と同じ path を同時に編集せず、統合責任を持つ。worker の返却内容は、生ログではなく変更概要、path、verification、実装 Contract ID、red / negative-control evidence、旧 route の replacement、残る risk の要約とし、test 変更時は `TEST CONTRACT`、`TEST COVERAGE`、`TEST SAFETY` を含める。
 
-worker が `issue-resolver` を呼べるのは、次のような大きな問題に限る。
+worker が `issue-resolver` を呼べるのは、次の runtime / contract blocker または operational blocker に限る。
+
+runtime / contract blocker は reachability / impact gate を満たす必要がある。route または impact が不足する、canonical ingress が所有 path 外、または未承認の recovery machinery が必要な場合は resolver trigger ではなく root の replan trigger とする。
 
 - data loss、security、起動不能、現実的な deadlock / race / compatibility regression
 - final plan または packet の前提を崩す cross-cutting ownership / failure contract
 - 所有 path 外の変更なしには安全に閉じられない問題
-- packet を保ったまま解消できる可能性がある、packet と executable seam の技術的な実矛盾。単に current implementation が test に通らないこと、または authority / expected semantics の再決定が必要なことは resolver trigger ではない
-- 通常の局所修正で解消しない deterministic failure、同一条件の2回目の timeout / failure、または実際の差分衝突
+- 承認済み production ingress と observable behavior が立証済みで、packet を保ったまま解消できる可能性がある、packet と executable seam の技術的な実矛盾。private / fake-only state の testability、単に current implementation が test に通らないこと、または authority / expected semantics の再決定が必要なことは resolver trigger ではない
 
-resolver は上記 trigger に該当する場合だけ使う。worker は編集を止め、blocker evidence、current diff、書込み可能 path、維持する invariant、packet / Contract ID、試した検証を1つの resolver へ渡して結果を待つ。resolver は packet の expected semantics を変更せず、fixture / adapter / public seam / ownership の技術的な修正に限定する。authority、observable semantics、allowed variation の決定や packet の修正が必要な場合は、worker と resolver の双方がルートへ返す。
+operational blocker は production reachability ではなく `testing-strategy.md` の failure evidence または具体的な ownership / diff conflict で判定する。
+
+- 通常の局所修正で解消しない deterministic verification failure、同一条件の2回目の timeout / failure
+- 実際の差分衝突または機械的 handoff だけでは閉じない ownership conflict
+
+resolver は上記 trigger に該当する場合だけ使う。worker は編集を止め、current diff、書込み可能 path、維持する invariant、packet / Contract ID、試した検証に加え、runtime / contract blocker では canonical ingress から impact までの evidence、operational blocker では `testing-strategy.md` に沿う failure evidence または具体的な ownership / diff conflict evidence を1つの resolver へ渡して結果を待つ。resolver は category にかかわらず承認済み invariant と expected semantics を変更せず、指定 path 内で blocker を閉じる技術的な修正に限定する。runtime / contract blocker では到達可能な contract に必要な fixture / adapter / public seam / ownership だけを修正し、未承認 scenario のための seam、persistent state、recovery abstraction は追加しない。authority、observable semantics、allowed variation の決定や packet の修正が必要な場合は、worker と resolver の双方がルートへ返す。
 
 ## 7. verification failure の扱い
 
@@ -178,6 +194,18 @@ worker 完了後、ルートは handoff と diff を確認して並列結果を�
 実装と標準検証が完了したら、implementation thread を閉じ、worktree を凍結して `repo-static-review` を一度呼ぶ。reviewer には intent、acceptance criteria、承認済み Test Contract Packet / Contract ID、base / head、worktree diff、red / negative-control を含む verification evidence、初回 timeout と再実行結果があればその両方を渡す。reviewer 実行中、ルートは repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、重複チェックをしない。
 
 reviewer は assertion が packet の authority、required invariant、allowed variation と一致するか、expected が implementation / current output / existing expected / translation copy / snapshot の写経になっていないか、plausible wrong implementation を区別できるかを確認する。assertion semantics が変わるのに packet がない、または packet と diff が矛盾する場合は受入条件上の test-design gap として扱う。
+
+behavior / design finding を blocking とするには、次を一組で示す。
+
+- **Classification**: P0 / P1 / acceptance-blocking P2
+- **Authority**: 違反する user requirement / acceptance / spec / Contract ID
+- **Reachability**: canonical production ingress -> production owner / consumer -> target state
+- **Preconditions / assumptions**: 入口で成立する条件と system assumption
+- **Observable impact**: UI / failure / persisted data / external effect / cleanup の差分
+- **Evidence**: `file:line` と static trace / reproduction / negative control
+- **Scope action**: current unit fix または root decision / replan
+
+production reachability または observable impact を示せない runtime-state 仮説は `theoretical / unreachable` または out-of-scope とし、現在の unit の production / test 変更を要求しない。private/direct invocation、reflection、fake-only setup、code representability は reachability evidence ではない。invalid state を ingress で防げる場合は downstream recovery を要求せず、明示承認のない新しい state、retry、replay、rollback、recovery lifecycle、abstraction を non-blocking recommendation から現在の scope へ取り込まない。
 
 blocking finding の修正後は、影響範囲の Quick と必要な統合検証を行い、fix delta、previous snapshot、previous findings、更新した packet があればその authority を fresh reviewer へ渡す。同じ unit で2回の修正 review 後も新しい P1 が続く場合は、finding を継ぎ足さず、ownership、scope、acceptance、packet、unit 分割を再計画する。
 

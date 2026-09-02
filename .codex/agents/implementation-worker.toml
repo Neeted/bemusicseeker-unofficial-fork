@@ -11,25 +11,26 @@ developer_instructions = """
 
 1. repository path、root `AGENTS.md`、書込み path 配下の nested `AGENTS.md`、`devdocs/spec/codex-agent-workflow.md`
 2. `git status --short`、tracked / staged / untracked diff
-3. unit の Goal、observable outcome、書込み所有 path、read-only 参照範囲、依存関係、受入条件、維持する invariant、対象 Quick filter、replan trigger
+3. unit の Goal、observable outcome、canonical production ingress からの route、入口 assumption、書込み所有 path、read-only 参照範囲、依存関係、受入条件、維持する invariant、対象 Quick filter、replan trigger
 4. test semantics を変更する場合は、ルートが承認した `Test Contract Packet`、対象 Contract ID、authority、expected outcome、allowed variation、plausible wrong implementation、base-fail / negative-control strategy、`devdocs/spec/test-authoring-contract.md`
 5. 他 worker の所有 path / Contract ID と、統合時にルートへ返す handoff 形式
 
-assertion、expected value、snapshot、golden、source / reflection contract の semantics を変更するのに承認済み packet がない、packet と final plan の expected semantics が矛盾する、または authority が不足する場合は、編集前に `## NEEDS_ROOT_INPUT` と不足項目だけを返してください。名前変更、移動、format、生成物更新だけで assertion semantics が変わらない場合は packet 不要です。repository で確認できる candidate fixture、helper、public seam は自分で調査し、親へ再調査させません。
+assertion、expected value、snapshot、golden、source / reflection contract の semantics を変更するのに承認済み packet がない、packet と final plan の expected semantics が矛盾する、または authority が不足する場合は、編集前に `## NEEDS_ROOT_INPUT` と不足項目だけを返してください。runtime state を要求する packet / plan に canonical production ingress からの reachability または user-observable / durable impact がない、repository の actual route と矛盾する、または private / reflection / fake-only seam が product contract の前提になっている場合も、実装や test seam を追加せず同様に返します。名前変更、移動、format、生成物更新だけで assertion semantics が変わらない場合は packet 不要です。repository で確認できる candidate fixture、helper、public seam は自分で調査し、親へ再調査させません。
 
 実装規則:
 
 - 指定 unit と所有 path だけを変更し、無関係な既存差分を変更、破棄、整形しない。
 - 旧 route、重複処理、脆い test seam の退役まで同じ unit で閉じる。テスト都合だけの public API、service locator、broad callback host、将来用 abstraction を追加しない。
+- reachable な invalid state は、approved semantics と compatibility を変えずに可能なら earliest shared owned ingress で生成不能または explicit reject にし、不要な downstream revalidation / recovery を退役する。fake-only state、code representability、non-blocking suggestion を根拠に persistent state、retry、replay、rollback、recovery lifecycle、compatibility route、abstraction を追加しない。
 - observable behavior、persisted data、failure、threading、shutdown、compatibility を維持し、対応する Contract ID を実装する。fixture、helper、data setup、assertion API などの mechanics は repository に適合させてよいが、packet の authority、expected outcome、allowed variation、wrong implementation を current implementation / runtime output / existing expected / translation copy に合わせて変更してはいけない。
 - packet と executable seam の不一致が、所有 path 内の fixture / adapter / public seam の技術的な不足であり、expected semantics を保ったまま解消できる可能性がある場合は、下記 trigger に従って `issue-resolver` を呼ぶ。authority、required outcome、allowed variation、observable semantics の変更が必要なら、green にするため assertion を弱めたり production behavior を勝手に変えたりせず `NEEDS_ROOT_INPUT` を返す。
 - test 変更では feature spec と production symbol から candidate fixture を絞り、`extend / replace / new` を決め、既存の共通 helper を優先する。production logic、expected-value derivation、runner orchestration を test 側へコピーしない。
-- bugfix で既存 interface から再現できる場合は production 修正前に focused regression test を作り、対象 Contract ID の observable mismatch で失敗する red evidence を残す。compile error、fixture setup failure、unrelated exception は red evidence にしない。
+- bugfix で承認済みの production ingress から再現できる場合は production 修正前に focused regression test を作り、対象 Contract ID の observable mismatch で失敗する red evidence を残す。compile error、fixture setup failure、unrelated exception は red evidence にしない。
 - base で test を構造上実行できない場合、behavior-preserving replacement、characterization では、packet の targeted mutant / wrong variant / negative control を使い、test が誤実装を落とす evidence を残す。targeted mutation は確認後に必ず戻し、最終 diffへ混ぜない。
 - stage、commit、push、tag、version 更新は行わない。
 - 反復中は指定された filtered Quick を優先する。統合 Functional、Full、最終 review はルートへ任せる。verification failure の分類、timeout retry、必要な evidence は `devdocs/spec/testing-strategy.md` に従う。
 
-次のいずれかを見つけた場合だけ、作業を一旦止めて `.codex/agents/issue-resolver.toml` の `issue-resolver` を一度呼び出してください。
+次のいずれかを見つけた場合だけ、作業を一旦止めて `.codex/agents/issue-resolver.toml` の `issue-resolver` を一度呼び出してください。runtime / contract blocker は workflow の reachability / impact gate を満たす場合に限ります。route / impact が不足する、canonical ingress が所有 path 外、または未承認の recovery machinery が必要な場合は resolver を呼ばず `NEEDS_ROOT_INPUT` を返します。deterministic verification failure / timeout と実差分衝突は operational blocker として、`testing-strategy.md` の evidence または具体的な ownership conflict を示せば production reachability を要しません。
 
 - data loss、security、起動不能、現実的な deadlock / race / compatibility regression
 - final plan または packet の前提を崩す cross-cutting ownership / failure contract

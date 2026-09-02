@@ -4,7 +4,7 @@
 
 - このリポジトリは .NET 10 / C# 14 の WPF アプリケーション。依頼された挙動を守りつつ、変更した範囲では命名、責務、コメント、テスト可能性を改善する。
 - 作業開始時に `git status --short` と適用範囲内の `AGENTS.md` を確認し、既存の未コミット差分や無関係なファイルを変更、破棄、整形しない。
-- 差分の小ささ自体を目的にしない一方、依頼と無関係な全面整理や将来用抽象化は行わない。
+- 差分の小ささ自体を目的にしない一方、承認済みで実際に到達可能な observable behavior に不要な persistent state、retry / replay / rollback、compatibility route、抽象化や、依頼と無関係な全面整理は追加しない。
 - コミット、push、tag、署名、公開、version 更新は、ユーザーの明示指示または合意済みの作業手順がある場合だけ行う。
 
 ## 作業の進め方とサブエージェント
@@ -14,18 +14,19 @@
 ### 要件整理と実装計画
 
 1. ルートエージェントが、ユーザー要件を Goal、Context、Constraints、Done when、対象外、互換性条件、decision list へ整理し、設計と最終計画に責任を持つ。生の会話をサブエージェントへ渡して解釈を委ねない。
-2. repository の正本や既に合意した方針から一意に決まる事項は調査して解決する。永続化、fallback、failure contract、ownership、互換性など、選択で observable behavior が変わる事項だけをユーザーへ確認し、回答を decision list に残す。
-3. draft plan は、同じ behavior、owner、failure contract、verification scope が閉じる reviewable unit に分け、書込み path、依存順、統合検証を明示する。作成時に、独立した unit を安全に並列化できないか検討する。
-4. サブエージェントへ実装を渡す計画は、完成前に `.codex/agents/plan-clarifier.toml` の Luna Low `plan-clarifier` へ原則一度だけ渡す。repo で解けた事実、未決質問、並列境界、test-design gate、replan trigger を返させ、ルートが必要なユーザー回答を得て計画へ反映する。clarifier に計画全体や test oracle を代作させない。
-5. durable test の assertion / expected value / snapshot を追加・変更・削除する unit、observable behavior の変更へ regression test が必要な unit、または脆い source / copy / snapshot test を置換する unit では、decision list を閉じた後、実装前に `.codex/agents/test-contract-designer.toml` の Sol High `test-contract-designer` を呼ぶ。user requirement、approved issue、feature spec、public contract など実装から独立した authority を渡し、oracle、許容 variation、plausible wrong implementation、coverage placement を `Test Contract Packet` として凍結する。名前変更・移動・format だけで assertion semantics が変わらない作業では省略してよい。
-6. ルートは `Test Contract Packet` を受入条件と decision list に照らして承認する。authority が不足する期待値を designer や worker に推測させず、必要ならユーザー判断へ戻す。final plan には unit ごとの observable outcome、所有 path、依存関係、退役する旧 route、維持する invariant、packet / Contract ID、behavior test / filter、review scope、handoff、再計画条件を含める。
-7. feature 固有の現行仕様は `devdocs\spec`、背景・判断履歴は `devdocs\decisions`、一時的な計画は `devdocs\plan` に置く。個別機能仕様を `AGENTS.md` や汎用 agent 設定へ混ぜない。
+2. 契約候補は `codex-agent-workflow.md` の reachability / impact gate に従い、実 UI / startup / scheduler / owner / supported public ingress からの到達経路、入口 assumption、利用者または durable / external data への影響を先に立証する。private API、reflection、fake、code 上の representability だけを根拠にしない。
+3. repository の正本や既に合意した方針から一意に決まる事項は調査して解決する。永続化、fallback、failure contract、ownership、互換性など、選択で observable behavior が変わる事項だけをユーザーへ確認し、回答を decision list に残す。
+4. draft plan は、同じ behavior、owner、failure contract、verification scope が閉じる reviewable unit に分け、書込み path、依存順、統合検証を明示する。作成時に、独立した unit を安全に並列化できないか検討する。
+5. サブエージェントへ実装を渡す計画は、完成前に `.codex/agents/plan-clarifier.toml` の Luna Low `plan-clarifier` へ原則一度だけ渡す。repo で解けた事実、未決質問、並列境界、test-design gate、replan trigger を返させ、ルートが必要なユーザー回答を得て計画へ反映する。clarifier に計画全体や test oracle を代作させない。
+6. durable test の assertion / expected value / snapshot を追加・変更・削除する unit、observable behavior の変更へ regression test が必要な unit、または脆い source / copy / snapshot test を置換する unit では、decision list を閉じた後、実装前に `.codex/agents/test-contract-designer.toml` の Sol High `test-contract-designer` を呼ぶ。user requirement、approved issue、feature spec、public contract など実装から独立した authority を渡し、oracle、許容 variation、plausible wrong implementation、coverage placement を `Test Contract Packet` として凍結する。名前変更・移動・format だけで assertion semantics が変わらない作業では省略してよい。
+7. ルートは `Test Contract Packet` を受入条件と decision list に照らして承認する。authority が不足する期待値を designer や worker に推測させず、必要ならユーザー判断へ戻す。final plan には unit ごとの observable outcome、所有 path、依存関係、退役する旧 route、維持する invariant、packet / Contract ID、behavior test / filter、review scope、handoff、再計画条件を含める。
+8. feature 固有の現行仕様は `devdocs\spec`、背景・判断履歴は `devdocs\decisions`、一時的な計画は `devdocs\plan` に置く。個別機能仕様を `AGENTS.md` や汎用 agent 設定へ混ぜない。
 
 ### 実装と並列作業
 
 - production code、test harness、runner、設定の bounded implementation は、原則 `.codex/agents/implementation-worker.toml` の Luna Max `implementation-worker` へ任せる。ルートは割当 path を同時に編集・重複調査せず、統合責任を持つ。
 - test semantics を変更する unit では、worker へ承認済み `Test Contract Packet` を渡す。worker は fixture、helper、data setup などの mechanics を repository に適合させてよいが、Contract ID の authority、expected outcome、allowed variation を current implementation / output に合わせて変更してはいけない。技術的な seam / ownership 不足は resolver の trigger とし、authority、expected semantics、allowed variation の変更が必要なら、green にするため expectation を弱めずルートへ戻す。
-- bugfix で既存 interface から再現できる場合は production 修正前に regression test を書き、意図した理由で失敗する red evidence を残す。base での実行が構造上不可能、または behavior-preserving replacement の場合は、packet が指定する targeted mutant / negative control で誤実装を落とす evidence を残す。
+- bugfix で承認済みの production ingress から再現できる場合は production 修正前に regression test を書き、意図した理由で失敗する red evidence を残す。base での実行が構造上不可能、または behavior-preserving replacement の場合は、packet が指定する targeted mutant / negative control で誤実装を落とす evidence を残す。
 - 書込み worker は既定1つ、同時実行は最大2つとする。writable path、生成物、schema / shared fixture、依存順が重ならず、並列化の利益が統合コストを上回る場合だけ並列化する。同じ巨大 file の別 method を同時編集しない。
 - worker が重大な correctness、安全性、compatibility、ownership 問題、packet を保ったまま解消できる可能性がある技術的な executable-seam 不足、または `testing-strategy.md` に定める retry 後の timeout / failure を発見した場合だけ、worker 自身が `.codex/agents/issue-resolver.toml` の Sol High `issue-resolver` を一度呼ぶ。worker は編集を止めて結果を待ち、resolver から先へ再帰しない。observable semantics の変更が必要なら resolver で決めずルートへ戻す。
 - worker は変更概要、path、focused verification、実装した Contract ID、red / negative-control evidence、旧 test / route と replacement、残る risk を要約して返す。test を触った場合は、検索した既存 fixture、`extend / replace / new`、shared resource / lane、completion signal と例外 seam も `TEST CONTRACT` / `TEST COVERAGE` / `TEST SAFETY` として返す。生ログや同じ調査をルートへ持ち帰らない。完了した agent thread は結果受領後に閉じる。
@@ -35,7 +36,7 @@
 
 1. 実装と標準検証を終え、実装 agent を閉じたら、`.codex/agents/repo-static-review.toml` の `repo-static-review` を呼び出し、凍結した snapshot をレビューさせる。
 2. reviewer の実行中はルートエージェントを凍結し、repository の読み取り、検索、編集、build、test、format、stage、commit を行わない。reviewer と同じ scope の重複チェックも行わない。
-3. 初回 reviewer には対象 unit の intent、受入条件、承認済み `Test Contract Packet` と Contract ID、base / head、worktree diff、red / negative-control を含む検証結果を渡す。reviewer は assertion が packet の authority と allowed variation に一致し、実装や現在値の写経になっていないかも確認する。finding は P0 / P1、受入条件へ直接反する P2、pre-existing / out-of-scope、non-blocking recommendation を区別させる。P0 / P1 と直接反する P2 は修正対象とし、単なる改善提案を同じ変更へ無制限に取り込まない。
+3. 初回 reviewer には対象 unit の intent、受入条件、承認済み `Test Contract Packet` と Contract ID、base / head、worktree diff、red / negative-control を含む検証結果を渡す。reviewer は assertion が packet の authority と allowed variation に一致し、実装や現在値の写経になっていないかも確認する。finding は P0 / P1、受入条件へ直接反する P2、pre-existing / out-of-scope、theoretical / unreachable、non-blocking recommendation を区別させる。blocking behavior finding は workflow の reachability / impact evidence 形式を満たすものに限り、満たさない事項のために現在の unit を広げない。P0 / P1 と直接反する P2 は修正対象とし、単なる改善提案を同じ変更へ無制限に取り込まない。
 4. 指摘を修正した場合は影響範囲を再検証し、変更後の snapshot を fresh reviewer へ渡す。fresh reviewer には前回確認済み snapshot、修正差分、前回 finding を明示し、修正とそこから直接影響する invariant を主対象にさせる。
 5. 同じ unit で2回の修正 review を完了した後も新しい P1 が続く場合は、指摘を順次継ぎ足さず、ownership、scope、受入条件、unit 分割を再計画する。新しい P0 / P1 を無視するための回数制限にはしない。
 6. pre-existing / out-of-scope の問題は影響と根拠を記録し、現在の受入条件を阻害する場合だけ scope 変更をユーザーへ提示する。現在の変更で生じた問題として扱わない。
