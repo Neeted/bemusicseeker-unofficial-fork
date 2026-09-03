@@ -26,8 +26,6 @@ internal static class Lr2SongDbSyncInputFactory
             directoryEntries,
             rootSnapshot.Lr2FolderDiscoveryDirectories,
             settingsSnapshot.Lr2FolderPruneDirectories,
-            appManagedOutputScope.Directories,
-            appManagedOutputScope.PruneExcludedPaths,
             rootSnapshot.Lr2RootPath,
             settingsSnapshot.Lr2NormalCustomFolderOutputBaseDir,
             settingsSnapshot.Lr2AdditionalNormalCustomFolderOutputBaseDirs,

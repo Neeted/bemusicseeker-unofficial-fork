@@ -1122,7 +1122,6 @@ public sealed class SettingsForegroundInteractionTests
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         var workflow = new Lr2SongDbSyncWorkflowOwner(
             runtime,
-            new UiDialogCoordinator(),
             action =>
             {
                 action();
@@ -1346,6 +1345,10 @@ public sealed class SettingsForegroundInteractionTests
 
         bool ILr2SongDbSyncWorkflowRuntime.IsLibraryAvailable => true;
 
+        public void DiscardCommittedPathReceipt(string reason)
+        {
+        }
+
         internal int QueueCount
         {
             get
@@ -1372,7 +1375,8 @@ public sealed class SettingsForegroundInteractionTests
             string reason,
             bool force,
             bool prepareGeneratedData = false,
-            bool allowIncompleteToQueue = true)
+            bool allowIncompleteToQueue = true,
+            bool allowCommittedPathReceipt = false)
         {
             lock (gate)
             {
@@ -1394,8 +1398,6 @@ public sealed class SettingsForegroundInteractionTests
         }
 
         public bool Cancel(string reason) => true;
-
-        public Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(string reason) => null;
 
         internal sealed class QueueCall
         {

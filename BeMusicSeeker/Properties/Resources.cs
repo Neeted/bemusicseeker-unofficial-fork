@@ -610,10 +610,6 @@ public class Resources
 
     public static string Msg_success_lr2_play_history_schema_uninstall => ResourceManager.GetString("Msg_success_lr2_play_history_schema_uninstall", resourceCulture);
 
-    public static string Lr2_song_db_sync_cleanup_startup_scan_blockers => ResourceManager.GetString("Lr2_song_db_sync_cleanup_startup_scan_blockers", resourceCulture);
-
-    public static string Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup => ResourceManager.GetString("Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup", resourceCulture);
-
     public static string Install => ResourceManager.GetString("Install", resourceCulture);
 
     public static string Install_desc => ResourceManager.GetString("Install_desc", resourceCulture);

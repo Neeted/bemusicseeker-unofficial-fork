@@ -13,6 +13,8 @@ internal sealed class SongTableFileCheckResult
 
     public HashSet<string> NewlyInsertedBmsPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    public HashSet<string> CommittedLr2SongDbSyncBmsPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
 
     public List<LR2SongDBExtended.chart_info> InlineChartInfoRows { get; } = [];
@@ -366,6 +368,7 @@ internal sealed class SongTableFileCheckResult
     {
         AddedFiles.Clear();
         NewlyInsertedBmsPaths.Clear();
+        CommittedLr2SongDbSyncBmsPaths.Clear();
         AddedBmsonSongs.Clear();
         InlineChartInfoRows.Clear();
         InlineChartInfoAppliedRows.Clear();

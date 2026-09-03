@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
@@ -49,6 +48,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         Assert.AreEqual(request.Reason, playlistRequest.Reason);
         Assert.AreEqual(request.OperationToken, playlistRequest.OperationToken);
         Assert.AreEqual(request.Reason, runtime.LastQueueReason);
+        Assert.IsTrue(runtime.LastAllowCommittedPathReceipt);
     }
 
     [TestMethod]
@@ -409,7 +409,6 @@ public sealed class FileDiffReloadWorkflowOwnerTests
     {
         return new Lr2SongDbSyncWorkflowOwner(
             runtime,
-            new NoOpDialogService(),
             backgroundScheduler: action =>
             {
                 action();
@@ -437,18 +436,26 @@ public sealed class FileDiffReloadWorkflowOwnerTests
 
         internal string LastQueueReason { get; private set; }
 
+        internal bool LastAllowCommittedPathReceipt { get; private set; }
+
         public bool IsLr2ModeEnabled => IsLr2ModeEnabledValue;
 
         public bool IsLibraryAvailable => IsLibraryAvailableValue;
+
+        public void DiscardCommittedPathReceipt(string reason)
+        {
+        }
 
         public void Queue(
             string reason,
             bool force,
             bool prepareGeneratedData = false,
-            bool allowIncompleteToQueue = true)
+            bool allowIncompleteToQueue = true,
+            bool allowCommittedPathReceipt = false)
         {
             QueueCount++;
             LastQueueReason = reason;
+            LastAllowCommittedPathReceipt = allowCommittedPathReceipt;
             events.Add("lr2");
             if (QueueFailure != null)
             {
@@ -469,51 +476,6 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         {
         }
 
-        public bool Cancel(string reason) => true;
-
-        public Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(
-            string reason) => null;
-
-    }
-
-    private sealed class NoOpDialogService : IUiDialogService
-    {
-        public Task<UiDialogResult> ShowMessageAsync(
-            UiMessageRequest request,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-
-        public Task<UiDialogResult> ConfirmAsync(
-            UiConfirmationRequest request,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-
-        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
-            UiWindowDialogRequest<TWindow, TResult> request,
-            CancellationToken cancellationToken = default)
-            where TWindow : Window =>
-            throw new NotSupportedException();
-
-        public Task<UiFilePickerResult> PickFileAsync(
-            UiFilePickerRequest request,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<UiFolderPickerResult> PickFolderAsync(
-            UiFolderPickerRequest request,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<UiSaveFilePickerResult> PickSaveFileAsync(
-            UiSaveFilePickerRequest request,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
-
-        public Task<UiProgressResult> RunWithProgressAsync(
-            UiProgressRequest request,
-            Func<UiProgressContext, Task> operation,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
     }
 
     private sealed class InitializedStatePort : IMainWindowInitializationStatePort

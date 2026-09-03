@@ -175,6 +175,34 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
+    /// Provides the direct catalog mutation adapter required by service-level song-row fixtures.
+    /// </summary>
+    internal static Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> CreateDirectChartInfoWriter(
+        LR2SongDBExtended songDb)
+    {
+        return request =>
+        {
+            if (request == null || !request.HasChanges)
+            {
+                return CatalogChartInfoWriteReceipt.NotApplied;
+            }
+
+            BmsLibraryDbGateway.UpsertChartInfoBackfillChunk(
+                songDb,
+                request.DigestEntries,
+                request.ChartInfoRows,
+                request.ParseFailureRows,
+                request.ParseFailureDeleteMd5s);
+            return new CatalogChartInfoWriteReceipt(
+                applied: true,
+                request.DigestEntries.Count,
+                request.ChartInfoRows.Count,
+                request.ParseFailureRows.Count,
+                request.ParseFailureDeleteMd5s.Count);
+        };
+    }
+
+    /// <summary>
     /// Exposes controlled mutation points needed to arrange inherited LR2 song-row fields in tests.
     /// </summary>
     internal sealed class TestableBmsFile : BMSFile

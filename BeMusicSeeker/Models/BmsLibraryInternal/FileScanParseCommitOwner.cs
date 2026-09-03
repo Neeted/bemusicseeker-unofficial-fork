@@ -1067,6 +1067,7 @@ internal sealed class FileScanParseCommitOwner
                         if (bmsMaintenanceResults != null && i < bmsMaintenanceResults.Length && bmsMaintenanceResults[i]?.Succeeded == true)
                         {
                             commitChunk.AddMaintenanceInfoRow(candidate.File.maintenanceInfo);
+                            commitChunk.AddLr2SongDbSyncEligibleBmsPath(candidate.File.path);
                         }
                         Lr2SongRowEnricher.EnrichFromChartInfo(candidate.File, ResolveAppliedChartInfo(candidate, appliedChartInfoByPath));
                         postResult.SuccessfullyReplacedBmsPaths.Add(candidate.Path);
@@ -1910,6 +1911,10 @@ internal sealed class FileScanParseCommitOwner
             foreach (BMSFile file in chunk.AddedBmsFiles)
             {
                 pendingChunk.AddAddedBmsFile(file);
+                if (chunk.Lr2SongDbSyncEligibleBmsPaths.Contains(file?.path, StringComparer.OrdinalIgnoreCase))
+                {
+                    pendingChunk.AddLr2SongDbSyncEligibleBmsPath(file.path);
+                }
                 AddMatchingMaintenanceInfoRows(maintenanceByPath, file?.path);
                 FileScanParseCommitOwner.AttachInlineChartInfoRows(
                     pendingChunk,
@@ -1925,6 +1930,10 @@ internal sealed class FileScanParseCommitOwner
                 if (update != null)
                 {
                     pendingChunk.AddUpdatedBmsMetadata(update.Path, update.Date, update.TextFlag);
+                    if (chunk.Lr2SongDbSyncEligibleBmsPaths.Contains(update.Path, StringComparer.OrdinalIgnoreCase))
+                    {
+                        pendingChunk.AddLr2SongDbSyncEligibleBmsPath(update.Path);
+                    }
                     FlushIfNeeded();
                 }
             }
@@ -2336,6 +2345,10 @@ internal sealed class FileScanParseCommitOwner
             result.DbCommitMaintenanceUpsertMs += metrics.MaintenanceUpsertMs;
             result.DbCommitChartInfoMs += metrics.ChartInfoMs;
             result.DbCommitSqliteCommitMs += sqliteCommitMs;
+            foreach (string path in chunk.Lr2SongDbSyncEligibleBmsPaths)
+            {
+                result.CommittedLr2SongDbSyncBmsPaths.Add(path);
+            }
             logInstallPerformance?.Invoke("song_tbl_file_check db_commit_chunk_done chunk=" + chunkNumber
                 + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds
                 + " applyMs=" + metrics.ApplyMs

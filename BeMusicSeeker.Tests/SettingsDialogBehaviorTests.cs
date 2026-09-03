@@ -1357,7 +1357,6 @@ public sealed class SettingsDialogBehaviorTests
             var syncRuntime = new NoOpLr2SongDbSyncRuntime(runtimeCalls);
             var syncWorkflow = new Lr2SongDbSyncWorkflowOwner(
                 syncRuntime,
-                dialogs,
                 backgroundScheduler: action =>
                 {
                     action();
@@ -2008,7 +2007,16 @@ public sealed class SettingsDialogBehaviorTests
 
         public bool IsLibraryAvailable => IsLibraryAvailableValue;
 
-        public void Queue(string reason, bool force, bool prepareGeneratedData = false, bool allowIncompleteToQueue = true)
+        public void DiscardCommittedPathReceipt(string reason)
+        {
+        }
+
+        public void Queue(
+            string reason,
+            bool force,
+            bool prepareGeneratedData = false,
+            bool allowIncompleteToQueue = true,
+            bool allowCommittedPathReceipt = false)
         {
             QueueCount++;
             QueueObserved?.Invoke();
@@ -2033,12 +2041,6 @@ public sealed class SettingsDialogBehaviorTests
         {
             runtimeCalls.ThrowIfUnexpected(nameof(Cancel));
             return false;
-        }
-
-        public Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(string reason)
-        {
-            runtimeCalls.ThrowIfUnexpected(nameof(CleanupStartupScanBlockerFolderRows));
-            return new(null, 0, null);
         }
 
     }

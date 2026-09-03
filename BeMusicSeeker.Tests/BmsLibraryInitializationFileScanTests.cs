@@ -1030,6 +1030,50 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_PublishesCommittedBmsReceiptPathsAfterSuccessfulChunkCommit()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Receipt");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "committed.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Receipt"), Encoding.ASCII);
+            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            SongTableFileCheckResult result = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1).ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true
+                },
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [bmsPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            [chartDirectoryPath] = []
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: []);
+
+            CollectionAssert.AreEquivalent(new[] { bmsPath }, result.CommittedLr2SongDbSyncBmsPaths.ToArray());
+            using var verifyConnection = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verifyConnection.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_CommitsChunksThroughPostParseWriter()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1981,12 +2025,109 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(12345, existingFile.adddate);
             Assert.AreEqual("keep", existingFile.tag);
             Assert.IsTrue(result.HasDbDiff);
+            Assert.IsFalse(result.CommittedLr2SongDbSyncBmsPaths.Any(path =>
+                string.Equals(path, bmsPath, StringComparison.OrdinalIgnoreCase)));
 
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(ToUnixSeconds(newTimestamp), row.date);
             Assert.AreEqual(12345, row.adddate);
             Assert.AreEqual("keep", row.tag);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_DateOnlySameMd5RequiresFullFollowUpForGeneratedSongColumns()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectory = Path.Combine(lr2RootPath, "DateOnlyFollowUp");
+            Directory.CreateDirectory(chartDirectory);
+            string bmsPath = Path.Combine(chartDirectory, "stale-generated.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Current Generated"), Encoding.ASCII);
+            DateTime oldTimestamp = new(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
+            DateTime newTimestamp = new(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsPath, oldTimestamp);
+            BMSFile parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
+            var existingFile = new TestableBmsFile
+            {
+                path = bmsPath,
+                date = ToUnixSeconds(oldTimestamp),
+                adddate = 654321,
+                tag = "preserve-date-only-user-data"
+            };
+            existingFile.SetHash(parsed.hash);
+            existingFile.SetFavorite(6);
+            existingFile.title = "Stale Generated Title";
+            existingFile.artist = "Stale Generated Artist";
+            File.SetLastWriteTimeUtc(bmsPath, newTimestamp);
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+            }
+
+            SongTableFileCheckResult fileDiffResult = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1).ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
+                new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true
+                },
+                [existingFile],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        [bmsPath],
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            [chartDirectory] = []
+                        })
+                },
+                0L,
+                () => null,
+                null);
+            ProjectCatalogState(fileDiffResult, [existingFile]);
+
+            Assert.AreEqual(1, fileDiffResult.BmsDateOnlyUpdateCount);
+            Assert.IsFalse(fileDiffResult.CommittedLr2SongDbSyncBmsPaths.Any(path =>
+                string.Equals(path, bmsPath, StringComparison.OrdinalIgnoreCase)));
+
+            int readCount = 0;
+            using var followUpDb = new LR2SongDBExtended(songDbPath);
+            Lr2SongDbSyncResult followUpResult = Lr2SongDbSyncService.Run(followUpDb, new Lr2SongDbSyncRequest
+            {
+                Signature = "date-only-generated-follow-up",
+                RunId = "date-only-generated-follow-up",
+                SongRows = [existingFile],
+                ChartFileBufferReader = path =>
+                {
+                    Assert.AreEqual(bmsPath, path);
+                    Interlocked.Increment(ref readCount);
+                    return ChartFileContentReader.ReadBuffer(path);
+                },
+                ChartInfoChunkWriter = Lr2SongDbSyncTestSupport.CreateDirectChartInfoWriter(followUpDb),
+                StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+            });
+
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, followUpResult.FinalStage);
+            Assert.AreEqual(1, followUpResult.SongRowProcessedCount);
+            Assert.AreEqual(0, followUpResult.SongRowSkippedCount);
+            Assert.AreEqual(1, readCount);
+            Assert.AreEqual("Current Generated", followUpDb.ExecuteScalar<string>(
+                "SELECT title FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual("Artist", followUpDb.ExecuteScalar<string>(
+                "SELECT artist FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(6, followUpDb.ExecuteScalar<int>(
+                "SELECT favorite FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(654321, followUpDb.ExecuteScalar<int>(
+                "SELECT adddate FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual("preserve-date-only-user-data", followUpDb.ExecuteScalar<string>(
+                "SELECT tag FROM song WHERE path = ?;", bmsPath));
         });
     }
 

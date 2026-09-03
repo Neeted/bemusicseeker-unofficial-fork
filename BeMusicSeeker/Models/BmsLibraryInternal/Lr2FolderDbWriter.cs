@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
@@ -16,10 +17,41 @@ internal readonly struct Lr2FolderGenerationWriteResult(int upsertedCount, int d
 
 internal static class Lr2FolderDbWriter
 {
+    /// <summary>
+    /// Replaces the app-owned folder cache after complete projection
+    /// preflight.  The caller supplies the rows read after preflight so this
+    /// method can express the whole-table operation as one transaction.
+    /// </summary>
+    internal static Lr2FolderGenerationWriteResult ReplaceAllRows(
+        LR2SongDBExtended songDb,
+        IReadOnlyCollection<LR2SongDB.folder> existingRows,
+        IReadOnlyCollection<LR2SongDB.folder> projectedRows,
+        bool commitTransaction = true,
+        Func<bool> isShutdownRequested = null)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        string[] deletePaths = [.. (existingRows ?? [])
+            .Where(row => !string.IsNullOrWhiteSpace(row?.path))
+            .Select(row => row.path)
+            .Distinct(StringComparer.Ordinal)];
+        LR2SongDB.folder[] rows = [.. (projectedRows ?? [])
+            .Where(row => !string.IsNullOrWhiteSpace(row?.path))];
+        return ApplySyncPlan(
+            songDb,
+            new Lr2FolderGenerationSyncPlan(rows, deletePaths),
+            commitTransaction,
+            isShutdownRequested);
+    }
+
     internal static Lr2FolderGenerationWriteResult ApplySyncPlan(
         LR2SongDBExtended songDb,
         Lr2FolderGenerationSyncPlan plan,
-        bool commitTransaction = true)
+        bool commitTransaction = true,
+        Func<bool> isShutdownRequested = null)
     {
         if (songDb == null)
         {
@@ -52,6 +84,10 @@ internal static class Lr2FolderDbWriter
             foreach (LR2SongDB.folder row in upsertRows)
             {
                 upserted += songDb.InsertOrReplace(row, typeof(LR2SongDB.folder));
+            }
+            if (isShutdownRequested?.Invoke() == true)
+            {
+                throw new OperationCanceledException("LR2 folder synchronization interrupted by shutdown.");
             }
             if (commitTransaction)
             {

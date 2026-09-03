@@ -51,9 +51,6 @@ internal interface ILr2SynchronizationDataPort
     Lr2SongDbSyncStatusSnapshot ApplyLr2SongDbSyncStatusMutation(
         Lr2SongDbSyncStatusMutationRequest request);
 
-    Lr2StartupScanBlockerCleanupReceipt ApplyLr2StartupScanBlockerCleanup(
-        Lr2StartupScanBlockerCleanupRequest request);
-
     Lr2FolderFileDbSyncResult ApplyLr2FolderFileSync(Lr2FolderFileDbSyncRequest request);
 
     Lr2NormalFolderDbSyncResult ApplyLr2NormalFolderSync(Lr2NormalFolderDbSyncRequest request);
@@ -103,8 +100,7 @@ internal sealed class Lr2SearchRootSnapshot
 internal enum Lr2SongDbSyncStatusMutationKind
 {
     MarkIncomplete,
-    MarkFailed,
-    MarkCancelled
+    MarkFailed
 }
 
 internal sealed class Lr2SongDbSyncStatusMutationRequest
@@ -144,44 +140,6 @@ internal sealed class Lr2SongDbSyncStatusMutationRequest
     internal string Detail { get; }
 
     internal DateTime NowUtc { get; }
-}
-
-internal sealed class Lr2StartupScanBlockerCleanupRequest
-{
-    internal Lr2StartupScanBlockerCleanupRequest(
-        Lr2SongDbSyncInput input,
-        bool enabled,
-        string signature,
-        DateTime nowUtc)
-    {
-        Input = input ?? throw new ArgumentNullException(nameof(input));
-        Enabled = enabled;
-        Signature = signature;
-        NowUtc = nowUtc;
-    }
-
-    internal Lr2SongDbSyncInput Input { get; }
-
-    internal bool Enabled { get; }
-
-    internal string Signature { get; }
-
-    internal DateTime NowUtc { get; }
-}
-
-internal sealed class Lr2StartupScanBlockerCleanupReceipt
-{
-    internal Lr2StartupScanBlockerCleanupReceipt(
-        Lr2StartupScanBlockerCleanupResult result,
-        Lr2SongDbSyncStatusSnapshot status)
-    {
-        Result = result;
-        Status = status;
-    }
-
-    internal Lr2StartupScanBlockerCleanupResult Result { get; }
-
-    internal Lr2SongDbSyncStatusSnapshot Status { get; }
 }
 
 /// <summary>
@@ -557,10 +515,6 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
     public Lr2SongDbSyncStatusSnapshot ApplyLr2SongDbSyncStatusMutation(
         Lr2SongDbSyncStatusMutationRequest request) =>
         catalogMutationOwner.ApplyLr2SongDbSyncStatusMutation(request);
-
-    public Lr2StartupScanBlockerCleanupReceipt ApplyLr2StartupScanBlockerCleanup(
-        Lr2StartupScanBlockerCleanupRequest request) =>
-        catalogMutationOwner.ApplyLr2StartupScanBlockerCleanup(request);
 
     public Lr2FolderFileDbSyncResult ApplyLr2FolderFileSync(Lr2FolderFileDbSyncRequest request) =>
         catalogMutationOwner.ApplyLr2FolderFileSync(request);

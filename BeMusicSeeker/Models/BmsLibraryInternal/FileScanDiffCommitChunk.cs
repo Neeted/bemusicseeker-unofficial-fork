@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -7,6 +8,8 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class FileScanDiffCommitChunk
 {
     public List<string> DeletedBmsPaths { get; } = [];
+
+    public List<string> Lr2SongDbSyncEligibleBmsPaths { get; } = [];
 
     public List<BMSFile> AddedBmsFiles { get; } = [];
 
@@ -69,6 +72,16 @@ internal sealed class FileScanDiffCommitChunk
         }
         UpdatedBmsDates.Add(new BmsDateOnlyUpdate(path, date, textFlag));
         MutationCount++;
+    }
+
+    public void AddLr2SongDbSyncEligibleBmsPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path)
+            || Lr2SongDbSyncEligibleBmsPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        Lr2SongDbSyncEligibleBmsPaths.Add(path);
     }
 
     public void AddDeletedBmsonPath(string path)
@@ -159,6 +172,7 @@ internal sealed class FileScanDiffCommitChunk
             return;
         }
         DeletedBmsPaths.AddRange(source.DeletedBmsPaths);
+        Lr2SongDbSyncEligibleBmsPaths.AddRange(source.Lr2SongDbSyncEligibleBmsPaths);
         AddedBmsFiles.AddRange(source.AddedBmsFiles);
         UpdatedBmsDates.AddRange(source.UpdatedBmsDates);
         DeletedBmsonPaths.AddRange(source.DeletedBmsonPaths);

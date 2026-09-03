@@ -13,8 +13,6 @@ internal sealed class Lr2SongDbSyncInput(
     IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
     IReadOnlyList<string> lr2FolderDiscoveryDirectories,
     IReadOnlyList<string> lr2FolderPruneDirectories,
-    IReadOnlyList<string> lr2FolderPruneExcludedDirectories,
-    IReadOnlyList<string> lr2FolderPruneExcludedPaths,
     string lr2RootPath,
     string lr2NormalCustomFolderOutputBaseDir,
     IReadOnlyList<string> lr2AdditionalNormalCustomFolderOutputBaseDirs,
@@ -48,10 +46,6 @@ internal sealed class Lr2SongDbSyncInput(
     public IReadOnlyList<string> Lr2FolderDiscoveryDirectories { get; } = lr2FolderDiscoveryDirectories ?? [];
 
     public IReadOnlyList<string> Lr2FolderPruneDirectories { get; } = lr2FolderPruneDirectories ?? [];
-
-    public IReadOnlyList<string> Lr2FolderPruneExcludedDirectories { get; } = lr2FolderPruneExcludedDirectories ?? [];
-
-    public IReadOnlyList<string> Lr2FolderPruneExcludedPaths { get; } = lr2FolderPruneExcludedPaths ?? [];
 
     public string Lr2RootPath { get; } = lr2RootPath;
 

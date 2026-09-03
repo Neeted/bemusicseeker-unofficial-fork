@@ -2286,9 +2286,9 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// Rebuilds LR2 custom-folder output while carrying the explicit
-    /// preparation capability into the nested folder-row apply.  Progress is
-    /// an intermediate diagnostic and does not change the durable result.
+    /// Rebuilds LR2 custom-folder output and returns the physical surface needed
+    /// by the full LR2 reconciliation.  Folder-row persistence is deferred to
+    /// that reconciliation; progress is an intermediate diagnostic.
     /// </summary>
     internal Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation(
         string reason,
@@ -2340,7 +2340,7 @@ public partial class BMSPlaylist : ObservableObject
             "playlist_lr2_song_db_sync_data_resync",
             buildPreparedDataSurface: true,
             yieldBetweenTables: yieldBetweenTables,
-            syncMaterialization: request => SyncCustomFolderRowsBatch(request, mutationCapability),
+            syncMaterialization: null,
             progressCallback: progressCallback);
         if (result.HasUnverifiedFiles)
         {

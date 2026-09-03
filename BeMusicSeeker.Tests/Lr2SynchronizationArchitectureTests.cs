@@ -180,15 +180,14 @@ public sealed class Lr2SynchronizationArchitectureTests
                 method.Name);
         }
         Assert.IsNotNull(typeof(ILr2SynchronizationDataPort).GetMethod("CaptureLr2FolderExistingRows"));
-        Assert.IsNotNull(typeof(ILr2SynchronizationDataPort).GetMethod("ApplyLr2StartupScanBlockerCleanup"));
+        Assert.IsNull(typeof(ILr2SynchronizationDataPort).GetMethod("ApplyLr2StartupScanBlockerCleanup"));
         Assert.IsNotNull(typeof(ILr2SynchronizationDataPort).GetMethod("ApplyLr2SongDbSyncStatusMutation"));
 
         PropertyInfo chartInfoWriter = typeof(Lr2SongDbSyncRequest).GetProperty("ChartInfoChunkWriter");
         Assert.IsNotNull(chartInfoWriter);
         Assert.IsFalse(ContainsType(chartInfoWriter.PropertyType, typeof(LR2SongDBExtended)));
         PropertyInfo songRowsVerifier = typeof(Lr2SongDbSyncRequest).GetProperty("SongRowsSkipVerifier");
-        Assert.IsNotNull(songRowsVerifier);
-        Assert.IsFalse(ContainsType(songRowsVerifier.PropertyType, typeof(LR2SongDBExtended)));
+        Assert.IsNull(songRowsVerifier);
     }
 
     [TestMethod]

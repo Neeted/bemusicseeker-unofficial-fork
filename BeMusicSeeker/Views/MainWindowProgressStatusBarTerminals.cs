@@ -14,8 +14,6 @@ internal sealed class MainWindowProgressStatusBarTerminals
 
     private readonly Action retryLr2Sync;
 
-    private readonly Action cleanupLr2StartupBlockers;
-
     /// <summary>
     /// Initializes the status-bar action terminal bundle.
     /// </summary>
@@ -24,14 +22,10 @@ internal sealed class MainWindowProgressStatusBarTerminals
     /// </param>
     /// <param name="cancelMaintenanceRescan">Cancels the owned maintenance rescan.</param>
     /// <param name="retryLr2Sync">Requests the owned LR2 sync retry.</param>
-    /// <param name="cleanupLr2StartupBlockers">
-    /// Cleans up LR2 startup-scan blockers and requests the existing retry route.
-    /// </param>
     internal MainWindowProgressStatusBarTerminals(
         Action cancelInstallPipeline,
         Action cancelMaintenanceRescan,
-        Action retryLr2Sync,
-        Action cleanupLr2StartupBlockers)
+        Action retryLr2Sync)
     {
         this.cancelInstallPipeline = cancelInstallPipeline
             ?? throw new ArgumentNullException(nameof(cancelInstallPipeline));
@@ -39,8 +33,6 @@ internal sealed class MainWindowProgressStatusBarTerminals
             ?? throw new ArgumentNullException(nameof(cancelMaintenanceRescan));
         this.retryLr2Sync = retryLr2Sync
             ?? throw new ArgumentNullException(nameof(retryLr2Sync));
-        this.cleanupLr2StartupBlockers = cleanupLr2StartupBlockers
-            ?? throw new ArgumentNullException(nameof(cleanupLr2StartupBlockers));
     }
 
     /// <summary>
@@ -59,11 +51,6 @@ internal sealed class MainWindowProgressStatusBarTerminals
     internal void RetryLr2Sync() => retryLr2Sync();
 
     /// <summary>
-    /// Cleans up LR2 startup blockers through its existing owner retry route.
-    /// </summary>
-    internal void CleanupLr2StartupBlockers() => cleanupLr2StartupBlockers();
-
-    /// <summary>
     /// Creates the default terminal bundle without changing the existing workflow routes.
     /// </summary>
     /// <param name="viewModel">The shell view model owning all status-bar workflows.</param>
@@ -76,8 +63,7 @@ internal sealed class MainWindowProgressStatusBarTerminals
             viewModel.PlaylistWorkspace.CancelPlaylistUrlDownload,
             viewModel.PackageInstallWorkflow.CancelAll,
             viewModel.MaintenanceRescanWorkflow.Cancel,
-            viewModel.Lr2SongDbSyncWorkflow.RequestStatusBarRetry,
-            viewModel.Lr2SongDbSyncWorkflow.CleanupStartupScanBlockersAndRetry);
+            viewModel.Lr2SongDbSyncWorkflow.RequestStatusBarRetry);
     }
 
     /// <summary>
@@ -88,22 +74,19 @@ internal sealed class MainWindowProgressStatusBarTerminals
     /// <param name="cancelPackageInstall">Cancels the package-install pipeline when no playlist download is active.</param>
     /// <param name="cancelMaintenanceRescan">Cancels the owned maintenance rescan.</param>
     /// <param name="retryLr2Sync">Requests the owned LR2 sync retry.</param>
-    /// <param name="cleanupLr2StartupBlockers">Cleans up LR2 startup blockers and requests the existing retry route.</param>
     /// <returns>A terminal bundle that delegates each action exactly once to the supplied owner action.</returns>
     internal static MainWindowProgressStatusBarTerminals CreateCore(
         Func<bool> playlistUrlDownloadIsRunning,
         Action cancelPlaylistUrlDownload,
         Action cancelPackageInstall,
         Action cancelMaintenanceRescan,
-        Action retryLr2Sync,
-        Action cleanupLr2StartupBlockers)
+        Action retryLr2Sync)
     {
         ArgumentNullException.ThrowIfNull(playlistUrlDownloadIsRunning);
         ArgumentNullException.ThrowIfNull(cancelPlaylistUrlDownload);
         ArgumentNullException.ThrowIfNull(cancelPackageInstall);
         ArgumentNullException.ThrowIfNull(cancelMaintenanceRescan);
         ArgumentNullException.ThrowIfNull(retryLr2Sync);
-        ArgumentNullException.ThrowIfNull(cleanupLr2StartupBlockers);
 
         return new MainWindowProgressStatusBarTerminals(
             () =>
@@ -117,7 +100,6 @@ internal sealed class MainWindowProgressStatusBarTerminals
                 cancelPackageInstall();
             },
             cancelMaintenanceRescan,
-            retryLr2Sync,
-            cleanupLr2StartupBlockers);
+            retryLr2Sync);
     }
 }

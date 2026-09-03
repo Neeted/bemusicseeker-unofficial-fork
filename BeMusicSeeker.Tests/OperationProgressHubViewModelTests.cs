@@ -430,24 +430,23 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     [TestMethod]
-    public void Lr2SongDbSyncPresentation_UsesCleanupForStartupScanBlockersAndClearsNotNeeded()
+    public void Lr2SongDbSyncPresentation_UsesRetryForIncompleteAndClearsNotNeeded()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-        Lr2SongDbSyncRuntimeStatus blockers = Lr2SongDbSyncStatusMapper.Create(
+        Lr2SongDbSyncRuntimeStatus incomplete = Lr2SongDbSyncStatusMapper.Create(
             new Lr2SongDbSyncStatusSnapshot
             {
                 Status = Lr2SongDbSyncStatusKind.Incomplete,
-                Stage = Lr2SongDbSyncService.StartupScanBlockersStage,
-                LastError = "startup scan blockers"
+                Stage = "folder_rows",
+                LastError = "incomplete preparation"
             },
             DateTime.MinValue);
 
-        hub.UpdateLr2SongDbSyncStatus(blockers);
+        hub.UpdateLr2SongDbSyncStatus(incomplete);
 
         Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
-        Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
-        Assert.IsTrue(hub.IsLr2SongDbSyncCleanupVisible);
+        Assert.IsTrue(hub.IsLr2SongDbSyncRetryVisible);
 
         hub.UpdateLr2SongDbSyncStatus(null);
 
@@ -459,7 +458,6 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(1.0, hub.Lr2SongDbSyncStatusProgressMaximum);
         Assert.IsFalse(hub.IsLr2SongDbSyncStatusProgressVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
-        Assert.IsFalse(hub.IsLr2SongDbSyncCleanupVisible);
     }
 
     [TestMethod]

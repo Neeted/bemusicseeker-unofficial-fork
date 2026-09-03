@@ -1717,8 +1717,7 @@ public sealed class ApplicationCompositionTests
             new BmsLr2SongDbSyncWorkflowRuntime(
                 () => null!,
                 () => null!,
-                () => false),
-            new TestUiDialogService());
+                () => false));
     }
 
     private static RankingCacheDownloadWorkflowOwner CreateDisabledRankingCacheDownloadWorkflowOwner()

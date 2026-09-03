@@ -503,7 +503,7 @@ public sealed class Lr2FolderRowGeneratorTests
     }
 
     [TestMethod]
-    public void DirectoryMetadataBuilder_TreatsUnixEpochOrOlderTimestampAsMissing()
+    public void DirectoryMetadataBuilder_PreservesUnixEpochOrOlderTimestampAsValid()
     {
         Lr2FolderDirectoryMetadataSnapshot snapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
         {
@@ -514,9 +514,10 @@ public sealed class Lr2FolderRowGeneratorTests
         });
 
         Assert.AreEqual(2, snapshot.RequestedDirectoryCount);
-        Assert.AreEqual(1, snapshot.ResolvedDirectoryCount);
-        Assert.AreEqual(1, snapshot.MissingDirectoryCount);
-        Assert.IsFalse(snapshot.TryGetMetadata(@"D:\BMS", out _));
+        Assert.AreEqual(2, snapshot.ResolvedDirectoryCount);
+        Assert.AreEqual(0, snapshot.MissingDirectoryCount);
+        Assert.IsTrue(snapshot.TryGetMetadata(@"D:\BMS", out Lr2FolderDirectoryMetadata rootMetadata));
+        Assert.AreEqual(new DateTime(1601, 1, 1, 0, 0, 0, DateTimeKind.Utc), rootMetadata.LastWriteTimeUtc);
         Assert.IsTrue(snapshot.TryGetMetadata(@"D:\BMS\Pack", out Lr2FolderDirectoryMetadata metadata));
         Assert.AreEqual(new DateTime(1970, 1, 1, 0, 0, 1, DateTimeKind.Utc), metadata.LastWriteTimeUtc);
     }

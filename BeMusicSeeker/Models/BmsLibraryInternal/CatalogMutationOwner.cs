@@ -452,45 +452,8 @@ internal sealed class CatalogMutationOwner
                     request.Stage,
                     request.Detail,
                     request.NowUtc),
-                Lr2SongDbSyncStatusMutationKind.MarkCancelled => Lr2SongDbSyncStatusService.MarkCancelled(
-                    songDb,
-                    request.Signature,
-                    request.RunId,
-                    request.ProcessedCursor,
-                    request.TotalCount,
-                    request.Stage,
-                    request.NowUtc),
                 _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, "Unknown LR2 song DB status mutation.")
             };
-        }
-    }
-
-    internal Lr2StartupScanBlockerCleanupReceipt ApplyLr2StartupScanBlockerCleanup(
-        Lr2StartupScanBlockerCleanupRequest request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-
-        using (maintenanceWriteGate.GetWriterGuard())
-        using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
-            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
-        {
-            Lr2SongDbSyncInput input = request.Input;
-            Lr2StartupScanBlockerCleanupResult result =
-                Lr2SongDbSyncService.CleanupStartupScanBlockerFolderRows(
-                    songDb,
-                    input.RootDirectories,
-                    input.Lr2FolderDiscoveryDirectories,
-                    input.SongRows,
-                    input.Lr2RootPath);
-            Lr2SongDbSyncStatusSnapshot status = Lr2SongDbSyncStatusService.Evaluate(
-                songDb,
-                request.Enabled,
-                request.Signature,
-                request.NowUtc);
-            return new Lr2StartupScanBlockerCleanupReceipt(result, status);
         }
     }
 

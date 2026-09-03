@@ -72,8 +72,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private bool isLr2SongDbSyncRetryVisible;
 
-    private bool isLr2SongDbSyncCleanupVisible;
-
     private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
 
     private DropInstallQueueStatusSnapshot dropInstallQueueStatus = new();
@@ -538,15 +536,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
         internal set => SetValue(ref isLr2SongDbSyncRetryVisible, value, nameof(IsLr2SongDbSyncRetryVisible));
     }
 
-    /// <summary>
-    /// Gets whether the LR2 song DB sync cleanup action is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncCleanupVisible
-    {
-        get => isLr2SongDbSyncCleanupVisible;
-        internal set => SetValue(ref isLr2SongDbSyncCleanupVisible, value, nameof(IsLr2SongDbSyncCleanupVisible));
-    }
-
     internal void UpdateLr2SongDbSyncStatus(Lr2SongDbSyncRuntimeStatus status)
     {
         latestLr2SongDbSyncStatus = status ?? Lr2SongDbSyncStatusMapper.CreateNone();
@@ -570,7 +559,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
         Lr2SongDbSyncStatusProgressMaximum = isActive ? status.ProgressMaximum : 1.0;
         IsLr2SongDbSyncStatusProgressVisible = isActive && status.HasProgress;
         IsLr2SongDbSyncRetryVisible = isActive && status.CanRetry;
-        IsLr2SongDbSyncCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
     }
 
     private void UpdateDropInstallQueueStatus(DropInstallQueueStatusSnapshot snapshot)

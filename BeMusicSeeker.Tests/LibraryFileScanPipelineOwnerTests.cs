@@ -81,6 +81,57 @@ public sealed class LibraryFileScanPipelineOwnerTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_LatePostLeaseObserverFailureDiscardsCommittedReceipt()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directoryPath);
+        try
+        {
+            string bmsPath = Path.Combine(directoryPath, "committed.bms");
+            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Committed\r\n#BPM 120\r\n#00111:01\r\n");
+            var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
+            var owner = CreateOwner(callbacks, lr2ModeEnabled: true);
+            var injectedException = new InvalidOperationException("injected post-lease observer failure");
+
+            InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
+                () => owner.ApplyFileScanDiff(
+                    new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = true
+                    },
+                    [directoryPath],
+                    new ChartScanPrefetchInfo
+                    {
+                        ScanResult = new ChartScanExecutionResult
+                        {
+                            Success = true,
+                            Result = new ChartScanResult
+                            {
+                                ChartFilePaths = new HashSet<string>([bmsPath], StringComparer.Ordinal),
+                                ChartDirectories = new HashSet<string>([directoryPath], StringComparer.OrdinalIgnoreCase)
+                            }
+                        }
+                    },
+                    null!,
+                    trackLibraryFileCheckProgress: true,
+                    reason: "test_late_receipt_failure",
+                    installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty,
+                    postLeaseEffectObserver: _ => throw injectedException));
+
+            Assert.AreSame(injectedException, thrown);
+            Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
+        }
+        finally
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_EmptyDirectoryRequestCompletesProgressForRepeatedRequests()
     {
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
@@ -522,7 +573,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual(2, callbacks.CatalogStorageRowsOwner.CaptureSnapshot().BmsRows.Count);
     }
 
-    private static LibraryFileScanPipelineOwner CreateOwner(RecordingLibraryFileScanPipelineCallbacks callbacks)
+    private static LibraryFileScanPipelineOwner CreateOwner(
+        RecordingLibraryFileScanPipelineCallbacks callbacks,
+        bool lr2ModeEnabled = false)
     {
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
@@ -530,7 +583,17 @@ public sealed class LibraryFileScanPipelineOwnerTests
         using (new LR2SongDBExtended(songDbPath))
         {
         }
-        var library = new TestBmsLibrary(songDbPath);
+        TestBmsLibrary library = lr2ModeEnabled
+            ? new TestBmsLibrary(
+                songDbPath,
+                getLR2Config: null,
+                _lr2ScoreDB: null,
+                startupRequiredFileScanReason: null,
+                optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true
+                })
+            : new TestBmsLibrary(songDbPath);
         var dbGateway = new BmsLibraryDbGateway(songDbPath);
         var storageRowsOwner = new CatalogStorageRowsOwner();
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
@@ -539,6 +602,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         callbacks.CatalogOwnedCollectionOwner = ownedCollectionOwner;
         storageRowsOwner.ReplaceBmsRows([.. callbacks.BmsFiles]);
         storageRowsOwner.ReplaceBmsonRows([.. callbacks.BmsonSongs]);
+        callbacks.Lr2Synchronization = library.Lr2Synchronization;
         var catalogMutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, dbGateway);
         var catalogChartInfoOwner = new CatalogChartInfoOwner(
             _ => { },
@@ -614,6 +678,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public CatalogOwnedCollectionOwner CatalogOwnedCollectionOwner { get; set; } = null!;
 
         public CatalogChartInfoOwner CatalogChartInfoOwner { get; set; } = null!;
+
+        public BMSLibrary.Lr2SynchronizationOwner Lr2Synchronization { get; set; } = null!;
 
         public List<CatalogChartInfoOwnerEvent> CatalogChartInfoEvents { get; } = [];
 

@@ -23,7 +23,5 @@ internal sealed class Lr2SongDbSyncRuntimeStatus
 
     internal bool CanRetry { get; set; }
 
-    internal bool CanCleanupStartupScanBlockers { get; set; }
-
     internal DateTime CheckedAt { get; set; }
 }

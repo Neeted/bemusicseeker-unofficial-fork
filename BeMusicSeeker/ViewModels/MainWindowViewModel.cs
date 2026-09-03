@@ -2903,8 +2903,7 @@ public partial class MainWindowViewModel : ViewModel,
                 new BmsLr2SongDbSyncWorkflowRuntime(
                     () => files,
                     () => tables,
-                    () => GetStartupSettingsSnapshot().OperationModeLR2DB),
-                new UiDialogCoordinator()),
+                    () => GetStartupSettingsSnapshot().OperationModeLR2DB)),
             rankingCacheDownloadWorkflow: new RankingCacheDownloadWorkflowOwner(
                 new BmsRankingCacheDownloadRuntime(() => files),
                 new UiDialogCoordinator()),

@@ -9,8 +9,9 @@ LR2 連携モードでは、BeMusicSeeker が LR2 `song.db` 内の `song` / `fol
 LR2 側の起動時自動更新に依存せず、BeMusicSeeker のライブラリ、LR2 設定、プレイリスト出力、実ファイル状態から LR2 が選曲できる DB を生成することを目的とします。
 
 LR2 の `song` / `folder` は外部編集を保存する正本ではなく、現在の入力から再生成できる cache として扱います。
-現在の入力から導けない stale / unknown row は、同期 workflow 内で削除または上書きして収束させます。
-ただし、LR2 ユーザー操作に属する `favorite` / `adddate` / `tag` などの値は明示的な維持対象です。
+full reconciliation では `folder` table 全体を完全な入力から投影し、アプリ生成 row を一度の transaction で置き換えます。
+一方、`song` table の membership（追加・削除・stale prune）は file-diff の所有であり、full reconciliation は membership を変更しません。
+LR2 ユーザー操作に属する `favorite` / `adddate` / `tag` などの値は明示的な維持対象です。
 
 ## 適用範囲
 
@@ -61,8 +62,9 @@ LR2 linked mode では、LR2 の `<jukebox>` は LR2 に見せる root set と�
 ## song Table
 
 `song` table は BMS chart の LR2 互換 row を保持します。
-BeMusicSeeker が管理する現在の BMS chart path が期待集合です。
-期待集合に含まれない stale `song` row は同期中に削除され、関連する app-owned maintenance / chart digest 情報も整理されます。
+BeMusicSeeker が管理する現在の BMS chart path は file-diff が管理する membership です。
+full reconciliation は既存 `song` row の membership を追加・削除せず、file-diff が確定した row に対して生成列だけを更新します。
+stale row の追加・削除・prune と app-owned maintenance / chart digest の整理は、既存の file-diff / scoped incremental route が担当します。
 
 `song.path` は原則として実 chart path です。
 既存 row と file system 探索結果が case-insensitive には一致するが ordinal では一致しない場合は、探索結果の path 表記を正とし、`song.path`、`bmson_song.path`、関連 `maintenance.path` をその表記へ更新します。
@@ -87,7 +89,8 @@ hash 計算は既存の `LR2CRC32` と `Lr2SongFolderParentNormalizer` を正本
 ## folder Table
 
 `folder` table は LR2 選曲画面の階層を表す cache です。
-row ownership column は持たないため、BeMusicSeeker は現在の生成入力から期待集合を作り、同期 scope 内の stale row を削除します。
+full reconciliation では BeMusicSeeker が現在の生成入力から期待集合を作り、全 table を置き換えます。
+playlist/settings/catalog の incremental action では、既存の owner が明示した同期 scope 内だけ stale row を削除します。
 
 通常 directory row は `type = 1` です。
 `folder` table には directory 自身の hash column はなく、`folder.path` が row key です。
@@ -108,6 +111,9 @@ LR2 の起動時 root folder check が再帰スキャンへ進まないよう、
 
 同一 path が複数 source から生成候補になる場合は、LR2 表示上の意味が強い source を優先します。
 優先度は built-in custom folder、`.lr2folder`、`folderinfo.txt` directory、通常 directory の順です。
+full reconciliation はすべての source と必要な親/root row を先に投影し、完全な preflight が成功した後でだけ既存 table を一度の transaction で delete/upsert します。
+入力 discovery、metadata、parse のいずれかが不完全、または同じ優先度の異なる projection が衝突した場合は、folder table を変更せず `Incomplete` / `Failed` として表面化します。
+同一 path・同一 tier の同一 projection は順序によらず deduplicate します。
 
 ## .lr2folder
 
@@ -131,6 +137,8 @@ LR2 の起動時 root folder check が再帰スキャンへ進まないよう、
 通常の numbered `.lr2folder` は playlist directory を parent に持ち、root 出力 base 直下の standalone `.lr2folder` だけが `ROOT` parent になります。
 プレイリスト保存時の materialization は、`0000.lr2folder` からの連番 file を Shift_JIS で出力し、同じ projection から `folder` row も同期します。
 ルート出力先を使う playlist は、root flag や出力先変更に合わせて LR2 `config.xml` の BMS search root 追加・削除対象にもなります。
+full reconciliation では `.lr2folder` の mtime が既存 row と一致していても本文を再parseします。mtime 一致を理由に full projection を preserve する shortcut はありません。
+playlist/settings の通常 incremental action は、既存の scoped folder DB synchronization を引き続き使用します。full preparation の playlist/built-in materialization は physical file の準備・検証だけを行います。
 
 ## LR2 Built-in Custom Folder
 
@@ -147,36 +155,39 @@ LR2 `song.db` 同期状態は BeMusicSeeker 管理 metadata として保持し�
 主な状態は `NotNeeded`、`Needed`、`Running`、`Completed`、`Failed`、`Cancelled`、`Incomplete` です。
 metadata は `lr2_song_db_sync_status` の `name=default` row に保持し、status、signature、run id、processed cursor、total count、stage、error、updated/completed time を記録します。
 
-`Completed` は、現在の生成入力と signature に対して期待 `song` / `folder` 集合へ収束したことを表します。
+`Completed` は、完全な full input の projection、folder table の atomic apply、file-diff が所有する song membership に対する生成列更新、source-current check、status commit がすべて成功したことを表します。
 steady-state 起動では、`Completed` かつ signature が一致していれば full sync を行いません。
 旧 schema や過去バージョン由来 row の追加検査を startup tail に混ぜて status を再評価しません。
 
 この status は `chart_info` row の現存・完全性・currentnessを表しません。chart-info hydrationはLR2 linkedでもstandaloneでも実在する`chart_info`、current parse failure、owned chartを照合し、`Completed` statusをskip条件に使いません。statusのscopeとchart-info lifecycleの境界は [chart-info-lifecycle.md](chart-info-lifecycle.md) を正本とします。
 
 root 変更、custom folder 出力設定変更、playlist 出力変更、file diff、前回 incomplete / failed / cancelled などは同期必要判定または scoped sync の入力です。
-自動同期は、主にこの同期をまだ完了していない `song.db` を現在の生成入力へ収束させる一度限りの処理です。steady-state では上記の `Completed` + signature 判定で省略できるため、日常的な起動進捗には含めず、起動完了後の専用 status として扱います。同じ理由から通常のユーザーキャンセル経路は設けず、失敗・未完了は既存の retry へ、アプリ終了は内部 shutdown cancellation へ分けます。
+自動同期は、主にこの同期をまだ完了していない `song.db` を現在の生成入力へ収束させる一度限りの処理です。steady-state では上記の `Completed` + signature 判定で省略できるため、日常的な起動進捗には含めず、起動完了後の専用 status として扱います。すべての非 `Completed` state と manual force は item zero から開始し、durable cursor から resume しません。同じ理由から通常のユーザーキャンセル経路は設けず、失敗・未完了は既存の retry へ、アプリ終了は内部 shutdown cancellation へ分けます。
 通常起動の自動同期は、正常な `startup_initialization_complete` が記録された後にだけ既存 scheduler へ一度 queue します。初回完了ダイアログが pending の場合も、同期を queue してから従来の表示処理へ進み、ダイアログの終了を同期開始の条件にしません。起動失敗・中断では自動 queue を作りません。同じ Startup generation では in-memory の scheduling guard により重複 queue を作らず、既存の `Completed` + signature gate が不要な full sync を抑止します。
-LR2 同期の実行中にユーザーが status bar からキャンセルする操作と workflow route は提供しません。アプリ終了時の内部 shutdown drain は既存の cancellation token と `BMSLibrary` の終了処理を使い、durable な `Cancelled` status を従来どおり保持します。
+LR2 同期の実行中にユーザーが status bar からキャンセルする操作と workflow route は提供しません。アプリ終了時の内部 shutdown drain は既存の cancellation token と `BMSLibrary` の終了処理を使い、安全に status を保存できる場合は `Incomplete` / `shutdown_interrupted` を記録します。過去 DB の `Cancelled` 値は読み取り・表示・retry 判定の互換性のため保持しますが、新しい production run は `Cancelled` row を作りません。shutdown 以外の cancellation は failure として表面化します。
 自動同期の `Running` / 進捗 / `Incomplete` / `Failed` は `OperationProgressHub` の LR2 専用 status として UI / log に出し、startup progress の phase、分母、値、成功・失敗には参加させません。同期中は read-only 操作を許容し、DB mutation を伴う操作は制限します。
-full sync の主要 stage は、normal folder、`.lr2folder` file、song row、stale prune、diagnostic、completed の順です。
+full sync の主要 stage は、normal folder、`.lr2folder` file、folder preflight/apply、song generated-column update、source-current check、completed の順です。diagnostic/repair/cleanup stage は存在しません。
 
 `song_rows` stage は開始時に current parser version の `chart_info` resolver と timeout-aware current parse-failure MD5 set を取得します。各 worker は、song generated columns に使う既存の `ChartFileSnapshot` とこの事前取得 facts を route-neutral chart-info evaluator へ渡します。worker 内で譜面を追加読取したり、`chart_info` / parse failure を DB query したりしません。missing / stale `chart_info` は LR2 専用 parser ではなく inline / full backfill と同じ evaluator で生成します。
 
-## Startup Scan Diagnostic
+## 失敗と退役した startup route
 
-startup scan diagnostic は、LR2 が起動時に再帰スキャンへ進みそうな `folder` row の欠落や stale date を検出・修復するための補助処理です。
-これは `Completed` status の正否を毎回再評価する heavyweight validation ではありません。
+full preparation が不完全、projection が衝突、folder apply または song generated-column update が失敗した場合は、部分的な成功や broad fallback を作らず `Incomplete` / `Failed` として表面化します。入力が完全になるまで folder table は変更しません。
 
-diagnostic は期待される normal folder row、`.lr2folder` row、親 directory row、cleanup 対象 row、date update 対象 row を比較し、必要な場合だけ修復します。
+startup scan diagnostic、missing/unknown-root inference、date sentinel 判定、startup repair、startup cleanup/retry action は現行 route ではありません。`folder.date`、`song.date` の zero および負値は有効な Unix 秒値としてそのまま保存します。
+
+file-diff の直後に実行される startup/reload full sync には、直前の file-diff pipeline が全体として commit した chart path だけを対象にした in-memory committed-path receipt を一度だけ渡せます。receipt は `OwnedChartCollectionVersion` と `BmsRowsVersion` の二つの version で一致を確認し、消費・失敗・retry・manual/settings run・shutdown・dispose のいずれでも保持・再利用・永続化しません。eligible path は BMS reader 呼び出しと DB currentness/verifier query を省略します。
 
 ## 性能方針
 
 - root 追加 UI では再帰 file 探索を事前実行しません。
 - file system 探索は通常の file diff / root enumeration 基盤に集約します。
-- `song` upsert と stale prune は chunk、temporary table、index を使って処理します。
+- file-diff が所有する `song` membership の upsert と stale prune は chunk、temporary table、index を使って処理します。full reconciliation の song stage は membership を変更しません。
 - directory hash は cache して同一 directory の再計算を避けます。
-- 既存 `.lr2folder` row の date、type、parent が期待値と一致する場合は、本文 parse を省略して preserve できます。
+- full mode では既存 `.lr2folder` row の date、type、parent が一致しても本文を再parseします。mtime は full input の変化検出や parse の省略根拠ではありません。
 - `.lr2folder` discovery が不完全な場合は、不完全な入力を隠して broad prune しません。
+- full folder preparation は物理 file の materialization/verification と projection 構築を分離します。playlist/settings/catalog の scoped incremental folder DB synchronization は引き続き有効です。
+- full reconciliation は full folder projection を一度だけ whole-table transaction へ渡し、song membership を追加・削除・stale prune しません。
 - sync 失敗時は `Incomplete` / `Failed` などとして表面化し、成功扱いにしません。
 
 ## 主な実装

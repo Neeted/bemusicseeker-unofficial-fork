@@ -2339,7 +2339,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void Lr2SongDbSyncCustomFolderPreparation_RemovesExtraLr2FolderInManagedOutputDirectory()
+    public void Lr2SongDbSyncCustomFolderPreparation_PreservesExtraLr2FolderRowInManagedOutputDirectory()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
@@ -2429,7 +2429,13 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             CollectionAssert.Contains(surface.Lr2FolderFilePaths.ToList(), expectedFile);
             Assert.AreEqual(0, surface.Lr2FolderScopeDirectories.Count);
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", extraFile));
+            LR2SongDB.folder extraFolder = verify.Find<LR2SongDB.folder>(extraFile);
+            Assert.IsNotNull(extraFolder);
+            Assert.AreEqual("External", extraFolder.title);
+            Assert.AreEqual(2, extraFolder.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputDir), extraFolder.parent);
+            Assert.AreEqual(extraTimestamp.ToUnixtime(), extraFolder.date);
+            Assert.AreEqual(extraTimestamp.ToUnixtime(), extraFolder.adddate);
             using LibraryFileMutationLease fresh = library.Lr2Synchronization.TryBeginMutation(
                 "test_external_colocated_after_release",
                 showMessage: false);

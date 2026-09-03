@@ -62,7 +62,7 @@ public partial class BMSLibrary
 
         internal object ScanSurfaceGate { get; } = new();
 
-        internal object FileDiffFreshnessGate { get; } = new();
+        internal object CommittedPathReceiptGate { get; } = new();
 
         internal int RequestedVersion { get; set; }
 
@@ -93,7 +93,7 @@ public partial class BMSLibrary
 
         internal int ScanSurfaceGeneration { get; set; }
 
-        internal Lr2SongDbSyncFileDiffFreshnessSnapshot FileDiffFreshnessSnapshot { get; set; }
+        internal Lr2SongDbSyncCommittedPathReceipt CommittedPathReceipt { get; set; }
 
         internal Lr2SongDbSyncPreparedDataSurface PreparedDataSurface { get; set; } =
             Lr2SongDbSyncPreparedDataSurface.Empty;
@@ -186,12 +186,6 @@ public partial class BMSLibrary
                 builtinSourceDirectories,
                 request.DirectoryEntries.Keys);
             ApplyLr2TextMetadataCandidatesToRequest(request, textMetadataSnapshot, builtinSourceDirectories);
-            SyncLr2FolderFileRows(
-                options,
-                request,
-                reason,
-                "lr2_builtin_folder_scoped_sync",
-                mutationCapability: mutationCapability);
             return new Lr2SongDbSyncPreparedDataSurface(
                 builtinSourceDirectories,
                 candidates.Paths,
@@ -309,7 +303,8 @@ public partial class BMSLibrary
                     reason,
                     force: true,
                     prepareGeneratedData: null,
-                    allowIncompleteToQueue: true);
+                    allowIncompleteToQueue: true,
+                    allowCommittedPathReceipt: false);
             }
         }
 
@@ -991,137 +986,6 @@ public partial class BMSLibrary
             };
         }
 
-        internal void CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(
-            BmsLibraryOptionsSnapshot options,
-            SongTableFileCheckResult fileCheckResult,
-            string reason)
-        {
-            if (options?.OperationModeLR2DB != true
-                || fileCheckResult == null)
-            {
-                ClearLr2SongDbSyncFileDiffFreshnessSnapshot("file_diff_unavailable_" + (reason ?? "unknown"));
-                return;
-            }
-
-            ChartInfoOwnerVersionSnapshot version = data.CaptureChartInfoOwnerVersionSnapshot();
-            Lr2SongDbSyncScanSurfaceSnapshot scanSurface;
-            lock (ScanSurfaceGate)
-            {
-                scanSurface = ScanSurfaceSnapshot;
-            }
-            string missReason = null;
-            if (scanSurface == null
-                || scanSurface.OwnedCollectionVersion != version.OwnedCollectionVersion
-                || scanSurface.BmsRowsVersion != version.BmsRowsVersion
-                || scanSurface.BmsonRowsVersion != version.BmsonRowsVersion)
-            {
-                missReason = "scan_surface_not_current";
-            }
-            else if (!fileCheckResult.HasDbDiff)
-            {
-                missReason = "no_db_diff";
-            }
-            else if (version.BmsOwnerCount <= 0)
-            {
-                missReason = "no_bms_rows";
-            }
-
-            bool canVerifyFullSongRows = fileCheckResult.BmsAddedTargetCount >= version.BmsOwnerCount
-                && fileCheckResult.InlineMaintenanceBmsCount >= version.BmsOwnerCount;
-            bool hasTransientNewInsertSkipRows = fileCheckResult.NewlyInsertedBmsPaths.Count > 0;
-            if (missReason == null && !canVerifyFullSongRows && !hasTransientNewInsertSkipRows)
-            {
-                missReason = "no_fresh_song_rows";
-            }
-            else if (missReason == null && fileCheckResult.InlineMaintenanceFailedCount > 0)
-            {
-                missReason = "inline_maintenance_failed";
-            }
-            else if (missReason == null && fileCheckResult.BmsMovedHashRelinkAmbiguousCount > 0)
-            {
-                missReason = "ambiguous_hash_relink";
-            }
-            else if (missReason == null
-                && (fileCheckResult.Lr2NormalFolderSyncFailed
-                || fileCheckResult.Lr2NormalFolderSkippedMissingMetadataCount > 0
-                || fileCheckResult.Lr2NormalFolderInfoReadFailureCount > 0))
-            {
-                missReason = "normal_folder_sync_unapplied";
-            }
-
-            if (missReason != null)
-            {
-                ClearLr2SongDbSyncFileDiffFreshnessSnapshot(missReason + "_" + (reason ?? "unknown"));
-                BMSLibrary.LogInstallPerformance("lr2_song_db_sync_file_diff_freshness skipped"
-                    + " reason=" + (reason ?? "unknown")
-                    + " skipReason=" + missReason
-                    + " bmsOwners=" + version.BmsOwnerCount
-                    + " bmsonOwners=" + version.BmsonOwnerCount
-                    + " bmsTargets=" + fileCheckResult.BmsAddedTargetCount
-                    + " newInsertSkipRows=" + fileCheckResult.NewlyInsertedBmsPaths.Count
-                    + " inlineMaintenanceBms=" + fileCheckResult.InlineMaintenanceBmsCount
-                    + " inlineMaintenanceFailed=" + fileCheckResult.InlineMaintenanceFailedCount
-                    + " scanSurfaceGeneration=" + (scanSurface?.Generation ?? 0));
-                return;
-            }
-
-            var snapshot = new Lr2SongDbSyncFileDiffFreshnessSnapshot(
-                reason ?? "unknown",
-                scanSurface.Generation,
-                version.OwnedCollectionVersion,
-                version.BmsRowsVersion,
-                version.BmsonRowsVersion,
-                version.BmsOwnerCount,
-                version.BmsonOwnerCount,
-                fileCheckResult.BmsAddedTargetCount,
-                fileCheckResult.BmsDeletedTargetCount,
-                fileCheckResult.BmsDateOnlyUpdateCount,
-                fileCheckResult.BmsTextOnlyUpdateCount,
-                fileCheckResult.BmsMovedHashRelinkCount,
-                fileCheckResult.BmsMovedHashRelinkAmbiguousCount,
-                fileCheckResult.InlineChartInfoTargetCount,
-                fileCheckResult.InlineChartInfoSuccessCount,
-                fileCheckResult.InlineChartInfoCurrentSkippedCount,
-                fileCheckResult.InlineChartInfoParseFailedCount,
-                fileCheckResult.InlineMaintenanceTargetCount,
-                fileCheckResult.InlineMaintenanceBmsCount,
-                fileCheckResult.InlineMaintenanceBmsonCount,
-                fileCheckResult.InlineMaintenanceFailedCount,
-                fileCheckResult.NewlyInsertedBmsPaths);
-            lock (FileDiffFreshnessGate)
-            {
-                FileDiffFreshnessSnapshot = snapshot;
-            }
-            BMSLibrary.LogInstallPerformance("lr2_song_db_sync_file_diff_freshness captured"
-                + " reason=" + snapshot.Reason
-                + " scanSurfaceGeneration=" + snapshot.ScanSurfaceGeneration
-                + " bmsOwners=" + snapshot.BmsOwnerCount
-                + " bmsonOwners=" + snapshot.BmsonOwnerCount
-                + " bmsTargets=" + snapshot.BmsTargetCount
-                + " newInsertSkipRows=" + snapshot.TransientSongRowSkipPaths.Count
-                + " bmsDeleted=" + snapshot.BmsDeletedCount
-                + " inlineChartInfoTargets=" + snapshot.InlineChartInfoTargetCount
-                + " inlineMaintenanceBms=" + snapshot.InlineMaintenanceBmsCount
-                + " inlineMaintenanceBmson=" + snapshot.InlineMaintenanceBmsonCount
-                + " ownedCollectionVersion=" + snapshot.OwnedCollectionVersion
-                + " bmsRowsVersion=" + snapshot.BmsRowsVersion
-                + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
-        }
-
-        private void ClearLr2SongDbSyncFileDiffFreshnessSnapshot(string reason)
-        {
-            bool cleared;
-            lock (FileDiffFreshnessGate)
-            {
-                cleared = FileDiffFreshnessSnapshot != null;
-                FileDiffFreshnessSnapshot = null;
-            }
-            if (cleared)
-            {
-                BMSLibrary.LogInstallPerformance("lr2_song_db_sync_file_diff_freshness cleared reason=" + (reason ?? "unknown"));
-            }
-        }
-
         internal void CaptureLr2SongDbSyncScanSurface(
             BmsLibraryOptionsSnapshot options,
             IEnumerable<string> rootDirectories,
@@ -1339,12 +1203,83 @@ public partial class BMSLibrary
             DateTime nowUtc) =>
             data.EvaluateLr2SongDbSyncStatus(enabled, signature, nowUtc);
 
-        internal Lr2StartupScanBlockerCleanupReceipt ApplyLr2StartupScanBlockerCleanup(
-            Lr2StartupScanBlockerCleanupRequest request) =>
-            data.ApplyLr2StartupScanBlockerCleanup(request);
-
         internal Lr2SongDbSyncResult ApplyLr2SongDbSync(Lr2SongDbSyncRequest request) =>
             data.ApplyLr2SongDbSync(request);
+
+        internal void PublishLr2SongDbSyncCommittedPathReceipt(
+            SongTableFileCheckResult fileCheckResult,
+            string reason)
+        {
+            if (CurrentOptionsSnapshot?.OperationModeLR2DB != true
+                || fileCheckResult == null
+                || fileCheckResult.CommittedLr2SongDbSyncBmsPaths.Count == 0)
+            {
+                DiscardLr2SongDbSyncCommittedPathReceipt("file_diff_not_eligible_" + (reason ?? "unknown"));
+                return;
+            }
+
+            StorageRowsVersionSnapshot storageRowsVersion = data.CaptureStorageRowsVersionSnapshot();
+            var receipt = new Lr2SongDbSyncCommittedPathReceipt(
+                data.OwnedChartCollectionVersion,
+                storageRowsVersion.BmsRowsVersion,
+                fileCheckResult.CommittedLr2SongDbSyncBmsPaths);
+            lock (CommittedPathReceiptGate)
+            {
+                CommittedPathReceipt = receipt;
+            }
+            LogInstallPerformance("lr2_song_db_sync committed_path_receipt published"
+                + " reason=" + (reason ?? "unknown")
+                + " paths=" + receipt.CommittedBmsPaths.Count
+                + " ownedChartCollectionVersion=" + receipt.OwnedChartCollectionVersion
+                + " bmsRowsVersion=" + receipt.BmsRowsVersion);
+        }
+
+        internal Lr2SongDbSyncCommittedPathReceipt TakeLr2SongDbSyncCommittedPathReceipt(
+            Lr2SongDbSyncInput input,
+            string reason)
+        {
+            Lr2SongDbSyncCommittedPathReceipt receipt;
+            lock (CommittedPathReceiptGate)
+            {
+                receipt = CommittedPathReceipt;
+                CommittedPathReceipt = null;
+            }
+            if (receipt == null)
+            {
+                return null;
+            }
+            if (!receipt.Matches(input))
+            {
+                LogInstallPerformance("lr2_song_db_sync committed_path_receipt discarded"
+                    + " reason=version_mismatch_" + (reason ?? "unknown")
+                    + " receiptOwnedChartCollectionVersion=" + receipt.OwnedChartCollectionVersion
+                    + " inputOwnedChartCollectionVersion=" + (input?.OwnedChartCollectionVersion ?? 0)
+                    + " receiptBmsRowsVersion=" + receipt.BmsRowsVersion
+                    + " inputBmsRowsVersion=" + (input?.BmsRowsVersion ?? 0));
+                return null;
+            }
+            LogInstallPerformance("lr2_song_db_sync committed_path_receipt taken"
+                + " reason=" + (reason ?? "unknown")
+                + " paths=" + receipt.CommittedBmsPaths.Count
+                + " ownedChartCollectionVersion=" + receipt.OwnedChartCollectionVersion
+                + " bmsRowsVersion=" + receipt.BmsRowsVersion);
+            return receipt;
+        }
+
+        internal void DiscardLr2SongDbSyncCommittedPathReceipt(string reason)
+        {
+            bool discarded;
+            lock (CommittedPathReceiptGate)
+            {
+                discarded = CommittedPathReceipt != null;
+                CommittedPathReceipt = null;
+            }
+            if (discarded)
+            {
+                LogInstallPerformance("lr2_song_db_sync committed_path_receipt discarded"
+                    + " reason=" + (reason ?? "unknown"));
+            }
+        }
 
         internal void PublishLr2SongDbSyncStatus(Lr2SongDbSyncStatusSnapshot status)
         {
@@ -1397,8 +1332,17 @@ public partial class BMSLibrary
             FailRequest(requestVersion, status, stage, message);
         }
 
-        internal void RunLr2SongDbSync(string reason, string signature, int requestVersion) =>
-            Lr2SongDbSyncRequestCoordinator.Run(this, reason, signature, requestVersion);
+        internal void RunLr2SongDbSync(
+            string reason,
+            string signature,
+            int requestVersion,
+            bool allowCommittedPathReceipt) =>
+            Lr2SongDbSyncRequestCoordinator.Run(
+                this,
+                reason,
+                signature,
+                requestVersion,
+                allowCommittedPathReceipt);
 
         internal CancellationToken GetLr2SongDbSyncCancellationToken()
         {
@@ -1604,27 +1548,30 @@ public partial class BMSLibrary
         internal void LogInstallPerformance(string message) =>
             BMSLibrary.LogInstallPerformance(message);
 
-        internal void MarkLr2SongDbSyncPreflightCancelled(
+        internal void MarkLr2SongDbSyncInterruptedStatus(
             string signature,
             string runId,
+            int processedCursor,
+            int totalCount,
             string stage)
         {
             try
             {
                 data.ApplyLr2SongDbSyncStatusMutation(
                     new Lr2SongDbSyncStatusMutationRequest(
-                        Lr2SongDbSyncStatusMutationKind.MarkCancelled,
+                        Lr2SongDbSyncStatusMutationKind.MarkIncomplete,
                         signature,
                         runId,
-                        processedCursor: 0,
-                        totalCount: 0,
+                        processedCursor: Math.Max(0, processedCursor),
+                        totalCount: Math.Max(0, totalCount),
                         stage,
-                        detail: null,
+                        detail: "shutdown_interrupted",
                         DateTime.UtcNow));
             }
             catch
             {
-                // Runtime cancellation state is still reported by the caller's catch block.
+                // A remaining Running row is acceptable when status persistence
+                // cannot safely complete during shutdown.
             }
         }
 
@@ -2052,8 +1999,7 @@ public partial class BMSLibrary
                 return false;
             }
             Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
-            if (!appManagedOutputScope.IsComplete
-                || !BMSLibrary.ArePathSetsEqual(input.Lr2FolderPruneExcludedDirectories, appManagedOutputScope.Directories))
+            if (!appManagedOutputScope.IsComplete)
             {
                 return false;
             }
@@ -2075,153 +2021,6 @@ public partial class BMSLibrary
             }
 
             return true;
-        }
-
-        internal ISet<string> GetLr2SongDbSyncTransientSongRowsSkipPaths(
-            Lr2SongDbSyncInput input,
-            string reason)
-        {
-            if (!IsAutomaticLr2SongDbSyncFileDiffFollowupReason(reason)
-                || !IsLr2SongDbSyncInputCurrent(input))
-            {
-                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            }
-
-            Lr2SongDbSyncFileDiffFreshnessSnapshot snapshot;
-            lock (FileDiffFreshnessGate)
-            {
-                snapshot = FileDiffFreshnessSnapshot;
-            }
-            if (snapshot == null
-                || input == null
-                || snapshot.ScanSurfaceGeneration != input.ScanSurfaceGeneration
-                || snapshot.OwnedCollectionVersion != input.OwnedChartCollectionVersion
-                || snapshot.BmsRowsVersion != input.BmsRowsVersion
-                || snapshot.BmsonRowsVersion != input.BmsonRowsVersion
-                || snapshot.InlineMaintenanceFailedCount > 0)
-            {
-                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            }
-
-            return new HashSet<string>(snapshot.TransientSongRowSkipPaths, StringComparer.OrdinalIgnoreCase);
-        }
-
-        internal Lr2SongDbSyncSongRowsSkipVerificationResult VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(
-            IReadOnlyList<BMSFile> songRows,
-            Lr2SongDbSyncInput input,
-            string reason)
-        {
-            int targetRows = songRows?.Count ?? 0;
-            if (!IsAutomaticLr2SongDbSyncFileDiffFollowupReason(reason))
-            {
-                return CreateLr2SongDbSyncSongRowsSkipResult(false, "not_automatic_file_diff_followup", targetRows);
-            }
-            if (!IsLr2SongDbSyncInputCurrent(input))
-            {
-                return CreateLr2SongDbSyncSongRowsSkipResult(false, "input_not_current", targetRows);
-            }
-
-            Lr2SongDbSyncFileDiffFreshnessSnapshot snapshot;
-            lock (FileDiffFreshnessGate)
-            {
-                snapshot = FileDiffFreshnessSnapshot;
-            }
-            if (snapshot == null)
-            {
-                return CreateLr2SongDbSyncSongRowsSkipResult(false, "missing_file_diff_freshness_snapshot", targetRows);
-            }
-            if (input == null
-                || snapshot.ScanSurfaceGeneration != input.ScanSurfaceGeneration
-                || snapshot.OwnedCollectionVersion != input.OwnedChartCollectionVersion
-                || snapshot.BmsRowsVersion != input.BmsRowsVersion
-                || snapshot.BmsonRowsVersion != input.BmsonRowsVersion)
-            {
-                return CreateLr2SongDbSyncSongRowsSkipResult(false, "file_diff_freshness_not_current", targetRows);
-            }
-            if (snapshot.BmsOwnerCount != targetRows)
-            {
-                return CreateLr2SongDbSyncSongRowsSkipResult(false, "song_row_count_mismatch", targetRows);
-            }
-            if (snapshot.BmsTargetCount < snapshot.BmsOwnerCount)
-            {
-                return CreateLr2SongDbSyncSongRowsSkipResult(false, "insufficient_bms_target_coverage", targetRows);
-            }
-            if (snapshot.InlineMaintenanceBmsCount < snapshot.BmsOwnerCount || snapshot.InlineMaintenanceFailedCount > 0)
-            {
-                return CreateLr2SongDbSyncSongRowsSkipResult(false, "insufficient_maintenance_coverage", targetRows);
-            }
-            if (snapshot.BmsMovedHashRelinkAmbiguousCount > 0)
-            {
-                return CreateLr2SongDbSyncSongRowsSkipResult(false, "ambiguous_hash_relink", targetRows);
-            }
-            if (AreAllLr2SongDbSyncSongRowsFreshNewInserts(snapshot, songRows))
-            {
-                return new Lr2SongDbSyncSongRowsSkipVerificationResult
-                {
-                    CanSkip = true,
-                    Reason = "file_diff_new_insert_projection_current",
-                    TargetRows = targetRows,
-                    VerifiedRows = targetRows,
-                    MissingRows = 0,
-                    MismatchedRows = 0,
-                    DuplicatePathRows = 0,
-                    DigestCheckedRows = 0,
-                    DigestMissingRows = 0,
-                    DigestMismatchedRows = 0,
-                    ProjectionMs = 0,
-                    ExistingReadMs = 0,
-                    DigestReadMs = 0,
-                    ElapsedMs = 0,
-                    DiagnosticSamples = []
-                };
-            }
-
-            return CreateLr2SongDbSyncSongRowsSkipResult(false, "file_diff_transient_coverage_incomplete", targetRows);
-        }
-
-        private static bool AreAllLr2SongDbSyncSongRowsFreshNewInserts(
-            Lr2SongDbSyncFileDiffFreshnessSnapshot snapshot,
-            IReadOnlyList<BMSFile> songRows)
-        {
-            int targetRows = songRows?.Count ?? 0;
-            if (targetRows <= 0
-                || snapshot?.TransientSongRowSkipPaths == null
-                || snapshot.TransientSongRowSkipPaths.Count < targetRows)
-            {
-                return false;
-            }
-
-            var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (BMSFile row in songRows)
-            {
-                if (row == null
-                    || string.IsNullOrWhiteSpace(row.path)
-                    || !snapshot.TransientSongRowSkipPaths.Contains(row.path)
-                    || !seenPaths.Add(row.path))
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        private static bool IsAutomaticLr2SongDbSyncFileDiffFollowupReason(string reason)
-        {
-            return !string.IsNullOrWhiteSpace(reason)
-                && reason.StartsWith("post_startup_", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static Lr2SongDbSyncSongRowsSkipVerificationResult CreateLr2SongDbSyncSongRowsSkipResult(
-            bool canSkip,
-            string reason,
-            int targetRows)
-        {
-            return new Lr2SongDbSyncSongRowsSkipVerificationResult
-            {
-                CanSkip = canSkip,
-                Reason = reason ?? "unknown",
-                TargetRows = Math.Max(0, targetRows)
-            };
         }
 
         internal bool TryBeginRequest(out int requestVersion) =>
@@ -2340,9 +2139,10 @@ public partial class BMSLibrary
         {
             Cancellation?.Dispose();
             Cancellation = null;
+            DiscardLr2SongDbSyncCommittedPathReceipt("request_disposed");
         }
 
-        internal bool Cancel(string reason)
+        internal bool RequestShutdownCancellation(string reason)
         {
             lock (RequestGate)
             {
@@ -2350,7 +2150,7 @@ public partial class BMSLibrary
                 {
                     return false;
                 }
-                LogInstallPerformance("lr2_song_db_sync cancel_requested"
+                LogInstallPerformance("lr2_song_db_sync shutdown_cancellation_requested"
                     + " reason=" + (reason ?? "unknown")
                     + " stage=" + (ObservableStage ?? string.Empty)
                     + " processed=" + ObservableProcessedCount

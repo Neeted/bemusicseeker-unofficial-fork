@@ -7,13 +7,6 @@ using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal readonly struct Lr2SongPruneResult(int deletedCount, int currentPathCount)
-{
-    public int DeletedCount { get; } = deletedCount;
-
-    public int CurrentPathCount { get; } = currentPathCount;
-}
-
 internal readonly struct Lr2GeneratedSongWriteResult(
     int changedCount,
     int updatedCount,
@@ -50,59 +43,8 @@ internal readonly struct Lr2GeneratedSongWriteResult(
     public long TempCleanupStageMs { get; } = tempCleanupStageMs;
 }
 
-internal readonly struct Lr2GeneratedSongCurrentnessResult(
-    int targetCount,
-    int verifiedCount,
-    int missingCount,
-    int mismatchedCount,
-    int duplicatePathCount,
-    int digestCheckedCount,
-    int digestMissingCount,
-    int digestMismatchedCount,
-    long projectionMs,
-    long existingReadMs,
-    long digestReadMs,
-    long elapsedMs,
-    IReadOnlyList<string> diagnosticSamples)
-{
-    public int TargetCount { get; } = targetCount;
-
-    public int VerifiedCount { get; } = verifiedCount;
-
-    public int MissingCount { get; } = missingCount;
-
-    public int MismatchedCount { get; } = mismatchedCount;
-
-    public int DuplicatePathCount { get; } = duplicatePathCount;
-
-    public int DigestCheckedCount { get; } = digestCheckedCount;
-
-    public int DigestMissingCount { get; } = digestMissingCount;
-
-    public int DigestMismatchedCount { get; } = digestMismatchedCount;
-
-    public long ProjectionMs { get; } = projectionMs;
-
-    public long ExistingReadMs { get; } = existingReadMs;
-
-    public long DigestReadMs { get; } = digestReadMs;
-
-    public long ElapsedMs { get; } = elapsedMs;
-
-    public IReadOnlyList<string> DiagnosticSamples { get; } = diagnosticSamples ?? [];
-
-    public bool IsCurrent => TargetCount == VerifiedCount
-        && MissingCount == 0
-        && MismatchedCount == 0
-        && DuplicatePathCount == 0
-        && DigestMissingCount == 0
-        && DigestMismatchedCount == 0;
-}
-
 internal static class Lr2SongDbWriter
 {
-    private const string TempCurrentSongPathTable = "lr2_song_db_sync_current_song_path";
-
     private const string TempDeletedSongHashTable = "lr2_song_db_sync_deleted_song_hash";
 
     private const string TempChartDigestUpsertTable = "lr2_song_db_sync_chart_digest_upsert";
@@ -246,136 +188,29 @@ internal static class Lr2SongDbWriter
         return UpsertGeneratedSongsForLr2SongDbSyncWithResult(songDb, songs).ChangedCount;
     }
 
-    internal static Lr2GeneratedSongCurrentnessResult VerifyGeneratedSongsCurrent(
+    /// <summary>
+    /// Updates generated columns on existing song rows only.  Missing paths
+    /// are intentionally ignored because full LR2 reconciliation does not own
+    /// song membership; file-diff commits own insertion and deletion.
+    /// </summary>
+    internal static Lr2GeneratedSongWriteResult UpdateGeneratedSongsForLr2SongDbSyncWithResult(
         LR2SongDBExtended songDb,
         IReadOnlyList<BMSFile> songs)
     {
-        if (songDb == null)
-        {
-            throw new ArgumentNullException(nameof(songDb));
-        }
-
-        var stopwatch = Stopwatch.StartNew();
-        List<BMSFile> sourceRows = [.. (songs ?? [])
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
-        if (sourceRows.Count == 0)
-        {
-            stopwatch.Stop();
-            return new Lr2GeneratedSongCurrentnessResult(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, stopwatch.ElapsedMilliseconds, []);
-        }
-
-        int duplicatePathCount = sourceRows.Count
-            - sourceRows.Select(song => song.path).Distinct(StringComparer.Ordinal).Count();
-        if (duplicatePathCount > 0)
-        {
-            IReadOnlyList<string> duplicateSamples = [.. sourceRows
-                .GroupBy(song => song.path, StringComparer.Ordinal)
-                .Where(group => group.Count() > 1)
-                .Take(10)
-                .Select(group => "duplicate_path path=" + group.Key + " count=" + group.Count())];
-            stopwatch.Stop();
-            return new Lr2GeneratedSongCurrentnessResult(
-                sourceRows.Count,
-                0,
-                0,
-                0,
-                duplicatePathCount,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                stopwatch.ElapsedMilliseconds,
-                duplicateSamples);
-        }
-
-        var projectionStopwatch = Stopwatch.StartNew();
-        List<BMSFile> expectedRows = new(sourceRows.Count);
-        foreach (BMSFile source in sourceRows)
-        {
-            BMSFile copy = source.CreateSongRowPersistenceCopy();
-            Lr2SongRowEnricher.EnrichGeneratedSong(copy);
-            ApplyGeneratedPersistenceDefaults(copy, isNewRow: false);
-            expectedRows.Add(copy);
-        }
-        projectionStopwatch.Stop();
-
-        var existingReadStopwatch = Stopwatch.StartNew();
-        Dictionary<string, GeneratedSongRow> existingByPath = FindSongsByPaths(songDb, expectedRows.Select(song => song.path));
-        existingReadStopwatch.Stop();
-
-        int verifiedCount = 0;
-        int missingCount = 0;
-        int mismatchedCount = 0;
-        var diagnosticSamples = new List<string>(10);
-        foreach (BMSFile expected in expectedRows)
-        {
-            if (!existingByPath.TryGetValue(expected.path, out GeneratedSongRow existing))
-            {
-                missingCount++;
-                AddDiagnosticSample(diagnosticSamples, "missing_song path=" + expected.path);
-                continue;
-            }
-            if (!HasSameGeneratedColumns(expected, existing))
-            {
-                mismatchedCount++;
-                AddDiagnosticSample(
-                    diagnosticSamples,
-                    "mismatched_song path=" + expected.path + " columns=" + DescribeGeneratedColumnMismatch(expected, existing));
-                continue;
-            }
-            verifiedCount++;
-        }
-
-        var digestReadStopwatch = Stopwatch.StartNew();
-        Dictionary<string, string> digestByMd5 = FindChartDigestSha256ByMd5(songDb, expectedRows.Select(song => song.hash));
-        digestReadStopwatch.Stop();
-
-        int digestCheckedCount = 0;
-        int digestMissingCount = 0;
-        int digestMismatchedCount = 0;
-        foreach (BMSFile expected in expectedRows)
-        {
-            if (string.IsNullOrWhiteSpace(expected.hash) || string.IsNullOrWhiteSpace(expected.sha256))
-            {
-                continue;
-            }
-            digestCheckedCount++;
-            string md5 = expected.hash.Trim().ToLowerInvariant();
-            if (!digestByMd5.TryGetValue(md5, out string sha256))
-            {
-                digestMissingCount++;
-                AddDiagnosticSample(diagnosticSamples, "missing_digest md5=" + md5 + " path=" + expected.path);
-                continue;
-            }
-            if (!string.Equals(expected.sha256, sha256, StringComparison.OrdinalIgnoreCase))
-            {
-                digestMismatchedCount++;
-                AddDiagnosticSample(diagnosticSamples, "mismatched_digest md5=" + md5 + " path=" + expected.path);
-            }
-        }
-
-        stopwatch.Stop();
-        return new Lr2GeneratedSongCurrentnessResult(
-            sourceRows.Count,
-            verifiedCount,
-            missingCount,
-            mismatchedCount,
-            duplicatePathCount,
-            digestCheckedCount,
-            digestMissingCount,
-            digestMismatchedCount,
-            projectionStopwatch.ElapsedMilliseconds,
-            existingReadStopwatch.ElapsedMilliseconds,
-            digestReadStopwatch.ElapsedMilliseconds,
-            stopwatch.ElapsedMilliseconds,
-            diagnosticSamples);
+        return WriteGeneratedSongsForLr2SongDbSyncWithResult(songDb, songs, allowMembershipMutation: false);
     }
 
     internal static Lr2GeneratedSongWriteResult UpsertGeneratedSongsForLr2SongDbSyncWithResult(
         LR2SongDBExtended songDb,
         IReadOnlyList<BMSFile> songs)
+    {
+        return WriteGeneratedSongsForLr2SongDbSyncWithResult(songDb, songs, allowMembershipMutation: true);
+    }
+
+    private static Lr2GeneratedSongWriteResult WriteGeneratedSongsForLr2SongDbSyncWithResult(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<BMSFile> songs,
+        bool allowMembershipMutation)
     {
         if (songDb == null)
         {
@@ -393,7 +228,7 @@ internal static class Lr2SongDbWriter
         foreach (BMSFile song in rows)
         {
             Lr2SongRowEnricher.EnrichGeneratedSong(song);
-            ApplyGeneratedPersistenceDefaults(song, isNewRow: true);
+            ApplyGeneratedPersistenceDefaults(song, isNewRow: allowMembershipMutation);
         }
         stageStopwatch.Stop();
         long enrichmentMs = stageStopwatch.ElapsedMilliseconds;
@@ -452,7 +287,9 @@ internal static class Lr2SongDbWriter
         long updateStageMs = stageStopwatch.ElapsedMilliseconds;
 
         stageStopwatch.Restart();
-        int inserted = InsertMissingGeneratedSongsFromTemp(songDb, TempGeneratedSongUpsertTable);
+        int inserted = allowMembershipMutation
+            ? InsertMissingGeneratedSongsFromTemp(songDb, TempGeneratedSongUpsertTable)
+            : 0;
         stageStopwatch.Stop();
         long insertStageMs = stageStopwatch.ElapsedMilliseconds;
 
@@ -485,72 +322,6 @@ internal static class Lr2SongDbWriter
             tempCleanupStageMs);
     }
 
-    internal static Lr2SongPruneResult DeleteSongsExceptCurrentPaths(
-        LR2SongDBExtended songDb,
-        IEnumerable<string> currentPaths)
-    {
-        if (songDb == null)
-        {
-            throw new ArgumentNullException(nameof(songDb));
-        }
-
-        string[] sourcePaths = [.. (currentPaths ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.Ordinal)];
-        songDb.CreateTable<LR2SongDB.song>();
-        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
-        BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-
-        string savepoint = songDb.SaveTransactionPoint();
-        try
-        {
-            PrepareTempPathTable(songDb, TempCurrentSongPathTable);
-            BulkInsertTempPaths(songDb, TempCurrentSongPathTable, sourcePaths);
-
-            PrepareTempHashTable(songDb, TempDeletedSongHashTable);
-            string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
-            string songPathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
-            string songHashColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash);
-            string maintenanceTable = SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName();
-            string maintenancePathColumn = SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path);
-
-            songDb.Execute(
-                "INSERT OR IGNORE INTO temp." + TempDeletedSongHashTable + " (md5) "
-                + "SELECT DISTINCT lower(trim(s." + songHashColumn + ")) "
-                + "FROM " + songTable + " s "
-                + "WHERE s." + songHashColumn + " IS NOT NULL "
-                + "AND trim(s." + songHashColumn + ") <> '' "
-                + "AND NOT EXISTS (SELECT 1 FROM temp." + TempCurrentSongPathTable + " c "
-                + "WHERE c.path = s." + songPathColumn + ");");
-
-            songDb.Execute(
-                "DELETE FROM " + maintenanceTable
-                + " WHERE " + maintenancePathColumn + " IN ("
-                + "SELECT s." + songPathColumn + " FROM " + songTable + " s "
-                + "WHERE NOT EXISTS (SELECT 1 FROM temp." + TempCurrentSongPathTable + " c "
-                + "WHERE c.path = s." + songPathColumn + "));");
-
-            int deleted = songDb.Execute(
-                "DELETE FROM " + songTable
-                + " WHERE rowid IN ("
-                + "SELECT s.rowid FROM " + songTable + " s "
-                + "WHERE NOT EXISTS (SELECT 1 FROM temp." + TempCurrentSongPathTable + " c "
-                + "WHERE c.path = s." + songPathColumn + "));");
-
-            DeleteOrphanedChartDigestsFromTemp(songDb, TempDeletedSongHashTable);
-            ClearTempTable(songDb, TempDeletedSongHashTable);
-            ClearTempTable(songDb, TempCurrentSongPathTable);
-            songDb.Commit();
-            return new Lr2SongPruneResult(deleted, sourcePaths.Length);
-        }
-        catch
-        {
-            songDb.RollbackTo(savepoint);
-            throw;
-        }
-    }
-
     private static void ApplyGeneratedPersistenceDefaults(BMSFile song, bool isNewRow)
     {
         if (song == null)
@@ -563,11 +334,6 @@ internal static class Lr2SongDbWriter
         }
     }
 
-    private static void PrepareTempPathTable(LR2SongDBExtended songDb, string tableName)
-    {
-        songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS temp." + tableName + " (path TEXT PRIMARY KEY);");
-        ClearTempTable(songDb, tableName);
-    }
 
     private static void PrepareTempHashTable(LR2SongDBExtended songDb, string tableName)
     {
@@ -694,27 +460,6 @@ internal static class Lr2SongDbWriter
         songDb.Execute("DELETE FROM temp." + tableName + ";");
     }
 
-    private static void BulkInsertTempPaths(
-        LR2SongDBExtended songDb,
-        string tableName,
-        IReadOnlyList<string> paths)
-    {
-        if (paths == null || paths.Count == 0)
-        {
-            return;
-        }
-
-        const int chunkSize = 200;
-        for (int offset = 0; offset < paths.Count; offset += chunkSize)
-        {
-            string[] chunk = [.. paths.Skip(offset).Take(chunkSize)];
-            string placeholders = string.Join(",", chunk.Select(_ => "(?)"));
-            object[] args = [.. chunk.Cast<object>()];
-            songDb.Execute(
-                "INSERT OR IGNORE INTO temp." + tableName + " (path) VALUES " + placeholders + ";",
-                args);
-        }
-    }
 
     private static void BulkInsertGeneratedSongs(LR2SongDBExtended songDb, IReadOnlyList<BMSFile> songs)
     {
@@ -1389,37 +1134,6 @@ internal static class Lr2SongDbWriter
         return result;
     }
 
-    private static Dictionary<string, string> FindChartDigestSha256ByMd5(LR2SongDBExtended songDb, IEnumerable<string> md5s)
-    {
-        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        List<string> normalizedMd5s = [.. (md5s ?? [])
-            .Where(md5 => !string.IsNullOrWhiteSpace(md5))
-            .Select(md5 => md5.Trim().ToLowerInvariant())
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (normalizedMd5s.Count == 0)
-        {
-            return result;
-        }
-
-        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-        const int chunkSize = 500;
-        for (int offset = 0; offset < normalizedMd5s.Count; offset += chunkSize)
-        {
-            List<string> chunk = normalizedMd5s.Skip(offset).Take(chunkSize).ToList();
-            string placeholders = string.Join(",", chunk.Select(_ => "?"));
-            string sql = "SELECT md5, sha256 FROM "
-                + SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName()
-                + " WHERE md5 IN (" + placeholders + ");";
-            foreach (LR2SongDBExtended.chart_digest_map row in songDb.Query<LR2SongDBExtended.chart_digest_map>(sql, [.. chunk.Cast<object>()]))
-            {
-                if (!string.IsNullOrWhiteSpace(row?.md5) && !result.ContainsKey(row.md5))
-                {
-                    result[row.md5] = row.sha256;
-                }
-            }
-        }
-        return result;
-    }
 
     private static bool HasSameGeneratedColumns(BMSFile expected, GeneratedSongRow existing)
     {
@@ -1458,13 +1172,6 @@ internal static class Lr2SongDbWriter
         return string.Equals(expected ?? string.Empty, existing ?? string.Empty, StringComparison.Ordinal);
     }
 
-    private static void AddDiagnosticSample(List<string> samples, string value)
-    {
-        if (samples != null && samples.Count < 10 && !string.IsNullOrWhiteSpace(value))
-        {
-            samples.Add(value);
-        }
-    }
 
     private static string DescribeGeneratedColumnMismatch(BMSFile expected, GeneratedSongRow existing)
     {

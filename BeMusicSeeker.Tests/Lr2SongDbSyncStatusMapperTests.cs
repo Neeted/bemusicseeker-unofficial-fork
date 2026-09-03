@@ -26,7 +26,6 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual(Resources.Lr2_song_db_sync_status_needed, status.StatusText);
         Assert.IsTrue(status.HasWarningStatus);
         Assert.IsTrue(status.CanRetry);
-        Assert.IsFalse(status.CanCleanupStartupScanBlockers);
         StringAssert.Contains(status.Detail, "[12/100]");
         StringAssert.Contains(status.Detail, "song rows");
         StringAssert.Contains(status.Detail, "failed before");
@@ -45,7 +44,6 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual(Resources.Lr2_song_db_sync_status_completed, status.StatusText);
         Assert.IsFalse(status.HasWarningStatus);
         Assert.IsFalse(status.CanRetry);
-        Assert.IsFalse(status.CanCleanupStartupScanBlockers);
     }
 
     [TestMethod]
@@ -64,7 +62,6 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual(Resources.Lr2_song_db_sync_status_running, status.StatusText);
         Assert.IsTrue(status.HasWarningStatus);
         Assert.IsFalse(status.CanRetry);
-        Assert.IsFalse(status.CanCleanupStartupScanBlockers);
         StringAssert.Contains(status.Detail, "[12/100]");
         StringAssert.Contains(status.Detail, "song rows");
         Assert.AreEqual("song rows [4/50]", status.ProgressText);
@@ -96,21 +93,7 @@ public sealed class Lr2SongDbSyncStatusMapperTests
     }
 
     [TestMethod]
-    public void Create_StartupScanBlockersIncompleteEnablesCleanup()
-    {
-        Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
-        {
-            Status = Lr2SongDbSyncStatusKind.Incomplete,
-            Stage = Lr2SongDbSyncService.StartupScanBlockersStage,
-            LastError = "startup scan blockers"
-        }, DateTime.MinValue);
-
-        Assert.IsFalse(status.CanRetry);
-        Assert.IsTrue(status.CanCleanupStartupScanBlockers);
-    }
-
-    [TestMethod]
-    public void Create_IncompleteNonStartupScanBlockerDoesNotEnableCleanup()
+    public void Create_IncompleteRemainsRetryableWithoutCleanupRoute()
     {
         Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
         {
@@ -120,6 +103,20 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         }, DateTime.MinValue);
 
         Assert.IsTrue(status.CanRetry);
-        Assert.IsFalse(status.CanCleanupStartupScanBlockers);
+    }
+
+    [TestMethod]
+    public void Create_LegacyCancelledRemainsIncompleteAndRetryable()
+    {
+        Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
+        {
+            Status = Lr2SongDbSyncStatusKind.Cancelled,
+            Stage = "cancelled",
+            LastError = "legacy status"
+        }, DateTime.MinValue);
+
+        Assert.AreEqual(Resources.Lr2_song_db_sync_status_incomplete, status.StatusText);
+        Assert.IsTrue(status.HasWarningStatus);
+        Assert.IsTrue(status.CanRetry);
     }
 }

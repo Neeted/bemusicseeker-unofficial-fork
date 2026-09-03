@@ -270,6 +270,7 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             throw new ArgumentNullException(nameof(installDestinationCleanupSnapshot));
         }
+        lr2Synchronization.DiscardLr2SongDbSyncCommittedPathReceipt("file_diff_started");
         ActiveFileScan scan = GetActiveFileScan(generation);
         lock (fileScanGate)
         {
@@ -819,8 +820,12 @@ internal sealed class LibraryFileScanPipelineOwner
             publishCatalogResidual(FileScanCatalogResidualEvent.Create(fileCheckResult.MutationDelta, reason)),
             "catalog_residual");
         lr2Synchronization.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
-        lr2Synchronization.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
         lr2Synchronization.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
+        // Publish only after the file-diff commit, catalog projection, and
+        // folder preparation have all completed.  The result is copied before
+        // its post-apply buffers are released and is then consumed by the
+        // immediate follow-up queue at most once.
+        lr2Synchronization.PublishLr2SongDbSyncCommittedPathReceipt(fileCheckResult, reason);
         if (trackLibraryFileCheckProgress)
         {
             completeLibraryFileDiffProgress();
@@ -828,7 +833,18 @@ internal sealed class LibraryFileScanPipelineOwner
         fileCheckResult.ReleasePostApplyTransientBuffers();
         logStartupMemoryCheckpoint("file_diff", "after_release");
         logInstallPerformance("library_file_scan_pipeline completed operation=" + (reason ?? string.Empty));
-        PublishPostLeaseEffects();
+        try
+        {
+            PublishPostLeaseEffects();
+        }
+        catch
+        {
+            // A receipt is useful only if the entire caller-visible file-diff
+            // pipeline completed.  The observer owns the deferred publication
+            // boundary and may reject it after the DB commit has succeeded.
+            lr2Synchronization.DiscardLr2SongDbSyncCommittedPathReceipt("post_lease_effect_publication_failed");
+            throw;
+        }
         return (lr2FolderFileDiffPreparation ?? Lr2FolderFileDiffPreparationResult.FromFileCheckResult(fileCheckResult))
             .WithFileCheckResult(fileCheckResult);
     }

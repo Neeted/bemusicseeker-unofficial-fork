@@ -18,6 +18,134 @@ public sealed class Lr2SongDbSyncServiceTests
 {
 
     [TestMethod]
+    public void SyncService_FullStageDoesNotDeleteExistingSongMembership()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string stalePath = Path.Combine(scope.DirectoryPath, "stale.bms");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        var existing = new TestableBmsFile
+        {
+            path = stalePath,
+            tag = "user-owned"
+        }.WithHashAndFavorite("11111111111111111111111111111111", 7);
+        songDb.InsertOrReplace(existing, typeof(LR2SongDB.song));
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "full-membership-delete",
+            RunId = "full-membership-delete",
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
+        Assert.IsNotNull(songDb.Find<LR2SongDB.song>(stalePath));
+    }
+
+    [TestMethod]
+    public void SyncService_FullStageDoesNotInsertSongMembership()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string chartPath = Path.Combine(scope.DirectoryPath, "new.bms");
+        var file = new TestableBmsFile
+        {
+            path = chartPath
+        };
+        file.SetTitleForTest("New chart");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "full-membership-insert",
+            RunId = "full-membership-insert",
+            SongRows = [file],
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
+        Assert.IsNull(songDb.Find<LR2SongDB.song>(chartPath));
+    }
+
+    [TestMethod]
+    public void SyncService_FullStageReparsesSameMtimeLr2FolderContent()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        Directory.CreateDirectory(rootDirectory);
+        string lr2FolderPath = Path.Combine(rootDirectory, "same-mtime.lr2folder");
+        File.WriteAllText(lr2FolderPath, "#TITLE Current title\r\n", Encoding.ASCII);
+        DateTime mtime = new(2026, 6, 5, 2, 0, 0, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(lr2FolderPath, mtime);
+        Directory.SetLastWriteTimeUtc(rootDirectory, mtime);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = lr2FolderPath,
+            type = 2,
+            title = "Stale title",
+            date = Lr2SongRowEnricher.ToLr2UnixSeconds(mtime),
+            parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory)
+        }, typeof(LR2SongDB.folder));
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "full-lr2folder-reparse",
+            RunId = "full-lr2folder-reparse",
+            RootDirectories = [rootDirectory],
+            Lr2FolderDiscoveryDirectories = [rootDirectory],
+            Lr2FolderFilePaths = [lr2FolderPath],
+            Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, mtime)
+            },
+            DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [rootDirectory] = new RootFileEnumerationEntry(rootDirectory, mtime)
+            },
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual("Current title", songDb.ExecuteScalar<string>(
+            "SELECT title FROM folder WHERE path = ?;",
+            lr2FolderPath));
+    }
+
+    [TestMethod]
+    public void SyncService_FullStagePreservesEpochFolderDate()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "EpochRoot");
+        Directory.CreateDirectory(rootDirectory);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        DateTime epoch = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "full-epoch-folder-date",
+            RunId = "full-epoch-folder-date",
+            RootDirectories = [rootDirectory],
+            DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [rootDirectory] = new RootFileEnumerationEntry(rootDirectory, epoch)
+            },
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        });
+
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
+        Assert.AreEqual(0, songDb.ExecuteScalar<int>(
+            "SELECT date FROM folder WHERE path = ?;",
+            ToFolderPath(rootDirectory)));
+    }
+
+    [TestMethod]
     public void SyncService_PreservesUserColumnsWhenRunningOnCopiedSongDb()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -88,6 +216,8 @@ public sealed class Lr2SongDbSyncServiceTests
         file.parent = "stale-parent";
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
@@ -109,73 +239,7 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     [TestMethod]
-    public void SyncService_DeletesUnknownRootFolderRowAndCompletes()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
-        string outsideDirectory = Path.Combine(scope.DirectoryPath, "OutsideRoot");
-        Directory.CreateDirectory(rootDirectory);
-        Directory.CreateDirectory(outsideDirectory);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = ToFolderPath(outsideDirectory),
-            type = 1,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "unknown-root-folder",
-            RunId = "unknown-root-folder",
-            RootDirectories = [rootDirectory],
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.UnknownRootFolderRowCount);
-        Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == ToFolderPath(outsideDirectory)));
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-    }
-
-    [TestMethod]
-    public void SyncService_CompletesWhenCurrentSongRowIsOutsideRootAndKeepsDiagnostic()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
-        string outsideDirectory = Path.Combine(scope.DirectoryPath, "OutsideRoot");
-        Directory.CreateDirectory(rootDirectory);
-        Directory.CreateDirectory(outsideDirectory);
-        string chartPath = Path.Combine(outsideDirectory, "outside.bms");
-        File.WriteAllText(chartPath, "#TITLE Outside Root\r\n#00111:01\r\n", Encoding.ASCII);
-        TestableBmsFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "unknown-root-current-song",
-            RunId = "unknown-root-current-song",
-            RootDirectories = [rootDirectory],
-            SongRows = [file],
-            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.IsNull(result.IncompleteReason);
-        Assert.AreEqual(1, result.StartupScanDiagnosticResult.UnknownRootSongRowCount);
-        Assert.IsNotNull(songDb.Find<LR2SongDB.song>(chartPath));
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-    }
-
-    [TestMethod]
-    public void SyncService_DoesNotTreatNegativeSongDateAsMissing()
+    public void SyncService_PreservesNegativeSongDate()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
@@ -183,8 +247,9 @@ public sealed class Lr2SongDbSyncServiceTests
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "negative-date.bms");
         File.WriteAllText(chartPath, "#TITLE Negative Date\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+        DateTime preEpoch = new(1969, 12, 31, 23, 59, 59, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(chartPath, preEpoch);
         TestableBmsFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
-        file.date = -1;
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
@@ -202,13 +267,13 @@ public sealed class Lr2SongDbSyncServiceTests
         });
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateMissingSongRowCount);
+        Assert.AreEqual(-1, songDb.ExecuteScalar<int>("SELECT date FROM song WHERE path = ?;", chartPath));
         LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
     }
 
     [TestMethod]
-    public void SyncService_DoesNotTreatNullSongDateAsMissing()
+    public void SyncService_PreservesNullSongDate()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
@@ -231,106 +296,14 @@ public sealed class Lr2SongDbSyncServiceTests
             ChartPaths = [chartPath],
             SongRows = [file],
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
+            ChartFileBufferReader = _ => null,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateMissingSongRowCount);
+        Assert.IsNull(songDb.ExecuteScalar<int?>("SELECT date FROM song WHERE path = ?;", chartPath));
         LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
-    }
-
-    [TestMethod]
-    public void SyncService_DeletesFolderDateMissingRowAndCompletes()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
-        Directory.CreateDirectory(rootDirectory);
-        string lr2FolderPath = Path.Combine(rootDirectory, "broken.lr2folder");
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = lr2FolderPath,
-            type = 2,
-            date = 0
-        }, typeof(LR2SongDB.folder));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "folder-date-missing",
-            RunId = "folder-date-missing",
-            RootDirectories = [rootDirectory],
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateMissingFolderRowCount);
-        Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(folder => folder.path == lr2FolderPath));
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-    }
-
-    [TestMethod]
-    public void SyncService_RepairsFolderDateWhenStaleAfterResume()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
-        Directory.CreateDirectory(rootDirectory);
-        string lr2FolderPath = Path.Combine(rootDirectory, "table.lr2folder");
-        File.WriteAllText(lr2FolderPath, "#TITLE Table");
-        DateTime rootTime = new(2026, 6, 5, 1, 0, 0, DateTimeKind.Utc);
-        DateTime lr2FolderTime = new(2026, 6, 5, 2, 0, 0, DateTimeKind.Utc);
-        File.SetLastWriteTimeUtc(lr2FolderPath, lr2FolderTime);
-        Directory.SetLastWriteTimeUtc(rootDirectory, rootTime);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = ToFolderPath(rootDirectory),
-            type = 1,
-            date = Lr2SongRowEnricher.ToLr2UnixSeconds(rootTime.AddMinutes(-1))
-        }, typeof(LR2SongDB.folder));
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = lr2FolderPath,
-            type = 2,
-            date = Lr2SongRowEnricher.ToLr2UnixSeconds(lr2FolderTime.AddMinutes(-1))
-        }, typeof(LR2SongDB.folder));
-        const string signature = "folder-date-stale";
-        Lr2SongDbSyncStatusService.MarkIncomplete(
-            songDb,
-            signature,
-            "previous-run",
-            processedCursor: 2,
-            totalCount: 2,
-            stage: "lr2folder_files_completed",
-            detail: "interrupted",
-            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = signature,
-            RunId = "folder-date-stale-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderFilePaths = [lr2FolderPath],
-            Lr2FolderFileEntries = CreateFileEntryMap(lr2FolderPath),
-            DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
-            {
-                [rootDirectory] = new RootFileEnumerationEntry(rootDirectory, rootTime)
-            },
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(rootTime), songDb.ExecuteScalar<int>("SELECT date FROM folder WHERE path = ?;", ToFolderPath(rootDirectory)));
-        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(lr2FolderTime), songDb.ExecuteScalar<int>("SELECT date FROM folder WHERE path = ?;", lr2FolderPath));
     }
 
     [TestMethod]
@@ -361,271 +334,10 @@ public sealed class Lr2SongDbSyncServiceTests
         });
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
         LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", row.status);
         string legacyFolderPath = ToFolderPath(legacyDirectory);
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == legacyFolderPath));
-    }
-
-    [TestMethod]
-    public void SyncService_Lr2FolderPruneExcludedPathsProtectsManagedOutputRows()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string outputDirectory = Path.Combine(rootDirectory, "#BeMusicSeekerOutput", "ManagedTable");
-        Directory.CreateDirectory(outputDirectory);
-        string managedPath = Path.Combine(outputDirectory, "0000.lr2folder");
-        string staleExternalPath = Path.Combine(outputDirectory, "stale.lr2folder");
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = managedPath,
-            type = 1,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = staleExternalPath,
-            type = 2,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "lr2folder-prune-excluded-paths",
-            RunId = "lr2folder-prune-excluded-paths-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderPruneDirectories = [rootDirectory],
-            Lr2FolderPruneExcludedPaths = [managedPath],
-            Lr2FolderFileDiscoveryComplete = true,
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == managedPath));
-        Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == staleExternalPath));
-    }
-
-    [TestMethod]
-    public void SyncService_Lr2FolderPruneExcludedDirectoriesProtectsManagedOutputRows()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string outputDirectory = Path.Combine(rootDirectory, "#BeMusicSeekerOutput", "ManagedTable");
-        Directory.CreateDirectory(outputDirectory);
-        string managedPath = Path.Combine(outputDirectory, "0000.lr2folder");
-        string managedStalePath = Path.Combine(outputDirectory, "stale.lr2folder");
-        string externalPath = Path.Combine(rootDirectory, "external.lr2folder");
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = managedPath,
-            type = 2,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = managedStalePath,
-            type = 2,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = externalPath,
-            type = 2,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "lr2folder-prune-excluded-directories",
-            RunId = "lr2folder-prune-excluded-directories-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderPruneDirectories = [rootDirectory],
-            Lr2FolderPruneExcludedDirectories = [outputDirectory],
-            Lr2FolderFileDiscoveryComplete = true,
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == managedPath));
-        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == managedStalePath));
-        Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == externalPath));
-    }
-
-    [TestMethod]
-    public void SyncService_PruneExcludedLr2FolderDateStaleRemainsDiagnosticOnly()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string outputDirectory = Path.Combine(rootDirectory, "#BeMusicSeekerOutput", "ManagedTable");
-        Directory.CreateDirectory(outputDirectory);
-        string managedPath = Path.Combine(outputDirectory, "0000.lr2folder");
-        DateTime currentTime = new(2026, 6, 5, 2, 0, 0, DateTimeKind.Utc);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = managedPath,
-            type = 2,
-            date = Lr2SongRowEnricher.ToLr2UnixSeconds(currentTime.AddHours(-1))
-        }, typeof(LR2SongDB.folder));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "lr2folder-prune-excluded-date-stale",
-            RunId = "lr2folder-prune-excluded-date-stale-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderPruneDirectories = [rootDirectory],
-            Lr2FolderPruneExcludedPaths = [managedPath],
-            Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
-            {
-                [managedPath] = new RootFileEnumerationEntry(managedPath, currentTime)
-            },
-            Lr2FolderFileDiscoveryComplete = true,
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(1, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.FolderDateUpdateCount);
-        LR2SongDB.folder managedRow = songDb.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == managedPath);
-        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(currentTime.AddHours(-1)), managedRow.date);
-    }
-
-    [TestMethod]
-    public void SyncService_IncompleteLr2FolderDiscoveryDoesNotCleanupExistingLr2FolderRows()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string lr2FolderPath = Path.Combine(rootDirectory, "existing.lr2folder");
-        Directory.CreateDirectory(rootDirectory);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = lr2FolderPath,
-            type = 2,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "lr2folder-discovery-incomplete-preserve",
-            RunId = "lr2folder-discovery-incomplete-preserve-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderPruneDirectories = [rootDirectory],
-            Lr2FolderFileDiscoveryComplete = false,
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == lr2FolderPath));
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.CleanupFolderRowCount);
-    }
-
-    [TestMethod]
-    public void SyncService_IncompleteLr2FolderDiscoveryDoesNotCleanupDirectoryRowsInLr2FolderScope()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
-        string outputDirectory = Path.Combine(outputBase, "ManagedTable");
-        Directory.CreateDirectory(outputDirectory);
-        string outputDirectoryRowPath = ToFolderPath(outputDirectory);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = outputDirectoryRowPath,
-            type = 1,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "lr2folder-directory-discovery-incomplete-preserve",
-            RunId = "lr2folder-directory-discovery-incomplete-preserve-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [outputBase],
-            Lr2FolderPruneDirectories = [outputBase],
-            Lr2FolderFileDiscoveryComplete = false,
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == outputDirectoryRowPath));
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.CleanupFolderRowCount);
-    }
-
-    [TestMethod]
-    public void SyncService_DeletesMissingFolderTargetsAfterResume()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "KnownRoot");
-        string missingDirectory = Path.Combine(rootDirectory, "MissingPack");
-        string missingLr2FolderPath = Path.Combine(rootDirectory, "missing.lr2folder");
-        Directory.CreateDirectory(rootDirectory);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = ToFolderPath(missingDirectory),
-            type = 1,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = missingLr2FolderPath,
-            type = 2,
-            date = 1
-        }, typeof(LR2SongDB.folder));
-        const string signature = "folder-target-missing";
-        Lr2SongDbSyncStatusService.MarkIncomplete(
-            songDb,
-            signature,
-            "previous-run",
-            processedCursor: 2,
-            totalCount: 2,
-            stage: "lr2folder_files_completed",
-            detail: "interrupted",
-            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = signature,
-            RunId = "folder-target-missing-run",
-            RootDirectories = [rootDirectory],
-            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderFilePaths = [missingLr2FolderPath],
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
-        Assert.IsTrue(result.StartupScanDiagnosticResult.IsClean);
-        string missingFolderPath = ToFolderPath(missingDirectory);
-        string rootFolderPath = ToFolderPath(rootDirectory);
-        List<LR2SongDB.folder> folderRows = songDb.Table<LR2SongDB.folder>().ToList();
-        Assert.AreEqual(0, folderRows.Count(folder => folder.path == missingFolderPath));
-        Assert.AreEqual(0, folderRows.Count(folder => folder.path == missingLr2FolderPath));
-        Assert.AreEqual(1, folderRows.Count(folder => folder.path == rootFolderPath));
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
     }
 
     [TestMethod]
@@ -704,487 +416,6 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     [TestMethod]
-    public void SyncService_SkipsSongRowsWhenVerifierConfirmsCurrent()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string chartPath = Path.Combine(scope.DirectoryPath, "Current", "chart.bms");
-        var file = new TestableBmsFile
-        {
-            path = chartPath,
-            date = 123456
-        }.WithHashAndFavorite("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", favoriteValue: null);
-        file.ApplySha256("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        file.SetTitleForTest("already current");
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-        Assert.IsTrue(Lr2SongDbWriter.UpsertGeneratedSong(songDb, file));
-        var logs = new List<string>();
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "skip-song-rows",
-            RunId = "skip-song-rows",
-            SongRows = [file],
-            StartedAtUtc = new DateTime(2026, 6, 9, 0, 0, 0, DateTimeKind.Utc),
-            SongRowsSkipVerifier = rows => new Lr2SongDbSyncSongRowsSkipVerificationResult
-            {
-                CanSkip = true,
-                Reason = "test_current",
-                TargetRows = rows.Count,
-                VerifiedRows = rows.Count
-            },
-            LogInstallPerformance = logs.Add
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.SongRowProcessedCount);
-        Assert.AreEqual(1, result.SongRowSkippedCount);
-        Assert.AreEqual(result.TotalCount, result.ProcessedCount);
-        Assert.IsTrue(logs.Any(log => log.Contains("lr2_song_db_sync song_rows_skip action=skip")));
-        Assert.IsFalse(logs.Any(log => log.Contains("pipeline_start stage=song_rows")));
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-        Assert.AreEqual(row.total_count, row.processed_cursor);
-    }
-
-    [TestMethod]
-    public void SyncService_TransientSongRowSkipPathsSkipOnlyMatchingRows()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string skippedPath = Path.Combine(scope.DirectoryPath, "Skipped", "already-inserted.bms");
-        string processDirectory = Path.Combine(scope.DirectoryPath, "Process");
-        Directory.CreateDirectory(processDirectory);
-        string processPath = Path.Combine(processDirectory, "process.bms");
-        File.WriteAllText(processPath, "#TITLE processed transient remainder\r\n", Encoding.ASCII);
-        ChartFileSnapshot processSnapshot = ChartFileContentReader.ReadSnapshot(processPath);
-        var skippedFile = new TestableBmsFile
-        {
-            path = skippedPath,
-            date = 123456
-        }.WithHashAndFavorite("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", favoriteValue: null);
-        skippedFile.ApplySha256("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        TestableBmsFile processFile = CreateSyncTestFile(processPath, processSnapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        var logs = new List<string>();
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "transient-song-row-skip",
-            RunId = "transient-song-row-skip",
-            SongRows = [skippedFile, processFile],
-            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            TransientSongRowsSkipPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                skippedPath
-            },
-            StartedAtUtc = new DateTime(2026, 6, 9, 0, 0, 0, DateTimeKind.Utc),
-            LogInstallPerformance = logs.Add
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(2, result.SongRowProcessedCount);
-        Assert.AreEqual(1, result.SongRowSkippedCount);
-        Assert.AreEqual(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", skippedPath));
-        Assert.AreEqual("processed transient remainder", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", processPath));
-        Assert.IsTrue(logs.Any(log => log.Contains("pipeline_start stage=song_rows")
-            && log.Contains("transientSkipPaths=1")));
-        Assert.IsTrue(logs.Any(log => log.Contains("chunk_done stage=song_rows")
-            && log.Contains("transientSkipped=1")));
-        Assert.IsTrue(logs.Any(log => log.Contains("pipeline_done stage=song_rows")
-            && log.Contains("transientSkipped=1")));
-    }
-
-    [TestMethod]
-    public void SyncService_ResumesFromCompletedNormalFolderBoundary()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeRoot");
-        string songDirectory = Path.Combine(rootDirectory, "Song");
-        Directory.CreateDirectory(songDirectory);
-        string chartPath = Path.Combine(songDirectory, "chart.bms");
-        File.WriteAllText(chartPath, "#TITLE resume song\r\n");
-        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-        TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        const string signature = "resume-normal-complete";
-        Lr2SongDbSyncStatusService.MarkIncomplete(
-            songDb,
-            signature,
-            "previous-run",
-            processedCursor: 2,
-            totalCount: 3,
-            stage: "normal_folders_completed",
-            detail: "interrupted",
-            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
-        InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
-        InsertNormalFolderRow(songDb, songDirectory, Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = signature,
-            RunId = "resume-run",
-            RootDirectories = [rootDirectory],
-            ChartPaths = [chartPath],
-            SongRows = [file],
-            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.IsNull(result.NormalFolderSyncResult);
-        Assert.AreEqual(2, songDb.Table<LR2SongDB.folder>().Count());
-        Assert.AreEqual("resume song", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-        Assert.AreEqual(row.total_count, row.processed_cursor);
-    }
-
-    [TestMethod]
-    public void SyncService_ResyncsExpectedNormalFolderRowsAfterResume()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeMissingFolderRoot");
-        string songDirectory = Path.Combine(rootDirectory, "Song");
-        Directory.CreateDirectory(songDirectory);
-        string chartPath = Path.Combine(songDirectory, "chart.bms");
-        File.WriteAllText(chartPath, "#TITLE resume missing folder\r\n");
-        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-        TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        const string signature = "resume-normal-missing-folder";
-        Lr2SongDbSyncStatusService.MarkIncomplete(
-            songDb,
-            signature,
-            "previous-run",
-            processedCursor: 2,
-            totalCount: 3,
-            stage: "normal_folders_completed",
-            detail: "interrupted",
-            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = signature,
-            RunId = "resume-missing-folder-run",
-            RootDirectories = [rootDirectory],
-            ChartPaths = [chartPath],
-            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
-            SongRows = [file],
-            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedFolderRowCount);
-        string rootFolderPath = ToFolderPath(rootDirectory);
-        string songFolderPath = ToFolderPath(songDirectory);
-        List<LR2SongDB.folder> folderRows = songDb.Table<LR2SongDB.folder>().ToList();
-        Assert.AreEqual(1, folderRows.Count(folder => folder.path == rootFolderPath));
-        Assert.AreEqual(1, folderRows.Count(folder => folder.path == songFolderPath));
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-    }
-
-    [TestMethod]
-    public void SyncService_ResyncsExpectedLr2FolderRowAfterResume()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeMissingLr2FolderRoot");
-        Directory.CreateDirectory(rootDirectory);
-        string lr2FolderPath = Path.Combine(rootDirectory, "table.lr2folder");
-        File.WriteAllText(lr2FolderPath, "#TITLE table\r\n", Encoding.GetEncoding("shift_jis"));
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = lr2FolderPath,
-            type = 99,
-            title = "unsupported type",
-            date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(lr2FolderPath))
-        }, typeof(LR2SongDB.folder));
-        const string signature = "resume-lr2folder-missing-row";
-        Lr2SongDbSyncStatusService.MarkIncomplete(
-            songDb,
-            signature,
-            "previous-run",
-            processedCursor: 2,
-            totalCount: 2,
-            stage: "lr2folder_files_completed",
-            detail: "interrupted",
-            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = signature,
-            RunId = "resume-missing-lr2folder-row-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderFilePaths = [lr2FolderPath],
-            Lr2FolderFileEntries = CreateFileEntryMap(lr2FolderPath),
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
-        LR2SongDB.folder folderRow = songDb.Find<LR2SongDB.folder>(lr2FolderPath);
-        Assert.IsNotNull(folderRow);
-        Assert.AreEqual(2, folderRow.type);
-        Assert.AreEqual("table", folderRow.title);
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-    }
-
-    [TestMethod]
-    public void SyncService_SkipsExpectedLr2FolderRowWhenMetadataIsMissingAfterResume()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeUnreadableLr2FolderRoot");
-        Directory.CreateDirectory(rootDirectory);
-        string missingLr2FolderPath = Path.Combine(rootDirectory, "missing.lr2folder");
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
-        const string signature = "resume-lr2folder-missing-metadata";
-        Lr2SongDbSyncStatusService.MarkIncomplete(
-            songDb,
-            signature,
-            "previous-run",
-            processedCursor: 2,
-            totalCount: 2,
-            stage: "lr2folder_files_completed",
-            detail: "interrupted",
-            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = signature,
-            RunId = "resume-missing-metadata-lr2folder-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderFilePaths = [missingLr2FolderPath],
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-    }
-
-    [TestMethod]
-    public void SyncService_RestartsWhenResumeTotalCountDiffers()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeMismatchRoot");
-        string songDirectory = Path.Combine(rootDirectory, "Song");
-        Directory.CreateDirectory(songDirectory);
-        string chartPath = Path.Combine(songDirectory, "chart.bms");
-        File.WriteAllText(chartPath, "#TITLE resume mismatch\r\n");
-        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-        TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        const string signature = "resume-total-mismatch";
-        Lr2SongDbSyncStatusService.MarkIncomplete(
-            songDb,
-            signature,
-            "previous-run",
-            processedCursor: 2,
-            totalCount: 99,
-            stage: "normal_folders_completed",
-            detail: "old total",
-            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = signature,
-            RunId = "restart-run",
-            RootDirectories = [rootDirectory],
-            ChartPaths = [chartPath],
-            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
-            SongRows = [file],
-            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.IsNotNull(result.NormalFolderSyncResult);
-        Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any());
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-        Assert.AreEqual(3, row.total_count);
-    }
-
-    [TestMethod]
-    public void SyncService_ResumesInsideSongRowsFromDurableCursor()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "ResumeSongRoot");
-        string songDirectory = Path.Combine(rootDirectory, "Song");
-        Directory.CreateDirectory(songDirectory);
-        string firstPath = Path.Combine(songDirectory, "first.bms");
-        string secondPath = Path.Combine(songDirectory, "second.bms");
-        File.WriteAllText(firstPath, "#TITLE first updated\r\n");
-        File.WriteAllText(secondPath, "#TITLE second updated\r\n");
-        ChartFileSnapshot firstSnapshot = ChartFileContentReader.ReadSnapshot(firstPath);
-        ChartFileSnapshot secondSnapshot = ChartFileContentReader.ReadSnapshot(secondPath);
-        TestableBmsFile firstFile = CreateSyncTestFile(firstPath, firstSnapshot);
-        TestableBmsFile secondFile = CreateSyncTestFile(secondPath, secondSnapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        var existingFirstRow = new TestableBmsFile
-        {
-            path = firstPath,
-            date = 1
-        }.WithHashAndFavorite(firstFile.hash, favoriteValue: null);
-        existingFirstRow.SetTitleForTest("first stale");
-        songDb.InsertOrReplace(existingFirstRow, typeof(LR2SongDB.song));
-        const string signature = "resume-song-row";
-        Lr2SongDbSyncStatusService.MarkIncomplete(
-            songDb,
-            signature,
-            "previous-run",
-            processedCursor: 3,
-            totalCount: 4,
-            stage: "song_rows",
-            detail: "interrupted",
-            nowUtc: new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc));
-        InsertNormalFolderRow(songDb, rootDirectory, Lr2SongFolderParentNormalizer.RootParentHash);
-        InsertNormalFolderRow(songDb, songDirectory, Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = signature,
-            RunId = "resume-run",
-            RootDirectories = [rootDirectory],
-            ChartPaths = [firstPath, secondPath],
-            SongRows = [firstFile, secondFile],
-            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(1, result.SongRowProcessedCount);
-        Assert.AreEqual("first stale", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", firstPath));
-        Assert.AreEqual("second updated", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-        Assert.AreEqual(4, row.processed_cursor);
-    }
-
-    [TestMethod]
-    public void SyncService_PrunesStaleSongRowsAndMaintenance()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string songDirectory = Path.Combine(rootDirectory, "Current");
-        Directory.CreateDirectory(songDirectory);
-        string currentPath = Path.Combine(songDirectory, "current.bms");
-        File.WriteAllText(currentPath, "#TITLE current\r\n#00111:01\r\n", Encoding.ASCII);
-        TestableBmsFile currentFile = CreateSyncTestFile(currentPath, ChartFileContentReader.ReadSnapshot(currentPath));
-        string stalePath = Path.Combine(scope.DirectoryPath, "OldRoot", "stale.bms");
-        string staleHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
-        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-        songDb.InsertOrReplace(new TestableBmsFile
-        {
-            path = stalePath,
-            date = 1
-        }.WithHashAndFavorite(staleHash, favoriteValue: null), typeof(LR2SongDB.song));
-        songDb.InsertOrReplace(new BMSFileMaintenanceInfo
-        {
-            path = stalePath,
-            hash = staleHash
-        }, typeof(LR2SongDBExtended.maintenance));
-        songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
-        {
-            md5 = staleHash,
-            sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-        }, typeof(LR2SongDBExtended.chart_digest_map));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "prune-stale-song-row",
-            RunId = "prune-stale-song-row-run",
-            RootDirectories = [rootDirectory],
-            ChartPaths = [currentPath],
-            SongRows = [currentFile],
-            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(1, result.StaleSongRowPrunedCount);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.UnknownRootSongRowCount);
-        Assert.IsNotNull(songDb.Find<LR2SongDB.song>(currentPath));
-        Assert.IsNull(songDb.Find<LR2SongDB.song>(stalePath));
-        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", stalePath));
-        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_digest_map WHERE md5 = ?;", staleHash));
-        LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
-    }
-
-    [TestMethod]
-    public void SyncService_PrunesCaseOnlyStaleSongRowsByExactCurrentPath()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string songDirectory = Path.Combine(rootDirectory, "CaseOnly");
-        Directory.CreateDirectory(songDirectory);
-        string currentPath = Path.Combine(songDirectory, "chart.bms");
-        File.WriteAllText(currentPath, "#TITLE current\r\n#00111:01\r\n", Encoding.ASCII);
-        TestableBmsFile currentFile = CreateSyncTestFile(currentPath, ChartFileContentReader.ReadSnapshot(currentPath));
-        string stalePath = Path.Combine(songDirectory, "CHART.BMS");
-        string staleHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        songDb.CreateTable<LR2SongDB.folder>();
-        BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
-        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-        songDb.InsertOrReplace(new TestableBmsFile
-        {
-            path = stalePath,
-            date = 1
-        }.WithHashAndFavorite(staleHash, favoriteValue: 7), typeof(LR2SongDB.song));
-        songDb.InsertOrReplace(new BMSFileMaintenanceInfo
-        {
-            path = stalePath,
-            hash = staleHash
-        }, typeof(LR2SongDBExtended.maintenance));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "prune-case-only-stale-song-row",
-            RunId = "prune-case-only-stale-song-row-run",
-            RootDirectories = [rootDirectory],
-            ChartPaths = [currentPath],
-            SongRows = [currentFile],
-            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(1, result.StaleSongRowPrunedCount);
-        Assert.IsNotNull(songDb.Find<LR2SongDB.song>(currentPath));
-        Assert.IsNull(songDb.Find<LR2SongDB.song>(stalePath));
-        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", stalePath));
-    }
-
-    [TestMethod]
     public void SyncService_RollsBackFailedSongRowChunkAndRetriesFromChunkStart()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -1197,14 +428,18 @@ public sealed class Lr2SongDbSyncServiceTests
         File.WriteAllText(secondPath, "#TITLE second rollback\r\n", Encoding.ASCII);
         TestableBmsFile firstFile = CreateSyncTestFile(firstPath, ChartFileContentReader.ReadSnapshot(firstPath));
         TestableBmsFile secondFile = CreateSyncTestFile(secondPath, ChartFileContentReader.ReadSnapshot(secondPath));
+        firstFile.SetTitleForTest("stale first");
+        secondFile.SetTitleForTest("stale second");
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(firstFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+        songDb.InsertOrReplace(secondFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
         const string signature = "rollback-song-chunk";
         songDb.Execute(
-            "CREATE TRIGGER fail_second_song_insert BEFORE INSERT ON song"
+            "CREATE TRIGGER fail_second_song_update BEFORE UPDATE ON song"
             + " WHEN NEW.path = '" + EscapeSqlLiteral(secondPath) + "'"
-            + " BEGIN SELECT RAISE(ABORT, 'fail_second_song_insert'); END;");
+            + " BEGIN SELECT RAISE(ABORT, 'fail_second_song_update'); END;");
 
         Assert.ThrowsException<SQLite.SQLiteException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
@@ -1216,14 +451,16 @@ public sealed class Lr2SongDbSyncServiceTests
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         }));
-        Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
+        Assert.AreEqual(2, songDb.Table<LR2SongDB.song>().Count());
+        Assert.AreEqual("stale first", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", firstPath));
+        Assert.AreEqual("stale second", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
         LR2SongDBExtended.lr2_song_db_sync_status failed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Failed", failed.status);
         Assert.AreEqual("song_rows", failed.stage);
         Assert.AreEqual(2, failed.processed_cursor);
         Assert.AreEqual(4, failed.total_count);
 
-        songDb.Execute("DROP TRIGGER fail_second_song_insert;");
+        songDb.Execute("DROP TRIGGER fail_second_song_update;");
         Lr2SongDbSyncResult retry = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
@@ -1262,6 +499,7 @@ public sealed class Lr2SongDbSyncServiceTests
         file.SetTitleForTest("Stale Title");
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
+        songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
@@ -1306,6 +544,9 @@ public sealed class Lr2SongDbSyncServiceTests
         songDb.InsertOrReplace(currentInfo, typeof(LR2SongDBExtended.chart_info));
         songDb.InsertOrReplace(staleInfo, typeof(LR2SongDBExtended.chart_info));
         songDb.InsertOrReplace(mismatchInfo, typeof(LR2SongDBExtended.chart_info));
+        songDb.InsertOrReplace(currentFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+        songDb.InsertOrReplace(staleFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+        songDb.InsertOrReplace(mismatchFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
         var serviceReadCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         object serviceReadCountsSync = new();
 
@@ -1390,6 +631,7 @@ public sealed class Lr2SongDbSyncServiceTests
         TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
+        songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
@@ -1426,6 +668,7 @@ public sealed class Lr2SongDbSyncServiceTests
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+        songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
         songDb.InsertOrReplace(CreateChartInfo(new string('2', 64), snapshot.Md5, level: 22), typeof(LR2SongDBExtended.chart_info));
         songDb.InsertOrReplace(CreateChartInfo(new string('1', 64), snapshot.Md5, level: 11), typeof(LR2SongDBExtended.chart_info));
 
@@ -1459,6 +702,7 @@ public sealed class Lr2SongDbSyncServiceTests
         TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
+        songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
 
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
@@ -1478,7 +722,7 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     [TestMethod]
-    public void SyncService_CancelledRequestMarksCancelledStatus()
+    public void SyncService_UnexpectedCancellationMarksFailedStatus()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
@@ -1494,27 +738,130 @@ public sealed class Lr2SongDbSyncServiceTests
 
         LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.IsNotNull(row);
-        Assert.AreEqual(Lr2SongDbSyncStatusKind.Cancelled.ToString(), row.status);
+        Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed.ToString(), row.status);
         Assert.AreEqual("final_validation", row.stage);
         Assert.AreEqual(0, row.processed_cursor);
         Assert.AreEqual(0, row.total_count);
     }
 
     [TestMethod]
-    public void SyncService_CancelledAfterFolderStageResumesAndCompletes()
+    public void SyncService_ShutdownCancellationAtFolderCommitRollsBackWholeTable()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "CancelResumeRoot");
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "FolderCommitBarrier");
+        Directory.CreateDirectory(rootDirectory);
+        string rootFolderPath = ToFolderPath(rootDirectory);
+        DateTime directoryTime = new(2026, 6, 5, 2, 0, 0, DateTimeKind.Utc);
+        Directory.SetLastWriteTimeUtc(rootDirectory, directoryTime);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = rootFolderPath,
+            type = 1,
+            title = "Durable folder before shutdown",
+            date = Lr2SongRowEnricher.ToLr2UnixSeconds(directoryTime.AddMinutes(-1))
+        }, typeof(LR2SongDB.folder));
+
+        using var cancellation = new CancellationTokenSource();
+        bool shutdownRequested = false;
+        bool transactionBarrierObserved = false;
+        Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "folder-commit-shutdown",
+            RunId = "folder-commit-shutdown",
+            RootDirectories = [rootDirectory],
+            NormalFolderDirectoryPaths = [rootDirectory],
+            DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [rootDirectory] = new RootFileEnumerationEntry(rootDirectory, directoryTime)
+            },
+            CancellationToken = cancellation.Token,
+            IsShutdownRequested = () =>
+            {
+                string titleInsideTransaction = songDb.ExecuteScalar<string>(
+                    "SELECT title FROM folder WHERE path = ?;",
+                    rootFolderPath);
+                if (!shutdownRequested
+                    && string.Equals(titleInsideTransaction, "FolderCommitBarrier", StringComparison.Ordinal))
+                {
+                    transactionBarrierObserved = true;
+                    shutdownRequested = true;
+                    cancellation.Cancel();
+                }
+                return shutdownRequested;
+            },
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        }));
+
+        Assert.IsTrue(shutdownRequested);
+        Assert.IsTrue(transactionBarrierObserved);
+        Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count());
+        Assert.AreEqual("Durable folder before shutdown", songDb.ExecuteScalar<string>(
+            "SELECT title FROM folder WHERE path = ?;", rootFolderPath));
+    }
+
+    [TestMethod]
+    public void SyncService_ShutdownCancellationAtSongCommitRollsBackWholeChunk()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string songDirectory = Path.Combine(scope.DirectoryPath, "SongCommitBarrier");
+        Directory.CreateDirectory(songDirectory);
+        string chartPath = Path.Combine(songDirectory, "chart.bms");
+        File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Current song title\r\n#ARTIST Current artist\r\n#BPM 120\r\n#WAV01 sound.wav\r\n#00111:01\r\n", Encoding.ASCII);
+        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+        TestableBmsFile file = CreateSyncTestFile(chartPath, snapshot);
+        file.SetTitleForTest("Durable song before shutdown");
+        file.SetArtistForTest("Stale artist before shutdown");
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+
+        using var cancellation = new CancellationTokenSource();
+        bool shutdownRequested = false;
+        int chartInfoWriterCallCount = 0;
+        Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "song-commit-shutdown",
+            RunId = "song-commit-shutdown",
+            SongRows = [file],
+            CancellationToken = cancellation.Token,
+            IsShutdownRequested = () => shutdownRequested,
+            ChartInfoChunkWriter = request =>
+            {
+                chartInfoWriterCallCount++;
+                shutdownRequested = true;
+                cancellation.Cancel();
+                return CreateDirectChartInfoWriter(songDb)(request);
+            },
+            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        }));
+
+        Assert.IsTrue(shutdownRequested);
+        Assert.AreEqual(1, chartInfoWriterCallCount);
+        Assert.AreEqual("Durable song before shutdown", songDb.ExecuteScalar<string>(
+            "SELECT title FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual("Stale artist before shutdown", songDb.ExecuteScalar<string>(
+            "SELECT artist FROM song WHERE path = ?;", chartPath));
+    }
+
+    [TestMethod]
+    public void SyncService_UnexpectedCancellationFailsAndRetryStartsFromZero()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "CancelRetryRoot");
         string songDirectory = Path.Combine(rootDirectory, "Song");
         Directory.CreateDirectory(songDirectory);
         string chartPath = Path.Combine(songDirectory, "chart.bms");
-        File.WriteAllText(chartPath, "#TITLE cancel resume\r\n#00111:01\r\n", Encoding.ASCII);
+        File.WriteAllText(chartPath, "#TITLE cancel retry\r\n#00111:01\r\n", Encoding.ASCII);
         TestableBmsFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
         songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
         using var cancellation = new CancellationTokenSource();
-        const string signature = "cancel-resume-after-folder";
+        const string signature = "cancel-retry-after-folder";
         var progressEvents = new List<Lr2SongDbSyncProgress>();
 
         Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
@@ -1541,23 +888,23 @@ public sealed class Lr2SongDbSyncServiceTests
             }
         }));
 
-        LR2SongDBExtended.lr2_song_db_sync_status cancelled = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Cancelled", cancelled.status);
-        Assert.AreEqual("song_rows", cancelled.stage);
-        Assert.AreEqual(2, cancelled.processed_cursor);
-        Assert.AreEqual(3, cancelled.total_count);
+        LR2SongDBExtended.lr2_song_db_sync_status failed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.AreEqual("Failed", failed.status);
+        Assert.AreEqual("song_rows", failed.stage);
+        Assert.AreEqual(2, failed.processed_cursor);
+        Assert.AreEqual(3, failed.total_count);
         Assert.AreEqual(2, songDb.Table<LR2SongDB.folder>().Count());
-        Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
+        Assert.AreEqual(1, songDb.Table<LR2SongDB.song>().Count());
         Lr2SongDbSyncProgress songRowsProgress = progressEvents.First(progress => progress.Stage == "song_rows" && progress.StageTotalCount > 0);
         Assert.AreEqual(2, songRowsProgress.ProcessedCursor);
         Assert.AreEqual(3, songRowsProgress.TotalCount);
         Assert.AreEqual(0, songRowsProgress.StageProcessedCount);
         Assert.AreEqual(1, songRowsProgress.StageTotalCount);
 
-        Lr2SongDbSyncResult resumed = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        Lr2SongDbSyncResult retried = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = signature,
-            RunId = "resume-after-cancel-run",
+            RunId = "retry-after-cancel-run",
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
             DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
@@ -1566,10 +913,10 @@ public sealed class Lr2SongDbSyncServiceTests
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, resumed.FinalStage);
-        Assert.IsNull(resumed.NormalFolderSyncResult);
-        Assert.AreEqual(1, resumed.SongRowProcessedCount);
-        Assert.AreEqual("cancel resume", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, retried.FinalStage);
+        Assert.IsNotNull(retried.FolderTableReconciliationResult);
+        Assert.AreEqual(1, retried.SongRowProcessedCount);
+        Assert.AreEqual("cancel retry", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
         LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
         Assert.AreEqual("Completed", completed.status);
         Assert.AreEqual(3, completed.processed_cursor);
@@ -1724,16 +1071,14 @@ public sealed class Lr2SongDbSyncServiceTests
             DirectoryEntries = CreateDirectoryEntryMap(rootDirectory),
             Lr2FolderDiscoveryDirectories = [rootDirectory],
             Lr2FolderPruneDirectories = [rootDirectory],
-            Lr2FolderFilePaths = [missingPath],
             Lr2FolderFileDiscoveryComplete = true,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
-        Assert.AreEqual(1, result.Lr2FolderFileSyncResult.ItemCount);
-        Assert.AreEqual(0, result.Lr2FolderFileSyncResult.DeletedCount);
+        Assert.IsNull(result.Lr2FolderFileSyncResult);
+        Assert.AreEqual(1, result.FolderTableReconciliationResult.DeletedCount);
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == missingPath));
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.IsTrue(result.StartupScanDiagnosticResult.IsClean);
     }
 
     [TestMethod]
@@ -1768,13 +1113,12 @@ public sealed class Lr2SongDbSyncServiceTests
 
         LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == lr2FolderPath);
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(enumeratedTimestamp), row.date);
-        Assert.AreEqual(1, result.Lr2FolderFileSyncResult.GeneratedCount);
+        Assert.AreEqual(2, result.FolderTableReconciliationResult.GeneratedCount);
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
     }
 
     [TestMethod]
-    public void SyncService_DoesNotReportBuiltinLr2FolderParentAsMissingNormalFolder()
+    public void SyncService_IncludesBuiltinLr2FolderParent()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         string chartRoot = Path.Combine(scope.DirectoryPath, "BMS");
@@ -1809,96 +1153,7 @@ public sealed class Lr2SongDbSyncServiceTests
         });
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedFolderRowCount);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.MissingExpectedLr2FolderRowCount);
         Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == @"LR2files\CustomFolder\INSANE02\"));
-    }
-
-    [TestMethod]
-    public void SyncService_PreservesUnchangedLr2FolderRowBeforeDefinitionParse()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        Directory.CreateDirectory(rootDirectory);
-        string lr2FolderPath = Path.Combine(rootDirectory, "table.lr2folder");
-        File.WriteAllText(lr2FolderPath, "#TITLE Reparsed Title");
-        DateTime timestamp = new(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = lr2FolderPath,
-            title = "Preserved Title",
-            type = 2,
-            parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory),
-            date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp),
-            adddate = 12345
-        }, typeof(LR2SongDB.folder));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "lr2folder-preserve",
-            RunId = "lr2folder-preserve-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderPruneDirectories = [rootDirectory],
-            Lr2FolderFilePaths = [lr2FolderPath],
-            Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
-            {
-                [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
-            },
-            Lr2FolderFileDiscoveryComplete = true,
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
-        });
-
-        LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == lr2FolderPath);
-        Assert.AreEqual(1, result.Lr2FolderFileSyncResult.PreservedCount);
-        Assert.AreEqual(0, result.Lr2FolderFileSyncResult.GeneratedCount);
-        Assert.AreEqual("Preserved Title", row.title);
-        Assert.AreEqual(12345, row.adddate);
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-    }
-
-    [TestMethod]
-    public void SyncService_PreservesEntriesOnlyLr2FolderRowBeforeDefinitionParse()
-    {
-        using TestDatabaseScope scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        Directory.CreateDirectory(rootDirectory);
-        string lr2FolderPath = Path.Combine(rootDirectory, "table.lr2folder");
-        File.WriteAllText(lr2FolderPath, "#TITLE Reparsed Entries Only");
-        DateTime timestamp = new(2026, 6, 5, 1, 2, 3, DateTimeKind.Utc);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = lr2FolderPath,
-            title = "Preserved Entries Only",
-            type = 2,
-            parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory),
-            date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-        }, typeof(LR2SongDB.folder));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "lr2folder-entries-only-preserve",
-            RunId = "lr2folder-entries-only-preserve-run",
-            RootDirectories = [rootDirectory],
-            Lr2FolderDiscoveryDirectories = [rootDirectory],
-            Lr2FolderPruneDirectories = [rootDirectory],
-            Lr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
-            {
-                [lr2FolderPath] = new RootFileEnumerationEntry(lr2FolderPath, timestamp)
-            },
-            Lr2FolderFileDiscoveryComplete = true,
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
-        });
-
-        LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == lr2FolderPath);
-        Assert.AreEqual(1, result.Lr2FolderFileSyncResult.PreservedCount);
-        Assert.AreEqual(0, result.Lr2FolderFileSyncResult.GeneratedCount);
-        Assert.AreEqual("Preserved Entries Only", row.title);
-        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
     }
 
     [TestMethod]
@@ -1927,22 +1182,8 @@ public sealed class Lr2SongDbSyncServiceTests
 
         LR2SongDB.folder row = songDb.Table<LR2SongDB.folder>().Single(folder => folder.path == ToFolderPath(rootDirectory));
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(enumeratedTimestamp), row.date);
-        Assert.AreEqual(1, result.NormalFolderSyncResult.GeneratedCount);
+        Assert.AreEqual(1, result.FolderTableReconciliationResult.GeneratedCount);
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
-        Assert.AreEqual(0, result.StartupScanDiagnosticResult.DateStaleFolderRowCount);
-    }
-
-    private static void InsertNormalFolderRow(LR2SongDBExtended songDb, string directoryPath, string parentHash)
-    {
-        songDb.InsertOrReplace(new LR2SongDB.folder
-        {
-            path = ToFolderPath(directoryPath),
-            title = Path.GetFileName(directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)),
-            type = 1,
-            parent = parentHash,
-            date = Lr2SongRowEnricher.ToLr2UnixSeconds(Directory.GetLastWriteTimeUtc(directoryPath)),
-            adddate = Lr2SongRowEnricher.ToLr2UnixSeconds(new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc))
-        }, typeof(LR2SongDB.folder));
     }
 
     private static string EscapeSqlLiteral(string value)

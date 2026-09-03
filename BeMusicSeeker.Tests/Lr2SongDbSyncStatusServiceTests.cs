@@ -81,7 +81,17 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Lr2SongDbSyncStatusService.MarkFailed(songDb, "sig1", "run1", processedCursor: 3, totalCount: 10, stage: "song", error: "failed", nowUtc: now);
         AssertNeededWithStoredStatus(songDb, Lr2SongDbSyncStatusKind.Failed);
 
-        Lr2SongDbSyncStatusService.MarkCancelled(songDb, "sig1", "run2", processedCursor: 4, totalCount: 10, stage: "folder", nowUtc: now.AddMinutes(1));
+        songDb.InsertOrReplace(new LR2SongDBExtended.lr2_song_db_sync_status
+        {
+            name = Lr2SongDbSyncStatusService.DefaultStatusName,
+            status = "Cancelled",
+            signature = "sig1",
+            run_id = "legacy-run",
+            processed_cursor = 4,
+            total_count = 10,
+            stage = "folder",
+            updated_at = now.AddMinutes(1)
+        }, typeof(LR2SongDBExtended.lr2_song_db_sync_status));
         AssertNeededWithStoredStatus(songDb, Lr2SongDbSyncStatusKind.Cancelled);
 
         Lr2SongDbSyncStatusService.MarkIncomplete(songDb, "sig1", "run3", processedCursor: 5, totalCount: 10, stage: "finalize", detail: "stale", nowUtc: now.AddMinutes(2));
@@ -89,7 +99,48 @@ public sealed class Lr2SongDbSyncStatusServiceTests
     }
 
     [TestMethod]
-    public void UpdateCursor_PersistsProgressForResume()
+    public void NonCompletedStatusAndRunningMarkAlwaysStartAtZero()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        DateTime now = new(2026, 6, 4, 1, 2, 3, DateTimeKind.Utc);
+
+        Lr2SongDbSyncStatusService.MarkIncomplete(
+            songDb,
+            "sig1",
+            "previous-run",
+            processedCursor: 9,
+            totalCount: 10,
+            stage: "song_rows",
+            detail: "interrupted",
+            nowUtc: now);
+
+        Lr2SongDbSyncStatusSnapshot needed = Lr2SongDbSyncStatusService.Evaluate(
+            songDb,
+            enabled: true,
+            signature: "sig1",
+            nowUtc: now.AddMinutes(1));
+
+        Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, needed.Status);
+        Assert.AreEqual(9, needed.ProcessedCursor);
+
+        Lr2SongDbSyncStatusService.MarkRunning(
+            songDb,
+            "sig1",
+            "new-run",
+            totalCount: 10,
+            stage: "normal_folders",
+            nowUtc: now.AddMinutes(2),
+            processedCursor: 9);
+
+        LR2SongDBExtended.lr2_song_db_sync_status running =
+            songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.AreEqual("Running", running.status);
+        Assert.AreEqual(0, running.processed_cursor);
+    }
+
+    [TestMethod]
+    public void UpdateCursor_PersistsProgress()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);

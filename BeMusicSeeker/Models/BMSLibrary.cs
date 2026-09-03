@@ -495,10 +495,11 @@ public partial class BMSLibrary : ObservableObject
     {
         Interlocked.Exchange(ref shutdownRequested, 1);
         GetLr2SynchronizationRuntimeState().RequestShutdown();
+        lr2SynchronizationOwner.DiscardLr2SongDbSyncCommittedPathReceipt("shutdown_requested");
         string shutdownReason = "shutdown:" + (reason ?? "unknown");
         try
         {
-            CancelLr2SongDbSync(shutdownReason);
+            lr2SynchronizationOwner.RequestShutdownCancellation(shutdownReason);
         }
         catch (Exception ex)
         {
@@ -6061,14 +6062,16 @@ public partial class BMSLibrary : ObservableObject
         string reason,
         bool force = false,
         Func<LibraryFileMutationLease, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
-        bool allowIncompleteToQueue = true)
+        bool allowIncompleteToQueue = true,
+        bool allowCommittedPathReceipt = false)
     {
         return Lr2SongDbSyncRequestCoordinator.Queue(
             lr2SynchronizationOwner,
             reason,
             force,
             prepareGeneratedData,
-            allowIncompleteToQueue);
+            allowIncompleteToQueue,
+            allowCommittedPathReceipt);
     }
 
     internal bool TryRunLr2SongDbSyncDataPreparation(
@@ -6092,30 +6095,6 @@ public partial class BMSLibrary : ObservableObject
 
         queueAfterPreparation?.Invoke();
         return true;
-    }
-
-    internal Lr2StartupScanBlockerCleanupResult CleanupLr2SongDbSyncStartupScanBlockerFolderRows(string reason)
-    {
-        if (lr2SynchronizationOwner.Running)
-        {
-            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
-        }
-        if (!CurrentOptionsSnapshot.OperationModeLR2DB)
-        {
-            return null;
-        }
-        LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            "lr2_startup_scan_blocker_cleanup",
-            showMessage: false);
-        if (mutationReservation == null)
-        {
-            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
-        }
-        using LibraryFileMutationCapability mutationCapability = mutationReservation.CreateMutationCapability();
-        return Lr2SongDbSyncRequestCoordinator.CleanupStartupScanBlockerFolderRows(
-            lr2SynchronizationOwner,
-            reason,
-            mutationCapability);
     }
 
     internal void PublishLr2SongDbSyncExternalStageProgress(string stage, int processedCount, int totalCount, string detail = null)
@@ -6148,11 +6127,6 @@ public partial class BMSLibrary : ObservableObject
         };
     }
 
-    internal bool CancelLr2SongDbSync(string reason)
-    {
-        return lr2SynchronizationOwner.Cancel(reason);
-    }
-
     private bool IsLr2SongDbSyncMutationBlocked()
     {
         return lr2SynchronizationOwner.Running;
@@ -6179,9 +6153,9 @@ public partial class BMSLibrary : ObservableObject
         return TryBeginLr2SongDbSyncBlockedMutation(operation, showMessage);
     }
 
-    private void RunLr2SongDbSync(string reason, string signature, int requestVersion)
+    private void RunLr2SongDbSync(string reason, string signature, int requestVersion, bool allowCommittedPathReceipt)
     {
-        Lr2SongDbSyncRequestCoordinator.Run(lr2SynchronizationOwner, reason, signature, requestVersion);
+        Lr2SongDbSyncRequestCoordinator.Run(lr2SynchronizationOwner, reason, signature, requestVersion, allowCommittedPathReceipt);
     }
 
     private static bool ArePathSetsEqual(IEnumerable<string> first, IEnumerable<string> second)

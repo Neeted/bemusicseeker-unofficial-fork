@@ -275,8 +275,9 @@ internal static class Lr2FolderDirectoryMetadataBuilder
         DateTime utc = timestamp.Value.Kind == DateTimeKind.Utc
             ? timestamp.Value
             : timestamp.Value.ToUniversalTime();
-        return utc > UnixEpoch ? utc : null;
+        // Unix epoch and pre-epoch mtimes are valid LR2 generated values.  A
+        // missing timestamp is represented by null at the input boundary;
+        // do not turn an ordinary zero/negative projection into missing data.
+        return utc;
     }
-
-    private static readonly DateTime UnixEpoch = new(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
 }

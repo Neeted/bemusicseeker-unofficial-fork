@@ -42,8 +42,6 @@ internal sealed class Lr2SongDbSyncStatusSnapshot
 
     public bool IsNeeded => Status == Lr2SongDbSyncStatusKind.Needed;
 
-    public bool IsResumeCandidate { get; set; }
-
     internal Lr2SongDbSyncStatusSnapshot Clone()
     {
         return new Lr2SongDbSyncStatusSnapshot
@@ -59,21 +57,9 @@ internal sealed class Lr2SongDbSyncStatusSnapshot
             StageTotalCount = StageTotalCount,
             LastError = LastError,
             UpdatedAt = UpdatedAt,
-            CompletedAt = CompletedAt,
-            IsResumeCandidate = IsResumeCandidate
+            CompletedAt = CompletedAt
         };
     }
-}
-
-internal sealed class Lr2SongDbSyncResumeCandidate
-{
-    public int ProcessedCursor { get; set; }
-
-    public int? TotalCount { get; set; }
-
-    public string Stage { get; set; }
-
-    public Lr2SongDbSyncStatusKind StoredStatus { get; set; }
 }
 
 internal static class Lr2SongDbSyncStatusService
@@ -134,13 +120,14 @@ internal static class Lr2SongDbSyncStatusService
                 nowUtc);
         }
 
+        // A durable cursor is retained for progress reporting and backwards
+        // compatibility only.  It is never an input to the next run.
         return CreateSnapshot(
             Lr2SongDbSyncStatusKind.Needed,
             storedStatus,
             row,
             signature,
-            nowUtc,
-            isResumeCandidate: IsResumableStoredStatus(storedStatus) && row.processed_cursor.GetValueOrDefault() > 0);
+            nowUtc);
     }
 
     internal static Lr2SongDbSyncStatusSnapshot MarkRunning(
@@ -157,60 +144,14 @@ internal static class Lr2SongDbSyncStatusService
             Lr2SongDbSyncStatusKind.Running,
             signature,
             runId,
-            processedCursor: processedCursor.GetValueOrDefault(0),
+            // The optional argument remains source-compatible with older
+            // callers, but a new run always starts at the first input item.
+            processedCursor: 0,
             totalCount,
             stage,
             lastError: null,
             completedAt: null,
             nowUtc);
-    }
-
-    internal static bool TryCreateResumeCandidate(
-        LR2SongDBExtended songDb,
-        string signature,
-        int totalCount,
-        out Lr2SongDbSyncResumeCandidate candidate)
-    {
-        candidate = null;
-        if (songDb == null)
-        {
-            throw new ArgumentNullException(nameof(songDb));
-        }
-
-        BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(songDb);
-        LR2SongDBExtended.lr2_song_db_sync_status row = LoadRow(songDb);
-        if (row == null)
-        {
-            return false;
-        }
-
-        Lr2SongDbSyncStatusKind storedStatus = ParseStatus(row.status);
-        if (!IsResumableStoredStatus(storedStatus))
-        {
-            return false;
-        }
-        if (!string.Equals(row.signature ?? string.Empty, signature ?? string.Empty, StringComparison.Ordinal))
-        {
-            return false;
-        }
-        if (row.total_count.HasValue && row.total_count.Value != totalCount)
-        {
-            return false;
-        }
-        int processedCursor = row.processed_cursor.GetValueOrDefault();
-        if (processedCursor <= 0)
-        {
-            return false;
-        }
-
-        candidate = new Lr2SongDbSyncResumeCandidate
-        {
-            ProcessedCursor = Math.Min(processedCursor, Math.Max(0, totalCount)),
-            TotalCount = row.total_count,
-            Stage = row.stage ?? string.Empty,
-            StoredStatus = storedStatus
-        };
-        return true;
     }
 
     internal static Lr2SongDbSyncStatusSnapshot UpdateCursor(
@@ -282,18 +223,6 @@ internal static class Lr2SongDbSyncStatusService
         return Upsert(songDb, Lr2SongDbSyncStatusKind.Failed, signature, runId, processedCursor, totalCount, stage, error, completedAt: null, nowUtc);
     }
 
-    internal static Lr2SongDbSyncStatusSnapshot MarkCancelled(
-        LR2SongDBExtended songDb,
-        string signature,
-        string runId,
-        int? processedCursor,
-        int? totalCount,
-        string stage,
-        DateTime nowUtc)
-    {
-        return Upsert(songDb, Lr2SongDbSyncStatusKind.Cancelled, signature, runId, processedCursor, totalCount, stage, lastError: null, completedAt: null, nowUtc);
-    }
-
     internal static Lr2SongDbSyncStatusSnapshot MarkIncomplete(
         LR2SongDBExtended songDb,
         string signature,
@@ -352,8 +281,7 @@ internal static class Lr2SongDbSyncStatusService
         Lr2SongDbSyncStatusKind? storedStatus,
         LR2SongDBExtended.lr2_song_db_sync_status row,
         string signature,
-        DateTime nowUtc,
-        bool isResumeCandidate = false)
+        DateTime nowUtc)
     {
         return new Lr2SongDbSyncStatusSnapshot
         {
@@ -366,17 +294,8 @@ internal static class Lr2SongDbSyncStatusService
             Stage = row?.stage ?? string.Empty,
             LastError = row?.last_error ?? string.Empty,
             UpdatedAt = row?.updated_at == default ? NormalizeUtc(nowUtc) : row.updated_at,
-            CompletedAt = row?.completed_at,
-            IsResumeCandidate = isResumeCandidate
+            CompletedAt = row?.completed_at
         };
-    }
-
-    private static bool IsResumableStoredStatus(Lr2SongDbSyncStatusKind status)
-    {
-        return status == Lr2SongDbSyncStatusKind.Running
-            || status == Lr2SongDbSyncStatusKind.Failed
-            || status == Lr2SongDbSyncStatusKind.Cancelled
-            || status == Lr2SongDbSyncStatusKind.Incomplete;
     }
 
     private static Lr2SongDbSyncStatusKind ParseStatus(string status)

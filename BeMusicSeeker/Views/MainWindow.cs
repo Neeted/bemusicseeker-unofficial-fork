@@ -6939,11 +6939,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         progressStatusBarTerminals.RetryLr2Sync();
     }
 
-    private void cleanupLr2SongDbSyncStartupScanBlockersClick(object sender, RoutedEventArgs e)
-    {
-        progressStatusBarTerminals.CleanupLr2StartupBlockers();
-    }
-
     private void tableContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))

@@ -1,14 +1,9 @@
 using System;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Views.Dialogs;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -74,11 +69,14 @@ internal interface ILr2SongDbSyncWorkflowRuntime
 
     bool IsLibraryAvailable { get; }
 
+    void DiscardCommittedPathReceipt(string reason);
+
     void Queue(
         string reason,
         bool force,
         bool prepareGeneratedData = false,
-        bool allowIncompleteToQueue = true);
+        bool allowIncompleteToQueue = true,
+        bool allowCommittedPathReceipt = false);
 
     bool TryRunDataPreparation(
         string reason,
@@ -87,7 +85,6 @@ internal interface ILr2SongDbSyncWorkflowRuntime
 
     void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason);
 
-    Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(string reason);
 }
 
 internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRuntime
@@ -112,11 +109,17 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
 
     public bool IsLibraryAvailable => libraryProvider() != null;
 
+    public void DiscardCommittedPathReceipt(string reason)
+    {
+        libraryProvider()?.Lr2Synchronization.DiscardLr2SongDbSyncCommittedPathReceipt(reason);
+    }
+
     public void Queue(
         string reason,
         bool force,
         bool prepareGeneratedData = false,
-        bool allowIncompleteToQueue = true)
+        bool allowIncompleteToQueue = true,
+        bool allowCommittedPathReceipt = false)
     {
         BMSLibrary library = libraryProvider();
         if (library == null)
@@ -134,7 +137,12 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
                     preparationLease,
                     includeBuiltinGeneratedData: false);
         }
-        library.QueueLr2SongDbSync(reason, force, prepareWithLease, allowIncompleteToQueue);
+        library.QueueLr2SongDbSync(
+            reason,
+            force,
+            prepareWithLease,
+            allowIncompleteToQueue,
+            allowCommittedPathReceipt);
     }
 
     public bool TryRunDataPreparation(
@@ -197,17 +205,11 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
         libraryProvider()?.Lr2Synchronization.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange(reason);
     }
 
-    public Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(string reason)
-    {
-        return libraryProvider()?.CleanupLr2SongDbSyncStartupScanBlockerFolderRows(reason);
-    }
 }
 
 internal sealed class Lr2SongDbSyncWorkflowOwner
 {
     private readonly ILr2SongDbSyncWorkflowRuntime runtime;
-
-    private readonly IUiDialogService dialogs;
 
     private readonly Func<Action, Task> backgroundScheduler;
 
@@ -218,19 +220,12 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
     /// </summary>
     internal event Action StatusBarRetryRequested;
 
-    /// <summary>
-    /// Reports that the LR2 sync owner received a startup-blocker cleanup request.
-    /// </summary>
-    internal event Action StartupScanBlockerCleanupRequested;
-
     internal Lr2SongDbSyncWorkflowOwner(
         ILr2SongDbSyncWorkflowRuntime runtime,
-        IUiDialogService dialogs,
         Func<Action, Task> backgroundScheduler = null,
         Action<Task, string> taskLogger = null)
     {
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
-        this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.backgroundScheduler = backgroundScheduler ?? (action => Task.Run(action));
         this.taskLogger = taskLogger ?? new Action<Task, string>((task, routeName) => task.Logging(routeName));
     }
@@ -240,6 +235,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         NotifyStatusBarActionReceived(StatusBarRetryRequested, "Lr2StatusBarRetryRequestNotification");
         if (!CanRun())
         {
+            runtime.DiscardCommittedPathReceipt("workflow_unavailable");
             return;
         }
 
@@ -252,6 +248,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
     {
         if (!CanRun())
         {
+            runtime.DiscardCommittedPathReceipt("workflow_unavailable");
             return;
         }
 
@@ -274,12 +271,13 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
 
         if (!CanRun())
         {
+            runtime.DiscardCommittedPathReceipt("reload_queue_unavailable");
             return new Lr2SongDbSyncQueueResult(
                 request,
                 Lr2SongDbSyncQueueStatus.SkippedUnavailable);
         }
 
-        QueueCore(request.Reason, force: false);
+        QueueCore(request.Reason, force: false, allowCommittedPathReceipt: true);
         return new Lr2SongDbSyncQueueResult(
             request,
             Lr2SongDbSyncQueueStatus.Queued);
@@ -292,6 +290,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
     {
         if (!CanRun())
         {
+            runtime.DiscardCommittedPathReceipt("startup_queue_unavailable");
             queued?.Invoke();
             return;
         }
@@ -304,7 +303,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
                 ExceptionDispatchInfo failure = null;
                 try
                 {
-                    QueueCore(fullGenerationReason, force: false);
+                    QueueCore(fullGenerationReason, force: false, allowCommittedPathReceipt: true);
                 }
                 catch (Exception exception)
                 {
@@ -326,6 +325,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
     {
         if (!CanRun())
         {
+            runtime.DiscardCommittedPathReceipt("settings_queue_unavailable");
             return;
         }
 
@@ -344,6 +344,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
     {
         if (!CanRun())
         {
+            runtime.DiscardCommittedPathReceipt("external_queue_unavailable");
             return;
         }
 
@@ -352,46 +353,16 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
             () => runtime.SyncExternalFolderRowsForCustomFolderOutputBaseChange(reason));
     }
 
-    internal void CleanupStartupScanBlockersAndRetry()
-    {
-        NotifyStatusBarActionReceived(
-            StartupScanBlockerCleanupRequested,
-            "Lr2StatusBarStartupBlockerCleanupRequestNotification");
-        if (!CanRun())
-        {
-            return;
-        }
-
-        UiDialogResult confirmation = dialogs.ConfirmAsync(new UiConfirmationRequest(
-            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_song_db_sync_startup_scan_blocker_cleanup,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.Cancel)).GetAwaiter().GetResult();
-        if (!ToConfirmationDecision(confirmation, "LR2 song DB sync startup blocker cleanup confirmation"))
-        {
-            return;
-        }
-
-        try
-        {
-            runtime.CleanupStartupScanBlockerFolderRows("status_bar_cleanup");
-            ScheduleBackground(
-                "Lr2SongDbSyncStartupScanBlockerCleanupRetry",
-                () => QueueCore("status_bar_cleanup_retry", force: false));
-        }
-        catch (Exception ex)
-        {
-            ShowCleanupFailure(ex);
-        }
-    }
-
-    private void QueueCore(string reason, bool force)
+    private void QueueCore(
+        string reason,
+        bool force,
+        bool allowCommittedPathReceipt = false)
     {
         runtime.Queue(
             reason,
             force,
-            prepareGeneratedData: true);
+            prepareGeneratedData: true,
+            allowCommittedPathReceipt: allowCommittedPathReceipt);
     }
 
     private bool CanRun()
@@ -426,46 +397,4 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         }
     }
 
-    private void ShowCleanupFailure(Exception exception)
-    {
-        UiDialogResult result = dialogs.ShowMessageAsync(new UiMessageRequest(
-            BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception.Message,
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK)).GetAwaiter().GetResult();
-        ThrowIfDialogNotShown(result, "LR2 song DB sync startup blocker cleanup failure notification");
-    }
-
-    private static bool ToConfirmationDecision(UiDialogResult result, string routeName)
-    {
-        if (result == null)
-        {
-            throw new InvalidOperationException(routeName + " returned no dialog result.");
-        }
-
-        return result.Status switch
-        {
-            UiDialogStatus.Accepted => true,
-            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.IsPositive,
-            _ => throw CreateDialogFailure(routeName, result)
-        };
-    }
-
-    private static void ThrowIfDialogNotShown(UiDialogResult result, string routeName)
-    {
-        if (result?.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
-        {
-            return;
-        }
-
-        throw CreateDialogFailure(routeName, result);
-    }
-
-    private static InvalidOperationException CreateDialogFailure(string routeName, UiDialogResult result)
-    {
-        string suffix = result == null ? " returned no dialog result." : " was not shown: " + result.Status;
-        return new InvalidOperationException(routeName + suffix, result?.Exception);
-    }
 }

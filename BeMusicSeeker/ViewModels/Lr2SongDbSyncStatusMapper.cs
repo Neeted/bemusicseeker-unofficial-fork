@@ -19,7 +19,6 @@ internal static class Lr2SongDbSyncStatusMapper
             HasProgress = false,
             HasWarningStatus = false,
             CanRetry = false,
-            CanCleanupStartupScanBlockers = false,
             CheckedAt = DateTime.MinValue
         };
     }
@@ -43,7 +42,6 @@ internal static class Lr2SongDbSyncStatusMapper
             HasProgress = HasProgress(snapshot),
             HasWarningStatus = HasWarningStatus(snapshot.Status),
             CanRetry = CanRetry(snapshot),
-            CanCleanupStartupScanBlockers = CanCleanupStartupScanBlockers(snapshot),
             CheckedAt = checkedAt
         };
     }
@@ -59,22 +57,11 @@ internal static class Lr2SongDbSyncStatusMapper
 
     private static bool CanRetry(Lr2SongDbSyncStatusSnapshot snapshot)
     {
-        if (CanCleanupStartupScanBlockers(snapshot))
-        {
-            return false;
-        }
-
         Lr2SongDbSyncStatusKind kind = snapshot?.Status ?? Lr2SongDbSyncStatusKind.NotNeeded;
         return kind == Lr2SongDbSyncStatusKind.Needed
             || kind == Lr2SongDbSyncStatusKind.Failed
             || kind == Lr2SongDbSyncStatusKind.Incomplete
             || kind == Lr2SongDbSyncStatusKind.Cancelled;
-    }
-
-    private static bool CanCleanupStartupScanBlockers(Lr2SongDbSyncStatusSnapshot snapshot)
-    {
-        return snapshot?.Status == Lr2SongDbSyncStatusKind.Incomplete
-            && string.Equals(snapshot.Stage, Lr2SongDbSyncService.StartupScanBlockersStage, StringComparison.Ordinal);
     }
 
     private static string GetStatusText(Lr2SongDbSyncStatusKind kind)
