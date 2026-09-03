@@ -2008,7 +2008,7 @@ public sealed class SettingsDialogBehaviorTests
 
         public bool IsLibraryAvailable => IsLibraryAvailableValue;
 
-        public void Queue(string reason, bool force, Func<Lr2SongDbSyncPreparedDataSurface>? prepareGeneratedData = null, bool allowIncompleteToQueue = true)
+        public void Queue(string reason, bool force, bool prepareGeneratedData = false, bool allowIncompleteToQueue = true)
         {
             QueueCount++;
             QueueObserved?.Invoke();
@@ -2016,25 +2016,12 @@ public sealed class SettingsDialogBehaviorTests
             {
                 throw QueueFailure;
             }
-            prepareGeneratedData?.Invoke();
         }
 
-        public bool TryRunDataPreparation(string reason, Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData, Action? queueAfterPreparation = null)
+        public bool TryRunDataPreparation(string reason, bool includeBuiltinGeneratedData = false, Action? queueAfterPreparation = null)
         {
             runtimeCalls.ThrowIfUnexpected(nameof(TryRunDataPreparation));
             return false;
-        }
-
-        public Lr2SongDbSyncPreparedDataSurface PreparePlaylistGeneratedData(string reason)
-        {
-            runtimeCalls.ThrowIfUnexpected(nameof(PreparePlaylistGeneratedData));
-            return Lr2SongDbSyncPreparedDataSurface.Empty;
-        }
-
-        public Lr2SongDbSyncPreparedDataSurface PrepareBuiltinGeneratedData(string reason)
-        {
-            runtimeCalls.ThrowIfUnexpected(nameof(PrepareBuiltinGeneratedData));
-            return Lr2SongDbSyncPreparedDataSurface.Empty;
         }
 
         public void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason)
@@ -2053,5 +2040,6 @@ public sealed class SettingsDialogBehaviorTests
             runtimeCalls.ThrowIfUnexpected(nameof(CleanupStartupScanBlockerFolderRows));
             return new(null, 0, null);
         }
+
     }
 }

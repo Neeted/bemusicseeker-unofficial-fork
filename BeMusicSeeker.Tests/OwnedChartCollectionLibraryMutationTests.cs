@@ -409,18 +409,11 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 int bmsFilesChanged = 0;
                 int bmsonSongsChanged = 0;
                 bool bmsonPathAvailableAtNotification = false;
-                string? firstChange = null;
                 int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
+                int baselineDuplicateInvalidationVersion = library.DuplicateChartGroupsInvalidationVersion;
                 int parentFolderVersionChanged = 0;
                 library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
-                    if (args.PropertyName == "OwnedChartCollectionVersion"
-                        || args.PropertyName == "BMSFiles"
-                        || args.PropertyName == nameof(BMSLibrary.BmsonSongs)
-                        || args.PropertyName == "BMSParentFolderListCacheVersion")
-                    {
-                        firstChange ??= args.PropertyName;
-                    }
                     if (args.PropertyName == "OwnedChartCollectionVersion")
                     {
                         ownedCollectionVersionChanged++;
@@ -471,11 +464,11 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.IsTrue(batch.NotifiesStorageRows);
                 Assert.IsTrue(batch.NotifiesBmsFiles);
                 Assert.IsTrue(batch.NotifiesBmsonSongs);
-                Assert.AreEqual("OwnedChartCollectionVersion", firstChange);
                 Assert.IsTrue(bmsonPathAvailableAtNotification);
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
                 Assert.IsNull(library.DuplicateChartGroups);
+                Assert.AreEqual(baselineDuplicateInvalidationVersion + 1, library.DuplicateChartGroupsInvalidationVersion);
             }
             finally
             {
@@ -486,78 +479,4 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             }
         });
     }
-
-    [TestMethod]
-    public void ApplyLibraryMutationDelta_FallbackPreservesResourceHealthAndInvalidatesCachesOnFailure()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedMutationFailure_" + Guid.NewGuid().ToString("N"));
-            string oldDirectoryPath = Path.Combine(tempRootPath, "Old");
-            string newDirectoryPath = Path.Combine(tempRootPath, "New");
-            Directory.CreateDirectory(oldDirectoryPath);
-            Directory.CreateDirectory(newDirectoryPath);
-            string oldBmsPath = Path.Combine(oldDirectoryPath, "chart.bms");
-            string newBmsPath = Path.Combine(newDirectoryPath, "chart.bms");
-            try
-            {
-                TestableBmsFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath);
-                var library = new TestBmsLibrary(songDbPath)
-                {
-                    BMSFiles = [bmsFile],
-                    BmsonSongs = [],
-                    DuplicateChartGroups = []
-                };
-                EnsureCurrentResourceHealthIndex(library);
-                Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
-                int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
-                int ownedCollectionVersionChanged = 0;
-                int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
-                int parentFolderVersionChanged = 0;
-                library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
-                {
-                    if (args.PropertyName == "OwnedChartCollectionVersion")
-                    {
-                        ownedCollectionVersionChanged++;
-                    }
-                    if (args.PropertyName == "BMSParentFolderListCacheVersion")
-                    {
-                        parentFolderVersionChanged++;
-                    }
-                };
-                var delta = new LibraryMutationDelta
-                {
-                    InvalidateParentFolderCache = true,
-                    ClearDuplicatedCache = true
-                };
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
-                {
-                    Chart = ChartFileProjection.FromBmsFile(bmsFile),
-                    OldPath = oldBmsPath,
-                    NewPath = newBmsPath
-                });
-
-                FileNotFoundException exception = Assert.ThrowsException<FileNotFoundException>(() =>
-                    InvokeApplyLibraryMutationDelta(library, delta));
-
-                Assert.IsNotNull(exception);
-                Assert.AreEqual(baselineOwnedCollectionVersion, library.OwnedChartCollectionVersion);
-                Assert.AreEqual(0, ownedCollectionVersionChanged);
-                Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
-                Assert.AreEqual(1, parentFolderVersionChanged);
-                Assert.IsNull(library.DuplicateChartGroups);
-                Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
-            }
-            finally
-            {
-                if (Directory.Exists(tempRootPath))
-                {
-                    Directory.Delete(tempRootPath, recursive: true);
-                }
-            }
-        });
-    }
-
-
 }

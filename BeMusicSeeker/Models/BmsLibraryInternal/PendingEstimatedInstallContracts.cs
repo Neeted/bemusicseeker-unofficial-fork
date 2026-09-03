@@ -15,37 +15,10 @@ internal sealed class PendingEstimatedInstallCatalogPreparation
     internal ChartScanResult DirectoryScan { get; init; }
 }
 
-internal sealed class PendingEstimatedInstallCatalogApplyReceipt(
-    bool hasFailure,
-    Action completeUnderGuard,
-    Action publishAfterGuard)
-{
-    private Action completeUnderGuard =
-        completeUnderGuard ?? throw new ArgumentNullException(nameof(completeUnderGuard));
-
-    private Action publishAfterGuard =
-        publishAfterGuard ?? throw new ArgumentNullException(nameof(publishAfterGuard));
-
-    internal bool HasFailure { get; } = hasFailure;
-
-    internal void CompleteUnderGuard()
-    {
-        Interlocked.Exchange(ref completeUnderGuard, null)?.Invoke();
-    }
-
-    internal void PublishAfterGuard()
-    {
-        Interlocked.Exchange(ref publishAfterGuard, null)?.Invoke();
-    }
-}
-
-internal sealed class PendingEstimatedInstallPostGuardReceipt(
+internal sealed class PendingEstimatedInstallPostGuardResult(
     int affectedCount,
-    Action publish,
     ExceptionDispatchInfo failure = null)
 {
-    private Action publish = publish ?? throw new ArgumentNullException(nameof(publish));
-
     internal int AffectedCount { get; } = affectedCount;
 
     internal void ThrowIfFailed()
@@ -53,10 +26,6 @@ internal sealed class PendingEstimatedInstallPostGuardReceipt(
         failure?.Throw();
     }
 
-    internal void Publish()
-    {
-        Interlocked.Exchange(ref publish, null)?.Invoke();
-    }
 }
 
 internal sealed class EstimatedInstallDeferredFeedback
@@ -80,6 +49,14 @@ internal sealed class EstimatedInstallDeferredFeedback
     internal void LogInstallWarning(Exception exception, string message)
     {
         notifications.Add(EstimatedInstallFeedbackNotification.WarningLog(exception, message));
+    }
+
+    internal void DeferDiagnosticEffect(Action effect)
+    {
+        if (effect != null)
+        {
+            notifications.Add(EstimatedInstallFeedbackNotification.DeferredAction(effect));
+        }
     }
 
     internal void ShowEstimatedCleanupOnlyCompletedWarning(int cleanupOnlySucceeded)
@@ -121,7 +98,8 @@ internal enum EstimatedInstallFeedbackKind
     Dialog,
     CleanupOnlyWarning,
     PerformanceLog,
-    WarningLog
+    WarningLog,
+    DeferredAction
 }
 
 internal sealed class EstimatedInstallFeedbackNotification
@@ -146,6 +124,8 @@ internal sealed class EstimatedInstallFeedbackNotification
     internal int CleanupOnlySucceeded { get; private init; }
 
     internal Exception Exception { get; private init; }
+
+    internal Action Action { get; private init; }
 
     internal static EstimatedInstallFeedbackNotification Dialog(
         string message,
@@ -186,6 +166,14 @@ internal sealed class EstimatedInstallFeedbackNotification
         {
             Exception = exception,
             Message = message
+        };
+    }
+
+    internal static EstimatedInstallFeedbackNotification DeferredAction(Action action)
+    {
+        return new EstimatedInstallFeedbackNotification(EstimatedInstallFeedbackKind.DeferredAction)
+        {
+            Action = action
         };
     }
 }
@@ -241,11 +229,20 @@ internal sealed class PendingEstimatedInstallExecutionReceipt
 
     internal PendingEstimatedInstallCollectionApplyResult InstalledApplyResult { get; init; }
 
-    internal PendingEstimatedInstallCatalogApplyReceipt CatalogApplyReceipt { get; init; }
+    /// <summary>
+    /// Existing package-collection publication deferral.  The scope is kept
+    /// alive until the outer file-mutation lease has released, then disposed
+    /// by the command owner so DB apply and UI publication cannot overlap.
+    /// </summary>
+    internal IDisposable CollectionPublicationScope { get; init; }
 
-    internal PendingEstimatedInstallPostGuardReceipt MaintenanceReceipt { get; set; }
+    internal PendingEstimatedInstallPostGuardResult MaintenanceReceipt { get; set; }
 
-    internal PendingEstimatedInstallPostGuardReceipt InlineChartInfoReceipt { get; set; }
+    internal Action MaintenancePublication { get; set; }
+
+    internal PendingEstimatedInstallPostGuardResult InlineChartInfoReceipt { get; set; }
+
+    internal Action InlineChartInfoPublication { get; set; }
 
     internal long LibraryStateApplyMs { get; init; }
 
@@ -263,8 +260,6 @@ internal sealed class PendingEstimatedInstallExecutionContext
     private readonly List<IDisposable> packageEntryNotificationDeferrals = [];
 
     internal EstimatedInstallDeferredFeedback DeferredFeedback { get; } = new();
-
-    internal PendingEstimatedInstallCatalogApplyReceipt CatalogApplyReceipt { get; set; }
 
     internal void DeferPackageEntryNotifications(IEnumerable<ChartPackage> packages)
     {

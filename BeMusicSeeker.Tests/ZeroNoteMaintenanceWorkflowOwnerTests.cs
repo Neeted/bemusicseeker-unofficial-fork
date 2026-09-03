@@ -28,7 +28,7 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task RecheckAsync_ExecutesOnceInsideSharedChartFileGate()
+    public async Task RecheckAsync_FailsFastWhileSharedChartFileGateIsBusyThenRunsAfterRelease()
     {
         var synchronizer = new ChartFileOperationSynchronizer();
         var library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
@@ -41,35 +41,19 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
                 Assert.AreSame(library, actualLibrary);
                 Interlocked.Increment(ref recheckCount);
             });
-        var gateHeld = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task gateHolder = Task.Factory.StartNew(
-            () =>
-        {
-            using (synchronizer.Enter())
-            {
-                gateHeld.TrySetResult(true);
-                releaseGate.Task.GetAwaiter().GetResult();
-            }
-        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-
+        Assert.IsTrue(synchronizer.TryEnter(out IDisposable incumbent));
         try
         {
-            await gateHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Task<bool> recheckTask = owner.RecheckAsync();
-            Assert.IsFalse(recheckTask.IsCompleted);
+            Assert.IsFalse(owner.Recheck());
             Assert.AreEqual(0, Volatile.Read(ref recheckCount));
-
-            releaseGate.TrySetResult(true);
-            Assert.IsTrue(await recheckTask);
-            await gateHolder;
-            Assert.AreEqual(1, Volatile.Read(ref recheckCount));
         }
         finally
         {
-            releaseGate.TrySetResult(true);
-            await gateHolder;
+            incumbent.Dispose();
         }
+
+        Assert.IsTrue(owner.Recheck());
+        Assert.AreEqual(1, Volatile.Read(ref recheckCount));
     }
 
     [TestMethod]

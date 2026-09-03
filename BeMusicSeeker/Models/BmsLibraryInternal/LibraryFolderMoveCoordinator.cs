@@ -48,21 +48,32 @@ internal static class LibraryFolderMoveCoordinator
             host.ShowRenameFolderNotExists(srcDir);
             return null;
         }
-        FileDbMutationReceipt receipt = null;
-        host.RunWithFolderMoveWriteLocks(() =>
+        string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
+        if (host.EntryExists(dstDir))
         {
-            string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
-            receipt = MoveLibraryChartFolder(
-                host,
-                srcDir,
-                dstDir,
-                unregister,
-                notifyStorageRowPathChanges: false);
-            if (receipt?.DurableCommit == true && unregister == false)
+            host.ShowMoveDestinationAlreadyExists(srcDir, dstDir);
+            return null;
+        }
+        FileDbMutationReceipt receipt = null;
+        List<Action> postLeaseNotifications = [];
+        try
+        {
+            host.RunWithFolderMoveWriteLocks(mutationCapability =>
             {
-                host.InvalidateDuplicateChartGroupsCache();
-            }
-        });
+                receipt = MoveLibraryChartFolder(
+                    host,
+                    srcDir,
+                    dstDir,
+                    unregister,
+                    notifyStorageRowPathChanges: false,
+                    mutationCapability: mutationCapability,
+                    postLeaseNotifications: postLeaseNotifications);
+            });
+        }
+        finally
+        {
+            InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+        }
         return receipt;
     }
 
@@ -71,14 +82,20 @@ internal static class LibraryFolderMoveCoordinator
         string srcDir,
         string dstDir,
         bool? unregister,
-        bool notifyStorageRowPathChanges)
+        bool notifyStorageRowPathChanges,
+        LibraryFileMutationCapability mutationCapability,
+        ICollection<Action> postLeaseNotifications)
     {
+        ArgumentNullException.ThrowIfNull(mutationCapability);
+        ArgumentNullException.ThrowIfNull(postLeaseNotifications);
         return TryMoveLibraryChartFolder(
             host,
             srcDir,
             dstDir,
             unregister,
-            notifyStorageRowPathChanges);
+            notifyStorageRowPathChanges,
+            mutationCapability,
+            postLeaseNotifications);
     }
 
     internal static void MoveLibraryRootFolder(
@@ -105,45 +122,55 @@ internal static class LibraryFolderMoveCoordinator
             throw new ArgumentNullException(nameof(dstDir));
         }
         List<FileDbMutationReceipt> receipts = [];
-        host.RunWithFolderMoveWriteLocks(() =>
+        List<Action> postLeaseNotifications = [];
+        try
         {
-            if (!host.DirectoryExists(dstDir))
+            host.RunWithFolderMoveWriteLocks(mutationCapability =>
             {
-                host.ShowMoveDestinationRootNotFound(dstDir);
-                return;
-            }
-            List<LibraryChartRef> chartRefs = host.CreateNonNullChartRefList(charts);
-            List<ChartFile> chartSnapshots = [.. chartRefs
-                .Select(chart => chart?.ToChartFile())
-                .Where(chart => chart != null)];
-            List<FolderAutoRenamePlan> plans = null;
-            host.RunWithFolderMoveSnapshotLocks(
-                () => plans = host.BuildRootFolderMovePlans(chartSnapshots, dstDir));
-            if (ContainsDriveRootSource(chartRefs))
-            {
-                host.ShowDriveRootCannotChangeRoot();
-            }
-            foreach (FolderAutoRenamePlan plan in plans)
-            {
-                FileDbMutationReceipt receipt = MoveLibraryChartFolder(
-                    host,
-                    plan.SourceDirectory,
-                    plan.DestinationDirectory,
-                    unregister,
-                    notifyStorageRowPathChanges: true);
-                if (receipt != null)
+                if (!host.DirectoryExists(dstDir))
                 {
-                    receipts.Add(receipt);
+                    postLeaseNotifications.Add(() => host.ShowMoveDestinationRootNotFound(dstDir));
+                    return;
                 }
-                if (receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+                List<LibraryChartRef> chartRefs = host.CreateNonNullChartRefList(charts);
+                List<ChartFile> chartSnapshots = [.. chartRefs
+                    .Select(chart => chart?.ToChartFile())
+                    .Where(chart => chart != null)];
+                List<FolderAutoRenamePlan> plans = null;
+                host.RunWithFolderMoveSnapshotLocks(
+                    () => plans = host.BuildRootFolderMovePlans(chartSnapshots, dstDir));
+                if (ContainsDriveRootSource(chartRefs))
                 {
-                    // The first compensation failure leaves an uncertain
-                    // source/backup/staging tree.  No later folder mutation may
-                    // start until that tree is recovered manually.
-                    break;
+                    postLeaseNotifications.Add(host.ShowDriveRootCannotChangeRoot);
                 }
-            }
-        });
+                foreach (FolderAutoRenamePlan plan in plans)
+                {
+                    FileDbMutationReceipt receipt = MoveLibraryChartFolder(
+                        host,
+                        plan.SourceDirectory,
+                        plan.DestinationDirectory,
+                        unregister,
+                        notifyStorageRowPathChanges: true,
+                        mutationCapability: mutationCapability,
+                        postLeaseNotifications: postLeaseNotifications);
+                    if (receipt != null)
+                    {
+                        receipts.Add(receipt);
+                    }
+                    if (receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+                    {
+                        // The first compensation failure leaves an uncertain
+                        // source/backup/staging tree.  No later folder mutation may
+                        // start until that tree is recovered manually.
+                        break;
+                    }
+                }
+            });
+        }
+        finally
+        {
+            InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+        }
         return new FileDbMutationBatchReceipt(receipts);
     }
 
@@ -160,15 +187,19 @@ internal static class LibraryFolderMoveCoordinator
         string srcDir,
         string dstDir,
         bool? unregister,
-        bool notifyStorageRowPathChanges)
+        bool notifyStorageRowPathChanges,
+        LibraryFileMutationCapability mutationCapability,
+        ICollection<Action> postLeaseNotifications)
     {
+        ArgumentNullException.ThrowIfNull(mutationCapability);
+        ArgumentNullException.ThrowIfNull(postLeaseNotifications);
         if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
         if (host.EntryExists(dstDir))
         {
-            host.ShowMoveDestinationAlreadyExists(srcDir, dstDir);
+            postLeaseNotifications.Add(() => host.ShowMoveDestinationAlreadyExists(srcDir, dstDir));
             return null;
         }
         try
@@ -193,40 +224,74 @@ internal static class LibraryFolderMoveCoordinator
             {
                 FileDbMutationCommitResult databaseResult = delta == null
                     ? FileDbMutationCommitResult.Durable()
-                    : host.ApplyLibraryMutationDeltaForFileMutation(delta, "move_folder");
+                    : host.ApplyLibraryMutationDeltaForFileMutation(
+                        delta,
+                        "move_folder",
+                        capability: mutationCapability,
+                        postLeaseNotificationObserver: postLeaseNotifications.Add);
                 if (!databaseResult.DurableCommit)
                 {
                     return databaseResult;
                 }
-                return FileDbMutationCommitResult.Durable(() =>
-                {
-                    try
+                return FileDbMutationCommitResult.Durable(
+                    () =>
                     {
+                        databaseResult.DurableFinalizer?.Invoke();
                         reverseLookupMutation = host.MoveFolderReferencesAfterCommit(srcDir, dstDir);
-                        host.LogReverseLookupMutationAndQueueWarmupIfNeeded(
-                            "move_folder",
-                            reverseLookupMutation);
-                    }
-                    finally
-                    {
-                        // The catalog owner has already crossed the durable
-                        // point.  Its deferred notification must still run if
-                        // the resource-index publication faults.
-                        databaseResult.PostCommit?.Invoke();
-                    }
-                }, databaseResult.Failure);
+                        if (unregister == false)
+                        {
+                            host.InvalidateDuplicateChartGroupsCache();
+                        }
+                    },
+                    databaseResult.Failure);
             });
+            if (receipt?.DurableCommit == true)
+            {
+                postLeaseNotifications.Add(() => host.LogReverseLookupMutationAndQueueWarmupIfNeeded(
+                    "move_folder",
+                    reverseLookupMutation));
+            }
             if (!receipt.DurableCommit)
             {
-                host.ShowFolderMoveFailed(srcDir, dstDir, receipt.Failure ?? new IOException("Folder move failed."));
+                Action showFailure = () => host.ShowFolderMoveFailed(
+                    srcDir,
+                    dstDir,
+                    receipt.Failure ?? new IOException("Folder move failed."));
+                postLeaseNotifications.Add(showFailure);
                 return receipt;
             }
             return receipt;
         }
         catch (Exception moveException)
         {
-            host.ShowFolderMoveFailed(srcDir, dstDir, moveException);
+            postLeaseNotifications.Add(() => host.ShowFolderMoveFailed(srcDir, dstDir, moveException));
             return null;
+        }
+    }
+
+    private static void InvokePostLeaseNotificationsBestEffort(IEnumerable<Action> notifications)
+    {
+        foreach (Action notification in notifications ?? [])
+        {
+            try
+            {
+                notification?.Invoke();
+            }
+            catch (Exception exception)
+            {
+                // A dialog or log subscriber is diagnostic-only.  It must not
+                // replace a durable filesystem/DB result or trigger retry.
+                try
+                {
+                    Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
+                        exception,
+                        "file_mutation_post_lease_notification_failed");
+                }
+                catch
+                {
+                    // Diagnostics are intentionally best effort.
+                }
+            }
         }
     }
 }

@@ -52,68 +52,12 @@ internal sealed class Lr2FolderFileDiffOwner
             && fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories?.Count > 0;
     }
 
-    internal void Apply(
-        BmsLibraryOptionsSnapshot options,
-        IReadOnlyList<string> rootDirectories,
-        SongTableFileCheckResult fileCheckResult,
-        string reason,
-        Task<Lr2FolderFileDiffPreparationResult> preparationTask = null)
-    {
-        if (!CanPrepare(options, fileCheckResult))
-        {
-            return;
-        }
-
-        Lr2FolderFileDiffPreparationResult preparation = WaitForPreparation(
-            preparationTask,
-            options,
-            rootDirectories,
-            fileCheckResult,
-            reason);
-        if (preparation?.Request == null)
-        {
-            return;
-        }
-
-        int scanCandidateCount = fileCheckResult.Lr2ScanLr2FolderFilePaths?.Count ?? 0;
-        var stopwatchSurfaceApply = Stopwatch.StartNew();
-        ApplyLr2SyncRequestSurfaceToFileCheckResult(fileCheckResult, preparation.Request);
-        ApplyLr2FilteredFolderCandidateSurfaceToFileCheckResult(fileCheckResult, preparation);
-        stopwatchSurfaceApply.Stop();
-        long surfaceApplyMs = stopwatchSurfaceApply.ElapsedMilliseconds;
-        bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
-        logInstallPerformance("lr2folder_file_diff_prepare"
-            + " reason=" + (reason ?? "unknown")
-            + " rootsMs=" + preparation.RootsMs
-            + " builtinSourceMs=" + preparation.BuiltinSourceMs
-            + " appManagedScopeMs=" + preparation.AppManagedScopeMs
-            + " filterMs=" + preparation.FilterMs
-            + " parentSurfaceMs=" + preparation.ParentSurfaceMs
-            + " extraTextRootsMs=" + preparation.ExtraTextRootsMs
-            + " textMetadataMs=" + preparation.TextMetadataMs
-            + " surfaceApplyMs=" + surfaceApplyMs
-            + " totalMs=" + (preparation.TotalElapsedMs + surfaceApplyMs));
-        logInstallPerformance("lr2folder_file_diff_filter"
-            + " reason=" + (reason ?? "unknown")
-            + " candidates=" + scanCandidateCount
-            + " externalCandidates=" + preparation.Request.Lr2FolderFilePaths.Count
-            + " appManagedFiltered=" + preparation.AppManagedCandidateCount
-            + " appManagedScopeDirs=" + preparation.AppManagedOutputDirectories.Count
-            + " appManagedExactFiles=" + preparation.AppManagedOutputFilePaths.Count
-            + " appManagedPruneExcludedPaths=" + preparation.AppManagedPruneExcludedPaths.Count
-            + " allowPruneRequested=" + allowPrune.ToString().ToLowerInvariant());
-        lr2Synchronization.SyncLr2FolderFileRows(
-            options,
-            preparation.Request,
-            reason,
-            "lr2folder_file_diff_sync",
-            allowPrune,
-            pruneExcludedDirectories: preparation.AppManagedOutputDirectories,
-            pruneExcludedPaths: preparation.AppManagedPruneExcludedPaths,
-            scopeReadLr2FolderRowsOnly: true);
-    }
-
-    private Lr2FolderFileDiffPreparationResult WaitForPreparation(
+    /// <summary>
+    /// Resolves the optional prefetch result, recomputing preparation when the
+    /// prefetch task failed.  This method only returns preparation data; the
+    /// scan pipeline owns when its surfaces become visible to the file diff.
+    /// </summary>
+    internal Lr2FolderFileDiffPreparationResult WaitForPreparation(
         Task<Lr2FolderFileDiffPreparationResult> preparationTask,
         BmsLibraryOptionsSnapshot options,
         IReadOnlyList<string> rootDirectories,
@@ -146,6 +90,82 @@ internal sealed class Lr2FolderFileDiffOwner
                 + " message=" + getDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
             return Prepare(options, rootDirectories, fileCheckResult, reason);
         }
+    }
+
+    /// <summary>
+    /// Applies prepared LR2 surfaces to the completed file-scan result without
+    /// entering the LR2 mutation corridor.
+    /// </summary>
+    internal void ApplyPreparedSurface(
+        SongTableFileCheckResult fileCheckResult,
+        Lr2FolderFileDiffPreparationResult preparation,
+        string reason)
+    {
+        if (preparation?.Request == null)
+        {
+            return;
+        }
+
+        int scanCandidateCount = fileCheckResult?.Lr2ScanLr2FolderFilePaths?.Count ?? 0;
+        var stopwatchSurfaceApply = Stopwatch.StartNew();
+        ApplyLr2SyncRequestSurfaceToFileCheckResult(fileCheckResult, preparation.Request);
+        ApplyLr2FilteredFolderCandidateSurfaceToFileCheckResult(fileCheckResult, preparation);
+        stopwatchSurfaceApply.Stop();
+        long surfaceApplyMs = stopwatchSurfaceApply.ElapsedMilliseconds;
+        bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
+        logInstallPerformance("lr2folder_file_diff_prepare"
+            + " reason=" + (reason ?? "unknown")
+            + " rootsMs=" + preparation.RootsMs
+            + " builtinSourceMs=" + preparation.BuiltinSourceMs
+            + " appManagedScopeMs=" + preparation.AppManagedScopeMs
+            + " filterMs=" + preparation.FilterMs
+            + " parentSurfaceMs=" + preparation.ParentSurfaceMs
+            + " extraTextRootsMs=" + preparation.ExtraTextRootsMs
+            + " textMetadataMs=" + preparation.TextMetadataMs
+            + " surfaceApplyMs=" + surfaceApplyMs
+            + " totalMs=" + (preparation.TotalElapsedMs + surfaceApplyMs));
+        logInstallPerformance("lr2folder_file_diff_filter"
+            + " reason=" + (reason ?? "unknown")
+            + " candidates=" + scanCandidateCount
+            + " externalCandidates=" + preparation.Request.Lr2FolderFilePaths.Count
+            + " appManagedFiltered=" + preparation.AppManagedCandidateCount
+            + " appManagedScopeDirs=" + preparation.AppManagedOutputDirectories.Count
+            + " appManagedExactFiles=" + preparation.AppManagedOutputFilePaths.Count
+            + " appManagedPruneExcludedPaths=" + preparation.AppManagedPruneExcludedPaths.Count
+            + " allowPruneRequested=" + allowPrune.ToString().ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// Applies one already-prepared LR2 folder-file request through the
+    /// caller-owned mutation lease.  Preparation and the terminal bridge are
+    /// intentionally separate so the scan owner remains capability-free.
+    /// </summary>
+    internal void ApplyPrepared(
+        BmsLibraryOptionsSnapshot options,
+        Lr2FolderFileDiffPreparationResult preparation,
+        string reason,
+        LibraryFileMutationCapability mutationCapability)
+    {
+        if (preparation?.Request == null)
+        {
+            return;
+        }
+        if (mutationCapability == null)
+        {
+            throw new ArgumentNullException(nameof(mutationCapability));
+        }
+
+        bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
+        lr2Synchronization.SyncLr2FolderFileRows(
+            options,
+            preparation.Request,
+            reason,
+            "lr2folder_file_diff_sync",
+            mutationCapability,
+            allowPrune,
+            pruneExcludedDirectories: preparation.AppManagedOutputDirectories,
+            pruneExcludedPaths: preparation.AppManagedPruneExcludedPaths,
+            scopeReadLr2FolderRowsOnly: true);
     }
 
     internal Lr2FolderFileDiffPreparationResult Prepare(

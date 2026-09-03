@@ -444,7 +444,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         public void Queue(
             string reason,
             bool force,
-            Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
+            bool prepareGeneratedData = false,
             bool allowIncompleteToQueue = true)
         {
             QueueCount++;
@@ -454,24 +454,16 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             {
                 throw QueueFailure;
             }
-            prepareGeneratedData?.Invoke();
         }
 
         public bool TryRunDataPreparation(
             string reason,
-            Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
+            bool includeBuiltinGeneratedData = false,
             Action queueAfterPreparation = null)
         {
-            prepareGeneratedData();
             queueAfterPreparation?.Invoke();
             return true;
         }
-
-        public Lr2SongDbSyncPreparedDataSurface PreparePlaylistGeneratedData(string reason) =>
-            Lr2SongDbSyncPreparedDataSurface.Empty;
-
-        public Lr2SongDbSyncPreparedDataSurface PrepareBuiltinGeneratedData(string reason) =>
-            Lr2SongDbSyncPreparedDataSurface.Empty;
 
         public void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason)
         {
@@ -481,6 +473,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
 
         public Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(
             string reason) => null;
+
     }
 
     private sealed class NoOpDialogService : IUiDialogService

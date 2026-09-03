@@ -77,8 +77,9 @@ Implementation status: in progress
 12. `D-12 External URI`: external playlist sync は drive path、`file:` URI、UNC を許し、SMB 接続を禁止しない。URL1/URL2 acquisition の initial/resolved/recursive hop は `http`/`https` のみとし、unsupported scheme を gateway、temp write、browser、install sink へ渡さない。`AppHttpClient` は global 制限しない。
 13. `D-13 Drop`: stable、managed、transient の別なく、source、trusted root 下 ancestor、全 descendant の reparse point を batch admission 前に拒否する。一件でも該当すれば batch 全体を拒否する。検査後 TOCTOU の完全排除は対象外とする。
 14. `D-14 Deferred findings`: 「修正推奨だが v2.1.6.0 からの回帰ではない問題」と「稀な edge」は初回実装へ混ぜず、後続 backlog に残す。
-15. `D-15 LR2 sync`: LR2 同期が未収束でも Completed になり得る件は本 plan で変更せず、[LR2 song.db 同期診断の監査メモ](../memo/lr2-song-db-sync-diagnostic-audit-note.md) を後続調査の正本とする。
-16. `D-16 Empty DB first scan`: 完了 marker 不在は、既定設定では file diff による retry が成功すれば収束するため、issue/backlog として扱わない。
+15. `D-15 Exclusive file-mutation lease`: file mutation admission は短い sequence monitor 内で LR2 と他の file mutation の双方に対する排他的 logical lease を原子的に取得し、monitor は直ちに解放する。lease は immutable snapshot 作成後の executor、DB durable apply、compensation/cleanup、内部 finalization まで保持するが、dialog、UI scheduler、property/event subscriber、task start、別 owner callback の前に解放する。nested internal apply は ambient reentrancy ではなく明示 capability / reserved route だけを使う。
+16. `D-16 LR2 sync`: LR2 同期が未収束でも Completed になり得る件は本 plan で変更せず、[LR2 song.db 同期診断の監査メモ](../memo/lr2-song-db-sync-diagnostic-audit-note.md) を後続調査の正本とする。
+17. `D-17 Empty DB first scan`: 完了 marker 不在は、既定設定では file diff による retry が成功すれば収束するため、issue/backlog として扱わない。
 
 ## Done when
 
@@ -129,13 +130,16 @@ Authority は decision list、上記の approved audit facts、関連する feat
 | Contract ID | Required observable outcome | Negative control / completion | Placement |
 | --- | --- | --- | --- |
 | `REL-V216-ID` | size/hash の両方が一致する zip だけを採用し、fallback しない | size-only/hash-only/source-build/ab9 substitution を個別に fail | extend `DistributionArtifactContractTests` + pinned metadata |
+| `REL-V216-CACHE-MISS` | valid checked-in metadata と absent canonical cache は failure にせず、指定 exact HTTPS URL から一時 file へ一度だけ取得し、固定 size/hash 検証後に canonical cache へ公開する | cache miss の failure 化、別 URL、途中 bytes の canonical 公開、取得物の検証省略を fail | Full `v216-cache-preparation` phase |
+| `REL-V216-CACHE-HIT` | valid canonical cache は再取得せず、固定 size/hash を検証してそのまま利用する | valid cache の不要 download、size/hash 検証省略を fail | same preparation phase |
+| `REL-V216-CACHE-FAIL-CLOSED` | metadata missing/invalid、既存 cache mismatch、download failure は fail closed とし、fallback、repair、retry を行わない | source/latest/ab9 fallback、既存 corrupt cache の上書き、自動 retry を fail | same preparation phase |
 | `REL-CRITICAL-ROSTER` | mapped exact FQN が各一回だけ `Passed` | missing、duplicate、Skipped、Inconclusive、NotExecuted を個別に fail | extend `VerificationRunnerContractTests` + Full outcome gate |
 | `REL-OPTIONAL-SKIP` | optional skip は exact FQN allowlist と非空 reason receipt がある時だけ許可 | category allow、unknown skip、空理由を fail | same runner contract |
 
 semantic authority は下記全自動 Contract ID である。各 implementation unit は exact FQN mapping を handoff し、root が `U9` の Full 前に checked-in roster を凍結する。test rename は roster と Contract ID mapping を同じ変更で更新する。
 
 - `UPD-V216-HAPPY`, `UPD-V216-LOCK`, `UPD-V3-LOCK`, `UPD-V3-POSTMUTATION`, `UPD-V3-ROLLBACK-FAIL`
-- `REL-V216-ID`, `REL-CRITICAL-ROSTER`, `REL-OPTIONAL-SKIP`
+- `REL-V216-ID`, `REL-V216-CACHE-MISS`, `REL-V216-CACHE-HIT`, `REL-V216-CACHE-FAIL-CLOSED`, `REL-CRITICAL-ROSTER`, `REL-OPTIONAL-SKIP`
 - `START-ADMIT`, `START-DEFER`, `START-SHUTDOWN`
 - `DB-OUTER-ROLLBACK`, `DB-RETRY`, `DB-STEP`, `DB-PRIMARY`, `DB-PARTIAL`
 - `FAIL-LOG`, `FAIL-STARTUP`, `FAIL-DETAIL`, `FAIL-BULK`, `FAIL-RESTORE`, `FAIL-SHUTDOWN`
@@ -269,7 +273,7 @@ URL acquisition と external playlist sync は別 owner/allowlist のままに�
 | `U6` Failure propagation and success suppression | Verified | implementation-worker closed | U4, U5 | `FAIL-*` | commit `9cc94a51`; focused Quick `tests-quick-20260831-141114` 13/13 pass; U7/outcome gateとの統合 Quick `tests-quick-20260831-165123` 376 pass + approved 7 cross-volume skips |
 | `U7` Package/folder file+DB boundary | Verified | implementation-worker + issue-resolver closed | U0 | `COMP-*` | commit `0ae8e615`; focused Quick `tests-quick-20260831-164409` 346 pass + approved 7 cross-volume skips; integrated `tests-quick-20260831-165123` |
 | `U8` URI and drop ingress boundaries | Verified | implementation-worker closed | U0 | `ING-*` | commit `bb90d8bd`; head 77 pass + deterministic reparse coverage + privilege symlink skip `tests-quick-20260831-123039`; integrated `tests-quick-20260831-125110` |
-| `U9` Integration, release qualification, static review | In progress | root + implementation-worker | U1–U8 | full roster | optional outcome gate `a2417f80`; roster cardinality `e4a39294`; format blocker `a4023804`; shared specs `1d8abf51`; actual-v2 Full receipt gate `ad237eb1`; exact roster Quick `tests-quick-20260831-232239` 31/31 pass; first Fullで検出したshutdown failure isolationを`cde646a2`で修正、focused Quick `tests-quick-20260901-000851` 34/34 pass; final Full再実行、reviewが残る |
+| `U9` Integration, release qualification, static review | Replanned | root + implementation-worker | U1–U8 | full roster + `D-15` | first Full shutdown blockerを`cde646a2`で修正。second Full `tests-full-20260901-001311` のstale testsを`74c54918`/`d434427c`で修正。LR2 stale contract調査で全file routeのlong-lived monitor/external-effect P1を確認し、packet `D15-EXCLUSIVE-FILE-MUTATION-20260901`をfreeze。D-15 coherent unit、再Full、reviewが残る |
 
 ## Implementation units
 
@@ -309,7 +313,7 @@ Replan if:
 
 Observable outcome:
 
-- checked-in metadataで public zip identityを固定し、指定 artifactがない、size/hash不一致なら release laneを fail closed にする。source build fallbackは設けない。
+- checked-in metadataで public zip identityとexact HTTPS download URLを固定する。`ProcessIntegration` より前の単一 `v216-cache-preparation` phaseが cache を確認し、valid cacheはhitとしてそのまま使い、canonical cacheが無い場合だけ指定URLから同一directoryのtemporary fileへbounded downloadする。固定 size/hashの検証後にatomic publishするため、cache miss自体はfailureにしない。metadata missing/invalid、既存cache mismatch、download failure、取得物のmismatchはrelease laneをfail closedにする。source build/latest/ab9 fallback、repair、retryは設けない。
 - actual v2 updaterの legacy argument/close protocolで v3 packageを適用する。通常 pathは v3 app起動、`data/config` semantic preservationまで確認する。
 - legacy locked-file caseは `UPD-V216-LOCK` の characterizationだけを要求する。old updaterの非zero exitとredirected `stderr` の非空error diagnosticをfailure surfaceとして捕捉し、current updaterのready/decision handshakeを旧 updaterへ要求しない。
 - `ab9d` current-updater baseline laneを別 identity/別 purposeとして残し、actual v2 laneと混同しない。
@@ -334,14 +338,14 @@ Writable paths:
 
 Verification and handoff:
 
-- artifact metadata自体に binary/source-build fallbackを含めない。cache/locationはvariationだがseal receiptを必須にする。
+- artifact metadata自体に binary/source-build/latest/ab9 fallbackを含めない。cache miss時のdownload URLはmetadataに保持し、exact HTTPSを検証する。cache/locationはvariationだが、temporary downloadからの固定size/hash検証とatomic canonical publishを必須にする。
 - synthetic TRXで0件、2件、各non-passed outcome、unknown optional skip、空理由を個別に落とす。
 - actual v2 process lineageとredirected stdout/stderrをすべてdrainし、非zero exitと非空error diagnosticをreceiptへ残す。legacy edge後のmanaged treeを無理に正常化してcharacterizationを強化しない。
 - public noteはhuman/structured release checklistで意味を確認し、exact prose/source copy testを作らない。
 
 Replan if:
 
-- sealed public artifactを取得できない、または identityが不一致である。
+- metadataを読み取れない、既存cacheが不一致、または指定URLからのdownload / size/hash検証 / atomic publishが通常budget内で完了しない。
 - actual v2 happy pathが失敗する。
 - old updaterを動かすためにpackage format 1を破る必要がある。
 - acceptanceが既存時間budget内でdeterministicに完了せず、固定待ちや単純timeout延長しか案がない。
@@ -546,6 +550,402 @@ Replan if:
 
 追加所有pathは上記Writable pathsに含める。`duplicate-file-check.md` の恒久仕様差分はU7からhandoffし、shared specと合わせてU9で統合する。
 
+#### Replan addendum — exclusive logical mutation lease (2026-09-01)
+
+second Full `artifacts/verification/tests-full-20260901-001311` の stale
+`Lr2SynchronizationArchitectureTests` failureを起点に、folder move、auto-rename、duplicate mergeの
+scope lifetimeを静的監査した。`EnterMutationReservation` は短いadmission用の
+`mutationSequenceGate` monitorと`MutationInProgress` reservationを一つのcompositeとして返し、
+filesystem/DB/cleanupだけでなく、dialog、`Dispatcher.Invoke`、property subscriber、task startまで
+monitorを保持していた。他方、`TryBeginMutation`は既存`MutationInProgress`を拒否しないため、monitorだけを
+早期解放するとfile mutation同士の排他性を失う。これは`D-09`–`D-11`の実装詳細ではなく、
+deadlockと中間状態競合を同時に防ぐためのrelease-blocking P1である。
+
+Root decision:
+
+- `D-15`を採用する。短いsequence monitor内でexclusive logical leaseを原子的に取得し、monitorは
+  admission直後に解放する。logical leaseはLR2と別file mutationをcommand terminalizationまで拒否する。
+- folder move、auto-rename、duplicate mergeのsnapshot scopeはinitialized-min read、pending-install write、
+  BMS-files writeのcanonical順だけを保持し、immutable plan/delta完成後、executor前に逆順で解放する。
+  package/legacy/init/LR2 preparation routeは必要最小限のroute-specific lockを短く保持してよいが、
+  filesystem executor、DB apply、cleanupへ入る前にsnapshot/model/package/collection lockをすべて解放する。
+- leaseはfilesystem executor、DB durable apply、compensation/cleanup、external effectを含まない内部
+  finalizationまで保持する。dialog、UI scheduling、`PropertyChanged`/public subscriber、normal refresh、
+  task start、別 owner callbackはtyped deferred effectとして返し、lease解放後に一度だけ実行する。
+- nested DB/catalog applyはsame-thread monitor reentrancyやambient stateで許可せず、明示的な
+  `...UnderExistingReservation` capability/routeでのみ参加する。
+- `ManualRecoveryRequired`、`CompletedWithCleanupFailure`、source retention、compensation exactly-once、
+  durable receiptの意味は変更しない。failureをsuccessに変えるfallbackや新しいpersistent stateは追加しない。
+- `devdocs/spec/library-mutation-boundary.md` の「admission/reservationもexecutor前に解放する」という文言は
+  unsafeな誤記として、短いmonitor/snapshot lockとlogical leaseのlifetimeを区別する契約へ修正する。
+- alternativeとしてlogical reservationもexecutor前に解放する案は、LR2/file mutationが中間filesystem/DB
+  stateへ同時進入できるためrejectする。
+
+Implementation unit:
+
+- foundation、folder move、auto-rename、duplicate merge、package install、invalid-extension rename、
+  library/pending chart removal、installation-directory repair、startup leap-year timestamp repair、
+  LR2 preparation custom-folder output、regular-folder failure dialog ordering、spec/testを一つのcoherent unitとして
+  一writerが所有する。foundation-onlyやambient compatibility shimだけのcommitは、旧long-lived scopeまたは
+  non-exclusive routeを残すため作らない。
+- `FileDbMutationBoundary` はcleanup後のdeferred post-commit effectをtypedに返せない現状だけを最小拡張する。
+  executorへmodel/UI ownerを移さず、command ownerがlease解放後のeffectを所有する。
+- expected production pathsは`LibraryFileOperationSynchronization.cs`、
+  `LibraryFileOperationMutationBoundary.cs`、`BMSLibrary.Lr2SynchronizationOwner.cs`、
+  `BMSLibrary.LibraryFileOperationOwner*.cs`、`LibraryFolderMoveCoordinator.cs`、
+  `AutoRenameBatchCoordinator.cs`、`InvalidExtensionRenameCoordinator.cs`、
+  `BmsLibraryLibraryFileOperationsService.cs`、`BmsLibraryPackageInstallService.cs`、
+  `BMSLibrary.PackageInstall.cs`、`BmsLibraryInitializationService.cs`、
+  `Lr2SongDbSyncRequestCoordinator.cs`、`BMSPlaylist.cs`、`FileDbMutationBoundary.cs`、
+  関連する`BMSLibrary.cs`、`RegularChartListOwner.cs`。explicit capabilityをruntime portへ通す必要がある場合だけ
+  `Lr2SongDbSyncWorkflowOwner.cs`を含める。`PackageLifecycleOwner.cs`は既存collection deferralをlease外で
+  開始・flushできない場合だけ含める。実装調査で不要と確認したpathは触らない。
+- Test Contract Packet `D15-EXCLUSIVE-FILE-MUTATION-20260901`を承認する。Contract IDは
+  `D15-ADM`、`D15-SNAP`、`D15-LIFE`、`D15-FOLDER`、`D15-AUTO`、`D15-MERGE`、`D15-CAP`、
+  `D15-EXEC`、`D15-REG`、`D15-PKG`、`D15-PKG-SNAP`、`D15-LEG-RENAME`、`D15-LEG-REMOVE`、
+  `D15-LEG-FIX`、`D15-INIT-REPAIR`、`D15-LR2-PREP`。conditional packet
+  `FULL-LR2-SCOPE-20260901`は`D-15`と本packetでcloseする。既存required 33 FQN rosterは変更しない。
+- 書込み並列化はしない。shared synchronization API、巨大owner、fixtureが重なるため最大worker数は1。
+
+Done when:
+
+- sequence monitorはadmission callbackから戻る前に解放される一方、別file mutationとLR2はlogical lease中に
+  決定的に拒否/待機し、terminalization後に再度admitできる。
+- executor、DB apply、cleanup中にsnapshot/model/collection lockは0で、cleanup完了前にleaseを解放しない。
+- folder、auto-rename、merge、package、legacy chart command、startup repair、LR2 preparationの
+  dialog/UI/event/subscriber/task-start/other-owner callbackはleaseとsnapshot lockが0の状態で一度だけ実行され、
+  callbackからのreentryがmonitor deadlockを起こさない。
+- normal/pending file command、startup repair、LR2 preparationも通常のpublic nested admissionではなく、
+  outer leaseが発行した明示capabilityだけで内部DB/catalog/file participantへ参加する。
+- regular folder renameのouter operation gateはfailure dialog flush前に解放される。
+- focused Quick、変更snapshotのFull、frozen static reviewが成功する。
+
+Replan if:
+
+- exclusive leaseとLR2 reservationをexplicit capabilityのまま分離できず、ambient reentrancyが必要になる。
+- deferred external effectへ移すためにdurable/cleanup receipt semanticsを変更する必要がある。
+- public subscriber/task-startをlease内に残さなければ既存observable orderを維持できない。
+- 全file routeを同じexclusive lease contractで閉じられず、shared APIのambient互換shimが必要になる。
+
+#### D-15 implementation checkpoint and corrective slices (2026-09-01)
+
+最初のcoherent implementation attemptはfoundationと全routeの接続を一つのworktree snapshotへ作成し、
+focused Quick `artifacts/verification/tests-quick-20260901-032338` で151 pass / 6 approved
+cross-volume skip / 0 failまで到達した。ただしfresh static checkpoint auditで、test対象が4 fixtureに限られ、
+次のrelease-blocking P1とpacket coverage gapが残ることを確認したため、このsnapshotはcommitしない。
+
+- package auto installのdurable DB apply、installed-target internal finalizationがlease解放後へ漏れ、
+  estimated installはpackage execution gateをfilesystem/DB/cleanup中も保持している。
+- advanced pending cleanup-only routeはouter leaseを取得せず、package effect chainは先行effect例外で後続
+  catalog completionを抑止する。
+- merge receiptはdeferred maintenance前にfactsを確定し、post-releaseにunsafe snapshotを取得する。
+- legacy rename/remove/fixはpreflight confirmationまたはimmutable snapshot/revalidationが不足し、
+  dialog/live stateをlease内へ残す経路がある。
+- startup timestamp repairはcandidate identityの再検証が不足し、null file mutation serviceをsuccess扱いする。
+- LR2 capability runtimeにlegacy fallback、LR2 ownerにno-op sequence compatibility surfaceが残る。
+- direct semantic testは`D15-EXEC`の大半と`D15-ADM`/`D15-SNAP`/`D15-CAP`の一部だけで、
+  `D15-LIFE`、route-level merge/regular/legacy/LR2 preparation等は未検証。base-red
+  `tests-quick-20260901-025754`はstale expectationであり、approved negative controlの代替にはしない。
+- specはatomic admission順を誤って記述し、D-15 verification map、regular gate、startup/LR2 route inventoryが不足する。
+
+Correction order:
+
+1. Package lifecycle sliceを単独で修正する。DB/internal finalizationはouter capability内、publicationだけを
+   deferredにし、estimated gateをexecutor前に解放、cleanup-onlyへleaseを追加、effect chainをfailure-isolatedにする。
+2. package snapshotがgreenになった後、pathが重ならない範囲でmerge、legacy command、initialization、
+   LR2/API cleanupを最大2 writerで修正してよい。`BMSLibrary.cs`またはshared synchronization APIが重なる場合は
+   並列化しない。
+3. foundation、folder/auto/merge/regular、package/pending、startup/LR2の4 test sliceで全16 Contract IDを
+   direct semantic oracleまたはapproved targeted mutantへ対応付ける。source/private reflectionだけでlock/leaseを
+   証明しない。
+4. 全slice統合後にfocused Quickを一回通し、D-15 snapshotを一commitとして確定する。partial foundationや
+   ambient compatibility surfaceを残す中間commitは作らない。
+
+#### D-15 corrective checkpoint 2 (2026-09-01)
+
+Package sliceは、estimated gateのexecutor前解放、auto durable applyとinstalled-target finalizationの
+outer capability内実行、advanced cleanup-only routeのouter lease、failure-isolated effect chainを実装した。
+targeted mutant `artifacts/verification/tests-quick-20260901-052603` とhead
+`artifacts/verification/tests-quick-20260901-052742`（113 pass / 2 approved skip / 0 fail）を証拠とする。
+Merge sliceはimmutable maintenance input、lease解放後effect、effect後receipt、failure/reentry oracleを実装し、
+head `artifacts/verification/tests-quick-20260901-054937` で4/4 passとした。legacy統合fixtureは
+`artifacts/verification/tests-quick-20260901-062221` で164 pass / 1 approved cross-volume skip / 0 failだが、
+これはcompile/regression evidenceに限り、次のdirect contract gapを閉じない。
+
+- library removalはplanned childの失敗後にもapproved ancestorをrecursive deleteし得る。whole-folder deleteは
+  prerequisite targetの実行成功集合が揃った場合だけ許し、それ以外はfile-onlyへ縮退させる。
+- normal/pending invalid-extension rename、pending removal、installation repairのpost-admission revalidationが
+  preflight objectの再投影に留まる。normal/repairはcurrent canonical catalog、pending routeはcurrent pending
+  package snapshotからidentity、owner、path、hash、membershipを再解決し、不一致ならfilesystemへ進まない。
+- invalid-extension renameのfailure dialogはauthoritative catalog/pending publicationより後、かつlease/lock解放後に
+  実行する。DB failureをlegacy rename dialogへ誤分類しない。
+- after-admission filesystem/DB participantのcapabilityは必須引数とし、nullable/direct apply fallbackを削除する。
+
+Shared lease foundationにはさらにrelease-blocking P1がある。現行`IDisposable.Dispose`はrelease/effectの結果を
+返せず、deferred effect failureを捨て、release failureで後続effectを抑止し、primary exception処理中に投げれば
+primaryを置換し得る。これは「成功に見える失敗」を禁止するD-15のfailure contractへ直接反するため、次を
+coherent correctionとして扱う。
+
+- completion開始時にcapabilityを無効化し、owner releaseを試行した後、release failureの有無にかかわらず
+  全deferred effectを登録順・各一回・failure-isolatedで実行する。completionはrelease/effectの全failureを
+  immutable receiptとして返す。
+- command runnerはprimary exceptionの同一instanceとthrow siteを保持し、secondary completion receiptを失わない。
+  primaryがないvoid/list/bool routeはcompletion failureをthrowし、成功値を返さない。
+- typed routeはdurable/cleanup/manual-recovery factsを再分類せず、terminalization failureをreceipt/resultで明示する。
+  effectをleaseへ移譲したreceiptから同じeffectを再取得・再実行できないようにする。
+- outer command ownerだけがcompletionを行い、nested participantは必須capabilityだけを受け取る。
+  `EnterMutationSequence` no-op compatibility surface、capability-free write overload、nullable/runtime-probe fallbackを退役する。
+
+このfailure propagationはobservable test semanticsを含むため、既存packetへの独立amendmentを実装前に凍結する。
+amendmentがauthority gapを報告した場合、またはtyped consumerまでfailureを運ぶためにdurable stateの意味変更が
+必要になった場合だけ再計画する。そうでなければshared foundationを一writerで先に修正し、そのAPIへlegacy、
+startup、LR2 routeを順に移行する。D15全体は引き続き一commitとし、最新snapshotのfocused Quick、Full、
+frozen static reviewが揃うまで確定しない。
+
+Test Contract Packet amendment `D15-EXCLUSIVE-FILE-MUTATION-20260901 / Amendment A1:
+TERMINALIZATION` を承認する。追加Contract IDは`D15-TERM-CAP`、`D15-TERM-EFFECTS`、
+`D15-TERM-PRIMARY`、`D15-TERM-VOID`、`D15-TERM-RECEIPT`、`D15-TERM-RELEASE`、
+`D15-TERM-READMIT`、`D15-TERM-LEGACY`。observable authority gapはなく、既存16 IDの意味とrequired 33 FQN
+rosterは変更しない。worker編集前snapshotはbase `4150c69f49e5ef66a7732dd3817660f4b54ca1b9`、
+binary diff hash `119f399efd602721d492d5451cbaf22e39f2e924`、29 filesとして記録した。新しいcompletion seamが
+baseへ存在しないcaseはcompile failureをred evidenceにせず、amendment記載のtargeted mutantを使う。
+
+Startup initialization sliceは`D15-INIT-REPAIR` / `D15-LIFE`を実装済みとする。catalog identityとexact mtimeを
+admission後に再検証し、差し替え・消失したcandidateではfilesystem/DB mutationを行わず、null mutation serviceを
+明示failureにした。base-red `artifacts/verification/tests-quick-20260901-064601`（13 pass / 2 intended fail）、
+head `artifacts/verification/tests-quick-20260901-070351`（17/17 pass）を証拠とし、統合後の再実行を残す。
+
+#### D-15 scope simplification decision (2026-09-01)
+
+性能/KISS監査で、全件deferred callback、startup追加全走査、pending全件deep clone、および通常起こらない
+internal release failureへのstate-machine保証が正常系コストと保守性を悪化させることを確認した。ユーザー承認により、
+次のdecisionをA1より優先する。既存16 Contract ID、durable/cleanup/manual-recovery semantics、required 33 FQN
+rosterは変更しないが、A1の`D15-TERM-EFFECTS`、`D15-TERM-VOID`、`D15-TERM-RECEIPT`、
+`D15-TERM-RELEASE`はAmendment A2で次の範囲へ改訂する。
+
+- package/auto-rename batchのexclusive leaseは維持する。中間progressは件数比例のclosureを保持せず、
+  bounded latest-value coalescerへpublishする。mutation ownerから任意callback、UI dispatcher、task startを呼ばず、
+  中間値の間引きを許容する。workflow ownerがadmission前に開始した独立consumerはmodel/package/collection lockを
+  持たず、lease中にもbest-effort progressを配信してよい。subscriberからのmutation再入はblockせずlogical leaseで
+  決定的に拒否する。terminal progress/resultだけをlease解放後に一度publishする。
+- canonical model/catalog/live-stateのauthoritative post-commit publication failureはoperation failureとして明示し、
+  success milestoneを返さない。progress、dialog、通常notificationはnon-authoritative best-effortとし、
+  failure-isolatedで診断へ残すが、確定済みdurable/cleanup/manual-recovery outcomeを再分類しない。
+- internal lease releaseはI/Oと外部callbackを含まないno-fail-by-designの短いowner操作に限定する。
+  completion開始時のcapability無効化、通常release後のeffect実行、primary exceptionを隠さないことは維持するが、
+  人工的なrelease failure後にも全effect実行・再admissionできるという多重故障保証は対象外とする。
+- DBはアプリprocess-exclusiveを前提とし、外部DB変更検知のためのoperationごとの再SELECT、定期reload、
+  全件比較を追加しない。transaction/SQLite failureは隠さず、次回起動時の既存整合性確認に委ねる。
+- filesystemは外部変更され得るため、承認対象pathの存在、reparse、必要最小限のidentityだけをdestructive operation
+  直前に安価に確認する。catalog/pending全体のcloneや再走査は行わない。
+- startup leap-year candidateは既存folder load loopで収集し、別のDB全folder列挙と全path mtime問い合わせを追加しない。
+  承認済みcandidateだけをadmission後にtargeted revalidateする。
+- pending rename/remove/fixは対象package/chart/install-rowだけのimmutable mapを一度構築し、unused full cloneと
+  targetごとのlinear scanを削除する。preflight identityがadmission前後で変わればmutationしないこと、child failure後に
+  ancestor recursive deleteへ拡大しないことは維持する。
+- `EnterWriteScope`等の実体を失ったcompatibility引数、optional/null capability、ambient/runtime-probe fallbackは退役する。
+
+Test Contract Packet `D15-EXCLUSIVE-FILE-MUTATION-20260901 / Amendment A2:
+SCOPE-SIMPLIFICATION / Correction C1`を承認する。新規IDは`D15-A2-PROGRESS`、
+`D15-A2-PROGRESS-SEAL`、`D15-A2-DB-SCOPE`、`D15-A2-FS-SCOPE`、
+`D15-A2-STARTUP-SCOPE`、`D15-A2-PENDING-SCOPE`。A1の`D15-TERM-EFFECTS`、
+`D15-TERM-VOID`、`D15-TERM-RECEIPT`を上記classificationへreplaceし、`D15-TERM-RELEASE`をretireする。
+`D15-TERM-CAP`、`D15-TERM-READMIT`、`D15-TERM-PRIMARY`、`D15-TERM-LEGACY`は通常releaseと
+bounded telemetry exceptionを反映して維持する。
+
+Progressのobservable boundはpending最大1、draining最大1、scheduled/running UI work O(1)とし、wall-clockや
+allocation snapshotではなくbackpressureとwork ledgerで検証する。consumerを明示pumpできる場合はlease中に
+少なくとも一つの中間progressを配信可能でなければならない。terminalization開始後は同generationのlate progressを
+捨て、次batchへ漏らさない。authoritative publication、dialog、terminal callbackは引き続きpost-releaseとする。
+
+実装は一writerで、先にprogress closure、startup追加全走査、pending全clone/O(N²)を縮小し、その上で必要最小限の
+completion seamへrouteを移行する。packageでは既存`ActiveStatusPublication`のlatest/scheduled patternを再利用し、
+auto-renameへfeature-localに同patternだけを置く。汎用progress frameworkやlossless queueは追加しない。
+
+A2 worker-start snapshotはbase `a1fd18e1c179a1028b33b1895a3129a4e644f4d3`、binary diff hash
+`119f399efd602721d492d5451cbaf22e39f2e924`、29 filesとして固定する。
+
+#### D-15 A2 implementation checkpoint (2026-09-01)
+
+Startup scope simplificationは完了した。leap-year candidateを既存`NormalizeSongTable` folder loopで収集し、
+initial lease解放後のdialogで承認されたK件だけをexact-path queryとmtimeでrevalidateする。追加全folder capture、
+repair時の全row dictionary、approved-path/defer plumbingを退役した。identity-guard mutant
+`artifacts/verification/tests-quick-20260901-082016`は意図した1 fail、head
+`artifacts/verification/tests-quick-20260901-082111`は17/17 pass。DB workは3N相当からN+K targeted、
+追加memoryはO(N)からO(K)となる。
+
+Progress sliceはshared gate blockerにより一旦停止した。package/autoを含むproduction 14 callerは
+`ChartFileOperationSynchronizer.Enter()`のblocking/reentrant `Monitor`をBMS logical admissionより先に取得する。
+別threadのintermediate progress subscriberから別workflowへ再入するとlogical leaseのrejectへ届かず待機し、
+同期waitではdeadlockし得る。既存6 testはbusy中の待機継続を明示的に固定し、startup attachにはsame-thread
+Monitor reentrancy依存もある。
+
+Issue resolverは、全workflowへBMS capabilityを露出するlogical-first再設計をrejectし、共有gateを
+`Interlocked.CompareExchange`によるthread-independent/nonreentrant `TryEnter(out lease)`だけへ置換する案を
+推奨した。blocking/reentrant `Enter`、wait fallback、ambient tokenは残さず、busy時はfilesystem/DB/catalog、
+playback stop、activity/suppression publication、dialog、source ownership transferを開始せず、各既存typed/null/bool
+routeで明示failure/rejectionを返す。terminal後のfresh admissionは成功する。`RegularChartListOwner`のnested attach
+gateはfile operationでないため退役し、playback temporary copyはrename/source enumeration前にgateを取得する。
+
+この案はA2 progress再入をKISSに閉じる一方、通常の同時workflow操作も「gate解放まで待ってから実行」から
+「busyとして即時拒否」へ変えるobservable behaviorを伴う。ユーザー承認によりfail-fastを採用する。
+`D15-ADM`、`D15-A2-PROGRESS`、`D15-A2-PROGRESS-SEAL`、`D15-TERM-READMIT`のcoherent gate
+migrationとして、14 production callerのside-effect-zero failure mappingと、既存wait test 6件の退役/置換を
+独立test-contract addendumで凍結してから実装する。busy retry queue、blocking fallback、ambient token、
+BMS capabilityのViewModel横断伝播は追加しない。
+
+Test Contract Packet `D15-CHART-FILE-GATE-FAILFAST-20260901`を承認する。Contract IDは
+`D15-GATE-CORE`、`D15-GATE-LEASE`、`D15-GATE-BUSY-ZERO`、`D15-GATE-AUTO`、
+`D15-GATE-PACKAGE`、`D15-GATE-DUP`、`D15-GATE-CATALOG`、`D15-GATE-PENDING-EXEC`、
+`D15-GATE-PENDING-READ`、`D15-GATE-SELECTED-READ`、`D15-GATE-SELECTED-MUTATE`、
+`D15-GATE-REGULAR-RENAME`、`D15-GATE-ZERO`、`D15-GATE-PLAYBACK`、`D15-GATE-STARTUP`、
+`D15-GATE-REGULAR-ATTACH`、`D15-GATE-TERMINAL`、`D15-GATE-LEGACY`。same/cross-thread busy即時false、
+cross-thread/exactly-once/stale-safe lease release、caller別failure、busy side-effect zero、terminal後fresh admitを
+凍結する。新規required FQN、lane、DNP、timeout変更は行わない。
+
+Shared gate migrationは完了した。`Monitor`とblocking/reentrant `Enter`を退役し、CAS tokenによるcapacity-1、
+thread-independent/nonreentrant `TryEnter(out lease)`へ移行した。leaseはcross-thread dispose、repeated/concurrent
+dispose、stale leaseに対してexactly-onceかつactive ownerを解放しない。14 production callerはgate取得をdialog、
+activity/suppression、playback stop、filesystem/DB/catalog access、source ownership transfer、startup attachより前へ
+移し、busyを各routeの明示failure/rejectionとして即時返す。`RegularChartListOwner`のnormal-library refresh attachは
+file operation gateから退役し、startup aggregate attachだけが外側で保護する。
+
+focused verification `artifacts/verification/tests-quick-20260901-103000/functional`はprimitive、package gate
+replacement、duplicate、selected、regular rename/attach、playback、application composition、startup、folder refreshの
+計199件がpassし、build 0 error、`git diff --check` clean。busy/reentrant mutantは2/2 fail、stale/double-dispose
+mutantは1/2 failし、いずれもheadへ復元済み。旧package generation testが新契約でも旧wait signalを残したため
+最初のcombined run `artifacts/verification/tests-quick-20260901-093220`はresultなしで300秒hard timeoutしたが、
+当該testを「競合中の即時failureとcleanup、解放後のfresh explicit request」に置換し個別にpassした。timeout延長、
+worker削減、retry/wait fallbackは追加していない。
+
+Progress simplificationは完了した。package installとfolder auto-renameは、workflow ownerがadmission前に生成する
+feature-local capacity-1/latest-wins consumerと、mutation producerへ渡すimmutable factのnonblocking writerへ移行した。
+mutation/model側からの同期delegate呼出し、UI dispatcher/task start、件数比例のdeferred closure蓄積を退役した。
+consumerはmodel/package/collection lockを持たずにlease中の中間progressを配信でき、shared fail-fast gateにより
+subscriber mutation再入は待機せずbusyとなる。pending最大1、draining最大1、scheduled/running UI work O(1)で、
+中間値の間引きを許容する。terminal seal後のsame-generation late valueは破棄し次batchへ漏らさず、terminal
+progress/resultだけを通常release後にexactly once publishする。progress failureはbest-effort診断でcanonical resultを
+再分類しない。
+
+focused Quick `artifacts/verification/tests-quick-20260901-112522/functional`は155 total、153 pass、
+既承認skip 2、0 fail、Release build 0 error、`git diff --check` clean。per-item scheduling mutantはbounded-dispatch
+assertionでfailし、auto-rename seal除去はdispatch count 3 vs 2、package seal除去はtwo-batch stale-progress oracleで
+failした。全mutantはheadへ復元済み。同期progress adapter、旧`ExpandInstallSources`、旧
+`InstallChartPackagesAutoWithResult`、auto-renameのper-item deferred progress routeを退役し、汎用framework、timer、
+polling、persistent state、lossless queueは追加していない。
+
+Pending/legacy simplificationの独立Test Contract Packet
+`D15-EXCLUSIVE-FILE-MUTATION-20260901 / Amendment A2: SCOPE-SIMPLIFICATION / Correction C1 —
+PENDING-LEGACY`を承認する。適用IDは`D15-A2-PENDING-SCOPE`、`D15-A2-DB-SCOPE`、
+`D15-A2-FS-SCOPE`、`D15-SNAP`、`D15-LIFE`、`D15-REG`、`D15-LEG-RENAME`、
+`D15-LEG-REMOVE`、`D15-LEG-FIX`、`D15-TERM-CAP`、`D15-TERM-PRIMARY`、
+`D15-TERM-LEGACY`。observable semanticsのauthority gapはない。worker開始時にgate/progressを含む
+実行base revisionとbinary diff hashを改めて固定し、A2 worker-start `a1fd18e1c179a1028b33b1895a3129a4e644f4d3`
+を無条件のbase-red revisionとしては使わない。
+
+Pending/legacy worker-start snapshotはbase `021a5a6380693d435515d9852f344c2c79641290`、tracked binary diff
+hash `d2ace143924106f922ca41c4d5b5edbb63b3048a`、tracked 47 filesとして固定する。untrackedは
+`BeMusicSeeker.Tests/ChartFileOperationSynchronizerTests.cs`（blob
+`220b9119e2d5e921813e4e005d7d1f0d49a99c80`）と
+`BeMusicSeeker/Models/BmsLibraryInternal/PackageInstallProgressContracts.cs`（blob
+`770bd0508dbbe6ec5bf4a27002f16565fdc995a8`）の2 filesである。後者は完了済みprogress sliceのproduction
+contractであり、pending workerは両untracked fileを変更しない。
+
+対象K件についてprojection buildは一回、unrelated package/chart/install row projectionは0、key lookupはK以下、
+sequential candidate comparisonは0をwork ledgerで検証する。wall-clock、allocation、source/private reflectionは
+oracleにしない。confirmation後のDB再SELECT/reload/full compareは0とし、destructive work直前のtarget FS
+existence/reparse/必要最小identityだけを再検証する。stale/missing/reparse-invalid targetはFS/DB mutation 0かつ
+明示non-successとし、同一pathでもowner/package membershipが変わればstaleとする。child failure後のrecursive
+ancestor deleteは0で、failed/unprocessed siblingとDB membershipを保持する。renameのglobal path/index changeは
+canonical durable apply/publicationだけから生じ、missing/null/foreign/disposed capabilityはmutation前にrejectする。
+primary mutation failureをdiagnostic/cleanup failureで置換せず、人工lease-release failureは注入しない。
+
+negative controlはunrelated lazy/tripwire packageへ触るfull-clone mutant、triangular comparisonとなるO(K²) mutant、
+execution phase DB full-read mutant、late FS probe省略 mutant、durable apply前global path/index mutation、child failure後の
+recursive parent delete、nullable capability direct fallback、primary exception replacementを使う。新しいpersistent
+telemetry、test-only public API、全file hash、journal/rollbackは追加しない。
+
+Pending/legacy simplificationは完了した。rename/remove/fixは対象K件だけのimmutable keyed projectionを一回構築し、
+unused full Pending deep cloneとtargetごとのlinear matchingを退役した。admission後はprocess-exclusiveなcurrent owner、
+package membership、authorized pathとtarget FS existence/reparse/必要最小identityを再検証し、unresolved/stale targetを
+明示rejectする。外部DB変更検知のための再SELECT/reload/full compare、guard目的の全file hashは追加していない。
+
+pending install-row deltaはprojectionを受け取り、invalid-extension renameはdurable applyより前にglobal path/indexを
+変更しない。selected childの失敗/stale後はrecursive ancestor/package-root deleteへ拡大せず、failed/unprocessed
+siblingとmembershipを保持する。既に成功したchildについて、authorized ancestryのnon-recursive empty cleanupだけを
+best-effortで許可する。pending-specific nested applyはexplicit live owning capabilityを検証し、direct/null fallbackを
+通さない。
+
+filtered Quick `artifacts/verification/tests-quick-20260901-122840/functional`は121 total、119 pass、既承認skip 2、
+pending-only `artifacts/verification/tests-quick-20260901-123528/functional`は6/6 pass、related
+`artifacts/verification/tests-quick-20260901-122429/functional`は104 total、103 pass、既承認skip 1。
+late FS probeを外すmutant `artifacts/verification/tests-quick-20260901-121347`と、child failure後にrecursive parent
+cleanupを許すmutant `artifacts/verification/tests-quick-20260901-121438`は各1 intended failで、両方headへ復元済み。
+build 0 error、Roslynator project analysis 0 diagnostics、`git diff --check` clean。新規persistent telemetry、test-only
+public API、sleep、timeout/lane/DNP変更はない。zero-note legacy package routeは本unit対象外のfoundation handoffとする。
+
+Foundation/LR2 preparationの独立Test Contract Packet `D15-FOUNDATION-LR2-PREP-20260901`を承認する。
+適用IDは`D15-ADM`、`D15-CAP`、`D15-EXEC`、`D15-LIFE`、`D15-REG`、`D15-LR2-PREP`、
+`D15-TERM-CAP`、`D15-TERM-PRIMARY`、`D15-TERM-READMIT`、`D15-TERM-LEGACY`。observable semanticsの
+authority gapはなく、worker開始時にgate/progress/pendingを含むbase revisionとbinary diff hashを固定する。
+
+Foundation/LR2 worker-start snapshotはbase `7ebb0ad503083dc49d67c418f5072376399fbaef`、tracked binary
+diff hash `bb0a186031f31b972b20e279ecff2eafaf10451d`、tracked 47 filesとして固定する。untrackedは
+`BeMusicSeeker.Tests/BmsLibraryPendingLegacyMutationTests.cs`（blob
+`a93bfc6a15dad11e08f86d8c9bd50b9a7b569095`）、
+`BeMusicSeeker.Tests/ChartFileOperationSynchronizerTests.cs`（blob
+`220b9119e2d5e921813e4e005d7d1f0d49a99c80`）、
+`BeMusicSeeker/Models/BmsLibraryInternal/PackageInstallProgressContracts.cs`（blob
+`770bd0508dbbe6ec5bf4a27002f16565fdc995a8`）の3 filesで、foundation/LR2 workerは変更しない。
+
+leaseはadmission、capability lifetime、no-I/O/no-callbackの短いreleaseだけを所有し、typed command/coordinatorが
+post-release terminalizationを分類する。canonical prepared surface/model/catalog/live-state publication failureは
+operation failureでsuccess milestoneを返さず、progress/dialog/log/ordinary notification failureはbest-effort診断として
+durable/cleanup/manual-recovery outcomeを再分類しない。primary exception identity/throw frameをsecondary failureより優先し、
+人工release failureの注入・receipt・state machineは追加しない。
+
+LR2 preparationはcustom-folder physical outputとplaylist/LR2 DB syncを一つのexplicit live capabilityで所有し、両方の
+完了と通常releaseより前にprepared surfaceをcanonical publishしない。queue busyは現在statusを待機なしで返し、explicit
+`TryRun`は既存のwait/retry semanticsを維持する。chart-file fail-fastをLR2へ一般化しない。optional/null capability、
+capability-free port/runtime、runtime provider probe、`EnterMutationSequence`、`EnterLr2MutationSequence`、ignored
+`EnterWriteScope` argumentsは最終compiled caller graphから退役する。foundationとLR2は一writerのserial sub-sliceとし、
+途中のcompatibility shimを残さない。required FQNに退役対象が含まれる場合はrosterを黙って変更せず再計画する。
+
+negative controlはcapability invalidation遅延、null/foreign/disposed capability受入、preparation phase間の早期release、
+release前prepared-surface publication、authoritative failure swallow、best-effort failureによるdurable再分類、primary
+exception置換、queue/TryRun admission統合、compatibility overload/runtime probe再導入を使う。`D15-TERM-RELEASE`の
+release-fault mutantは実施しない。LR2未収束`Completed`は本unitの対象外で、
+`devdocs/memo/lr2-song-db-sync-diagnostic-audit-note.md`を後続課題の正本とする。
+
+Release required rosterをread-only監査し、canonical
+`devdocs/acceptance/v216-first-hop/artifact.json`の33 FQNには、退役予定の
+`Lr2SynchronizationArchitectureTests`、`BmsLibraryLr2SongDbSyncTests`、
+`Lr2SongDbSyncWorkflowOwnerTests`、capability-free custom-folder/output fixtureのFQNが一件も含まれないことを確認した。
+したがってfoundation/LR2 packetのrequired-FQN再計画条件は発火しない。直接影響するrequired entriesは既存
+`COMP-*` 6件（package 2件、resilient mutation boundary 4件）だけであり、manifest、
+`scripts/verification-runner-contract.ps1`、`scripts/verify-refactor.ps1`、
+`scripts/verification-test-outcomes.ps1`は変更しない。
+
+#### D15 local playlist admission correction
+
+Test Contract Packet `D15-PLAYLIST-LOCAL-ADMISSION-20260901` を承認する。Contract ID は
+`D15-PL-ADM-ZERO`、`D15-PL-RETRY`、`D15-PL-NOCOMMIT`、`D15-PL-NONLR2` とする。
+`RenameFolderBMSTable`、`RemoveFolderBMSTable`、`CreateNewFolderBMSTable`、
+`AddPlaylistEntriesToFolderBMSTable`、`RemoveEntriesBMSTable` は、LR2 custom-folder 出力を伴う
+commit 時だけモデル変更前に process-wide lease を非ブロッキング取得する。busy は待機せず明示失敗し、
+モデル、playlist DB、LR2 row、生成ファイル、BMT queue を変更しない。解放後の通常リトライは一度だけ
+mutation を適用して DB / custom-folder 出力を収束させる。`commitFlag=false` と非 LR2 は lease provider を
+参照しない。新規 queue、rollback state、full catalog snapshot、blocking fallback は追加しない。
+
+旧 table-writer 待機を固定していた
+`ReloadPlaylistTargetsAsync_SerializesLr2FolderConvergenceWithLocalFolderEdit` は、5操作の busy side-effect-zero、
+retry convergence、no-commit / non-LR2 negative control を検証する behavior test へ置換した。base-red は
+busy admission 前に `last_update` が変化する旧順序を検出し、head の `BmsPlaylistExternalReloadTests` は
+17/17 pass。D15 統合 focused Quick
+`artifacts/verification/tests-quick-20260901-182527/functional` は 375 total、369 pass、既承認 skip 6、
+build 0 error、tracked fingerprint unchanged である。busy 例外の型・翻訳文言、内部 lock 配置、timestamp、
+physical write 順は保証対象に含めない。
+
 ### U8 — URI scheme policy and drop descendant reparse rejection
 
 Observable outcome:
@@ -618,6 +1018,216 @@ FQNと33件cardinalityは変更しない。
   `tests-quick-20260901-000010`でfailure、head `tests-quick-20260901-000851` 34/34 pass、
   implementation commit `cde646a2`。
 - Requalification: snapshotが変わったためFullを再実行する。standalone Functionalは重ねない。
+
+#### U9 Full blocker addendum — existing-data startup repair admission
+
+Full `artifacts/verification/tests-full-20260901-193631` は canonical Functional を全 shardで完了した後、
+existing-data phaseで134.441秒後に失敗した。LR2 fixtureでは UI Automation が初期化完了を観測した一方、
+product warning dialogが残り、graceful shutdown要求後もself-contained appが終了しなかった。したがってこれは
+単なるacceptance-driver timeoutではなく、required LR2 workとpost-initialization custom-folder repairが競合して
+interactive busy warningを出したproduction failureと、そのdialogを初期化完了と独立に分類できなかったacceptance
+failureのcompound blockerとして扱う。retained sandboxのlogにはshutdown時点でrequired running 0、post task running 1と
+60秒の`startupBackgroundTasks` slow-waitが残る。
+
+承認済みTest Contract Packetは `existing-data-init-dialog-v1` と
+`startup-repair-required-idle-v1` である。後者のContract IDは `SRI-01`–`SRI-05` とし、次を凍結する。
+
+- custom-folder repairはrequired scheduling closureとqueued / running required work 0の両方を待つ。開始後はterminalまで
+  新しいrequired workを開始させないが、通常のpost taskの既存overlap / lane concurrencyは維持する。
+- shutdownは未開始repairをexactly once discardし、running required workのdrainを維持する。
+- admissionがなおbusyならbackground repairは`showMessage=false`で一度だけ取得を試み、待機・retry・dialog・status / DB /
+  filesystem mutationなしでfailureまたはskipとしてterminalにする。後続の通常起動がfresh reconciliationを行い、
+  retry stateは永続化しない。
+- foregroundの手動mutation routeは`showMessage=true`を維持する。
+
+実装はschedulerの既存required-idle判定を`playlist_custom_folder_output_repair`だけへ追加し、playlistのinjected
+lease providerを`Func<string, bool, LibraryFileMutationLease>`へ拡張してbackground repairだけをnoninteractiveにした。
+既存の通常post taskをidle-onlyへ広げず、dialog text、busy exception subtype、persistent retry queueは追加しない。
+focused evidenceはschedulerの `StartupBackgroundTaskSchedulerOwnerTests` 24/24 pass、existing-data dialog classifierの
+4/4 pass、`BmsPlaylistPersistenceLifecycleTests`の23/23 pass
+`artifacts/verification/tests-quick-20260901-204244/functional`である。後者は`SRI-03` / `SRI-05`について、
+repair targetが存在する状態からbusy admissionが即時terminalになり、一回だけ`showMessage=false`を要求し、status / DB /
+LR2 synchronization / output surfaceを変更しないこと、およびmanual再出力が`showMessage=true`を維持することを確認した。
+この時点ではreal existing-data acceptanceとfinal Fullを未実施としていた。その後の実受入で、初期化完了
+dialogそのものはexact caption/message/actionの分類、Invoke、消滅確認を通過したが、別のstartup raceが
+顕在化したため、次のaddendumでterminal convergenceを補強した。
+
+#### U9 Full blocker addendum — LR2 required sync / installable maintenance race
+
+Full `artifacts/verification/tests-full-20260901-215006` は同一binaryで直前に成功していたexisting-data
+acceptanceを179秒でtimeoutした。retained sandboxでは、required LR2 preparation lease解放直後に
+`installable_maintenance`がouter mutation leaseを取得し、LR2 requestが
+`queue_skipped status=Needed requestedVersion=0`のままterminal eventを出さなかった。さらに
+maintenance内の`setModeAndCommitToDB`がouter lease保持中にleaseを再取得してself-blockした。acceptanceは
+LR2 event待ちからdialog automationへ到達しておらず、dialog contractの回帰ではない。
+
+承認・実装したpacketは次の3件である。
+
+- `startup-repair-required-idle-v2` (`SRRI2-01`–`SRRI2-04`):
+  `installable_maintenance`だけを既存required-idle admissionへ追加し、required enrollment / queued / running
+  workがterminalになるまで開始しない。通常の他post task concurrencyは維持する。
+- `installable-outer-lease-capability-v1` (`IOLC1-01`–`IOLC1-03`)（historical proposal; superseded by the correction addendum below）:
+  maintenanceのouter leaseから同じlive capabilityを一度発行し、mode detectionとcatalog maintenanceへ渡す。
+  nested reacquisition、nullable fallback、retry、UI waitは追加しない。
+- `existing-data-lr2-queue-skipped-failfast-v1` (`EDLR2-01`–`EDLR2-03`):
+  acceptance runnerは同一log eventのexact tuple
+  `lr2_song_db_sync queue_skipped` / `status=Needed` / `requestedVersion=0`をterminal failureとして
+  completionより先に分類する。production status、timeout、retry stateは変更しない。これは当時の
+  blocker診断と暫定oracleの履歴であり、現行contractでは後述の`S3-LR2-DURABLE`にsupersedeされる。
+
+focused Quickは`artifacts/verification/tests-quick-20260901-230429/functional/results.trx`で164/164 pass。
+最終実配布snapshotのFull `artifacts/verification/tests-full-20260901-233628`はFunctional 2814 pass / 8 approved
+skip（170.9秒）、existing-data 22.5秒、update acceptance 40.1秒、ProcessIntegration 74 pass / 2 approved
+skip、actual v2.1.6.0 first-hop、ReleaseAcceptance 2/2、formatを完了した。analyzerは既存XML commentの
+`targetTypes` typo 1件だけで停止し、その1行を`targetType`へ修正した最終snapshotでanalyzer 0 diagnostics、
+format、`git diff --check`を再確認した。packetやproduction behaviorはこのanalyzer-only修正で変わらない。
+
+Full並列負荷で一度だけ失敗したprogress-writer fixtureは、production deadlockではなく
+`RunContinuationsAsynchronously` TCSとfake内の同長watchdogを競合させたtest harness flakeだった。
+productionを変更せず`ManualResetEventSlim`による専用thread handshakeへ置換し、関連40/40と対象3件の
+5反復15/15を通した。timeout延長、`DoNotParallelize`、worker削減、assertion弱化は行っていない。
+
+#### U9 correction addendum — installable capability scope (2026-09-02)
+
+The historical `installable-outer-lease-capability-v1` entry above is retained as the
+diagnosis of the earlier design, but it is superseded by
+`SIMPLIFY-V3-SAFETY-3000-S2-LIFECYCLE` (`S2-NARROW-NESTED` / `S2-LR2-IDLE`).
+It is not a current packet or current evidence source. In the corrected contract,
+`installable_maintenance` acquires one outer `LibraryFileMutationLease`; mode detection
+and catalog maintenance are ordinary capability-free work inside that lease. The live
+`LibraryFileMutationCapability` is retained only for the real installed-target durable
+completion → LR2 normal-folder synchronization bridge, where it is validated once at
+the under-existing-lease entry. No installable capability propagation, compatibility
+fallback, new seam, or new wait is allowed.
+
+The reflection-only installable maintenance test was retired because the nearby public
+startup/required-idle fixtures cannot provide the same observable mode-persistence
+coverage without a new seam or wait. The current evidence for this correction is
+`artifacts/verification/tests-quick-20260902-090050` (153 pass / 2 expected skips / 0 fail),
+x64 Release build with 0 errors, and a passing `git diff --check`. The prior
+`tests-quick-20260901-230429` and `tests-full-20260901-233628` artifacts remain historical
+records and must not be treated as evidence for the corrected installable capability
+scope.
+
+#### U9 correction addendum — reachable scan publication and acceptance KISS (2026-09-03)
+
+Unit Cのscan/catalog routeはTest Contract Packet `unit-c-scan-publication`
+（`SCAN-PUB-01` / `SCAN-PUB-02`）へ固定した。actual `ReloadFileDiff` と
+`Initialize(Startup)`は、song DB/catalog/LR2の内部applyをcaller-owned mutation leaseと
+initialization writer内で完了し、public catalog notificationだけを全outer scope解放後に
+best-effortでpublishする。subscriber exceptionはdurable successをfailureへ変えない。
+process-exclusive入口の内側で別catalog writerが介入するscan-only version conflictは到達不能なため、
+二重snapshot、全件copy、direct fixtureを退役した。installed-targetの到達可能なrevalidationは維持する。
+
+actual ingress testはlive Everything indexへ依存せず、既存`IChartFileScanner`の最小internal compositionから
+immutable captured surfaceを渡す。production defaultは従来の`EverythingFileScanner`のままである。
+startup testはDB-load reset batchをjournalで読み進め、最初のscan non-reset batchにだけpost-release確認と
+throwing subscriberを適用する。focused evidenceは`tests-quick-20260902-170734` 98/98、
+`tests-quick-20260902-175128` 56/56、final correction `tests-quick-20260902-181214` 2/2、
+x64 Release build 0 errorで、fresh static reviewはblocking findingなしだった。
+
+release acceptanceはPacket `S3-ACCEPTANCE-SIMPLIFICATION`へ置換した。deadline contract
+`S3-DEADLINE-EXEC` / `S3-DEADLINE-CLEANUP`はphaseごとに一つのabsolute execution deadlineと
+exact `+10s` failure-cleanup cutoffを共有し、stageごとのtimeout reset、late-success救済、primary failureの
+cleanup/receipt failureによる置換を許さない。process exit、stream drain、exact owned identity cleanup、
+phase resultを既存`verification-process-lifecycle.ps1`へ集約した。歴史的に分散していたrunner metadataの
+self-validator、metadata/source-copy assertion、test-side copied orchestration、独自`taskkill` fallbackを退役し、
+実runner/script/lifecycle seamを実行するtestだけを残した。takeover snapshotから約2,000 net linesを削除し、
+final focused evidenceは`tests-quick-20260902-225324` 20/20、fresh static reviewはblocking findingなしである。
+
+existing-data / first-hopは`S3-EXD-SCOPE`、`S3-EXD-MODAL`、`S3-EXD-ACTION`、
+`S3-FH-BLOCKING`、`S3-LR2-DURABLE`へ固定した。completion dialogはsame PID、visible/enabled modal、
+captured main HWNDのnative owner、唯一のvisible/enabled `ThemedMessageBoxOK` Invoke actionだけで分類し、
+localized caption/bodyや「唯一のnon-main window」をoracleにしない。first-hopはcompletion modal不在を許容するが、
+予期しないowner-bound blocking modalをdismissせずfailureにする。LR2 terminalはfree-form
+`queue_skipped` logではなく、graceful shutdown後のdurable completed status、empty error、nonempty
+signature/run ID、completed cursor、canonical folder/dataで判定する。final focused evidenceは
+`tests-quick-20260902-234947` 21/21と`tests-quick-20260902-235440` 1/1で、fresh static reviewは
+blocking findingなしだった。actual published-app UIA、pinned v2 first-hop、sealed distribution identityを含む
+positive oracleは最終Fullで確認するため、`tests-full-20260901-233628`は現snapshotのrelease evidenceに使わない。
+
+owned catalog notificationの統合修正はTest Contract Packet
+`UNITC-OWNED-CATALOG-NOTIFY`（`OCN-01`–`OCN-03`）へ固定した。catalog/DB/live projectionは
+caller-owned lease内で確定し、public notificationだけをlease解放後にbest-effortで公開する。
+normal/pending invalid-extension routeはcommand-owned collectorを必須とし、成功・失敗のどちらでも
+`finally`から一度だけflushする。durable commit後の後続LR2/live projection failureは補償、retry、replayせず、
+durable stateを保持したまま元例外を呼出元へ伝播する。canonical normal/pending testとtargeted mutantで、
+lease内の即時公開、`finally`欠落、durable failureの黙殺を区別した。focused evidenceは
+`tests-quick-20260903-020922`、`022425`、`024821`、negative controlは`020528`、`020717`、
+`022305`、`024528`で、最終fresh static reviewはblocking findingなしだった。新しいtest lane、
+runner self-test、永続状態、rollbackは追加していない。pre-final integrated Functional
+`tests-functional-20260903-025624`は159.5秒、2810 pass / 8 approved skip / 0 failで成功した。
+
+最初のfinal Full候補`tests-full-20260903-025959`は、成功した`dotnet tool restore`の終了処理で
+`tool-restore/command`が未作成のままstdout/stderrを保存し、`DirectoryNotFoundException`で失敗した。
+削除競合ではなくFull専用callerの作成漏れだった。最初の修正後Full
+`tests-full-20260903-030852`はtool restore、Functional 2810 pass / 8 approved skip（153.6秒）、publishを通過後、
+direct Start/Completeを使うexisting-data appでも未作成`app/log/process`への保存に失敗した。
+diagnostics directoryはStart中に消費されず、post-start failureもStop→Completeへ合流するため、作成責務を
+artifactの最初のconsumerである共通`Complete-VerificationRedirectedProcess`へ一本化した。外側wrapper、
+monitored-command、Startには重複作成を残していない。deadline、cleanup、failure contractは変更していない。
+runner metadata/self-test/source-copy assertionは追加せず、この2件のFullをred evidence、修正後Fullを
+positive acceptanceとする。存在しないcompletion pathを使う直接Start→Complete smoke、PowerShell parser、
+`git diff --check`は成功し、fresh static reviewはblocking findingなしだった。
+
+次のFull`tests-full-20260903-032400`は、Functional 2810 pass / 8 approved skip（158.6秒）、publish、
+existing-dataを通過後、update successの再起動appを240秒待って失敗した。updaterはexit 0だったが、共通
+lifecycleのnormal-success branchがdetached successorまでowned descendantとして停止し、直後のexact executable
+path adoptionより先に再起動appを終了させていた。一時的なstream task未完了で停止対象を決める修正もfocused
+actual updateで同じraceを再現した。generic lifecycleだけでは意図したsuccessorと不正な残留childを区別できないため、
+normal-successのlineage/stop branchを退役し、既存signal-driven stream drainへ直接進む。tree stopはtimeout、
+nonzero、明示`TerminateProcessTree`だけが所有する。新しいhandoff state、switch、固定猶予、retry、timeout延長、
+self-testは追加していない。既存lifecycle focused Quickは最終5/5、parser、diff-checkが成功し、fresh static reviewは
+blocking findingなしだった。
+
+この修正後のfocused actual updateではsuccess updateと再起動app adoptionが通過し、次にrollback updaterの
+意図したexit 1を`Wait-UpdaterExit`がgeneric failureとしてthrowするcaller-contract不整合を検出した。
+wait ownerはtimeoutとsecondary lifecycle diagnosticsだけを失敗として伝播し、clean exit codeは返す。
+success callerはnonzeroを拒否し、rollback callerはzeroを拒否してnonzero後のfailure receipt、非再起動、
+明示recovery、復元状態を検証する。新しいswitch、helper、testは追加せず、parser、diff-check、fresh static reviewは
+blocking findingなしだった。`runner-cleanup-success`（`RCS-01`–`RCS-03`）として、成功したowned descendant
+cleanupはsecondary failureにせず、primary nonzeroと実cleanup failure/residualを維持するよう既存testを置換した。
+focused actual update `update-acceptance-focused-20260903-0440`はsuccess restart、fault rollback、非再起動、
+明示recoveryを含めて成功した。
+
+Full`tests-full-20260903-041457`はFunctionalの`remaining-bms-library`で、
+`AutoRenameChartFolders_ProgressRunsAfterFilesystemMutation`だけが失敗した。対象testは`BMSFiles`
+notificationを観測しないのに、setup helperがfire-and-forget通知を同期5秒waitし、並列負荷時のThreadPool
+遅延を機能失敗としていた。catalog stateはsetter復帰前に同期適用済みのため、このtestだけ直接代入へ置換し、
+共有helper、timeout、production publication、assertionは変更しない。target 1/1、近傍AutoRename 6/6、
+diff-checkが成功し、fresh static reviewはblocking findingなしだった。
+
+Full`tests-full-20260903-042510`はFunctional 2810 pass / 8 approved skip（156.9秒）、publish、
+existing-data、update、ProcessIntegration 55 pass / 2 approved skipを通過後、actual v2 first-hopのv3終了要求を
+拒否されたものとして失敗した。retained logの時系列から、legacy v2とv3が共有する`app/log`に残った旧
+`startup_ready_operable`をv3起動直後に再読し、main window生成前にcloseしていたacceptance mechanicsの
+false negativeと確定した。Packet `v216-first-hop-fresh-startup`（`FH-FRESH-READY` / `FH-MAIN-WINDOW`）に従い、
+v3起動前にlegacy logをsandbox内へ一度退避し、fresh readiness後に既存`Wait-ForWindow`を同じabsolute
+deadlineで再利用する。新しいunit test、fake、helper、retry、timeout、永続状態は追加しない。同じpublished
+v2/current v3 packageを使うfocused first-hop receipt `artifacts/verification/v216-first-hop/`
+はhappy/lock 2/2 pass、v3 exit 0、preserved treesとsemantic state保持を確認した。
+
+同じ失敗時cleanupの静的調査では、`Stop-VerificationOwnedProcessRecord`の既存failure-cleanup指定が
+`Complete-VerificationRedirectedProcess`からshared lifecycleへ転送されず、成功した回収にも
+ownership-uncertain secondary diagnosticを付ける現diff回帰を確認した。既存`FailureCleanup` switchを
+Stop→Complete→Invokeの一経路だけ転送し、新しい期限や状態を追加していない。既存lifecycle test 16/16、
+parser、diff-checkが成功し、二修正をまとめたfresh static reviewはblocking findingなしだった。
+
+Full `tests-full-20260903-045012` は `ReleaseAcceptance` 2/2 を通過した後、outcome gateで失敗した。
+checked-in artifactの`COMP-DURABLE`が旧
+`BeMusicSeeker.Tests.ResilientFileMutationServiceTests.FileDbMutationExecutor_DurableReceiptFinalizesBeforePostCommitCallback`
+を指し、現テストの承認済み`DurableFinalizer` semanticsである
+`BeMusicSeeker.Tests.ResilientFileMutationServiceTests.FileDbMutationExecutor_DurableFinalizerRunsBeforeCleanup`
+がmissingと判定された。parser bugにより、このmissingが`Count`例外へ変換され、本来のmissing FQN診断を隠していた。
+これは同じU9 release-acceptance code unitで閉じるroster alignment問題と判断し、33 Contract IDs/membershipは不変、
+`COMP-DURABLE` executable oracle FQNだけを承認済み`DurableFinalizer` semanticsへ置換する。新しいtest/helper/stateは追加しない。
+
+同じFull `tests-full-20260903-045012`のreceipts replayでは、outcome gateが最初のunknown `NotExecuted`を露出した。
+同一TRXには、`BeMusicSeeker.Tests.BmsLibraryPendingLegacyMutationTests.DeletePendingCharts_ReparseSourceIsFailureWithoutMutation`
+と`BeMusicSeeker.Tests.BmsLibraryPendingLegacyMutationTests.InvalidExtensionPlan_ReparseSourceIsFailureWithoutMutation`
+の2件が、`Requires Windows file symbolic-link creation privilege or Developer Mode; validates the real filesystem reparse rejection path on provisioned hosts.`
+という同じ理由で記録されていた。これは既存のexact-FQN optional skip方針へallowlist entryを追加して閉じる。
+required 33件、test body、required drop FQNは変更せず、新しいseam/testは追加しない。
 
 Expected writable paths:
 
@@ -726,21 +1336,49 @@ U0 packet freeze
 | 2026-08-31 | U7 | Replanned -> Verified | implementation-worker + issue-resolver + root | 4 blocking gapをaddendumどおり解消; focused 346 pass + approved 7 cross-volume skips `tests-quick-20260831-164409`; integrated `tests-quick-20260831-165123`; commit `0ae8e615` | persistent crash journalとcross-volume atomicityは明示対象外。canonical receipt routeとmanual recovery pathをU9仕様へ統合済み |
 | 2026-08-31 | U9 | Pending -> In progress | root + implementation-workers | optional outcome parser `a2417f80`; exact cardinality tests 4/4 `tests-quick-20260831-170358` / commit `e4a39294`; prior Full format blockerをwhitespace-only修正 `a4023804`; shared specs `1d8abf51`; actual-v2 receipt gate 18/18 `tests-quick-20260831-171710` / commit `ad237eb1`; exact MSTest roster 31/31 `tests-quick-20260831-232239` | actual v2の2 JSON resultsを含むfinal Fullと、frozen static reviewが残る |
 | 2026-09-01 | U9 | Full failed -> blocking remediation verified | test-contract-designer + implementation-worker + root | Full `tests-full-20260831-232440` の`serial-state-a`は403/405 pass、shutdown 2件が失敗。Packet `START-SHUTDOWN-FAILURE-ISOLATION`; base-red `tests-quick-20260831-235112`; targeted mutant `tests-quick-20260901-000010`; head 34/34 `tests-quick-20260901-000851`; commit `cde646a2` | 実行中drainの早期成功を統合時に除去済み。変更snapshotでFullを再実行し、成功後にfrozen static reviewへ進む |
+| 2026-09-01 | U9 | second Full failed -> stale tests triaged | root + explorers + test-contract-designer + implementation-workers | Full `tests-full-20260901-001311`: portable 2/2、bass 1/1、serial-state-a 405/405、remaining-bms-library 662 pass + 3 approved skip、remaining 2793 pass / 5 fail / 8 skip。chart reflection fixtureをpublic owner seamへ置換し24/24 `tests-quick-20260901-003429` / commit `74c54918`; MessageBox source scanをcompiled call graphへ置換しtargeted mutant `tests-quick-20260901-004920`、head `tests-quick-20260901-005332` / commit `d434427c` | LR2 failureの調査で`D-15` P1へreplan。packet freeze、single-worker実装、focused Quick後にFullを再実行 |
+| 2026-09-01 | U9 / D-15 | Replanned -> packet frozen | root + explorers + test-contract-designer | static impact auditでfolder/auto-rename/mergeに加えpackage、legacy chart commands、startup timestamp repair、LR2 preparation outputをdirect migration対象と判定。Packet `D15-EXCLUSIVE-FILE-MUTATION-20260901` + amendmentsを承認し16 Contract IDへ固定。33 Contract IDs/membershipは不変、COMP-DURABLE executable oracle FQNは承認済みDurableFinalizer semanticsへ置換 | one-writer coherent migration、red/mutant evidence、focused Quickが残る。ambient compatibility shimとroute除外は禁止 |
+| 2026-09-01 | U9 / D-15 | Implementation checkpoint -> corrective slices | implementation-worker + fresh read-only auditors + root | uncommitted snapshotはfocused Quick `tests-quick-20260901-032338` 151 pass / 6 approved skip。fresh auditでpackage/merge/legacy/init/LR2のP1と大半のroute-level oracle不足を検出し、commitを拒否。package-firstの5 correction sliceへ再分割 | current diffを保持してpackage lifecycleから修正。全16 Contract IDのdirect test/mutant、統合Quick、spec修正前はcommitしない |
+| 2026-09-01 | U9 / D-15 | Scope simplification and local playlist admission integrated | root + implementation-worker + independent test-contract-designer | progress latest-wins、startup scan既存loop統合、Pending target-only projectionを実装。Packet `D15-PLAYLIST-LOCAL-ADMISSION-20260901`; local mutation base-red、head external-reload fixture 17/17、統合 focused Quick `tests-quick-20260901-182527` 375 total / 369 pass / approved skip 6 | final Full、frozen static review、code/test/spec/planを含む単一coherent commitが残る。LR2準備の二段階永続状態機械は追加しない |
+| 2026-09-01 | U9 / D-15 | Full existing-data compound blocker -> corrective packets integrated | root + test-contract-designer + implementation-workers | Full `tests-full-20260901-193631`はFunctional全shard後、existing-data 134.441秒でgraceful shutdown failure。UIAは初期化完了を観測したがproduct warningが残った。Packets `existing-data-init-dialog-v1` / `startup-repair-required-idle-v1`; scheduler 24/24、dialog classifier 4/4、playlist lifecycle 23/23 `tests-quick-20260901-204244` | real existing-data、final Full、frozen static reviewが残る。通常post concurrencyを縮小せず、persistent retry stateを追加しない |
+| 2026-09-01 | U9 / D-15 | Update acceptance stale oracle -> corrected | root + explorers + test-contract-designer + implementation-worker | Full `tests-full-20260901-204513`でrollback成功後の旧app自動再起動を180秒待つstale harnessを確認。Packet `UPDATE-ROLLBACK-ACCEPTANCE-NORESTART-20260901`; rollback後point-in-time non-restart確認、harness-owned explicit startup、`update_work/current` seam、sandbox environment継承を実装。standalone receipt `update-acceptance-worker-20260901-final`、updater/runner Quick 45 pass + approved skip 1 `tests-quick-20260901-211854` | productionのfailure後non-restart契約は変更しない。短命processの完全観測は保証せず、新規event ledgerは追加しない |
+| 2026-09-01 | U9 / D-15 | Existing-data LR2/installable race -> verified | root + explorers + plan-clarifier + test-contract-designer + implementation-worker + issue-resolver | Full `tests-full-20260901-215006`の179秒timeoutをLR2 required syncとinstallable maintenanceのlease競合へ特定。Packets `startup-repair-required-idle-v2` / `installable-outer-lease-capability-v1` / `existing-data-lr2-queue-skipped-failfast-v1`; focused 164/164 `tests-quick-20260901-230429`; final real existing-data 22.5秒 `tests-full-20260901-233628` | LR2 preparation→Runningの一般lease promotionはscope外。timeout延長・retry・persistent stateなし |
+| 2026-09-01 | U9 / D-15 | Release qualification -> static review pending | root + implementation-workers | `tests-full-20260901-233628`: Functional 2814 pass / approved skip 8、170.9秒; existing-data、update、ProcessIntegration 74 pass / approved skip 2、actual v2 first-hop、ReleaseAcceptance 2/2、format成功。既存XML doc typo修正後 analyzer 0 diagnostics、format、`git diff --check`成功。progress fixtureはevent handshakeへ置換し40/40 + 5反復15/15 | frozen static review、必要なfresh review、final successful Full artifact、code/test/spec/planの単一coherent commitが残る |
+| 2026-09-02 | U9 / D-15 Unit C | Representable-state contract -> reachable scan publication | root + test-contract-designer + implementation-worker + fresh static reviewers | `SCAN-PUB-01` / `SCAN-PUB-02`; live Everythingを使わないactual reload/startup tests。`tests-quick-20260902-170734` 98/98、`175128` 56/56、`181214` 2/2、Release build 0 error。scan-only version conflict/double snapshotとdirect fixtureを退役 | installed-target revalidationは維持。final integrated Fullとcoherent code/spec/plan commitが残る |
+| 2026-09-03 | U9 / D-15 S3 | Acceptance / deadline KISS -> reviewed | root + test-contract-designer + implementation-worker + fresh static reviewers | `S3-DEADLINE-*`、`S3-EXD-*`、`S3-FH-BLOCKING`、`S3-LR2-DURABLE`を実装。歴史的metadata/self-test/copied orchestrationを約2,000 net lines削減。deadline 20/20 `tests-quick-20260902-225324`; UIA/first-hop/durable gate 21/21 `234947` + dialog 1/1 `235440`; parser/diff-check pass。各fresh review blockingなし | published app UIA、actual v2 first-hop、sealed distribution、Functionalを含む現snapshotのFullを一度実行する |
+| 2026-09-03 | U9 / D-15 OCN | Lease-internal publication -> post-release notification | root + implementation-worker + fresh static reviewers | `OCN-01`–`OCN-03`; normal/pending invalid-extensionの必須collector/finally flush、durable-after-commit failure伝播を実装。head Quick `020922` / `022425` / `024821`、targeted mutants `020528` / `020717` / `022305` / `024528`、fresh review blockingなし。pre-final Functional `tests-functional-20260903-025624` 2810 pass / 8 skip、159.5秒 | final Full、最終frozen review、code/test/spec/planのcoherent commitが残る |
+| 2026-09-03 | U9 runner | Full diagnostics owner gap -> corrected | root + explorer + implementation-worker + fresh static reviewers | Full `tests-full-20260903-025959`はtool restoreの未作成`command`、`tests-full-20260903-030852`はFunctional/publish後のexisting-data未作成`app/log/process`で失敗。作成責務を共通Complete ownerへ一本化。direct nonexistent completion-path smoke、parser、diff-check成功。新規self-testなし、fresh review blockingなし | 同snapshotでFullを再実行する |
+| 2026-09-03 | U9 runner | Normal-success successor cleanup -> corrected | root + explorer + implementation-worker + fresh static reviewers | Full `tests-full-20260903-032400`はFunctional/publish/existing-data後、updater exit0のdetached restart appをshared lifecycleが停止し240秒timeout。pending-stream条件もfocused actual updateでraceを再現したため、曖昧なnormal-success tree stopを退役。failure/明示tree cleanupは維持。既存Quick最終5/5、parser/diff-check、fresh review成功。新規self-test/state/timeout変更なし | focused actual update後、同snapshotのFullを再実行する |
+| 2026-09-03 | U9 runner | Updater exit / cleanup interpretation -> verified | root + explorer + test-contract-designer + implementation-worker + fresh static reviewers | `runner-cleanup-success` RCS-01–03。clean nonzeroの意味はcallerが所有し、成功したowned cleanupをsecondary failureにしない。actual failure/residualは維持。既存test置換、Quick 5/5 `tests-quick-20260903-040606`、focused actual update `update-acceptance-focused-20260903-0440`成功、fresh review blockingなし。新規scenario/helper/state/timeoutなし | 同snapshotのFullを再実行する |
+| 2026-09-03 | U9 Functional | Unrelated setup publication wait -> removed | root + explorer + implementation-worker + fresh static reviewer | Full `tests-full-20260903-041457`はAutoRename progress testだけが、未観測のfire-and-forget setup通知を固定5秒waitして失敗。対象testだけ直接state setupへ置換。target 1/1、近傍6/6、diff-check、fresh review成功。production/shared helper/timeout/assertion変更なし | 同snapshotのFullを再実行する |
+| 2026-09-03 | U9 release acceptance | Stale readiness / cleanup forwarding -> verified | root + test-contract-designer + implementation-workers + fresh static reviewer | Full `tests-full-20260903-042510`はFunctional 2810/8（156.9秒）、publish、existing-data、update、ProcessIntegration 55/2後にstale v2 readinessでv3 closeを早期実行。`FH-FRESH-READY` / `FH-MAIN-WINDOW`としてlegacy log退避と既存window waitを実装し、focused actual first-hop 2/2 pass。failure-cleanup switch転送欠落も単一forwardingで修正、lifecycle 16/16、fresh review blockingなし | final Full、最終frozen review、coherent commitが残る |
+| 2026-09-03 | U9 release acceptance | Outcome-gate roster alignment -> corrected | root + implementation-worker | Full `tests-full-20260903-045012`は`ReleaseAcceptance` 2/2後のoutcome gateで、旧`COMP-DURABLE` FQNをmissingとして失敗。parserは`VFQN-SCALAR-CARDINALITY` / `VFQN-REQ-01`で修正し、既存cardinality testをcanonical StrictModeへ同期済み（`tests-quick-20260903-052943` 3/3 pass、旧scalar/null variant negative-control fail）。focused receipt `tests-full-20260903-045012/release-acceptance/release-outcomes-focused-head.json` はRequired=33 / Optional=15、required drop FQN不変。33 Contract IDs/membership、承認済み`DurableFinalizer` semantics、新しいtest/helper/stateなし | final Full未実施 |
+| 2026-09-03 | U9 release acceptance | Unknown optional NotExecuted -> allowlisted | root + implementation-worker | Full `tests-full-20260903-045012`のreceipts replayで最初のunknown `NotExecuted`を露出。同一TRXのPendingLegacy reparse 2件を`PENDING-REPARSE-OPTIONAL-20260903`どおり同じprovisioned-host reasonで既存exact-FQN optional skip allowlistへ追加。focused receipt `tests-full-20260903-045012/release-acceptance/release-outcomes-focused-head.json` はRequired=33 / Optional=15、required drop FQN不変。test bodyと新しいseam/testなし | final Full未実施 |
+| 2026-09-03 | U9 Functional | Setup publication sync wait -> local async boundary | root + explorer + test-contract-designer + implementation-worker + fresh static reviewer | Full `tests-full-20260903-053701`はFunctionalのfolder rename test 1件だけが、fire-and-forget setup通知をThreadPool worker上で同期waitして失敗。Packet `folder-rename-setup-publication-boundary` / `FRN-01`に従い、当該testだけmethod-local TCSを非同期awaitしてからrename観測を開始するよう置換。exact FQN 1/1、diff-check、fresh review blockingなし | production/shared helper/runner/lane/worker数/5秒watchdog/assertion semanticsは変更しない。最終Fullを再実行する |
+| 2026-09-03 | U9 format | Ignored temporary root leaked into format scope -> corrected | root + explorers + test-contract-designer + implementation-worker | Full `tests-full-20260903-055304`はFunctional 2810/8（184.2秒）、publish、existing-data、update、ProcessIntegration 55/2、actual v2 first-hop、ReleaseAcceptance 2/2後にformat失敗。Packet `FULL-FORMAT-TMP-SCOPE` / `FMT-TMP-EXCLUDE` / `FMT-GENUINE-COVERAGE`として、過去staging残置のgitignored `.tmp`だけを既存format除外配列へ追加し、tracked LR2 testの純粋な過剰indentはformatterで修正。`.tmp`を保持した実format route、parser、diff-check成功 | cleanup/self-test/helper/lane/retry/timeout/stateを追加せず、genuine workspace failureは維持。変更後Fullとfrozen static reviewが残る |
+| 2026-09-03 | U9 Functional | Class-local blocking setup helpers -> retired | root + explorer + test-contract-designer + implementation-worker | Full `tests-full-20260903-062253`は同じfolder rename classの別testが同期setup通知waitで失敗。Packet `folder-rename-class-local-nonblocking-setup` / `CLS-DIRECT-01` / `CLS-BARRIER-01` / `CLS-HISTORY-01`に従い、class内30 callsiteを24 direct setter、4 property-specific async barrier、2 setter後refresh baselineへ分類してclass-local wrapper 2件を退役。class Quick 46/46、exact 6/6、diff-check成功 | shared helperを全suiteで作り直さず、production/test追加/lane/worker数/timeout変更なし。変更後Fullとfrozen static reviewが残る |
+| 2026-09-03 | U9 release acceptance / v216 cache preparation | Pending -> Implemented | implementation-worker | Packet `REL-V216-CACHE` と `REL-V216-CACHE-MISS` / `REL-V216-CACHE-HIT` / `REL-V216-CACHE-FAIL-CLOSED` に従い、checked-in exact HTTPS URL、固定size/hash検証、同一directory一時ファイルからcanonical cacheへのatomic publish、既存mismatchのfail-closedを実装。Fresh review の blocking P2（curl config/retry suppression、download 前の package format identity validation）を、curl 先頭 `-q` と validated `$packageFormatVersion` の Read-side validation/return で修正。existing exact 2件 `tests-quick-20260903-073537` 2/2、metadata/runner/artifact parser、`git diff --check` pass | actual cache-miss Fullはroot最終統合で実行。metadata invalid、既存mismatch、download failure、owned temp cleanup、ProcessIntegration前phaseを統合時に確認 |
+| 2026-09-03 | U9 | Integrated Full -> Verified | root | `tests-full-20260903-075126`: cacheを退避した実missからexact URLを`curl -q`で取得し、固定size/hash検証後にcanonical `.tmp` cacheへatomic publishしてからProcessIntegrationへ進行。Functional 2810 pass / approved skip 8（170.0秒）、existing-data、update、ProcessIntegration 55 pass / approved skip 2、actual v2 first-hop happy/lock、ReleaseAcceptance 2/2、format、analyzer 0 diagnostics、tracked fingerprint不変がすべて成功。取得cacheは11,260,709 bytes / SHA-256 `C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2`を独立確認し、miss再現用backupだけ削除 | frozen snapshot static reviewとcoherent commitが残る |
+| 2026-09-03 | U9 / reachable P1 follow-up | Frozen review -> two-path remediation verified | root + test-contract-designer + implementation-workers + fresh static reviewers | 実UIのplaylist DnDで最初のmodel変更前に単一operation leaseを取得し、model / playlist DB / LR2 file・DBを同一owner内で完了させ、reference / UI / BMT / notificationをlease解放後に公開するよう修正。busyは副作用ゼロ、output primary failureはpost-durable effectを試行後に元例外を再送出する。起動時`install.path` sole aliasは既存transaction内でraw行削除＋canonical upsertし、Pending公開前にDBへ収束する。case-only path identityは別物として保持。既存fixtureの4経路を統合Quick `tests-quick-20260903-104013` 4/4、targeted wrong variants fail、2 unitのfresh static reviewはblockingなし。`library-mutation-boundary.md` / `startup-initialization-flow.md`の簡潔な操作・副作用対応表へ実在経路だけを追加 | `tests-full-20260903-075126`後のコード変更なので、変更後snapshotのFullと全体frozen reviewを再実行する。共通operation framework、retry、rollback永続状態、新service、全playlist refactorは追加しない |
+| 2026-09-03 | U9 / install identity tests | Full stale fixture -> corrected | root + explorer + implementation-worker + fresh static reviewer | Full `tests-full-20260903-104123`はFunctional `remaining-bms-library`の既存2 testsだけが、dot aliasへ同時にcase changeも加えた旧fixtureのため失敗。Ordinal case-sensitive identityでは別pathなので、入力だけを同一caseの`C:\Pending\Existing\.`へ修正し、same-case dot alias collisionとdurable mutationなしの既存oracleを維持。exact Quick 2/2、fresh review blockingなし | production comparer / normalization / spec / helper / test harnessは変更しない。変更後Fullを再実行する |
+| 2026-09-03 | U9 | Final integrated Full -> Verified | root | `tests-full-20260903-105120`: Functional 2811 pass / approved skip 8（171.3秒）、existing-data、update、ProcessIntegration 55 pass / approved skip 2、actual v2 first-hop happy/lock、ReleaseAcceptance 2/2、format、analyzer 0 diagnostics、tracked fingerprint不変がすべて成功。v2.1.6.0 artifactは、先行する実cache-miss Full `tests-full-20260903-075126`で取得・identity検証・atomic publish済みのcanonical cacheを再検証してhit | 全差分のfrozen snapshot static reviewとcoherent commitが残る |
+| 2026-09-03 | U9 / playlist preparation failure | Frozen review P1 -> A2 verified | root + test-contract-designer + implementation-worker + fresh static reviewer | 全差分reviewで、playlist model / DB commit後の`PrepareCustomFolderOutput`例外だけがprimary failure result化より手前に残り、post-lease convergenceを迂回する実在P1を検出。Packet `P1-PLAYLIST-DROP-ATOMIC-20260903-A2`に従いpreparation / materializationを同じprimary capture境界へ収め、準備失敗でもcommit済みmodel / DBを維持し、lease解放後にreference / UI / BMT / notificationをattempt後、元例外identityを再送出する。既存同一test methodのbase redはeffect count mismatch、head 2/2 `tests-quick-20260903-112717`、wrapper mutant fail、fresh review blockingなし | 準備できないLR2 file / rowは成功扱いにせず、retry / rollback / 新service / frameworkは追加しない。`tests-full-20260903-105120`後の変更なのでFullを再実行する |
+| 2026-09-03 | U9 | A2 final integrated Full / frozen review -> Verified | root + fresh static reviewer | `tests-full-20260903-113433`: Functional 2811 pass / approved skip 8（172.5秒）、existing-data、update、ProcessIntegration 55 pass / approved skip 2、actual v2 first-hop happy/lock、ReleaseAcceptance 2/2、format、analyzer 0 diagnostics、tracked fingerprint不変がすべて成功。前回全体reviewの唯一のP1について、A2修正と直接影響するinvariantのfresh reviewもblockingなし | code / test / spec / planを同一coherent commitへまとめる |
 
 ## Final evidence checklist
 
 - [x] public v2 artifact seal receipt
 - [x] actual v2 happy first-hop receipt
 - [x] actual v2 locked-file characterization receipt
-- [ ] current updater preflight-lock receipt
-- [ ] current updater post-mutation rollback exact-tree receipt
-- [ ] current updater rollback-second-fault and recovery receipt
+- [x] current updater preflight-lock receipt
+- [x] current updater post-mutation rollback exact-tree receipt
+- [x] current updater rollback-second-fault and recovery receipt
 - [x] Contract ID -> exact FQN checked-in roster
 - [x] optional skip allowlist and non-empty reason receipts
 - [x] all focused Quick artifacts
-- [ ] final Full artifact including its canonical Functional and update/distribution phases
-- [ ] Functional phase elapsed time（180秒超の場合は明示）
+- [x] final Full artifact including its canonical Functional and update/distribution phases（`tests-full-20260903-113433`。cache-miss経路は`tests-full-20260903-075126`で別途verified）
+- [x] Functional phase elapsed time（最終qualificationは172.5秒。180秒超の注記不要）
 - [x] public release note manual-recovery review
-- [ ] `git diff --check`
-- [ ] frozen snapshot static review with no blocking finding
-- [ ] fresh review after any blocking-finding remediation
+- [x] `git diff --check`
+- [x] frozen snapshot static review with no blocking finding（全体reviewの唯一のP1をA2で修正し、fresh recheckでblockingなし）
+- [x] fresh review after any blocking-finding remediation（playlist DnD / `install.path` two-path remediationはblockingなし）

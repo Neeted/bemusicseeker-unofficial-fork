@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,6 +18,107 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed partial class PackageLifecycleOwner
 {
+    /// <summary>
+    /// Attempts to normalize a detached pending-package source path before publication.
+    /// </summary>
+    /// <param name="path">Source path supplied by discovery or regrouping.</param>
+    /// <returns><see langword="true"/> when a canonical path was produced.</returns>
+    internal static bool TryNormalizePendingPackagePath(string path, out string normalizedPath)
+    {
+        normalizedPath = null;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+        try
+        {
+            normalizedPath = LongPathFileSystem.TrimTrailingDirectorySeparators(
+                LongPathFileSystem.NormalizePathForStorage(path.Trim()));
+            return !string.IsNullOrWhiteSpace(normalizedPath);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException
+            or IOException)
+        {
+            normalizedPath = null;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Validates canonical source-path uniqueness without changing package state.
+    /// </summary>
+    /// <param name="pendingPackages">The complete pending collection candidate.</param>
+    /// <param name="installRowsToUpsert">
+    /// Optional detached install-row projections.  A projection must correspond
+    /// to a candidate package path, but is not counted as another pending
+    /// package when it is the same object as a candidate.
+    /// </param>
+    internal static void ValidatePendingPackagePathUniqueness(
+        IEnumerable<ChartPackage> pendingPackages,
+        IEnumerable<ChartPackage> installRowsToUpsert = null)
+    {
+        var canonicalPaths = new HashSet<string>(StringComparer.Ordinal);
+        var seenPackages = new HashSet<ChartPackage>(ReferenceEqualityComparer.Instance);
+        foreach (ChartPackage package in pendingPackages ?? [])
+        {
+            if (package == null)
+            {
+                continue;
+            }
+            if (!seenPackages.Add(package))
+            {
+                throw new InvalidOperationException(
+                    "Pending package ingress was rejected because the same package instance appears more than once.");
+            }
+
+            if (!TryNormalizePendingPackagePath(package.path, out string canonicalPath))
+            {
+                throw new InvalidOperationException(
+                    "Pending package ingress was rejected because its source path could not be normalized.");
+            }
+            if (!canonicalPaths.Add(canonicalPath))
+            {
+                throw new InvalidOperationException(
+                    "Pending package ingress was rejected because the source path is already owned.");
+            }
+        }
+
+        var seenInstallRowPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (ChartPackage installRow in installRowsToUpsert ?? [])
+        {
+            if (installRow == null)
+            {
+                continue;
+            }
+            if (!TryNormalizePendingPackagePath(installRow.path, out string canonicalPath))
+            {
+                throw new InvalidOperationException(
+                    "Pending install-row projection was rejected because its source path could not be normalized.");
+            }
+
+            // Auto-install currently passes the pending object itself as the
+            // install-row projection.  It was already validated above; do not
+            // count that legitimate second view as another package.
+            if (seenPackages.Contains(installRow))
+            {
+                continue;
+            }
+            if (!canonicalPaths.Contains(canonicalPath))
+            {
+                throw new InvalidOperationException(
+                    "Pending install-row projection was rejected because it does not correspond to a candidate package.");
+            }
+            if (!seenInstallRowPaths.Add(canonicalPath))
+            {
+                throw new InvalidOperationException(
+                    "Pending install-row projection was rejected because the source path is repeated.");
+            }
+        }
+    }
+
     private readonly object queueStatusLock = new();
 
     private readonly object installableMaintenanceLock = new();
@@ -26,6 +128,13 @@ internal sealed partial class PackageLifecycleOwner
     private readonly object packageCollectionStateLock = new();
 
     private readonly SemaphoreSlim estimationExecutionGate = new(1, 1);
+
+    // Pending filesystem mutations and pending-estimate publication must
+    // reserve the same owner-owned admission.  This is intentionally a
+    // fail-fast token rather than a waitable semaphore: UI operations hold it
+    // while resolving and confirming their target, so a background batch can
+    // report deferral instead of retaining a model or database lock.
+    private readonly PendingOperationAdmission pendingOperationAdmission = new();
 
     private readonly PendingInstallEstimateQueueProcessor pendingEstimateQueueProcessor;
 
@@ -44,6 +153,8 @@ internal sealed partial class PackageLifecycleOwner
     private readonly Action<Exception> collectionPublicationFailed;
 
     private ObservableCollection<ChartPackage> pendingPackages;
+
+    private ReadOnlyObservableCollection<ChartPackage> pendingPackagesView;
 
     private ObservableCollection<ChartPackage> installedPackages;
 
@@ -89,6 +200,7 @@ internal sealed partial class PackageLifecycleOwner
         {
             throw new InvalidOperationException("Package collection factory returned null.");
         }
+        pendingPackagesView = new ReadOnlyObservableCollection<ChartPackage>(pendingPackages);
         stateMutationApplier = new PackageStateMutationApplier(
             this.dbGateway,
             () => pendingPackages,
@@ -107,6 +219,13 @@ internal sealed partial class PackageLifecycleOwner
     }
 
     internal ObservableCollection<ChartPackage> PendingPackages => pendingPackages;
+
+    internal ReadOnlyObservableCollection<ChartPackage> PendingPackagesView => pendingPackagesView;
+
+    internal bool TryEnterPendingOperation(out IDisposable lease)
+    {
+        return pendingOperationAdmission.TryEnter(out lease);
+    }
 
     internal ObservableCollection<ChartPackage> InstalledPackages => installedPackages;
 
@@ -370,6 +489,7 @@ internal sealed partial class PackageLifecycleOwner
         replacedPendingPackages.Insert(insertIndex, regroupedPackage);
         ObservableCollection<ChartPackage> nextPendingPackages = CreatePackageCollection(replacedPendingPackages);
 
+        ValidatePendingPackagePathUniqueness(nextPendingPackages);
         dbGateway.ReplaceInstallRows(sourcePackageList.Select(package => package.path), regroupedPackage);
         SetPendingPackages(nextPendingPackages);
     }
@@ -423,9 +543,65 @@ internal sealed partial class PackageLifecycleOwner
         }
 
         InstallTableLoadResult result = initializationService.LoadInstallTable(dbGateway, isInstalledChart);
-        if (result.StaleInstallPaths.Count > 0)
+        // StalePackages identifies rows that were classified for pruning. A
+        // raw path in StaleInstallPaths that is not in this set is the
+        // detached primary key of an otherwise valid survivor alias.
+        var classifiedStalePaths = new HashSet<string>(
+            result.StalePackages
+                .Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))
+                .Select(package => package.path),
+            StringComparer.Ordinal);
+        var pendingCanonicalPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (ChartPackage pendingPackage in result.PendingPackages)
         {
-            dbGateway.DeleteInstallRows(result.StaleInstallPaths);
+            if (pendingPackage != null
+                && TryNormalizePendingPackagePath(pendingPackage.path, out string canonicalPath))
+            {
+                pendingCanonicalPaths.Add(canonicalPath);
+            }
+        }
+
+        var survivorAliasCanonicalPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string rawPath in result.StaleInstallPaths)
+        {
+            if (string.IsNullOrWhiteSpace(rawPath)
+                || classifiedStalePaths.Contains(rawPath)
+                || !TryNormalizePendingPackagePath(rawPath, out string canonicalPath)
+                || string.Equals(rawPath, canonicalPath, StringComparison.Ordinal)
+                || !pendingCanonicalPaths.Contains(canonicalPath))
+            {
+                continue;
+            }
+            survivorAliasCanonicalPaths.Add(canonicalPath);
+        }
+
+        var aliasTransactionPaths = new List<string>();
+        foreach (string rawPath in result.StaleInstallPaths)
+        {
+            if (!string.IsNullOrWhiteSpace(rawPath)
+                && TryNormalizePendingPackagePath(rawPath, out string canonicalPath)
+                && survivorAliasCanonicalPaths.Contains(canonicalPath))
+            {
+                aliasTransactionPaths.Add(rawPath);
+            }
+        }
+
+        if (aliasTransactionPaths.Count > 0)
+        {
+            List<ChartPackage> survivorPackages = [.. result.PendingPackages.Where(package =>
+                package != null
+                && TryNormalizePendingPackagePath(package.path, out string canonicalPath)
+                && survivorAliasCanonicalPaths.Contains(canonicalPath))];
+            dbGateway.ApplyInstallTableMutation(
+                aliasTransactionPaths,
+                survivorPackages);
+        }
+
+        List<string> staleInstallPaths = [.. result.StaleInstallPaths
+            .Where(path => !aliasTransactionPaths.Contains(path, StringComparer.Ordinal))];
+        if (staleInstallPaths.Count > 0)
+        {
+            dbGateway.DeleteInstallRows(staleInstallPaths);
         }
         SetPendingPackages(CreatePackageCollection([]));
         SetInstalledPackages(CreatePackageCollection([]));
@@ -453,6 +629,7 @@ internal sealed partial class PackageLifecycleOwner
             return false;
         }
         pendingPackages = value;
+        pendingPackagesView = new ReadOnlyObservableCollection<ChartPackage>(pendingPackages);
         return true;
     }
 
@@ -708,6 +885,41 @@ internal sealed partial class PackageLifecycleOwner
         public void Dispose()
         {
             Interlocked.Exchange(ref gate, null)?.Release();
+        }
+    }
+
+    private sealed class PendingOperationAdmission
+    {
+        private object activeToken;
+
+        internal bool TryEnter(out IDisposable lease)
+        {
+            object token = new();
+            if (Interlocked.CompareExchange(ref activeToken, token, null) != null)
+            {
+                lease = null;
+                return false;
+            }
+
+            lease = new AdmissionLease(this, token);
+            return true;
+        }
+
+        private void Release(object token)
+        {
+            Interlocked.CompareExchange(ref activeToken, null, token);
+        }
+
+        private sealed class AdmissionLease(PendingOperationAdmission owner, object token) : IDisposable
+        {
+            private PendingOperationAdmission owner = owner;
+
+            private readonly object token = token;
+
+            public void Dispose()
+            {
+                Interlocked.Exchange(ref owner, null)?.Release(token);
+            }
         }
     }
 

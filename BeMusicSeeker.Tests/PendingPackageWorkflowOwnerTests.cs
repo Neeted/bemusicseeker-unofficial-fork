@@ -1346,47 +1346,54 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task SearchPackagesAsync_WaitsForSharedChartFileGate()
+    public async Task SearchPackagesAsync_FailsFastWhenOwnerAdmissionIsBusyThenRunsAfterRelease()
     {
-        var synchronizer = new ChartFileOperationSynchronizer();
-        var events = new List<string>();
-        var store = new RecordingStore(events);
-        var owner = CreateOwner(
-            CreateLibrary,
-            events,
-            store,
-            AcceptedDialogs(),
-            playback: new NoOpPendingPackageMutationPlaybackPort(),
-            chartFileOperations: synchronizer);
-        var gateHeld = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseGate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task gateHolder = Task.Factory.StartNew(
-            () =>
-        {
-            using (synchronizer.Enter())
-            {
-                gateHeld.TrySetResult(true);
-                releaseGate.Task.GetAwaiter().GetResult();
-            }
-        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        TestResourceInitializer.EnsureJapaneseResources();
+        string tempRootPath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_PendingWorkflowAdmissionTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
         try
         {
-            await gateHeld.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            Task search = owner.SearchPackagesAsync(
+            var library = new TestBmsLibrary(songDbPath);
+            var events = new List<string>();
+            var store = new RecordingStore(events);
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            var owner = CreateOwner(
+                () => library,
+                events,
+                store,
+                dialogs,
+                playback: new NoOpPendingPackageMutationPlaybackPort());
+            Assert.IsTrue(library.TryEnterPendingOperation(out IDisposable incumbent));
+            try
+            {
+                await owner.SearchPackagesAsync(
+                    PendingInstallDestinationSearchKind.InstallDestination,
+                    [new ChartPackage()]);
+                Assert.AreEqual(0, store.SearchPackagesCount);
+                Assert.AreEqual(
+                    BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning,
+                    dialogs.MessageRequest?.MessageBoxText);
+            }
+            finally
+            {
+                incumbent.Dispose();
+            }
+
+            await owner.SearchPackagesAsync(
                 PendingInstallDestinationSearchKind.InstallDestination,
                 [new ChartPackage()]);
-            Assert.IsFalse(search.IsCompleted);
-            Assert.AreEqual(0, store.SearchPackagesCount);
-
-            releaseGate.TrySetResult(true);
-            await search;
-            await gateHolder;
             Assert.AreEqual(1, store.SearchPackagesCount);
         }
         finally
         {
-            releaseGate.TrySetResult(true);
-            await gateHolder;
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(LongPathFileSystem.ToExtendedPath(tempRootPath), recursive: true);
+            }
         }
     }
 

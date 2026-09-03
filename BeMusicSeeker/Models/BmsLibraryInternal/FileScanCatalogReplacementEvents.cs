@@ -38,30 +38,6 @@ internal sealed class FileScanCatalogReplacementEvent
 }
 
 /// <summary>
-/// Immutable facts published when the catalog storage replacement could not be
-/// applied. The original exception remains owned by the scan pipeline and is
-/// rethrown after consumers invalidate their derived state.
-/// </summary>
-internal sealed class FileScanCatalogReplacementFailureEvent
-{
-    internal FileScanCatalogReplacementFailureEvent(
-        CatalogFileScanStorageReplacementRequest request,
-        bool resourceHealthIndexCurrentAtBase,
-        string reason)
-    {
-        Request = request ?? throw new ArgumentNullException(nameof(request));
-        ResourceHealthIndexCurrentAtBase = resourceHealthIndexCurrentAtBase;
-        Reason = reason ?? string.Empty;
-    }
-
-    internal CatalogFileScanStorageReplacementRequest Request { get; }
-
-    internal bool ResourceHealthIndexCurrentAtBase { get; }
-
-    internal string Reason { get; }
-}
-
-/// <summary>
 /// Immutable scan-only residual facts that are applied after the catalog
 /// replacement. These facts intentionally exclude generic catalog, package,
 /// playlist-reference, and LR2 mutations.

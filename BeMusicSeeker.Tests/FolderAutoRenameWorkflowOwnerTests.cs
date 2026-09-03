@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -85,6 +87,214 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         finally
         {
             DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task ProgressWriter_BoundsSelectedDispatchAndDropsLateProgressAfterSeal()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = CreateRoot();
+        var notifications = new Queue<Action>();
+        using var notificationSignal = new SemaphoreSlim(0);
+        using var terminalPublished = new ManualResetEventSlim(false);
+        int maximumQueuedNotifications = 0;
+        int dispatchInvocationCount = 0;
+        var observations = new List<string>();
+        var chartFileOperations = new ChartFileOperationSynchronizer();
+        using var mutationPort = new BoundedProgressFolderAutoRenameMutationPort(64);
+        Task? mutationTask = null;
+        FolderAutoRenameWorkflowOwner? owner = null;
+        Exception? publishedFailure = null;
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
+            owner = new FolderAutoRenameWorkflowOwner(
+                chartFileOperations,
+                new ChartMutationActivityOwner(),
+                mutationPort,
+                new NoopFolderAutoRenamePlaybackPort(),
+                action =>
+                {
+                    Task scheduled = Task.Factory.StartNew(
+                        action,
+                        CancellationToken.None,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default);
+                    mutationTask = scheduled;
+                    return scheduled;
+                },
+                action =>
+                {
+                    Interlocked.Increment(ref dispatchInvocationCount);
+                    lock (notifications)
+                    {
+                        notifications.Enqueue(action);
+                        maximumQueuedNotifications = Math.Max(
+                            maximumQueuedNotifications,
+                            notifications.Count);
+                    }
+                    notificationSignal.Release();
+                },
+                new AcceptedFolderDialogService());
+            owner.ProgressChanged += progress =>
+            {
+                observations.Add(progress.IsCompleted
+                    ? "terminal"
+                    : "progress:" + progress.ProcessedCount);
+                if (!progress.IsCompleted && mutationPort.MutationIsBlocked)
+                {
+                    bool acquired = chartFileOperations.TryEnter(out IDisposable reentrantLease);
+                    reentrantLease?.Dispose();
+                    Assert.IsFalse(acquired, "A progress subscriber must fail fast while the batch lease is held.");
+                }
+            };
+            owner.FailurePublished += failure => publishedFailure = failure.Exception;
+            owner.CompletionPublished += _ =>
+            {
+                observations.Add("completion");
+                mutationPort.EmitLateProgress();
+            };
+            owner.TerminalPublished += () =>
+            {
+                observations.Add("terminal-published");
+                terminalPublished.Set();
+            };
+            owner.AttachLibrary(library);
+            DrainNotifications(notifications);
+
+            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.IsTrue(
+                mutationPort.Started.Wait(TimeSpan.FromSeconds(5)),
+                "The selected progress mutation did not start.");
+            Assert.IsTrue(mutationPort.MutationIsBlocked);
+            lock (notifications)
+            {
+                Assert.IsTrue(
+                    notifications.Count <= 1,
+                    "Latest-wins progress must leave at most one UI dispatch pending.");
+            }
+
+            DrainNotifications(notifications);
+            CollectionAssert.AreEqual(new[] { "progress:64" }, observations.ToArray());
+
+            mutationPort.Release();
+            Assert.IsTrue(
+                mutationPort.Returned.Wait(TimeSpan.FromSeconds(5)),
+                "The selected progress mutation did not return after release.");
+            while (!terminalPublished.IsSet)
+            {
+                DrainNotifications(notifications);
+                if (terminalPublished.IsSet)
+                {
+                    break;
+                }
+                Assert.IsTrue(
+                    await notificationSignal.WaitAsync(TimeSpan.FromSeconds(5)),
+                    "The terminal notification dispatcher must be signaled.");
+            }
+            Assert.IsTrue(terminalPublished.IsSet, "The terminal notification was not published.");
+            await owner!.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            await mutationTask!.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsNull(publishedFailure, "The bounded progress mutation must complete without publishing a failure.");
+
+            CollectionAssert.AreEqual(
+                new[] { "progress:64", "terminal", "completion", "terminal-published" },
+                observations.ToArray());
+            Assert.AreEqual(1, maximumQueuedNotifications);
+            Assert.AreEqual(
+                2,
+                dispatchInvocationCount,
+                "The batch may schedule one intermediate and one terminal notification; sealed late progress must not schedule another.");
+        }
+        catch (Exception exception)
+        {
+            bodyFailure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            bool backgroundDrained = true;
+            mutationPort.Release();
+            if (mutationTask != null)
+            {
+                try
+                {
+                    await mutationTask.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (owner != null)
+            {
+                try
+                {
+                    Task idle = owner.WaitForIdleAsync();
+                    while (!idle.IsCompleted)
+                    {
+                        DrainNotifications(notifications);
+                        if (idle.IsCompleted)
+                        {
+                            break;
+                        }
+                        if (!await notificationSignal.WaitAsync(TimeSpan.FromSeconds(5)))
+                        {
+                            throw new TimeoutException("The folder auto-rename cleanup did not publish terminal notification.");
+                        }
+                    }
+                    await idle.WaitAsync(TimeSpan.FromSeconds(5));
+                    DrainNotifications(notifications);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            else
+            {
+                try
+                {
+                    DrainNotifications(notifications);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (backgroundDrained)
+            {
+                try
+                {
+                    DeleteRoot(root);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                }
+            }
+        }
+
+        if (bodyFailure != null)
+        {
+            if (cleanupFailure != null)
+            {
+                throw new AggregateException(
+                    "The folder progress assertion failed and cleanup also failed.",
+                    bodyFailure.SourceException,
+                    cleanupFailure);
+            }
+            bodyFailure.Throw();
+        }
+        if (cleanupFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
         }
     }
 
@@ -481,22 +691,20 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task AttachLibrary_RechecksGenerationBeforeMutationAfterGateWait()
+    public async Task SelectedRequest_FailsFastWhenSharedChartFileGateIsBusyThenRunsAfterRelease()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
         string firstRoot = Path.Combine(root, "first");
-        string secondRoot = Path.Combine(root, "second");
         Directory.CreateDirectory(firstRoot);
-        Directory.CreateDirectory(secondRoot);
         try
         {
             BMSLibrary first = CreateLibrary(firstRoot, "song.db");
-            BMSLibrary second = CreateLibrary(secondRoot, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var chartFileOperations = new ChartFileOperationSynchronizer();
             var chartMutationActivity = new ChartMutationActivityOwner();
             int mutationCalls = 0;
+            Exception observedFailure = null;
             var owner = new FolderAutoRenameWorkflowOwner(
                 chartFileOperations,
                 chartMutationActivity,
@@ -517,16 +725,24 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 action => action(),
                 new AcceptedFolderDialogService());
             owner.AttachLibrary(first);
+            owner.FailurePublished += failure => observedFailure = failure.Exception;
 
-            using (chartFileOperations.Enter())
+            Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable incumbent));
+            try
             {
                 Assert.IsTrue(owner.RequestStartSelected(targets));
-                Assert.IsTrue(SpinWait.SpinUntil(() => chartMutationActivity.IsActive, TimeSpan.FromSeconds(5)));
-                owner.AttachLibrary(second);
+                await owner.WaitForIdleAsync();
+                Assert.AreEqual(0, mutationCalls);
+                Assert.IsInstanceOfType(observedFailure, typeof(InvalidOperationException));
+            }
+            finally
+            {
+                incumbent.Dispose();
             }
 
+            Assert.IsTrue(owner.RequestStartSelected(targets));
             await owner.WaitForIdleAsync();
-            Assert.AreEqual(0, mutationCalls);
+            Assert.AreEqual(1, mutationCalls);
         }
         finally
         {
@@ -797,6 +1013,107 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 notification = notifications.Dequeue();
             }
             notification();
+        }
+    }
+
+    private sealed class BoundedProgressFolderAutoRenameMutationPort :
+        IFolderAutoRenameMutationPort,
+        IFolderAutoRenameProgressMutationPort,
+        IDisposable
+    {
+        private readonly int progressCount;
+
+        private readonly ManualResetEventSlim release = new(false);
+
+        private IFolderAutoRenameProgressWriter progressWriter = null!;
+
+        internal BoundedProgressFolderAutoRenameMutationPort(int progressCount)
+        {
+            this.progressCount = progressCount;
+        }
+
+        internal ManualResetEventSlim Started { get; } = new(false);
+
+        internal ManualResetEventSlim Returned { get; } = new(false);
+
+        internal bool MutationIsBlocked => Started.IsSet && !release.IsSet;
+
+        public bool HasTargets(BMSLibrary library, string parentDirectory) => false;
+
+        public FolderAutoRenameExecutionResult RenameSelected(
+            BMSLibrary library,
+            ChartFolderAutoRenameRequest request,
+            Action<int, int, string> progressReporter)
+        {
+            throw new AssertFailedException("The writer-only folder route was not selected.");
+        }
+
+        public bool RenameAll(
+            BMSLibrary library,
+            string parentDirectory,
+            Action<int, int, string> progressReporter)
+        {
+            throw new AssertFailedException("The writer-only folder route was not selected.");
+        }
+
+        public AutoRenameBatchResult RenameAllWithReceipt(
+            BMSLibrary library,
+            string parentDirectory,
+            Action<int, int, string> progressReporter)
+        {
+            throw new AssertFailedException("The writer-only folder route was not selected.");
+        }
+
+        public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
+            BMSLibrary library,
+            ChartFolderAutoRenameRequest request,
+            IFolderAutoRenameProgressWriter progressWriter)
+        {
+            this.progressWriter = progressWriter ?? throw new ArgumentNullException(nameof(progressWriter));
+            for (int index = 1; index <= progressCount; index++)
+            {
+                progressWriter.TryWrite(new FolderAutoRenameProgressUpdate(
+                    progressCount,
+                    index,
+                    "source-" + index));
+            }
+            Started.Set();
+            release.Wait();
+            Returned.Set();
+            return new FolderAutoRenameExecutionResult { RefreshRequired = true };
+        }
+
+        public bool RenameAllWithProgress(
+            BMSLibrary library,
+            string parentDirectory,
+            IFolderAutoRenameProgressWriter progressWriter)
+        {
+            throw new AssertFailedException("all route was not expected");
+        }
+
+        public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
+            BMSLibrary library,
+            string parentDirectory,
+            IFolderAutoRenameProgressWriter progressWriter)
+        {
+            throw new AssertFailedException("all route was not expected");
+        }
+
+        internal void EmitLateProgress()
+        {
+            Volatile.Read(ref progressWriter)?.TryWrite(new FolderAutoRenameProgressUpdate(
+                progressCount,
+                progressCount,
+                "late"));
+        }
+
+        internal void Release() => release.Set();
+
+        public void Dispose()
+        {
+            Returned.Dispose();
+            Started.Dispose();
+            release.Dispose();
         }
     }
 

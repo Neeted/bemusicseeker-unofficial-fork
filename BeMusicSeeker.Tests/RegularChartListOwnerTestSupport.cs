@@ -39,7 +39,8 @@ internal static class RegularChartListOwnerTestSupport
         Action<Action> dispatchToUi,
         IUiScheduler? normalLibraryRefreshUiScheduler = null,
         Action<string>? log = null,
-        PendingPackageWorkflowOwner? pendingPackageWorkflow = null)
+        PendingPackageWorkflowOwner? pendingPackageWorkflow = null,
+        ChartFileOperationSynchronizer? chartFileOperations = null)
     {
         return new RegularChartListOwner(
             table,
@@ -48,7 +49,7 @@ internal static class RegularChartListOwnerTestSupport
             dispatchToUi,
             _ => { },
             pendingPackageWorkflow ?? CreatePendingPackageWorkflowOwner(),
-            new ChartFileOperationSynchronizer(),
+            chartFileOperations ?? new ChartFileOperationSynchronizer(),
             new ChartMutationActivityOwner(),
             new NoOpFolderAutoRenamePlaybackPort(),
             normalLibraryRefreshUiScheduler ?? new TestUiScheduler(() => null!));

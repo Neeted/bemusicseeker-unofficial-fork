@@ -27,6 +27,15 @@ internal static class TestBmsFactory
     internal static ApplicationPathSnapshot MissingEverythingBridge { get; } =
         ApplicationPathSnapshot.FromExecutablePath(
             Path.Combine(Path.GetTempPath(), "BeMusicSeeker.Tests", "MissingEverythingBridge", "BeMusicSeeker.exe"));
+
+    /// <summary>
+    /// Uses the repository's shipped bridge for production-shaped scan-route tests.
+    /// The scan still falls back to the managed enumerator when the Everything
+    /// service is unavailable.
+    /// </summary>
+    internal static ApplicationPathSnapshot AvailableEverythingBridge { get; } =
+        ApplicationPathSnapshot.FromExecutablePath(
+            Path.Combine(AppContext.BaseDirectory, "BeMusicSeeker.Tests.exe"));
 }
 
 internal sealed class TestBmsLibrary : BMSLibrary
@@ -97,6 +106,32 @@ internal sealed class TestBmsLibrary : BMSLibrary
     {
     }
 
+    /// <summary>
+    /// Creates a package-lifecycle fixture with an explicit options snapshot
+    /// and UI scheduler, so cleanup and publication tests do not mutate the
+    /// process-wide settings singleton.
+    /// </summary>
+    internal TestBmsLibrary(
+        string songDbPath,
+        Func<LR2Config> getLR2Config,
+        string _lr2ScoreDB,
+        IFileMutationService fileMutationService,
+        IBmsLibraryDialogService dialogService,
+        IUiScheduler uiScheduler,
+        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
+        : base(
+            songDbPath,
+            getLR2Config,
+            _lr2ScoreDB,
+            fileMutationService,
+            dialogService,
+            null,
+            optionsSnapshotProvider ?? CurrentOptions,
+            uiScheduler,
+            TestBmsFactory.MissingEverythingBridge)
+    {
+    }
+
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config,
@@ -104,6 +139,35 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
         : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
+    {
+    }
+
+    /// <summary>
+    /// Creates a production-shaped library with an explicitly selected native
+    /// bridge path for canonical file-scan route tests.  A captured scanner may
+    /// be supplied when the route must be independent of the local Everything
+    /// service and index.
+    /// </summary>
+    /// <param name="chartFileScanner">Optional captured scanner for the test fixture; null keeps the selected bridge-backed scan.</param>
+    internal TestBmsLibrary(
+        string songDbPath,
+        Func<LR2Config> getLR2Config,
+        string _lr2ScoreDB,
+        string startupRequiredFileScanReason,
+        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
+        ApplicationPathSnapshot applicationPathSnapshot,
+        IChartFileScanner chartFileScanner = null)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot, chartFileScanner)
+    {
+    }
+
+    /// <summary>
+    /// Creates a production-shaped library with the shipped Everything bridge.
+    /// </summary>
+    internal TestBmsLibrary(
+        string songDbPath,
+        ApplicationPathSnapshot applicationPathSnapshot)
+        : base(songDbPath, null, null, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot)
     {
     }
 }
@@ -118,6 +182,12 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
 
     private static Func<CustomFolderOutputSettingsSnapshot> CurrentCustomFolderOptions =>
         () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default);
+
+    private static LibraryFileMutationLease CreateTestMutationLease(string _)
+        => new(new object(), static () => true, static () => { });
+
+    private static LibraryFileMutationLease CreateTestMutationLease(string _, bool __)
+        => CreateTestMutationLease(_);
 
     internal new ObservableCollection<BMSTable> BMSTables
     {
@@ -141,7 +211,9 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentBeatorajaOptions,
             CurrentCustomFolderOptions,
             TestBmsFactory.MissingEverythingBridge,
-            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher))
+            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
+            CreateTestMutationLease)
     {
     }
 
@@ -159,7 +231,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentCustomFolderOptions,
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            lr2PlaylistFolderSynchronization)
+            lr2PlaylistFolderSynchronization,
+            CreateTestMutationLease)
     {
     }
 
@@ -184,7 +257,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentCustomFolderOptions,
             TestBmsFactory.MissingEverythingBridge,
             uiScheduler,
-            lr2PlaylistFolderSynchronization)
+            lr2PlaylistFolderSynchronization,
+            CreateTestMutationLease)
     {
     }
 
@@ -203,7 +277,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentCustomFolderOptions,
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            lr2PlaylistFolderSynchronization)
+            lr2PlaylistFolderSynchronization,
+            CreateTestMutationLease)
     {
     }
 
@@ -222,7 +297,8 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             CurrentCustomFolderOptions,
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            lr2PlaylistFolderSynchronization)
+            lr2PlaylistFolderSynchronization,
+            CreateTestMutationLease)
     {
     }
 
@@ -237,7 +313,9 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
-        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null)
+        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
+        Func<string, LibraryFileMutationLease> mutationLeaseProvider = null,
+        Func<string, bool, LibraryFileMutationLease> mutationLeaseProviderWithMessage = null)
         : base(
             songDbPath,
             getLr2Config,
@@ -249,7 +327,9 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             customFolderOutputSettingsProvider,
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            lr2PlaylistFolderSynchronization,
+            lr2PlaylistFolderSynchronization ?? new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
+            mutationLeaseProviderWithMessage
+                ?? ((operation, _) => (mutationLeaseProvider ?? CreateTestMutationLease)(operation)),
             playlistUrlCompletionTsvContentFetcher,
             playlistUrlCompletionStellaContentFetcher)
     {

@@ -384,16 +384,12 @@ internal sealed class CatalogOwnedCollectionOwner
         IReadOnlyList<string> deletedBmsonPaths,
         IReadOnlyList<BMSFile> nextFiles,
         IReadOnlyList<LR2SongDBExtended.bmson_song> nextBmsonSongs,
-        int currentBmsRowsVersion,
-        int currentBmsonRowsVersion,
         out List<ChartFile> removedCharts)
     {
         removedCharts = [];
         lock (gate)
         {
-            if (!initialized
-                || bmsRowsVersion != currentBmsRowsVersion
-                || bmsonRowsVersion != currentBmsonRowsVersion)
+            if (!initialized)
             {
                 return false;
             }

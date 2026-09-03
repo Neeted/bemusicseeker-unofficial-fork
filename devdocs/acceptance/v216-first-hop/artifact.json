@@ -6,6 +6,7 @@
   "packageFormatVersion": 1,
   "fileName": "published-bemusicseeker-unofficial-fork-v2.1.6.0.zip",
   "artifactPath": ".tmp/v216-first-hop/published-bemusicseeker-unofficial-fork-v2.1.6.0.zip",
+  "downloadUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v2.1.6.0/bemusicseeker-unofficial-fork-v2.1.6.0.zip",
   "sizeBytes": 11260709,
   "sha256": "C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2",
   "sealed": true,
@@ -114,7 +115,7 @@
       },
       {
         "contractId": "COMP-DURABLE",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.FileDbMutationExecutor_DurableReceiptFinalizesBeforePostCommitCallback"
+        "fullyQualifiedName": "BeMusicSeeker.Tests.ResilientFileMutationServiceTests.FileDbMutationExecutor_DurableFinalizerRunsBeforeCleanup"
       },
       {
         "contractId": "COMP-CLEANUP",
@@ -157,6 +158,14 @@
       {
         "fullyQualifiedName": "BeMusicSeeker.Tests.BmsLibraryPackageInstallServiceTests.MovePackageFiles_ExplicitDestinationMovesFilePlanAcrossVolumes",
         "reason": "Requires two writable local volume roots; normal single-volume hosts skip."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.BmsLibraryPendingLegacyMutationTests.DeletePendingCharts_ReparseSourceIsFailureWithoutMutation",
+        "reason": "Requires Windows file symbolic-link creation privilege or Developer Mode; validates the real filesystem reparse rejection path on provisioned hosts."
+      },
+      {
+        "fullyQualifiedName": "BeMusicSeeker.Tests.BmsLibraryPendingLegacyMutationTests.InvalidExtensionPlan_ReparseSourceIsFailureWithoutMutation",
+        "reason": "Requires Windows file symbolic-link creation privilege or Developer Mode; validates the real filesystem reparse rejection path on provisioned hosts."
       },
       {
         "fullyQualifiedName": "BeMusicSeeker.Tests.ChartInfoParserBehaviorTests.ChartStringDumpTool_BuildsAndDumpsReferenceChartString",

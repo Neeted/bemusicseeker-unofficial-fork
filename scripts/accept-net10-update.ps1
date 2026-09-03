@@ -5,6 +5,10 @@ param(
     [string]$FixtureRoot,
     [string]$OutputDirectory,
     [string]$SqliteAssemblyRoot,
+    [ValidateRange(1, 300)]
+    [int]$TimeoutSeconds = 240,
+    [DateTime]$ExecutionDeadlineUtc = [DateTime]::MinValue,
+    [DateTime]$CleanupDeadlineUtc = [DateTime]::MinValue,
     [switch]$KeepSandbox
 )
 
@@ -22,6 +26,12 @@ if ([string]::IsNullOrWhiteSpace($SqliteAssemblyRoot)) {
 
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
 . (Join-Path $repoRoot 'scripts\distribution-artifact.ps1')
+. (Join-Path $repoRoot 'scripts\verification-process-lifecycle.ps1')
+
+$script:deadlinePolicy = Resolve-VerificationDeadlinePair `
+    -TimeoutSeconds $TimeoutSeconds `
+    -ExecutionDeadlineUtc $ExecutionDeadlineUtc `
+    -CleanupDeadlineUtc $CleanupDeadlineUtc
 
 $artifactManifestMode = -not [string]::IsNullOrWhiteSpace($ArtifactManifestPath)
 $artifactManifest = $null
@@ -79,17 +89,6 @@ function Get-TreeSha256 {
     }
     finally {
         $hash.Dispose()
-    }
-}
-
-function Invoke-CheckedCommand {
-    param(
-        [Parameter(Mandatory)][string]$Command,
-        [Parameter(ValueFromRemainingArguments)][string[]]$Arguments
-    )
-    & $Command @Arguments | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        throw "Command failed with exit code $LASTEXITCODE`: $Command $($Arguments -join ' ')"
     }
 }
 
@@ -263,9 +262,13 @@ function Wait-ForStartupReady {
     param(
         [Parameter(Mandatory)][Diagnostics.Process]$Process,
         [Parameter(Mandatory)][string]$LogDirectory,
-        [int]$TimeoutSeconds = 180
+        [int]$TimeoutSeconds = 180,
+        [DateTime]$DeadlineUtc = [DateTime]::MinValue
     )
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $deadline = if ($DeadlineUtc -eq [DateTime]::MinValue) {
+        $script:deadlinePolicy.ExecutionDeadlineUtc
+    }
+    else { $DeadlineUtc.ToUniversalTime() }
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Process.HasExited) {
             throw "Application exited before startup_ready_operable (exit code $($Process.ExitCode))."
@@ -279,15 +282,25 @@ function Wait-ForStartupReady {
                 return $log.FullName
             }
         }
-        Start-Sleep -Milliseconds 250
+        $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
+            -DeadlineUtc $deadline `
+            -OperationName 'application startup-ready wait'
+        Start-Sleep -Milliseconds ([Math]::Min(250, $remainingMilliseconds))
         $Process.Refresh()
     }
-    throw "Application did not reach startup_ready_operable within $TimeoutSeconds seconds. Logs: $LogDirectory"
+    throw "Application did not reach startup_ready_operable before the acceptance execution deadline. Logs: $LogDirectory"
 }
 
 function Wait-ForMainWindow {
-    param([Parameter(Mandatory)][Diagnostics.Process]$Process, [int]$TimeoutSeconds = 30)
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    param(
+        [Parameter(Mandatory)][Diagnostics.Process]$Process,
+        [int]$TimeoutSeconds = 30,
+        [DateTime]$DeadlineUtc = [DateTime]::MinValue
+    )
+    $deadline = if ($DeadlineUtc -eq [DateTime]::MinValue) {
+        $script:deadlinePolicy.ExecutionDeadlineUtc
+    }
+    else { $DeadlineUtc.ToUniversalTime() }
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Process.HasExited) {
             throw "Application exited before exposing a main window (exit code $($Process.ExitCode))."
@@ -296,134 +309,200 @@ function Wait-ForMainWindow {
         if ($Process.MainWindowHandle -ne 0) {
             return
         }
-        Start-Sleep -Milliseconds 250
+        $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
+            -DeadlineUtc $deadline `
+            -OperationName 'application main-window wait'
+        Start-Sleep -Milliseconds ([Math]::Min(250, $remainingMilliseconds))
     }
-    throw "Application did not expose a main window within $TimeoutSeconds seconds."
+    throw 'Application did not expose a main window before the acceptance execution deadline.'
 }
+
+
 
 function Start-IsolatedApplication {
     param(
         [Parameter(Mandatory)][string]$Executable,
         [Parameter(Mandatory)][string]$ProfileRoot,
-        [Parameter(Mandatory)][string]$LogDirectory
+        [Parameter(Mandatory)][string]$LogDirectory,
+        [Parameter(Mandatory)][object]$DeadlinePolicy,
+        [System.Collections.IList]$OwnedProcessRecords
     )
     Prepare-LogDirectory -LogDirectory $LogDirectory
     $localAppData = Join-Path $ProfileRoot 'user\AppData\Local'
     $temp = Join-Path $ProfileRoot 'temp'
     New-Item -ItemType Directory -Path $temp -Force | Out-Null
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $Executable
-    $startInfo.WorkingDirectory = Split-Path -Parent $Executable
-    $startInfo.UseShellExecute = $false
-    $startInfo.Environment['LOCALAPPDATA'] = $localAppData
-    $startInfo.Environment['USERPROFILE'] = Join-Path $ProfileRoot 'user'
-    $startInfo.Environment['TEMP'] = $temp
-    $startInfo.Environment['TMP'] = $temp
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    if (-not $process.Start()) {
-        $process.Dispose()
-        throw "Unable to start application: $Executable"
-    }
+    $started = Start-VerificationRedirectedProcess `
+        -FileName $Executable `
+        -WorkingDirectory (Split-Path -Parent $Executable) `
+        -Environment @{
+            LOCALAPPDATA = $localAppData
+            USERPROFILE = Join-Path $ProfileRoot 'user'
+            TEMP = $temp
+            TMP = $temp
+        } `
+        -DeadlinePolicy $DeadlinePolicy `
+        -DiagnosticsDirectory (Join-Path $LogDirectory 'process') `
+        -OwnedProcessRecords $OwnedProcessRecords
     try {
-        try { [void]$process.WaitForInputIdle(30000) } catch { }
-        [void](Wait-ForStartupReady -Process $process -LogDirectory $LogDirectory)
-        Wait-ForMainWindow -Process $process
-        return $process
+        try {
+            $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
+                -DeadlineUtc $DeadlinePolicy.ExecutionDeadlineUtc `
+                -OperationName 'application input-idle wait'
+            [void]$started.Process.WaitForInputIdle([Math]::Min(30000, $remainingMilliseconds))
+        }
+        catch { }
+        [void](Wait-ForStartupReady -Process $started.Process -LogDirectory $LogDirectory -DeadlineUtc $DeadlinePolicy.ExecutionDeadlineUtc)
+        Wait-ForMainWindow -Process $started.Process -DeadlineUtc $DeadlinePolicy.ExecutionDeadlineUtc
+        return $started
     }
     catch {
-        if (-not $process.HasExited) {
-            $process.Kill()
-            $process.WaitForExit()
+        $primaryException = $_.Exception
+        try {
+            $cleanup = Stop-VerificationOwnedProcessRecord `
+                -Started $started `
+                -CleanupDeadlineUtc $DeadlinePolicy.CleanupDeadlineUtc `
+                -OperationName 'net10-update application startup cleanup'
+            if (-not $cleanup.Succeeded) {
+                $primaryException.Data['VerificationSecondaryDiagnostics'] = @($cleanup.Diagnostics)
+            }
         }
-        $process.Dispose()
-        throw
+        catch {
+            $primaryException.Data['VerificationSecondaryDiagnostics'] = @($_.Exception.ToString())
+        }
+        throw $primaryException
     }
 }
 
 function Close-IsolatedApplication {
-    param([Parameter(Mandatory)][Diagnostics.Process]$Process)
+    param(
+        [Parameter(Mandatory)][object]$Started,
+        [Parameter(Mandatory)][string]$DiagnosticsDirectory,
+        [Parameter(Mandatory)][object]$DeadlinePolicy
+    )
     try {
-        $requested = $Process.CloseMainWindow()
+        $requested = $Started.Process.CloseMainWindow()
         if (-not $requested) {
-            $handle = $Process.MainWindowHandle
+            $handle = $Started.Process.MainWindowHandle
             if ($handle -eq 0 -or -not [BeMusicSeekerUpdateAcceptanceWindowMessage]::PostMessage($handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
                 throw 'Application did not accept a graceful shutdown request.'
             }
         }
-        if (-not $Process.WaitForExit(120000)) {
-            throw 'Application did not exit after a graceful shutdown request.'
+        $result = Complete-VerificationRedirectedProcess `
+            -Started $Started `
+            -DiagnosticsDirectory $DiagnosticsDirectory `
+            -DeadlinePolicy $DeadlinePolicy `
+            -LifecycleName 'net10-update-application' `
+            -TerminateProcessTree
+        if ($null -ne $result.PrimaryFailureKind) {
+            throw (Get-VerificationLifecycleFailureMessage `
+                    -Label 'Application graceful shutdown' `
+                    -Result $result `
+                    -TimeoutSeconds $DeadlinePolicy.TimeoutSeconds)
         }
-        $exitCode = $Process.ExitCode
-        if ($null -ne $exitCode -and [int]$exitCode -ne 0) {
-            throw "Application shutdown returned exit code $exitCode."
+        if (@($result.SecondaryDiagnostics).Count -gt 0) {
+            throw "Application lifecycle diagnostics reported failure: $(@($result.SecondaryDiagnostics) -join '; ')"
         }
+        if ($null -ne $result.ExitCode -and [int]$result.ExitCode -ne 0) {
+            throw "Application shutdown returned exit code $($result.ExitCode)."
+        }
+        return $result
     }
-    finally {
-        if (-not $Process.HasExited) {
-            $Process.Kill()
-            $Process.WaitForExit()
+    catch {
+        $primaryException = $_.Exception
+        try {
+            $cleanup = Stop-VerificationOwnedProcessRecord `
+                -Started $Started `
+                -CleanupDeadlineUtc $DeadlinePolicy.CleanupDeadlineUtc `
+                -OperationName 'net10-update application cleanup'
+            if (-not $cleanup.Succeeded) {
+                $primaryException.Data['VerificationSecondaryDiagnostics'] = @($cleanup.Diagnostics)
+            }
         }
-        $Process.Dispose()
+        catch {
+            $primaryException.Data['VerificationSecondaryDiagnostics'] = @($_.Exception.ToString())
+        }
+        throw $primaryException
     }
 }
+
 
 function Start-UpdaterHandshake {
     param(
         [Parameter(Mandatory)][string]$UpdaterExecutable,
         [Parameter(Mandatory)][string]$AppRoot,
+        [Parameter(Mandatory)][string]$ProfileRoot,
         [Parameter(Mandatory)][string]$PackagePath,
-        [Parameter(Mandatory)][int]$ApplicationProcessId
+        [Parameter(Mandatory)][int]$ApplicationProcessId,
+        [Parameter(Mandatory)][object]$DeadlinePolicy,
+        [System.Collections.IList]$OwnedProcessRecords
     )
+    [void](Get-VerificationRemainingMilliseconds -DeadlineUtc $DeadlinePolicy.ExecutionDeadlineUtc -OperationName 'updater process start')
     $workRoot = Join-Path $AppRoot 'update_work'
     $current = Join-Path $workRoot 'current'
     $downloads = Join-Path $workRoot 'downloads'
     New-Item -ItemType Directory -Path $current, $downloads -Force | Out-Null
     $downloadedPackage = Join-Path $downloads ([IO.Path]::GetFileName($PackagePath))
     Copy-Item -LiteralPath $PackagePath -Destination $downloadedPackage -Force
+    Assert-File $downloadedPackage
+    $preparedUpdater = Join-Path $current 'BeMusicSeeker.Updater.exe'
+    Copy-Item -LiteralPath $UpdaterExecutable -Destination $preparedUpdater -Force
+    Assert-File $preparedUpdater
     $ready = Join-Path $current 'updater-ready.txt'
     $decision = Join-Path $current 'updater-decision.txt'
     Remove-Item -LiteralPath $ready, $decision -Force -ErrorAction SilentlyContinue
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $UpdaterExecutable
-    $startInfo.WorkingDirectory = $AppRoot
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    foreach ($value in @(
-            '--app-dir', $AppRoot,
-            '--package', $downloadedPackage,
-            '--backup-dir', (Join-Path $AppRoot 'update_backup'),
-            '--ready-file', $ready,
-            '--decision-file', $decision,
-            '--pid', ([string]$ApplicationProcessId),
-            '--restart-exe', (Join-Path $AppRoot 'BeMusicSeeker.exe'))) {
-        [void]$startInfo.ArgumentList.Add([string]$value)
+    $localAppData = Join-Path $ProfileRoot 'user\AppData\Local'
+    $userProfile = Join-Path $ProfileRoot 'user'
+    $temp = Join-Path $ProfileRoot 'temp'
+    New-Item -ItemType Directory -Path $temp -Force | Out-Null
+    $arguments = @(
+        '--app-dir', $AppRoot,
+        '--package', $downloadedPackage,
+        '--backup-dir', (Join-Path $AppRoot 'update_backup'),
+        '--ready-file', $ready,
+        '--decision-file', $decision,
+        '--pid', ([string]$ApplicationProcessId),
+        '--restart-exe', (Join-Path $AppRoot 'BeMusicSeeker.exe'))
+    $environment = @{
+        LOCALAPPDATA = $localAppData
+        USERPROFILE = $userProfile
+        TEMP = $temp
+        TMP = $temp
     }
-    $updater = [Diagnostics.Process]::new()
-    $updater.StartInfo = $startInfo
-    if (-not $updater.Start()) {
-        $updater.Dispose()
-        throw "Unable to start updater: $UpdaterExecutable"
-    }
-    $deadline = [DateTime]::UtcNow.AddSeconds(180)
-    while (-not (Test-Path -LiteralPath $ready -PathType Leaf) -and [DateTime]::UtcNow -lt $deadline) {
-        if ($updater.HasExited) {
-            $stdout = $updater.StandardOutput.ReadToEnd()
-            $stderr = $updater.StandardError.ReadToEnd()
-            throw "Updater exited before ready handshake (exit code $($updater.ExitCode)). stdout=$stdout stderr=$stderr"
+    $started = Start-VerificationRedirectedProcess -FileName $preparedUpdater -Arguments $arguments -WorkingDirectory $current -Environment $environment -DeadlinePolicy $DeadlinePolicy -DiagnosticsDirectory (Join-Path $current 'process') -OwnedProcessRecords $OwnedProcessRecords
+    try {
+        while (-not (Test-Path -LiteralPath $ready -PathType Leaf)) {
+            [void](Get-VerificationRemainingMilliseconds -DeadlineUtc $DeadlinePolicy.ExecutionDeadlineUtc -OperationName 'updater ready handshake')
+            if ($started.Process.HasExited) {
+                $result = Complete-VerificationRedirectedProcess -Started $started -DiagnosticsDirectory (Join-Path $current 'process') -DeadlinePolicy $DeadlinePolicy -LifecycleName 'net10-update-updater'
+                throw "Updater exited before ready handshake (exit=$($result.ExitCode), failure=$($result.PrimaryFailureKind), stderr=$($result.StandardError))"
+            }
+            Start-Sleep -Milliseconds 100
         }
-        Start-Sleep -Milliseconds 100
+        return [pscustomobject]@{
+            Process = $started.Process
+            Started = $started
+            ReadyPath = $ready
+            DecisionPath = $decision
+            DownloadedPackage = $downloadedPackage
+            PreparedUpdater = $preparedUpdater
+            WorkingDirectory = $current
+            StandardOutput = $null
+            StandardError = $null
+            LifecycleResult = $null
+        }
     }
-    if (-not (Test-Path -LiteralPath $ready -PathType Leaf)) {
-        throw 'Updater did not publish the ready handshake within 180 seconds.'
-    }
-    return [pscustomobject]@{
-        Process = $updater
-        ReadyPath = $ready
-        DecisionPath = $decision
-        DownloadedPackage = $downloadedPackage
+    catch {
+        $primaryException = $_.Exception
+        try {
+            $cleanup = Stop-VerificationOwnedProcessRecord -Started $started -CleanupDeadlineUtc $DeadlinePolicy.CleanupDeadlineUtc -OperationName 'net10-update updater handshake cleanup'
+            if (-not $cleanup.Succeeded) {
+                $primaryException.Data['VerificationSecondaryDiagnostics'] = @($cleanup.Diagnostics)
+            }
+        }
+        catch {
+            $primaryException.Data['VerificationSecondaryDiagnostics'] = @($_.Exception.ToString())
+        }
+        throw $primaryException
     }
 }
 
@@ -432,50 +511,117 @@ function Approve-UpdaterHandshake {
     [IO.File]::WriteAllText($Handshake.DecisionPath, 'proceed', [Text.UTF8Encoding]::new($false))
 }
 
-function Wait-UpdaterExit {
-    param([Parameter(Mandatory)]$Handshake)
-    try {
-        if (-not $Handshake.Process.WaitForExit(180000)) {
-            throw 'Updater did not exit within 180 seconds.'
-        }
-        return [int]$Handshake.Process.ExitCode
-    }
-    finally {
-        $Handshake.Process.Dispose()
-    }
-}
 
-function Stop-SandboxProcesses {
-    param([Parameter(Mandatory)][string]$SandboxRoot)
-    $normalizedRoot = (Resolve-FullPath $SandboxRoot).TrimEnd('\') + '\'
-    foreach ($process in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-            $_.Name -in @('BeMusicSeeker.exe', 'BeMusicSeeker.Updater.exe') -and
-            $_.ExecutablePath -and
-            (Resolve-FullPath $_.ExecutablePath).StartsWith($normalizedRoot, [StringComparison]::OrdinalIgnoreCase)
-        })) {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+function Wait-UpdaterExit {
+    param(
+        [Parameter(Mandatory)]$Handshake,
+        [Parameter(Mandatory)][object]$DeadlinePolicy
+    )
+    try {
+        $result = Complete-VerificationRedirectedProcess `
+            -Started $Handshake.Started `
+            -DiagnosticsDirectory (Join-Path $Handshake.WorkingDirectory 'process') `
+            -DeadlinePolicy $DeadlinePolicy `
+            -LifecycleName 'net10-update-updater'
+        $Handshake.StandardOutput = $result.StandardOutput
+        $Handshake.StandardError = $result.StandardError
+        $Handshake.LifecycleResult = $result
+        if ($result.PrimaryFailureKind -ceq 'timeout') {
+            throw (Get-VerificationLifecycleFailureMessage `
+                    -Label 'Updater completion' `
+                    -Result $result `
+                    -TimeoutSeconds $DeadlinePolicy.TimeoutSeconds)
+        }
+        if (@($result.SecondaryDiagnostics).Count -gt 0) {
+            throw "Updater lifecycle diagnostics reported failure: $(@($result.SecondaryDiagnostics) -join '; ')"
+        }
+        return [int]$result.ExitCode
+    }
+    catch {
+        $primaryException = $_.Exception
+        if (-not $Handshake.Started.LifecycleCompleted) {
+            try {
+                $cleanup = Stop-VerificationOwnedProcessRecord `
+                    -Started $Handshake.Started `
+                    -CleanupDeadlineUtc $DeadlinePolicy.CleanupDeadlineUtc `
+                    -OperationName 'net10-update updater completion cleanup'
+                if (-not $cleanup.Succeeded) {
+                    $primaryException.Data['VerificationSecondaryDiagnostics'] = @($cleanup.Diagnostics)
+                }
+            }
+            catch {
+                $primaryException.Data['VerificationSecondaryDiagnostics'] = @($_.Exception.ToString())
+            }
+        }
+        throw $primaryException
     }
 }
 
 function Wait-RestartedApplication {
-    param([Parameter(Mandatory)][string]$Executable, [int]$TimeoutSeconds = 180)
+    param(
+        [Parameter(Mandatory)][string]$Executable,
+        [Parameter(Mandatory)][DateTime]$DeadlineUtc,
+        [System.Collections.IList]$OwnedProcessRecords
+    )
     $normalized = (Resolve-FullPath $Executable)
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $deadline = $DeadlineUtc.ToUniversalTime()
     while ([DateTime]::UtcNow -lt $deadline) {
-        foreach ($candidate in @(Get-Process -Name 'BeMusicSeeker' -ErrorAction SilentlyContinue)) {
-            try {
-                if ($candidate.MainModule.FileName -and (Resolve-FullPath $candidate.MainModule.FileName) -eq $normalized) {
-                    return $candidate
-                }
+        $candidate = Find-RunningApplication -Executable $normalized
+        if ($null -ne $candidate) {
+            $record = New-VerificationOwnedProcessRecord `
+                -Process $candidate `
+                -CommandIdentity "restarted application: $normalized" `
+                -DiagnosticsDirectory (Join-Path (Split-Path -Parent $normalized) 'process')
+            if ($null -ne $OwnedProcessRecords) {
+                [void]$OwnedProcessRecords.Add($record)
             }
-            catch { }
-            finally {
-                if ($candidate.HasExited) { $candidate.Dispose() }
+            return $record
+        }
+        $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
+            -DeadlineUtc $deadline `
+            -OperationName 'restarted application wait'
+        Start-Sleep -Milliseconds ([Math]::Min(250, $remainingMilliseconds))
+    }
+    throw "Updater did not restart the application before the acceptance execution deadline: $Executable"
+}
+
+function Find-RunningApplication {
+    param([Parameter(Mandatory)][string]$Executable)
+    $normalized = Resolve-FullPath $Executable
+    foreach ($candidate in @(Get-Process -ErrorAction SilentlyContinue)) {
+        $matches = $false
+        try {
+            if (-not $candidate.HasExited) {
+                $candidate.Refresh()
+                $processPath = $candidate.MainModule.FileName
+                $matches = -not [string]::IsNullOrWhiteSpace($processPath) -and
+                    (Resolve-FullPath $processPath) -eq $normalized
             }
         }
-        Start-Sleep -Milliseconds 250
+        catch { }
+        if ($matches) {
+            return $candidate
+        }
+        try { $candidate.Dispose() } catch { }
     }
-    throw "Updater did not restart the application: $Executable"
+    return $null
+}
+
+function Assert-NoRunningApplication {
+    param([Parameter(Mandatory)][string]$Executable)
+    $checkedAtUtc = [DateTime]::UtcNow
+    $candidate = Find-RunningApplication -Executable $Executable
+    if ($null -ne $candidate) {
+        $processId = $candidate.Id
+        try { $candidate.Dispose() } catch { }
+        throw "Updater unexpectedly restarted the application before the rollback terminal check: $Executable (pid=$processId)"
+    }
+    Write-Host "Rollback terminal process check observed no application at ${checkedAtUtc}: $Executable"
+    return [pscustomobject]@{
+        Executable = Resolve-FullPath $Executable
+        ProcessObserved = $false
+        CheckedAtUtc = $checkedAtUtc.ToString('O')
+    }
 }
 
 function Archive-LogsBeforeRestart {
@@ -488,15 +634,41 @@ function Archive-LogsBeforeRestart {
 }
 
 function Export-BaselinePackage {
-    param([Parameter(Mandatory)][string]$Root)
+    param(
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][object]$DeadlinePolicy,
+        [System.Collections.IList]$OwnedProcessRecords
+    )
     $archive = Join-Path $Root 'baseline-source.zip'
     $source = Join-Path $Root 'source'
     New-Item -ItemType Directory -Path $source -Force | Out-Null
-    Invoke-CheckedCommand git 'archive' '--format=zip' "--output=$archive" $BaselineCommit
+    $diagnosticsRoot = Join-Path $Root 'process'
+    Invoke-VerificationMonitoredCommand `
+        -Label 'baseline source archive' `
+        -CommandPath 'git' `
+        -Arguments @('archive', '--format=zip', "--output=$archive", $BaselineCommit) `
+        -WorkingDirectory $repoRoot `
+        -DiagnosticsDirectory (Join-Path $diagnosticsRoot 'git-archive') `
+        -DeadlinePolicy $DeadlinePolicy `
+        -OwnedProcessRecords $OwnedProcessRecords
     Expand-Archive -LiteralPath $archive -DestinationPath $source -Force
-    Invoke-CheckedCommand dotnet 'restore' (Join-Path $source 'BeMusicSeeker.sln') '-r' 'win-x64' '--locked-mode'
+    Invoke-VerificationMonitoredCommand `
+        -Label 'baseline restore' `
+        -CommandPath 'dotnet' `
+        -Arguments @('restore', (Join-Path $source 'BeMusicSeeker.sln'), '-r', 'win-x64', '--locked-mode') `
+        -WorkingDirectory $source `
+        -DiagnosticsDirectory (Join-Path $diagnosticsRoot 'dotnet-restore') `
+        -DeadlinePolicy $DeadlinePolicy `
+        -OwnedProcessRecords $OwnedProcessRecords
     $publish = Join-Path $source 'scripts\publish.ps1'
-    Invoke-CheckedCommand pwsh '-NoProfile' '-File' $publish '-PackageOnly' '-SkipDocHtml'
+    Invoke-VerificationMonitoredCommand `
+        -Label 'baseline publish' `
+        -CommandPath 'pwsh' `
+        -Arguments @('-NoProfile', '-File', $publish, '-PackageOnly', '-SkipDocHtml') `
+        -WorkingDirectory $source `
+        -DiagnosticsDirectory (Join-Path $diagnosticsRoot 'baseline-publish') `
+        -DeadlinePolicy $DeadlinePolicy `
+        -OwnedProcessRecords $OwnedProcessRecords
     $package = Get-ChildItem -LiteralPath (Join-Path $source 'dist') -Filter '*.zip' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($null -eq $package) {
         throw 'Baseline publish did not produce a release package.'
@@ -510,8 +682,19 @@ function Export-BaselinePackage {
 }
 
 function Export-CurrentPackage {
+    param(
+        [Parameter(Mandatory)][object]$DeadlinePolicy,
+        [System.Collections.IList]$OwnedProcessRecords
+    )
     $publish = Join-Path $repoRoot 'scripts\publish.ps1'
-    Invoke-CheckedCommand pwsh '-NoProfile' '-File' $publish '-PackageOnly' '-SkipDocHtml'
+    Invoke-VerificationMonitoredCommand `
+        -Label 'current publish' `
+        -CommandPath 'pwsh' `
+        -Arguments @('-NoProfile', '-File', $publish, '-PackageOnly', '-SkipDocHtml') `
+        -WorkingDirectory $repoRoot `
+        -DiagnosticsDirectory (Join-Path $repoRoot 'artifacts\verification\net10-update\process\current-publish') `
+        -DeadlinePolicy $DeadlinePolicy `
+        -OwnedProcessRecords $OwnedProcessRecords
     $package = Get-ChildItem -LiteralPath (Join-Path $repoRoot 'dist') -Filter '*.zip' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($null -eq $package) {
         throw 'Current publish did not produce a release package.'
@@ -610,21 +793,6 @@ function Assert-SemanticStateEqual {
     }
 }
 
-function Wait-CurrentRestart {
-    param([Parameter(Mandatory)][string]$Executable, [Parameter(Mandatory)][string]$LogDirectory)
-    $process = Wait-RestartedApplication -Executable $Executable
-    try {
-        [void](Wait-ForStartupReady -Process $process -LogDirectory $LogDirectory)
-        Wait-ForMainWindow -Process $process
-        return $process
-    }
-    catch {
-        if (-not $process.HasExited) { $process.Kill(); $process.WaitForExit() }
-        $process.Dispose()
-        throw
-    }
-}
-
 function New-FaultPackage {
     param([Parameter(Mandatory)][string]$CurrentPackagePath, [Parameter(Mandatory)][string]$Destination)
     $extracted = Join-Path (Split-Path -Parent $Destination) ('fault-extracted-' + [Guid]::NewGuid().ToString('N'))
@@ -647,6 +815,8 @@ $script:sandboxRoot = Join-Path ([IO.Path]::GetTempPath()) ('BeMusicSeeker-net10
 $script:receiptPath = Join-Path (Join-Path $OutputDirectory 'receipt') 'update-acceptance.json'
 New-Item -ItemType Directory -Path (Split-Path -Parent $script:receiptPath) -Force | Out-Null
 $script:failed = $false
+$script:primaryError = $null
+$script:ownedProcessRecords = [Collections.Generic.List[object]]::new()
 
 try {
     $baselineRoot = Join-Path $script:sandboxRoot 'baseline'
@@ -668,8 +838,13 @@ try {
         }
     }
     else {
-        $baseline = Export-BaselinePackage -Root $baselineRoot
-        $current = Export-CurrentPackage
+        $baseline = Export-BaselinePackage `
+            -Root $baselineRoot `
+            -DeadlinePolicy $script:deadlinePolicy `
+            -OwnedProcessRecords $script:ownedProcessRecords
+        $current = Export-CurrentPackage `
+            -DeadlinePolicy $script:deadlinePolicy `
+            -OwnedProcessRecords $script:ownedProcessRecords
     }
     $script:currentAppPublishRoot = Resolve-FullPath $current.AppPublishRoot
     Assert-Directory $script:currentAppPublishRoot
@@ -680,18 +855,63 @@ try {
     $baselineExecutableHash = Get-Sha256 -Path (Join-Path $successApp 'BeMusicSeeker.exe')
     $successProfile = Prepare-Profile -ProfileRoot $successRoot -AppRoot $successApp -ProfileName 'standalone'
     $successLog = Join-Path $successApp 'log'
-    $oldProcess = Start-IsolatedApplication -Executable (Join-Path $successApp 'BeMusicSeeker.exe') -ProfileRoot $successRoot -LogDirectory $successLog
+    $oldProcess = Start-IsolatedApplication `
+        -Executable (Join-Path $successApp 'BeMusicSeeker.exe') `
+        -ProfileRoot $successRoot `
+        -LogDirectory $successLog `
+        -DeadlinePolicy $script:deadlinePolicy `
+        -OwnedProcessRecords $script:ownedProcessRecords
     $beforeSuccess = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $successApp; DatabasePath = $successProfile.DatabasePath; InstallPath = $successProfile.InstallPath; LegacyConfigPath = $successProfile.LegacyConfigPath; MarkerPath = $successProfile.MarkerPath })
     # The committed .NET 10 baseline exercises the current updater handshake
     # without rebuilding the retired net472 application.
-    $successUpdater = Start-UpdaterHandshake -UpdaterExecutable (Join-Path $successApp 'BeMusicSeeker.Updater.exe') -AppRoot $successApp -PackagePath $current.PackagePath -ApplicationProcessId $oldProcess.Id
-    Close-IsolatedApplication -Process $oldProcess
+    $successUpdater = Start-UpdaterHandshake `
+        -UpdaterExecutable (Join-Path $successApp 'BeMusicSeeker.Updater.exe') `
+        -AppRoot $successApp `
+        -ProfileRoot $successRoot `
+        -PackagePath $current.PackagePath `
+        -ApplicationProcessId $oldProcess.ProcessId `
+        -DeadlinePolicy $script:deadlinePolicy `
+        -OwnedProcessRecords $script:ownedProcessRecords
+    Close-IsolatedApplication `
+        -Started $oldProcess `
+        -DiagnosticsDirectory (Join-Path $successLog 'process') `
+        -DeadlinePolicy $script:deadlinePolicy
     Archive-LogsBeforeRestart -LogDirectory $successLog
     Approve-UpdaterHandshake -Handshake $successUpdater
-    $successExitCode = Wait-UpdaterExit -Handshake $successUpdater
-    if ($successExitCode -ne 0) { throw "Baseline updater did not complete update: exit=$successExitCode" }
-    $currentProcess = Wait-CurrentRestart -Executable (Join-Path $successApp 'BeMusicSeeker.exe') -LogDirectory $successLog
-    Close-IsolatedApplication -Process $currentProcess
+    $successExitCode = Wait-UpdaterExit `
+        -Handshake $successUpdater `
+        -DeadlinePolicy $script:deadlinePolicy
+    if ($successExitCode -ne 0) {
+        throw "Baseline updater did not complete update: exit=$successExitCode stdout=$($successUpdater.StandardOutput) stderr=$($successUpdater.StandardError)"
+    }
+    $currentProcess = Wait-RestartedApplication `
+        -Executable (Join-Path $successApp 'BeMusicSeeker.exe') `
+        -DeadlineUtc $script:deadlinePolicy.ExecutionDeadlineUtc `
+        -OwnedProcessRecords $script:ownedProcessRecords
+    try {
+        [void](Wait-ForStartupReady `
+                -Process $currentProcess.Process `
+                -LogDirectory $successLog `
+                -DeadlineUtc $script:deadlinePolicy.ExecutionDeadlineUtc)
+        Wait-ForMainWindow -Process $currentProcess.Process -DeadlineUtc $script:deadlinePolicy.ExecutionDeadlineUtc
+    }
+    catch {
+        $primaryException = $_.Exception
+        try {
+            $cleanup = Stop-VerificationOwnedProcessRecord -Started $currentProcess -CleanupDeadlineUtc $script:deadlinePolicy.CleanupDeadlineUtc -OperationName 'net10-update restarted application cleanup'
+            if (-not $cleanup.Succeeded) {
+                $primaryException.Data['VerificationSecondaryDiagnostics'] = @($cleanup.Diagnostics)
+            }
+        }
+        catch {
+            $primaryException.Data['VerificationSecondaryDiagnostics'] = @($_.Exception.ToString())
+        }
+        throw $primaryException
+    }
+    Close-IsolatedApplication `
+        -Started $currentProcess `
+        -DiagnosticsDirectory (Join-Path $successLog 'process') `
+        -DeadlinePolicy $script:deadlinePolicy
     $successAfter = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $successApp; DatabasePath = $successProfile.DatabasePath; InstallPath = $successProfile.InstallPath; LegacyConfigPath = $successProfile.LegacyConfigPath; MarkerPath = $successProfile.MarkerPath })
     Assert-SemanticStateEqual -Before $beforeSuccess -After $successAfter -Label 'old-to-new success'
     Assert-PortableSingleFilePayloadLayout $successApp
@@ -710,14 +930,31 @@ try {
     $rollbackLog = Join-Path $rollbackApp 'log'
     $faultPackage = Join-Path $rollbackRoot 'fault-package.zip'
     New-FaultPackage -CurrentPackagePath $current.PackagePath -Destination $faultPackage
-    $rollbackProcess = Start-IsolatedApplication -Executable (Join-Path $rollbackApp 'BeMusicSeeker.exe') -ProfileRoot $rollbackRoot -LogDirectory $rollbackLog
+    $rollbackProcess = Start-IsolatedApplication `
+        -Executable (Join-Path $rollbackApp 'BeMusicSeeker.exe') `
+        -ProfileRoot $rollbackRoot `
+        -LogDirectory $rollbackLog `
+        -DeadlinePolicy $script:deadlinePolicy `
+        -OwnedProcessRecords $script:ownedProcessRecords
     $beforeRollback = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $rollbackApp; DatabasePath = $rollbackProfile.DatabasePath; InstallPath = $rollbackProfile.InstallPath; LegacyConfigPath = $rollbackProfile.LegacyConfigPath; MarkerPath = $rollbackProfile.MarkerPath })
     $rollbackOldExeHash = Get-Sha256 -Path (Join-Path $rollbackApp 'BeMusicSeeker.exe')
-    $rollbackHandshake = Start-UpdaterHandshake -UpdaterExecutable (Join-Path $rollbackApp 'BeMusicSeeker.Updater.exe') -AppRoot $rollbackApp -PackagePath $faultPackage -ApplicationProcessId $rollbackProcess.Id
-    Close-IsolatedApplication -Process $rollbackProcess
+    $rollbackHandshake = Start-UpdaterHandshake `
+        -UpdaterExecutable (Join-Path $rollbackApp 'BeMusicSeeker.Updater.exe') `
+        -AppRoot $rollbackApp `
+        -ProfileRoot $rollbackRoot `
+        -PackagePath $faultPackage `
+        -ApplicationProcessId $rollbackProcess.ProcessId `
+        -DeadlinePolicy $script:deadlinePolicy `
+        -OwnedProcessRecords $script:ownedProcessRecords
+    Close-IsolatedApplication `
+        -Started $rollbackProcess `
+        -DiagnosticsDirectory (Join-Path $rollbackLog 'process') `
+        -DeadlinePolicy $script:deadlinePolicy
     Archive-LogsBeforeRestart -LogDirectory $rollbackLog
     Approve-UpdaterHandshake -Handshake $rollbackHandshake
-    $rollbackExitCode = Wait-UpdaterExit -Handshake $rollbackHandshake
+    $rollbackExitCode = Wait-UpdaterExit `
+        -Handshake $rollbackHandshake `
+        -DeadlinePolicy $script:deadlinePolicy
     if ($rollbackExitCode -eq 0) { throw 'Fault package unexpectedly completed as a successful update.' }
     $failureReceiptCandidates = @(
         (Join-Path $rollbackApp 'update_work\update-failure.txt'),
@@ -733,14 +970,25 @@ try {
         throw "Fault-package rollback persisted an empty update failure receipt: $failureReceiptPath"
     }
     $failureReceiptHash = Get-Sha256 -Path $failureReceiptPath
-    $recoveredProcess = Wait-CurrentRestart -Executable (Join-Path $rollbackApp 'BeMusicSeeker.exe') -LogDirectory $rollbackLog
-    Close-IsolatedApplication -Process $recoveredProcess
+    $rollbackTerminalProcessCheck = Assert-NoRunningApplication -Executable (Join-Path $rollbackApp 'BeMusicSeeker.exe')
+    $recoveredProcess = Start-IsolatedApplication `
+        -Executable (Join-Path $rollbackApp 'BeMusicSeeker.exe') `
+        -ProfileRoot $rollbackRoot `
+        -LogDirectory $rollbackLog `
+        -DeadlinePolicy $script:deadlinePolicy `
+        -OwnedProcessRecords $script:ownedProcessRecords
+    Close-IsolatedApplication `
+        -Started $recoveredProcess `
+        -DiagnosticsDirectory (Join-Path $rollbackLog 'process') `
+        -DeadlinePolicy $script:deadlinePolicy
     $rollbackAfter = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $rollbackApp; DatabasePath = $rollbackProfile.DatabasePath; InstallPath = $rollbackProfile.InstallPath; LegacyConfigPath = $rollbackProfile.LegacyConfigPath; MarkerPath = $rollbackProfile.MarkerPath })
     Assert-SemanticStateEqual -Before $beforeRollback -After $rollbackAfter -Label 'fault-package rollback'
     if ((Get-Sha256 -Path (Join-Path $rollbackApp 'BeMusicSeeker.exe')) -ne $rollbackOldExeHash) { throw 'Rollback did not restore the previous application executable.' }
     foreach ($residual in @('update_work\update-transaction.json', 'update_work\update-transaction.lock', 'update_work\extracted', 'update_work\downloads')) {
         if (Test-Path -LiteralPath (Join-Path $rollbackApp $residual)) { throw "Rollback left transaction residue: $residual" }
     }
+    $rollbackStartupVerified = $true
+    $rollbackCleanupVerified = $true
 
     if ($artifactManifestMode) {
         Assert-DistributionArtifactManifest -ArtifactManifest $artifactManifest | Out-Null
@@ -761,14 +1009,47 @@ try {
         artifactRunId = if ($artifactManifestMode) { $artifactManifest.RunId } else { $null }
         artifactManifestSha256 = if ($artifactManifestMode) { $artifactManifest.ManifestSha256 } else { $null }
         fixtureManifestSha256 = $script:manifestHash
-        success = [ordered]@{ updaterExitCode = $successExitCode; appTreeSha256 = $successManaged; semanticDataPreserved = $true }
-        rollback = [ordered]@{ updaterExitCode = $rollbackExitCode; failureReceiptFileName = [IO.Path]::GetFileName($failureReceiptPath); failureReceiptSha256 = $failureReceiptHash; restoredExecutableSha256 = $rollbackOldExeHash; semanticDataPreserved = $true }
+        success = [ordered]@{
+            updaterExitCode = $successExitCode
+            updaterWorkingDirectory = $successUpdater.WorkingDirectory
+            updaterPreparedPath = $successUpdater.PreparedUpdater
+            downloadedPackageFileName = [IO.Path]::GetFileName($successUpdater.DownloadedPackage)
+            updaterStandardOutput = $successUpdater.StandardOutput
+            updaterStandardError = $successUpdater.StandardError
+            automaticRestartObserved = $true
+            startupReadyOperable = $true
+            mainWindowObserved = $true
+            gracefulShutdown = $true
+            appTreeSha256 = $successManaged
+            semanticDataPreserved = $true
+        }
+        rollback = [ordered]@{
+            updaterExitCode = $rollbackExitCode
+            updaterWorkingDirectory = $rollbackHandshake.WorkingDirectory
+            updaterPreparedPath = $rollbackHandshake.PreparedUpdater
+            downloadedPackageFileName = [IO.Path]::GetFileName($rollbackHandshake.DownloadedPackage)
+            updaterStandardOutput = $rollbackHandshake.StandardOutput
+            updaterStandardError = $rollbackHandshake.StandardError
+            automaticRestartObserved = $rollbackTerminalProcessCheck.ProcessObserved
+            automaticRestartCheckedAtUtc = $rollbackTerminalProcessCheck.CheckedAtUtc
+            automaticRestartCheck = 'point-in-time executable-path process check'
+            explicitStartupReadyOperable = $rollbackStartupVerified
+            explicitMainWindowObserved = $rollbackStartupVerified
+            explicitGracefulShutdown = $rollbackStartupVerified
+            startupCleanupVerified = $rollbackCleanupVerified
+            failureReceiptFileName = [IO.Path]::GetFileName($failureReceiptPath)
+            failureReceiptSha256 = $failureReceiptHash
+            restoredExecutableSha256 = $rollbackOldExeHash
+            semanticDataPreserved = $true
+        }
     }
     [IO.File]::WriteAllText($script:receiptPath, ($receipt | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
     Write-Host "NET10 update acceptance passed: $script:receiptPath"
 }
 catch {
     $script:failed = $true
+    $failureErrorRecord = $_
+    $script:primaryError = $failureErrorRecord
     $failure = [ordered]@{
         schemaVersion = 1
         status = 'failed'
@@ -779,17 +1060,54 @@ catch {
         artifactManifestSha256 = if ($artifactManifestMode) { $artifactManifest.ManifestSha256 } else { $null }
         fixtureManifestSha256 = $script:manifestHash
         sandboxRoot = $script:sandboxRoot
-        error = $_.Exception.ToString()
+        error = $failureErrorRecord.Exception.ToString()
     }
-    [IO.File]::WriteAllText($script:receiptPath, ($failure | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
-    throw
+    try {
+        [IO.File]::WriteAllText($script:receiptPath, ($failure | ConvertTo-Json -Depth 12), [Text.UTF8Encoding]::new($false))
+    }
+    catch {
+        Add-VerificationExceptionSecondaryDiagnostic `
+            -Exception $failureErrorRecord.Exception `
+            -Diagnostic "failure receipt write failed: $($_.Exception.ToString())"
+    }
+    throw $failureErrorRecord
 }
 finally {
-    Stop-SandboxProcesses -SandboxRoot $script:sandboxRoot
+    $sandboxCleanupDeadline = if ($script:failed) {
+        $script:deadlinePolicy.CleanupDeadlineUtc
+    }
+    else {
+        $script:deadlinePolicy.ExecutionDeadlineUtc
+    }
+    $ownedCleanupException = $null
+    try {
+        Stop-VerificationOwnedProcessRecords `
+            -StartedProcesses $script:ownedProcessRecords `
+            -CleanupDeadlineUtc $script:deadlinePolicy.CleanupDeadlineUtc
+    }
+    catch {
+        $ownedCleanupException = $_.Exception
+    }
+    if ($null -ne $ownedCleanupException) {
+        if ($null -ne $script:primaryError) {
+            Add-VerificationExceptionSecondaryDiagnostic `
+                -Exception $script:primaryError.Exception `
+                -Diagnostic $ownedCleanupException.ToString()
+        }
+        else {
+            throw $ownedCleanupException
+        }
+    }
     if ($KeepSandbox -or $script:failed) {
         Write-Host "NET10 update acceptance sandbox retained: $script:sandboxRoot"
     }
     elseif (Test-Path -LiteralPath $script:sandboxRoot) {
-        Remove-Item -LiteralPath $script:sandboxRoot -Recurse -Force
+        if ([DateTime]::UtcNow -ge $sandboxCleanupDeadline) {
+            throw 'Successful update acceptance sandbox cleanup reached its execution deadline.'
+        }
+        Remove-Item -LiteralPath $script:sandboxRoot -Recurse -Force -ErrorAction Stop
+        if ([DateTime]::UtcNow -ge $sandboxCleanupDeadline) {
+            throw 'Successful update acceptance sandbox cleanup crossed its execution deadline.'
+        }
     }
 }

@@ -157,6 +157,8 @@ app schema repair は `song` table 全件を走査して実ファイルから SH
 
 初回設定後の `Msg_init_completed` は `files_initialize_done` 直後ではなく、required local initialization が完了して `startup_initialization_complete` を記録した後に表示する。自動外部同期、physical consistency audit、export、prewarm まで完了したことは意味しない。scheduler 管理下の post task は `startup_post_initialization_maintenance_complete` で別に観測し、scheduler 外の ranking/XML refresh と遅延 presentation flush は独立した lifecycle で観測する。
 
+既存データ受入の LR2 `CompletedThisRun` はこの completion modal を、captured main HWND が native owner である visible/enabled modal window として観測する。window が一つだけあり、その配下に visible/enabled で `AutomationId=ThemedMessageBoxOK` かつ `InvokePattern` 対応の action が一つだけある場合に限り、その action を実行し、同じ process ID/HWND の window が execution deadline 前に消えたことを確認する。caption、本文、言語 catalog、Enter/Escape/WM_CLOSE は判定や dismiss に使わない。既存データ acceptance の LR2 成功は、graceful shutdown 後に canonical folder/data と `lr2_song_db_sync_status` の Completed terminal row（空 error、non-empty signature/run ID、completed cursor）が揃うことを durable oracle とする。
+
 ## Metadata Bundle Import
 
 metadata bundle は所持譜面から生成した DB 由来情報ではなく、外部配布または同梱された `chart_info` 補助データである。
@@ -212,6 +214,10 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 
 `StartupInstallReadinessState` は `CatalogLoaded && DestinationResourceIndexReady && PendingPackagesRestored` を満たしたとき `InstallEstimationReady` に遷移する。`maintenance_hydration`、`chart_info_hydration`、playlist hydration、score/ranking refresh は install readiness の blocker にしない。
 
+| operation | owner | pre-admission / classification | transaction-owned delete + upsert | post-commit Pending / readiness |
+| --- | --- | --- | --- | --- |
+| startup pending restoration | `LoadInstallTable` / `PackageLifecycleOwner` | existing install row の path を canonicalize し、ordinal exact identity で first-win の canonical duplicate、invalid/missing/no-chart row を prune 対象に分類する。case-only path は別 identity として保持し、dot/trailing alias は canonicalization 後の exact collision として削除する。sole alias の `delete_parent` など非 path data は survivor から保持する | 既存 install-table transaction で raw stale/alias row を delete し、canonical survivor を upsert する | commit 後に canonical Pending を publish し、catalog と resource index が揃えば `startup_install_estimation_ready`。 |
+
 playlist readiness と install estimation readiness は別の milestone であり、`StartupReadinessCoordinator` が required playlist hydration、外部 playlist import admission、deferred import drain、shutdown を一元管理する。外部同期 playlist とおすすめ playlist の import request は playlist initialization 中でも受理でき、呼び出し元は network / parse / DB 保存の完了を同期的に待たずに戻る。受理済み request は FIFO queue に保持し、required playlist readiness が完了するまで network access、playlist 永続化、active collection mutation を開始しない。readiness 後の drain は一度だけ開始し、model / queue lock を保持したまま import、UI callback、外部同期完了を待たない。
 
 required playlist initialization が fault した場合、coordinator は readiness waiter と受理済み import を同じ terminal failure へ収束させ、queue を reopen したり空の成功 summary を後から発行したりしない。shutdown は producer、consumer、drain waiter を cancel/terminalize し、その後の late network、DB、collection mutation を許可しない。shutdown cancellation callback が fault しても、捕捉済み readiness tasks は先に terminalize される。未開始の import drain receipt も callback 実行前に terminalize するが、実行中の drain receipt は active consumer が `finally` の `CompleteExternalPlaylistImportDrain` で terminalize するまで保持される。登録済み callback は通常の `CancellationTokenSource` aggregate semantics で全て試行される。playlist shutdown fan-out も readiness cancellation、BMT 停止、hydration cleanup、log の順に各 callback を一度だけ試行し、最初の callback failure を保持したまま後続 callback を実行する。startup/schema continuation の fault も root initialization task へ伝播し、`startup_ready_*` / `startup_initialization_complete` を成功として publish したり、失敗後の continuation で状態を変更したりしない。
@@ -266,7 +272,9 @@ startup background scheduler は `MainWindowViewModel` が `BMSLibrary.StartupBa
 | post playlist follow-up | `playlist_url_completion`, `playlist_ref_apply`, `external_playlist_sync` | automatic enrichment / external synchronization |
 | post maintenance | `maintenance_hydration`, `installable_maintenance`, `playlist_custom_folder_output_repair` | persisted maintenance attach、補完、物理出力 audit |
 
-startup scheduler 管理下の post-initialization task の concurrency は 1 で、required work と同時に一つまで進められる。`post_initialize_gc` は required scheduling が閉じ required work が idle になるまで開始しない。scheduler 管理下の post task は単に計測外へ隠すのではなく、summary と post-complete markerで追跡する。scheduler 外の ranking/XML refresh と遅延 presentation flush は、それぞれの完了 phase / lifecycle markerで追跡する。
+startup scheduler 管理下の通常の post-initialization task は、lane ごとの concurrency 1 と全体 concurrency の範囲で、required work と重なって進められる。`playlist_custom_folder_output_repair` と `installable_maintenance` だけは、それぞれ custom-folder output / installable catalog maintenance と required LR2 mutation の競合を避けるため、required scheduling enrollment が閉じ、queued / running required work が 0 になるまで開始しない。開始後は terminal になるまで新しい required workも開始させない。既存の `post_initialize_gc` も同じ required-idle gate を維持するが、この制約を他の post taskへ一般化しない。scheduler 管理下の post task は単に計測外へ隠すのではなく、summary と post-complete markerで追跡する。scheduler 外の ranking/XML refresh と遅延 presentation flush は、それぞれの完了 phase / lifecycle markerで追跡する。
+
+`playlist_custom_folder_output_repair` が開始時点で mutation admission の busy を検出した場合、background route は UI を表示せず、待機や再試行、status / playlist DB / LR2 row / custom-folder file の変更を行わないまま、その実行を明示failureまたはskipとしてterminalにする。新しい retry stateは永続化しない。次回起動時に通常のhydration後reconciliationが改めて現在の出力surfaceを検査し、必要ならrepairを再試行する。foregroundの手動再出力routeは従来どおりbusy warningを許可する。
 
 `Startup` では scheduler は `startup_ready_operable` で開始する。`ScoreOnly` / `ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は既に UI operable 後の operation なので、operation開始時のreset後もschedulerをrunnableに保つ。
 
@@ -439,3 +447,5 @@ Startup library construction coverage is split from the retired `StartupLibraryC
 | MainWindow typed startup construction route and compiled caller contract | `StartupMainWindowTypedRouteTests` | case 6 | same `remaining` logical-negative partition |
 
 The old `StartupLibraryConstructionOwnerTests` selector and the historical `library-chart-classwide` named route are retired. The three replacement FQNs remain in the shared `remaining` logical-negative partition; the complementary `remaining-bms-library` positive partition stays disjoint, so the startup cases are covered exactly once by the canonical six-host plan.
+
+Acceptance coverage is mapped separately: `S3-EXD-SCOPE`, `S3-EXD-MODAL`, and `S3-EXD-ACTION` use the `ProcessIntegration` negative fixture `ExistingDataAcceptanceDialogContractTests.DialogClassifier_RejectsUnsafeObservationsAndTracksExactResidualIdentity`, while `S3-FH-BLOCKING` uses the same production UIA ownership classifier for an unexpected first-hop modal. `S3-LR2-DURABLE` remains a positive oracle of the actual Full acceptance script after graceful shutdown; localized/catalog dialog copies and the retired free-form queue-log route are not test inputs.

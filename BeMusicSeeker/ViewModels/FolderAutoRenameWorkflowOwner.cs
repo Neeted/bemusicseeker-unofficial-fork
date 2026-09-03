@@ -37,7 +37,33 @@ internal interface IFolderAutoRenameTerminalMutationPort
         Action<int, int, string> progressReporter);
 }
 
-internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort, IFolderAutoRenameTerminalMutationPort
+/// <summary>
+/// Progress-aware auto-rename mutation seam. The producer receives only an
+/// immutable, non-blocking writer while the workflow owner retains the
+/// operation lease.
+/// </summary>
+internal interface IFolderAutoRenameProgressMutationPort
+{
+    FolderAutoRenameExecutionResult RenameSelectedWithProgress(
+        BMSLibrary library,
+        ChartFolderAutoRenameRequest request,
+        IFolderAutoRenameProgressWriter progressWriter);
+
+    bool RenameAllWithProgress(
+        BMSLibrary library,
+        string parentDirectory,
+        IFolderAutoRenameProgressWriter progressWriter);
+
+    AutoRenameBatchResult RenameAllWithReceiptWithProgress(
+        BMSLibrary library,
+        string parentDirectory,
+        IFolderAutoRenameProgressWriter progressWriter);
+}
+
+internal sealed class BmsLibraryFolderAutoRenameMutationPort :
+    IFolderAutoRenameMutationPort,
+    IFolderAutoRenameTerminalMutationPort,
+    IFolderAutoRenameProgressMutationPort
 {
     public bool HasTargets(BMSLibrary library, string parentDirectory)
     {
@@ -69,6 +95,43 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
         Action<int, int, string> progressReporter)
     {
         return library?.AutoRenameAllChartFoldersWithResult(parentDirectory, progressReporter)
+            ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+    }
+
+    public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
+        BMSLibrary library,
+        ChartFolderAutoRenameRequest request,
+        IFolderAutoRenameProgressWriter progressWriter)
+    {
+        ArgumentNullException.ThrowIfNull(progressWriter);
+        AutoRenameBatchResult result = library?.AutoRenameChartFoldersWithProgress(
+            request?.Charts ?? [],
+            renameRootFolder: false,
+            progressWriter)
+            ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+        return FolderAutoRenameExecutionResult.From(result);
+    }
+
+    public bool RenameAllWithProgress(
+        BMSLibrary library,
+        string parentDirectory,
+        IFolderAutoRenameProgressWriter progressWriter)
+    {
+        ArgumentNullException.ThrowIfNull(progressWriter);
+        return library?.AutoRenameAllChartFoldersWithProgress(
+            parentDirectory,
+            progressWriter)?.HasActionablePlan == true;
+    }
+
+    public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
+        BMSLibrary library,
+        string parentDirectory,
+        IFolderAutoRenameProgressWriter progressWriter)
+    {
+        ArgumentNullException.ThrowIfNull(progressWriter);
+        return library?.AutoRenameAllChartFoldersWithProgress(
+            parentDirectory,
+            progressWriter)
             ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
     }
 }
@@ -205,6 +268,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
 
     private RunContext activeRun;
 
+    private ActiveProgressPublication activeProgressPublication;
+
     private bool shutdownRequested;
 
     internal FolderAutoRenameWorkflowOwner(
@@ -312,43 +377,79 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 return false;
             }
         }
+        if (!chartFileOperations.TryEnter(out run.OperationGate))
+        {
+            CompleteFailure(run, new InvalidOperationException("A chart-file operation is already active."));
+            return true;
+        }
         return Schedule(run);
     }
 
     internal async Task RequestStartAllAsync(string parentDirectory)
     {
-        if (!TryCaptureAllRequest(parentDirectory, out BMSLibrary requestedLibrary))
+        if (string.IsNullOrWhiteSpace(parentDirectory))
         {
             return;
         }
-
-        UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-            BeMusicSeeker.Properties.Resources.Msg_rename_folders,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            UiDialogButton.OKCancel,
-            UiDialogIcon.Question,
-            UiDialogDefaultResult.Cancel));
-        UiDialogRoute.ThrowIfNotShown(confirmation, "folderAutoRenameAllConfirmation");
-        if (!confirmation.IsAccepted)
-        {
-            return;
-        }
-
-        if (!LongPathFileSystem.DirectoryExists(parentDirectory))
-        {
-            return;
-        }
-
-        RunContext run;
+        BMSLibrary requestedLibrary;
         lock (syncRoot)
         {
-            if (!ReferenceEquals(library, requestedLibrary)
-                || !TryCreateRunUnsafe(allFolders: true, request: null, parentDirectory, out run))
+            requestedLibrary = library;
+            if (shutdownRequested || requestedLibrary == null || activeRun != null)
             {
                 return;
             }
         }
-        Schedule(run);
+
+        if (!chartFileOperations.TryEnter(out IDisposable operationGate))
+        {
+            RunContext rejectedRun;
+            lock (syncRoot)
+            {
+                if (!TryCreateRunUnsafe(allFolders: true, request: null, parentDirectory, out rejectedRun))
+                {
+                    return;
+                }
+            }
+            CompleteFailure(rejectedRun, new InvalidOperationException("A chart-file operation is already active."));
+            return;
+        }
+
+        bool operationGateTransferred = false;
+        try
+        {
+            UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Msg_rename_folders,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                UiDialogButton.OKCancel,
+                UiDialogIcon.Question,
+                UiDialogDefaultResult.Cancel));
+            UiDialogRoute.ThrowIfNotShown(confirmation, "folderAutoRenameAllConfirmation");
+            if (!confirmation.IsAccepted || !LongPathFileSystem.DirectoryExists(parentDirectory))
+            {
+                return;
+            }
+
+            RunContext run;
+            lock (syncRoot)
+            {
+                if (!ReferenceEquals(library, requestedLibrary)
+                    || !TryCreateRunUnsafe(allFolders: true, request: null, parentDirectory, out run))
+                {
+                    return;
+                }
+                run.OperationGate = operationGate;
+                operationGateTransferred = true;
+            }
+            Schedule(run);
+        }
+        finally
+        {
+            if (!operationGateTransferred)
+            {
+                operationGate.Dispose();
+            }
+        }
     }
 
     internal void RequestShutdown()
@@ -375,22 +476,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
         generation++;
         run = new RunContext(generation, library, allFolders, request, parentDirectory);
+        run.ProgressWriter = new FolderAutoRenameProgressWriter(this, run);
         activeRun = run;
         return true;
-    }
-
-    private bool TryCaptureAllRequest(string parentDirectory, out BMSLibrary requestedLibrary)
-    {
-        if (string.IsNullOrWhiteSpace(parentDirectory) || !LongPathFileSystem.DirectoryExists(parentDirectory))
-        {
-            requestedLibrary = null;
-            return false;
-        }
-        lock (syncRoot)
-        {
-            requestedLibrary = library;
-            return !shutdownRequested && requestedLibrary != null && activeRun == null;
-        }
     }
 
     private bool Schedule(RunContext run)
@@ -445,7 +533,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
                         run,
                         stopPlayback: null,
                         mutation: () => hasTargets = mutationPort.HasTargets(run.Library, run.ParentDirectory),
-                        refreshSuppression: false))
+                        refreshSuppression: false,
+                        releaseAcquiredOperationGate: false))
                     {
                         CompleteStale(run);
                         return;
@@ -463,12 +552,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
                     return;
                 }
             }
-            PublishProgress(run, new FolderAutoRenameProgressSnapshot
-            {
-                TotalCount = 1,
-                ProcessedCount = 0,
-                CurrentPath = string.Empty
-            });
+            run.ProgressWriter.TryWrite(new FolderAutoRenameProgressUpdate(1, 0, string.Empty));
             LogInfoSafely("folder_auto_rename start scope=" + (run.AllFolders ? "all" : "selected"));
             Action<int, int, string> progressReporter = (total, processed, currentPath) => PublishProgress(run, new FolderAutoRenameProgressSnapshot
             {
@@ -484,7 +568,15 @@ internal sealed class FolderAutoRenameWorkflowOwner
                     playback.StopPlaybackForFolderMutation,
                     () =>
                     {
-                        if (mutationPort is IFolderAutoRenameTerminalMutationPort terminalMutationPort)
+                        if (mutationPort is IFolderAutoRenameProgressMutationPort progressMutationPort)
+                        {
+                            result = FolderAutoRenameExecutionResult.From(
+                                progressMutationPort.RenameAllWithReceiptWithProgress(
+                                    run.Library,
+                                    run.ParentDirectory,
+                                    run.ProgressWriter));
+                        }
+                        else if (mutationPort is IFolderAutoRenameTerminalMutationPort terminalMutationPort)
                         {
                             result = FolderAutoRenameExecutionResult.From(
                                 terminalMutationPort.RenameAllWithReceipt(
@@ -498,7 +590,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
                             result = new FolderAutoRenameExecutionResult { RefreshRequired = changed };
                         }
                     },
-                    refreshSuppression: true))
+                    refreshSuppression: true,
+                    releaseAcquiredOperationGate: false))
                 {
                     CompleteStale(run);
                     return;
@@ -509,8 +602,22 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 if (!ExecuteMutation(
                     run,
                     () => playback.StopPlaybackForCharts(run.SelectedRequest.Charts),
-                    () => result = mutationPort.RenameSelected(run.Library, run.SelectedRequest, progressReporter),
-                    refreshSuppression: true))
+                    () =>
+                    {
+                        if (mutationPort is IFolderAutoRenameProgressMutationPort progressMutationPort)
+                        {
+                            result = progressMutationPort.RenameSelectedWithProgress(
+                                run.Library,
+                                run.SelectedRequest,
+                                run.ProgressWriter);
+                        }
+                        else
+                        {
+                            result = mutationPort.RenameSelected(run.Library, run.SelectedRequest, progressReporter);
+                        }
+                    },
+                    refreshSuppression: true,
+                    releaseAcquiredOperationGate: false))
                 {
                     CompleteStale(run);
                     return;
@@ -534,20 +641,25 @@ internal sealed class FolderAutoRenameWorkflowOwner
         RunContext run,
         Action stopPlayback,
         Action mutation,
-        bool refreshSuppression)
+        bool refreshSuppression,
+        bool releaseAcquiredOperationGate = true)
     {
         BMSLibrary library = run.Library;
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
-        IDisposable operationGate = null;
+        IDisposable operationGate = run.OperationGate;
+        bool ownsOperationGate = operationGate == null;
         bool suppressionStarted = false;
         bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
+            if (ownsOperationGate && !chartFileOperations.TryEnter(out operationGate))
+            {
+                throw new InvalidOperationException("A chart-file operation is already active.");
+            }
             dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
-            operationGate = chartFileOperations.Enter();
             if (!IsCurrentGeneration(run))
             {
                 mutationAllowed = false;
@@ -573,7 +685,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
             {
                 CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
             }
-            if (operationGate != null)
+            if (ownsOperationGate && operationGate != null && releaseAcquiredOperationGate)
             {
                 CaptureCleanupFailure(operationGate.Dispose, failures);
             }
@@ -624,35 +736,122 @@ internal sealed class FolderAutoRenameWorkflowOwner
         {
             return;
         }
-        FolderAutoRenameProgressSnapshot snapshot;
-        long snapshotStatusVersion;
+        PublishProgress(
+            run,
+            new FolderAutoRenameProgressUpdate(
+                progress.TotalCount,
+                progress.ProcessedCount,
+                progress.CurrentPath));
+    }
+
+    private void PublishProgress(RunContext run, FolderAutoRenameProgressUpdate progress)
+    {
+        FolderAutoRenameProgressSnapshot snapshot = new()
+        {
+            TotalCount = progress.TotalCount,
+            ProcessedCount = progress.ProcessedCount,
+            CurrentPath = progress.CurrentPath ?? string.Empty
+        };
+        bool schedule;
+        ActiveProgressPublication publication;
         lock (syncRoot)
         {
-            if (!ReferenceEquals(activeRun, run) || !IsCurrentGenerationUnsafe(run))
+            if (!ReferenceEquals(activeRun, run)
+                || !IsCurrentGenerationUnsafe(run)
+                || run.ProgressWriter.IsSealed)
             {
                 return;
             }
-            snapshot = CloneProgress(progress);
+            snapshot = CloneProgress(snapshot);
             run.LastProgress = snapshot;
             run.ProgressStarted = true;
             statusVersion++;
-            snapshotStatusVersion = statusVersion;
+            publication = activeProgressPublication;
+            if (publication == null || !ReferenceEquals(publication.Run, run))
+            {
+                publication = new ActiveProgressPublication(run);
+                activeProgressPublication = publication;
+            }
+            publication.Snapshot = snapshot;
+            publication.HasSnapshot = true;
+            schedule = !publication.DispatchScheduled;
+            if (schedule)
+            {
+                publication.DispatchScheduled = true;
+            }
         }
-        DispatchNotification(() =>
+        if (!schedule)
+        {
+            return;
+        }
+        if (!DispatchNotification(() => DrainActiveProgress(publication)))
         {
             lock (syncRoot)
             {
-                if (!IsCurrentGenerationUnsafe(run) || statusVersion != snapshotStatusVersion)
+                if (ReferenceEquals(activeProgressPublication, publication))
                 {
-                    return;
+                    publication.HasSnapshot = false;
+                    publication.DispatchScheduled = false;
                 }
             }
-            InvokeObserverSafely(() => ProgressChanged?.Invoke(CloneProgress(snapshot)));
-        });
+        }
+    }
+
+    private void DrainActiveProgress(ActiveProgressPublication publication)
+    {
+        FolderAutoRenameProgressSnapshot snapshot;
+        lock (syncRoot)
+        {
+            if (!ReferenceEquals(activeProgressPublication, publication)
+                || publication.Sealed
+                || !publication.HasSnapshot)
+            {
+                if (ReferenceEquals(activeProgressPublication, publication))
+                {
+                    publication.DispatchScheduled = false;
+                }
+                return;
+            }
+            snapshot = publication.Snapshot;
+            publication.HasSnapshot = false;
+            publication.IsDraining = true;
+        }
+
+        InvokeObserverSafely(() => ProgressChanged?.Invoke(CloneProgress(snapshot)));
+
+        bool schedule;
+        lock (syncRoot)
+        {
+            publication.IsDraining = false;
+            if (!ReferenceEquals(activeProgressPublication, publication) || publication.Sealed)
+            {
+                publication.HasSnapshot = false;
+                publication.DispatchScheduled = false;
+                return;
+            }
+            schedule = publication.HasSnapshot;
+            if (!schedule)
+            {
+                publication.DispatchScheduled = false;
+            }
+        }
+        if (schedule && !DispatchNotification(() => DrainActiveProgress(publication)))
+        {
+            lock (syncRoot)
+            {
+                if (ReferenceEquals(activeProgressPublication, publication))
+                {
+                    publication.HasSnapshot = false;
+                    publication.DispatchScheduled = false;
+                }
+            }
+        }
     }
 
     private void CompleteSuccess(RunContext run, FolderAutoRenameExecutionResult result)
     {
+        BeginProgressTerminalization(run);
+        ReleaseOperationGate(run);
         long terminalStatusVersion;
         bool publish;
         lock (syncRoot)
@@ -706,6 +905,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
 
     private void CompleteFailure(RunContext run, Exception exception)
     {
+        BeginProgressTerminalization(run);
+        ReleaseOperationGate(run);
         long terminalStatusVersion;
         bool publish;
         lock (syncRoot)
@@ -767,6 +968,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
             {
                 activeRun = null;
                 run.TerminalPending = false;
+                if (ReferenceEquals(activeProgressPublication?.Run, run))
+                {
+                    activeProgressPublication = null;
+                }
                 statusVersion++;
                 completed = true;
             }
@@ -779,6 +984,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
 
     private void CompleteStale(RunContext run)
     {
+        BeginProgressTerminalization(run);
+        ReleaseOperationGate(run);
         lock (syncRoot)
         {
             if (ReferenceEquals(activeRun, run))
@@ -790,9 +997,32 @@ internal sealed class FolderAutoRenameWorkflowOwner
         CompleteIdle(run);
     }
 
+    private void BeginProgressTerminalization(RunContext run)
+    {
+        if (run == null)
+        {
+            return;
+        }
+        run.ProgressWriter.Seal();
+        lock (syncRoot)
+        {
+            if (ReferenceEquals(activeProgressPublication?.Run, run))
+            {
+                activeProgressPublication.Sealed = true;
+                activeProgressPublication.HasSnapshot = false;
+            }
+        }
+    }
+
     private static void CompleteIdle(RunContext run)
     {
         run.IdleCompletion.TrySetResult(true);
+    }
+
+    private static void ReleaseOperationGate(RunContext run)
+    {
+        IDisposable operationGate = Interlocked.Exchange(ref run.OperationGate, null);
+        operationGate?.Dispose();
     }
 
     private bool IsCurrentGeneration(RunContext run)
@@ -918,6 +1148,70 @@ internal sealed class FolderAutoRenameWorkflowOwner
         };
     }
 
+    private sealed class ActiveProgressPublication
+    {
+        internal ActiveProgressPublication(RunContext run)
+        {
+            Run = run ?? throw new ArgumentNullException(nameof(run));
+        }
+
+        internal RunContext Run { get; }
+
+        internal FolderAutoRenameProgressSnapshot Snapshot { get; set; }
+
+        internal bool HasSnapshot { get; set; }
+
+        internal bool DispatchScheduled { get; set; }
+
+        internal bool IsDraining { get; set; }
+
+        internal bool Sealed { get; set; }
+    }
+
+    /// <summary>
+    /// Feature-local progress writer. It exposes immutable facts to the owner
+    /// while keeping scheduling and observer delivery on the consumer side.
+    /// </summary>
+    private sealed class FolderAutoRenameProgressWriter : IFolderAutoRenameProgressWriter
+    {
+        private readonly FolderAutoRenameWorkflowOwner owner;
+
+        private readonly RunContext run;
+
+        private int sealedState;
+
+        internal FolderAutoRenameProgressWriter(
+            FolderAutoRenameWorkflowOwner owner,
+            RunContext run)
+        {
+            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            this.run = run ?? throw new ArgumentNullException(nameof(run));
+        }
+
+        internal bool IsSealed => Volatile.Read(ref sealedState) != 0;
+
+        public void TryWrite(FolderAutoRenameProgressUpdate update)
+        {
+            if (IsSealed)
+            {
+                return;
+            }
+            try
+            {
+                owner.PublishProgress(run, update.Normalize());
+            }
+            catch (Exception exception)
+            {
+                owner.ReportNotificationFailure(exception);
+            }
+        }
+
+        internal void Seal()
+        {
+            Interlocked.Exchange(ref sealedState, 1);
+        }
+    }
+
     private sealed class RunContext
     {
         internal RunContext(
@@ -943,6 +1237,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
         internal ChartFolderAutoRenameRequest SelectedRequest { get; }
 
         internal string ParentDirectory { get; }
+
+        internal FolderAutoRenameProgressWriter ProgressWriter { get; set; }
+
+        internal IDisposable OperationGate;
 
         internal FolderAutoRenameProgressSnapshot LastProgress { get; set; }
 

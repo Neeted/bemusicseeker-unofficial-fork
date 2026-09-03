@@ -160,7 +160,7 @@ internal sealed class CatalogMaintenanceOwner
         IBmsLibraryDialogService dialogServiceOverride = null,
         Action<string> logPerformanceOverride = null,
         Action<CatalogWriteFailureFact> captureFailureFact = null,
-        bool deferPostCommitEffects = false)
+        Action<Action> postCommitEffectsObserver = null)
     {
         List<ChartFile> targetCharts = [.. (targetSet.Charts ?? [])
             .Where(chart => chart != null)];
@@ -237,10 +237,13 @@ internal sealed class CatalogMaintenanceOwner
 
         // Publish property changes and terminal progress after the catalog write
         // guard and the resource-health input mutation have both been released.
-        if (!deferPostCommitEffects)
+        if (postCommitEffectsObserver == null)
         {
             postCommitEffects?.Invoke();
-            postCommitEffects = null;
+        }
+        else
+        {
+            postCommitEffectsObserver(postCommitEffects);
         }
 
         ResourceHealthIndexMutation mutation = ResourceHealthIndexMutationPlanner.BuildMaintenanceMutation(
@@ -253,8 +256,7 @@ internal sealed class CatalogMaintenanceOwner
         return new CatalogMaintenanceOperationReceipt(
             workflowResult ?? new MaintenanceWorkflowResult(),
             mutation,
-            mutationReason,
-            postCommitEffects);
+            mutationReason);
     }
 
     internal CatalogMaintenanceOperationReceipt ApplyWarningIgnore(
@@ -753,18 +755,16 @@ internal sealed class CatalogMaintenanceOwner
 internal sealed class CatalogMaintenanceOperationReceipt
 {
     internal static CatalogMaintenanceOperationReceipt NotApplied { get; } =
-        new(new MaintenanceWorkflowResult(), new ResourceHealthIndexMutation(), "maintenance", null);
+        new(new MaintenanceWorkflowResult(), new ResourceHealthIndexMutation(), "maintenance");
 
     internal CatalogMaintenanceOperationReceipt(
         MaintenanceWorkflowResult workflowResult,
         ResourceHealthIndexMutation resourceHealthMutation,
-        string reason,
-        Action postCommitEffects = null)
+        string reason)
     {
         WorkflowResult = MaintenanceWorkflowResultFacts.From(workflowResult);
         ResourceHealthMutation = (resourceHealthMutation ?? new ResourceHealthIndexMutation()).ToFacts();
         Reason = reason ?? "maintenance";
-        PostCommitEffects = postCommitEffects;
     }
 
     internal MaintenanceWorkflowResultFacts WorkflowResult { get; }
@@ -773,12 +773,6 @@ internal sealed class CatalogMaintenanceOperationReceipt
 
     internal string Reason { get; }
 
-    private Action PostCommitEffects { get; }
-
-    internal void PublishPostCommitEffects()
-    {
-        PostCommitEffects?.Invoke();
-    }
 }
 
 internal sealed class CatalogMaintenanceHydrationReceipt

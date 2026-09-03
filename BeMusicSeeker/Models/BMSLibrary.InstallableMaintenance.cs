@@ -118,25 +118,38 @@ public partial class BMSLibrary
             int setModeTargetCount = 0;
             var maintenanceResult = new MaintenanceWorkflowResult();
             InstallableMaintenanceSnapshot snapshot = null;
+            List<Action> postLeaseEffects = [];
             try
             {
-                using IDisposable mutationScope = lr2SynchronizationOwner.BeginMutationWhenAvailable(
-                    "installable_maintenance_deferred");
-                snapshot = CreateInstallableMaintenanceSnapshot();
-                snapshotCount = snapshot.SnapshotCount;
-                LogInstallPerformance("installable_maintenance_deferred run version=" + request.Version
-                    + " snapshotCount=" + snapshotCount
-                    + " criticalMs=" + request.CriticalElapsedMs);
-                var stopwatchSetMode = Stopwatch.StartNew();
-                setModeTargetCount = setModeAndCommitToDB(snapshot.Files);
-                stopwatchSetMode.Stop();
-                setModeMs = stopwatchSetMode.ElapsedMilliseconds;
+                using (LibraryFileMutationLease mutationLease = lr2SynchronizationOwner.BeginMutationWhenAvailable(
+                    "installable_maintenance_deferred"))
+                {
+                    snapshot = CreateInstallableMaintenanceSnapshot();
+                    snapshotCount = snapshot.SnapshotCount;
+                    LogInstallPerformance("installable_maintenance_deferred run version=" + request.Version
+                        + " snapshotCount=" + snapshotCount
+                        + " criticalMs=" + request.CriticalElapsedMs);
+                    var stopwatchSetMode = Stopwatch.StartNew();
+                    setModeTargetCount = setModeAndCommitToDB(snapshot.Files);
+                    stopwatchSetMode.Stop();
+                    setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
-                var stopwatchSetHealth = Stopwatch.StartNew();
-                maintenanceResult = ApplyInstallableCatalogMaintenance("installable_maintenance_deferred") ?? new MaintenanceWorkflowResult();
-                stopwatchSetHealth.Stop();
-                setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
-                ResetInstallableMaintenanceWriteLockFlags();
+                    var stopwatchSetHealth = Stopwatch.StartNew();
+                    maintenanceResult = ApplyInstallableCatalogMaintenance(
+                        "installable_maintenance_deferred",
+                        postLeaseEffectObserver: effect =>
+                        {
+                            if (effect != null)
+                            {
+                                postLeaseEffects.Add(effect);
+                            }
+                        }) ?? new MaintenanceWorkflowResult();
+                    stopwatchSetHealth.Stop();
+                    setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
+                    ResetInstallableMaintenanceWriteLockFlags();
+                }
+
+                FlushPostLeaseEffects(postLeaseEffects, diagnosticEffects: null);
 
                 stopwatch.Stop();
                 LogCompletedInstallableMaintenance(request, maintenanceResult, snapshotCount, setModeTargetCount, setModeMs, setHealthMs, setZeroNoteMs, stopwatch.ElapsedMilliseconds);

@@ -23,6 +23,128 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryInitializationFileScanTests
 {
     [TestMethod]
+    public void Initialize_StartupPublishesScanAfterLeaseReleaseAndIsolatesTerminalSubscriber()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+            Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        string lr2RootPath = Path.Combine(scope.DirectoryPath, "LR2");
+        string songDbPath = scope.SongDbPath;
+        string bmsDirectoryPath = Path.Combine(
+            ChartInfoMetadataTestSupport.FindRepoRoot(),
+            "BeMusicSeeker.Tests",
+            "TestData",
+            "chart_info_real",
+            "charts",
+            "00");
+        string chartPath = Path.Combine(
+            bmsDirectoryPath,
+            "0011a110d2d54f455a1dbb9a03598aaa1cc092238800ca9b1c1260a8bb78db36.bms");
+
+        string configDirectoryPath = Path.Combine(lr2RootPath, "LR2files", "Config");
+        Directory.CreateDirectory(configDirectoryPath);
+        string configPath = Path.Combine(configDirectoryPath, "config.xml");
+        string escapedBmsDirectoryPath = System.Security.SecurityElement.Escape(
+            ToFolderPath(bmsDirectoryPath));
+        File.WriteAllText(
+            configPath,
+            "<config><system><customfolder>0</customfolder><titleflash>24</titleflash></system><jukebox><path>"
+            + escapedBmsDirectoryPath
+            + "</path></jukebox></config>",
+            Encoding.UTF8);
+        var lr2Config = new LR2Config(configPath);
+        BmsLibraryOptionsSnapshot options = new()
+        {
+            OperationModeLR2DB = true,
+            LR2RootPath = lr2RootPath,
+            ScanBmsFilesOnStartup = true,
+            UpdateLr2IrRankingCacheOnStartup = false,
+            EnableDownloadLr2IrScoreAndDetectUnsent = false,
+            UseBeatorajaScoreDb = false,
+            EnableReadOptimizedPragmas = false,
+            PendingInstallEstimateMaxParallelPackages = 1
+        };
+        IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
+            [chartPath],
+            new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                [bmsDirectoryPath] = []
+            },
+            [bmsDirectoryPath]);
+        var library = new TestBmsLibrary(
+            songDbPath,
+            getLR2Config: () => lr2Config,
+            _lr2ScoreDB: null,
+            startupRequiredFileScanReason: null,
+            optionsSnapshotProvider: () => options,
+            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+            chartFileScanner: chartFileScanner);
+        library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+
+        int scanNotificationObserved = 0;
+        bool initializationWriterHeldAtNotification = false;
+        bool mutationAdmissionAvailable = false;
+        int subscriberFailureObserved = 0;
+        int handledNotificationVersion = 0;
+        System.ComponentModel.PropertyChangedEventHandler scanNotificationSubscriber = (_, args) =>
+        {
+            if (!string.Equals(
+                    args.PropertyName,
+                    nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion),
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            NormalLibraryRefreshNotificationBatch notificationBatch =
+                library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            if (notificationBatch.LatestVersion > handledNotificationVersion)
+            {
+                handledNotificationVersion = notificationBatch.LatestVersion;
+            }
+            if (notificationBatch.LatestVersion <= 0
+                || notificationBatch.ResetsPriorNotifications
+                || !notificationBatch.HasRefreshNotification
+                || Interlocked.Exchange(ref scanNotificationObserved, 1) != 0)
+            {
+                return;
+            }
+
+            initializationWriterHeldAtNotification |= library.IsWriteLockHeldInitializeAll
+                || library.IsWriteLockHeldInitializeMin
+                || library.IsWriteLockHeldInitializeBMSFiles;
+            using LibraryFileMutationLease reentryLease = library.TryBeginLibraryFileMutation(
+                "test_initialize_startup_post_lease_reentry",
+                showMessage: false);
+            mutationAdmissionAvailable |= reentryLease != null;
+            if (Interlocked.Exchange(ref subscriberFailureObserved, 1) == 0)
+            {
+                throw new InvalidOperationException("forced initialize catalog subscriber failure");
+            }
+        };
+        library.PropertyChanged += scanNotificationSubscriber;
+        try
+        {
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+        }
+        finally
+        {
+            library.PropertyChanged -= scanNotificationSubscriber;
+        }
+
+        Assert.IsTrue(Volatile.Read(ref scanNotificationObserved) != 0);
+        Assert.IsFalse(initializationWriterHeldAtNotification);
+        Assert.IsTrue(mutationAdmissionAvailable);
+        Assert.IsTrue(Volatile.Read(ref subscriberFailureObserved) != 0);
+        Assert.IsTrue(library.BMSFiles.Any(file =>
+            string.Equals(file?.path, chartPath, StringComparison.OrdinalIgnoreCase)));
+
+        using var verify = new LR2SongDBExtended(songDbPath);
+        Assert.IsTrue(verify.Table<BMSFile>().Any(row =>
+            string.Equals(row?.path, chartPath, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_UsesPrefetchedScanAndClearsStaleInstallDestination()
     {
         TestResourceInitializer.EnsureJapaneseResources();

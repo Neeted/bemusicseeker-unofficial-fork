@@ -162,6 +162,15 @@ restart executable の起動に成功した時点を更新の commit point と�
 場合だけ受け入れ、見つからない場合や一致しない場合に source build、最新 zip、
 `ab9d97ed3f53dab80fb2894f20f44abdfb6fed32` baseline へ切り替えない。
 
+Full の `ProcessIntegration` より前に一度だけ実行する cache preparation が metadata を
+読み、`downloadUrl` が指定された HTTPS release URL と完全一致することを確認する。
+canonical cache が有効なら hit として再取得せず、cache が無い場合だけ同一 directory の
+一時 file へ bounded download し、size / SHA-256 検証後に atomic に canonical path へ
+公開する。既存 cache の mismatch、metadata missing / invalid、download failure、取得物の
+mismatch は fail closed とし、cache miss 自体は failure にしない。download 中の bytes は
+canonical path に出さず、一時 file は phase owner が cleanup する。source build、最新
+artifact、`ab9d97ed...` fallback、自動 repair / retry は行わない。
+
 リリース受入では、この実 zip に含まれる protocol-1 の legacy updater を実行し、
 v3 の current package を適用する。updater の bounded process exit と stdout/stderr の
 drain が完了した時点で、更新直前に保存した `data/` と `config/` の tree を比較し、
@@ -169,6 +178,8 @@ v3 の初回 `startup_ready_operable` 後に fixture の設定と DB 意味状�
 確認する。legacy updater の managed-file lock は characterization として、非 zero
 exit、legacy stderr の非空診断、`data/` と `config/` の不変だけを要求する。旧 managed
 tree の自動復旧や現行 updater の handshake をこの first-hop contract に混ぜない。
+
+first-hop acceptance は起動完了 modal の表示を成功条件にしない。起動・process shutdown・永続データ検証が成功し、visible/enabled で対象 application main window を native owner とする予期しない modal が無ければ受け入れる。そうした blocking modal が見つかった場合は、承認済みの action identity が無いため dismiss せず、受入を失敗させる。
 
 現行 v3 updater の互換性・recovery baseline は上記の公開 artifact とは別 lane として
 `ab9d97ed3f53dab80fb2894f20f44abdfb6fed32` を使う。公開 first-hop の identity oracleを

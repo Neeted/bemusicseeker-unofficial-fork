@@ -58,20 +58,38 @@ public sealed class VerificationProcessLifecycleTests
     }
 
     [TestMethod]
-    public void NonzeroExitPreservesPrimaryFailureAlongsideCleanupDiagnostic()
+    public void NonzeroExitPreservesPrimaryFailureAndStopsOwnedDescendant()
     {
         using JsonDocument result = RunProbe("nonzero-descendant");
         Assert.AreEqual(7, result.RootElement.GetProperty("exitCode").GetInt32());
         Assert.AreEqual("nonzero-exit", result.RootElement.GetProperty("primaryFailureKind").GetString());
         Assert.AreEqual("primary-stderr", result.RootElement.GetProperty("stderr").GetString());
-        string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
-        AssertStreamTimeoutDiagnosticsIncludeContext(
-            diagnostics,
-            result.RootElement.GetProperty("rootProcessId").GetInt32());
-        Assert.IsTrue(ContainsDiagnostic(diagnostics, "owned-descendant-cleanup"));
+        CollectionAssert.AreEqual(
+            Array.Empty<string>(),
+            ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics")));
+        PrimitiveEvent[] events = ReadPrimitiveEvents(result.RootElement.GetProperty("primitiveEvents"));
+        Assert.IsTrue(
+            ContainsPrimitiveEvent(events, "descendant-stop"),
+            "The failure cleanup owner must stop the owned descendant through its exact stop seam.");
         CollectionAssert.AreEqual(
             Array.Empty<int>(),
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
+    }
+
+    [TestMethod]
+    public void LateExitDuringCleanupGraceRemainsExecutionTimeout()
+    {
+        using JsonDocument result = RunProbe("late-success");
+
+        Assert.IsTrue(result.RootElement.GetProperty("processExited").GetBoolean(), result.RootElement.GetRawText());
+        Assert.IsTrue(result.RootElement.GetProperty("processTimedOut").GetBoolean(), result.RootElement.GetRawText());
+        Assert.AreEqual("timeout", result.RootElement.GetProperty("primaryFailureKind").GetString());
+        Assert.AreEqual("late-success-stdout", result.RootElement.GetProperty("stdout").GetString());
+        DateTime cleanupDeadlineUtc = result.RootElement.GetProperty("cleanupDeadlineUtc").GetDateTime();
+        Assert.AreEqual(
+            cleanupDeadlineUtc.Ticks,
+            result.RootElement.GetProperty("cleanupCutoffUtcTicks").GetInt64(),
+            "Failure cleanup must carry the phase cleanup deadline without resetting it to a new relative timeout.");
     }
 
     [TestMethod]
@@ -102,48 +120,39 @@ public sealed class VerificationProcessLifecycleTests
             "The production seam did not observe a bounded cleanup task wait.");
         AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
         Assert.IsFalse(ContainsPrimitiveEvent(events, "reader-close"));
-        Assert.IsTrue(
+        Assert.IsFalse(
             ContainsPrimitiveEvent(events, "persistence"),
-            "The bounded lifecycle must persist its final diagnostic artifact before returning.");
-        Assert.IsTrue(
-            result.RootElement.GetProperty("lifecycleArtifact").GetString()!.Contains(
-                "stream-drain-timeout",
-                StringComparison.Ordinal));
+            "A successful process cannot spend the failure cleanup grace on diagnostic persistence.");
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("lifecycleArtifact").ValueKind);
         CollectionAssert.AreEqual(
             Array.Empty<int>(),
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
     }
 
     [TestMethod]
-    public void CompletedStdoutArtifactSurvivesPendingStderrTimeout()
+    public void CompletedStdoutDoesNotExtendExecutionDeadlineForPendingStderr()
     {
         using JsonDocument result = RunProbe("asymmetric-stdout-complete");
         Assert.AreEqual("stdout-asymmetric-complete", result.RootElement.GetProperty("stdout").GetString());
-        Assert.AreEqual("stdout-asymmetric-complete", result.RootElement.GetProperty("stdoutArtifact").GetString());
-        Assert.AreEqual(string.Empty, result.RootElement.GetProperty("stderrArtifact").GetString());
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("stdoutArtifact").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("stderrArtifact").ValueKind);
         string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
         Assert.IsTrue(ContainsDiagnostic(diagnostics, "stream-drain-timeout: stderr"));
         Assert.IsFalse(ContainsDiagnostic(diagnostics, "stream-drain-timeout: stdout"));
-        Assert.IsTrue(
-            result.RootElement.GetProperty("lifecycleArtifact").GetString()!.Contains(
-                "stream-drain-timeout: stderr",
-                StringComparison.Ordinal));
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("lifecycleArtifact").ValueKind);
     }
 
     [TestMethod]
-    public void CompletedStderrArtifactSurvivesPendingStdoutTimeout()
+    public void CompletedStderrDoesNotExtendExecutionDeadlineForPendingStdout()
     {
         using JsonDocument result = RunProbe("asymmetric-stderr-complete");
         Assert.AreEqual("stderr-asymmetric-complete", result.RootElement.GetProperty("stderr").GetString());
-        Assert.AreEqual("stderr-asymmetric-complete", result.RootElement.GetProperty("stderrArtifact").GetString());
-        Assert.AreEqual(string.Empty, result.RootElement.GetProperty("stdoutArtifact").GetString());
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("stdoutArtifact").ValueKind);
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("stderrArtifact").ValueKind);
         string[] diagnostics = ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics"));
         Assert.IsTrue(ContainsDiagnostic(diagnostics, "stream-drain-timeout: stdout"));
         Assert.IsFalse(ContainsDiagnostic(diagnostics, "stream-drain-timeout: stderr"));
-        Assert.IsTrue(
-            result.RootElement.GetProperty("lifecycleArtifact").GetString()!.Contains(
-                "stream-drain-timeout: stdout",
-                StringComparison.Ordinal));
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("lifecycleArtifact").ValueKind);
     }
 
     [TestMethod]
@@ -237,6 +246,25 @@ public sealed class VerificationProcessLifecycleTests
             ContainsDiagnostic(
                 ReadStringArray(result.RootElement.GetProperty("entrySecondaryDiagnostics")),
                 "skipped after shared cleanup deadline"));
+    }
+
+    [TestMethod]
+    public void FunctionalCleanupPreservesCompletedSuccessWithinOriginalExecutionDeadline()
+    {
+        using JsonDocument result = RunProbe("functional-completed-success");
+
+        Assert.AreEqual("functional-completed-success", result.RootElement.GetProperty("entryName").GetString());
+        Assert.IsFalse(result.RootElement.GetProperty("skippedAfterDeadline").GetBoolean());
+        Assert.IsTrue(result.RootElement.GetProperty("processExited").GetBoolean());
+        Assert.IsFalse(result.RootElement.GetProperty("processTimedOut").GetBoolean());
+        Assert.AreEqual(0, result.RootElement.GetProperty("exitCode").GetInt32());
+        Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("primaryFailureKind").ValueKind);
+        Assert.AreEqual("late-success-stdout", result.RootElement.GetProperty("stdout").GetString());
+        Assert.AreEqual("late-success-stdout", result.RootElement.GetProperty("stdoutArtifact").GetString());
+        Assert.AreEqual(
+            result.RootElement.GetProperty("executionDeadlineUtcTicks").GetInt64(),
+            result.RootElement.GetProperty("cleanupCutoffUtcTicks").GetInt64(),
+            "A completed-success wrapper must carry the original execution deadline into the shared lifecycle.");
     }
 
     [TestMethod]

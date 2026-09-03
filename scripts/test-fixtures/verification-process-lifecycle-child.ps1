@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('normal', 'nonzero', 'descendant-root', 'descendant-child')]
+    [ValidateSet('normal', 'nonzero', 'descendant-root', 'descendant-child', 'late-success')]
     [string]$Scenario,
 
     [string]$LedgerPath,
@@ -39,6 +39,12 @@ switch ($Scenario) {
         [Console]::Out.Write('primary-stdout')
         [Console]::Error.Write('primary-stderr')
         exit 7
+    }
+    'late-success' {
+        [Console]::Out.Write('late-success-stdout')
+        [Console]::Out.Flush()
+        Start-Sleep -Seconds 2
+        exit 0
     }
     'descendant-root' {
         if ([string]::IsNullOrWhiteSpace($DescendantScriptPath) -or

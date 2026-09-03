@@ -1449,6 +1449,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         Directory.CreateDirectory(root);
         string songDbPath = Path.Combine(root, "song.db");
         StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
 
         var settings = new Settings
         {

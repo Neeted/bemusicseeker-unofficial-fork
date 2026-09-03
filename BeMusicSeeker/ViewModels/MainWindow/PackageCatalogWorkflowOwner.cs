@@ -134,6 +134,10 @@ internal sealed class PackageCatalogWorkflowOwner
     internal Task<PackageCatalogMutationResult> ClearAllAsync(PackageCatalogSection section)
     {
         ValidateSection(section);
+        if (!TryEnterOperation(section, out IDisposable operationGate))
+        {
+            return Task.FromResult(PackageCatalogMutationResult.Rejected);
+        }
         PackageCatalogMutationResult confirmation = ConfirmRemoval(
             section == PackageCatalogSection.Pending
                 ? BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings
@@ -141,9 +145,12 @@ internal sealed class PackageCatalogWorkflowOwner
             "Package catalog clear-all confirmation");
         if (!confirmation.Succeeded)
         {
+            operationGate.Dispose();
             return Task.FromResult(confirmation);
         }
-        return backgroundMutationRunner(() => Execute(section, library => store.RemoveAll(library, section)));
+        return ScheduleWithAcquiredGate(
+            operationGate,
+            () => Execute(section, library => store.RemoveAll(library, section), operationGate));
     }
 
     internal Task<PackageCatalogMutationResult> RemovePackageAsync(
@@ -155,6 +162,10 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             throw new ArgumentNullException(nameof(package));
         }
+        if (!TryEnterOperation(section, out IDisposable operationGate))
+        {
+            return Task.FromResult(PackageCatalogMutationResult.Rejected);
+        }
         if (section == PackageCatalogSection.Pending)
         {
             PackageCatalogMutationResult confirmation = ConfirmRemoval(
@@ -165,10 +176,13 @@ internal sealed class PackageCatalogWorkflowOwner
                 "Pending package catalog entry removal confirmation");
             if (!confirmation.Succeeded)
             {
+                operationGate.Dispose();
                 return Task.FromResult(confirmation);
             }
         }
-        return backgroundMutationRunner(() => Execute(section, library => store.RemovePackages(library, section, [package])));
+        return ScheduleWithAcquiredGate(
+            operationGate,
+            () => Execute(section, library => store.RemovePackages(library, section, [package]), operationGate));
     }
 
     internal Task<PackageCatalogMutationResult> RemoveSelectionAsync(PackageCatalogRemovalRequest request)
@@ -177,6 +191,11 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             throw new ArgumentNullException(nameof(request));
         }
+        ValidateSection(request.Section);
+        if (!TryEnterOperation(request.Section, out IDisposable operationGate))
+        {
+            return Task.FromResult(PackageCatalogMutationResult.Rejected);
+        }
         PackageCatalogMutationResult confirmation = ConfirmRemoval(
             request.IsPending
                 ? BeMusicSeeker.Properties.Resources.Msg_clear_selected_pendings
@@ -184,29 +203,48 @@ internal sealed class PackageCatalogWorkflowOwner
             "Selected package catalog entry removal confirmation");
         if (!confirmation.Succeeded)
         {
+            operationGate.Dispose();
             return Task.FromResult(confirmation);
         }
-        return backgroundMutationRunner(() => Execute(request.Section, library =>
-        {
-            IReadOnlyList<ChartPackage> packages = store.ResolvePackages(
-                library,
-                request.Section,
-                request.Targets);
-            store.RemovePackages(library, request.Section, packages);
-        }));
+        return ScheduleWithAcquiredGate(
+            operationGate,
+            () => Execute(request.Section, library =>
+            {
+                IReadOnlyList<ChartPackage> packages = store.ResolvePackages(
+                    library,
+                    request.Section,
+                    request.Targets);
+                store.RemovePackages(library, request.Section, packages);
+            }, operationGate));
     }
 
     private PackageCatalogMutationResult Execute(
         PackageCatalogSection section,
-        Action<BMSLibrary> mutation)
+        Action<BMSLibrary> mutation,
+        IDisposable acquiredOperationGate = null)
     {
-        BMSLibrary library = libraryProvider();
+        IDisposable operationGate = acquiredOperationGate;
+        if (operationGate == null
+            && !TryEnterOperation(section, out operationGate))
+        {
+            return PackageCatalogMutationResult.Rejected;
+        }
+        BMSLibrary library;
+        try
+        {
+            library = libraryProvider();
+        }
+        catch
+        {
+            operationGate.Dispose();
+            throw;
+        }
         if (library == null)
         {
+            operationGate.Dispose();
             return PackageCatalogMutationResult.Completed;
         }
         BMSLibrary.OperationDialogScope dialogScope = null;
-        IDisposable operationGate = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
         bool mutationAttempted = false;
@@ -216,7 +254,6 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
-            operationGate = chartFileOperations.Enter();
             suppressionStarted = true;
             PublishMutationPhase(PackageCatalogMutationPhase.RefreshSuppressionStarted);
             mutationAttempted = true;
@@ -277,11 +314,46 @@ internal sealed class PackageCatalogWorkflowOwner
         };
     }
 
+    private Task<PackageCatalogMutationResult> ScheduleWithAcquiredGate(
+        IDisposable operationGate,
+        Func<PackageCatalogMutationResult> mutation)
+    {
+        try
+        {
+            Task<PackageCatalogMutationResult> task = backgroundMutationRunner(mutation);
+            if (task == null)
+            {
+                operationGate.Dispose();
+                return Task.FromResult(PackageCatalogMutationResult.FailedBeforeMutation(
+                    new InvalidOperationException("Package catalog mutation runner returned no task.")));
+            }
+            return task;
+        }
+        catch (Exception exception)
+        {
+            operationGate.Dispose();
+            return Task.FromResult(PackageCatalogMutationResult.FailedBeforeMutation(exception));
+        }
+    }
+
     private void PublishMutationPhase(PackageCatalogMutationPhase phase)
     {
         MutationPhasePublished?.Invoke(
             this,
             new PackageCatalogMutationPhaseEventArgs(phase));
+    }
+
+    private bool TryEnterOperation(
+        PackageCatalogSection section,
+        out IDisposable operationGate)
+    {
+        BMSLibrary library = libraryProvider();
+        if (section == PackageCatalogSection.Pending
+            && library?.IsPendingOperationAdmissionReady == true)
+        {
+            return library.TryEnterPendingOperation(out operationGate);
+        }
+        return chartFileOperations.TryEnter(out operationGate);
     }
 
     private PackageCatalogMutationResult ConfirmRemoval(string message, string routeName)

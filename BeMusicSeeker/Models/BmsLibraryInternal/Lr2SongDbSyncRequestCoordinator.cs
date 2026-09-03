@@ -38,17 +38,19 @@ internal static class Lr2SongDbSyncRequestCoordinator
         BMSLibrary.Lr2SynchronizationOwner host,
         string reason,
         bool force,
-        Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
+        Func<LibraryFileMutationLease, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
         bool allowIncompleteToQueue)
     {
         BmsLibraryOptionsSnapshot options = host.CurrentOptionsSnapshot;
         bool enabled = options.OperationModeLR2DB;
         string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
-        int mutationInProgress = host.GetLr2SongDbSyncMutationInProgress();
-        if (mutationInProgress > 0)
+        Lr2SongDbSyncRuntimeSnapshot incumbent = host.GetLr2SongDbSyncRuntimeSnapshot();
+        if (incumbent.MutationInProgress > 0 || incumbent.Running || incumbent.Preparing)
         {
             host.LogInstallPerformance("lr2_song_db_sync queue_skipped reason=" + (reason ?? "unknown")
-                + " mutationInProgress=" + mutationInProgress);
+                + " mutationInProgress=" + incumbent.MutationInProgress
+                + " running=" + incumbent.Running.ToString().ToLowerInvariant()
+                + " preparing=" + incumbent.Preparing.ToString().ToLowerInvariant());
             return host.GetLr2SongDbSyncStatusSnapshot();
         }
 
@@ -81,8 +83,10 @@ internal static class Lr2SongDbSyncRequestCoordinator
             return status;
         }
 
-        bool prepareReserved = false;
-        if (!host.TryReserveLr2SongDbSyncPreparation(prepareGeneratedData != null, out Lr2SongDbSyncRuntimeSnapshot blockingSnapshot))
+        if (!host.TryReserveLr2SongDbSyncPreparation(
+            prepareGeneratedData != null,
+            out Lr2SongDbSyncRuntimeSnapshot blockingSnapshot,
+            out LibraryFileMutationLease preparationLease))
         {
             host.LogInstallPerformance("lr2_song_db_sync queue_skipped reason=" + (reason ?? "unknown")
                 + " status=" + status.Status
@@ -102,18 +106,22 @@ internal static class Lr2SongDbSyncRequestCoordinator
             }
             return status;
         }
-        prepareReserved = prepareGeneratedData != null;
-
         if (prepareGeneratedData != null)
         {
             var prepareStopwatch = Stopwatch.StartNew();
+            Lr2SongDbSyncPreparedDataSurface preparedSurface = null;
             try
             {
                 host.LogInstallPerformance("lr2_song_db_sync prepare_start"
                     + " reason=" + (reason ?? "unknown"));
-                using IDisposable preparationMutationScope = host.EnterLr2SongDbSyncPreparationMutationScope();
-                Lr2SongDbSyncPreparedDataSurface preparedSurface = prepareGeneratedData();
-                prepareStopwatch.Stop();
+                using (preparationLease)
+                {
+                    preparedSurface = prepareGeneratedData(preparationLease);
+                    prepareStopwatch.Stop();
+                }
+                // The canonical prepared surface is published only after
+                // both physical output and LR2 folder-row sync have completed
+                // and the preparation lease has released normally.
                 host.LogInstallPerformance("lr2_song_db_sync prepare_done"
                     + " reason=" + (reason ?? "unknown")
                     + " scopeDirs=" + (preparedSurface?.Lr2FolderScopeDirectories?.Count ?? 0)
@@ -132,11 +140,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
                 host.LogInstallPerformance("lr2_song_db_sync prepare_failed reason=" + (reason ?? "unknown")
                     + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds
                     + " message=" + ex.Message);
-                if (prepareReserved)
-                {
-                    host.ClearLr2SongDbSyncPrepareReservation();
-                    prepareReserved = false;
-                }
+                preparationLease?.Dispose();
                 throw;
             }
         }
@@ -144,11 +148,6 @@ internal static class Lr2SongDbSyncRequestCoordinator
         if (!host.TryBeginLr2SongDbSyncRequest(out int requestVersion))
         {
             host.ClearLr2SongDbSyncPreparedDataSurface("queue_skipped");
-            if (prepareReserved)
-            {
-                host.ClearLr2SongDbSyncPrepareReservation();
-                prepareReserved = false;
-            }
             Lr2SongDbSyncRuntimeSnapshot runtimeSnapshot = host.GetLr2SongDbSyncRuntimeSnapshot();
             host.LogInstallPerformance("lr2_song_db_sync queue_skipped reason=" + (reason ?? "unknown")
                 + " status=" + status.Status
@@ -163,12 +162,6 @@ internal static class Lr2SongDbSyncRequestCoordinator
             host.PublishLr2SongDbSyncStatus(status);
             return status;
         }
-        if (prepareReserved)
-        {
-            host.ClearLr2SongDbSyncPrepareReservation();
-            prepareReserved = false;
-        }
-
         host.PublishLr2SongDbSyncStatus(CreateRuntimeLr2SongDbSyncStatus(
             Lr2SongDbSyncStatusKind.Running,
             signature,
@@ -495,7 +488,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
     internal static bool TryRunDataPreparation(
         BMSLibrary.Lr2SynchronizationOwner host,
         string reason,
-        Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData)
+        Func<LibraryFileMutationLease, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData)
     {
         if (prepareGeneratedData == null)
         {
@@ -509,7 +502,10 @@ internal static class Lr2SongDbSyncRequestCoordinator
             return false;
         }
 
-        if (!host.TryReserveLr2SongDbSyncPreparation(requiresPreparation: true, out Lr2SongDbSyncRuntimeSnapshot blockingSnapshot))
+        if (!host.TryReserveLr2SongDbSyncPreparation(
+            requiresPreparation: true,
+            out Lr2SongDbSyncRuntimeSnapshot blockingSnapshot,
+            out LibraryFileMutationLease preparationLease))
         {
             host.LogInstallPerformance("lr2_song_db_sync_data_prepare skipped reason=" + (reason ?? "unknown")
                 + " stage=" + (blockingSnapshot.Stage ?? string.Empty)
@@ -522,28 +518,39 @@ internal static class Lr2SongDbSyncRequestCoordinator
         try
         {
             host.LogInstallPerformance("lr2_song_db_sync_data_prepare start reason=" + (reason ?? "unknown"));
-            using IDisposable preparationMutationScope = host.EnterLr2SongDbSyncPreparationMutationScope();
-            Lr2SongDbSyncPreparedDataSurface preparedSurface = prepareGeneratedData();
+            Lr2SongDbSyncPreparedDataSurface preparedSurface;
+            using (preparationLease)
+            {
+                preparedSurface = prepareGeneratedData(preparationLease);
+            }
+            // Do not expose a prepared surface while its owning capability is
+            // still live; a terminal callback may immediately re-enter.
             host.ApplyLr2SongDbSyncPreparedDataSurface("prepare_generated_data", preparedSurface);
             host.LogInstallPerformance("lr2_song_db_sync_data_prepare done reason=" + (reason ?? "unknown"));
             return true;
         }
         catch (Exception ex)
         {
+            // A failed standalone preparation must not leave the previous
+            // prepared surface eligible for the next synchronization run.
+            host.ClearLr2SongDbSyncPreparedDataSurface("prepare_failed");
             host.LogInstallPerformance("lr2_song_db_sync_data_prepare failed reason=" + (reason ?? "unknown")
                 + " message=" + ex.Message);
             throw;
         }
         finally
         {
-            host.ClearLr2SongDbSyncPrepareReservation();
+            preparationLease?.Dispose();
         }
     }
 
     internal static Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(
         BMSLibrary.Lr2SynchronizationOwner host,
-        string reason)
+        string reason,
+        LibraryFileMutationCapability mutationCapability)
     {
+        ArgumentNullException.ThrowIfNull(mutationCapability);
+        mutationCapability.Validate(host);
         if (host.GetLr2SongDbSyncRuntimeSnapshot().Running)
         {
             throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);

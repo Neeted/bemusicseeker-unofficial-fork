@@ -77,17 +77,13 @@ internal interface ILr2SongDbSyncWorkflowRuntime
     void Queue(
         string reason,
         bool force,
-        Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
+        bool prepareGeneratedData = false,
         bool allowIncompleteToQueue = true);
 
     bool TryRunDataPreparation(
         string reason,
-        Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
+        bool includeBuiltinGeneratedData = false,
         Action queueAfterPreparation = null);
-
-    Lr2SongDbSyncPreparedDataSurface PreparePlaylistGeneratedData(string reason);
-
-    Lr2SongDbSyncPreparedDataSurface PrepareBuiltinGeneratedData(string reason);
 
     void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason);
 
@@ -121,41 +117,81 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
     public void Queue(
         string reason,
         bool force,
-        Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
+        bool prepareGeneratedData = false,
         bool allowIncompleteToQueue = true)
     {
-        libraryProvider()?.QueueLr2SongDbSync(reason, force, prepareGeneratedData, allowIncompleteToQueue);
+        BMSLibrary library = libraryProvider();
+        if (library == null)
+        {
+            return;
+        }
+
+        Func<LibraryFileMutationLease, Lr2SongDbSyncPreparedDataSurface> prepareWithLease = null;
+        if (prepareGeneratedData)
+        {
+            prepareWithLease = preparationLease =>
+                PrepareGeneratedDataUnderLease(
+                    library,
+                    reason,
+                    preparationLease,
+                    includeBuiltinGeneratedData: false);
+        }
+        library.QueueLr2SongDbSync(reason, force, prepareWithLease, allowIncompleteToQueue);
     }
 
     public bool TryRunDataPreparation(
         string reason,
-        Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
+        bool includeBuiltinGeneratedData = false,
         Action queueAfterPreparation = null)
     {
-        return libraryProvider()?.TryRunLr2SongDbSyncDataPreparation(reason, prepareGeneratedData, queueAfterPreparation) == true;
-    }
-
-    public Lr2SongDbSyncPreparedDataSurface PreparePlaylistGeneratedData(string reason)
-    {
-        BMSPlaylist playlists = playlistProvider();
-        if (playlists == null)
+        BMSLibrary library = libraryProvider();
+        if (library == null)
         {
-            return Lr2SongDbSyncPreparedDataSurface.Empty;
+            return false;
         }
 
-        return playlists.ReOutputAllCustomFoldersForLr2SongDbSync(
+        Func<LibraryFileMutationLease, Lr2SongDbSyncPreparedDataSurface> prepareWithLease =
+            preparationLease => PrepareGeneratedDataUnderLease(
+                library,
+                reason,
+                preparationLease,
+                includeBuiltinGeneratedData);
+        return library.TryRunLr2SongDbSyncDataPreparation(reason, prepareWithLease, queueAfterPreparation);
+    }
+
+    private Lr2SongDbSyncPreparedDataSurface PrepareGeneratedDataUnderLease(
+        BMSLibrary library,
+        string reason,
+        LibraryFileMutationLease preparationLease,
+        bool includeBuiltinGeneratedData)
+    {
+        ArgumentNullException.ThrowIfNull(preparationLease);
+        using LibraryFileMutationCapability mutationCapability = preparationLease.CreateMutationCapability();
+        mutationCapability.Validate(library.Lr2Synchronization);
+
+        BMSPlaylist playlists = playlistProvider()
+            ?? throw new InvalidOperationException("LR2 playlist preparation is unavailable.");
+
+        Lr2SongDbSyncPreparedDataSurface playlistSurface =
+            playlists.ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation(
             reason,
-            (processed, total, tableName) => libraryProvider()?.PublishLr2SongDbSyncExternalStageProgress(
+            mutationCapability,
+            (processed, total, tableName) => library.PublishLr2SongDbSyncExternalStageProgress(
                 "playlist_materialization",
                 processed,
                 total,
                 tableName));
-    }
 
-    public Lr2SongDbSyncPreparedDataSurface PrepareBuiltinGeneratedData(string reason)
-    {
-        return libraryProvider()?.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows(reason)
-            ?? Lr2SongDbSyncPreparedDataSurface.Empty;
+        if (!includeBuiltinGeneratedData)
+        {
+            return playlistSurface;
+        }
+
+        return Lr2SongDbSyncPreparedDataSurface.Merge(
+            playlistSurface,
+            library.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows(
+                reason,
+                mutationCapability));
     }
 
     public void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason)
@@ -307,12 +343,13 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
 
         ScheduleBackground(
             "SyncLr2SongDbSyncFolderDataAfterSettingsChange",
-            () => runtime.TryRunDataPreparation(
-                reason,
-                () => Lr2SongDbSyncPreparedDataSurface.Merge(
-                    runtime.PreparePlaylistGeneratedData(reason),
-                    runtime.PrepareBuiltinGeneratedData(reason)),
-                () => runtime.Queue(reason, force: false, allowIncompleteToQueue: false)));
+            () =>
+            {
+                runtime.TryRunDataPreparation(
+                    reason,
+                    includeBuiltinGeneratedData: true,
+                    () => runtime.Queue(reason, force: false, allowIncompleteToQueue: false));
+            });
     }
 
     internal void SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChange(string reason)
@@ -377,7 +414,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         runtime.Queue(
             reason,
             force,
-            () => runtime.PreparePlaylistGeneratedData(reason));
+            prepareGeneratedData: true);
     }
 
     private bool CanRun()

@@ -30,7 +30,11 @@ internal sealed class ZeroNoteMaintenanceWorkflowOwner
 
     internal bool Recheck()
     {
-        using (chartFileOperations.Enter())
+        if (!chartFileOperations.TryEnter(out IDisposable operationGate))
+        {
+            return false;
+        }
+        using (operationGate)
         {
             BMSLibrary library = libraryProvider();
             if (library == null)

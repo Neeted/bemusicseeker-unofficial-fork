@@ -30,6 +30,12 @@
 
 scope 外から `BMSLibrary` を直接呼ぶ既存テストや内部ユーティリティでは、従来どおり dialog service を使う。ただし、アプリ本体の譜面 / パッケージ操作入口は ViewModel 境界を通す。
 
+### Startup LR2 leap-year repair
+
+起動時の LR2 leap-year 修復候補は、`BmsLibraryInitializationService.NormalizeSongTable` が既存の folder-table loop で一度だけ収集し、`SongTableLoadResult` に immutable な候補（catalog identity、正規化済み filesystem/display path、観測時刻）を返す。この loop は dialog、filesystem mutation、追加の folder-table enumeration を行わない。初期 lease と model lock を解放した後で候補ごとの確認を行い、承認された候補だけが第二の短い mutation lease に入る。
+
+修復 lease 内では候補が保持する元の `folder.path` だけを `Lr2FolderExistingRowLookup.QueryExactPaths` へ渡し、対象 K 行を取得する。各行について catalog identity、directory existence、観測時刻との完全一致を再検証し、差し替え・消失・時刻不一致なら filesystem / DB mutation は 0 とする。確認済み候補の timestamp mutation と対応する catalog update が成功した場合だけ永続化し、mutation service が null の場合は明示的な failure とする。外部 DB 変更検出の全件 scan、無関係 path の mtime probe、全 row dictionary は追加しない。
+
 ## Chart-info Catalog Write
 
 background hydration/backfillやpackage inlineのchart-info writeは、UIの`RunChartPackageMutation(...)`とは別のcatalog mutationである。transaction ownerは`CatalogMutationOwner`のままとし、inline/fullは同じ`ApplyChartInfoStorageWrite(CatalogChartInfoStorageWriteRequest)`を使う。
@@ -64,6 +70,12 @@ P0 として次の操作は共通境界を通す。
 これらは preflight で確認し、承認済み path や boolean decision として execution option へ渡す。decision が不足した状態で model lock 内 prompt に戻る実装は不可とする。
 
 操作後の warning / error は report として蓄積し、`lockCopyFile` と model lock を抜けた後に dialog service で表示する。重複 warning を避けるため、同じ mutation の中で同じ message を複数 queue しない。
+
+### Pending chart legacy mutations
+
+保留譜面の削除、無効拡張子の修正、導入行の差分更新は、確認時に対象 K 件だけの immutable projection を一度作る。projection は対象の file identity、package / entry membership、authorized path を保持し、無関係な pending package の chart entries を読み直さない。lease 内で live owner、package collection、entry、path、file existence、directory / reparse safety を再検証し、失敗した対象は明示的な non-success として扱う。確認後の process-exclusive owner と transaction が authoritative であり、外部 DB の全件再読込や全 catalog 比較は行わない。
+
+保留譜面の child が stale / missing または削除失敗になった場合、失敗・未処理 sibling を保持し、package root / ancestor の recursive delete へ拡大しない。全 child が同一 projection により承認され、成功した後だけ、空になった authorized package directory を non-recursive に best-effort cleanup できる。無効拡張子修正は canonical durable apply / publication が成功するまで live path / global index を変更せず、dialog / notification は release 後の best-effort effect とする。nested pending/install-row apply は現在の live owner が発行した非 null・未 dispose capability を必須とし、nullable / foreign / disposed capability を no-op fallback に変換しない。
 
 ## Verification map
 
@@ -106,6 +118,31 @@ executor の receipt は commit 前後を区別する terminal state を持つ�
 - `COMP-CLEANUP`: durable success 後の cleanup failure は `CompletedWithCleanupFailure` とし、leftover と recovery paths を保持する。fresh install / pending retry には戻さない。
 - `COMP-SUCCESS`: destination と DB が authoritative で、apply と post-commit cleanup / notification は各一回で完了する。
 
-receipt と recovery paths は package / folder command の public result と UI workflow completion まで保持する。legacy の void / failure-list だけで terminal outcome を表現してはならない。model の admission / reservation と短い snapshot lock は executor、DB callback、cleanup、notification、task start の前に解放する。
+receipt と recovery paths は package / folder command の public result と UI workflow completion まで保持する。legacy の void / failure-list だけで terminal outcome を表現してはならない。
+
+### Exclusive lease and deferred effects
+
+ファイルを変更する command は、preflight confirmation の後に短い sequence admission を行い、その sequence monitor を解放してから `LibraryFileMutationLease` を取得する。拒否時も sequence monitor と既に取得した scope を直ちに解放し、拒否 dialog を monitor 内で待たない。lease は LR2 同期と他の file mutation に対して排他的であり、filesystem executor、durable DB apply、compensation / cleanup、内部 finalization が終わるまで保持する。
+
+folder move、auto-rename、merge の snapshot は initialized-min read、pending-install write、BMS-files write の順で取得し、逆順で解放する。その他の route は必要な短い route-specific snapshot lock だけを取得する。いずれの場合も snapshot / model / package / collection lock は filesystem I/O、DB apply、compensation / cleanup、内部 finalization の前にゼロに戻す。
+
+ネストされた DB / catalog / file apply は、現在の outer lease から明示的に発行された `LibraryFileMutationCapability` を引数として渡す。capability は所有者、lease の生存、dispose 状態を検証し、ambient `AsyncLocal`、thread、monitor reentrancy を認可には使用しない。通常の外部 entry は同一 thread からの再入でも拒否する。
+
+`installable_maintenance` は自身の outer `LibraryFileMutationLease` を一度だけ取得し、mode detection と catalog maintenance をその lease 内の通常処理として capability-free に完了する。内側で lease を取り直さず、Unit A のこの route では `LibraryFileMutationCapability` を作成・伝播しない。capability を保持するのは、package の installed-target durable completion から LR2 normal-folder sync までを同じ outer lease でつなぐ実在の nested bridge だけであり、その bridge の under-existing-lease entry で owner / lease lifetime / dispose を一度だけ検証する。
+
+LR2 custom-folder 出力を伴うローカル playlist 編集は、entry hydration と active-table の初期確認を終えてから、モデル変更前に同じ非ブロッキング lease を取得する。busy の場合は待機や内部 retry を行わず、モデル、playlist DB、LR2 folder row、生成ファイル、BMT queue を変更せずに明示失敗する。lease 取得後は active membership を対象 table だけ再確認し、短い table mutation、playlist DB apply、対象 custom-folder projection と LR2 row sync を同じ capability で完了する。terminal publication と BMT queue は lease 解放後に行う。`commitFlag=false` と LR2 mode 無効時はこの file-mutation lease を取得しない。
+
+| user operation | owner | pre-admission 許可 | lease 内 model / file / DB | post-release notification / BMT / reference |
+| --- | --- | --- | --- | --- |
+| `playlistTableDrop -> AddRowsToFolderAsync`（ローカル playlist、LR2 custom-folder mode） | `PlaylistWorkspaceViewModel` が `BMSPlaylist` の drop owner route を呼ぶ | hydration と active-table 確認後に nonblocking lease を一回取得。busy は明示失敗し、全 durable / success effect を行わない | 同じ capability で table model、playlist DB、custom-folder file、LR2 folder/file row を完了。output failure は一次例外として保持する | lease 解放後に chart reference、UI invalidation、notification、BMT を各一回独立 attempt し、secondary failure は既存 diagnostic に記録して primary を置換せず、primary があれば元の例外を再送出する。primary なしの durable success は notification failure で失敗にしない。将来の JSON 副作用も UI caller ではなく owner の post-durable effect とする |
+
+将来 JSON を追加する場合も、UI caller 個別の副作用にはせず、owner が durable completion 後の post-durable effect として一度だけ発行する。
+
+`TryRunLr2SongDbSyncDataPreparation(...)` も admission を一回だけ試み、busy の場合は同じ呼び出し内で待機、lease 解放後の再開、内部 retry を行わず、false を terminal に返す。lease 解放後に再実行できるのは新しい明示 request だけである。LR2 preparation の playlist / builtin generated-data bridge は concrete runtime の nested entry に閉じ、request / DTO / coordinator / ordinary helper は capability-free semantic operation とする。
+
+`FileDbMutationExecutor` は live outer session 内で durable DB apply を終えた後、session-local な one-shot `DurableFinalizer` をちょうど一度だけ実行する。receipt は callback-free の immutable な terminal fact であり、receipt 自身の callback、replay、retry を持たない。`Failed` / `ManualRecoveryRequired` receipt には成功 publication を付けず、command owner は canonical finalization 後に plain な one-shot publication action を command-owned の post-lease list へ記録する。lease と全 model lock を解放した後、その list を best-effort で実行し、subscriber / dialog / UI scheduler の失敗は durable / cleanup terminal state、compensation、retry、既存の primary failure を変更せず、後続 publication を中断しない。dialog、UI scheduler / Dispatcher、PropertyChanged / public subscriber、terminal progress / terminal publication、通常 refresh / index warmup、task start、別 owner callback はこの post-lease phase に遅延する。失敗・manual receipt の対象 item は成功 publication されない。中間 progress だけは feature-local の narrow writer へ immutable fact を nonblocking に送れるが、owner 側 consumer は latest-wins の pending / draining を各1以下に制限し、model / package / collection lock を保持せずに配信する。writer は terminalization 開始時に seal し、同一 generation の late progress を捨てる。中間 progress や診断通知の失敗は durable / cleanup terminal state、compensation、retry、既存の primary failure を変更しない。
+
+LR2 preparation の中間 stage / table / batch progress は `BMSLibrary` の既存 facade dispatcher queue が latest-state として coalesce して配信し、lease 保持中に public `PropertyChanged` subscriber を同期実行しない。dispatcher drain 内の subscriber 例外はログ後に次の property を継続し、generated output、LR2 folder row、DB status の durable 結果や terminal failure を変更しない。
+
 
 batch で compensation を所有するのは一つの owner だけであり、per-item owner や rollback-of-rollback は追加しない。crash replay、persistent journal、cross-volume atomicity、TOCTOU の解消はこの境界の主張に含めない。destination-exists の folder move は従来どおり reject とし、merge / overwrite は新設しない。

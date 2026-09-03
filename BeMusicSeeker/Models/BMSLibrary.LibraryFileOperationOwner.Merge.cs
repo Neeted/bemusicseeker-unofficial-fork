@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Windows;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -11,6 +12,7 @@ using BeMusicSeeker.Properties;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
+using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
@@ -34,9 +36,10 @@ internal sealed partial class LibraryFileOperationOwner
 
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         LogInstallPerformance("duplicate_merge_model start op=" + operationId + " src=" + sourceDirectory + " dst=" + destinationDirectory);
+        List<Action> postLeaseNotifications = [];
         try
         {
-            return RunWithMergeDirectoryWriteLocks(operationId, () =>
+            return RunWithMergeDirectoryWriteLocks(operationId, mutationCapability =>
             {
                 bool mergePrepared = false;
                 List<ChartFile> preparedSourceCharts = [];
@@ -65,7 +68,7 @@ internal sealed partial class LibraryFileOperationOwner
                 if (!mergePrepared)
                 {
                     LogInstallPerformance("duplicate_merge_model skipped op=" + operationId + " reason=no_source_charts totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                    return DuplicateMergeMaintenanceReceipt.NotApplied;
+                    return () => DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
 
                 ChartStorageTargetSet movedTargets = null;
@@ -87,46 +90,65 @@ internal sealed partial class LibraryFileOperationOwner
                         {
                             return FileDbMutationCommitResult.Durable();
                         }
-                        FileDbMutationCommitResult databaseResult = applyLibraryMutationDeltaWithReceipt(
+                        FileDbMutationCommitResult databaseResult = ApplyLibraryMutationDeltaForFileMutation(
                             catalogDelta,
                             "duplicate_merge_catalog_transition op=" + operationId,
-                            false);
+                            suppressNormalRefreshNotification: false,
+                            capability: mutationCapability,
+                            postLeaseNotificationObserver: postLeaseNotifications.Add);
                         if (!databaseResult.DurableCommit)
                         {
                             return databaseResult;
                         }
-                        return FileDbMutationCommitResult.Durable(
-                            () =>
+                        List<ChartFile> destinationMaintenanceChartSnapshots = null;
+                        Exception maintenanceInputCaptureFailure = null;
+                        try
+                        {
+                            RunWithMergeSnapshotLocks(() =>
                             {
-                                try
-                                {
-                                    if (ChartDirectoryScanBuilder.TryBuildFromRoots(
-                                        [destinationDirectory],
-                                        out ChartScanResult scan,
-                                        out string scanFailureReason))
-                                    {
-                                        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
-                                            resourceIndexOwner.ReplaceSourceDirectoryWithScan(sourceDirectory, scan).MutationResult;
-                                        LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
-                                    }
-                                    else
-                                    {
-                                        LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
-                                    }
-                                    List<ChartFile> destinationMaintenanceChartSnapshots =
-                                        CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);
-                                    maintenanceResult = ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
-                                    LogInstallPerformance("duplicate_merge_model done op=" + operationId
-                                        + " movedBms=" + (movedTargets?.BmsFiles.Count ?? 0)
-                                        + " movedBmson=" + (movedTargets?.BmsonSongs.Count ?? 0)
-                                        + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                                }
-                                finally
-                                {
-                                    databaseResult.PostCommit?.Invoke();
-                                }
-                            },
-                            databaseResult.Failure);
+                                destinationMaintenanceChartSnapshots =
+                                    CreateOwnedStorageTargetChartSnapshotsForSubtreeDirectoryUnsafe(destinationDirectory);
+                            });
+                        }
+                        catch (Exception exception)
+                        {
+                            maintenanceInputCaptureFailure = exception;
+                        }
+                        Exception postCommitFailure = databaseResult.Failure;
+                        if (maintenanceInputCaptureFailure != null)
+                        {
+                            postCommitFailure = postCommitFailure == null
+                                ? maintenanceInputCaptureFailure
+                                : new AggregateException(postCommitFailure, maintenanceInputCaptureFailure);
+                        }
+                        postLeaseNotifications.Add(() =>
+                        {
+                            if (maintenanceInputCaptureFailure != null)
+                            {
+                                throw new InvalidOperationException(
+                                    "Duplicate merge maintenance input could not be captured.",
+                                    maintenanceInputCaptureFailure);
+                            }
+                            if (ChartDirectoryScanBuilder.TryBuildFromRoots(
+                                [destinationDirectory],
+                                out ChartScanResult scan,
+                                out string scanFailureReason))
+                            {
+                                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+                                    resourceIndexOwner.ReplaceSourceDirectoryWithScan(sourceDirectory, scan).MutationResult;
+                                LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
+                            }
+                            else
+                            {
+                                LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
+                            }
+                            maintenanceResult = ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
+                            LogInstallPerformance("duplicate_merge_model done op=" + operationId
+                                + " movedBms=" + (movedTargets?.BmsFiles.Count ?? 0)
+                                + " movedBmson=" + (movedTargets?.BmsonSongs.Count ?? 0)
+                                + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                        });
+                        return FileDbMutationCommitResult.Durable(durableFailure: postCommitFailure);
                     },
                     showMessageBoxOnInstallFail: false,
                     deleteAllContents: true,
@@ -145,11 +167,20 @@ internal sealed partial class LibraryFileOperationOwner
                     });
                 if (!mutationReceipt.DurableCommit)
                 {
-                    this.invalidateInstalledDirectoryIndex();
-                    ShowFolderMergeFailed(sourceDirectory, destinationDirectory);
-                    return CreateMergeMaintenanceReceipt(maintenanceResult, mutationReceipt);
+                    return () =>
+                    {
+                        this.invalidateInstalledDirectoryIndex();
+                        postLeaseNotifications.Add(
+                            () => ShowFolderMergeFailed(sourceDirectory, destinationDirectory));
+                        InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+                        return CreateMergeMaintenanceReceipt(maintenanceResult, mutationReceipt);
+                    };
                 }
-                return CreateMergeMaintenanceReceipt(maintenanceResult, mutationReceipt, movedTargets);
+                return () =>
+                {
+                    InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+                    return CreateMergeMaintenanceReceipt(maintenanceResult, mutationReceipt, movedTargets);
+                };
             });
         }
         catch (Exception ex)
@@ -315,14 +346,22 @@ internal sealed partial class LibraryFileOperationOwner
 
     private DuplicateMergeMaintenanceReceipt RunWithMergeDirectoryWriteLocks(
         long operationId,
-        Func<DuplicateMergeMaintenanceReceipt> action)
+        Func<LibraryFileMutationCapability, Func<DuplicateMergeMaintenanceReceipt>> action)
     {
-        using IDisposable mutationScope = EnterMergeWriteScope(operationId);
-        if (mutationScope == null)
+        Func<DuplicateMergeMaintenanceReceipt> receiptFactory;
+        using (LibraryFileMutationLease mutationLease = EnterMergeWriteScope())
         {
-            return DuplicateMergeMaintenanceReceipt.NotApplied;
+            if (mutationLease == null)
+            {
+                return DuplicateMergeMaintenanceReceipt.NotApplied;
+            }
+            using (LibraryFileMutationCapability capability = mutationLease.CreateMutationCapability())
+            {
+                capability.Validate(lr2SynchronizationOwner);
+                receiptFactory = action(capability);
+            }
         }
-        return action();
+        return receiptFactory();
     }
 
     private MaintenanceWorkflowResult ApplyMergeFolderMaintenance(IEnumerable<ChartFile> charts)

@@ -524,6 +524,58 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void TryRegroupPendingPackagesForSourceDirectories_DurableFailureLeavesSourceEntryStateUnchanged()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageRegroupDbFailure");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageRegroupDbFailure");
+            string installedFilePath = CreateBmsFileWithContents(
+                destinationDirectoryPath,
+                "representative.bms",
+                "#PLAYER 1\r\n#TITLE Resolved Title\r\n#ARTIST Resolved Artist\r\n");
+            ChartPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
+            ChartPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
+            PackageChartEntry firstPendingEntry = GetOnlyEntry(firstPackage);
+            firstPendingEntry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(
+                destinationDirectoryPath,
+                "Original Title",
+                "Original Artist",
+                [Path.Combine(tempRootPath, "Suggested")]));
+            firstPendingEntry.SetWarning(
+                ChartWarningKind.InstallEstimationLowConfidence,
+                BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationLowConfidence);
+            PackageChartInstallDestinationState expectedDestinationState = firstPendingEntry.CaptureInstallDestinationState();
+            string[] expectedWarnings = [.. firstPendingEntry.Chart.Warnings.Select(warning => warning.Kind + "|" + warning.Message)];
+
+            library.BMSFiles = [BMSFile.CreateBMSFileFromFile(installedFilePath)];
+            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+
+            // ReplaceInstallRows is intentionally the first durable step after
+            // the detached regroup graph has been prepared.  A directory at the
+            // database path forces that step to fail without changing the live
+            // source entries.
+            File.Delete(songDbPath);
+            Directory.CreateDirectory(songDbPath);
+
+            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
+                () => InvokeRegroupForSourceDirectories(library, sourceDirectoryPath));
+            Assert.IsInstanceOfType<SQLite.SQLiteException>(exception.InnerException);
+
+            PackageChartInstallDestinationState actualDestinationState = firstPendingEntry.CaptureInstallDestinationState();
+            Assert.AreEqual(expectedDestinationState.Destination, actualDestinationState.Destination);
+            Assert.AreEqual(expectedDestinationState.Title, actualDestinationState.Title);
+            Assert.AreEqual(expectedDestinationState.Artist, actualDestinationState.Artist);
+            CollectionAssert.AreEqual(expectedDestinationState.Suggestions.ToArray(), actualDestinationState.Suggestions.ToArray());
+            CollectionAssert.AreEqual(
+                expectedWarnings,
+                firstPendingEntry.Chart.Warnings.Select(warning => warning.Kind + "|" + warning.Message).ToArray());
+            CollectionAssert.AreEqual(new[] { firstPackage, secondPackage }, library.ChartPackagesPending.ToArray());
+        });
+    }
+
+    [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DoesNotRegroupWhenDirectoryPackageAlreadyExists()
     {
         TestResourceInitializer.EnsureJapaneseResources();

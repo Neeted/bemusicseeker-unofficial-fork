@@ -99,6 +99,49 @@ public sealed class RegularChartFolderRenameTests
         });
     }
 
+    [TestMethod]
+    public void FolderRename_FailsFastWhenSharedChartFileGateIsBusyWithoutRefresh()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string libraryRoot = Path.GetDirectoryName(songDbPath)!;
+            string sourceDirectory = Path.Combine(libraryRoot, "busy-source");
+            string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+            Directory.CreateDirectory(sourceDirectory);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE busy\r\n");
+            var file = CreateTestableBmsFile(chartPath);
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                BMSFiles = [file]
+            };
+            RenameChartFolderRequest request = CreateRenameRequest(file);
+            var table = new MainChartListViewModel();
+            int displayRefreshCount = 0;
+            table.DisplayRefreshRequested += (_, _) => Interlocked.Increment(ref displayRefreshCount);
+            var synchronizer = new ChartFileOperationSynchronizer();
+            using RegularChartListOwner owner = CreateOwner(
+                table,
+                CreateWorkspaceForOwner(),
+                action => action(),
+                chartFileOperations: synchronizer);
+            owner.AttachNormalLibraryRefreshSource(library);
+            Assert.IsTrue(synchronizer.TryEnter(out IDisposable incumbent));
+            try
+            {
+                Task renameTask = owner.RenameChartFolderAsync(request, "busy-destination");
+                renameTask.GetAwaiter().GetResult();
+                Assert.IsTrue(Directory.Exists(sourceDirectory));
+                Assert.IsFalse(Directory.Exists(Path.Combine(libraryRoot, "busy-destination")));
+                Assert.AreEqual(0, Volatile.Read(ref displayRefreshCount));
+            }
+            finally
+            {
+                incumbent.Dispose();
+                owner.StopAsync().GetAwaiter().GetResult();
+            }
+        });
+    }
+
 
     [TestMethod]
     public void FolderRenames_SerializeMutationsWithoutWaitingForRefreshDrain()

@@ -369,6 +369,7 @@ $manifest.ManifestPath
             packageFormatVersion = 1,
             fileName = "published-bemusicseeker-unofficial-fork-v2.1.6.0.zip",
             artifactPath,
+            downloadUrl = "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v2.1.6.0/bemusicseeker-unofficial-fork-v2.1.6.0.zip",
             sizeBytes,
             sha256,
             sealedArtifact = true
@@ -382,6 +383,7 @@ $manifest.ManifestPath
             packageFormatVersion = metadata.packageFormatVersion,
             fileName = metadata.fileName,
             artifactPath = metadata.artifactPath,
+            downloadUrl = metadata.downloadUrl,
             sizeBytes = metadata.sizeBytes,
             sha256 = metadata.sha256,
             @sealed = metadata.sealedArtifact

@@ -437,6 +437,11 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     private async Task<DuplicateMaintenanceMutationResult> RunFolderMergeCoreAsync(
         FolderMergeRequest request)
     {
+        if (!chartFileOperations.TryEnter(out IDisposable operationGate))
+        {
+            return DuplicateMaintenanceMutationResult.Rejected(request.SelectionHeader);
+        }
+        bool operationGateTransferred = false;
         string message = BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder
             + Environment.NewLine
             + Environment.NewLine
@@ -447,68 +452,102 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             + BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination
             + ": "
             + request.DestinationDirectory;
-        ConfirmationDecision confirmation = await ConfirmIfNeededAsync(
-            message,
-            "Duplicate folder merge confirmation");
-        if (confirmation.Failure != null)
+        try
         {
-            return DuplicateMaintenanceMutationResult.Failed(
-                request.SelectionHeader,
-                confirmation.Failure);
-        }
-        if (!confirmation.Accepted)
-        {
-            return DuplicateMaintenanceMutationResult.Rejected(request.SelectionHeader);
-        }
+            ConfirmationDecision confirmation = await ConfirmIfNeededAsync(
+                message,
+                "Duplicate folder merge confirmation");
+            if (confirmation.Failure != null)
+            {
+                return DuplicateMaintenanceMutationResult.Failed(
+                    request.SelectionHeader,
+                    confirmation.Failure);
+            }
+            if (!confirmation.Accepted)
+            {
+                return DuplicateMaintenanceMutationResult.Rejected(request.SelectionHeader);
+            }
 
-        if (store is IDuplicateMaintenanceTerminalStore terminalStore)
-        {
-            return await Task.Run(() => ExecuteMutation(
+            if (store is IDuplicateMaintenanceTerminalStore terminalStore)
+            {
+                Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
+                    request.SelectionHeader,
+                    mutation: null,
+                    stopPlayback: playback.StopPlaybackForMerge,
+                    refreshPriorityReason: "merge_folder",
+                    mutationWithReceipt: library => terminalStore.MergeFolderWithReceipt(
+                        library,
+                        request.SourceDirectory,
+                        request.DestinationDirectory,
+                        Stopwatch.GetTimestamp()),
+                    acquiredOperationGate: operationGate));
+                operationGateTransferred = true;
+                return await mutationTask;
+            }
+            Task<DuplicateMaintenanceMutationResult> regularMutationTask = Task.Run(() => ExecuteMutation(
                 request.SelectionHeader,
-                mutation: null,
-                stopPlayback: playback.StopPlaybackForMerge,
-                refreshPriorityReason: "merge_folder",
-                mutationWithReceipt: library => terminalStore.MergeFolderWithReceipt(
+                library => store.MergeFolder(
                     library,
                     request.SourceDirectory,
-                    request.DestinationDirectory,
-                    Stopwatch.GetTimestamp())));
-        }
-        return await Task.Run(() => ExecuteMutation(
-            request.SelectionHeader,
-            library => store.MergeFolder(
-                library,
-                request.SourceDirectory,
                 request.DestinationDirectory,
                 Stopwatch.GetTimestamp()),
-            playback.StopPlaybackForMerge,
-            "merge_folder"));
+                playback.StopPlaybackForMerge,
+                "merge_folder",
+                acquiredOperationGate: operationGate));
+            operationGateTransferred = true;
+            return await regularMutationTask;
+        }
+        finally
+        {
+            if (!operationGateTransferred)
+            {
+                operationGate.Dispose();
+            }
+        }
     }
 
     private async Task<DuplicateMaintenanceMutationResult> RunHashCleanupCoreAsync(
         HashCleanupPlan plan)
     {
-        ConfirmationDecision confirmation = await ConfirmIfNeededAsync(
-            string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, plan.ChartsToRemove.Count),
-            "Duplicate hash cleanup confirmation");
-        if (confirmation.Failure != null)
-        {
-            return DuplicateMaintenanceMutationResult.Failed(
-                plan.SelectionHeader,
-                confirmation.Failure,
-                plan.ChartsToRemove.Count);
-        }
-        if (!confirmation.Accepted)
+        if (!chartFileOperations.TryEnter(out IDisposable operationGate))
         {
             return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionHeader);
         }
+        bool operationGateTransferred = false;
+        try
+        {
+            ConfirmationDecision confirmation = await ConfirmIfNeededAsync(
+                string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, plan.ChartsToRemove.Count),
+                "Duplicate hash cleanup confirmation");
+            if (confirmation.Failure != null)
+            {
+                return DuplicateMaintenanceMutationResult.Failed(
+                    plan.SelectionHeader,
+                    confirmation.Failure,
+                    plan.ChartsToRemove.Count);
+            }
+            if (!confirmation.Accepted)
+            {
+                return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionHeader);
+            }
 
-        return await Task.Run(() => ExecuteMutation(
-            plan.SelectionHeader,
-            library => store.RemoveCharts(library, plan.ChartsToRemove),
-            () => playback.StopPlaybackForCharts(plan.ChartsToRemove),
-            refreshPriorityReason: null,
-            plan.ChartsToRemove.Count));
+            Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
+                plan.SelectionHeader,
+                library => store.RemoveCharts(library, plan.ChartsToRemove),
+                () => playback.StopPlaybackForCharts(plan.ChartsToRemove),
+                refreshPriorityReason: null,
+                removedChartCount: plan.ChartsToRemove.Count,
+                acquiredOperationGate: operationGate));
+            operationGateTransferred = true;
+            return await mutationTask;
+        }
+        finally
+        {
+            if (!operationGateTransferred)
+            {
+                operationGate.Dispose();
+            }
+        }
     }
 
     private async Task<ConfirmationDecision> ConfirmIfNeededAsync(string message, string routeName)
@@ -555,7 +594,8 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Action stopPlayback,
         string refreshPriorityReason,
         int removedChartCount = 0,
-        Func<BMSLibrary, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null)
+        Func<BMSLibrary, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null,
+        IDisposable acquiredOperationGate = null)
     {
         var failures = new List<ExceptionDispatchInfo>();
         BMSLibrary library = null;
@@ -567,6 +607,11 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         bool refreshPriorityStarted = false;
         try
         {
+            operationGate = acquiredOperationGate;
+            if (operationGate == null && !chartFileOperations.TryEnter(out operationGate))
+            {
+                return DuplicateMaintenanceMutationResult.Rejected(selectionHeader);
+            }
             library = libraryProvider();
             if (library == null)
             {
@@ -576,7 +621,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             }
             dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
-            operationGate = chartFileOperations.Enter();
             stopPlayback();
             PublishRefreshSuppressionChanged(isSuppressed: true);
             suppressionStarted = true;

@@ -36,6 +36,18 @@ public sealed class InstallTreeViewModelTests
     }
 
     [TestMethod]
+    public void PendingCollection_IsReadOnlyAtLibraryBoundary()
+    {
+        WithLibrary(delegate (BMSLibrary library)
+        {
+            Assert.IsInstanceOfType(
+                library.ChartPackagesPending,
+                typeof(ReadOnlyObservableCollection<ChartPackage>));
+            Assert.IsFalse(library.ChartPackagesPending is ObservableCollection<ChartPackage>);
+        });
+    }
+
+    [TestMethod]
     public void CollectionChanges_PublishOnlyTheChangedSectionAndReplacementRebinds()
     {
         WithLibrary(delegate (BMSLibrary library)
@@ -43,11 +55,12 @@ public sealed class InstallTreeViewModelTests
             var owner = new InstallTreeViewModel();
             var sections = new List<InstallTreePresentationSection>();
             owner.PresentationChanged += (_, args) => sections.Add(args.Sections);
+            ObservableCollection<ChartPackage> pending = CreatePackageCollection([]);
+            library.ChartPackagesPending = pending;
             owner.AttachLibrary(library);
             sections.Clear();
 
             ObservableCollection<ChartPackage> installed = library.ChartPackagesInstalled;
-            ObservableCollection<ChartPackage> pending = library.ChartPackagesPending;
             installed.Add(new ChartPackage { path = "installed" });
             Assert.AreEqual(InstallTreePresentationSection.Installed, sections.Single());
 
@@ -104,9 +117,11 @@ public sealed class InstallTreeViewModelTests
             var owner = new InstallTreeViewModel();
             var sections = new List<InstallTreePresentationSection>();
             owner.PresentationChanged += (_, args) => sections.Add(args.Sections);
+            ObservableCollection<ChartPackage> pending = CreatePackageCollection([]);
+            library.ChartPackagesPending = pending;
             owner.AttachLibrary(library);
             ObservableCollection<ChartPackage> oldInstalled = library.ChartPackagesInstalled;
-            ObservableCollection<ChartPackage> oldPending = library.ChartPackagesPending;
+            ObservableCollection<ChartPackage> oldPending = pending;
             sections.Clear();
 
             owner.DetachLibrary();

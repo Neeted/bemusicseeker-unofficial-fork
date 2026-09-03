@@ -2587,7 +2587,24 @@ internal sealed class BmsLibraryMaintenanceService
         {
             foreach (BMSFile.MaintenanceMutationSnapshot snapshot in bmsSnapshots)
             {
-                snapshot.NotifyCommittedChanges();
+                try
+                {
+                    snapshot.NotifyCommittedChanges();
+                }
+                catch (Exception exception)
+                {
+                    try
+                    {
+                        Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
+                            exception,
+                            "maintenance_post_commit_notification_failed");
+                    }
+                    catch
+                    {
+                        // Diagnostics are best effort and must not stop the
+                        // remaining committed chart notifications.
+                    }
+                }
             }
         }
 

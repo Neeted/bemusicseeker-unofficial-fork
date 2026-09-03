@@ -237,7 +237,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         public void Queue(
             string reason,
             bool force,
-            Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null!,
+            bool prepareGeneratedData = false,
             bool allowIncompleteToQueue = true)
         {
             Events.Add("queue:" + reason);
@@ -246,30 +246,25 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
             {
                 throw QueueFailure;
             }
-            prepareGeneratedData?.Invoke();
+            if (prepareGeneratedData)
+            {
+                Events.Add("prepare-playlist:" + reason);
+            }
         }
 
         public bool TryRunDataPreparation(
             string reason,
-            Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
+            bool includeBuiltinGeneratedData = false,
             Action queueAfterPreparation = null!)
         {
             Events.Add("prepare-gate:" + reason);
-            prepareGeneratedData();
+            Events.Add("prepare-playlist:" + reason);
+            if (includeBuiltinGeneratedData)
+            {
+                Events.Add("prepare-builtin:" + reason);
+            }
             queueAfterPreparation?.Invoke();
             return true;
-        }
-
-        public Lr2SongDbSyncPreparedDataSurface PreparePlaylistGeneratedData(string reason)
-        {
-            Events.Add("prepare-playlist:" + reason);
-            return Lr2SongDbSyncPreparedDataSurface.Empty;
-        }
-
-        public Lr2SongDbSyncPreparedDataSurface PrepareBuiltinGeneratedData(string reason)
-        {
-            Events.Add("prepare-builtin:" + reason);
-            return Lr2SongDbSyncPreparedDataSurface.Empty;
         }
 
         public void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason)

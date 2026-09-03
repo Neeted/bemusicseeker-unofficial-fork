@@ -1371,31 +1371,23 @@ public sealed class SettingsForegroundInteractionTests
         public void Queue(
             string reason,
             bool force,
-            Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
+            bool prepareGeneratedData = false,
             bool allowIncompleteToQueue = true)
         {
             lock (gate)
             {
                 queueCalls.Add(new QueueCall(reason, force, allowIncompleteToQueue));
             }
-            prepareGeneratedData?.Invoke();
         }
 
         public bool TryRunDataPreparation(
             string reason,
-            Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
+            bool includeBuiltinGeneratedData = false,
             Action queueAfterPreparation = null)
         {
-            prepareGeneratedData?.Invoke();
             queueAfterPreparation?.Invoke();
             return true;
         }
-
-        public Lr2SongDbSyncPreparedDataSurface PreparePlaylistGeneratedData(string reason) =>
-            Lr2SongDbSyncPreparedDataSurface.Empty;
-
-        public Lr2SongDbSyncPreparedDataSurface PrepareBuiltinGeneratedData(string reason) =>
-            Lr2SongDbSyncPreparedDataSurface.Empty;
 
         public void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason)
         {

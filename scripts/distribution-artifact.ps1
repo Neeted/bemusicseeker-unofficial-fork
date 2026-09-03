@@ -392,14 +392,26 @@ function Read-V216ArtifactMetadata {
     $version = [string](Get-DistributionManifestValue $metadata 'version')
     $fileName = [string](Get-DistributionManifestValue $metadata 'fileName')
     $artifactPath = [string](Get-DistributionManifestValue $metadata 'artifactPath')
+    $downloadUrl = [string](Get-DistributionManifestValue $metadata 'downloadUrl')
     $expectedSize = [long](Get-DistributionManifestValue $metadata 'sizeBytes')
     $expectedSha256 = [string](Get-DistributionManifestValue $metadata 'sha256')
     $sealed = [bool](Get-DistributionManifestValue $metadata 'sealed')
+    $packageFormatVersion = [int](Get-DistributionManifestValue $metadata 'packageFormatVersion')
+    $expectedDownloadUrl = 'https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v2.1.6.0/bemusicseeker-unofficial-fork-v2.1.6.0.zip'
+    $downloadUri = $null
+    $hasAbsoluteHttpsDownloadUrl = [Uri]::TryCreate(
+        $downloadUrl,
+        [UriKind]::Absolute,
+        [ref]$downloadUri)
 
     if ($artifactId -cne 'public-v2.1.6.0' -or
         $version -cne '2.1.6.0' -or
         $fileName -cne 'published-bemusicseeker-unofficial-fork-v2.1.6.0.zip' -or
         [string]::IsNullOrWhiteSpace($artifactPath) -or
+        -not $hasAbsoluteHttpsDownloadUrl -or
+        $downloadUri.Scheme -cne 'https' -or
+        $downloadUrl -cne $expectedDownloadUrl -or
+        $packageFormatVersion -ne 1 -or
         $expectedSize -ne 11260709 -or
         $expectedSha256.Trim().ToUpperInvariant() -cne 'C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2' -or
         -not $sealed) {
@@ -432,18 +444,6 @@ function Read-V216ArtifactMetadata {
     if ([IO.Path]::GetFileName($resolvedArtifactPath) -cne $fileName) {
         throw "Pinned v2.1.6.0 artifact file name does not match metadata: $resolvedArtifactPath"
     }
-    if (-not (Test-Path -LiteralPath $resolvedArtifactPath -PathType Leaf)) {
-        throw "Pinned v2.1.6.0 artifact is missing: $resolvedArtifactPath"
-    }
-
-    $actualSize = (Get-Item -LiteralPath $resolvedArtifactPath).Length
-    if ($actualSize -ne $expectedSize) {
-        throw "Pinned v2.1.6.0 artifact size mismatch: expected=$expectedSize actual=$actualSize path=$resolvedArtifactPath"
-    }
-    $actualSha256 = Get-DistributionSha256 $resolvedArtifactPath
-    if ($actualSha256.ToUpperInvariant() -cne $expectedSha256.Trim().ToUpperInvariant()) {
-        throw "Pinned v2.1.6.0 artifact SHA-256 mismatch: expected=$($expectedSha256.Trim().ToLowerInvariant()) actual=$actualSha256 path=$resolvedArtifactPath"
-    }
 
     return [pscustomobject][ordered]@{
         Metadata = $metadata
@@ -451,8 +451,9 @@ function Read-V216ArtifactMetadata {
         RepositoryRoot = $rootPath
         ArtifactId = $artifactId
         Version = $version
-        PackageFormatVersion = [int](Get-DistributionManifestValue $metadata 'packageFormatVersion')
+        PackageFormatVersion = $packageFormatVersion
         FileName = $fileName
+        DownloadUrl = $downloadUrl
         ArtifactPath = $resolvedArtifactPath
         ExpectedSizeBytes = $expectedSize
         ExpectedSha256 = $expectedSha256.Trim().ToLowerInvariant()
@@ -471,6 +472,18 @@ function Assert-V216ArtifactIdentity {
     $metadata = Read-V216ArtifactMetadata -MetadataPath $MetadataPath -RepositoryRoot $RepositoryRoot
     if ($metadata.PackageFormatVersion -ne 1) {
         throw "Pinned v2.1.6.0 artifact package format is unsupported: $($metadata.PackageFormatVersion)"
+    }
+    if (-not (Test-Path -LiteralPath $metadata.ArtifactPath -PathType Leaf)) {
+        throw "Pinned v2.1.6.0 artifact is missing: $($metadata.ArtifactPath)"
+    }
+
+    $actualSize = (Get-Item -LiteralPath $metadata.ArtifactPath).Length
+    if ($actualSize -ne $metadata.ExpectedSizeBytes) {
+        throw "Pinned v2.1.6.0 artifact size mismatch: expected=$($metadata.ExpectedSizeBytes) actual=$actualSize path=$($metadata.ArtifactPath)"
+    }
+    $actualSha256 = Get-DistributionSha256 $metadata.ArtifactPath
+    if ($actualSha256.ToUpperInvariant() -cne $metadata.ExpectedSha256.ToUpperInvariant()) {
+        throw "Pinned v2.1.6.0 artifact SHA-256 mismatch: expected=$($metadata.ExpectedSha256) actual=$actualSha256 path=$($metadata.ArtifactPath)"
     }
     return $metadata
 }

@@ -31,8 +31,6 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     private readonly Func<LR2Config> lr2ConfigProvider;
 
-    private readonly Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization;
-
     private readonly PlaylistCustomFolderOutputStatusOwner statusOwner;
 
     private readonly Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> outputDirectoryResolver;
@@ -41,28 +39,39 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     private readonly PlaylistOperationNotificationOwner notificationOwner;
 
+    private readonly Func<IEnumerable<string>, string, CustomFolderOutputPhysicalSurface> physicalSurfaceResolver;
+
+    private readonly Action<IReadOnlyCollection<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection>, CustomFolderOutputSettingsSnapshot>
+        prepareOutputScopes;
+
+    private readonly Func<IReadOnlyCollection<BMSTable>, bool> areCurrentTables;
+
     internal PlaylistCustomFolderOutputMaintenanceOwner(
         PlaylistCustomFolderOutputOwner outputOwner,
         Func<CustomFolderOutputSettingsSnapshot> settingsProvider,
         Func<IReadOnlyList<BMSTable>> tablesSnapshotProvider,
         Action<BMSTable, string> ensureEntriesLoaded,
         Func<LR2Config> lr2ConfigProvider,
-        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
         PlaylistCustomFolderOutputStatusOwner statusOwner,
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> outputDirectoryResolver,
         Action<string> logPerformance,
-        PlaylistOperationNotificationOwner notificationOwner)
+        PlaylistOperationNotificationOwner notificationOwner,
+        Func<IEnumerable<string>, string, CustomFolderOutputPhysicalSurface> physicalSurfaceResolver,
+        Action<IReadOnlyCollection<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection>, CustomFolderOutputSettingsSnapshot> prepareOutputScopes,
+        Func<IReadOnlyCollection<BMSTable>, bool> areCurrentTables)
     {
         this.outputOwner = outputOwner ?? throw new ArgumentNullException(nameof(outputOwner));
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.tablesSnapshotProvider = tablesSnapshotProvider ?? throw new ArgumentNullException(nameof(tablesSnapshotProvider));
         this.ensureEntriesLoaded = ensureEntriesLoaded ?? throw new ArgumentNullException(nameof(ensureEntriesLoaded));
         this.lr2ConfigProvider = lr2ConfigProvider ?? throw new ArgumentNullException(nameof(lr2ConfigProvider));
-        this.syncMaterialization = syncMaterialization ?? throw new ArgumentNullException(nameof(syncMaterialization));
         this.statusOwner = statusOwner ?? throw new ArgumentNullException(nameof(statusOwner));
         this.outputDirectoryResolver = outputDirectoryResolver ?? throw new ArgumentNullException(nameof(outputDirectoryResolver));
         this.logPerformance = logPerformance;
         this.notificationOwner = notificationOwner ?? throw new ArgumentNullException(nameof(notificationOwner));
+        this.physicalSurfaceResolver = physicalSurfaceResolver;
+        this.prepareOutputScopes = prepareOutputScopes;
+        this.areCurrentTables = areCurrentTables ?? throw new ArgumentNullException(nameof(areCurrentTables));
     }
 
     internal bool SyncRootFolderOutputDirectoriesToLr2Config(CustomFolderOutputSettingsSnapshot settings)
@@ -180,39 +189,81 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         return [.. directories];
     }
 
-    internal bool TryReOutputCustomFolder(BMSTable table, CustomFolderOutputSettingsSnapshot settings)
+    /// <summary>
+    /// Hydrates the target and builds the immutable custom-folder projection before
+    /// the file-mutation lease is acquired.
+    /// </summary>
+    internal CustomFolderOutputPreparation PrepareCustomFolderOutput(
+        BMSTable table,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         settings ??= GetSettings();
+        if (table == null)
+        {
+            return new CustomFolderOutputPreparation([], [], settings, 0);
+        }
+
+        ensureEntriesLoaded(table, "ReOutputCustomFolder");
+        PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = CreateProjection(table, settings);
+        PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
+        PrepareProjectionSurfaceAndScopes([projection], settings, "ReOutputCustomFolder");
+        return new CustomFolderOutputPreparation([table], [projection], settings, 0);
+    }
+
+    /// <summary>
+    /// Executes a projection prepared before admission and delegates the nested
+    /// LR2 row synchronization to the active lease owner.
+    /// </summary>
+    internal CustomFolderBatchOutputResult TryReOutputPreparedCustomFolder(
+        CustomFolderOutputPreparation preparation,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        ArgumentNullException.ThrowIfNull(syncMaterialization);
+        ValidateCurrentTables(preparation.Tables);
         try
         {
-            PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = CreateProjection(table, settings);
-            PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
             CustomFolderBatchOutputResult result = ReOutputProjectionsAsync(
-                [projection],
-                tableCount: 1,
+                preparation.Projections,
+                tableCount: preparation.TableCount,
                 reason: "ReOutputCustomFolder",
                 operation: "playlist_custom_folder_output_single",
                 buildPreparedDataSurface: false,
                 yieldBetweenTables: false,
-                settings: settings)
+                settings: preparation.Settings,
+                syncMaterialization: syncMaterialization)
                 .GetAwaiter()
                 .GetResult();
             if (result.HasUnverifiedFiles)
             {
-                notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, ResolveOutputDirectory(table, settings)));
-                return false;
+                result.WarningMessage = string.Format(
+                    Resources.Warn_CustomFolderOutputFailed,
+                    preparation.Tables.FirstOrDefault()?.name,
+                    preparation.Projections.FirstOrDefault()?.OutputDirectory);
+                result.Succeeded = false;
+                return result;
             }
-            DeleteEmptyOutputDirectory(projection.OutputDirectory);
-            return true;
+            DeleteEmptyOutputDirectory(preparation.Projections.FirstOrDefault()?.OutputDirectory);
+            return result;
         }
-        catch
+        catch (Exception ex)
         {
-            notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, ResolveOutputDirectory(table, settings)));
-            return false;
+            return new CustomFolderBatchOutputResult
+            {
+                WarningMessage = string.Format(
+                    Resources.Warn_CustomFolderOutputFailed,
+                    preparation.Tables.FirstOrDefault()?.name,
+                    preparation.Projections.FirstOrDefault()?.OutputDirectory),
+                PrimaryException = ex
+            };
         }
     }
 
-    internal bool TryMigrateCustomFolderOutputDirectory(
+    /// <summary>
+    /// Hydrates a single table and builds the destination projection before
+    /// admission.  No filesystem or LR2 row mutation is performed here.
+    /// </summary>
+    internal CustomFolderMigrationPreparation PrepareCustomFolderOutputMigration(
         BMSTable table,
         string outputDirectoryBefore,
         string outputDirectoryAfter,
@@ -220,129 +271,159 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         string rootOutputBaseDirectoryBefore,
         string outputBaseDirectoryBefore,
         bool inferOutputBaseDirectoryBeforeWhenMissing,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         settings ??= GetSettings();
+        if (table == null)
+        {
+            return new CustomFolderMigrationPreparation([], settings, []);
+        }
+
+        ensureEntriesLoaded(table, "MigrateCustomFolderOutputDirectory");
         string resolvedOutputDirectoryAfter = string.IsNullOrWhiteSpace(outputDirectoryAfter)
             ? ResolveOutputDirectory(table, settings)
             : outputDirectoryAfter;
-        bool sameDirectory = IsSameDirectory(outputDirectoryBefore, resolvedOutputDirectoryAfter);
+        var plan = new MigrationPlan
+        {
+            Table = table,
+            OutputDirectoryBefore = outputDirectoryBefore,
+            OutputDirectoryAfter = resolvedOutputDirectoryAfter,
+            WasRootFolderBefore = wasRootFolderBefore,
+            RootOutputBaseDirectoryBefore = rootOutputBaseDirectoryBefore,
+            OutputBaseDirectoryBefore = outputBaseDirectoryBefore,
+            InferOutputBaseDirectoryBeforeWhenMissing = inferOutputBaseDirectoryBeforeWhenMissing
+        };
+        plan.SameDirectory = IsSameDirectory(outputDirectoryBefore, resolvedOutputDirectoryAfter);
+        plan.Projection = CreateProjection(table, settings, resolvedOutputDirectoryAfter);
+        if (plan.SameDirectory)
+        {
+            PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(plan.Projection);
+        }
+        PrepareProjectionSurfaceAndScopes([plan.Projection], settings, "MigrateCustomFolderOutputDirectory");
+        IReadOnlyCollection<string> protectedDirectories = CreateMigrationProtectedOutputDirectories(
+            [resolvedOutputDirectoryAfter],
+            settings,
+            [outputDirectoryBefore]);
+        return new CustomFolderMigrationPreparation([plan], settings, protectedDirectories);
+    }
+
+    /// <summary>
+    /// Executes a prepared single-table migration under the active capability.
+    /// Current membership is checked immediately before any filesystem work.
+    /// </summary>
+    internal CustomFolderBatchOutputResult TryMigratePreparedCustomFolderOutputDirectory(
+        CustomFolderMigrationPreparation preparation,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        ArgumentNullException.ThrowIfNull(syncMaterialization);
+        ValidateCurrentTables(preparation.Tables);
+        MigrationPlan plan = preparation.Plans.FirstOrDefault();
+        if (plan == null)
+        {
+            return new CustomFolderBatchOutputResult();
+        }
+
         try
         {
-            PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = CreateProjection(
-                table,
-                settings,
-                resolvedOutputDirectoryAfter);
-            if (sameDirectory)
-            {
-                PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
-            }
             CustomFolderBatchOutputResult result = ReOutputProjectionsAsync(
-                [projection],
+                [plan.Projection],
                 tableCount: 1,
                 reason: "MigrateCustomFolderOutputDirectory",
                 operation: "playlist_custom_folder_output_migrate",
                 buildPreparedDataSurface: false,
                 yieldBetweenTables: false,
-                settings: settings)
+                settings: preparation.Settings,
+                syncMaterialization: syncMaterialization)
                 .GetAwaiter()
                 .GetResult();
             if (result.HasUnverifiedFiles)
             {
-                notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, resolvedOutputDirectoryAfter));
-                return false;
+                result.WarningMessage = string.Format(
+                    Resources.Warn_CustomFolderOutputFailed,
+                    plan.Table?.name,
+                    plan.OutputDirectoryAfter);
+                result.Succeeded = false;
+                return result;
             }
 
-            if (sameDirectory)
+            if (plan.SameDirectory)
             {
-                DeleteEmptyOutputDirectory(resolvedOutputDirectoryAfter);
-                return true;
+                DeleteEmptyOutputDirectory(plan.OutputDirectoryAfter);
+                return result;
             }
 
-            IReadOnlyCollection<string> managedBases = CreateManagedOutputBaseScopes(
-                table,
-                wasRootFolderBefore,
-                rootOutputBaseDirectoryBefore,
-                outputBaseDirectoryBefore,
-                inferOutputBaseDirectoryBeforeWhenMissing,
-                settings);
-            bool deletionFailure;
-            if (!DeleteOutputDirectoryTree(outputDirectoryBefore, managedBases, CreateMigrationProtectedOutputDirectories(
-                [resolvedOutputDirectoryAfter],
-                settings,
-                [outputDirectoryBefore]),
-                out deletionFailure))
-            {
-                if (deletionFailure)
-                {
-                    notificationOwner.QueueWarning(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectoryBefore));
-                }
-                return false;
-            }
-
-            SyncPrunedRows(
-                CreateDirectoryPruneScopes(outputDirectoryBefore, wasRootFolderBefore, rootOutputBaseDirectoryBefore, settings),
-                CreatePruneExcludedDirectories(
-                    CreateMigrationProtectedOutputDirectories([resolvedOutputDirectoryAfter], settings, [outputDirectoryBefore]),
-                    [outputDirectoryBefore],
-                    [table],
-                    settings),
-                CreatePruneExcludedPaths(
-                    CreateMigrationProtectedOutputDirectories([resolvedOutputDirectoryAfter], settings, [outputDirectoryBefore]),
-                    [outputDirectoryBefore],
-                    [table],
-                    settings));
-            return true;
+            return CompletePreparedMigration(preparation, result, syncMaterialization);
         }
-        catch
+        catch (Exception ex)
         {
-            notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, resolvedOutputDirectoryAfter));
-            return false;
+            return new CustomFolderBatchOutputResult
+            {
+                WarningMessage = string.Format(
+                    Resources.Warn_CustomFolderOutputFailed,
+                    plan.Table?.name,
+                    plan.OutputDirectoryAfter),
+                PrimaryException = ex
+            };
         }
     }
 
-    internal bool TryRemoveCustomFolder(
+    internal CustomFolderBatchOutputResult TryRemoveCustomFolder(
         BMSTable table,
         string outputDirectory,
         bool wasRootFolder,
         string rootOutputBaseDirectory,
         string outputBaseDirectory,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
     {
+        ArgumentNullException.ThrowIfNull(syncMaterialization);
         settings ??= GetSettings();
+        ValidateCurrentTables([table]);
         bool deletionFailure;
         if (!DeleteOutputDirectoryTree(outputDirectory, [outputBaseDirectory], null, out deletionFailure))
         {
             if (deletionFailure)
             {
-                notificationOwner.QueueWarning(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory));
+                return new CustomFolderBatchOutputResult
+                {
+                    WarningMessage = string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory),
+                    Succeeded = false
+                };
             }
-            return false;
+            return new CustomFolderBatchOutputResult { Succeeded = false };
         }
 
         try
         {
             SyncPrunedRows(
+                syncMaterialization,
                 CreateDirectoryPruneScopes(outputDirectory, wasRootFolder, rootOutputBaseDirectory, settings));
             statusOwner.DeleteStatus(table);
-            return true;
+            return new CustomFolderBatchOutputResult { ReOutputCount = 1, Succeeded = true };
         }
-        catch
+        catch (Exception ex)
         {
-            notificationOwner.QueueWarning(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory));
-            return false;
+            return new CustomFolderBatchOutputResult
+            {
+                WarningMessage = string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory),
+                PrimaryException = ex,
+                Succeeded = false
+            };
         }
     }
 
-    internal void MigrateCustomFolderOutputDirectories(
+    /// <summary>
+    /// Builds all migration projections and the protected-directory snapshot before
+    /// the file-mutation lease is acquired.
+    /// </summary>
+    internal CustomFolderMigrationPreparation PrepareCustomFolderOutputMigrations(
         IReadOnlyList<BMSTable> tables,
         IReadOnlyDictionary<BMSTable, string> outputDirectoriesBefore,
-        string reason,
-        Action<int, int, string> progressCallback,
         IReadOnlyDictionary<BMSTable, bool> wasRootFolderBeforeByTable,
         string rootOutputBaseDirectoryBefore,
         IReadOnlyDictionary<BMSTable, string> outputBaseDirectoryBeforeByTable,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         settings ??= GetSettings();
         var plans = new List<MigrationPlan>();
@@ -356,12 +437,14 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 continue;
             }
 
+            ensureEntriesLoaded(table, "MigrateCustomFolderOutputDirectories");
             string afterDirectory = ResolveOutputDirectory(table, settings);
             if (string.IsNullOrWhiteSpace(afterDirectory) || IsSameDirectory(beforeDirectory, afterDirectory))
             {
                 continue;
             }
-            plans.Add(new MigrationPlan
+
+            var plan = new MigrationPlan
             {
                 Table = table,
                 OutputDirectoryBefore = beforeDirectory,
@@ -373,35 +456,57 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 OutputBaseDirectoryBefore = outputBaseDirectoryBeforeByTable?.TryGetValue(table, out string outputBase) == true
                     ? outputBase
                     : null,
-                InferOutputBaseDirectoryBeforeWhenMissing = outputBaseDirectoryBeforeByTable == null
-            });
+                InferOutputBaseDirectoryBeforeWhenMissing = outputBaseDirectoryBeforeByTable == null,
+                SameDirectory = false
+            };
+            plan.Projection = CreateProjection(table, settings, afterDirectory);
+            PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(plan.Projection);
+            plans.Add(plan);
         }
         if (plans.Count == 0)
         {
-            return;
+            return new CustomFolderMigrationPreparation([], settings, []);
         }
 
-        var projections = new List<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection>();
-        foreach (MigrationPlan plan in plans)
+        PrepareProjectionSurfaceAndScopes(
+            plans.Select(plan => plan.Projection).ToArray(),
+            settings,
+            "MigrateCustomFolderOutputDirectories");
+        IReadOnlyCollection<string> protectedDirectories = CreateMigrationProtectedOutputDirectories(
+            plans.Select(plan => plan.OutputDirectoryAfter),
+            settings,
+            plans.Select(plan => plan.OutputDirectoryBefore));
+        return new CustomFolderMigrationPreparation(plans, settings, protectedDirectories);
+    }
+
+    /// <summary>
+    /// Applies prepared migration projections and prunes the old output tree while
+    /// holding the explicit mutation capability.  Progress and warnings are facts
+    /// returned to the caller for post-lease publication.
+    /// </summary>
+    internal CustomFolderBatchOutputResult MigratePreparedCustomFolderOutputDirectories(
+        CustomFolderMigrationPreparation preparation,
+        string reason,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        ArgumentNullException.ThrowIfNull(syncMaterialization);
+        ValidateCurrentTables(preparation.Tables);
+        if (preparation.Plans.Count == 0)
         {
-            ensureEntriesLoaded(plan.Table, "MigrateCustomFolderOutputDirectories");
-            PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = CreateProjection(
-                plan.Table,
-                settings,
-                plan.OutputDirectoryAfter);
-            PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
-            projections.Add(projection);
+            return new CustomFolderBatchOutputResult();
         }
 
         CustomFolderBatchOutputResult result = ReOutputProjectionsAsync(
-            projections,
-            plans.Count,
+            preparation.Plans.Select(plan => plan.Projection).ToArray(),
+            preparation.Plans.Count,
             reason,
             "playlist_custom_folder_output_migrate_bulk",
             buildPreparedDataSurface: false,
             yieldBetweenTables: false,
-            progressCallback,
-            settings,
+            syncMaterialization: syncMaterialization,
+            progressCallback: null,
+            settings: preparation.Settings,
             stopwatch: Stopwatch.StartNew())
             .GetAwaiter()
             .GetResult();
@@ -411,87 +516,82 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 "Custom-folder output could not verify one or more existing files before migration.");
         }
 
-        IReadOnlyCollection<string> protectedDirectories = CreateMigrationProtectedOutputDirectories(
-            plans.Select(plan => plan.OutputDirectoryAfter),
-            settings,
-            plans.Select(plan => plan.OutputDirectoryBefore));
         var pruneScopes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        int index = 0;
-        foreach (MigrationPlan plan in plans)
+        foreach (MigrationPlan plan in preparation.Plans)
         {
-            index++;
-            progressCallback?.Invoke(index - 1, plans.Count, plan.Table?.name ?? string.Empty);
             IReadOnlyCollection<string> managedBases = CreateManagedOutputBaseScopes(
                 plan.Table,
                 plan.WasRootFolderBefore,
                 plan.RootOutputBaseDirectoryBefore,
                 plan.OutputBaseDirectoryBefore,
                 plan.InferOutputBaseDirectoryBeforeWhenMissing,
-                settings);
+                preparation.Settings);
             bool deletionFailure;
-            if (DeleteOutputDirectoryTree(plan.OutputDirectoryBefore, managedBases, protectedDirectories, out deletionFailure))
+            if (DeleteOutputDirectoryTree(
+                plan.OutputDirectoryBefore,
+                managedBases,
+                preparation.ProtectedDirectories,
+                out deletionFailure))
             {
                 foreach (string scope in CreateDirectoryPruneScopes(
                     plan.OutputDirectoryBefore,
                     plan.WasRootFolderBefore,
                     plan.RootOutputBaseDirectoryBefore,
-                    settings))
+                    preparation.Settings))
                 {
                     pruneScopes.Add(scope);
                 }
             }
-            else if (deletionFailure)
+            else
             {
-                notificationOwner.QueueWarning(string.Format(Resources.Warn_FileOrDirDeleteFailed, plan.OutputDirectoryBefore));
+                result.Succeeded = false;
+                if (deletionFailure)
+                {
+                    result.WarningMessage = string.Format(
+                        Resources.Warn_FileOrDirDeleteFailed,
+                        plan.OutputDirectoryBefore);
+                }
             }
-            progressCallback?.Invoke(index, plans.Count, plan.Table?.name ?? string.Empty);
         }
 
         if (pruneScopes.Count > 0)
         {
             SyncPrunedRows(
+                syncMaterialization,
                 [.. pruneScopes],
                 CreatePruneExcludedDirectories(
-                    protectedDirectories,
-                    plans.Select(plan => plan.OutputDirectoryBefore),
-                    plans.Select(plan => plan.Table),
-                    settings),
+                    preparation.ProtectedDirectories,
+                    preparation.Plans.Select(plan => plan.OutputDirectoryBefore),
+                    preparation.Plans.Select(plan => plan.Table),
+                    preparation.Settings),
                 CreatePruneExcludedPaths(
-                    protectedDirectories,
-                    plans.Select(plan => plan.OutputDirectoryBefore),
-                    plans.Select(plan => plan.Table),
-                    settings));
+                    preparation.ProtectedDirectories,
+                    preparation.Plans.Select(plan => plan.OutputDirectoryBefore),
+                    preparation.Plans.Select(plan => plan.Table),
+                    preparation.Settings));
         }
+        return result;
     }
 
-    internal async Task<CustomFolderBatchOutputResult> ReOutputTablesAsync(
+    /// <summary>
+    /// Builds a target-table projection and hydrates entries before lease admission.
+    /// </summary>
+    internal CustomFolderOutputPreparation PrepareTables(
         IReadOnlyList<BMSTable> tables,
-        string reason,
         string operation,
         bool forceWriteAllFiles,
         bool throwOnProjectionFailure,
-        bool buildPreparedDataSurface,
-        bool yieldBetweenTables,
-        Action<int, int, string> progressCallback = null,
         CustomFolderOutputSettingsSnapshot settings = null)
     {
         settings ??= GetSettings();
         tables ??= [];
         var projections = new List<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection>();
+        var preparedTables = new List<BMSTable>();
         int failedCount = 0;
-        int total = GetProgressTotal(tables.Count, progressCallback);
-        var stopwatch = Stopwatch.StartNew();
-        for (int index = 0; index < tables.Count; index++)
+        foreach (BMSTable table in tables)
         {
-            if (yieldBetweenTables)
-            {
-                await Task.Yield();
-            }
-
-            BMSTable table = tables[index];
             if (table == null || string.IsNullOrWhiteSpace(table.Output_dir))
             {
-                progressCallback?.Invoke(index + 1, total, table?.name ?? string.Empty);
                 continue;
             }
 
@@ -503,13 +603,12 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 {
                     PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
                 }
+                preparedTables.Add(table);
                 projections.Add(projection);
-                progressCallback?.Invoke(index + 1, total, table.name ?? string.Empty);
             }
             catch (Exception ex) when (IsProjectionFailure(ex))
             {
                 failedCount++;
-                progressCallback?.Invoke(index + 1, total, table.name ?? string.Empty);
                 if (throwOnProjectionFailure)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -517,17 +616,50 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             }
         }
 
-        return await ReOutputProjectionsAsync(
-            projections,
-            tables.Count,
+        PrepareProjectionSurfaceAndScopes(projections, settings, operation ?? "ReOutputCustomFolders");
+        return new CustomFolderOutputPreparation(preparedTables, projections, settings, failedCount);
+    }
+
+    /// <summary>
+    /// Completes the physical-surface and protected-scope portion of an existing
+    /// projection before the mutation lease is acquired.  Repair projections are
+    /// assembled by a separate planner, so they cannot use <see cref="PrepareTables"/>.
+    /// </summary>
+    internal void PrepareOutputProjections(
+        IReadOnlyCollection<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection> projections,
+        CustomFolderOutputSettingsSnapshot settings,
+        string reason)
+    {
+        PrepareProjectionSurfaceAndScopes(projections, settings ?? GetSettings(), reason);
+    }
+
+    /// <summary>
+    /// Materializes a previously prepared table projection under the active lease.
+    /// </summary>
+    internal Task<CustomFolderBatchOutputResult> ReOutputPreparedTablesAsync(
+        CustomFolderOutputPreparation preparation,
+        string reason,
+        string operation,
+        bool buildPreparedDataSurface,
+        bool yieldBetweenTables,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
+        Action<int, int, string> progressCallback = null)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        ArgumentNullException.ThrowIfNull(syncMaterialization);
+        ValidateCurrentTables(preparation.Tables);
+        return ReOutputProjectionsAsync(
+            preparation.Projections,
+            preparation.TableCount,
             reason,
             operation,
             buildPreparedDataSurface,
             yieldBetweenTables,
+            syncMaterialization,
             progressCallback,
-            settings,
-            failedCount,
-            stopwatch).ConfigureAwait(false);
+            preparation.Settings,
+            preparation.ProjectionFailedCount,
+            Stopwatch.StartNew());
     }
 
     internal Task<CustomFolderBatchOutputResult> ReOutputProjectionsAsync(
@@ -537,11 +669,13 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         string operation,
         bool buildPreparedDataSurface,
         bool yieldBetweenTables,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
         Action<int, int, string> progressCallback = null,
         CustomFolderOutputSettingsSnapshot settings = null,
         int projectionFailedCount = 0,
         Stopwatch stopwatch = null)
     {
+        ArgumentNullException.ThrowIfNull(syncMaterialization);
         return ReOutputProjectionsCoreAsync(
             projections,
             tableCount,
@@ -551,7 +685,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             progressCallback,
             settings,
             projectionFailedCount,
-            stopwatch ?? Stopwatch.StartNew());
+            stopwatch ?? Stopwatch.StartNew(),
+            syncMaterialization);
     }
 
     private Task<CustomFolderBatchOutputResult> ReOutputProjectionsCoreAsync(
@@ -563,27 +698,35 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         Action<int, int, string> progressCallback,
         CustomFolderOutputSettingsSnapshot settings,
         int projectionFailedCount,
-        Stopwatch stopwatch)
+        Stopwatch stopwatch,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
     {
         projections ??= [];
         settings ??= GetSettings();
+        ArgumentNullException.ThrowIfNull(syncMaterialization);
         int total = GetProgressTotal(tableCount, progressCallback);
-        progressCallback?.Invoke(Math.Min(tableCount, total), total, Resources.Custom_folder_output_progress_single_label);
+        progressCallback?.Invoke(
+            Math.Min(tableCount, total),
+            total,
+            Resources.Custom_folder_output_progress_single_label);
         PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult materialization = outputOwner.MaterializeBatch(
             projections,
-            (completed, count, tableName) => progressCallback?.Invoke(
+            progressCallback: (completed, count, tableName) => progressCallback?.Invoke(
                 Math.Min(tableCount + completed, total),
                 total,
                 tableName ?? Resources.Custom_folder_output_progress_single_label),
-            operation,
-            reason,
-            settings);
+            operation: operation,
+            reason: reason,
+            settingsOverride: settings);
         Lr2FolderFileDbSyncResult syncResult = materialization.HasUnverifiedFiles
             ? null
             : syncMaterialization(new CustomFolderBatchMaterializationRequest(materialization));
         if (!materialization.HasUnverifiedFiles)
         {
-            progressCallback?.Invoke(total, total, Resources.Custom_folder_db_sync_progress_single_label);
+            progressCallback?.Invoke(
+                total,
+                total,
+                Resources.Custom_folder_db_sync_progress_single_label);
             statusOwner.PersistStatuses(
                 [.. projections],
                 PlaylistCustomFolderOutputOwner.CreatePhysicalSurfaceFromSyncItems(materialization.SyncItems));
@@ -597,7 +740,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
                 directoryEntries: materialization.DirectoryEntries,
                 discoveryComplete: projectionFailedCount == 0 && !materialization.HasUnverifiedFiles)
             : Lr2SongDbSyncPreparedDataSurface.Empty;
-        logPerformance?.Invoke((operation ?? "playlist_custom_folder_output")
+        string performanceMessage = (operation ?? "playlist_custom_folder_output")
             + " done reason=" + (reason ?? "unknown")
             + " tableCount=" + tableCount
             + " projectionFailedCount=" + projectionFailedCount
@@ -605,15 +748,193 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             + " syncUpserted=" + (syncResult?.UpsertedCount ?? 0)
             + " syncDeleted=" + (syncResult?.DeletedCount ?? 0)
             + " unverifiedFileCount=" + materialization.UnverifiedFilePaths.Count
-            + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            + " elapsedMs=" + stopwatch.ElapsedMilliseconds;
         return Task.FromResult(new CustomFolderBatchOutputResult
         {
             ReOutputCount = materialization.HasUnverifiedFiles ? 0 : projections.Count,
+            Succeeded = !materialization.HasUnverifiedFiles,
             Materialization = materialization,
             SyncResult = syncResult,
             PreparedDataSurface = preparedDataSurface,
+            ProgressFact = new CustomFolderProgressFact(
+                total,
+                total,
+                materialization.HasUnverifiedFiles
+                    ? Resources.Custom_folder_output_progress_single_label
+                    : Resources.Custom_folder_db_sync_progress_single_label),
+            PerformanceMessage = performanceMessage,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         });
+    }
+
+    private void PrepareProjectionSurfaceAndScopes(
+        IReadOnlyCollection<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection> projections,
+        CustomFolderOutputSettingsSnapshot settings,
+        string reason)
+    {
+        if (projections == null || projections.Count == 0)
+        {
+            return;
+        }
+
+        prepareOutputScopes?.Invoke(projections, settings);
+        if (physicalSurfaceResolver == null)
+        {
+            return;
+        }
+
+        CustomFolderOutputPhysicalSurface physicalSurface = physicalSurfaceResolver(
+            projections.Select(projection => projection?.OutputDirectory),
+            reason);
+        foreach (PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection in projections)
+        {
+            if (projection == null || projection.PhysicalSurface != null)
+            {
+                continue;
+            }
+
+            projection.PhysicalSurface = physicalSurface;
+            if (physicalSurface?.DiscoveryComplete != true)
+            {
+                PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
+            }
+        }
+    }
+
+    private void ValidateCurrentTables(IReadOnlyCollection<BMSTable> tables)
+    {
+        if (tables == null || tables.Count == 0)
+        {
+            return;
+        }
+        if (!areCurrentTables(tables))
+        {
+            throw new InvalidOperationException(
+                "The playlist output target changed before mutation execution.");
+        }
+    }
+
+    private CustomFolderBatchOutputResult CompletePreparedMigration(
+        CustomFolderMigrationPreparation preparation,
+        CustomFolderBatchOutputResult result,
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization)
+    {
+        if (preparation == null || result == null)
+        {
+            return result;
+        }
+
+        MigrationPlan plan = preparation.Plans.FirstOrDefault();
+        if (plan == null)
+        {
+            return result;
+        }
+
+        IReadOnlyCollection<string> managedBases = CreateManagedOutputBaseScopes(
+            plan.Table,
+            plan.WasRootFolderBefore,
+            plan.RootOutputBaseDirectoryBefore,
+            plan.OutputBaseDirectoryBefore,
+            plan.InferOutputBaseDirectoryBeforeWhenMissing,
+            preparation.Settings);
+        bool deletionFailure;
+        if (!DeleteOutputDirectoryTree(
+            plan.OutputDirectoryBefore,
+            managedBases,
+            preparation.ProtectedDirectories,
+            out deletionFailure))
+        {
+            result.Succeeded = false;
+            if (deletionFailure)
+            {
+                result.WarningMessage = string.Format(
+                    Resources.Warn_FileOrDirDeleteFailed,
+                    plan.OutputDirectoryBefore);
+            }
+            return result;
+        }
+
+        SyncPrunedRows(
+            syncMaterialization,
+            CreateDirectoryPruneScopes(
+                plan.OutputDirectoryBefore,
+                plan.WasRootFolderBefore,
+                plan.RootOutputBaseDirectoryBefore,
+                preparation.Settings),
+            CreatePruneExcludedDirectories(
+                preparation.ProtectedDirectories,
+                [plan.OutputDirectoryBefore],
+                [plan.Table],
+                preparation.Settings),
+            CreatePruneExcludedPaths(
+                preparation.ProtectedDirectories,
+                [plan.OutputDirectoryBefore],
+                [plan.Table],
+                preparation.Settings));
+        return result;
+    }
+
+    private static void PublishProgressFact(
+        CustomFolderBatchOutputResult result,
+        Action<int, int, string> progressCallback)
+    {
+        if (result?.ProgressFact == null || progressCallback == null)
+        {
+            return;
+        }
+        progressCallback(
+            result.ProgressFact.ProcessedCount,
+            result.ProgressFact.TotalCount,
+            result.ProgressFact.Label);
+    }
+
+    private void PublishWarning(CustomFolderBatchOutputResult result)
+    {
+        if (!string.IsNullOrWhiteSpace(result?.WarningMessage))
+        {
+            notificationOwner.QueueWarning(result.WarningMessage);
+        }
+    }
+
+    private void PublishPerformance(CustomFolderBatchOutputResult result)
+    {
+        if (!string.IsNullOrWhiteSpace(result?.PerformanceMessage))
+        {
+            logPerformance?.Invoke(result.PerformanceMessage);
+        }
+    }
+
+    /// <summary>
+    /// Publishes bounded progress, warning, and performance facts after the
+    /// caller has released its file-mutation lease.
+    /// </summary>
+    internal void PublishPostLeaseResult(
+        CustomFolderBatchOutputResult result,
+        Action<int, int, string> progressCallback)
+    {
+        InvokeBestEffort(() => PublishProgressFact(result, progressCallback), "custom_folder_progress_publication_failed");
+        InvokeBestEffort(() => PublishWarning(result), "custom_folder_warning_publication_failed");
+        InvokeBestEffort(() => PublishPerformance(result), "custom_folder_performance_publication_failed");
+        if (result?.PrimaryException != null)
+        {
+            ExceptionDispatchInfo.Capture(result.PrimaryException).Throw();
+        }
+    }
+
+    private static void InvokeBestEffort(Action action, string diagnostic)
+    {
+        if (action == null)
+        {
+            return;
+        }
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(diagnostic + ": " + exception.GetType().Name);
+        }
     }
 
     private PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection CreateProjection(
@@ -798,10 +1119,12 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     }
 
     private void SyncPrunedRows(
+        Func<CustomFolderBatchMaterializationRequest, Lr2FolderFileDbSyncResult> syncMaterialization,
         IReadOnlyCollection<string> directoryScopes,
         IReadOnlyCollection<string> excludedDirectories = null,
         IReadOnlyCollection<string> excludedPaths = null)
     {
+        ArgumentNullException.ThrowIfNull(syncMaterialization);
         if (directoryScopes == null || directoryScopes.Count == 0)
         {
             return;
@@ -810,7 +1133,8 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             OutputRowScopeDirectories = directoryScopes,
             PruneExcludedDirectories = excludedDirectories ?? [],
-            PruneExcludedPaths = excludedPaths ?? []
+            PruneExcludedPaths = excludedPaths ?? [],
+            SuppressLog = true
         });
     }
 
@@ -1021,7 +1345,72 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             || exception is SQLite.SQLiteException;
     }
 
-    private sealed class MigrationPlan
+    internal sealed class CustomFolderOutputPreparation
+    {
+        internal CustomFolderOutputPreparation(
+            IEnumerable<BMSTable> tables,
+            IEnumerable<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection> projections,
+            CustomFolderOutputSettingsSnapshot settings,
+            int projectionFailedCount)
+        {
+            Tables = [.. (tables ?? []).Where(table => table != null)];
+            Projections = [.. (projections ?? []).Where(projection => projection != null)];
+            Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            ProjectionFailedCount = Math.Max(0, projectionFailedCount);
+        }
+
+        internal IReadOnlyList<BMSTable> Tables { get; }
+
+        internal IReadOnlyList<PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection> Projections { get; }
+
+        internal CustomFolderOutputSettingsSnapshot Settings { get; }
+
+        internal int TableCount => Tables.Count;
+
+        internal int ProjectionFailedCount { get; }
+    }
+
+    internal sealed class CustomFolderMigrationPreparation
+    {
+        internal CustomFolderMigrationPreparation(
+            IEnumerable<MigrationPlan> plans,
+            CustomFolderOutputSettingsSnapshot settings,
+            IEnumerable<string> protectedDirectories)
+        {
+            Plans = [.. (plans ?? []).Where(plan => plan != null)];
+            Tables = [.. Plans.Select(plan => plan.Table).Where(table => table != null)];
+            Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            ProtectedDirectories = [.. (protectedDirectories ?? [])
+                .Where(directory => !string.IsNullOrWhiteSpace(directory))
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+        }
+
+        internal IReadOnlyList<MigrationPlan> Plans { get; }
+
+        internal IReadOnlyList<BMSTable> Tables { get; }
+
+        internal CustomFolderOutputSettingsSnapshot Settings { get; }
+
+        internal IReadOnlyCollection<string> ProtectedDirectories { get; }
+    }
+
+    internal sealed class CustomFolderProgressFact
+    {
+        internal CustomFolderProgressFact(int processedCount, int totalCount, string label)
+        {
+            ProcessedCount = Math.Max(0, processedCount);
+            TotalCount = Math.Max(0, totalCount);
+            Label = label ?? string.Empty;
+        }
+
+        internal int ProcessedCount { get; }
+
+        internal int TotalCount { get; }
+
+        internal string Label { get; }
+    }
+
+    internal sealed class MigrationPlan
     {
         internal BMSTable Table { get; init; }
 
@@ -1036,6 +1425,10 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         internal string OutputBaseDirectoryBefore { get; init; }
 
         internal bool InferOutputBaseDirectoryBeforeWhenMissing { get; init; }
+
+        internal bool SameDirectory { get; set; }
+
+        internal PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection Projection { get; set; }
     }
 
     internal sealed class CustomFolderBatchMaterializationRequest
@@ -1054,6 +1447,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             PruneScopePaths = result?.PruneScopePaths ?? [];
             PruneExcludedDirectories = result?.PruneExcludedDirectories ?? [];
             EmptyOutputDirectories = result?.EmptyOutputDirectories ?? [];
+            SuppressLog = true;
         }
 
         internal IReadOnlyCollection<string> OutputDirectories { get; init; } = [];
@@ -1073,11 +1467,15 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         internal IReadOnlyCollection<string> PruneExcludedPaths { get; init; } = [];
 
         internal IReadOnlyCollection<string> EmptyOutputDirectories { get; init; } = [];
+
+        internal bool SuppressLog { get; init; }
     }
 
     internal sealed class CustomFolderBatchOutputResult
     {
         internal int ReOutputCount { get; init; }
+
+        internal bool Succeeded { get; set; }
 
         internal bool HasUnverifiedFiles => Materialization?.HasUnverifiedFiles == true;
 
@@ -1086,6 +1484,14 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         internal Lr2FolderFileDbSyncResult SyncResult { get; init; }
 
         internal Lr2SongDbSyncPreparedDataSurface PreparedDataSurface { get; init; }
+
+        internal CustomFolderProgressFact ProgressFact { get; init; }
+
+        internal string PerformanceMessage { get; init; }
+
+        internal string WarningMessage { get; set; }
+
+        internal Exception PrimaryException { get; init; }
 
         internal long ElapsedMs { get; init; }
     }

@@ -1266,6 +1266,327 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     [TestMethod]
+    public async Task PlaylistDropAdmission_IsAtomicAndConvergesAfterLeaseRelease()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string outputBaseDirectory = Path.Combine(tempDirectory, "custom-folder-output");
+            string bmtTablePath = Path.Combine(tempDirectory, "beatoraja", "table.json");
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = outputBaseDirectory,
+                LR2CustomFolderOutputBaseDirRootType = outputBaseDirectory,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var library = new TestBmsLibrary(songDbPath);
+            int leaseAttemptCount = 0;
+            int lr2SyncProbeCount = 0;
+            int lr2SyncProbeLeaseUnavailableCount = 0;
+            var synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                songDbPath,
+                CustomFolderOutputPhysicalSurface.Empty);
+            synchronization.SynchronizationStartProbe = mutationCapability =>
+            {
+                lr2SyncProbeCount++;
+                Assert.IsNotNull(mutationCapability);
+                using (LibraryFileMutationLease competingLease = library.TryBeginLibraryFileMutation(
+                           "playlist_drop_lr2_sync_probe_conflict",
+                           showMessage: false))
+                {
+                    Assert.IsNull(competingLease);
+                    lr2SyncProbeLeaseUnavailableCount++;
+                }
+            };
+            var table = new BMSTable
+            {
+                playlist_id = 7816,
+                name = "Drop admission target",
+                symbol = "DROP-ADMISSION",
+                Output_dir = "DropAdmission"
+            };
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot
+                {
+                    EnableBeatorajaBmtOutput = true,
+                    BeatorajaBmtTablePath = bmtTablePath
+                },
+                () => outputSettings,
+                synchronization,
+                mutationLeaseProviderWithMessage: (operation, showMessage) =>
+                {
+                    leaseAttemptCount++;
+                    return library.TryBeginLibraryFileMutation(operation, showMessage);
+                })
+            {
+                BMSTables = new ObservableCollection<BMSTable>([table])
+            };
+            PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
+                playlist,
+                library,
+                () => outputSettings);
+            int referenceInvalidationCount = 0;
+            int referenceEffectOutsideLeaseCount = 0;
+            int uiInvalidationCount = 0;
+            int uiEffectOutsideLeaseCount = 0;
+            int notificationCount = 0;
+            int notificationEffectOutsideLeaseCount = 0;
+            bool notificationCallbackFailure = false;
+            int bmtScheduleCount = 0;
+            int bmtEffectOutsideLeaseCount = 0;
+            List<Func<Task>> scheduledBmtWork = [];
+            workspace.PlaylistReferenceSortInvalidationRequested +=
+                (_, _) =>
+                {
+                    using (LibraryFileMutationLease callbackLease = library.TryBeginLibraryFileMutation(
+                               "playlist_drop_reference_effect_probe",
+                               showMessage: false))
+                    {
+                        if (callbackLease != null)
+                        {
+                            referenceEffectOutsideLeaseCount++;
+                        }
+                    }
+                    referenceInvalidationCount++;
+                };
+            workspace.PlaylistDetailReloadRefreshRequested +=
+                (_, _) =>
+                {
+                    using (LibraryFileMutationLease callbackLease = library.TryBeginLibraryFileMutation(
+                               "playlist_drop_ui_effect_probe",
+                               showMessage: false))
+                    {
+                        if (callbackLease != null)
+                        {
+                            uiEffectOutsideLeaseCount++;
+                        }
+                    }
+                    uiInvalidationCount++;
+                };
+            workspace.PlaylistOperationNotificationPresentationRequested +=
+                (_, request) =>
+                {
+                    if (request.RouteName == "playlist drop custom folder output notification")
+                    {
+                        using (LibraryFileMutationLease callbackLease = library.TryBeginLibraryFileMutation(
+                                   "playlist_drop_notification_effect_probe",
+                                   showMessage: false))
+                        {
+                            if (callbackLease != null)
+                            {
+                                notificationEffectOutsideLeaseCount++;
+                            }
+                        }
+                        notificationCount++;
+                        if (notificationCallbackFailure)
+                        {
+                            throw new InvalidOperationException("playlist drop secondary notification failure");
+                        }
+                    }
+                };
+            playlist.StartupBackgroundTaskScheduler = (owner, _, _, work) =>
+            {
+                if (owner == "beatoraja_bmt_export")
+                {
+                    using (LibraryFileMutationLease callbackLease = library.TryBeginLibraryFileMutation(
+                               "playlist_drop_bmt_effect_probe",
+                               showMessage: false))
+                    {
+                        if (callbackLease != null)
+                        {
+                            bmtEffectOutsideLeaseCount++;
+                        }
+                    }
+                    bmtScheduleCount++;
+                    scheduledBmtWork.Add(work);
+                    return true;
+                }
+                return false;
+            };
+            const string md5 = "ffffffffffffffffffffffffffffffff";
+            ChartFile chart = ChartFileProjection.FromBmsFile(
+                BMSFile.FromSongTableRawValues(CreateSongTableRow(md5, Path.Combine(tempDirectory, "drop-chart.bms"))));
+            LibraryChartRow libraryRow = LibraryChartRow.FromChartFile(chart);
+            const string outputFailureMd5 = "11111111111111111111111111111111";
+            ChartFile outputFailureChart = ChartFileProjection.FromBmsFile(
+                BMSFile.FromSongTableRawValues(CreateSongTableRow(
+                    outputFailureMd5,
+                    Path.Combine(tempDirectory, "drop-output-failure-chart.bms"))));
+            LibraryChartRow outputFailureLibraryRow = LibraryChartRow.FromChartFile(outputFailureChart);
+            const string preparationFailureMd5 = "22222222222222222222222222222222";
+            ChartFile preparationFailureChart = ChartFileProjection.FromBmsFile(
+                BMSFile.FromSongTableRawValues(CreateSongTableRow(
+                    preparationFailureMd5,
+                    Path.Combine(tempDirectory, "drop-preparation-failure-chart.bms"))));
+            LibraryChartRow preparationFailureLibraryRow = LibraryChartRow.FromChartFile(preparationFailureChart);
+            workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Imported"));
+            workspace.IsPlaylistDetailViewActive = true;
+
+            using (LibraryFileMutationLease incumbent = library.TryBeginLibraryFileMutation(
+                       "playlist_drop_incumbent",
+                       showMessage: false))
+            {
+                Assert.IsNotNull(incumbent);
+                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+                    workspace.AddRowsToFolderAsync(
+                        [libraryRow],
+                        table,
+                        PlaylistFolderNode.CreateFolder("Imported")));
+
+                Assert.AreEqual(0, table.GetEntriesExceptDummy().Count());
+                using (var verifyBusy = new LR2SongDBExtended(songDbPath))
+                {
+                    Assert.AreEqual(0, verifyBusy.Table<LR2SongDBExtended.playlist_entry>().Count());
+                }
+                Assert.IsFalse(Directory.Exists(Path.Combine(outputBaseDirectory, table.Output_dir)));
+                Assert.AreEqual(0, referenceInvalidationCount);
+                Assert.AreEqual(0, referenceEffectOutsideLeaseCount);
+                Assert.AreEqual(0, uiInvalidationCount);
+                Assert.AreEqual(0, uiEffectOutsideLeaseCount);
+                Assert.AreEqual(0, notificationEffectOutsideLeaseCount);
+                Assert.AreEqual(0, bmtScheduleCount);
+                Assert.AreEqual(0, bmtEffectOutsideLeaseCount);
+                Assert.AreEqual(0, lr2SyncProbeCount);
+                Assert.AreEqual(0, lr2SyncProbeLeaseUnavailableCount);
+            }
+            Assert.AreEqual(1, leaseAttemptCount);
+
+            notificationCallbackFailure = true;
+            int notificationCountBeforeFreshRequest = notificationCount;
+            int leaseAttemptsBeforeFreshRequest = leaseAttemptCount;
+            await workspace.AddRowsToFolderAsync(
+                [libraryRow],
+                table,
+                PlaylistFolderNode.CreateFolder("Imported"));
+
+            Assert.AreEqual(1, table.GetEntriesExceptDummy().Count());
+            string outputDirectory = Path.Combine(outputBaseDirectory, table.Output_dir);
+            string[] generatedFiles = Directory.GetFiles(
+                outputDirectory,
+                "*.lr2folder",
+                SearchOption.AllDirectories);
+            Assert.IsTrue(generatedFiles.Length > 0);
+            using (var verify = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(1, verify.Table<LR2SongDBExtended.playlist_entry>().Count());
+                Assert.IsTrue(verify.Table<LR2SongDB.folder>().Any(folder =>
+                    generatedFiles.Any(path => string.Equals(path, folder.path, StringComparison.OrdinalIgnoreCase))));
+            }
+            Assert.AreEqual(1, referenceInvalidationCount);
+            Assert.AreEqual(1, referenceEffectOutsideLeaseCount);
+            Assert.AreEqual(1, uiInvalidationCount);
+            Assert.AreEqual(1, uiEffectOutsideLeaseCount);
+            Assert.AreEqual(notificationCountBeforeFreshRequest + 1, notificationCount);
+            Assert.AreEqual(1, notificationEffectOutsideLeaseCount);
+            Assert.AreEqual(leaseAttemptsBeforeFreshRequest + 1, leaseAttemptCount);
+            Assert.AreEqual(1, bmtScheduleCount);
+            Assert.AreEqual(1, bmtEffectOutsideLeaseCount);
+            Assert.AreEqual(1, lr2SyncProbeCount);
+            Assert.AreEqual(1, lr2SyncProbeLeaseUnavailableCount);
+            Assert.AreEqual(1, scheduledBmtWork.Count);
+            await scheduledBmtWork[0]();
+
+            synchronization.Failure = new InvalidOperationException("playlist drop output failure");
+            int notificationCountBeforeOutputFailure = notificationCount;
+            int leaseAttemptsBeforeOutputFailure = leaseAttemptCount;
+            InvalidOperationException outputFailure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+                workspace.AddRowsToFolderAsync(
+                    [outputFailureLibraryRow],
+                    table,
+                    PlaylistFolderNode.CreateFolder("Fault")));
+
+            Assert.AreEqual("playlist drop output failure", outputFailure.Message);
+            Assert.AreSame(synchronization.Failure, outputFailure);
+            Assert.AreEqual(leaseAttemptsBeforeOutputFailure + 1, leaseAttemptCount);
+            Assert.AreEqual(2, bmtScheduleCount);
+            Assert.AreEqual(2, bmtEffectOutsideLeaseCount);
+            Assert.AreEqual(2, lr2SyncProbeCount);
+            Assert.AreEqual(2, lr2SyncProbeLeaseUnavailableCount);
+            Assert.AreEqual(2, scheduledBmtWork.Count);
+            using (LibraryFileMutationLease releasedLease = library.TryBeginLibraryFileMutation(
+                       "playlist_drop_output_failure_release_probe",
+                       showMessage: false))
+            {
+                Assert.IsNotNull(releasedLease);
+            }
+            Assert.AreEqual(2, table.GetEntriesExceptDummy().Count());
+            using (var verifyOutputFailure = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(2, verifyOutputFailure.Table<LR2SongDBExtended.playlist_entry>().Count());
+            }
+            Assert.AreEqual(2, referenceInvalidationCount);
+            Assert.AreEqual(2, referenceEffectOutsideLeaseCount);
+            Assert.AreEqual(2, uiInvalidationCount);
+            Assert.AreEqual(2, uiEffectOutsideLeaseCount);
+            Assert.AreEqual(notificationCountBeforeOutputFailure + 1, notificationCount);
+            Assert.AreEqual(2, notificationEffectOutsideLeaseCount);
+            Assert.AreEqual("DROP-ADMISSION", library.GetPlaylistReferenceDisplay(outputFailureChart).Symbols);
+            Assert.AreEqual("Drop admission target", library.GetPlaylistReferenceDisplay(outputFailureChart).Names);
+            await scheduledBmtWork[1]();
+
+            synchronization.Failure = null!;
+            NotSupportedException preparationFailure = new("playlist drop preparation failure");
+            synchronization.PhysicalSurfaceFactory = () => throw preparationFailure;
+            int notificationCountBeforePreparationFailure = notificationCount;
+            int leaseAttemptsBeforePreparationFailure = leaseAttemptCount;
+            NotSupportedException caughtPreparationFailure = await Assert.ThrowsExceptionAsync<NotSupportedException>(() =>
+                workspace.AddRowsToFolderAsync(
+                    [preparationFailureLibraryRow],
+                    table,
+                    PlaylistFolderNode.CreateFolder("PreparationFault")));
+
+            Assert.AreEqual("playlist drop preparation failure", caughtPreparationFailure.Message);
+            Assert.AreSame(preparationFailure, caughtPreparationFailure);
+            Assert.AreEqual(leaseAttemptsBeforePreparationFailure + 1, leaseAttemptCount);
+            Assert.AreEqual(3, table.GetEntriesExceptDummy().Count());
+            using (var verifyPreparationFailure = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(3, verifyPreparationFailure.Table<LR2SongDBExtended.playlist_entry>().Count());
+            }
+            Assert.AreEqual(3, referenceInvalidationCount);
+            Assert.AreEqual(3, referenceEffectOutsideLeaseCount);
+            Assert.AreEqual(3, uiInvalidationCount);
+            Assert.AreEqual(3, uiEffectOutsideLeaseCount);
+            Assert.AreEqual(notificationCountBeforePreparationFailure + 1, notificationCount);
+            Assert.AreEqual(3, notificationEffectOutsideLeaseCount);
+            Assert.AreEqual(3, bmtScheduleCount);
+            Assert.AreEqual(3, bmtEffectOutsideLeaseCount);
+            Assert.AreEqual(2, lr2SyncProbeCount);
+            Assert.AreEqual(2, lr2SyncProbeLeaseUnavailableCount);
+            Assert.AreEqual(3, scheduledBmtWork.Count);
+            using (LibraryFileMutationLease releasedPreparationLease = library.TryBeginLibraryFileMutation(
+                       "playlist_drop_preparation_failure_release_probe",
+                       showMessage: false))
+            {
+                Assert.IsNotNull(releasedPreparationLease);
+            }
+            Assert.AreEqual("DROP-ADMISSION", library.GetPlaylistReferenceDisplay(preparationFailureChart).Symbols);
+            Assert.AreEqual("Drop admission target", library.GetPlaylistReferenceDisplay(preparationFailureChart).Names);
+            await scheduledBmtWork[2]();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void PlaylistWorkspaceDropPolicyRejectsMixedExternalAndSpecialTargets()
     {
         var workspace = new PlaylistWorkspaceViewModel(

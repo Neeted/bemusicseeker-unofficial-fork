@@ -17,9 +17,16 @@ internal sealed class Lr2FolderFileDiffPreparationResult(
     long parentSurfaceMs,
     long extraTextRootsMs,
     long textMetadataMs,
-    long totalElapsedMs)
+    long totalElapsedMs,
+    SongTableFileCheckResult fileCheckResult = null)
 {
     public Lr2SongDbSyncRequest Request { get; } = request;
+
+    /// <summary>
+    /// Gets the file-scan result that was completed before the outer LR2 bridge
+    /// was invoked.
+    /// </summary>
+    public SongTableFileCheckResult FileCheckResult { get; } = fileCheckResult;
 
     public IReadOnlyList<string> AppManagedOutputDirectories { get; } = appManagedOutputDirectories ?? [];
 
@@ -47,4 +54,54 @@ internal sealed class Lr2FolderFileDiffPreparationResult(
     public long TextMetadataMs { get; } = textMetadataMs;
 
     public long TotalElapsedMs { get; } = totalElapsedMs;
+
+    /// <summary>
+    /// Creates a copy that carries the completed file-scan result alongside
+    /// the prepared LR2 request.
+    /// </summary>
+    internal Lr2FolderFileDiffPreparationResult WithFileCheckResult(
+        SongTableFileCheckResult result)
+    {
+        return new Lr2FolderFileDiffPreparationResult(
+            Request,
+            AppManagedOutputDirectories,
+            AppManagedOutputFilePaths,
+            AppManagedPruneExcludedPaths,
+            AppManagedPhysicalSurface,
+            AppManagedCandidateCount,
+            RootsMs,
+            BuiltinSourceMs,
+            AppManagedScopeMs,
+            FilterMs,
+            ParentSurfaceMs,
+            ExtraTextRootsMs,
+            TextMetadataMs,
+            TotalElapsedMs,
+            result);
+    }
+
+    /// <summary>
+    /// Creates a scan result when LR2 preparation was not requested or could
+    /// not produce a request.
+    /// </summary>
+    internal static Lr2FolderFileDiffPreparationResult FromFileCheckResult(
+        SongTableFileCheckResult result)
+    {
+        return new Lr2FolderFileDiffPreparationResult(
+            request: null,
+            appManagedOutputDirectories: [],
+            appManagedOutputFilePaths: [],
+            appManagedPruneExcludedPaths: [],
+            appManagedPhysicalSurface: CustomFolderOutputPhysicalSurface.Empty,
+            appManagedCandidateCount: 0,
+            rootsMs: 0L,
+            builtinSourceMs: 0L,
+            appManagedScopeMs: 0L,
+            filterMs: 0L,
+            parentSurfaceMs: 0L,
+            extraTextRootsMs: 0L,
+            textMetadataMs: 0L,
+            totalElapsedMs: 0L,
+            fileCheckResult: result);
+    }
 }

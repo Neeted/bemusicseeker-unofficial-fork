@@ -297,7 +297,497 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task GenerationReplacement_OldDrainCannotConsumeNewActiveStatus()
+    public async Task ProgressWriter_BoundsActiveDispatchAndDropsLateProgressAfterSeal()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PackageInstallWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        var notifications = new Queue<Action>();
+        using var notificationSignal = new SemaphoreSlim(0);
+        using var terminalPublished = new ManualResetEventSlim(false);
+        int maximumQueuedNotifications = 0;
+        var statusValues = new List<string>();
+        var chartFileOperations = new ChartFileOperationSynchronizer();
+        using var mutationPort = new BoundedProgressPackageInstallMutationPort(64);
+        PackageInstallWorkflowOwner? owner = null;
+        Exception? publishedFailure = null;
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            owner = new PackageInstallWorkflowOwner(
+                chartFileOperations,
+                new ChartMutationActivityOwner(),
+                mutationPort,
+                action =>
+                {
+                    lock (notifications)
+                    {
+                        notifications.Enqueue(action);
+                        maximumQueuedNotifications = Math.Max(
+                            maximumQueuedNotifications,
+                            notifications.Count);
+                    }
+                    notificationSignal.Release();
+                    return true;
+                });
+            owner.FailurePublished += failure => publishedFailure = failure.Exception;
+            owner.StatusChanged += snapshot =>
+            {
+                if (!snapshot.IsActive)
+                {
+                    statusValues.Add("inactive");
+                    terminalPublished.Set();
+                    return;
+                }
+
+                statusValues.Add("active:" + snapshot.CompletedPathCount);
+                if (mutationPort.MutationIsBlocked)
+                {
+                    bool acquired = chartFileOperations.TryEnter(out IDisposable reentrantLease);
+                    reentrantLease?.Dispose();
+                    Assert.IsFalse(acquired, "A progress subscriber must fail fast while the batch lease is held.");
+                }
+            };
+            owner.CompletionPublished += _ =>
+            {
+                statusValues.Add("completed");
+                mutationPort.EmitLateProgress();
+            };
+            owner.AttachLibrary(library);
+            DrainNotifications(notifications);
+            terminalPublished.Reset();
+            statusValues.Clear();
+
+            owner.Enqueue(Enumerable.Range(1, 64).Select(index => "bounded-progress-" + index + ".zip"));
+            Assert.IsTrue(
+                mutationPort.Started.Wait(TimeSpan.FromSeconds(5)),
+                "The package progress mutation did not start.");
+            Assert.IsTrue(mutationPort.MutationIsBlocked);
+            lock (notifications)
+            {
+                Assert.IsTrue(
+                    notifications.Count <= 1,
+                    "Latest-wins progress must leave at most one active dispatch pending.");
+            }
+
+            DrainNotifications(notifications);
+            Assert.IsTrue(
+                statusValues.Any(value => value.StartsWith("active:", StringComparison.Ordinal)),
+                "An intermediate active status must be pumpable while the lease is held.");
+            Assert.IsTrue(
+                statusValues.Any(value => value == "active:64"),
+                "The explicitly pumped status must contain the latest immutable progress fact.");
+            while (notificationSignal.Wait(0))
+            {
+            }
+
+            mutationPort.Release();
+            Assert.IsTrue(
+                mutationPort.Returned.Wait(TimeSpan.FromSeconds(5)),
+                "The package progress mutation did not return after release.");
+            while (!terminalPublished.IsSet)
+            {
+                DrainNotifications(notifications);
+                if (terminalPublished.IsSet)
+                {
+                    break;
+                }
+                Assert.IsTrue(
+                    await notificationSignal.WaitAsync(TimeSpan.FromSeconds(5)),
+                    "The terminal inactive notification dispatcher must be signaled.");
+            }
+            Assert.IsTrue(terminalPublished.IsSet, "The terminal inactive notification was not published.");
+            DrainNotifications(notifications);
+            await owner!.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsNull(publishedFailure, "The bounded progress mutation must complete without publishing a failure.");
+            CollectionAssert.AreEqual(
+                new[] { "active:64", "completed", "inactive" },
+                statusValues.ToArray());
+            Assert.IsTrue(
+                maximumQueuedNotifications <= 3,
+                "Only the active, completion, and terminal notifications may be scheduled for the batch.");
+        }
+        catch (Exception exception)
+        {
+            bodyFailure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            bool backgroundDrained = true;
+            mutationPort.Release();
+            if (mutationPort.Started.IsSet)
+            {
+                try
+                {
+                    if (!mutationPort.Returned.Wait(TimeSpan.FromSeconds(5)))
+                    {
+                        throw new TimeoutException("The package progress mutation did not return during cleanup.");
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (owner != null)
+            {
+                try
+                {
+                    Task idle = owner.WaitForIdleAsync();
+                    while (!idle.IsCompleted)
+                    {
+                        DrainNotifications(notifications);
+                        if (idle.IsCompleted)
+                        {
+                            break;
+                        }
+                        if (!await notificationSignal.WaitAsync(TimeSpan.FromSeconds(5)))
+                        {
+                            throw new TimeoutException("The package install cleanup did not publish terminal notification.");
+                        }
+                    }
+                    await idle.WaitAsync(TimeSpan.FromSeconds(5));
+                    DrainNotifications(notifications);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            else
+            {
+                try
+                {
+                    DrainNotifications(notifications);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (mutationPort.WorkerThread is { } workerThread
+                && workerThread != Thread.CurrentThread)
+            {
+                try
+                {
+                    if (!workerThread.Join(TimeSpan.FromSeconds(5)))
+                    {
+                        throw new TimeoutException("The package install worker thread did not stop during cleanup.");
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (backgroundDrained)
+            {
+                try
+                {
+                    if (Directory.Exists(root))
+                    {
+                        Directory.Delete(root, recursive: true);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                }
+            }
+        }
+
+        if (bodyFailure != null)
+        {
+            if (cleanupFailure != null)
+            {
+                throw new AggregateException(
+                    "The package progress assertion failed and cleanup also failed.",
+                    bodyFailure.SourceException,
+                    cleanupFailure);
+            }
+            bodyFailure.Throw();
+        }
+        if (cleanupFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
+    }
+
+    [TestMethod]
+    public async Task ProgressWriter_SealsBeforeLateSourceCanReachNextBatch()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PackageInstallWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        var notifications = new Queue<Action>();
+        using var notificationSignal = new SemaphoreSlim(0);
+        using var terminalPublished = new ManualResetEventSlim(false);
+        var statusValues = new List<string>();
+        var chartFileOperations = new ChartFileOperationSynchronizer();
+        using var mutationPort = new TwoBatchProgressPackageInstallMutationPort(64);
+        PackageInstallWorkflowOwner? owner = null;
+        Exception? publishedFailure = null;
+        ExceptionDispatchInfo? bodyFailure = null;
+        Exception? cleanupFailure = null;
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
+            owner = new PackageInstallWorkflowOwner(
+                chartFileOperations,
+                new ChartMutationActivityOwner(),
+                mutationPort,
+                action =>
+                {
+                    lock (notifications)
+                    {
+                        notifications.Enqueue(action);
+                    }
+                    notificationSignal.Release();
+                    return true;
+                });
+            owner.FailurePublished += failure => publishedFailure = failure.Exception;
+            owner.StatusChanged += snapshot =>
+            {
+                statusValues.Add(snapshot.IsActive
+                    ? "active:" + snapshot.CompletedPathCount
+                    : "inactive");
+                if (!snapshot.IsActive)
+                {
+                    terminalPublished.Set();
+                }
+            };
+            int completionCount = 0;
+            owner.CompletionPublished += _ =>
+            {
+                completionCount++;
+                if (completionCount == 1)
+                {
+                    mutationPort.EmitLateProgressFromFirstBatch();
+                }
+            };
+            owner.AttachLibrary(library);
+            DrainNotifications(notifications);
+            while (notificationSignal.Wait(0))
+            {
+            }
+            terminalPublished.Reset();
+            statusValues.Clear();
+
+            owner.Enqueue(Enumerable.Range(1, 64).Select(index => "seal-first-" + index + ".zip"));
+            Assert.IsTrue(
+                mutationPort.FirstStarted.Wait(TimeSpan.FromSeconds(5)),
+                "The first package progress mutation did not start.");
+            DrainNotifications(notifications);
+            while (notificationSignal.Wait(0))
+            {
+            }
+            statusValues.Clear();
+
+            owner.Enqueue(Enumerable.Range(1, 64).Select(index => "seal-second-" + index + ".zip"));
+            DrainNotifications(notifications);
+            while (notificationSignal.Wait(0))
+            {
+            }
+            statusValues.Clear();
+            mutationPort.ReleaseFirst();
+            Assert.IsTrue(
+                mutationPort.FirstReturned.Wait(TimeSpan.FromSeconds(5)),
+                "The first package progress mutation did not return after release.");
+            Assert.IsTrue(
+                mutationPort.SecondStarted.Wait(TimeSpan.FromSeconds(5)),
+                "The second package progress mutation did not start.");
+
+            while (!statusValues.Any(value => value.StartsWith("active:", StringComparison.Ordinal)))
+            {
+                DrainNotifications(notifications);
+                if (statusValues.Any(value => value.StartsWith("active:", StringComparison.Ordinal)))
+                {
+                    break;
+                }
+                Assert.IsTrue(
+                    await notificationSignal.WaitAsync(TimeSpan.FromSeconds(5)),
+                    "The second-batch active notification dispatcher must be signaled.");
+            }
+            DrainNotifications(notifications);
+            string[] secondBatchActiveValues = statusValues
+                .Where(value => value.StartsWith("active:", StringComparison.Ordinal))
+                .ToArray();
+            CollectionAssert.AreEqual(
+                new[] { "active:0" },
+                secondBatchActiveValues,
+                "A sealed first-batch writer must not publish stale progress into the next batch.");
+
+            mutationPort.ReleaseSecond();
+            Assert.IsTrue(
+                mutationPort.SecondReturned.Wait(TimeSpan.FromSeconds(5)),
+                "The second package progress mutation did not return after release.");
+            while (!terminalPublished.IsSet)
+            {
+                DrainNotifications(notifications);
+                if (terminalPublished.IsSet)
+                {
+                    break;
+                }
+                Assert.IsTrue(
+                    await notificationSignal.WaitAsync(TimeSpan.FromSeconds(5)),
+                    "The terminal inactive notification dispatcher must be signaled.");
+            }
+            Assert.IsTrue(terminalPublished.IsSet, "The terminal inactive notification was not published.");
+            DrainNotifications(notifications);
+            await owner!.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsNull(publishedFailure, "The package progress mutations must complete without publishing a failure.");
+            Assert.AreEqual(2, completionCount);
+        }
+        catch (Exception exception)
+        {
+            bodyFailure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            bool backgroundDrained = true;
+            mutationPort.ReleaseFirst();
+            mutationPort.ReleaseSecond();
+            if (mutationPort.FirstStarted.IsSet)
+            {
+                try
+                {
+                    if (!mutationPort.FirstReturned.Wait(TimeSpan.FromSeconds(5)))
+                    {
+                        throw new TimeoutException("The first package progress mutation did not return during cleanup.");
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (mutationPort.SecondStarted.IsSet)
+            {
+                try
+                {
+                    if (!mutationPort.SecondReturned.Wait(TimeSpan.FromSeconds(5)))
+                    {
+                        throw new TimeoutException("The second package progress mutation did not return during cleanup.");
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (owner != null)
+            {
+                try
+                {
+                    Task idle = owner.WaitForIdleAsync();
+                    while (!idle.IsCompleted)
+                    {
+                        DrainNotifications(notifications);
+                        if (idle.IsCompleted)
+                        {
+                            break;
+                        }
+                        if (!await notificationSignal.WaitAsync(TimeSpan.FromSeconds(5)))
+                        {
+                            throw new TimeoutException("The package install cleanup did not publish terminal notification.");
+                        }
+                    }
+                    await idle.WaitAsync(TimeSpan.FromSeconds(5));
+                    DrainNotifications(notifications);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            else
+            {
+                try
+                {
+                    DrainNotifications(notifications);
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (mutationPort.WorkerThread is { } workerThread
+                && workerThread != Thread.CurrentThread)
+            {
+                try
+                {
+                    if (!workerThread.Join(TimeSpan.FromSeconds(5)))
+                    {
+                        throw new TimeoutException("The package install worker thread did not stop during cleanup.");
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                    backgroundDrained = false;
+                }
+            }
+            if (backgroundDrained)
+            {
+                try
+                {
+                    if (Directory.Exists(root))
+                    {
+                        Directory.Delete(root, recursive: true);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                }
+            }
+        }
+
+        if (bodyFailure != null)
+        {
+            if (cleanupFailure != null)
+            {
+                throw new AggregateException(
+                    "The package progress assertion failed and cleanup also failed.",
+                    bodyFailure.SourceException,
+                    cleanupFailure);
+            }
+            bodyFailure.Throw();
+        }
+        if (cleanupFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+        }
+    }
+
+    [TestMethod]
+    public async Task GenerationReplacement_BusyRequestFailsFastThenFreshRequestRunsAfterRelease()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(
@@ -312,12 +802,9 @@ public sealed class PackageInstallWorkflowOwnerTests
         string secondDb = Path.Combine(secondRoot, "song.db");
         File.WriteAllBytes(firstDb, []);
         File.WriteAllBytes(secondDb, []);
-        var notifications = new Queue<Action>();
         var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var secondStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseFirst = new ManualResetEventSlim(false);
-        using var releaseSecond = new ManualResetEventSlim(false);
-        var notificationsReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var busyFailure = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
@@ -328,64 +815,55 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
             var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
-            var published = new List<string>();
+            var calls = new List<string>();
+            var completions = 0;
             var owner = CreateOwner(
                 (library, paths, token, onPath, onArchive) =>
                 {
+                    lock (calls)
+                    {
+                        calls.Add(Path.GetFileName(paths.FirstOrDefault() ?? string.Empty));
+                    }
                     if (ReferenceEquals(library, first))
                     {
                         firstStarted.TrySetResult(true);
-                        releaseFirst.Wait(5000);
+                        Assert.IsTrue(releaseFirst.Wait(5000), "The replaced generation did not drain.");
                     }
-                    else
-                    {
-                        secondStarted.TrySetResult(true);
-                        releaseSecond.Wait(5000);
-                    }
-                    return [];
+                    return [new ChartPackage()];
                 },
                 action =>
                 {
-                    lock (notifications)
-                    {
-                        notifications.Enqueue(action);
-                        if (notifications.Count >= 3)
-                        {
-                            notificationsReady.TrySetResult(true);
-                        }
-                    }
+                    action();
                     return true;
                 });
-            owner.StatusChanged += snapshot =>
-                published.Add(snapshot.IsActive ? "active" : "inactive");
+            owner.FailurePublished += failure => busyFailure.TrySetResult(failure);
+            owner.CompletionPublished += _ => Interlocked.Increment(ref completions);
             owner.AttachLibrary(first);
-            DrainNotifications(notifications);
-            published.Clear();
 
             owner.Enqueue(["first.zip"]);
             await firstStarted.Task;
             owner.AttachLibrary(second);
             owner.Enqueue(["second.zip"]);
-            releaseFirst.Set();
-            await secondStarted.Task;
-            await notificationsReady.Task;
-
-            DrainNotifications(notifications);
-
-            Assert.AreEqual(
-                "inactive|active",
-                string.Join("|", published),
-                "The old drain must be stale; replacement inactive must precede the new generation's active status.");
+            PackageInstallFailure failure = await busyFailure.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsInstanceOfType<InvalidOperationException>(failure.Exception);
+            lock (calls)
+            {
+                CollectionAssert.AreEqual(new[] { "first.zip" }, calls);
+            }
 
             releaseFirst.Set();
-            releaseSecond.Set();
             await AssertOwnerIdleAsync(owner);
-            DrainNotifications(notifications);
+            owner.Enqueue(["second-fresh.zip"]);
+            await AssertOwnerIdleAsync(owner);
+            lock (calls)
+            {
+                CollectionAssert.AreEqual(new[] { "first.zip", "second-fresh.zip" }, calls);
+            }
+            Assert.AreEqual(1, completions, "Only the fresh admitted request may publish a receipt.");
         }
         finally
         {
             releaseFirst.Set();
-            releaseSecond.Set();
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -773,7 +1251,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task AttachLibrary_RechecksGenerationBeforeMutationAfterGateWait()
+    public async Task InstallBatch_FailsFastWhenSharedChartFileGateIsBusyThenRunsAfterRelease()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -795,19 +1273,11 @@ public sealed class PackageInstallWorkflowOwnerTests
             {
             }
             var first = new TestBmsLibrary(firstDb, null, null, string.Empty);
-            var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
             var chartFileOperations = new ChartFileOperationSynchronizer();
             var chartMutationActivity = new ChartMutationActivityOwner();
             int mutationCalls = 0;
-            int staleFailureReports = 0;
-            int throwOnInactive = 0;
-            chartMutationActivity.ActivityChanged += (_, _) =>
-            {
-                if (Volatile.Read(ref throwOnInactive) != 0 && !chartMutationActivity.IsActive)
-                {
-                    throw new InvalidOperationException("stale cleanup failed");
-                }
-            };
+            var failure = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<PackageInstallCompletionReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
             var owner = new PackageInstallWorkflowOwner(
                 chartFileOperations,
                 chartMutationActivity,
@@ -821,21 +1291,29 @@ public sealed class PackageInstallWorkflowOwnerTests
                 {
                     Task.Run(action);
                     return true;
-                },
-                _ => Interlocked.Increment(ref staleFailureReports));
+                });
+            owner.FailurePublished += published => failure.TrySetResult(published);
+            owner.CompletionPublished += published => completion.TrySetResult(published);
             owner.AttachLibrary(first);
 
-            using (chartFileOperations.Enter())
+            Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable incumbent));
+            try
             {
                 owner.Enqueue([Path.Combine(root, "first-generation.zip")]);
-                Assert.IsTrue(SpinWait.SpinUntil(() => chartMutationActivity.IsActive, 5000));
-                Volatile.Write(ref throwOnInactive, 1);
-                owner.AttachLibrary(second);
+                await AssertOwnerIdleAsync(owner);
+                await failure.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.AreEqual(0, mutationCalls);
+            }
+            finally
+            {
+                incumbent.Dispose();
             }
 
+            owner.Enqueue([Path.Combine(root, "second-generation.zip")]);
             await AssertOwnerIdleAsync(owner);
-            Assert.AreEqual(0, mutationCalls);
-            Assert.AreEqual(1, staleFailureReports);
+            await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual(1, failure.Task.IsCompletedSuccessfully ? 1 : 0);
+            Assert.AreEqual(1, mutationCalls);
         }
         finally
         {
@@ -847,7 +1325,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task CancelAll_WhileWaitingForOperationGateDeletesUnhandedIngressWithoutCallingInstaller()
+    public async Task GateBusy_AbandonsOwnedIngressWithoutCallingInstaller()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -880,14 +1358,20 @@ public sealed class PackageInstallWorkflowOwnerTests
                 });
             owner.AttachLibrary(library);
 
-            using (chartFileOperations.Enter())
+            var failure = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
+            owner.FailurePublished += published => failure.TrySetResult(published);
+            Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable incumbent));
+            try
             {
                 Assert.IsTrue(owner.TryEnqueue(CreateOwnedRequest(ingressRoot, "chart.bms")));
-                Assert.IsTrue(SpinWait.SpinUntil(() => chartMutationActivity.IsActive, 5000));
-                owner.CancelAll();
+                await AssertOwnerIdleAsync(owner);
+                await failure.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                incumbent.Dispose();
             }
 
-            await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(0, mutationCalls);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
@@ -1220,7 +1704,7 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task AttachLibrary_EnqueueAfterReplacementUsesNewGenerationQueue()
+    public async Task AttachLibrary_BusyRequestFailsFastThenFreshRequestRunsAfterRelease()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1245,7 +1729,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             var second = new TestBmsLibrary(secondDb, null, null, string.Empty);
             var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var releaseFirst = new ManualResetEventSlim(false);
-            var secondCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var secondStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var busyFailure = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
             var calls = new List<string>();
             var completions = 0;
             var owner = CreateOwner(
@@ -1262,7 +1747,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                         Assert.IsTrue(releaseFirst.Wait(5000), "The replaced generation did not drain.");
                         return [new ChartPackage()];
                     }
-                    secondCompleted.TrySetResult(true);
+                    secondStarted.TrySetResult(true);
                     return [new ChartPackage()];
                 },
                 action =>
@@ -1270,6 +1755,7 @@ public sealed class PackageInstallWorkflowOwnerTests
                     action();
                     return true;
                 });
+            owner.FailurePublished += failure => busyFailure.TrySetResult(failure);
             owner.CompletionPublished += _ => Interlocked.Increment(ref completions);
             owner.AttachLibrary(first);
             owner.Enqueue([Path.Combine(root, "first-generation.zip")]);
@@ -1277,15 +1763,17 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             owner.AttachLibrary(second);
             owner.Enqueue([Path.Combine(root, "second-generation.zip")]);
-            // The production owner serializes library mutations through the shared
-            // operation gate. Release the retired generation before waiting for
-            // the replacement generation to enter that same corridor.
-            releaseFirst.Set();
-            await secondCompleted.Task;
+            PackageInstallFailure failure = await busyFailure.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsInstanceOfType<InvalidOperationException>(failure.Exception);
+            Assert.IsFalse(secondStarted.Task.IsCompleted, "A busy replacement request must not enter mutation.");
 
+            releaseFirst.Set();
             await AssertOwnerIdleAsync(owner);
-            CollectionAssert.AreEqual(new[] { "first-generation.zip", "second-generation.zip" }, calls);
-            Assert.AreEqual(1, completions, "Only the current generation may publish a completion receipt.");
+            owner.Enqueue([Path.Combine(root, "second-fresh-generation.zip")]);
+            await secondStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await AssertOwnerIdleAsync(owner);
+            CollectionAssert.AreEqual(new[] { "first-generation.zip", "second-fresh-generation.zip" }, calls);
+            Assert.AreEqual(1, completions, "Only the fresh admitted request may publish a receipt.");
         }
         finally
         {
@@ -1665,6 +2153,174 @@ public sealed class PackageInstallWorkflowOwnerTests
                 notification = notifications.Dequeue();
             }
             notification();
+        }
+    }
+
+    private sealed class BoundedProgressPackageInstallMutationPort :
+        IPackageInstallMutationPort,
+        IPackageInstallProgressMutationPort,
+        IDisposable
+    {
+        private readonly int progressCount;
+
+        private readonly ManualResetEventSlim release = new(false);
+
+        private IPackageInstallProgressWriter progressWriter = null!;
+
+        private Thread? workerThread;
+
+        internal BoundedProgressPackageInstallMutationPort(int progressCount)
+        {
+            this.progressCount = progressCount;
+        }
+
+        internal ManualResetEventSlim Started { get; } = new(false);
+
+        internal ManualResetEventSlim Returned { get; } = new(false);
+
+        internal Thread? WorkerThread => Volatile.Read(ref workerThread);
+
+        internal bool MutationIsBlocked => Started.IsSet && !release.IsSet;
+
+        public IReadOnlyList<ChartPackage> Install(
+            BMSLibrary library,
+            IEnumerable<string> installPaths,
+            CancellationToken token,
+            Action onEachPathProcessed,
+            Action<string, int, int> onEachArchiveExtractStarted)
+        {
+            throw new AssertFailedException("The writer-only package route was not selected.");
+        }
+
+        public PackageInstallCommandResult InstallWithProgress(
+            BMSLibrary library,
+            IEnumerable<string> installPaths,
+            CancellationToken token,
+            IPackageInstallProgressWriter progressWriter)
+        {
+            Volatile.Write(ref workerThread, Thread.CurrentThread);
+            this.progressWriter = progressWriter ?? throw new ArgumentNullException(nameof(progressWriter));
+            for (int index = 1; index <= progressCount; index++)
+            {
+                progressWriter.TryWrite(PackageInstallProgressUpdate.ArchiveExtractStarted(
+                    "source-" + index + ".zip",
+                    index,
+                    progressCount));
+                progressWriter.TryWrite(PackageInstallProgressUpdate.SourceProcessed());
+            }
+            Started.Set();
+            release.Wait();
+            Returned.Set();
+            return new PackageInstallCommandResult([new ChartPackage()], null);
+        }
+
+        internal void EmitLateProgress()
+        {
+            Volatile.Read(ref progressWriter)?.TryWrite(
+                PackageInstallProgressUpdate.SourceProcessed());
+        }
+
+        internal void Release() => release.Set();
+
+        public void Dispose()
+        {
+            Returned.Dispose();
+            Started.Dispose();
+            release.Dispose();
+        }
+    }
+
+    private sealed class TwoBatchProgressPackageInstallMutationPort :
+        IPackageInstallMutationPort,
+        IPackageInstallProgressMutationPort,
+        IDisposable
+    {
+        private readonly int progressCount;
+
+        private readonly ManualResetEventSlim firstRelease = new(false);
+
+        private readonly ManualResetEventSlim secondRelease = new(false);
+
+        private IPackageInstallProgressWriter firstProgressWriter = null!;
+
+        private Thread? workerThread;
+
+        private int invocationCount;
+
+        internal TwoBatchProgressPackageInstallMutationPort(int progressCount)
+        {
+            this.progressCount = progressCount;
+        }
+
+        internal ManualResetEventSlim FirstStarted { get; } = new(false);
+
+        internal ManualResetEventSlim FirstReturned { get; } = new(false);
+
+        internal ManualResetEventSlim SecondStarted { get; } = new(false);
+
+        internal ManualResetEventSlim SecondReturned { get; } = new(false);
+
+        internal Thread? WorkerThread => Volatile.Read(ref workerThread);
+
+        public IReadOnlyList<ChartPackage> Install(
+            BMSLibrary library,
+            IEnumerable<string> installPaths,
+            CancellationToken token,
+            Action onEachPathProcessed,
+            Action<string, int, int> onEachArchiveExtractStarted)
+        {
+            throw new AssertFailedException("The writer-only package route was not selected.");
+        }
+
+        public PackageInstallCommandResult InstallWithProgress(
+            BMSLibrary library,
+            IEnumerable<string> installPaths,
+            CancellationToken token,
+            IPackageInstallProgressWriter progressWriter)
+        {
+            Volatile.Write(ref workerThread, Thread.CurrentThread);
+            int invocation = Interlocked.Increment(ref invocationCount);
+            if (invocation == 1)
+            {
+                firstProgressWriter = progressWriter ?? throw new ArgumentNullException(nameof(progressWriter));
+                for (int index = 1; index <= progressCount; index++)
+                {
+                    progressWriter.TryWrite(PackageInstallProgressUpdate.SourceProcessed());
+                }
+                FirstStarted.Set();
+                firstRelease.Wait();
+                FirstReturned.Set();
+            }
+            else
+            {
+                if (progressWriter is null)
+                {
+                    throw new ArgumentNullException(nameof(progressWriter));
+                }
+                SecondStarted.Set();
+                secondRelease.Wait();
+                SecondReturned.Set();
+            }
+            return new PackageInstallCommandResult([new ChartPackage()], null);
+        }
+
+        internal void EmitLateProgressFromFirstBatch()
+        {
+            Volatile.Read(ref firstProgressWriter)?.TryWrite(PackageInstallProgressUpdate.SourceProcessed());
+        }
+
+        internal void ReleaseFirst() => firstRelease.Set();
+
+        internal void ReleaseSecond() => secondRelease.Set();
+
+        public void Dispose()
+        {
+            SecondReturned.Dispose();
+            SecondStarted.Dispose();
+            FirstReturned.Dispose();
+            FirstStarted.Dispose();
+            secondRelease.Dispose();
+            firstRelease.Dispose();
         }
     }
 

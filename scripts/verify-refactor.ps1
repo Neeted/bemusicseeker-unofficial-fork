@@ -27,15 +27,12 @@ $existingDataAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-existi
 $updateAcceptanceScript = Join-Path $repoRoot 'scripts\accept-net10-update.ps1'
 $v216FirstHopAcceptanceScript = Join-Path $repoRoot 'scripts\accept-v216-first-hop.ps1'
 $v216ArtifactMetadataPath = Join-Path $repoRoot 'devdocs\acceptance\v216-first-hop\artifact.json'
-$functionalFailureCleanupWindowSeconds = 10
 $functionalReportingTargetSeconds = 180
-$monitoredCommandCleanupSeconds = 5
 . (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
 . (Join-Path $PSScriptRoot 'verification-process-lifecycle.ps1')
 . (Join-Path $PSScriptRoot 'distribution-artifact.ps1')
 . (Join-Path $PSScriptRoot 'verification-test-outcomes.ps1')
 $verificationRunnerContract = Get-VerificationRunnerContract
-Assert-VerificationRunnerContract -Contract $verificationRunnerContract
 
 function Get-RepositoryFormatArguments {
     param(
@@ -479,18 +476,14 @@ function New-FunctionalDeadlinePolicy {
         [int]$TimeoutSeconds
     )
 
-    $start = if ($StartUtc.Kind -eq [DateTimeKind]::Unspecified) {
-        [DateTime]::SpecifyKind($StartUtc, [DateTimeKind]::Utc)
-    }
-    else {
-        $StartUtc.ToUniversalTime()
-    }
-    $executionDeadlineUtc = $start.AddSeconds($TimeoutSeconds)
-    [pscustomobject][ordered]@{
-        StartUtc = $start
-        TimeoutSeconds = $TimeoutSeconds
-        ExecutionDeadlineUtc = $executionDeadlineUtc
-        FailureCleanupDeadlineUtc = $executionDeadlineUtc.AddSeconds($functionalFailureCleanupWindowSeconds)
+    $pair = Resolve-VerificationDeadlinePair `
+        -StartUtc $StartUtc `
+        -TimeoutSeconds $TimeoutSeconds
+    return [pscustomobject][ordered]@{
+        StartUtc = $pair.StartUtc
+        TimeoutSeconds = $pair.TimeoutSeconds
+        ExecutionDeadlineUtc = $pair.ExecutionDeadlineUtc
+        FailureCleanupDeadlineUtc = $pair.CleanupDeadlineUtc
     }
 }
 
@@ -576,219 +569,24 @@ function Invoke-MonitoredCommand {
         [string]$DiagnosticsDirectory,
 
         [Parameter(Mandatory)]
+        [ValidateRange(1, 300)]
         [int]$TimeoutSeconds,
 
-        [DateTime]$ProcessDeadlineUtc,
-
-        [DateTime]$PhaseDeadlineUtc,
-
-        [DateTime]$CleanupDeadlineUtc,
-
-        [object]$PostStartFaultGuard,
-
-        [switch]$IsTestCommand
+        [object]$PostStartFaultGuard
     )
 
-    [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
-    $stageStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-    $process = [System.Diagnostics.Process]::new()
-    $processStarted = $false
-    $standardOutputTask = $null
-    $standardErrorTask = $null
-    $identity = $null
-    $commandIdentity = "$CommandPath $($Arguments -join ' ')"
-    $lifecycleResult = $null
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $CommandPath
-    $startInfo.WorkingDirectory = $WorkingDirectory
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    foreach ($argument in $Arguments) {
-        [void]$startInfo.ArgumentList.Add($argument)
-    }
-    $process.StartInfo = $startInfo
+    $deadlinePolicy = Resolve-VerificationDeadlinePair -TimeoutSeconds $TimeoutSeconds
 
-    try {
-        Write-Host "$Label (timeout ${TimeoutSeconds}s): $CommandPath $($Arguments -join ' ')"
-        if (-not $process.Start()) {
-            throw "Unable to start ${Label}: $CommandPath"
-        }
-        $processStarted = $true
-
-        $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
-        $standardErrorTask = $process.StandardError.ReadToEndAsync()
-        $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity $commandIdentity
-        if ($null -ne $PostStartFaultGuard) {
-            if ($PostStartFaultGuard -isnot [VerificationPostStartFaultGuard]) {
-                throw 'Post-start fault guard was not created by the internal deterministic probe.'
-            }
-            if ($PostStartFaultGuard.TryConsumeSignal()) {
-                throw "Internal post-start fault injection for $Label."
-            }
-        }
-        $processDeadline = if ($PSBoundParameters.ContainsKey('ProcessDeadlineUtc')) {
-            $ProcessDeadlineUtc
-        }
-        else {
-            [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-        }
-        $phaseDeadline = if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc')) {
-            $PhaseDeadlineUtc
-        }
-        elseif ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc')) {
-            $CleanupDeadlineUtc
-        }
-        else {
-            $processDeadline.AddSeconds($monitoredCommandCleanupSeconds)
-        }
-        $cleanupDeadline = $phaseDeadline
-        if ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc') -and
-            $CleanupDeadlineUtc -lt $cleanupDeadline) {
-            $cleanupDeadline = $CleanupDeadlineUtc
-        }
-        $lifecycleResult = Invoke-BoundedProcessLifecycle `
-            -Process $process `
-            -StandardOutputTask $standardOutputTask `
-            -StandardErrorTask $standardErrorTask `
-            -RootProcessId $identity.ProcessId `
-            -RootProcessIdentity ("$($identity.StartTimeUtcTicks)|$($identity.ProcessId)") `
-            -CommandIdentity $commandIdentity `
-            -DiagnosticsDirectory $DiagnosticsDirectory `
-            -ProcessDeadlineUtc $processDeadline `
-            -PhaseDeadlineUtc $phaseDeadline `
-            -CleanupDeadlineUtc $cleanupDeadline `
-            -TerminateProcessTree:$false
-    }
-    catch {
-        $primaryException = $_.Exception
-        $stageStopwatch.Stop()
-        $postStartDiagnostics = [System.Collections.Generic.List[string]]::new()
-        if ($processStarted -and $null -ne $identity -and
-            $null -ne $standardOutputTask -and $null -ne $standardErrorTask) {
-            $postStartDiagnostics.Add("post-start-exception: $($primaryException.Message)")
-            $postStartCleanupDeadlineUtc = if ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc')) {
-                $CleanupDeadlineUtc
-            }
-            elseif ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc')) {
-                $PhaseDeadlineUtc
-            }
-            else {
-                [DateTime]::UtcNow.AddSeconds($monitoredCommandCleanupSeconds)
-            }
-            $postStartProcessDeadlineUtc = [DateTime]::UtcNow
-            try {
-                $lifecycleResult = Invoke-BoundedProcessLifecycle `
-                    -Process $process `
-                    -StandardOutputTask $standardOutputTask `
-                    -StandardErrorTask $standardErrorTask `
-                    -RootProcessId $identity.ProcessId `
-                    -RootProcessIdentity ("$($identity.StartTimeUtcTicks)|$($identity.ProcessId)") `
-                    -CommandIdentity $commandIdentity `
-                    -DiagnosticsDirectory $DiagnosticsDirectory `
-                    -ProcessDeadlineUtc $postStartProcessDeadlineUtc `
-                    -PhaseDeadlineUtc $postStartCleanupDeadlineUtc `
-                    -CleanupDeadlineUtc $postStartCleanupDeadlineUtc `
-                    -TerminateProcessTree `
-                    -PreserveExistingArtifactOnEmpty `
-                    -InitialCleanupDiagnostics @("post-start-exception: $($primaryException.Message)")
-                $primaryException.Data['VerificationRootProcessId'] = $identity.ProcessId
-                $primaryException.Data['VerificationRootProcessIdentity'] = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
-                $primaryException.Data['VerificationLifecycleResult'] = $lifecycleResult
-                foreach ($diagnostic in @($lifecycleResult.SecondaryDiagnostics)) {
-                    $postStartDiagnostics.Add([string]$diagnostic)
-                }
-                if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
-                    Write-Warning "$Label post-start cleanup diagnostics: $(@($lifecycleResult.SecondaryDiagnostics) -join '; ')"
-                }
-            }
-            catch {
-                $postStartDiagnostics.Add("post-start-cleanup: $($_.Exception.Message)")
-                Write-Warning "$Label post-start cleanup failed: $($_.Exception.Message)"
-            }
-        }
-        else {
-            # A start failure has no owned process or stream task.  Preserve the old
-            # startup diagnostic route, but never use it after Process.Start succeeded.
-            $startupCleanupDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
-            if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc') -and
-                $PhaseDeadlineUtc -lt $startupCleanupDeadlineUtc) {
-                $startupCleanupDeadlineUtc = $PhaseDeadlineUtc
-            }
-            try {
-                if ([DateTime]::UtcNow -lt $startupCleanupDeadlineUtc) {
-                    foreach ($streamName in @('stdout', 'stderr')) {
-                        $writeTask = [System.IO.File]::WriteAllTextAsync(
-                            (Join-Path $DiagnosticsDirectory "$streamName.log"),
-                            [string]::Empty,
-                            [System.Text.UTF8Encoding]::new($false))
-                        [void](Wait-VerificationCleanupTask `
-                                -Task $writeTask `
-                                -OperationName "$Label $streamName startup diagnostic write" `
-                                -CleanupDeadlineUtc $startupCleanupDeadlineUtc `
-                                -CleanupDiagnostics $postStartDiagnostics)
-                    }
-                }
-                else {
-                    $postStartDiagnostics.Add(
-                        "$Label startup diagnostic persistence skipped after cleanup deadline; elapsed $($stageStopwatch.ElapsedMilliseconds)ms")
-                }
-            }
-            catch {
-                $postStartDiagnostics.Add("$Label startup diagnostics write failed: $($_.Exception.Message)")
-            }
-            try {
-                if ([DateTime]::UtcNow -lt $startupCleanupDeadlineUtc) {
-                    [void](Dispose-VerificationProcessHandleBounded `
-                            -Process $process `
-                            -OperationName "$Label startup process dispose" `
-                            -CleanupDeadlineUtc $startupCleanupDeadlineUtc `
-                            -CleanupDiagnostics $postStartDiagnostics)
-                }
-            }
-            catch {
-                $postStartDiagnostics.Add("$Label process dispose failed before start: $($_.Exception.Message)")
-            }
-        }
-        foreach ($diagnostic in @($postStartDiagnostics)) {
-            if (-not $primaryException.Data.Contains('VerificationSecondaryDiagnostics')) {
-                $primaryException.Data['VerificationSecondaryDiagnostics'] = [System.Collections.Generic.List[string]]::new()
-            }
-            [void]$primaryException.Data['VerificationSecondaryDiagnostics'].Add([string]$diagnostic)
-        }
-        throw $primaryException
-    }
-
-    $stageStopwatch.Stop()
-    if (-not [string]::IsNullOrEmpty($lifecycleResult.StandardOutput)) {
-        Write-Host $lifecycleResult.StandardOutput -NoNewline
-    }
-    if (-not [string]::IsNullOrEmpty($lifecycleResult.StandardError)) {
-        if ($null -eq $lifecycleResult.PrimaryFailureKind) {
-            Write-Warning $lifecycleResult.StandardError.TrimEnd()
-        }
-        else {
-            Write-Error $lifecycleResult.StandardError -ErrorAction Continue
-        }
-    }
-
-    Write-Host "$Label elapsed: $([Math]::Round($stageStopwatch.Elapsed.TotalSeconds, 1))s; diagnostics: $DiagnosticsDirectory"
-    if ($null -ne $lifecycleResult.PrimaryFailureKind) {
-        $failureMessage = Get-VerificationLifecycleFailureMessage `
-            -Label $Label `
-            -Result $lifecycleResult `
-            -TimeoutSeconds $TimeoutSeconds
-        if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
-            Write-Warning "$Label secondary lifecycle diagnostics: $(@($lifecycleResult.SecondaryDiagnostics) -join '; ')"
-        }
-        throw "$failureMessage Diagnostics: $DiagnosticsDirectory"
-    }
-    if (@($lifecycleResult.SecondaryDiagnostics).Count -gt 0) {
-        throw "$(Get-VerificationLifecycleFailureMessage -Label $Label -Result $lifecycleResult) Diagnostics: $DiagnosticsDirectory"
-    }
+    $result = Invoke-VerificationMonitoredCommand `
+        -Label $Label `
+        -CommandPath $CommandPath `
+        -Arguments $Arguments `
+        -WorkingDirectory $WorkingDirectory `
+        -DiagnosticsDirectory $DiagnosticsDirectory `
+        -DeadlinePolicy $deadlinePolicy `
+        -PostStartFaultGuard $PostStartFaultGuard
+    Write-Host "$Label elapsed: $([Math]::Round($result.ElapsedMilliseconds / 1000, 1))s; diagnostics: $DiagnosticsDirectory"
 }
-
 function Get-FullPhaseDescriptor {
     param(
         [Parameter(Mandatory)]
@@ -803,36 +601,8 @@ function Get-FullPhaseDescriptor {
     return $descriptor[0]
 }
 
-function Get-FullPhaseRemainingSeconds {
-    param(
-        [Parameter(Mandatory)]
-        [System.Diagnostics.Stopwatch]$Stopwatch,
-
-        [Parameter(Mandatory)]
-        [int]$BudgetSeconds,
-
-        [Parameter(Mandatory)]
-        [string]$PhaseName
-    )
-
-    $remaining = $BudgetSeconds - $Stopwatch.Elapsed.TotalSeconds
-    if ($remaining -le 0) {
-        throw "Full phase '$PhaseName' exhausted its ${BudgetSeconds}-second budget."
-    }
-    return [Math]::Max(1, [int][Math]::Floor($remaining))
-}
-
 function Invoke-FullPhaseCommand {
     param(
-        [Parameter(Mandatory)]
-        [System.Diagnostics.Stopwatch]$Stopwatch,
-
-        [Parameter(Mandatory)]
-        [int]$BudgetSeconds,
-
-        [Parameter(Mandatory)]
-        [string]$PhaseName,
-
         [Parameter(Mandatory)]
         [string]$Label,
 
@@ -845,35 +615,22 @@ function Invoke-FullPhaseCommand {
         [Parameter(Mandatory)]
         [string]$DiagnosticsDirectory,
 
-        [string]$WorkingDirectory,
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy,
 
-        [switch]$IsTestCommand
+        [string]$WorkingDirectory
     )
 
-    $remainingSeconds = Get-FullPhaseRemainingSeconds `
-        -Stopwatch $Stopwatch `
-        -BudgetSeconds $BudgetSeconds `
-        -PhaseName $PhaseName
     if ([string]::IsNullOrWhiteSpace($WorkingDirectory)) {
         $WorkingDirectory = $repoRoot
     }
-    # The descriptor's remaining time is the absolute phase budget. Keep the ordinary
-    # monitored-command cleanup cutoff inside that phase when the caller requests it.
-    $phaseDeadlineUtc = [DateTime]::UtcNow.AddSeconds($remainingSeconds)
-    $processDeadlineUtc = $phaseDeadlineUtc.AddSeconds(-$monitoredCommandCleanupSeconds)
-    if ($processDeadlineUtc -lt [DateTime]::UtcNow) {
-        $processDeadlineUtc = [DateTime]::UtcNow
-    }
-    Invoke-MonitoredCommand `
+    Invoke-VerificationMonitoredCommand `
         -Label $Label `
         -CommandPath $CommandPath `
         -Arguments $Arguments `
         -WorkingDirectory $WorkingDirectory `
         -DiagnosticsDirectory $DiagnosticsDirectory `
-        -TimeoutSeconds $remainingSeconds `
-        -ProcessDeadlineUtc $processDeadlineUtc `
-        -PhaseDeadlineUtc $phaseDeadlineUtc `
-        -IsTestCommand:$IsTestCommand
+        -DeadlinePolicy $DeadlinePolicy
 }
 
 function Write-FullPhaseResult {
@@ -885,15 +642,14 @@ function Write-FullPhaseResult {
         [System.Collections.IDictionary]$Result
     )
 
-    try {
-        [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
-        [IO.File]::WriteAllText(
-            (Join-Path $DiagnosticsDirectory 'phase-result.json'),
-            ($Result | ConvertTo-Json -Depth 12),
-            [Text.UTF8Encoding]::new($false))
-    }
-    catch {
-        Write-Warning "Unable to write Full phase result '$DiagnosticsDirectory': $($_.Exception.Message)"
+    [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
+    $path = Join-Path $DiagnosticsDirectory 'phase-result.json'
+    [IO.File]::WriteAllText(
+        $path,
+        ($Result | ConvertTo-Json -Depth 12),
+        [Text.UTF8Encoding]::new($false))
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Full phase result was not written: $path"
     }
 }
 
@@ -912,24 +668,33 @@ function Invoke-MonitoredFullPhase {
     )
 
     $descriptor = Get-FullPhaseDescriptor -Name $Name
+    $phaseDeadlinePolicy = Resolve-VerificationDeadlinePair `
+        -TimeoutSeconds ([int]$descriptor.BudgetSeconds)
+    $phaseStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $phaseDirectory = Join-Path $DiagnosticsRoot $descriptor.DiagnosticsSegment
     [void](New-Item -ItemType Directory -Path $phaseDirectory -Force)
-    $phaseStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $primaryFailure = $null
     $cleanupFailure = $null
     $actionOutput = @()
     try {
         try {
-            $actionOutput = @(& $Action $phaseStopwatch $phaseDirectory)
+            $actionOutput = @(& $Action $phaseStopwatch $phaseDirectory $phaseDeadlinePolicy)
+            if ([DateTime]::UtcNow -ge $phaseDeadlinePolicy.ExecutionDeadlineUtc -or
+                $phaseStopwatch.Elapsed.TotalSeconds -gt [int]$descriptor.BudgetSeconds) {
+                $primaryFailure = [TimeoutException]::new(
+                    "Full phase '$Name' exceeded the $($descriptor.BudgetSeconds)-second budget.")
+            }
         }
         catch {
-            $primaryFailure = $_.Exception
+            if ($null -eq $primaryFailure) {
+                $primaryFailure = $_.Exception
+            }
         }
     }
     finally {
         if ($null -ne $Cleanup) {
             try {
-                & $Cleanup
+                & $Cleanup $phaseDeadlinePolicy $phaseDirectory
             }
             catch {
                 $cleanupFailure = $_.Exception
@@ -937,7 +702,8 @@ function Invoke-MonitoredFullPhase {
         }
         $phaseStopwatch.Stop()
         if ($null -eq $primaryFailure -and
-            $phaseStopwatch.Elapsed.TotalSeconds -gt [int]$descriptor.BudgetSeconds) {
+            ([DateTime]::UtcNow -ge $phaseDeadlinePolicy.ExecutionDeadlineUtc -or
+            $phaseStopwatch.Elapsed.TotalSeconds -gt [int]$descriptor.BudgetSeconds)) {
             $primaryFailure = [TimeoutException]::new(
                 "Full phase '$Name' exceeded the $($descriptor.BudgetSeconds)-second budget.")
         }
@@ -945,12 +711,29 @@ function Invoke-MonitoredFullPhase {
             schemaVersion = 1
             phase = $Name
             budgetSeconds = [int]$descriptor.BudgetSeconds
+            executionDeadlineUtc = $phaseDeadlinePolicy.ExecutionDeadlineUtc.ToString('O')
+            cleanupDeadlineUtc = $phaseDeadlinePolicy.CleanupDeadlineUtc.ToString('O')
             elapsedSeconds = [Math]::Round($phaseStopwatch.Elapsed.TotalSeconds, 3)
             status = if ($null -eq $primaryFailure -and $null -eq $cleanupFailure) { 'passed' } elseif ($null -ne $primaryFailure) { 'failed' } else { 'cleanup-failed' }
             primaryFailure = if ($null -ne $primaryFailure) { $primaryFailure.ToString() } else { $null }
             cleanupFailure = if ($null -ne $cleanupFailure) { $cleanupFailure.ToString() } else { $null }
         }
-        Write-FullPhaseResult -DiagnosticsDirectory $phaseDirectory -Result $result
+        try {
+            Write-FullPhaseResult -DiagnosticsDirectory $phaseDirectory -Result $result
+        }
+        catch {
+            # A phase-result write is part of the phase's durable outcome. Preserve an
+            # existing primary failure, but never let a write failure disappear.
+            if ($null -eq $primaryFailure) {
+                $primaryFailure = $_.Exception
+            }
+            elseif ($null -eq $cleanupFailure) {
+                $cleanupFailure = $_.Exception
+            }
+            else {
+                Write-Warning "Full phase '$Name' result persistence also failed: $($_.Exception.Message)"
+            }
+        }
     }
 
     if ($null -ne $primaryFailure) {
@@ -983,44 +766,21 @@ function Invoke-BudgetedCommand {
         [string[]]$Arguments,
 
         [Parameter(Mandatory)]
-        [string]$DiagnosticsDirectory,
-
-        [DateTime]$ProcessDeadlineUtc,
-
-        [DateTime]$PhaseDeadlineUtc,
-
-        [DateTime]$CleanupDeadlineUtc,
-
-        [switch]$IsTestCommand
+        [string]$DiagnosticsDirectory
     )
 
     $remainingParameters = @{
         Stopwatch = $Stopwatch
         BudgetSeconds = $BudgetSeconds
     }
-    if ($PSBoundParameters.ContainsKey('ProcessDeadlineUtc')) {
-        $remainingParameters.DeadlineUtc = $ProcessDeadlineUtc
-    }
     $remainingSeconds = Get-RemainingBudgetSeconds @remainingParameters
-    $timeoutForDiagnostics = if ($PSBoundParameters.ContainsKey('ProcessDeadlineUtc')) {
-        $BudgetSeconds
-    }
-    else {
-        $remainingSeconds
-    }
     $invokeParameters = @{
         Label = $Label
         CommandPath = $CommandPath
         Arguments = $Arguments
         WorkingDirectory = $repoRoot
         DiagnosticsDirectory = $DiagnosticsDirectory
-        TimeoutSeconds = $timeoutForDiagnostics
-        IsTestCommand = $IsTestCommand
-    }
-    foreach ($deadlineName in @('ProcessDeadlineUtc', 'PhaseDeadlineUtc', 'CleanupDeadlineUtc')) {
-        if ($PSBoundParameters.ContainsKey($deadlineName)) {
-            $invokeParameters[$deadlineName] = $PSBoundParameters[$deadlineName]
-        }
+        TimeoutSeconds = $remainingSeconds
     }
     Invoke-MonitoredCommand @invokeParameters
 }
@@ -1109,17 +869,10 @@ function Invoke-TestLane {
         [Parameter(Mandatory)]
         [string]$DiagnosticsDirectory,
 
-        [int]$TimeoutSeconds = 180,
-
         [string]$RunSettingsPath,
 
-        [DateTime]$ProcessDeadlineUtc,
-
-        [DateTime]$PhaseDeadlineUtc,
-
-        [DateTime]$CleanupDeadlineUtc,
-
-        [switch]$UsePhaseCleanupDeadline,
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy,
 
         [switch]$NoBuild
     )
@@ -1129,34 +882,13 @@ function Invoke-TestLane {
         -DiagnosticsDirectory $DiagnosticsDirectory `
         -RunSettingsPath $RunSettingsPath `
         -NoBuild:$NoBuild
-    $invokeParameters = @{
-        Label = "$Name test lane"
-        CommandPath = 'dotnet'
-        Arguments = $arguments
-        WorkingDirectory = $repoRoot
-        DiagnosticsDirectory = $DiagnosticsDirectory
-        TimeoutSeconds = $TimeoutSeconds
-        IsTestCommand = $true
-    }
-    if ($PSBoundParameters.ContainsKey('CleanupDeadlineUtc')) {
-        $invokeParameters.CleanupDeadlineUtc = $CleanupDeadlineUtc
-    }
-    if ($PSBoundParameters.ContainsKey('ProcessDeadlineUtc')) {
-        $invokeParameters.ProcessDeadlineUtc = $ProcessDeadlineUtc
-    }
-    if ($PSBoundParameters.ContainsKey('PhaseDeadlineUtc')) {
-        $invokeParameters.PhaseDeadlineUtc = $PhaseDeadlineUtc
-    }
-    if ($UsePhaseCleanupDeadline) {
-        $phaseDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-        $processDeadline = $phaseDeadline.AddSeconds(-$monitoredCommandCleanupSeconds)
-        if ($processDeadline -lt [DateTime]::UtcNow) {
-            $processDeadline = [DateTime]::UtcNow
-        }
-        $invokeParameters.ProcessDeadlineUtc = $processDeadline
-        $invokeParameters.PhaseDeadlineUtc = $phaseDeadline
-    }
-    Invoke-MonitoredCommand @invokeParameters
+    Invoke-VerificationMonitoredCommand `
+        -Label "$Name test lane" `
+        -CommandPath 'dotnet' `
+        -Arguments $arguments `
+        -WorkingDirectory $repoRoot `
+        -DiagnosticsDirectory $DiagnosticsDirectory `
+        -DeadlinePolicy $DeadlinePolicy
 }
 
 function Start-FunctionalShardProcess {
@@ -1509,7 +1241,13 @@ function Invoke-ParallelFunctionalTestShards {
         }
         $forceCleanup = $timedOut -or $null -ne $failedHostName -or $null -ne $launchFailure
 
-        $functionalCleanup = Invoke-VerificationFunctionalCleanup -Entries $entries -CleanupDeadlineUtc $failureCleanupDeadlineUtc -StopRoots:$forceCleanup
+        $functionalCleanup = Invoke-VerificationFunctionalCleanup `
+            -Entries $entries `
+            -ExecutionDeadlineUtc $executionDeadlineUtc `
+            -CleanupDeadlineUtc $failureCleanupDeadlineUtc `
+            -FailureCleanup:$forceCleanup `
+            -RetainedExitTimesUtc $retainedFunctionalExitTimesUtc `
+            -StopRoots:$forceCleanup
         foreach ($fanoutFailure in @($functionalCleanup.FanoutFailures)) {
             $cleanupFailures.Add($fanoutFailure)
         }
@@ -1685,9 +1423,24 @@ function Get-AssemblyInformationalVersion {
 }
 
 function Get-RepositoryHeadCommit {
-    $commit = (& git -C $repoRoot rev-parse HEAD 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commit)) {
-        throw "Unable to resolve the current repository commit: $commit"
+    param(
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy,
+
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory
+    )
+
+    $result = Invoke-VerificationMonitoredCommand `
+        -Label 'Current repository commit identity' `
+        -CommandPath 'git' `
+        -Arguments @('-C', $repoRoot, 'rev-parse', 'HEAD') `
+        -WorkingDirectory $repoRoot `
+        -DiagnosticsDirectory $DiagnosticsDirectory `
+        -DeadlinePolicy $DeadlinePolicy
+    $commit = ([string]$result.StandardOutput).Trim()
+    if ([string]::IsNullOrWhiteSpace($commit)) {
+        throw 'Unable to resolve the current repository commit.'
     }
     return $commit
 }
@@ -1714,16 +1467,13 @@ function Get-ExactReleasePackage {
 function Invoke-CurrentDistributionPublish {
     param(
         [Parameter(Mandatory)]
-        [System.Diagnostics.Stopwatch]$Stopwatch,
-
-        [Parameter(Mandatory)]
-        [int]$BudgetSeconds,
-
-        [Parameter(Mandatory)]
         [string]$PhaseDirectory,
 
         [Parameter(Mandatory)]
-        [string]$ArtifactRoot
+        [string]$ArtifactRoot,
+
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy
     )
 
     $publishScript = Join-Path $repoRoot 'scripts\publish.ps1'
@@ -1732,13 +1482,11 @@ function Invoke-CurrentDistributionPublish {
     }
     [void](New-Item -ItemType Directory -Path $ArtifactRoot -Force)
     Invoke-FullPhaseCommand `
-        -Stopwatch $Stopwatch `
-        -BudgetSeconds $BudgetSeconds `
-        -PhaseName 'current-distribution-publish' `
         -Label 'Current distribution publish' `
         -CommandPath 'pwsh' `
         -Arguments @('-NoProfile', '-File', $publishScript, '-PackageOnly', '-SkipDocHtml', '-ArtifactRoot', $ArtifactRoot) `
-        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'publish')
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'publish') `
+        -DeadlinePolicy $DeadlinePolicy
 
     $version = Get-AssemblyInformationalVersion -Root $repoRoot
     $appRoot = Join-Path $ArtifactRoot 'app'
@@ -1751,7 +1499,9 @@ function Invoke-CurrentDistributionPublish {
     }
     return [pscustomobject]@{
         Version = $version
-        Commit = Get-RepositoryHeadCommit
+        Commit = Get-RepositoryHeadCommit `
+            -DeadlinePolicy $DeadlinePolicy `
+            -DiagnosticsDirectory (Join-Path $PhaseDirectory 'commit')
         AppRoot = $appRoot
         UpdaterRoot = $updaterRoot
         PackagePath = $packagePath
@@ -1760,12 +1510,6 @@ function Invoke-CurrentDistributionPublish {
 
 function Invoke-BaselinePreparation {
     param(
-        [Parameter(Mandatory)]
-        [System.Diagnostics.Stopwatch]$Stopwatch,
-
-        [Parameter(Mandatory)]
-        [int]$BudgetSeconds,
-
         [Parameter(Mandatory)]
         [string]$PhaseDirectory,
 
@@ -1782,7 +1526,10 @@ function Invoke-BaselinePreparation {
         [string]$RunId,
 
         [Parameter(Mandatory)]
-        [string]$ArtifactId
+        [string]$ArtifactId,
+
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy
     )
 
     $baselineWorkRoot = Join-Path ([IO.Path]::GetTempPath()) (
@@ -1800,13 +1547,11 @@ function Invoke-BaselinePreparation {
     try {
         [void](New-Item -ItemType Directory -Path $sourceRoot -Force)
         Invoke-FullPhaseCommand `
-        -Stopwatch $Stopwatch `
-        -BudgetSeconds $BudgetSeconds `
-        -PhaseName 'baseline-preparation' `
         -Label 'Baseline source archive' `
         -CommandPath 'git' `
         -Arguments @('-C', $repoRoot, 'archive', '--format=zip', "--output=$archivePath", $BaselineCommit) `
-        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'archive')
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'archive') `
+        -DeadlinePolicy $DeadlinePolicy
     Expand-Archive -LiteralPath $archivePath -DestinationPath $sourceRoot -Force
 
     $baselinePublishScript = Join-Path $sourceRoot 'scripts\publish.ps1'
@@ -1814,13 +1559,11 @@ function Invoke-BaselinePreparation {
         throw "Baseline publish script is missing from checkout: $baselinePublishScript"
     }
     Invoke-FullPhaseCommand `
-        -Stopwatch $Stopwatch `
-        -BudgetSeconds $BudgetSeconds `
-        -PhaseName 'baseline-preparation' `
         -Label 'Baseline distribution publish' `
         -CommandPath 'pwsh' `
         -Arguments @('-NoProfile', '-File', $baselinePublishScript, '-PackageOnly', '-SkipDocHtml') `
-        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'publish')
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'publish') `
+        -DeadlinePolicy $DeadlinePolicy
 
     $baselineVersion = Get-AssemblyInformationalVersion -Root $sourceRoot
     $sourcePackagePath = Get-ExactReleasePackage `
@@ -1869,19 +1612,119 @@ function Invoke-BaselinePreparation {
     }
 }
 
-function Invoke-ExistingDataAcceptance {
+function Invoke-V216ArtifactCachePreparation {
     param(
-        [Parameter(Mandatory)]
-        [System.Diagnostics.Stopwatch]$Stopwatch,
-
-        [Parameter(Mandatory)]
-        [int]$BudgetSeconds,
-
         [Parameter(Mandatory)]
         [string]$PhaseDirectory,
 
         [Parameter(Mandatory)]
-        [string]$ArtifactManifestPath
+        [object]$DeadlinePolicy
+    )
+
+    # Read and validate the checked-in identity before inspecting the cache.  A cache
+    # miss is the only state that authorizes this phase to perform a download.
+    $metadata = Read-V216ArtifactMetadata `
+        -MetadataPath $v216ArtifactMetadataPath `
+        -RepositoryRoot $repoRoot
+    $cachePath = [string]$metadata.ArtifactPath
+    if (Test-Path -LiteralPath $cachePath -PathType Leaf) {
+        [void](Assert-V216ArtifactIdentity `
+                -MetadataPath $v216ArtifactMetadataPath `
+                -RepositoryRoot $repoRoot)
+        Write-Host "v2.1.6.0 artifact cache hit: $cachePath"
+        return [pscustomobject][ordered]@{
+            Status = 'hit'
+            ArtifactPath = $cachePath
+            DownloadUrl = [string]$metadata.DownloadUrl
+        }
+    }
+    if (Test-Path -LiteralPath $cachePath) {
+        throw "Pinned v2.1.6.0 artifact cache path is not a file: $cachePath"
+    }
+
+    $cacheDirectory = Split-Path -Parent $cachePath
+    [void](New-Item -ItemType Directory -Path $cacheDirectory -Force)
+    $temporaryDownloadPath = Join-Path $cacheDirectory (
+        '.' + $metadata.FileName + '.' + [Guid]::NewGuid().ToString('N') + '.download')
+    $primaryError = $null
+    try {
+        Write-Host "v2.1.6.0 artifact cache miss; downloading the pinned artifact to a temporary file."
+        [void](Invoke-FullPhaseCommand `
+                -Label 'v2.1.6.0 artifact cache download' `
+                -CommandPath 'curl.exe' `
+                -Arguments @(
+                    '-q'
+                    '--fail'
+                    '--silent'
+                    '--show-error'
+                    '--location'
+                    '--proto'
+                    '=https'
+                    '--proto-redir'
+                    '=https'
+                    '--output'
+                    $temporaryDownloadPath
+                    [string]$metadata.DownloadUrl) `
+                -DiagnosticsDirectory (Join-Path $PhaseDirectory 'download') `
+                -DeadlinePolicy $DeadlinePolicy)
+
+        if (-not (Test-Path -LiteralPath $temporaryDownloadPath -PathType Leaf)) {
+            throw "Pinned v2.1.6.0 artifact download did not produce a file: $temporaryDownloadPath"
+        }
+        $downloadedSize = (Get-Item -LiteralPath $temporaryDownloadPath).Length
+        if ($downloadedSize -ne $metadata.ExpectedSizeBytes) {
+            throw "Pinned v2.1.6.0 artifact download size mismatch: expected=$($metadata.ExpectedSizeBytes) actual=$downloadedSize"
+        }
+        $downloadedSha256 = Get-DistributionSha256 $temporaryDownloadPath
+        if ($downloadedSha256.ToUpperInvariant() -cne $metadata.ExpectedSha256.ToUpperInvariant()) {
+            throw "Pinned v2.1.6.0 artifact download SHA-256 mismatch: expected=$($metadata.ExpectedSha256) actual=$downloadedSha256"
+        }
+        if (Test-Path -LiteralPath $cachePath) {
+            throw "Pinned v2.1.6.0 artifact cache path appeared during download: $cachePath"
+        }
+
+        # The temporary file and canonical cache share a directory, so this publish is an
+        # atomic rename and no partially downloaded bytes become visible at the cache path.
+        [IO.File]::Move($temporaryDownloadPath, $cachePath)
+        [void](Assert-V216ArtifactIdentity `
+                -MetadataPath $v216ArtifactMetadataPath `
+                -RepositoryRoot $repoRoot)
+        Write-Host "v2.1.6.0 artifact cache prepared: $cachePath"
+        return [pscustomobject][ordered]@{
+            Status = 'miss-downloaded'
+            ArtifactPath = $cachePath
+            DownloadUrl = [string]$metadata.DownloadUrl
+        }
+    }
+    catch {
+        $primaryError = $_.Exception
+        throw
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryDownloadPath) {
+            try {
+                Remove-Item -LiteralPath $temporaryDownloadPath -Force -ErrorAction Stop
+            }
+            catch {
+                if ($null -eq $primaryError) {
+                    throw
+                }
+                Write-Warning "v2.1.6.0 artifact temporary download cleanup failed after a primary failure: $temporaryDownloadPath. $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
+function Invoke-ExistingDataAcceptance {
+    param(
+        [Parameter(Mandatory)]
+        [string]$PhaseDirectory,
+
+        [Parameter(Mandatory)]
+        [string]$ArtifactManifestPath,
+
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy
     )
 
     if (-not (Test-Path -LiteralPath $existingDataAcceptanceScript -PathType Leaf)) {
@@ -1889,28 +1732,34 @@ function Invoke-ExistingDataAcceptance {
     }
     $outputDirectory = Join-Path $PhaseDirectory 'acceptance'
     Invoke-FullPhaseCommand `
-        -Stopwatch $Stopwatch `
-        -BudgetSeconds $BudgetSeconds `
-        -PhaseName 'existing-data' `
         -Label 'Existing-data acceptance' `
         -CommandPath 'pwsh' `
-        -Arguments @('-NoProfile', '-File', $existingDataAcceptanceScript, '-ArtifactManifestPath', $ArtifactManifestPath, '-OutputDirectory', $outputDirectory) `
-        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'command')
+        -Arguments @(
+            '-NoProfile'
+            '-File'
+            $existingDataAcceptanceScript
+            '-ArtifactManifestPath'
+            $ArtifactManifestPath
+            '-OutputDirectory'
+            $outputDirectory
+            '-ExecutionDeadlineUtc'
+            $DeadlinePolicy.ExecutionDeadlineUtc.ToString('O')
+            '-CleanupDeadlineUtc'
+            $DeadlinePolicy.CleanupDeadlineUtc.ToString('O')) `
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'command') `
+        -DeadlinePolicy $DeadlinePolicy
 }
 
 function Invoke-UpdateAcceptance {
     param(
         [Parameter(Mandatory)]
-        [System.Diagnostics.Stopwatch]$Stopwatch,
-
-        [Parameter(Mandatory)]
-        [int]$BudgetSeconds,
-
-        [Parameter(Mandatory)]
         [string]$PhaseDirectory,
 
         [Parameter(Mandatory)]
-        [string]$ArtifactManifestPath
+        [string]$ArtifactManifestPath,
+
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy
     )
 
     if (-not (Test-Path -LiteralPath $updateAcceptanceScript -PathType Leaf)) {
@@ -1918,28 +1767,34 @@ function Invoke-UpdateAcceptance {
     }
     $outputDirectory = Join-Path $PhaseDirectory 'acceptance'
     Invoke-FullPhaseCommand `
-        -Stopwatch $Stopwatch `
-        -BudgetSeconds $BudgetSeconds `
-        -PhaseName 'update' `
         -Label 'Update acceptance' `
         -CommandPath 'pwsh' `
-        -Arguments @('-NoProfile', '-File', $updateAcceptanceScript, '-ArtifactManifestPath', $ArtifactManifestPath, '-OutputDirectory', $outputDirectory) `
-        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'command')
+        -Arguments @(
+            '-NoProfile'
+            '-File'
+            $updateAcceptanceScript
+            '-ArtifactManifestPath'
+            $ArtifactManifestPath
+            '-OutputDirectory'
+            $outputDirectory
+            '-ExecutionDeadlineUtc'
+            $DeadlinePolicy.ExecutionDeadlineUtc.ToString('O')
+            '-CleanupDeadlineUtc'
+            $DeadlinePolicy.CleanupDeadlineUtc.ToString('O')) `
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'command') `
+        -DeadlinePolicy $DeadlinePolicy
 }
 
 function Invoke-V216FirstHopAcceptance {
     param(
         [Parameter(Mandatory)]
-        [System.Diagnostics.Stopwatch]$Stopwatch,
-
-        [Parameter(Mandatory)]
-        [int]$BudgetSeconds,
-
-        [Parameter(Mandatory)]
         [string]$PhaseDirectory,
 
         [Parameter(Mandatory)]
-        [string]$ArtifactManifestPath
+        [string]$ArtifactManifestPath,
+
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy
     )
 
     if (-not (Test-Path -LiteralPath $v216FirstHopAcceptanceScript -PathType Leaf)) {
@@ -1957,9 +1812,6 @@ function Invoke-V216FirstHopAcceptance {
     }
     $outputDirectory = Join-Path $PhaseDirectory 'v216-first-hop'
     Invoke-FullPhaseCommand `
-        -Stopwatch $Stopwatch `
-        -BudgetSeconds $BudgetSeconds `
-        -PhaseName 'ReleaseAcceptance' `
         -Label 'v2.1.6.0 first-hop acceptance' `
         -CommandPath 'pwsh' `
         -Arguments @(
@@ -1973,8 +1825,13 @@ function Invoke-V216FirstHopAcceptance {
             '-CurrentVersion'
             $currentVersion
             '-OutputDirectory'
-            $outputDirectory) `
-        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'v216-first-hop-command')
+            $outputDirectory
+            '-ExecutionDeadlineUtc'
+            $DeadlinePolicy.ExecutionDeadlineUtc.ToString('O')
+            '-CleanupDeadlineUtc'
+            $DeadlinePolicy.CleanupDeadlineUtc.ToString('O')) `
+        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'v216-first-hop-command') `
+        -DeadlinePolicy $DeadlinePolicy
 
     $receiptPath = Join-Path $outputDirectory 'v216-first-hop-acceptance.json'
     if (-not (Test-Path -LiteralPath $receiptPath -PathType Leaf)) {
@@ -2101,8 +1958,7 @@ function Invoke-FilteredQuickVerification {
             -Label 'Filtered build and test' `
             -CommandPath 'dotnet' `
             -Arguments $testArguments `
-            -DiagnosticsDirectory $testDirectory `
-            -IsTestCommand
+            -DiagnosticsDirectory $testDirectory
         Assert-BuiltOutputs
         Assert-RepositoryWhitespace
     }
@@ -2147,16 +2003,13 @@ Push-Location $repoRoot
 try {
     if ($Mode -eq 'Full') {
         [void](Invoke-MonitoredFullPhase -Name 'tool-restore' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'tool-restore'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Invoke-FullPhaseCommand `
-                -Stopwatch $phaseStopwatch `
-                -BudgetSeconds $descriptor.BudgetSeconds `
-                -PhaseName 'tool-restore' `
                 -Label 'Tool restore' `
                 -CommandPath 'dotnet' `
                 -Arguments @('tool', 'restore') `
-                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command')
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
+                -DeadlinePolicy $deadlinePolicy
         })
     }
 
@@ -2168,21 +2021,18 @@ try {
 
     if ($Mode -eq 'Full') {
         [void](Invoke-MonitoredFullPhase -Name 'tool-smoke' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'tool-smoke'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             foreach ($toolExecutable in $toolExecutables) {
                 if (-not (Test-Path -LiteralPath $toolExecutable -PathType Leaf)) {
                     throw "Release tool executable was not produced: $toolExecutable"
                 }
                 $toolName = [IO.Path]::GetFileNameWithoutExtension($toolExecutable)
                 Invoke-FullPhaseCommand `
-                    -Stopwatch $phaseStopwatch `
-                    -BudgetSeconds $descriptor.BudgetSeconds `
-                    -PhaseName 'tool-smoke' `
                     -Label "Tool smoke $toolName" `
                     -CommandPath $toolExecutable `
                     -Arguments @('--help') `
-                    -DiagnosticsDirectory (Join-Path $phaseDirectory $toolName)
+                    -DiagnosticsDirectory (Join-Path $phaseDirectory $toolName) `
+                    -DeadlinePolicy $deadlinePolicy
             }
         })
 
@@ -2191,27 +2041,23 @@ try {
         $fullRunId = Split-Path -Leaf $testDiagnosticsDirectory
         $fullArtifactId = $fullRunId + '-distribution'
         $current = @(Invoke-MonitoredFullPhase -Name 'current-distribution-publish' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'current-distribution-publish'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Invoke-CurrentDistributionPublish `
-                -Stopwatch $phaseStopwatch `
-                -BudgetSeconds $descriptor.BudgetSeconds `
                 -PhaseDirectory $phaseDirectory `
-                -ArtifactRoot $currentDistributionRoot
+                -ArtifactRoot $currentDistributionRoot `
+                -DeadlinePolicy $deadlinePolicy
         })[-1]
 
         $artifactManifest = @(Invoke-MonitoredFullPhase -Name 'baseline-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'baseline-preparation'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Invoke-BaselinePreparation `
-                -Stopwatch $phaseStopwatch `
-                -BudgetSeconds $descriptor.BudgetSeconds `
                 -PhaseDirectory $phaseDirectory `
                 -ArtifactRoot $fullDistributionRoot `
                 -BaselineCommit $baselineCommit `
                 -Current $current `
                 -RunId $fullRunId `
-                -ArtifactId $fullArtifactId
+                -ArtifactId $fullArtifactId `
+                -DeadlinePolicy $deadlinePolicy
         })[-1]
         $artifactManifestPath = $artifactManifest.ManifestPath
         $expectedFullRunId = $fullRunId
@@ -2228,8 +2074,7 @@ try {
         [Environment]::SetEnvironmentVariable('BMS_SCD_UPDATER_PUBLISH_ROOT', [string]$artifactManifest.Current.updaterRoot, 'Process')
 
         [void](Invoke-MonitoredFullPhase -Name 'existing-data' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'existing-data'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
                 -ExpectedRunId $expectedFullRunId `
@@ -2237,10 +2082,9 @@ try {
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             Invoke-ExistingDataAcceptance `
-                -Stopwatch $phaseStopwatch `
-                -BudgetSeconds $descriptor.BudgetSeconds `
                 -PhaseDirectory $phaseDirectory `
-                -ArtifactManifestPath $artifactManifestPath
+                -ArtifactManifestPath $artifactManifestPath `
+                -DeadlinePolicy $deadlinePolicy
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
                 -ExpectedRunId $expectedFullRunId `
@@ -2249,8 +2093,7 @@ try {
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
         })
         [void](Invoke-MonitoredFullPhase -Name 'update' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'update'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
                 -ExpectedRunId $expectedFullRunId `
@@ -2258,16 +2101,22 @@ try {
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             Invoke-UpdateAcceptance `
-                -Stopwatch $phaseStopwatch `
-                -BudgetSeconds $descriptor.BudgetSeconds `
                 -PhaseDirectory $phaseDirectory `
-                -ArtifactManifestPath $artifactManifestPath
+                -ArtifactManifestPath $artifactManifestPath `
+                -DeadlinePolicy $deadlinePolicy
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
                 -ExpectedRunId $expectedFullRunId `
                 -ExpectedArtifactId $expectedFullArtifactId `
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
+        })
+
+        [void](Invoke-MonitoredFullPhase -Name 'v216-cache-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
+            Invoke-V216ArtifactCachePreparation `
+                -PhaseDirectory $phaseDirectory `
+                -DeadlinePolicy $deadlinePolicy
         })
 
         $processIntegrationResultsPath = $null
@@ -2280,23 +2129,20 @@ try {
         $expectedV216FirstHopAcceptanceReceiptPath = [IO.Path]::GetFullPath(
             (Join-Path $testDiagnosticsDirectory ([string]$v216ReceiptInputs[0].RelativePath).Replace('/', '\')))
         $processIntegrationResultsPath = @(Invoke-MonitoredFullPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'ProcessIntegration'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
                 -ExpectedRunId $expectedFullRunId `
                 -ExpectedArtifactId $expectedFullArtifactId `
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
-            $timeout = Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'ProcessIntegration test lane'
             $processIntegrationTestDirectory = Join-Path $phaseDirectory 'test'
             $processIntegrationResultsPath = Join-Path $processIntegrationTestDirectory 'results.trx'
             Invoke-TestLane `
                 -Name 'Process integration' `
                 -Filter 'TestCategory=ProcessIntegration' `
                 -DiagnosticsDirectory $processIntegrationTestDirectory `
-                -TimeoutSeconds $timeout `
-                -UsePhaseCleanupDeadline `
+                -DeadlinePolicy $deadlinePolicy `
                 -NoBuild
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
@@ -2307,8 +2153,7 @@ try {
             return $processIntegrationResultsPath
         })[-1]
         $releaseAcceptancePaths = @(Invoke-MonitoredFullPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'ReleaseAcceptance'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
                 -ExpectedRunId $expectedFullRunId `
@@ -2316,10 +2161,9 @@ try {
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             $v216FirstHopAcceptanceReceiptPath = @(Invoke-V216FirstHopAcceptance `
-                    -Stopwatch $phaseStopwatch `
-                    -BudgetSeconds (Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'v2.1.6.0 first-hop acceptance') `
                     -PhaseDirectory $phaseDirectory `
-                    -ArtifactManifestPath $artifactManifestPath)[-1]
+                    -ArtifactManifestPath $artifactManifestPath `
+                    -DeadlinePolicy $deadlinePolicy)[-1]
             if ([string]::IsNullOrWhiteSpace([string]$v216FirstHopAcceptanceReceiptPath) -or
                 [IO.Path]::GetFullPath([string]$v216FirstHopAcceptanceReceiptPath) -cne $expectedV216FirstHopAcceptanceReceiptPath -or
                 -not (Test-Path -LiteralPath $expectedV216FirstHopAcceptanceReceiptPath -PathType Leaf)) {
@@ -2328,15 +2172,13 @@ try {
             Assert-V216ArtifactIdentity `
                 -MetadataPath $v216ArtifactMetadataPath `
                 -RepositoryRoot $repoRoot | Out-Null
-            $timeout = Get-FullPhaseRemainingSeconds -Stopwatch $phaseStopwatch -BudgetSeconds $descriptor.BudgetSeconds -PhaseName 'ReleaseAcceptance test lane'
             $releaseAcceptanceTestDirectory = Join-Path $phaseDirectory 'test'
             $releaseAcceptanceResultsPath = Join-Path $releaseAcceptanceTestDirectory 'results.trx'
             Invoke-TestLane `
                 -Name 'Release acceptance' `
                 -Filter 'TestCategory=ReleaseAcceptance' `
                 -DiagnosticsDirectory $releaseAcceptanceTestDirectory `
-                -TimeoutSeconds $timeout `
-                -UsePhaseCleanupDeadline `
+                -DeadlinePolicy $deadlinePolicy `
                 -NoBuild
             $functionalResultsDirectory = Join-Path $testDiagnosticsDirectory 'functional'
             if (-not (Test-Path -LiteralPath $functionalResultsDirectory -PathType Container)) {
@@ -2373,38 +2215,41 @@ try {
         $releaseAcceptanceResultsPath = [string]$releaseAcceptancePaths.ResultsPath
 
         [void](Invoke-MonitoredFullPhase -Name 'format' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'format'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Invoke-FullPhaseCommand `
-                -Stopwatch $phaseStopwatch `
-                -BudgetSeconds $descriptor.BudgetSeconds `
-                -PhaseName 'format' `
                 -Label 'dotnet format' `
                 -CommandPath 'dotnet' `
                 -Arguments (Get-RepositoryFormatArguments -WorkspaceRoot $repoRoot) `
-                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command')
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
+                -DeadlinePolicy $deadlinePolicy
         })
 
         [void](Invoke-MonitoredFullPhase -Name 'analyzer' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory)
-            $descriptor = Get-FullPhaseDescriptor -Name 'analyzer'
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
             $vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
             if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
                 throw "vswhere.exe was not found: $vswhere"
             }
-            $msbuildPath = (& $vswhere -version '[17.0,18.0)' -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\Current\Bin' | Select-Object -First 1).ToString().Trim()
+            $vswhereResult = Invoke-FullPhaseCommand `
+                -Label 'Visual Studio MSBuild discovery' `
+                -CommandPath $vswhere `
+                -Arguments @('-version', '[17.0,18.0)', '-products', '*', '-requires', 'Microsoft.Component.MSBuild', '-find', 'MSBuild\Current\Bin') `
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'vswhere') `
+                -DeadlinePolicy $deadlinePolicy
+            $msbuildPath = @(([string]$vswhereResult.StandardOutput -split "\r?\n") |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                Select-Object -First 1)[0]
+            $msbuildPath = ([string]$msbuildPath).Trim()
             if ([string]::IsNullOrWhiteSpace($msbuildPath)) {
                 throw 'Visual Studio 2022 MSBuild 17 was not found.'
             }
             Invoke-FullPhaseCommand `
-                -Stopwatch $phaseStopwatch `
-                -BudgetSeconds $descriptor.BudgetSeconds `
-                -PhaseName 'analyzer' `
                 -Label 'roslynator analyzer' `
                 -CommandPath 'dotnet' `
                 -Arguments @('roslynator', 'analyze', $solution, '--msbuild-path', $msbuildPath, '--properties', 'Configuration=Release', '--severity-level', 'warning', '--ignore-compiler-diagnostics', '--verbosity', 'minimal') `
-                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command')
+                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
+                -DeadlinePolicy $deadlinePolicy
         })
         Assert-DistributionArtifactIdentity `
             -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `

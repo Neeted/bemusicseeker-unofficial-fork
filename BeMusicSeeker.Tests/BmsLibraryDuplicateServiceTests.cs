@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -417,7 +418,8 @@ public sealed class BmsLibraryDuplicateServiceTests
             File.WriteAllText(srcChartPath, "{}");
             try
             {
-                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                TestFileMutationService fileMutationService = new();
+                var library = new TestBmsLibrary(songDbPath, null, null, fileMutationService, new RecordingDialogService());
                 var sourceSong = new LR2SongDBExtended.bmson_song
                 {
                     path = srcChartPath,
@@ -432,13 +434,29 @@ public sealed class BmsLibraryDuplicateServiceTests
                 }
                 ResourceHealthIndexSnapshot beforeSnapshot = library.GetResourceHealthIndexSnapshotForView("duplicate_merge_before");
                 Assert.AreEqual(1, beforeSnapshot.TargetCount);
+                bool sourceCleanupObserved = false;
+                fileMutationService.AfterDeleteDirectory = deletedDirectoryPath =>
+                {
+                    if (!string.Equals(deletedDirectoryPath, srcDir, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+
+                    sourceCleanupObserved = true;
+                    // The source collection is deliberately changed after the
+                    // executor cleanup callback.  The merge maintenance input
+                    // must already be captured, so this cannot erase its target.
+                    library.BmsonSongs = [];
+                };
 
                 DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
 
                 Assert.IsTrue(receipt.MergeApplied);
                 Assert.AreEqual(ResourceHealthIndexUpdateMode.DeferOnUpdates, receipt.IntermediateMode);
+                Assert.IsTrue(sourceCleanupObserved);
                 Assert.IsTrue(receipt.MaintenanceHadUpdates);
                 Assert.IsTrue(receipt.MaintenanceResult.HasUpdates);
+                Assert.IsTrue(receipt.MaintenanceResult.CheckedFileCount > 0);
                 Assert.IsTrue(receipt.IntermediateDeferred);
                 Assert.IsTrue(receipt.ResourceHealthIndexDeferred);
                 Assert.IsTrue(receipt.MaintenanceResult.ResourceHealthIndexDeferred);
@@ -447,11 +465,15 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsFalse(receipt.ResourceHealthIndexFullRebuilt);
                 Assert.IsFalse(receipt.MaintenanceResult.ResourceHealthIndexFullRebuilt);
                 Assert.AreSame(ResourceHealthIndexSnapshot.Empty, library.TryGetCurrentResourceHealthIndexSnapshotForView());
+                Assert.IsNotNull(receipt.MutationReceipt);
 
                 string dstChartPath = Path.Combine(dstDir, "chart.bmson");
                 Assert.IsFalse(File.Exists(srcChartPath));
                 Assert.IsFalse(Directory.Exists(srcDir));
                 Assert.IsTrue(File.Exists(dstChartPath));
+                // Restore the fixture state changed by the cleanup seam before
+                // checking the normal post-merge owned collection contract.
+                library.BmsonSongs = [sourceSong];
                 Assert.AreEqual(1, library.BmsonSongs.Count);
                 Assert.AreEqual(dstChartPath, library.BmsonSongs[0].path);
                 Assert.AreEqual(dstDir, library.BmsonSongs[0].folder);
@@ -466,6 +488,106 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.AreNotEqual(beforeSnapshot.Version, rebuiltSnapshot.Version);
                 ResourceHealthIndexSnapshot cachedSnapshot = library.GetResourceHealthIndexSnapshotForView("duplicate_merge_cached");
                 Assert.AreSame(rebuiltSnapshot, cachedSnapshot);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void MergeChartDirectory_FailedDialogEffectIsIsolatedAndCanReenterAfterLeaseRelease()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateMergeEffectFailure_" + System.Guid.NewGuid().ToString("N"));
+            string srcDir = Path.Combine(tempRootPath, "Src");
+            string dstDir = Path.Combine(tempRootPath, "Dst");
+            string srcChartPath = Path.Combine(srcDir, "chart.bmson");
+            string reentrySrcDir = Path.Combine(tempRootPath, "ReentrySrc");
+            string reentryDstDir = Path.Combine(tempRootPath, "ReentryDst");
+            string reentryChartPath = Path.Combine(reentrySrcDir, "reentry.bmson");
+            Directory.CreateDirectory(srcDir);
+            Directory.CreateDirectory(dstDir);
+            Directory.CreateDirectory(reentrySrcDir);
+            Directory.CreateDirectory(reentryDstDir);
+            File.WriteAllText(srcChartPath, "{}");
+            File.WriteAllText(reentryChartPath, "{}");
+            try
+            {
+                TestFileMutationService fileMutationService = new()
+                {
+                    FailNextMutationCount = 1
+                };
+                RecordingDialogService dialogService = new()
+                {
+                    ThrowOnShow = true
+                };
+                var library = new TestBmsLibrary(songDbPath, null, null, fileMutationService, dialogService);
+                var sourceSong = new LR2SongDBExtended.bmson_song
+                {
+                    path = srcChartPath,
+                    folder = srcDir,
+                    title = "failed merge target",
+                    md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                };
+                var reentrySong = new LR2SongDBExtended.bmson_song
+                {
+                    path = reentryChartPath,
+                    folder = reentrySrcDir,
+                    title = "reentry target",
+                    md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                };
+                library.BmsonSongs = [sourceSong, reentrySong];
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(sourceSong, typeof(LR2SongDBExtended.bmson_song));
+                    songDb.InsertOrReplace(reentrySong, typeof(LR2SongDBExtended.bmson_song));
+                }
+
+                bool effectObserved = false;
+                bool locksReleased = false;
+                bool reentryCompleted = false;
+                DuplicateMergeMaintenanceReceipt reentryReceipt = null;
+                dialogService.OnShow = () =>
+                {
+                    if (effectObserved)
+                    {
+                        return;
+                    }
+
+                    effectObserved = true;
+                    locksReleased = !library.IsWriteLockHeldInitializeAll
+                        && !library.IsWriteLockHeldInitializeMin
+                        && !library.IsWriteLockHeldInitializeBMSFiles
+                        && !library.IsWriteLockHeldPendingInstallCharts
+                        && !library.IsWriteLockHeldDuplicateChartGroups;
+                    reentryReceipt = library.MergeChartDirectory(reentrySrcDir, reentryDstDir, operationId: 2);
+                    reentryCompleted = true;
+                };
+
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
+
+                Assert.IsTrue(effectObserved);
+                Assert.IsTrue(locksReleased);
+                Assert.IsTrue(reentryCompleted);
+                Assert.IsNotNull(reentryReceipt);
+                Assert.IsTrue(reentryReceipt.MergeApplied);
+                Assert.AreEqual(1, dialogService.ShowCount);
+                Assert.IsFalse(receipt.MergeApplied);
+                Assert.IsNotNull(receipt.MutationReceipt);
+                Assert.IsFalse(receipt.MutationReceipt.DurableCommit);
+                Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.MutationReceipt.TerminalState);
+                Assert.IsTrue(File.Exists(srcChartPath));
+                Assert.IsFalse(File.Exists(Path.Combine(dstDir, "chart.bmson")));
+                using var verify = new LR2SongDBExtended(songDbPath);
+                Assert.IsNotNull(verify.Find<LR2SongDBExtended.bmson_song>(srcChartPath));
+                Assert.IsNull(verify.Find<LR2SongDBExtended.bmson_song>(Path.Combine(dstDir, "chart.bmson")));
+                Assert.IsNotNull(verify.Find<LR2SongDBExtended.bmson_song>(Path.Combine(reentryDstDir, "reentry.bmson")));
             }
             finally
             {
@@ -679,14 +801,30 @@ public sealed class BmsLibraryDuplicateServiceTests
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService
     {
+        public Action OnShow { get; set; }
+
+        public bool ThrowOnShow { get; set; }
+
+        public int ShowCount { get; private set; }
+
         public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
+            ShowCount++;
+            OnShow?.Invoke();
+            if (ThrowOnShow)
+            {
+                throw new InvalidOperationException("The test dialog effect failed.");
+            }
             return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
         }
     }
 
     private sealed class TestFileMutationService : IFileMutationService
     {
+        public int FailNextMutationCount { get; set; }
+
+        public Action<string> AfterDeleteDirectory { get; set; }
+
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -697,6 +835,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
+            ThrowForConfiguredMutation();
             string destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
@@ -715,6 +854,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
+            ThrowForConfiguredMutation();
             string destinationParent = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationParent))
             {
@@ -733,6 +873,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
+            ThrowForConfiguredMutation();
             string destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
@@ -743,6 +884,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
+            ThrowForConfiguredMutation();
             Directory.CreateDirectory(destinationPath);
             foreach (string directoryPath in Directory.GetDirectories(sourcePath, "*", System.IO.SearchOption.AllDirectories))
             {
@@ -774,6 +916,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             if (Directory.Exists(directoryPath))
             {
                 Directory.Delete(directoryPath, recursive);
+                AfterDeleteDirectory?.Invoke(directoryPath);
             }
         }
 
@@ -784,6 +927,17 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         public void SetTimestamps(string path, bool isDirectory, System.DateTime? creationTime, System.DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
+        }
+
+        private void ThrowForConfiguredMutation()
+        {
+            if (FailNextMutationCount <= 0)
+            {
+                return;
+            }
+
+            FailNextMutationCount--;
+            throw new IOException("The test file mutation failed.");
         }
     }
 }

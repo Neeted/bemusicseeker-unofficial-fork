@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -237,6 +238,176 @@ public sealed class BmsLibraryInitializationInstallTests
     }
 
     [TestMethod]
+    public void LoadInstallTable_CanonicalPathFirstWinsAndStartupCleanupConvergesDatabase()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string validPackagePath = Path.Combine(lr2RootPath, "CanonicalPending");
+            Directory.CreateDirectory(validPackagePath);
+            File.WriteAllText(
+                Path.Combine(validPackagePath, "chart.bms"),
+                CreateValidBmsText("Canonical pending"),
+                Encoding.ASCII);
+            string duplicateAliasPath = Path.Combine(validPackagePath, ".");
+            string noChartPackagePath = Path.Combine(lr2RootPath, "NoChartPending");
+            Directory.CreateDirectory(noChartPackagePath);
+            string missingPackagePath = Path.Combine(lr2RootPath, "MissingPending");
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(new ChartPackage { path = validPackagePath }, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(new ChartPackage { path = duplicateAliasPath }, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(new ChartPackage { path = noChartPackagePath }, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(new ChartPackage { path = missingPackagePath }, typeof(LR2SongDBExtended.install));
+            }
+
+            var dbGateway = new BmsLibraryDbGateway(songDbPath);
+            var packageLifecycleOwner = new PackageLifecycleOwner(
+                dbGateway,
+                new TestUiScheduler(() => null!),
+                (_, _) => { },
+                _ => { },
+                _ => { },
+                packages => new ObservableCollection<ChartPackage>(packages ?? []),
+                () => { },
+                _ => { });
+            InstallTableLoadResult result = packageLifecycleOwner.ReloadInstallTable(
+                new BmsLibraryInitializationService(),
+                dbGateway,
+                _ => false);
+
+            string canonicalValidPackagePath = LongPathFileSystem.TrimTrailingDirectorySeparators(
+                LongPathFileSystem.NormalizePathForStorage(validPackagePath));
+            Assert.AreEqual(1, result.PendingPackages.Count);
+            Assert.AreEqual(canonicalValidPackagePath, result.PendingPackages[0].path);
+            CollectionAssert.AreEquivalent(
+                new[] { duplicateAliasPath, noChartPackagePath, missingPackagePath },
+                result.StaleInstallPaths);
+
+            List<ChartPackage> remainingInstallRows = dbGateway.LoadInstallPackages();
+            Assert.AreEqual(1, remainingInstallRows.Count);
+            Assert.AreEqual(canonicalValidPackagePath, remainingInstallRows[0].path);
+            Assert.AreEqual(1, packageLifecycleOwner.PendingPackages.Count);
+            Assert.AreEqual(canonicalValidPackagePath, packageLifecycleOwner.PendingPackages[0].path);
+            CollectionAssert.AreEquivalent(
+                result.PendingPackages[0].ChartEntries
+                    .Select(entry => entry.Chart?.Path)
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .ToArray(),
+                packageLifecycleOwner.PendingPackages[0].ChartEntries
+                    .Select(entry => entry.Chart?.Path)
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .ToArray());
+        });
+    }
+
+    [TestMethod]
+    public void LoadInstallTable_SoleNonCanonicalSurvivorConvergesDatabaseBeforePendingPublication()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string packagePath = Path.Combine(lr2RootPath, "SoleAliasPending");
+            Directory.CreateDirectory(packagePath);
+            File.WriteAllText(
+                Path.Combine(packagePath, "chart.bms"),
+                CreateValidBmsText("Sole alias pending"),
+                Encoding.ASCII);
+            string rawAliasPath = Path.Combine(packagePath, ".");
+            string caseOnlyPackagePath = Path.Combine(lr2RootPath, "solealiaspending");
+            string caseOnlyAliasPath = Path.Combine(caseOnlyPackagePath, ".");
+            string canonicalPackagePath = LongPathFileSystem.TrimTrailingDirectorySeparators(
+                LongPathFileSystem.NormalizePathForStorage(packagePath));
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(new ChartPackage
+                {
+                    path = rawAliasPath,
+                    delete_parent = true
+                }, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(new ChartPackage
+                {
+                    path = caseOnlyPackagePath
+                }, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(new ChartPackage
+                {
+                    path = caseOnlyAliasPath
+                }, typeof(LR2SongDBExtended.install));
+            }
+
+            var dbGateway = new BmsLibraryDbGateway(songDbPath);
+            var packageLifecycleOwner = new PackageLifecycleOwner(
+                dbGateway,
+                new TestUiScheduler(() => null!),
+                (_, _) => { },
+                _ => { },
+                _ => { },
+                packages => new ObservableCollection<ChartPackage>(packages ?? []),
+                () => { },
+                _ => { });
+            InstallTableLoadResult result = packageLifecycleOwner.ReloadInstallTable(
+                new BmsLibraryInitializationService(),
+                dbGateway,
+                _ => false);
+
+            Assert.AreEqual(2, result.PendingPackages.Count);
+            Assert.IsTrue(result.PendingPackages.Any(package =>
+                string.Equals(package.path, canonicalPackagePath, StringComparison.Ordinal)));
+            Assert.IsTrue(result.PendingPackages.Any(package =>
+                string.Equals(package.path, caseOnlyPackagePath, StringComparison.Ordinal)));
+            Assert.AreEqual(2, result.StaleInstallPaths.Count);
+            Assert.IsTrue(result.StaleInstallPaths.Any(path =>
+                string.Equals(path, rawAliasPath, StringComparison.Ordinal)));
+            Assert.IsTrue(result.StaleInstallPaths.Any(path =>
+                string.Equals(path, caseOnlyAliasPath, StringComparison.Ordinal)));
+            Assert.AreEqual(2, packageLifecycleOwner.PendingPackages.Count);
+            ChartPackage canonicalPendingPackage = packageLifecycleOwner.PendingPackages.Single(package =>
+                string.Equals(package.path, canonicalPackagePath, StringComparison.Ordinal));
+            Assert.IsTrue(canonicalPendingPackage.delete_parent);
+            Assert.IsTrue(packageLifecycleOwner.PendingPackages.Any(package =>
+                string.Equals(package.path, caseOnlyPackagePath, StringComparison.Ordinal)));
+
+            List<ChartPackage> remainingInstallRows = dbGateway.LoadInstallPackages();
+            Assert.AreEqual(2, remainingInstallRows.Count);
+            ChartPackage canonicalInstallRow = remainingInstallRows.Single(row =>
+                string.Equals(row.path, canonicalPackagePath, StringComparison.Ordinal));
+            Assert.IsNotNull(remainingInstallRows.SingleOrDefault(row =>
+                string.Equals(row.path, caseOnlyPackagePath, StringComparison.Ordinal)));
+            Assert.IsFalse(remainingInstallRows.Any(row =>
+                string.Equals(row.path, rawAliasPath, StringComparison.Ordinal)));
+            Assert.IsFalse(remainingInstallRows.Any(row =>
+                string.Equals(row.path, caseOnlyAliasPath, StringComparison.Ordinal)));
+            Assert.IsTrue(canonicalInstallRow.delete_parent);
+
+            var followOnPackage = new ChartPackage
+            {
+                path = Path.Combine(lr2RootPath, "FollowOnPackage"),
+                delete_parent = false
+            };
+            packageLifecycleOwner.ApplyPendingPackageMutationDelta(
+                new PendingPackageMutationDelta
+                {
+                    HasChanges = true,
+                    RemainingPackages = [.. packageLifecycleOwner.PendingPackages]
+                },
+                packagesToAdd: [followOnPackage],
+                installRowsToUpsert: [followOnPackage]);
+
+            Assert.AreEqual(3, packageLifecycleOwner.PendingPackages.Count);
+            Assert.IsTrue(packageLifecycleOwner.PendingPackages.Any(package =>
+                string.Equals(package.path, followOnPackage.path, StringComparison.Ordinal)));
+            remainingInstallRows = dbGateway.LoadInstallPackages();
+            Assert.AreEqual(3, remainingInstallRows.Count);
+            Assert.IsNotNull(remainingInstallRows.SingleOrDefault(row =>
+                string.Equals(row.path, followOnPackage.path, StringComparison.Ordinal)));
+        });
+    }
+
+    [TestMethod]
     public void LoadInstallTable_DatabaseFailureIsPropagated()
     {
         string missingSongDbPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MissingInitTests_" + Guid.NewGuid().ToString("N"), "song.db");
@@ -423,26 +594,321 @@ public sealed class BmsLibraryInitializationInstallTests
                 }, typeof(LR2SongDB.folder));
             }
 
-            var dialogService = new RecordingDialogService
-            {
-                ResultToReturn = MessageBoxResult.Yes
-            };
             var fileMutationService = new RecordingFileMutationService();
             var service = new BmsLibraryInitializationService();
 
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                dialogService,
+                null,
                 fileMutationService,
                 null,
                 ex => ex.Message);
 
             Assert.IsTrue(result.LeapYearDetected);
+            Assert.AreEqual(1, result.LeapYearRepairCandidates.Count);
+            Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
+            Assert.IsFalse(result.UpdatedFolders.Any(folder => string.Equals(folder.path, folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+            Assert.AreEqual(folderPath + Path.DirectorySeparatorChar, result.LeapYearRepairCandidates[0].OriginalFolderPath);
+            Assert.AreEqual(folderPath, result.LeapYearRepairCandidates[0].Path);
+        });
+    }
+
+    [TestMethod]
+    public void LeapYearFolderRepair_RevalidatesApprovedCandidateAndPersistsAfterTimestampMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string folderPath = Path.Combine(lr2RootPath, "Songs", "LeapYearRepair");
+            Directory.CreateDirectory(folderPath);
+            Directory.SetLastWriteTime(folderPath, new DateTime(2024, 2, 29, 12, 0, 0));
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = folderPath + Path.DirectorySeparatorChar,
+                    title = "LeapYearRepair",
+                    parent = "e2977170",
+                    type = 1,
+                    date = null,
+                    adddate = 0
+                }, typeof(LR2SongDB.folder));
+            }
+
+            var service = new BmsLibraryInitializationService();
+            SongTableLoadResult loadResult = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                null,
+                null,
+                null,
+                exception => exception.Message);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = loadResult.LeapYearRepairCandidates;
+            Assert.AreEqual(1, candidates.Count);
+            Assert.AreEqual(folderPath, candidates[0].Path);
+
+            var fileMutationService = new RecordingFileMutationService();
+            LeapYearFolderRepairResult repair = service.RepairLeapYearFolderTimestamps(
+                new BmsLibraryDbGateway(songDbPath),
+                candidates,
+                fileMutationService,
+                null,
+                exception => exception.Message);
+
+            Assert.AreEqual(1, repair.RepairedCount);
+            Assert.AreEqual(folderPath, repair.RepairedPaths.Single());
+            Assert.AreEqual(0, repair.Failures.Count);
             Assert.AreEqual(1, fileMutationService.TimestampCalls.Count);
             Assert.AreEqual(folderPath, fileMutationService.TimestampCalls[0].Path);
-            Assert.IsTrue(result.UpdatedFolders.Any(folder => string.Equals(folder.path, folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
-            Assert.IsTrue(dialogService.Calls.Any(call => call.Button == MessageBoxButton.YesNo));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
+            Assert.IsNull(persistedFolder.adddate);
+            Assert.IsNull(persistedFolder.date);
+        });
+    }
+
+    [TestMethod]
+    public void LeapYearFolderRepair_SkipsCandidateWhenTimestampChangesAfterCapture()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string folderPath = Path.Combine(lr2RootPath, "Songs", "LeapYearReplacement");
+            Directory.CreateDirectory(folderPath);
+            Directory.SetLastWriteTime(folderPath, new DateTime(2024, 2, 29, 12, 0, 0));
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = folderPath + Path.DirectorySeparatorChar,
+                    title = "LeapYearReplacement",
+                    parent = "e2977170",
+                    type = 1,
+                    date = null,
+                    adddate = 0
+                }, typeof(LR2SongDB.folder));
+            }
+
+            var service = new BmsLibraryInitializationService();
+            SongTableLoadResult loadResult = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                null,
+                null,
+                null,
+                exception => exception.Message);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = loadResult.LeapYearRepairCandidates;
+            Assert.AreEqual(1, candidates.Count);
+
+            // March 1 is still inside the legacy leap-year sentinel window,
+            // so checking only the current predicate would incorrectly repair
+            // this replacement.
+            Directory.SetLastWriteTime(folderPath, new DateTime(2024, 3, 1, 12, 0, 0));
+            var fileMutationService = new RecordingFileMutationService();
+            LeapYearFolderRepairResult repair = service.RepairLeapYearFolderTimestamps(
+                new BmsLibraryDbGateway(songDbPath),
+                candidates,
+                fileMutationService,
+                null,
+                exception => exception.Message);
+
+            Assert.AreEqual(0, repair.RepairedCount);
+            Assert.AreEqual(0, repair.Failures.Count);
+            Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
+            Assert.AreEqual(0, persistedFolder.adddate);
+            Assert.IsNull(persistedFolder.date);
+        });
+    }
+
+    [TestMethod]
+    public void LeapYearFolderRepair_MissingMutationServiceFailsWithoutPersistingCatalogUpdate()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string folderPath = Path.Combine(lr2RootPath, "Songs", "LeapYearMissingMutationService");
+            Directory.CreateDirectory(folderPath);
+            Directory.SetLastWriteTime(folderPath, new DateTime(2024, 2, 29, 12, 0, 0));
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = folderPath + Path.DirectorySeparatorChar,
+                    title = "LeapYearMissingMutationService",
+                    parent = "e2977170",
+                    type = 1,
+                    date = null,
+                    adddate = 0
+                }, typeof(LR2SongDB.folder));
+            }
+
+            var service = new BmsLibraryInitializationService();
+            SongTableLoadResult loadResult = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                null,
+                null,
+                null,
+                exception => exception.Message);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = loadResult.LeapYearRepairCandidates;
+            LeapYearFolderRepairResult repair = service.RepairLeapYearFolderTimestamps(
+                new BmsLibraryDbGateway(songDbPath),
+                candidates,
+                fileMutationService: null,
+                targetOnlyFileMutationOptions: null,
+                getDisplayedExceptionMessage: exception => exception.Message);
+
+            Assert.AreEqual(0, repair.RepairedCount);
+            Assert.AreEqual(1, repair.Failures.Count);
+            Assert.AreEqual(folderPath, repair.Failures[0].Path);
+            Assert.IsNotNull(repair.Failures[0].Exception);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
+            Assert.AreEqual(0, persistedFolder.adddate);
+            Assert.IsNull(persistedFolder.date);
+        });
+    }
+
+    [TestMethod]
+    public void Initialize_SkipsApprovedLeapYearFolderWhenCatalogIdentityChangesBeforeAdmission()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string folderPath = Path.Combine(lr2RootPath, "Songs", "PublicReplacement");
+            Directory.CreateDirectory(folderPath);
+            Directory.SetLastWriteTime(folderPath, new DateTime(2024, 2, 29, 12, 0, 0));
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = folderPath + Path.DirectorySeparatorChar,
+                    title = "PublicReplacement",
+                    parent = "e2977170",
+                    type = 1,
+                    date = null,
+                    adddate = 0
+                }, typeof(LR2SongDB.folder));
+            }
+
+            var dialogService = new RecordingDialogService
+            {
+                ResultToReturn = MessageBoxResult.Yes
+            };
+            dialogService.OnShow = dialogCall =>
+            {
+                if (dialogCall.Button == MessageBoxButton.YesNo)
+                {
+                    using var replacementDb = new LR2SongDBExtended(songDbPath);
+                    LR2SongDB.folder replacement = replacementDb.Table<LR2SongDB.folder>().Single();
+                    replacement.title = "PublicReplacementUpdated";
+                    replacementDb.InsertOrReplace(replacement, typeof(LR2SongDB.folder));
+                }
+            };
+            var fileMutationService = new RecordingFileMutationService();
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                fileMutationService,
+                dialogService,
+                new TestUiScheduler(() => null!),
+                () => CreateInitializationOptions(lr2RootPath));
+            library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+
+            Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
+            Assert.AreEqual(0, persistedFolder.adddate);
+            Assert.IsNull(persistedFolder.date);
+        });
+    }
+
+    [TestMethod]
+    public void Initialize_RepairsStableLeapYearFolderBeforeDeferredDialogAndAllowsReentry()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string folderPath = Path.Combine(lr2RootPath, "Songs", "PublicStable");
+            Directory.CreateDirectory(folderPath);
+            Directory.SetLastWriteTime(folderPath, new DateTime(2024, 2, 29, 12, 0, 0));
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = folderPath + Path.DirectorySeparatorChar,
+                    title = "PublicStable",
+                    parent = "e2977170",
+                    type = 1,
+                    date = null,
+                    adddate = 0
+                }, typeof(LR2SongDB.folder));
+            }
+
+            var dialogService = new RecordingDialogService
+            {
+                ResultToReturn = MessageBoxResult.Yes
+            };
+            var fileMutationService = new RecordingFileMutationService();
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                fileMutationService,
+                dialogService,
+                new TestUiScheduler(() => null!),
+                () => CreateInitializationOptions(lr2RootPath));
+            library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+            bool timestampObservedWithoutModelGuards = false;
+            bool callbackAfterReleaseObserved = false;
+            fileMutationService.OnSetTimestamps = _ =>
+            {
+                timestampObservedWithoutModelGuards = !library.IsWriteLockHeldInitializeAll
+                    && !library.IsWriteLockHeldInitializeMin
+                    && !library.IsWriteLockHeldInitializeBMSFiles;
+            };
+            dialogService.OnShow = dialogCall =>
+            {
+                if (dialogCall.Button == MessageBoxButton.OK && dialogService.Calls.Count > 1)
+                {
+                    callbackAfterReleaseObserved = true;
+                    Assert.IsFalse(library.IsWriteLockHeldInitializeAll);
+                    Assert.IsFalse(library.IsWriteLockHeldInitializeMin);
+                    Assert.IsFalse(library.IsWriteLockHeldInitializeBMSFiles);
+                    library.InitializeScoresOnly(null);
+                }
+            };
+
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+
+            Assert.AreEqual(1, fileMutationService.TimestampCalls.Count);
+            Assert.IsTrue(timestampObservedWithoutModelGuards);
+            Assert.IsTrue(callbackAfterReleaseObserved);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
+            Assert.IsNull(persistedFolder.adddate);
+            Assert.IsNull(persistedFolder.date);
         });
     }
 
@@ -476,6 +942,21 @@ public sealed class BmsLibraryInitializationInstallTests
             Assert.AreEqual(1, result.SingleFileWarningCount);
             Assert.IsTrue(result.PendingPackages[0].ChartEntries[0].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.SingleBmsonFile));
         });
+    }
+
+    private static BmsLibraryOptionsSnapshot CreateInitializationOptions(string lr2RootPath)
+    {
+        return new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = true,
+            LR2RootPath = lr2RootPath,
+            ScanBmsFilesOnStartup = false,
+            UpdateLr2IrRankingCacheOnStartup = false,
+            EnableDownloadLr2IrScoreAndDetectUnsent = false,
+            UseBeatorajaScoreDb = false,
+            EnableReadOptimizedPragmas = false,
+            PendingInstallEstimateMaxParallelPackages = 1
+        };
     }
 
 }

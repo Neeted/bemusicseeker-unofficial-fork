@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -965,6 +966,100 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(2, updatedSnapshot.TargetCount);
             Assert.IsFalse(updatedSnapshot.GetProjection(targetChart).HasIssues);
             Assert.AreEqual(1, updatedSnapshot.ActiveTargets.Count);
+        });
+    }
+
+    [TestMethod]
+    public void RescanAllOwnedChartMaintenance_ContinuesAfterChartNotificationFailure()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string root = Path.GetDirectoryName(songDbPath);
+            string firstPath = Path.Combine(root, "first.bms");
+            string secondPath = Path.Combine(root, "second.bms");
+            File.WriteAllText(
+                firstPath,
+                "#PLAYER 1\r\n#TITLE first\r\n#WAV01 missing.wav\r\n#00111:01\r\n",
+                Encoding.ASCII);
+            File.WriteAllText(
+                secondPath,
+                "#PLAYER 1\r\n#TITLE second\r\n#WAV01 missing.wav\r\n#00111:01\r\n",
+                Encoding.ASCII);
+
+            TestableBmsFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            first.path = firstPath;
+            first.WAVfiles = ["missing.wav"];
+            first.SetMaintenanceInfo(new BMSFileMaintenanceInfo(first)
+            {
+                hash = first.hash,
+                wav_files_defined = 0,
+                wav_files_existing = 0,
+                bga_files_defined = 0,
+                bga_files_existing = 0,
+                movie_files_defined = 0,
+                movie_files_existing = 0,
+                is_stagefile_defined = false,
+                is_stagefile_existing = false,
+                is_banner_defined = false,
+                is_banner_existing = false,
+                is_backbmp_defined = false,
+                is_backbmp_existing = false,
+                encoding = "shift_jis",
+                is_encoding_fixed = true
+            }, suppressPropertyChanged: true);
+            TestableBmsFile second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            second.path = secondPath;
+            second.WAVfiles = ["missing.wav"];
+            second.SetMaintenanceInfo(new BMSFileMaintenanceInfo(second)
+            {
+                hash = second.hash,
+                wav_files_defined = 0,
+                wav_files_existing = 0,
+                bga_files_defined = 0,
+                bga_files_existing = 0,
+                movie_files_defined = 0,
+                movie_files_existing = 0,
+                is_stagefile_defined = false,
+                is_stagefile_existing = false,
+                is_banner_defined = false,
+                is_banner_existing = false,
+                is_backbmp_defined = false,
+                is_backbmp_existing = false,
+                encoding = "shift_jis",
+                is_encoding_fixed = true
+            }, suppressPropertyChanged: true);
+
+            var library = new TestBmsLibrary(songDbPath);
+            SetStorageRows(library, [first, second], []);
+            int firstNotificationCount = 0;
+            int secondNotificationCount = 0;
+            first.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSFile.maintenanceInfo))
+                {
+                    Interlocked.Increment(ref firstNotificationCount);
+                    throw new InvalidOperationException("first maintenance subscriber failure");
+                }
+            };
+            second.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSFile.maintenanceInfo))
+                {
+                    Interlocked.Increment(ref secondNotificationCount);
+                }
+            };
+            var progress = new List<MaintenanceWorkflowProgress>();
+
+            MaintenanceWorkflowResult result = library.RescanAllOwnedChartMaintenance(progress.Add);
+
+            Assert.IsTrue(result.HasUpdates);
+            Assert.AreEqual(1, Volatile.Read(ref firstNotificationCount));
+            Assert.AreEqual(1, Volatile.Read(ref secondNotificationCount));
+            Assert.IsTrue(progress.Any(update => update?.IsCompleted == true));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", firstPath));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", secondPath));
         });
     }
 

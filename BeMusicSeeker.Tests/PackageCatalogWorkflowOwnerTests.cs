@@ -311,18 +311,19 @@ public sealed class PackageCatalogWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task ClearAllAsync_WaitsForSharedChartFileGate()
+    public async Task ClearAllAsync_FailsFastWhenSharedChartFileGateIsBusyThenRunsAfterRelease()
     {
         var synchronizer = new ChartFileOperationSynchronizer();
         var events = new List<string>();
         var store = new RecordingStore(events);
         var phaseObserver = new RecordingPhaseObserver(events);
         ChartMutationActivityOwner activity = new();
+        var dialogs = AcceptedDialogs();
         var owner = new PackageCatalogWorkflowOwner(
             CreateLibrary,
             synchronizer,
             activity,
-            AcceptedDialogs(),
+            dialogs,
             mutation => Task.Factory.StartNew(
                 mutation,
                 CancellationToken.None,
@@ -331,35 +332,22 @@ public sealed class PackageCatalogWorkflowOwnerTests
             store);
         owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
         activity.ActivityChanged += phaseObserver.OnActivityChanged;
-        using var gateHeld = new ManualResetEventSlim();
-        using var releaseGate = new ManualResetEventSlim();
-        var gateThread = new Thread(() =>
-        {
-            using (synchronizer.Enter())
-            {
-                gateHeld.Set();
-                releaseGate.Wait();
-            }
-        });
-        gateThread.Start();
-        Assert.IsTrue(gateHeld.Wait(TimeSpan.FromSeconds(5)));
-
-        Task<PackageCatalogMutationResult> removal = owner.ClearAllAsync(PackageCatalogSection.Installed);
+        Assert.IsTrue(synchronizer.TryEnter(out IDisposable incumbent));
         try
         {
-            Task activityStarted = phaseObserver.ActivityStarted;
-            Assert.AreSame(
-                activityStarted,
-                await Task.WhenAny(activityStarted, Task.Delay(TimeSpan.FromSeconds(5))));
-            Assert.IsFalse(removal.IsCompleted);
+            PackageCatalogMutationResult removal = await owner.ClearAllAsync(PackageCatalogSection.Installed);
+            Assert.IsFalse(removal.Succeeded);
+            Assert.IsFalse(removal.ShouldApplyView);
             Assert.AreEqual(0, store.RemoveAllCount);
+            Assert.IsNull(dialogs.ConfirmationRequest);
+            CollectionAssert.AreEqual(Array.Empty<string>(), events);
         }
         finally
         {
-            releaseGate.Set();
-            gateThread.Join();
+            incumbent.Dispose();
         }
-        PackageCatalogMutationResult result = await removal;
+
+        PackageCatalogMutationResult result = await owner.ClearAllAsync(PackageCatalogSection.Installed);
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(1, store.RemoveAllCount);
     }

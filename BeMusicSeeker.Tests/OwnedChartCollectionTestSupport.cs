@@ -89,7 +89,11 @@ internal static class OwnedChartCollectionTestSupport
         string reason,
         IEnumerable<ChartFile> charts)
     {
-        return library.BuildAndPersistInlineChartInfoForInstalledCharts(reason, charts);
+        using LibraryFileMutationLease mutationLease = library.TryBeginLibraryFileMutation(reason);
+        Assert.IsNotNull(mutationLease);
+        return library.BuildAndPersistInlineChartInfoForInstalledCharts(
+            reason,
+            charts);
     }
 
     internal static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)

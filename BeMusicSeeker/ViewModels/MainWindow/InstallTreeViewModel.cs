@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using BeMusicSeeker.Models;
 using Livet;
@@ -31,7 +32,7 @@ public sealed class InstallTreeViewModel : ViewModel
     /// <summary>
     /// Gets the pending package collection exposed to the tree view.
     /// </summary>
-    public ObservableCollection<ChartPackage> ChartPackagesPending
+    public IReadOnlyCollection<ChartPackage> ChartPackagesPending
         => library?.ChartPackagesPending;
 
     /// <summary>
@@ -125,11 +126,11 @@ public sealed class InstallTreeViewModel : ViewModel
     private void RebindPendingPackagesListener()
     {
         DisposeListener(ref pendingPackagesListener);
-        if (library?.ChartPackagesPending == null)
+        if (library?.PendingPackagesView == null)
         {
             return;
         }
-        pendingPackagesListener = new CollectionChangedEventListener(library.ChartPackagesPending);
+        pendingPackagesListener = new CollectionChangedEventListener(library.PendingPackagesView);
         pendingPackagesListener.RegisterHandler(
             (_, _) => PublishPresentationChanged(InstallTreePresentationSection.Pending));
     }

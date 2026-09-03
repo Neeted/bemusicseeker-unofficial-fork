@@ -19,6 +19,220 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryPackageLifecycleTests
 {
     [TestMethod]
+    public void PackageLifecycleOwner_PendingOperationAdmissionIsExclusiveAndReleases()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var owner = new PackageLifecycleOwner(
+                new BmsLibraryDbGateway(songDbPath),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                (_, _) => { },
+                _ => { },
+                _ => { },
+                packages => new ObservableCollection<ChartPackage>(packages ?? []),
+                () => { },
+                _ => { });
+
+            Assert.IsTrue(owner.TryEnterPendingOperation(out IDisposable firstLease));
+            try
+            {
+                Assert.IsFalse(owner.TryEnterPendingOperation(out IDisposable competingLease));
+                Assert.IsNull(competingLease);
+            }
+            finally
+            {
+                firstLease.Dispose();
+            }
+
+            Assert.IsTrue(owner.TryEnterPendingOperation(out IDisposable releasedLease));
+            releasedLease.Dispose();
+        });
+    }
+
+    [TestMethod]
+    public void ApplyPendingPackageMutationDelta_RejectsCanonicalDuplicateBeforeDurableMutation()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var existingPackage = new ChartPackage
+            {
+                path = "C:\\Pending\\Existing",
+                delete_parent = false
+            };
+            var duplicatePackage = new ChartPackage
+            {
+                path = "C:\\Pending\\Existing\\.",
+                delete_parent = false
+            };
+            ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([existingPackage]);
+            ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
+            var callbacks = new TrackingCallbacks();
+            PackageStateMutationApplier applier = CreateStateApplier(
+                songDbPath,
+                callbacks,
+                () => pendingPackages,
+                packages => pendingPackages = packages,
+                () => installedPackages,
+                packages => installedPackages = packages);
+
+            Assert.ThrowsException<InvalidOperationException>(() => applier.ApplyPendingPackageMutationDelta(
+                new PendingPackageMutationDelta
+                {
+                    HasChanges = true,
+                    RemainingPackages = [existingPackage]
+                },
+                packagesToAdd: [duplicatePackage],
+                installRowsToUpsert: [duplicatePackage]));
+
+            Assert.AreEqual(1, pendingPackages.Count);
+            Assert.AreSame(existingPackage, pendingPackages[0]);
+            Assert.AreEqual("C:\\Pending\\Existing", existingPackage.path);
+            Assert.AreEqual(0, callbacks.PendingPackagesSetCount);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            verifySongDb.CreateTable<LR2SongDBExtended.install>();
+            Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
+        });
+    }
+
+    [TestMethod]
+    public void ApplyPendingPackageMutationDelta_RejectsRepeatedCandidatePackageReferenceBeforeDurableMutation()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var package = new ChartPackage
+            {
+                path = "C:\\Pending\\Repeated",
+                delete_parent = false
+            };
+            ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+            ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
+            var callbacks = new TrackingCallbacks();
+            PackageStateMutationApplier applier = CreateStateApplier(
+                songDbPath,
+                callbacks,
+                () => pendingPackages,
+                packages => pendingPackages = packages,
+                () => installedPackages,
+                packages => installedPackages = packages);
+
+            Assert.ThrowsException<InvalidOperationException>(() => applier.ApplyPendingPackageMutationDelta(
+                new PendingPackageMutationDelta
+                {
+                    HasChanges = true,
+                    RemainingPackages = [package, package]
+                },
+                installRowsToUpsert: [package]));
+
+            Assert.AreEqual(0, pendingPackages.Count);
+            Assert.AreEqual(0, callbacks.PendingPackagesSetCount);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            verifySongDb.CreateTable<LR2SongDBExtended.install>();
+            Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
+        });
+    }
+
+    [TestMethod]
+    public void ApplyPendingPackageMutationDelta_DurableFailureLeavesLivePackagePathUnchanged()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var livePackage = new ChartPackage
+            {
+                path = "C:\\Pending\\Live\\.",
+                delete_parent = false
+            };
+            var detachedPackage = new ChartPackage
+            {
+                path = "C:\\Pending\\Detached",
+                delete_parent = false
+            };
+            ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([livePackage]);
+            ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
+            var callbacks = new TrackingCallbacks();
+            PackageStateMutationApplier applier = CreateStateApplier(
+                Path.Combine(songDbPath, "missing", "song.db"),
+                callbacks,
+                () => pendingPackages,
+                packages => pendingPackages = packages,
+                () => installedPackages,
+                packages => installedPackages = packages);
+
+            Assert.ThrowsException<SQLite.SQLiteException>(() => applier.ApplyPendingPackageMutationDelta(
+                new PendingPackageMutationDelta
+                {
+                    HasChanges = true,
+                    RemainingPackages = [livePackage]
+                },
+                packagesToAdd: [detachedPackage],
+                installRowsToUpsert: [detachedPackage]));
+
+            Assert.AreEqual("C:\\Pending\\Live\\.", livePackage.path);
+            Assert.AreEqual(1, pendingPackages.Count);
+            Assert.AreSame(livePackage, pendingPackages.Single());
+            Assert.AreEqual(0, callbacks.PendingPackagesSetCount);
+        });
+    }
+
+    [TestMethod]
+    public void ReplacePendingPackagesWithRegroupedPackage_RejectsCanonicalCollisionBeforeDbMutation()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var firstSource = new ChartPackage
+            {
+                path = "C:\\Pending\\First",
+                delete_parent = false
+            };
+            var secondSource = new ChartPackage
+            {
+                path = "C:\\Pending\\Second",
+                delete_parent = false
+            };
+            var existingPackage = new ChartPackage
+            {
+                path = "C:\\Pending\\Existing",
+                delete_parent = false
+            };
+            var regroupedPackage = new ChartPackage
+            {
+                path = "C:\\Pending\\Existing\\.",
+                delete_parent = false
+            };
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(firstSource, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(secondSource, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(existingPackage, typeof(LR2SongDBExtended.install));
+            }
+
+            var owner = new PackageLifecycleOwner(
+                new BmsLibraryDbGateway(songDbPath),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                (_, _) => { },
+                _ => { },
+                _ => { },
+                packages => new ObservableCollection<ChartPackage>(packages ?? []),
+                () => { },
+                _ => { });
+            owner.ReplacePendingPackages([firstSource, secondSource, existingPackage]);
+
+            Assert.ThrowsException<InvalidOperationException>(() => owner.ReplacePendingPackagesWithRegroupedPackage(
+                [firstSource, secondSource],
+                regroupedPackage));
+
+            CollectionAssert.AreEqual(
+                new[] { firstSource, secondSource, existingPackage },
+                owner.PendingPackages.ToArray());
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            verifySongDb.CreateTable<LR2SongDBExtended.install>();
+            CollectionAssert.AreEquivalent(
+                new[] { firstSource.path, secondSource.path, existingPackage.path },
+                verifySongDb.Table<ChartPackage>().Select(package => package.path).ToArray());
+        });
+    }
+
+    [TestMethod]
     public void PackageLifecycleOwner_SetPendingPackagesPublishesAfterCollectionMutationScope()
     {
         WithTemporarySongDb(delegate (string songDbPath)

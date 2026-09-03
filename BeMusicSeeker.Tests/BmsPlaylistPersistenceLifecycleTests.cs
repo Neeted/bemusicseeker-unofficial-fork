@@ -1160,6 +1160,203 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public async Task ReloadTables_BackgroundRepairBusyAdmissionIsNonInteractiveAndSideEffectFree()
+    {
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string lr2RootPath = Path.Combine(tempDirectory, "LR2");
+            string bmsRoot = Path.Combine(tempDirectory, "BMS");
+            string outputBaseDirectory = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            Directory.CreateDirectory(bmsRoot);
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2RootPath = lr2RootPath;
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDirectory;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            LR2Config config = CreateLr2Config(lr2RootPath, bmsRoot);
+            CustomFolderOutputSettingsSnapshot repairSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = lr2RootPath,
+                LR2CustomFolderOutputBaseDir = outputBaseDirectory,
+                LR2CustomFolderOutputBaseDirRootType = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            const int playlistId = 7611;
+            BMSTable persistedTable = new()
+            {
+                playlist_id = playlistId,
+                name = "Busy repair",
+                symbol = "BR",
+                Output_dir = "BusyRepair",
+                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Busy folder")],
+                Folder_order = ["Busy folder"]
+            };
+            foreach (BMSTableEntry entry in persistedTable.entries)
+            {
+                entry.playlist_id = playlistId;
+            }
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
+                foreach (BMSTableEntry entry in persistedTable.entries)
+                {
+                    seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+            }
+
+            var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                songDbPath,
+                CustomFolderOutputPhysicalSurface.Empty);
+            var admissionRequests = new List<(string Operation, bool ShowMessage)>();
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                () => config,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => repairSettings,
+                synchronization,
+                mutationLeaseProviderWithMessage: (operation, showMessage) =>
+                {
+                    admissionRequests.Add((operation, showMessage));
+                    return null;
+                })
+            {
+                BMSTables = new ObservableCollection<BMSTable>([persistedTable])
+            };
+
+            var scheduled = new List<(string Owner, Func<Task> Work)>();
+            playlist.StartupBackgroundTaskScheduler = (owner, _, _, work) =>
+            {
+                scheduled.Add((owner, work));
+                return true;
+            };
+
+            playlist.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
+            (string Owner, Func<Task> Work) hydrationWork = scheduled.Single(
+                item => item.Owner == "playlist_entries_hydration");
+            await hydrationWork.Work();
+            (string Owner, Func<Task> Work) repairWork = scheduled.Single(
+                item => item.Owner == "playlist_custom_folder_output_repair");
+
+            Dictionary<string, byte[]> SnapshotFiles()
+                => Directory.EnumerateFiles(tempDirectory, "*", SearchOption.AllDirectories)
+                    .Where(path => !string.Equals(path, songDbPath, StringComparison.OrdinalIgnoreCase)
+                        && !path.StartsWith(songDbPath + "-", StringComparison.OrdinalIgnoreCase))
+                    .ToDictionary(
+                        path => Path.GetRelativePath(tempDirectory, path),
+                        File.ReadAllBytes,
+                        StringComparer.OrdinalIgnoreCase);
+            string[] SnapshotDirectories()
+                => Directory.EnumerateDirectories(tempDirectory, "*", SearchOption.AllDirectories)
+                    .Select(path => Path.GetRelativePath(tempDirectory, path))
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+            (long PlaylistCount, string Name, string Symbol, string OutputDirectory,
+                long EntryCount, string EntryMd5, string EntryFolder, long FolderRowCount,
+                long StatusRowCount) SnapshotDatabase()
+            {
+                using var db = new LR2SongDBExtended(songDbPath);
+                return (
+                    db.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist WHERE playlist_id = ?;", playlistId),
+                    db.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = ?;", playlistId),
+                    db.ExecuteScalar<string>("SELECT symbol FROM playlist WHERE playlist_id = ?;", playlistId),
+                    db.ExecuteScalar<string>("SELECT output_dir FROM playlist WHERE playlist_id = ?;", playlistId),
+                    db.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = ?;", playlistId),
+                    db.ExecuteScalar<string>("SELECT md5 FROM playlist_entry WHERE playlist_id = ?;", playlistId),
+                    db.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ?;", playlistId),
+                    db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"),
+                    db.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_custom_folder_output_status;"));
+            }
+
+            Dictionary<string, byte[]> filesBeforeRepair = SnapshotFiles();
+            string[] directoriesBeforeRepair = SnapshotDirectories();
+            var databaseBeforeRepair = SnapshotDatabase();
+            int synchronizationOperationCountBeforeRepair = synchronization.Operations.Count;
+
+            static Task ExecuteCapturedWork(Func<Task> work)
+            {
+                try
+                {
+                    return work();
+                }
+                catch (Exception exception)
+                {
+                    return Task.FromException(exception);
+                }
+            }
+
+            Task repairTask = ExecuteCapturedWork(repairWork.Work);
+            Assert.IsTrue(
+                repairTask.IsCompleted,
+                "Busy background repair must terminalize immediately without waiting or scheduling a retry.");
+            try
+            {
+                await repairTask;
+            }
+            catch (InvalidOperationException)
+            {
+                // A busy background admission may fail explicitly or be mapped
+                // to a skipped terminal result, but it must never wait or retry.
+            }
+
+            Assert.AreEqual(1, admissionRequests.Count);
+            Assert.AreEqual("playlist_custom_folder_output_repair", admissionRequests[0].Operation);
+            Assert.IsFalse(admissionRequests[0].ShowMessage);
+            Assert.AreEqual(0, synchronization.Operations.Count - synchronizationOperationCountBeforeRepair);
+            Assert.AreEqual(databaseBeforeRepair, SnapshotDatabase());
+            CollectionAssert.AreEqual(directoriesBeforeRepair, SnapshotDirectories());
+            Dictionary<string, byte[]> filesAfterRepair = SnapshotFiles();
+            CollectionAssert.AreEquivalent(filesBeforeRepair.Keys.ToArray(), filesAfterRepair.Keys.ToArray());
+            foreach (string path in filesBeforeRepair.Keys)
+            {
+                CollectionAssert.AreEqual(filesBeforeRepair[path], filesAfterRepair[path], path);
+            }
+
+            BMSTable activeTable = playlist.BMSTables.Single();
+            Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFolder(activeTable));
+            Assert.AreEqual(2, admissionRequests.Count);
+            Assert.AreEqual("ReOutputCustomFolder", admissionRequests[1].Operation);
+            Assert.IsTrue(admissionRequests[1].ShowMessage);
+            Assert.AreEqual(0, synchronization.Operations.Count - synchronizationOperationCountBeforeRepair);
+            Assert.AreEqual(databaseBeforeRepair, SnapshotDatabase());
+            CollectionAssert.AreEqual(directoriesBeforeRepair, SnapshotDirectories());
+            filesAfterRepair = SnapshotFiles();
+            CollectionAssert.AreEquivalent(filesBeforeRepair.Keys.ToArray(), filesAfterRepair.Keys.ToArray());
+            foreach (string path in filesBeforeRepair.Keys)
+            {
+                CollectionAssert.AreEqual(filesBeforeRepair[path], filesAfterRepair[path], path);
+            }
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            Settings.Default.LR2RootPath = previousLr2RootPath;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void QueueDeferredPlaylistEntriesHydration_PublishesReceiptBeforeCompletionVersion()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));

@@ -429,10 +429,11 @@ public sealed class ResilientFileMutationServiceTests
     }
 
     /// <summary>
-    /// durable receipt 後は source cleanup を完了してから post-commit callback を呼ぶことを検証します。
+    /// durable DB commit 後の canonical finalizer は、同じ executor session 内で
+    /// source cleanup より前に一度だけ実行され、receipt には callback を保持しないことを検証します。
     /// </summary>
     [TestMethod]
-    public void FileDbMutationExecutor_DurableReceiptFinalizesBeforePostCommitCallback()
+    public void FileDbMutationExecutor_DurableFinalizerRunsBeforeCleanup()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -441,7 +442,8 @@ public sealed class ResilientFileMutationServiceTests
             File.WriteAllText(sourcePath, "source");
             FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
             bool callbackSawSource = false;
-            bool postCommitSawSource = true;
+            bool durableFinalizerSawSource = false;
+            int durableFinalizerInvocationCount = 0;
             var executor = new FileDbMutationExecutor(
                 plan,
                 resilientFileMutationService,
@@ -451,14 +453,47 @@ public sealed class ResilientFileMutationServiceTests
             FileDbMutationReceipt receipt = executor.Execute(() =>
             {
                 callbackSawSource = File.Exists(sourcePath);
-                return FileDbMutationCommitResult.Durable(() => postCommitSawSource = File.Exists(sourcePath));
+                return FileDbMutationCommitResult.Durable(() =>
+                {
+                    durableFinalizerInvocationCount++;
+                    durableFinalizerSawSource = File.Exists(sourcePath);
+                });
             });
 
             Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
             Assert.IsTrue(receipt.DurableCommit);
             Assert.AreEqual(0, receipt.CompensationAttemptCount);
             Assert.IsTrue(callbackSawSource);
-            Assert.IsFalse(postCommitSawSource);
+            Assert.AreEqual(1, durableFinalizerInvocationCount);
+            Assert.IsTrue(durableFinalizerSawSource);
+            Assert.IsFalse(File.Exists(sourcePath));
+            Assert.AreEqual("source", File.ReadAllText(destinationPath));
+        });
+    }
+
+    [TestMethod]
+    public void FileDbMutationExecutor_DurableFinalizerFailureKeepsDurableOutcome()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination.bms");
+            File.WriteAllText(sourcePath, "source");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
+            var executor = new FileDbMutationExecutor(
+                plan,
+                resilientFileMutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+                FileDbMutationCommitResult.Durable(() => throw new InvalidOperationException("deferred-effect")));
+
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.IsNotNull(receipt.Failure);
+            Assert.AreEqual("deferred-effect", receipt.Failure.Message);
+            Assert.AreEqual(0, receipt.CompensationAttemptCount);
             Assert.IsFalse(File.Exists(sourcePath));
             Assert.AreEqual("source", File.ReadAllText(destinationPath));
         });
@@ -481,16 +516,16 @@ public sealed class ResilientFileMutationServiceTests
                 new FailingDeleteFileMutationService(sourcePath),
                 targetOnlyFileMutationOptions,
                 recursiveDirectoryTreeFileMutationOptions);
-            bool postCommitCalled = false;
+            bool durableFinalizerCalled = false;
 
             FileDbMutationReceipt receipt = executor.Execute(() =>
-                FileDbMutationCommitResult.Durable(() => postCommitCalled = true));
+                FileDbMutationCommitResult.Durable(() => durableFinalizerCalled = true));
 
             Assert.AreEqual(FileDbMutationTerminalState.CompletedWithCleanupFailure, receipt.TerminalState);
             Assert.IsTrue(receipt.DurableCommit);
             Assert.AreEqual(0, receipt.CompensationAttemptCount);
             Assert.IsTrue(receipt.CleanupAttemptCount > 0);
-            Assert.IsTrue(postCommitCalled);
+            Assert.IsTrue(durableFinalizerCalled);
             Assert.IsTrue(File.Exists(sourcePath));
             Assert.AreEqual("source", File.ReadAllText(destinationPath));
         });

@@ -62,6 +62,324 @@ internal sealed class MovedFolderReferenceUpdateResult
 }
 
 /// <summary>
+/// Captures the identity needed by a legacy chart-file command while keeping
+/// the storage owner available only to the command owner for the later catalog
+/// delta.  The filesystem executor receives only the immutable projection.
+/// </summary>
+internal sealed class LibraryFileOperationTargetSnapshot
+{
+    private LibraryFileOperationTargetSnapshot(
+        ChartFile chartSnapshot,
+        BMSFile bmsOwner,
+        LR2SongDBExtended.bmson_song bmsonOwner,
+        string sourcePath,
+        string md5,
+        string sha256,
+        bool sourceFileExisted,
+        bool sourceFileIsReparsePoint,
+        bool sourceFileSafetyFactsAvailable)
+    {
+        ChartSnapshot = chartSnapshot;
+        BmsOwner = bmsOwner;
+        BmsonOwner = bmsonOwner;
+        SourcePath = sourcePath;
+        Md5 = md5;
+        Sha256 = sha256;
+        SourceFileExisted = sourceFileExisted;
+        SourceFileIsReparsePoint = sourceFileIsReparsePoint;
+        SourceFileSafetyFactsAvailable = sourceFileSafetyFactsAvailable;
+    }
+
+    internal ChartFile ChartSnapshot { get; }
+
+    internal BMSFile BmsOwner { get; }
+
+    internal LR2SongDBExtended.bmson_song BmsonOwner { get; }
+
+    internal string SourcePath { get; }
+
+    internal string Md5 { get; }
+
+    internal string Sha256 { get; }
+
+    internal bool SourceFileExisted { get; }
+
+    internal bool SourceFileIsReparsePoint { get; }
+
+    internal bool SourceFileSafetyFactsAvailable { get; }
+
+    internal ChartFileKind Kind => ChartSnapshot?.Kind ?? (BmsonOwner != null ? ChartFileKind.Bmson : ChartFileKind.Bms);
+
+    internal string PrimaryHash => !string.IsNullOrWhiteSpace(Md5) ? Md5 : Sha256;
+
+    internal static LibraryFileOperationTargetSnapshot FromChart(ChartFile chart, bool captureSourceFileExistence = true)
+    {
+        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+        {
+            return null;
+        }
+
+        BMSFile bmsOwner = chart.GetBmsStorageOwner();
+        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
+        bool sourceFileExisted = !captureSourceFileExistence || LongPathFileSystem.FileExists(chart.Path);
+        bool sourceFileIsReparsePoint = false;
+        bool sourceFileSafetyFactsAvailable = !captureSourceFileExistence || !sourceFileExisted;
+        if (captureSourceFileExistence && sourceFileExisted)
+        {
+            try
+            {
+                sourceFileIsReparsePoint = (LongPathFileSystem.GetAttributes(chart.Path) & FileAttributes.ReparsePoint) != 0;
+                sourceFileSafetyFactsAvailable = true;
+            }
+            catch (Exception ex) when (ex is IOException
+                || ex is UnauthorizedAccessException
+                || ex is ArgumentException
+                || ex is NotSupportedException
+                || ex is SecurityException)
+            {
+                sourceFileSafetyFactsAvailable = false;
+            }
+        }
+        return new LibraryFileOperationTargetSnapshot(
+            ChartFileProjection.ToImmutableSnapshot(chart),
+            bmsOwner,
+            bmsonOwner,
+            chart.Path,
+            chart.Md5,
+            chart.Sha256,
+            sourceFileExisted,
+            sourceFileIsReparsePoint,
+            sourceFileSafetyFactsAvailable);
+    }
+
+    internal bool HasSameLiveIdentity(ChartFile chart)
+    {
+        if (chart == null || Kind != chart.Kind)
+        {
+            return false;
+        }
+
+        BMSFile currentBmsOwner = chart.GetBmsStorageOwner();
+        if (BmsOwner != null || currentBmsOwner != null)
+        {
+            if (!ReferenceEquals(BmsOwner, currentBmsOwner))
+            {
+                return false;
+            }
+        }
+        LR2SongDBExtended.bmson_song currentBmsonOwner = chart.GetBmsonStorageOwner();
+        if (BmsonOwner != null || currentBmsonOwner != null)
+        {
+            if (!ReferenceEquals(BmsonOwner, currentBmsonOwner))
+            {
+                return false;
+            }
+        }
+
+        string currentPath = currentBmsOwner?.path ?? currentBmsonOwner?.path ?? chart.Path;
+        string currentMd5 = currentBmsOwner?.hash ?? currentBmsonOwner?.md5 ?? chart.Md5;
+        string currentSha256 = currentBmsOwner?.sha256 ?? currentBmsonOwner?.sha256 ?? chart.Sha256;
+        return string.Equals(SourcePath, currentPath, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(Md5 ?? string.Empty, currentMd5 ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(Sha256 ?? string.Empty, currentSha256 ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal bool TryValidateCurrentSource(out Exception failure)
+    {
+        failure = null;
+        if (string.IsNullOrWhiteSpace(SourcePath))
+        {
+            failure = new InvalidOperationException("Pending chart source path is empty.");
+            return false;
+        }
+        if (!LongPathFileSystem.FileExists(SourcePath))
+        {
+            failure = new FileNotFoundException("Pending chart source file was not found.", SourcePath);
+            return false;
+        }
+        try
+        {
+            FileAttributes attributes = LongPathFileSystem.GetAttributes(SourcePath);
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                failure = new IOException("Pending chart source is not a file.");
+                return false;
+            }
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                failure = new IOException("Pending chart source reparse points are not supported.");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException
+            || ex is UnauthorizedAccessException
+            || ex is ArgumentException
+            || ex is NotSupportedException
+            || ex is SecurityException)
+        {
+            failure = ex;
+            return false;
+        }
+    }
+
+    internal static bool HasSameIdentity(
+        LibraryFileOperationTargetSnapshot expected,
+        LibraryFileOperationTargetSnapshot actual)
+    {
+        if (expected == null || actual == null
+            || expected.Kind != actual.Kind
+            || !string.Equals(expected.SourcePath, actual.SourcePath, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(expected.Md5 ?? string.Empty, actual.Md5 ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(expected.Sha256 ?? string.Empty, actual.Sha256 ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (expected.BmsOwner != null || actual.BmsOwner != null)
+        {
+            return ReferenceEquals(expected.BmsOwner, actual.BmsOwner);
+        }
+        if (expected.BmsonOwner != null || actual.BmsonOwner != null)
+        {
+            return ReferenceEquals(expected.BmsonOwner, actual.BmsonOwner);
+        }
+        return true;
+    }
+}
+
+/// <summary>
+/// Immutable source/path facts consumed by the invalid-extension executor.
+/// No chart, package, collection, or storage-owner reference is retained.
+/// </summary>
+internal sealed class LegacyInvalidExtensionRenamePlan
+{
+    internal LegacyInvalidExtensionRenamePlan(IEnumerable<LegacyInvalidExtensionRenamePlanItem> items)
+    {
+        Items = Array.AsReadOnly([.. (items ?? []).Where(item => item != null)]);
+    }
+
+    internal IReadOnlyList<LegacyInvalidExtensionRenamePlanItem> Items { get; }
+}
+
+internal sealed class LegacyInvalidExtensionRenamePlanItem
+{
+    internal LegacyInvalidExtensionRenamePlanItem(
+        string sourcePath,
+        string requestedPath,
+        string sourceHashHint,
+        bool rejectUnsafeSource)
+    {
+        SourcePath = sourcePath;
+        RequestedPath = requestedPath;
+        SourceHashHint = sourceHashHint;
+        RejectUnsafeSource = rejectUnsafeSource;
+    }
+
+    internal string SourcePath { get; }
+
+    internal string RequestedPath { get; }
+
+    internal string SourceHashHint { get; }
+
+    internal bool RejectUnsafeSource { get; }
+}
+
+internal sealed class LegacyInvalidExtensionRenameExecutionResult
+{
+    internal List<LegacyInvalidExtensionRenameExecutionItem> Items { get; } = [];
+
+    internal int RenamedCount { get; set; }
+
+    internal int DuplicateDeletedCount { get; set; }
+
+    internal int SkippedCount { get; set; }
+
+    internal int FailedCount { get; set; }
+
+    internal long TotalMs { get; set; }
+}
+
+internal sealed class LegacyInvalidExtensionRenameExecutionItem
+{
+    internal LegacyInvalidExtensionRenameExecutionItem(
+        LegacyInvalidExtensionRenamePlanItem planItem,
+        RenameInvalidExtensionOutcome outcome)
+    {
+        PlanItem = planItem;
+        Outcome = outcome;
+    }
+
+    internal LegacyInvalidExtensionRenamePlanItem PlanItem { get; }
+
+    internal RenameInvalidExtensionOutcome Outcome { get; }
+}
+
+/// <summary>
+/// Immutable legacy library-removal plan.  The executor consumes path/kind
+/// facts only; the owner binds successful indexes back to current storage
+/// owners after the filesystem phase.
+/// </summary>
+internal sealed class LibraryChartRemovalPlan
+{
+    internal IReadOnlyList<LibraryChartRemovalPlanTarget> Targets { get; init; } = [];
+
+    internal IReadOnlyList<LibraryChartRemovalPlanFolder> Folders { get; init; } = [];
+
+    internal IReadOnlyList<LibraryChartRemovalInstallDestinationTarget> InstallDestinationTargets { get; init; } = [];
+}
+
+internal sealed class LibraryChartRemovalPlanTarget
+{
+    internal int Index { get; init; }
+
+    internal LibraryChartKind Kind { get; init; }
+
+    internal string Path { get; init; }
+
+    internal string Md5 { get; init; }
+
+    internal string Sha256 { get; init; }
+}
+
+internal sealed class LibraryChartRemovalPlanFolder
+{
+    internal string Path { get; init; }
+
+    internal bool DeleteWholeFolder { get; init; }
+
+    internal IReadOnlyList<int> TargetIndexes { get; init; } = [];
+}
+
+internal sealed class LibraryChartRemovalInstallDestinationTarget
+{
+    internal string FolderPath { get; init; }
+
+    internal LibraryChartKind Kind { get; init; }
+
+    internal string Path { get; init; }
+
+    internal string Md5 { get; init; }
+
+    internal string Sha256 { get; init; }
+
+    internal bool IsPendingPackageEntry { get; init; }
+}
+
+internal sealed class LibraryChartRemovalExecutionResult
+{
+    internal List<int> RemovedTargetIndexes { get; } = [];
+
+    internal List<string> DeletedFolderPaths { get; } = [];
+
+    internal List<LibraryDeleteFailure> Failures { get; } = [];
+
+    internal int FolderDeleteCount { get; set; }
+
+    internal int FileDeleteCount { get; set; }
+}
+
+/// <summary>
 /// Builds and executes file-system mutations against snapshots owned by BMSLibrary.
 /// The facade must acquire the required locks before invoking this service.
 /// </summary>
@@ -102,6 +420,267 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             [],
             [new FileDbMutationCleanupPathPlan(srcDir, recursive: true)],
             recursiveSourceCleanup: true);
+    }
+
+    /// <summary>
+    /// Builds the path-only portion of a legacy library removal.  Canonical
+    /// owner binding is intentionally left to the command owner so this plan
+    /// can be executed after every model snapshot guard has been released.
+    /// </summary>
+    internal LibraryChartRemovalPlan BuildLibraryChartRemovalPlan(
+        IEnumerable<LibraryChartRef> canonicalCharts,
+        ILibraryChartCanonicalLookup libraryChartLookup,
+        InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
+        IEnumerable<ChartPackage> pendingPackages,
+        IEnumerable<string> approvedWholeFolderDeletePaths)
+    {
+        libraryChartLookup ??= LibraryChartRefIndexSnapshot.Empty;
+        List<LibraryChartRef> targets = [.. (canonicalCharts ?? [])
+            .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
+        var planTargets = new List<LibraryChartRemovalPlanTarget>(targets.Count);
+        for (int index = 0; index < targets.Count; index++)
+        {
+            LibraryChartRef chart = targets[index];
+            planTargets.Add(new LibraryChartRemovalPlanTarget
+            {
+                Index = index,
+                Kind = chart.Kind,
+                Path = chart.Path,
+                Md5 = chart.Md5,
+                Sha256 = chart.Sha256
+            });
+        }
+
+        var approvedPaths = new HashSet<string>(
+            (approvedWholeFolderDeletePaths ?? [])
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        var selectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var folderPlans = new List<LibraryChartRemovalPlanFolder>();
+        var installDestinationTargets = new List<LibraryChartRemovalInstallDestinationTarget>();
+        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in targets
+                                                                   .GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
+                                                                   orderby groupedFiles.Key.Length descending
+                                                                   select groupedFiles)
+        {
+            bool canDeleteWholeFolder = libraryChartLookup.CountChartRefsUnderRealPath(folderGroup.Key, selectedPaths) == folderGroup.Count();
+            bool deleteWholeFolder = canDeleteWholeFolder && approvedPaths.Contains(folderGroup.Key);
+            // Resolve each target by its path and kind so the executor never
+            // needs to retain the canonical lookup or a live owner reference.
+            IReadOnlyList<int> targetIndexes = Array.AsReadOnly(folderGroup
+                .Select(chart => targets.FindIndex(candidate => ReferenceEquals(candidate, chart)
+                    || (candidate.Kind == chart.Kind
+                        && string.Equals(candidate.Path, chart.Path, StringComparison.OrdinalIgnoreCase))))
+                .Where(index => index >= 0)
+                .ToArray());
+            folderPlans.Add(new LibraryChartRemovalPlanFolder
+            {
+                Path = folderGroup.Key,
+                DeleteWholeFolder = deleteWholeFolder,
+                TargetIndexes = targetIndexes
+            });
+            foreach (LibraryChartRef chart in folderGroup)
+            {
+                selectedPaths.Add(chart.Path);
+            }
+
+            if (!deleteWholeFolder)
+            {
+                continue;
+            }
+
+            foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(
+                pendingPackages,
+                installDestinationOverlayCharts,
+                folderGroup.Key))
+            {
+                ChartFile chart = target.Entry?.Chart ?? target.Chart;
+                if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+                {
+                    continue;
+                }
+                installDestinationTargets.Add(new LibraryChartRemovalInstallDestinationTarget
+                {
+                    FolderPath = folderGroup.Key,
+                    Kind = chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
+                    Path = chart.Path,
+                    Md5 = chart.Md5,
+                    Sha256 = chart.Sha256,
+                    IsPendingPackageEntry = target.Entry != null
+                });
+            }
+        }
+
+        return new LibraryChartRemovalPlan
+        {
+            Targets = new List<LibraryChartRemovalPlanTarget>(planTargets).AsReadOnly(),
+            Folders = new List<LibraryChartRemovalPlanFolder>(folderPlans).AsReadOnly(),
+            InstallDestinationTargets = new List<LibraryChartRemovalInstallDestinationTarget>(installDestinationTargets).AsReadOnly()
+        };
+    }
+
+    /// <summary>
+    /// Executes a legacy library-removal plan using path facts only.  Catalog
+    /// and package deltas are built by the owner after this method returns.
+    /// </summary>
+    internal LibraryChartRemovalExecutionResult ExecuteLibraryChartRemovalPlan(
+        LibraryChartRemovalPlan plan,
+        bool sendToRecycleBin,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
+    {
+        var result = new LibraryChartRemovalExecutionResult();
+        if (plan == null)
+        {
+            return result;
+        }
+
+        RecycleOption recycleOption = sendToRecycleBin
+            ? RecycleOption.SendToRecycleBin
+            : RecycleOption.DeletePermanently;
+        foreach (LibraryChartRemovalPlanFolder folder in plan.Folders ?? [])
+        {
+            if (folder == null)
+            {
+                continue;
+            }
+            if (folder.DeleteWholeFolder)
+            {
+                if (!LongPathFileSystem.DirectoryExists(folder.Path))
+                {
+                    continue;
+                }
+                try
+                {
+                    fileMutationService.DeleteDirectoryShell(
+                        folder.Path,
+                        UIOption.OnlyErrorDialogs,
+                        recycleOption,
+                        recursiveDirectoryTreeFileMutationOptions);
+                    result.FolderDeleteCount++;
+                    result.DeletedFolderPaths.Add(folder.Path);
+                    result.RemovedTargetIndexes.AddRange(folder.TargetIndexes ?? []);
+                }
+                catch (Exception exception)
+                {
+                    result.Failures.Add(new LibraryDeleteFailure
+                    {
+                        Path = folder.Path,
+                        Exception = exception,
+                        IsDirectory = true
+                    });
+                }
+                continue;
+            }
+
+            foreach (int targetIndex in folder.TargetIndexes ?? [])
+            {
+                LibraryChartRemovalPlanTarget target = targetIndex >= 0 && targetIndex < plan.Targets.Count
+                    ? plan.Targets[targetIndex]
+                    : null;
+                if (target == null)
+                {
+                    continue;
+                }
+                try
+                {
+                    if (LongPathFileSystem.FileExists(target.Path))
+                    {
+                        fileMutationService.DeleteFileShell(
+                            target.Path,
+                            UIOption.OnlyErrorDialogs,
+                            recycleOption,
+                            targetOnlyFileMutationOptions);
+                        result.FileDeleteCount++;
+                        result.RemovedTargetIndexes.Add(target.Index);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    result.Failures.Add(new LibraryDeleteFailure
+                    {
+                        Path = target.Path,
+                        Exception = exception,
+                        IsDirectory = false
+                    });
+                }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Creates the immutable path plan shared by normal and pending legacy
+    /// extension rename routes.
+    /// </summary>
+    internal LegacyInvalidExtensionRenamePlan BuildInvalidExtensionRenamePlan(
+        IEnumerable<LibraryFileOperationTargetSnapshot> targets,
+        string newExt,
+        bool rejectUnsafeSource = false)
+    {
+        return new LegacyInvalidExtensionRenamePlan((targets ?? [])
+            .Where(target => target != null
+                && target.SourceFileExisted
+                && !string.IsNullOrWhiteSpace(target.SourcePath))
+            .Select(target => new LegacyInvalidExtensionRenamePlanItem(
+                target.SourcePath,
+                Path.Combine(
+                    Path.GetDirectoryName(target.SourcePath) ?? string.Empty,
+                    Path.GetFileNameWithoutExtension(target.SourcePath) + newExt),
+                target.PrimaryHash,
+                rejectUnsafeSource)));
+    }
+
+    /// <summary>
+    /// Executes an immutable extension-rename plan without touching live chart
+    /// or package state.
+    /// </summary>
+    internal LegacyInvalidExtensionRenameExecutionResult ExecuteInvalidExtensionRenamePlan(
+        LegacyInvalidExtensionRenamePlan plan,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        Action<string> logInfo = null,
+        Action<Exception, string> logWarn = null)
+    {
+        var result = new LegacyInvalidExtensionRenameExecutionResult();
+        if (plan == null)
+        {
+            return result;
+        }
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        foreach (LegacyInvalidExtensionRenamePlanItem item in plan.Items)
+        {
+            RenameInvalidExtensionOutcome outcome = ProcessInvalidExtensionRename(
+                item.SourcePath,
+                item.RequestedPath,
+                item.SourceHashHint,
+                fileMutationService,
+                targetOnlyFileMutationOptions,
+                logInfo,
+                logWarn,
+                item.RejectUnsafeSource);
+            result.Items.Add(new LegacyInvalidExtensionRenameExecutionItem(item, outcome));
+            switch (outcome.Action)
+            {
+                case RenameInvalidExtensionAction.Renamed:
+                    result.RenamedCount++;
+                    break;
+                case RenameInvalidExtensionAction.DeletedAsDuplicate:
+                    result.DuplicateDeletedCount++;
+                    break;
+                default:
+                    result.SkippedCount++;
+                    if (outcome.FailureException != null)
+                    {
+                        result.FailedCount++;
+                    }
+                    break;
+            }
+        }
+        stopwatch.Stop();
+        result.TotalMs = stopwatch.ElapsedMilliseconds;
+        return result;
     }
 
     public LibraryRemovalResult DeleteLibraryCharts(
@@ -1007,19 +1586,81 @@ internal sealed class BmsLibraryLibraryFileOperationsService
 
     public RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions, Action<string> logInfo = null, Action<Exception, string> logWarn = null)
     {
+        return ProcessInvalidExtensionRename(
+            sourceFile?.path,
+            requestedPath,
+            TryGetSourceHashForInvalidExtensionRename(sourceFile),
+            fileMutationService,
+            targetOnlyFileMutationOptions,
+            logInfo,
+            logWarn);
+    }
+
+    /// <summary>
+    /// Executes invalid-extension collision handling from immutable path/hash
+    /// facts.  This overload is the only variant used by the post-admission
+    /// legacy command executor.
+    /// </summary>
+    internal RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(
+        string sourcePath,
+        string requestedPath,
+        string sourceHashHint,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        Action<string> logInfo = null,
+        Action<Exception, string> logWarn = null,
+        bool rejectUnsafeSource = false)
+    {
         var outcome = new RenameInvalidExtensionOutcome
         {
             Action = RenameInvalidExtensionAction.Skipped,
             FinalPath = requestedPath
         };
-        if (sourceFile == null || string.IsNullOrWhiteSpace(sourceFile.path) || string.IsNullOrWhiteSpace(requestedPath) || !LongPathFileSystem.FileExists(sourceFile.path))
+        if (string.IsNullOrWhiteSpace(sourcePath) || string.IsNullOrWhiteSpace(requestedPath))
         {
+            outcome.FailureException = new InvalidOperationException("Invalid-extension rename source or destination path is empty.");
+            return outcome;
+        }
+        if (!LongPathFileSystem.FileExists(sourcePath))
+        {
+            outcome.FailureException = new FileNotFoundException("Invalid-extension rename source file was not found.", sourcePath);
+            return outcome;
+        }
+        if (rejectUnsafeSource)
+        {
+            try
+            {
+                FileAttributes attributes = LongPathFileSystem.GetAttributes(sourcePath);
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    outcome.FailureException = new IOException("Invalid-extension rename source is not a file.");
+                    return outcome;
+                }
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    outcome.FailureException = new IOException("Invalid-extension rename source reparse points are not supported.");
+                    return outcome;
+                }
+            }
+            catch (Exception ex) when (ex is IOException
+                || ex is UnauthorizedAccessException
+                || ex is ArgumentException
+                || ex is NotSupportedException
+                || ex is SecurityException)
+            {
+                outcome.FailureException = ex;
+                return outcome;
+            }
+        }
+        if (fileMutationService == null)
+        {
+            outcome.FailureException = new ArgumentNullException(nameof(fileMutationService));
             return outcome;
         }
         FileCollisionResolutionResult resolution = ResolveFileCollisionWithSuffix(
-            sourceFile.path,
+            sourcePath,
             requestedPath,
-            TryGetSourceHashForInvalidExtensionRename(sourceFile),
+            sourceHashHint,
             "invalid_ext_rename",
             logInfo);
         string finalPath = resolution.FinalPath;
@@ -1027,8 +1668,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             try
             {
-                fileMutationService.DeleteFileDirect(sourceFile.path, targetOnlyFileMutationOptions);
-                logInfo?.Invoke("invalid_ext_rename duplicate_deleted source=" + sourceFile.path + " existing=" + resolution.DuplicatePath + " hash=" + (resolution.SourceHash ?? "(null)"));
+                fileMutationService.DeleteFileDirect(sourcePath, targetOnlyFileMutationOptions);
+                logInfo?.Invoke("invalid_ext_rename duplicate_deleted source=" + sourcePath + " existing=" + resolution.DuplicatePath + " hash=" + (resolution.SourceHash ?? "(null)"));
                 outcome.Action = RenameInvalidExtensionAction.DeletedAsDuplicate;
                 return outcome;
             }
@@ -1036,17 +1677,17 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 outcome.FailureException = ex;
                 outcome.FailedDuringDelete = true;
-                logWarn?.Invoke(ex, "invalid_ext_rename delete_failed source=" + sourceFile.path + " existing=" + resolution.DuplicatePath);
+                logWarn?.Invoke(ex, "invalid_ext_rename delete_failed source=" + sourcePath + " existing=" + resolution.DuplicatePath);
                 return outcome;
             }
         }
         if (!string.Equals(finalPath, requestedPath, StringComparison.OrdinalIgnoreCase))
         {
-            logInfo?.Invoke("invalid_ext_rename renamed_with_suffix source=" + sourceFile.path + " requested=" + requestedPath + " resolved=" + finalPath);
+            logInfo?.Invoke("invalid_ext_rename renamed_with_suffix source=" + sourcePath + " requested=" + requestedPath + " resolved=" + finalPath);
         }
         try
         {
-            fileMutationService.MoveFile(sourceFile.path, finalPath, overwrite: false, targetOnlyFileMutationOptions);
+            fileMutationService.MoveFile(sourcePath, finalPath, overwrite: false, targetOnlyFileMutationOptions);
             outcome.Action = RenameInvalidExtensionAction.Renamed;
             outcome.FinalPath = finalPath;
             return outcome;
@@ -1056,7 +1697,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             outcome.FailureException = ex2;
             outcome.FinalPath = finalPath;
             outcome.FailedDuringDelete = false;
-            logWarn?.Invoke(ex2, "invalid_ext_rename move_failed source=" + sourceFile.path + " target=" + finalPath);
+            logWarn?.Invoke(ex2, "invalid_ext_rename move_failed source=" + sourcePath + " target=" + finalPath);
             return outcome;
         }
     }
@@ -1173,27 +1814,29 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    public List<ChartPackage> GetPendingPackagesFullyCoveredBySelection(IEnumerable<ChartPackage> pendingPackages, HashSet<string> selectedPaths)
+    /// <summary>
+    /// Returns pending packages whose complete chart set is represented by the
+    /// selected source paths.  The caller supplies the authoritative pending
+    /// package collection captured for the operation.
+    /// </summary>
+    public List<ChartPackage> GetPendingPackagesFullyCoveredBySelection(
+        IEnumerable<ChartPackage> pendingPackages,
+        HashSet<string> selectedPaths)
     {
         List<ChartPackage> result = [];
         foreach (ChartPackage package in (pendingPackages ?? []).Where(pkg => pkg != null))
         {
             List<PackageChartEntry> packageEntries = package.ChartEntries;
-            if (packageEntries.Count > 0 && packageEntries.All(entry => IsMatchedRemovedEntry(entry, selectedPaths)))
+            if (packageEntries.Count > 0 && packageEntries.All(entry =>
+                entry?.Chart != null
+                && !string.IsNullOrWhiteSpace(entry.Chart.Path)
+                && selectedPaths != null
+                && selectedPaths.Contains(entry.Chart.Path)))
             {
                 result.Add(package);
             }
         }
         return result;
-    }
-
-    private static bool IsMatchedRemovedEntry(PackageChartEntry entry, HashSet<string> removedPaths)
-    {
-        if (entry?.Chart == null)
-        {
-            return false;
-        }
-        return !string.IsNullOrWhiteSpace(entry.Chart.Path) && removedPaths != null && removedPaths.Contains(entry.Chart.Path);
     }
 
     private string TryGetSourceHashForInvalidExtensionRename(BMSFile sourceFile)

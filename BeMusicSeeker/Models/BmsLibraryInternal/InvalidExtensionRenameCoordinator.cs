@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -13,19 +14,33 @@ internal static class InvalidExtensionRenameCoordinator
         bool? unregister)
     {
         List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart?.GetBmsStorageOwner() != null)];
-        host.RunWithNormalInvalidExtensionRenameWriteLocks(() =>
+        List<LibraryFileOperationTargetSnapshot> preflightTargets = host.CaptureNormalInvalidExtensionRenameTargets(targetCharts, newExt);
+        List<Action> postLeaseNotifications = [];
+        try
         {
-            LibraryMutationDelta delta = host.RenameLibraryFileExtensions(
-                targetCharts,
-                newExt,
-                unregister == true);
-            foreach (LibraryDeleteFailure failure in delta.Failures)
+            host.RunWithNormalInvalidExtensionRenameWriteLocks(mutationCapability =>
             {
-                host.ShowNormalRenameFailure(failure, newExt);
-            }
-            host.ApplyLibraryMutationDelta(delta);
-            host.LogInfo("invalid_ext_rename summary scope=normal total=" + targetCharts.Count + " renamed=" + delta.RenamedCount + " deleted=" + delta.DuplicateDeletedCount + " skipped=" + delta.SkippedCount);
-        });
+                LibraryMutationDelta delta = host.RenameLibraryFileExtensionsAfterAdmission(
+                    targetCharts,
+                    preflightTargets,
+                    newExt,
+                    unregister == true);
+                foreach (LibraryDeleteFailure failure in delta.Failures)
+                {
+                    postLeaseNotifications.Add(() => host.ShowNormalRenameFailure(failure, newExt));
+                }
+                host.ApplyLibraryMutationDeltaUnderExistingReservation(
+                    delta,
+                    "invalid_ext_rename",
+                    mutationCapability,
+                    postLeaseNotifications);
+                postLeaseNotifications.Add(() => host.LogInfo("invalid_ext_rename summary scope=normal total=" + targetCharts.Count + " renamed=" + delta.RenamedCount + " deleted=" + delta.DuplicateDeletedCount + " skipped=" + delta.SkippedCount));
+            });
+        }
+        finally
+        {
+            InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+        }
     }
 
     internal static void RenamePendingBmsFormatChartFileExtensions(
@@ -37,15 +52,55 @@ internal static class InvalidExtensionRenameCoordinator
         {
             throw new ArgumentNullException(nameof(charts));
         }
-        host.RunWithPendingInvalidExtensionRenameWriteLocks(() =>
+        List<ChartFile> targetCharts = [.. charts.Where(chart => chart?.GetBmsStorageOwner() != null)];
+        List<Action> postLeaseNotifications = [];
+        try
         {
-            PendingExtensionRenameReport result = host.RenamePendingBmsFormatChartFileExtensions(charts, newExt);
-            foreach (PendingExtensionRenameFailureReport failure in result.Failures)
+            host.RunWithPendingInvalidExtensionRenameWriteLocks(mutationCapability =>
             {
-                host.ShowPendingRenameFailure(failure);
+                PendingExtensionRenameReport result = host.RenamePendingBmsFormatChartFileExtensionsAfterAdmission(
+                    targetCharts,
+                    newExt);
+                foreach (PendingExtensionRenameFailureReport failure in result.Failures)
+                {
+                    postLeaseNotifications.Add(() => host.ShowPendingRenameFailure(failure));
+                }
+                host.RemovePendingChartsFromPendingPackagesAndInstallRows(
+                    result.ChartPathsToRemove,
+                    mutationCapability,
+                    postLeaseNotifications);
+                postLeaseNotifications.Add(() => host.LogInfo("invalid_ext_rename summary scope=pending total=" + result.Total + " renamed=" + result.Renamed + " deleted=" + result.DuplicateDeleted + " skipped=" + result.Skipped + " failed=" + result.Failed + " totalMs=" + result.TotalMs));
+            });
+        }
+        finally
+        {
+            InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+        }
+    }
+
+    private static void InvokePostLeaseNotificationsBestEffort(IEnumerable<Action> notifications)
+    {
+        foreach (Action notification in notifications ?? [])
+        {
+            try
+            {
+                notification?.Invoke();
             }
-            host.RemovePendingChartsFromPendingPackagesAndInstallRows(result.ChartPathsToRemove);
-            host.LogInfo("invalid_ext_rename summary scope=pending total=" + result.Total + " renamed=" + result.Renamed + " deleted=" + result.DuplicateDeleted + " skipped=" + result.Skipped + " failed=" + result.Failed + " totalMs=" + result.TotalMs);
-        });
+            catch (Exception exception)
+            {
+                // Notification failures are intentionally diagnostic-only.
+                // The canonical mutation has already completed under the
+                // existing session and must not be reclassified or retried.
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(
+                        exception,
+                        "file_mutation_post_lease_notification_failed");
+                }
+                catch
+                {
+                }
+            }
+        }
     }
 }

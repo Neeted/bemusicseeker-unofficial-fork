@@ -261,26 +261,34 @@ internal sealed class FileDbMutationBatchReceipt
 }
 
 /// <summary>
-/// DB owner が durable commit と post-commit failure を区別して返す結果です。
+/// DB owner が durable commit と session-local finalizer を区別して返す結果です。
 /// </summary>
 internal sealed class FileDbMutationCommitResult
 {
-    private FileDbMutationCommitResult(bool durableCommit, Exception failure, Action postCommit)
+    private FileDbMutationCommitResult(
+        bool durableCommit,
+        Exception failure,
+        Action durableFinalizer)
     {
         DurableCommit = durableCommit;
         Failure = failure;
-        PostCommit = postCommit;
+        DurableFinalizer = durableFinalizer;
     }
 
     internal bool DurableCommit { get; }
 
     internal Exception Failure { get; }
 
-    internal Action PostCommit { get; }
+    /// <summary>
+    /// Runs once inside the existing outer mutation session after the durable
+    /// DB callback succeeds.  This is reserved for canonical internal state;
+    /// public notifications and dialogs are never supplied here.
+    /// </summary>
+    internal Action DurableFinalizer { get; }
 
-    internal static FileDbMutationCommitResult Durable(Action postCommit = null, Exception postCommitFailure = null)
+    internal static FileDbMutationCommitResult Durable(Action durableFinalizer = null, Exception durableFailure = null)
     {
-        return new FileDbMutationCommitResult(true, postCommitFailure, postCommit);
+        return new FileDbMutationCommitResult(true, durableFailure, durableFinalizer);
     }
 
     internal static FileDbMutationCommitResult Failed(Exception failure)
@@ -347,22 +355,31 @@ internal sealed class FileDbMutationExecutor
 
         if (!commitResult.DurableCommit)
         {
-            return HandlePrecommitFailure(commitResult.Failure ?? new InvalidOperationException("The durable DB receipt was not produced."));
+            return HandlePrecommitFailure(
+                commitResult.Failure ?? new InvalidOperationException("The durable DB receipt was not produced."));
         }
 
-        FileDbMutationReceipt receipt = FinalizePostCommit(commitResult.Failure);
-        if (commitResult.PostCommit != null)
+        // A durable finalizer is deliberately executed while the existing
+        // mutation session is still held.  Its failure remains a durable
+        // result and therefore never re-enters compensation.
+        Exception durableFinalizerFailure = null;
+        try
         {
-            try
-            {
-                commitResult.PostCommit();
-            }
-            catch (Exception exception)
-            {
-                receipt = receipt.WithFailure(exception);
-            }
+            commitResult.DurableFinalizer?.Invoke();
         }
-        return receipt;
+        catch (Exception exception)
+        {
+            durableFinalizerFailure = exception;
+        }
+
+        Exception finalizerFailure = commitResult.Failure;
+        if (durableFinalizerFailure != null)
+        {
+            finalizerFailure = finalizerFailure == null
+                ? durableFinalizerFailure
+                : new AggregateException(finalizerFailure, durableFinalizerFailure);
+        }
+        return FinalizePostCommit(finalizerFailure);
     }
 
     private void Stage()

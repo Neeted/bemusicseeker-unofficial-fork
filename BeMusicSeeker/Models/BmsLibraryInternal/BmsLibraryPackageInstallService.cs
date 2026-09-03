@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
+using System.Security;
 using System.Threading;
 using System.Windows;
 using BeMusicSeeker.Models;
@@ -13,6 +15,7 @@ using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using Microsoft.VisualBasic.FileIO;
+using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -72,6 +75,27 @@ internal sealed class ComponentMoveSummary
     public int HashDiffRenamed { get; set; }
 
     public int HashUnavailableRenamed { get; set; }
+}
+
+/// <summary>
+/// Immutable package-source target captured before a pending mutation starts.
+/// Filesystem work consumes only this frozen path and package metadata.
+/// </summary>
+internal sealed class PendingPackageSourceDeletionTarget
+{
+    internal PendingPackageSourceDeletionTarget(ChartPackage package)
+    {
+        Package = package ?? throw new ArgumentNullException(nameof(package));
+        Path = package.path;
+        DeleteParent = package.delete_parent;
+    }
+
+    internal ChartPackage Package { get; }
+
+    internal string Path { get; }
+
+    internal bool DeleteParent { get; }
+
 }
 
 /// <summary>
@@ -313,6 +337,34 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
             deduplicated.Add(package);
+        }
+        return deduplicated;
+    }
+
+    private static List<PendingPackageSourceDeletionTarget> DeduplicatePendingPackageSourceDeletionTargets(
+        IEnumerable<PendingPackageSourceDeletionTarget> targets)
+    {
+        List<PendingPackageSourceDeletionTarget> deduplicated = [];
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<ChartPackage> references = [];
+        foreach (PendingPackageSourceDeletionTarget target in targets ?? [])
+        {
+            if (target?.Package == null)
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(target.Path))
+            {
+                if (!paths.Add(target.Path))
+                {
+                    continue;
+                }
+            }
+            else if (!references.Add(target.Package))
+            {
+                continue;
+            }
+            deduplicated.Add(target);
         }
         return deduplicated;
     }
@@ -603,12 +655,17 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static ChartPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<PackageChartEntry> knownChartEntries)
     {
+        string canonicalPackagePath = PackageLifecycleOwner.TryNormalizePendingPackagePath(
+            packagePath,
+            out string normalizedPackagePath)
+            ? normalizedPackagePath
+            : packagePath;
         List<PackageChartEntry> knownEntries = [.. (knownChartEntries ?? [])
             .Where(entry => entry?.Chart != null)];
-        if (LongPathFileSystem.DirectoryExists(packagePath))
+        if (LongPathFileSystem.DirectoryExists(canonicalPackagePath))
         {
             List<PackageChartEntry> recursiveEntries = [.. PackageInstallEstimationSnapshotBuilder
-                .BuildPackageChartDiscoverySnapshot(packagePath)
+                .BuildPackageChartDiscoverySnapshot(canonicalPackagePath)
                 .ChartEntries
                 .Where(entry => entry?.Chart != null)];
             if (recursiveEntries.Count > 0)
@@ -621,13 +678,13 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return new ChartPackage
             {
-                path = packagePath,
+                path = canonicalPackagePath,
                 delete_parent = deleteParent
             };
         }
 
         ChartPackage package = ChartPackage.FromChartEntries(knownEntries);
-        package.path = packagePath;
+        package.path = canonicalPackagePath;
         package.delete_parent = deleteParent;
         return package;
     }
@@ -717,44 +774,23 @@ internal sealed class BmsLibraryPackageInstallService
         }
     }
 
-    private static void InvokeInstallProgressCallback(Action callback, Action<string> logInfo, string callbackName)
-    {
-        if (callback == null)
-        {
-            return;
-        }
-        try
-        {
-            callback();
-        }
-        catch (Exception ex)
-        {
-            logInfo?.Invoke("auto_install progress_callback_failed callback=" + (callbackName ?? string.Empty) + " error=" + ex.Message);
-        }
-    }
-
-    private static void InvokeArchiveExtractStarted(Action<string, int, int> onEachArchiveExtractStarted, string installPath, int archiveSourceIndex, int archiveSourceTotal, Action<string> logInfo)
-    {
-        if (onEachArchiveExtractStarted == null)
-        {
-            return;
-        }
-        InvokeInstallProgressCallback(
-            () => onEachArchiveExtractStarted(installPath, archiveSourceIndex, archiveSourceTotal),
-            logInfo,
-            nameof(onEachArchiveExtractStarted));
-    }
-
-    public List<string> ExpandInstallSources(
+    /// <summary>
+    /// Expands package sources while publishing progress through the narrow
+    /// feature-local writer.  The writer is intentionally independent from
+    /// the filesystem and catalog mutation callbacks so a producer cannot
+    /// retain per-item post-commit closures.
+    /// </summary>
+    internal List<string> ExpandInstallSourcesWithProgress(
         IEnumerable<string> installPaths,
         IFileMutationService fileMutationService,
         FileMutationOptions targetOnlyFileMutationOptions,
-        Action<string> logInfo = null,
-        IBmsLibraryDialogService dialogService = null,
-        Action onEachSourceProcessed = null,
-        Action<string, int, int> onEachArchiveExtractStarted = null,
-        CancellationToken token = default)
+        Action<string> logInfo,
+        IBmsLibraryDialogService dialogService,
+        IPackageInstallProgressWriter progressWriter,
+        CancellationToken token,
+        Action<Action> deferPostCommitEffect)
     {
+        ArgumentNullException.ThrowIfNull(progressWriter);
         string[] archiveExtensions = [".zip", ".7z", ".rar", ".lzh"];
         string[] normalizedInstallPaths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
         int archiveSourceTotal = normalizedInstallPaths.Count(path => archiveExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
@@ -779,7 +815,10 @@ internal sealed class BmsLibraryPackageInstallService
                 else
                 {
                     archiveSourceIndex++;
-                    InvokeArchiveExtractStarted(onEachArchiveExtractStarted, installPath, archiveSourceIndex, archiveSourceTotal, logInfo);
+                    progressWriter.TryWrite(PackageInstallProgressUpdate.ArchiveExtractStarted(
+                        installPath,
+                        archiveSourceIndex,
+                        archiveSourceTotal));
                     extractedTempDirectoryPath = TempDirectoryPublisher.Get();
                     logInfo?.Invoke("auto_install extract_start path=" + installPath + " destination=" + extractedTempDirectoryPath);
                     Stopwatch extractStopwatch = Stopwatch.StartNew();
@@ -880,28 +919,30 @@ internal sealed class BmsLibraryPackageInstallService
             catch (RequiredArchiveMetadataRestoreException metadataRestoreException)
             {
                 DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logInfo);
-                dialogService?.Show(
+                Action showFailure = () => dialogService?.Show(
                     string.Format(Resources.Warn_ArchiveTimestampRestoreFailed, installPath, metadataRestoreException.RestoredPath, metadataRestoreException.Message),
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
                     MessageBoxImage.Exclamation,
                     MessageBoxResult.OK);
+                deferPostCommitEffect(showFailure);
             }
             catch (Exception ex)
             {
                 DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logInfo);
                 sourceStopwatch.Stop();
                 logInfo?.Invoke("auto_install extract_failed path=" + installPath + " elapsedMs=" + sourceStopwatch.ElapsedMilliseconds + " error=" + ex.Message);
-                dialogService?.Show(
+                Action showFailure = () => dialogService?.Show(
                     string.Format(Resources.Warn_ArchiveExtractFailed, installPath, ex.Message),
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
                     MessageBoxImage.Exclamation,
                     MessageBoxResult.OK);
+                deferPostCommitEffect(showFailure);
             }
             finally
             {
-                InvokeInstallProgressCallback(onEachSourceProcessed, logInfo, nameof(onEachSourceProcessed));
+                progressWriter.TryWrite(PackageInstallProgressUpdate.SourceProcessed());
             }
         }
         return expandedPaths;
@@ -921,7 +962,8 @@ internal sealed class BmsLibraryPackageInstallService
         bool showMessageBoxOnInstallFail = true,
         bool deleteAllContents = false,
         IPrimaryHashLookup existingHashes = null,
-        ISet<string> excludedComponentPaths = null)
+        ISet<string> excludedComponentPaths = null,
+        Action<Action> deferDiagnosticEffect = null)
     {
         if (package == null)
         {
@@ -1071,12 +1113,20 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 return false;
             }
-            dialogService?.Show(
+            Action showFailure = () => dialogService?.Show(
                 string.Format(Resources.Error_InstallFailed, package.path, destinationDirectory, getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message),
                 Resources.MessageBoxTitle_Error,
                 MessageBoxButton.OK,
                 MessageBoxImage.Hand,
                 MessageBoxResult.OK);
+            if (deferDiagnosticEffect != null)
+            {
+                deferDiagnosticEffect(showFailure);
+            }
+            else
+            {
+                InvokeBestEffort(showFailure, "package_install_cleanup_failure_dialog_failed");
+            }
             return false;
         }
 
@@ -1156,12 +1206,20 @@ internal sealed class BmsLibraryPackageInstallService
                     ex.Win32ErrorCode,
                     ex.RootCause.GetType().FullName,
                     getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message));
-                dialogService?.Show(
+                Action showFailure = () => dialogService?.Show(
                     string.Format(Resources.Error_FolderDeleteFailed, directoryToDelete, getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message),
                     Resources.MessageBoxTitle_Error,
                     MessageBoxButton.OK,
                     MessageBoxImage.Hand,
                     MessageBoxResult.OK);
+                if (deferDiagnosticEffect != null)
+                {
+                    deferDiagnosticEffect(showFailure);
+                }
+                else
+                {
+                    InvokeBestEffort(showFailure, "package_install_failure_dialog_failed");
+                }
             }
         }
         return true;
@@ -1187,7 +1245,8 @@ internal sealed class BmsLibraryPackageInstallService
         bool deleteAllContents = false,
         IPrimaryHashLookup existingHashes = null,
         ISet<string> excludedComponentPaths = null,
-        Action<PackageInstallExecutionResult> onPreflightPrepared = null)
+        Action<PackageInstallExecutionResult> onPreflightPrepared = null,
+        Action<Action> enqueueDiagnosticEffect = null)
     {
         if (package == null)
         {
@@ -1497,24 +1556,25 @@ internal sealed class BmsLibraryPackageInstallService
                 return FileDbMutationCommitResult.Durable(
                     () =>
                     {
+                        databaseResult.DurableFinalizer?.Invoke();
                         ApplyLivePackageInstallState(
                             package,
                             sourcePath,
                             destinationDirectory,
                             isSingleFile,
                             installTargetEntries);
-                        databaseResult.PostCommit?.Invoke();
                     },
                     databaseResult.Failure);
             });
             if (!receipt.DurableCommit && showMessageBoxOnInstallFail)
             {
-                ShowPackageMutationFailure(
+                Action showFailure = () => ShowPackageMutationFailure(
                     package,
                     destinationDirectory,
                     receipt.Failure,
                     dialogService,
                     getDisplayedExceptionMessage);
+                enqueueDiagnosticEffect?.Invoke(showFailure);
             }
             return receipt;
         }
@@ -1534,7 +1594,13 @@ internal sealed class BmsLibraryPackageInstallService
                 exception);
             if (showMessageBoxOnInstallFail)
             {
-                ShowPackageMutationFailure(package, string.Empty, exception, dialogService, getDisplayedExceptionMessage);
+                Action showFailure = () => ShowPackageMutationFailure(
+                    package,
+                    string.Empty,
+                    exception,
+                    dialogService,
+                    getDisplayedExceptionMessage);
+                enqueueDiagnosticEffect?.Invoke(showFailure);
             }
             return failedReceipt;
         }
@@ -2084,32 +2150,18 @@ internal sealed class BmsLibraryPackageInstallService
                 result.MutationReceipt = candidateApplyResult.MutationReceipt;
                 List<ChartPackage> failedPackages = [.. candidateApplyResult.FailedPackages];
                 var failedSet = new HashSet<ChartPackage>(failedPackages);
-                if (candidateApplyResult.ManualRecoveryRequired)
+                result.AutoInstallFailures.AddRange(failedPackages.Where(pkg => pkg != null));
+                List<ChartPackage> succeededPackages = [.. autoInstallClassification.InstallCandidates.Where(pkg => pkg != null && !failedSet.Contains(pkg))];
+                result.AutoInstalledPackages.AddRange(succeededPackages);
+                IPrimaryHashLookup succeededHashes = CreatePackagePrimaryHashLookup(succeededPackages);
+                foreach (AutoInstallDuplicateCandidate duplicateCandidate in autoInstallClassification.DuplicateCandidates)
                 {
-                    // The executor has retained recovery paths and the batch is
-                    // terminal.  Keep every candidate pending for a future
-                    // manual decision, but do not start another mutation owner.
-                    result.AutoInstallFailures.AddRange(autoInstallClassification.InstallCandidates.Where(pkg => pkg != null));
-                    pendingPackagesToAdd = [
-                        .. pendingPackagesToAdd,
-                        .. autoInstallClassification.InstallCandidates.Where(pkg => pkg != null),
-                        .. autoInstallClassification.DuplicateCandidates.Select(candidate => candidate.Package).Where(pkg => pkg != null)];
+                    ApplyAlreadyInstalledWarning(GetEntriesMatchedByPrimaryHashes(
+                        duplicateCandidate.Package?.ChartEntries,
+                        succeededHashes,
+                        duplicateCandidate.DuplicatePrimaryHashes));
                 }
-                else
-                {
-                    result.AutoInstallFailures.AddRange(failedPackages.Where(pkg => pkg != null));
-                    List<ChartPackage> succeededPackages = [.. autoInstallClassification.InstallCandidates.Where(pkg => pkg != null && !failedSet.Contains(pkg))];
-                    result.AutoInstalledPackages.AddRange(succeededPackages);
-                    IPrimaryHashLookup succeededHashes = CreatePackagePrimaryHashLookup(succeededPackages);
-                    foreach (AutoInstallDuplicateCandidate duplicateCandidate in autoInstallClassification.DuplicateCandidates)
-                    {
-                        ApplyAlreadyInstalledWarning(GetEntriesMatchedByPrimaryHashes(
-                            duplicateCandidate.Package?.ChartEntries,
-                            succeededHashes,
-                            duplicateCandidate.DuplicatePrimaryHashes));
-                    }
-                    pendingPackagesToAdd = [.. pendingPackagesToAdd, .. failedPackages, .. autoInstallClassification.DuplicateCandidates.Select(candidate => candidate.Package).Where(pkg => pkg != null)];
-                }
+                pendingPackagesToAdd = [.. pendingPackagesToAdd, .. failedPackages, .. autoInstallClassification.DuplicateCandidates.Select(candidate => candidate.Package).Where(pkg => pkg != null)];
             }
             else
             {
@@ -2629,10 +2681,6 @@ internal sealed class BmsLibraryPackageInstallService
                     return applyDurableStorageRows?.Invoke(packageResult)
                         ?? FileDbMutationCommitResult.Durable();
                 });
-            if (mutationReceipt != null)
-            {
-                mutationReceipts.Add(mutationReceipt);
-            }
             if (mutationReceipt?.DurableCommit == true)
             {
                 committedPackageResult ??= CreatePackageInstallExecutionResult(package);
@@ -2668,16 +2716,24 @@ internal sealed class BmsLibraryPackageInstallService
                 applyScores?.Invoke(committedPackageResult);
                 applyState?.Invoke(committedPackageResult);
             }
+            if (mutationReceipt != null)
+            {
+                mutationReceipts.Add(mutationReceipt);
+                if (!mutationReceipt.DurableCommit)
+                {
+                    result.FailedPackages.Add(package);
+                    if (mutationReceipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+                    {
+                        // A failed compensation leaves recovery paths authoritative;
+                        // continuing the batch would create a second mutation owner
+                        // while the first one still requires manual intervention.
+                        break;
+                    }
+                }
+            }
             else
             {
                 result.FailedPackages.Add(package);
-                if (mutationReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
-                {
-                    // A failed compensation leaves recovery paths authoritative;
-                    // continuing the batch would create a second mutation owner
-                    // while the first one still requires manual intervention.
-                    break;
-                }
             }
         }
         moveStopwatch.Stop();
@@ -3108,9 +3164,8 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
-    public PendingPackageSourceDeletionResult DeletePendingPackageSources(
-        IEnumerable<ChartPackage> packages,
-        IEnumerable<ChartPackage> currentPendingPackages,
+    internal PendingPackageSourceDeletionResult DeletePendingPackageSources(
+        IEnumerable<PendingPackageSourceDeletionTarget> targets,
         bool sendToRecycleBin,
         IFileMutationService fileMutationService,
         FileMutationOptions targetOnlyFileMutationOptions,
@@ -3120,57 +3175,90 @@ internal sealed class BmsLibraryPackageInstallService
         Action<string> logInfo = null)
     {
         var result = new PendingPackageSourceDeletionResult();
-        List<ChartPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
-        List<ChartPackage> pendingPackages = [.. (currentPendingPackages ?? []).Where(pkg => pkg != null)];
-        result.Requested = requestedPackages.Count;
+        List<PendingPackageSourceDeletionTarget> requestedTargets =
+            DeduplicatePendingPackageSourceDeletionTargets(targets);
+        result.Requested = requestedTargets.Count;
         RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
-        foreach (ChartPackage requestedPackage in requestedPackages)
+        foreach (PendingPackageSourceDeletionTarget target in requestedTargets)
         {
             if (token.IsCancellationRequested)
             {
                 result.Canceled = true;
                 break;
             }
-            ChartPackage pendingPackage = pendingPackages.FirstOrDefault(pkg => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
-            if (pendingPackage == null)
+            ChartPackage pendingPackage = target.Package;
+            string sourcePath = target.Path;
+            if (string.IsNullOrWhiteSpace(sourcePath))
             {
-                result.Skipped++;
+                result.Failed++;
+                result.Failures.Add(new PendingPackageSourceDeletionFailure
+                {
+                    Package = pendingPackage,
+                    Exception = new InvalidOperationException("Pending package source path is empty."),
+                    IsDirectory = false
+                });
                 result.Processed++;
-                logInfo?.Invoke("advanced_pending_cleanup skipped_not_pending path=" + requestedPackage.path);
+                logInfo?.Invoke("advanced_pending_cleanup failed_empty_source");
                 onEachProcessed?.Invoke();
                 continue;
             }
-            bool isDirectory = LongPathFileSystem.DirectoryExists(pendingPackage.path);
-            bool isFile = !isDirectory && LongPathFileSystem.FileExists(pendingPackage.path);
+            bool isDirectory = LongPathFileSystem.DirectoryExists(sourcePath);
+            bool isFile = !isDirectory && LongPathFileSystem.FileExists(sourcePath);
             try
             {
                 if (isDirectory)
                 {
+                    if (!TryValidatePendingDirectoryPath(sourcePath, out Exception directoryValidationFailure))
+                    {
+                        result.Failed++;
+                        result.Failures.Add(new PendingPackageSourceDeletionFailure
+                        {
+                            Package = pendingPackage,
+                            Exception = directoryValidationFailure,
+                            IsDirectory = true
+                        });
+                        result.Processed++;
+                        onEachProcessed?.Invoke();
+                        continue;
+                    }
                     if (sendToRecycleBin)
                     {
-                        fileMutationService.DeleteDirectoryShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
+                        fileMutationService.DeleteDirectoryShell(sourcePath, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
                     }
                     else
                     {
-                        fileMutationService.DeleteDirectoryDirect(pendingPackage.path, recursive: true, recursiveDirectoryTreeFileMutationOptions);
+                        fileMutationService.DeleteDirectoryDirect(sourcePath, recursive: true, recursiveDirectoryTreeFileMutationOptions);
                     }
-                    logInfo?.Invoke("advanced_pending_cleanup deleted path=" + pendingPackage.path + " kind=directory");
+                    logInfo?.Invoke("advanced_pending_cleanup deleted path=" + sourcePath + " kind=directory");
                 }
                 else if (isFile)
                 {
+                    if (!TryValidatePendingFilePath(sourcePath, out Exception fileValidationFailure))
+                    {
+                        result.Failed++;
+                        result.Failures.Add(new PendingPackageSourceDeletionFailure
+                        {
+                            Package = pendingPackage,
+                            Exception = fileValidationFailure,
+                            IsDirectory = false
+                        });
+                        result.Processed++;
+                        onEachProcessed?.Invoke();
+                        continue;
+                    }
                     if (sendToRecycleBin)
                     {
-                        fileMutationService.DeleteFileShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
+                        fileMutationService.DeleteFileShell(sourcePath, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
                     }
                     else
                     {
-                        fileMutationService.DeleteFileDirect(pendingPackage.path, targetOnlyFileMutationOptions);
+                        fileMutationService.DeleteFileDirect(sourcePath, targetOnlyFileMutationOptions);
                     }
-                    logInfo?.Invoke("advanced_pending_cleanup deleted path=" + pendingPackage.path + " kind=file");
+                    logInfo?.Invoke("advanced_pending_cleanup deleted path=" + sourcePath + " kind=file");
                 }
                 else
                 {
-                    logInfo?.Invoke("advanced_pending_cleanup missing_source_removed path=" + pendingPackage.path);
+                    logInfo?.Invoke("advanced_pending_cleanup missing_source_removed path=" + sourcePath);
                 }
                 result.PackagesToRemove.Add(pendingPackage);
                 result.Removed++;
@@ -3230,84 +3318,175 @@ internal sealed class BmsLibraryPackageInstallService
         var selectedPaths = new HashSet<string>(
             selectedTargets.Select(target => target.Path).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
-        var handledByFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var blockedByFailedFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
+
+        var successfulPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (PendingChartDeletionTarget pendingChart in selectedTargets)
+        {
+            string pendingChartPath = pendingChart.Path;
+            result.Processed++;
+            if (!TryValidatePendingFilePath(pendingChartPath, out Exception validationFailure))
+            {
+                result.Failed++;
+                result.Failures.Add(new PendingFileDeletionFailure
+                {
+                    Path = pendingChartPath,
+                    Exception = validationFailure,
+                    IsDirectory = false
+                });
+                continue;
+            }
+
+            try
+            {
+                fileMutationService.DeleteFileShell(pendingChartPath, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
+                result.ChartPathsToRemove.Add(pendingChartPath);
+                successfulPaths.Add(pendingChartPath);
+                result.Removed++;
+            }
+            catch (Exception failure)
+            {
+                result.Failed++;
+                result.Failures.Add(new PendingFileDeletionFailure
+                {
+                    Path = pendingChartPath,
+                    Exception = failure,
+                    IsDirectory = false
+                });
+            }
+        }
 
         if (deleteContainingPackageFoldersWhenNoBms)
         {
-            foreach (ChartPackage pendingPackage in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(pendingPackages, selectedPaths))
+            foreach (ChartPackage package in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(
+                pendingPackages,
+                selectedPaths))
             {
-                if (!LongPathFileSystem.DirectoryExists(pendingPackage.path))
+                if (package == null || string.IsNullOrWhiteSpace(package.path))
                 {
                     continue;
                 }
-                List<PackageChartEntry> packageEntries = pendingPackage.ChartEntries;
-                List<string> packageChartPaths = GetPackageChartPaths(packageEntries);
-                try
+                List<string> packageChartPaths = [.. (package.ChartEntries ?? [])
+                    .Select(entry => entry?.Chart?.Path)
+                    .Where(path => !string.IsNullOrWhiteSpace(path))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)];
+                if (packageChartPaths.Count == 0
+                    || packageChartPaths.Any(path => !selectedPaths.Contains(path))
+                    || packageChartPaths.Any(path => !successfulPaths.Contains(path)))
                 {
-                    fileMutationService.DeleteDirectoryShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
-                    result.ChartPathsToRemove.AddRange(packageChartPaths);
-                    foreach (string packageChartPath in packageChartPaths)
-                    {
-                        handledByFolderDeletePaths.Add(packageChartPath);
-                    }
-                    result.Processed += packageChartPaths.Count;
-                    result.Removed += packageChartPaths.Count;
+                    // A failed or unprocessed child prevents any ancestor
+                    // cleanup.  This keeps failed siblings and their source
+                    // directory intact.
+                    continue;
                 }
-                catch (Exception ex)
+                if (!LongPathFileSystem.DirectoryExists(package.path))
                 {
-                    foreach (string packageChartPath in packageChartPaths)
-                    {
-                        blockedByFailedFolderDeletePaths.Add(packageChartPath);
-                    }
-                    result.Processed += packageChartPaths.Count;
-                    result.Failed += packageChartPaths.Count;
+                    continue;
+                }
+                if (!TryValidatePendingDirectoryPath(package.path, out Exception directoryValidationFailure))
+                {
+                    result.Failed++;
                     result.Failures.Add(new PendingFileDeletionFailure
                     {
-                        Path = pendingPackage.path,
-                        Exception = ex,
+                        Path = package.path,
+                        Exception = directoryValidationFailure,
+                        IsDirectory = true
+                    });
+                    continue;
+                }
+                try
+                {
+                    // Child files have already been deleted successfully.
+                    // A non-recursive delete can therefore remove only the
+                    // now-empty, already-authorized package directory.
+                    fileMutationService.DeleteDirectoryDirect(
+                        package.path,
+                        recursive: false,
+                        targetOnlyFileMutationOptions);
+                }
+                catch (Exception failure)
+                {
+                    result.Failed++;
+                    result.Failures.Add(new PendingFileDeletionFailure
+                    {
+                        Path = package.path,
+                        Exception = failure,
                         IsDirectory = true
                     });
                 }
             }
         }
 
-        foreach (PendingChartDeletionTarget pendingChart in selectedTargets)
-        {
-            string pendingChartPath = pendingChart.Path;
-            if (!string.IsNullOrWhiteSpace(pendingChartPath) && (handledByFolderDeletePaths.Contains(pendingChartPath) || blockedByFailedFolderDeletePaths.Contains(pendingChartPath)))
-            {
-                continue;
-            }
-
-            result.Processed++;
-            try
-            {
-                if (LongPathFileSystem.FileExists(pendingChartPath))
-                {
-                    fileMutationService.DeleteFileShell(pendingChartPath, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
-                    result.ChartPathsToRemove.Add(pendingChartPath);
-                    result.Removed++;
-                }
-                else
-                {
-                    result.Skipped++;
-                }
-            }
-            catch (Exception ex2)
-            {
-                result.Failed++;
-                result.Failures.Add(new PendingFileDeletionFailure
-                {
-                    Path = pendingChartPath,
-                    Exception = ex2,
-                    IsDirectory = false
-                });
-            }
-        }
-
         return result;
+    }
+
+    private static bool TryValidatePendingFilePath(string path, out Exception failure)
+    {
+        failure = null;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            failure = new InvalidOperationException("Pending chart source path is empty.");
+            return false;
+        }
+        if (!LongPathFileSystem.FileExists(path))
+        {
+            failure = new FileNotFoundException("Pending chart source file was not found.", path);
+            return false;
+        }
+        try
+        {
+            FileAttributes attributes = LongPathFileSystem.GetAttributes(path);
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                failure = new IOException("Pending chart source is not a file.");
+                return false;
+            }
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                failure = new IOException("Pending chart source reparse points are not supported.");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException
+            || ex is UnauthorizedAccessException
+            || ex is ArgumentException
+            || ex is NotSupportedException
+            || ex is SecurityException)
+        {
+            failure = ex;
+            return false;
+        }
+    }
+
+    private static bool TryValidatePendingDirectoryPath(string path, out Exception failure)
+    {
+        failure = null;
+        try
+        {
+            FileAttributes attributes = LongPathFileSystem.GetAttributes(path);
+            if ((attributes & FileAttributes.Directory) == 0)
+            {
+                failure = new IOException("Pending package cleanup target is not a directory.");
+                return false;
+            }
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                failure = new IOException("Pending package cleanup reparse points are not supported.");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException
+            || ex is UnauthorizedAccessException
+            || ex is ArgumentException
+            || ex is NotSupportedException
+            || ex is SecurityException)
+        {
+            failure = ex;
+            return false;
+        }
     }
 
     private sealed class PendingChartDeletionTarget
@@ -3352,14 +3531,6 @@ internal sealed class BmsLibraryPackageInstallService
         internal ChartPackage Package { get; set; }
 
         internal HashSet<string> DuplicatePrimaryHashes { get; } = new(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static List<string> GetPackageChartPaths(IEnumerable<PackageChartEntry> entries)
-    {
-        return [.. (entries ?? [])
-            .Select(entry => entry?.Chart?.Path)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
     private static void ApplyAlreadyInstalledWarning(IEnumerable<PackageChartEntry> entries)
@@ -3638,6 +3809,22 @@ internal sealed class BmsLibraryPackageInstallService
         catch
         {
             return false;
+        }
+    }
+
+    private static void InvokeBestEffort(Action action, string diagnostic)
+    {
+        if (action == null)
+        {
+            return;
+        }
+        try
+        {
+            action();
+        }
+        catch (Exception exception)
+        {
+            NLogWrapper.FileLogger?.Warn(exception, diagnostic);
         }
     }
 }

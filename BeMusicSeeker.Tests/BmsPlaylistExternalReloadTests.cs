@@ -368,136 +368,150 @@ public sealed class BmsPlaylistExternalReloadTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task ReloadPlaylistTargetsAsync_SerializesLr2FolderConvergenceWithLocalFolderEdit()
+    public async Task LocalPlaylistMutations_RejectBusyLeaseBeforeMutationAndRetryToConvergence()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        BlockingLr2PlaylistFolderSynchronizationPort? synchronization = null;
-        Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>>? reloadTask = null;
-        Task<bool>? localEditTask = null;
-        try
+        foreach (LocalPlaylistMutationCase mutationCase in CreateLocalPlaylistMutationCases())
         {
-            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
-            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
-            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"ExternalFolderProjectionRace\",\r\n\"symbol\":\"E\",\r\n\"tag\":\"LEVEL \",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
-            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Projection Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+            string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDirectory);
+            LibraryFileMutationLease? incumbent = null;
+            try
+            {
+                string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+                string songDbPath = CreateTempSongDbPath(tempDirectory);
+                PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+                CustomFolderOutputSettingsSnapshot outputSettings = CreateLocalMutationOutputSettings(tempDirectory, outputBaseDir, operationModeLr2Db: true);
+                var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                    songDbPath,
+                    CustomFolderOutputPhysicalSurface.Empty);
+                var leaseProvider = new CountingMutationLeaseProvider();
+                var playlist = new TestBmsPlaylist(
+                    songDbPath,
+                    null,
+                    null,
+                    null,
+                    null,
+                    () => new PlaylistUrlCompletionOptionsSnapshot(),
+                    () => new BeatorajaBmtOptionsSnapshot(),
+                    () => outputSettings,
+                    synchronization,
+                    mutationLeaseProvider: leaseProvider.TryBegin);
+                BMSTable table = CreateLocalMutationTable();
+                playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+                playlist.CommitBMSTableWithEntriesToDB(table);
+                playlist.ReOutputCustomFolder(table);
+                leaseProvider.ResetCallCount();
+                synchronization.Operations.Clear();
 
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            CustomFolderOutputSettingsSnapshot outputSettings = new()
+                PlaylistModelSnapshot modelBefore = CapturePlaylistModel(table);
+                byte[] databaseBefore = File.ReadAllBytes(songDbPath);
+                Dictionary<string, byte[]> filesBefore = CaptureFileSurface(outputBaseDir);
+                incumbent = leaseProvider.AcquireIncumbent();
+
+                Task<Exception?> busyCall = Task.Run(() => CaptureMutationFailure(mutationCase, playlist, table));
+                Exception? busyException = await busyCall.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.IsNotNull(busyException, mutationCase.Name + " must reject while the lease is busy.");
+                Assert.AreEqual(2, leaseProvider.CallCount, mutationCase.Name + " should make one incumbent and one rejected admission attempt.");
+                AssertPlaylistModelUnchanged(modelBefore, CapturePlaylistModel(table));
+                CollectionAssert.AreEqual(databaseBefore, File.ReadAllBytes(songDbPath));
+                AssertFileSurfaceUnchanged(filesBefore, CaptureFileSurface(outputBaseDir));
+                Assert.AreEqual(0, synchronization.Operations.Count, mutationCase.Name + " must not reach LR2 output while admission is rejected.");
+
+                incumbent.Dispose();
+                incumbent = null;
+                object retryResult = mutationCase.Invoke(playlist, table, true);
+                Assert.IsTrue(mutationCase.WasApplied(retryResult), mutationCase.Name + " retry should apply the requested mutation.");
+                Assert.AreEqual(3, leaseProvider.CallCount, mutationCase.Name + " retry should be admitted exactly once.");
+                CollectionAssert.AreEqual(new[] { "playlist_lr2folder_batch_sync" }, synchronization.Operations);
+                AssertPersistedEntriesMatchModel(table, songDbPath);
+                Assert.IsTrue(CaptureFileSurface(outputBaseDir).Count > 0, mutationCase.Name + " retry should leave an app-managed custom-folder surface.");
+            }
+            finally
             {
-                OperationModeLR2DB = true,
-                LR2RootPath = tempDirectory,
-                LR2CustomFolderOutputBaseDir = outputBaseDir,
-                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootCustomFolder"),
-                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
-            };
-            synchronization = new BlockingLr2PlaylistFolderSynchronizationPort(songDbPath);
-            var playlist = new TestBmsPlaylist(
-                songDbPath,
-                null,
-                null,
-                null,
-                null,
-                () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot(),
-                () => outputSettings,
-                synchronization);
-            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
-            table.EnableExternalSync();
-            table.playlist_id = 900003;
-            table.Output_dir = "ExternalReloadProjectionRace";
-            table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
-            using (var db = new LR2SongDBExtended(songDbPath))
-            {
-                db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
-                foreach (BMSTableEntry entry in table.entries)
+                incumbent?.Dispose();
+                if (Directory.Exists(tempDirectory))
                 {
-                    db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                    Directory.Delete(tempDirectory, recursive: true);
                 }
             }
-            playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
-            playlist.ReOutputCustomFolder(table);
-
-            string outputPath = Path.Combine(outputBaseDir, table.Output_dir, "0000.lr2folder");
-            StringAssert.Contains(ReadShiftJisText(outputPath), "#TITLE LEVEL 1");
-            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Projection Song\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
-            synchronization.BlockNextSync();
-
-            reloadTask = playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
-                [table],
-                reason: "test_external_reload_custom_folder_projection_race");
-            Assert.IsTrue(
-                synchronization.BlockedSyncEntered.Wait(TimeSpan.FromSeconds(10)),
-                "External reload did not reach the LR2 folder-row synchronization stage.");
-
-            BMSTable activeReloadedTable = playlist.BMSTables.Single();
-            using var localEditStarted = new ManualResetEventSlim(initialState: false);
-            localEditTask = Task.Run(() =>
-            {
-                localEditStarted.Set();
-                return playlist.RenameFolderBMSTable(activeReloadedTable, "LEVEL 2", "LOCAL LEVEL");
-            });
-            Assert.IsTrue(localEditStarted.Wait(TimeSpan.FromSeconds(10)));
-            Assert.IsTrue(
-                SpinWait.SpinUntil(
-                    () => activeReloadedTable.ReaderWriterLock.WaitingWriteCount > 0,
-                    TimeSpan.FromSeconds(10)),
-                "The local edit was not serialized behind custom-folder convergence.");
-            Assert.IsFalse(localEditTask.IsCompleted);
-
-            synchronization.ReleaseBlockedSync();
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await reloadTask;
-            bool localEditApplied = await localEditTask;
-
-            Assert.AreEqual(1, results.Count);
-            Assert.IsTrue(results[0].Succeeded);
-            Assert.IsTrue(results[0].StatePersisted);
-            Assert.IsTrue(localEditApplied);
-            Assert.AreEqual("LOCAL LEVEL", activeReloadedTable.entries.Single(entry => !entry.is_removed).folder);
-            string finalText = ReadShiftJisText(outputPath);
-            StringAssert.Contains(finalText, "#TITLE LOCAL LEVEL");
-            Assert.IsFalse(finalText.Contains("#TITLE LEVEL 2", StringComparison.Ordinal));
-            using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(
-                "LOCAL LEVEL",
-                verify.ExecuteScalar<string>(
-                    "SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND is_removed = 0;",
-                    900003,
-                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-            Assert.AreEqual(
-                "LOCAL LEVEL",
-                verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath).title);
         }
-        finally
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void LocalPlaylistMutations_DoNotConsultLeaseForNoCommitOrNonLr2()
+    {
+        foreach (LocalPlaylistMutationCase mutationCase in CreateLocalPlaylistMutationCases())
         {
-            synchronization?.ReleaseBlockedSync();
-            if (reloadTask != null && !reloadTask.IsCompleted)
+            foreach ((bool CommitFlag, bool OperationModeLr2Db) in new[]
             {
+                (false, true),
+                (true, false)
+            })
+            {
+                string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDirectory);
                 try
                 {
-                    await reloadTask;
+                    string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+                    string songDbPath = CreateTempSongDbPath(tempDirectory);
+                    PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+                    CustomFolderOutputSettingsSnapshot outputSettings = CreateLocalMutationOutputSettings(
+                        tempDirectory,
+                        outputBaseDir,
+                        OperationModeLr2Db);
+                    var synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                        songDbPath,
+                        CustomFolderOutputPhysicalSurface.Empty);
+                    var leaseProvider = new CountingMutationLeaseProvider
+                    {
+                        DenyAll = true
+                    };
+                    var playlist = new TestBmsPlaylist(
+                        songDbPath,
+                        null,
+                        null,
+                        null,
+                        null,
+                        () => new PlaylistUrlCompletionOptionsSnapshot(),
+                        () => new BeatorajaBmtOptionsSnapshot(),
+                        () => outputSettings,
+                        synchronization,
+                        mutationLeaseProvider: leaseProvider.TryBegin);
+                    BMSTable table = CreateLocalMutationTable();
+                    playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+                    playlist.CommitBMSTableWithEntriesToDB(table);
+                    PlaylistModelSnapshot modelBefore = CapturePlaylistModel(table);
+                    byte[] databaseBefore = File.ReadAllBytes(songDbPath);
+                    Dictionary<string, byte[]> filesBefore = CaptureFileSurface(outputBaseDir);
+
+                    object result = mutationCase.Invoke(playlist, table, CommitFlag);
+                    Assert.IsTrue(mutationCase.WasApplied(result), mutationCase.Name + " negative control should apply the in-memory mutation.");
+                    Assert.AreEqual(0, leaseProvider.CallCount, mutationCase.Name + " must not consult the lease provider for the selected negative control.");
+                    Assert.IsFalse(
+                        string.Equals(
+                            string.Join("\u001f", modelBefore.EntryStates),
+                            string.Join("\u001f", CapturePlaylistModel(table).EntryStates),
+                            StringComparison.Ordinal),
+                        mutationCase.Name + " negative control should change the model.");
+                    AssertFileSurfaceUnchanged(filesBefore, CaptureFileSurface(outputBaseDir));
+                    Assert.AreEqual(0, synchronization.Operations.Count);
+                    if (!CommitFlag)
+                    {
+                        CollectionAssert.AreEqual(databaseBefore, File.ReadAllBytes(songDbPath));
+                    }
+                    else
+                    {
+                        AssertPersistedEntriesMatchModel(table, songDbPath);
+                    }
                 }
-                catch
+                finally
                 {
+                    if (Directory.Exists(tempDirectory))
+                    {
+                        Directory.Delete(tempDirectory, recursive: true);
+                    }
                 }
-            }
-            if (localEditTask != null && !localEditTask.IsCompleted)
-            {
-                try
-                {
-                    await localEditTask;
-                }
-                catch
-                {
-                }
-            }
-            synchronization?.Dispose();
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
             }
         }
     }
@@ -1095,6 +1109,220 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    private static IReadOnlyList<LocalPlaylistMutationCase> CreateLocalPlaylistMutationCases()
+    {
+        return
+        [
+            new LocalPlaylistMutationCase(
+                "rename-folder",
+                (playlist, table, commitFlag) => playlist.RenameFolderBMSTable(table, "Folder A", "Folder B", commitFlag),
+                result => result is true),
+            new LocalPlaylistMutationCase(
+                "remove-folder",
+                (playlist, table, commitFlag) => playlist.RemoveFolderBMSTable(table, "Folder A", commitFlag),
+                result => result is true),
+            new LocalPlaylistMutationCase(
+                "create-folder",
+                (playlist, table, commitFlag) => playlist.CreateNewFolderBMSTable(table, "Folder B", commitFlag),
+                result => result is string folderName && !string.IsNullOrWhiteSpace(folderName)),
+            new LocalPlaylistMutationCase(
+                "add-entries-to-folder",
+                (playlist, table, commitFlag) => playlist.AddPlaylistEntriesToFolderBMSTable(
+                    [table.entries.Single(entry => entry.md5 == LocalMutationSecondHash)],
+                    table,
+                    "Folder B",
+                    commitFlag),
+                result => result is true),
+            new LocalPlaylistMutationCase(
+                "remove-entries",
+                (playlist, table, commitFlag) => playlist.RemoveEntriesBMSTable(
+                    [table.entries.Single(entry => entry.md5 == LocalMutationSecondHash)],
+                    table,
+                    commitFlag),
+                result => result is true)
+        ];
+    }
+
+    private static CustomFolderOutputSettingsSnapshot CreateLocalMutationOutputSettings(
+        string tempDirectory,
+        string outputBaseDirectory,
+        bool operationModeLr2Db)
+    {
+        return new CustomFolderOutputSettingsSnapshot
+        {
+            OperationModeLR2DB = operationModeLr2Db,
+            LR2RootPath = tempDirectory,
+            LR2CustomFolderOutputBaseDir = outputBaseDirectory,
+            LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootCustomFolder"),
+            LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+        };
+    }
+
+    private static BMSTable CreateLocalMutationTable()
+    {
+        BMSTableEntry firstEntry = CreateEntry(LocalMutationFirstHash, "Folder A");
+        firstEntry.folder = "Folder A";
+        firstEntry.level = 1;
+        firstEntry.title = "Local admission first";
+        BMSTableEntry secondEntry = CreateEntry(LocalMutationSecondHash, "Folder A");
+        secondEntry.folder = "Folder A";
+        secondEntry.level = 2;
+        secondEntry.title = "Local admission second";
+        return new BMSTable
+        {
+            playlist_id = 990001,
+            name = "LocalAdmissionTable",
+            symbol = "LAT",
+            Output_dir = "LocalAdmissionOutput",
+            ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+            entries = [firstEntry, secondEntry],
+            Folder_order = ["Folder A"]
+        };
+    }
+
+    private static Exception? CaptureMutationFailure(
+        LocalPlaylistMutationCase mutationCase,
+        TestBmsPlaylist playlist,
+        BMSTable table)
+    {
+        try
+        {
+            mutationCase.Invoke(playlist, table, true);
+            return null;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
+
+    private static PlaylistModelSnapshot CapturePlaylistModel(BMSTable table)
+    {
+        using (table.ReaderWriterLock.GetReaderGuard())
+        {
+            return new PlaylistModelSnapshot(
+                table.last_update,
+                [.. (table.Folder_order ?? [])],
+                [.. (table.entries ?? []).Select(CreateEntryState)]);
+        }
+    }
+
+    private static void AssertPlaylistModelUnchanged(
+        PlaylistModelSnapshot expected,
+        PlaylistModelSnapshot actual)
+    {
+        Assert.AreEqual(expected.LastUpdate, actual.LastUpdate);
+        CollectionAssert.AreEqual(expected.FolderOrder.ToArray(), actual.FolderOrder.ToArray());
+        CollectionAssert.AreEqual(expected.EntryStates.ToArray(), actual.EntryStates.ToArray());
+    }
+
+    private static void AssertPersistedEntriesMatchModel(BMSTable table, string songDbPath)
+    {
+        string[] expected;
+        using (table.ReaderWriterLock.GetReaderGuard())
+        {
+            expected = [.. (table.entries ?? []).Select(CreateEntryState).OrderBy(state => state, StringComparer.Ordinal)];
+        }
+
+        using var db = new LR2SongDBExtended(songDbPath);
+        string[] actual =
+        [
+            .. db.Table<LR2SongDBExtended.playlist_entry>()
+                .Where(entry => entry.playlist_id == table.playlist_id)
+                .Select(CreatePersistedEntryState)
+                .OrderBy(state => state, StringComparer.Ordinal)
+        ];
+        CollectionAssert.AreEqual(expected, actual);
+    }
+
+    private static string CreateEntryState(BMSTableEntry entry)
+    {
+        return string.Join(
+            "\u001f",
+            entry?.md5 ?? string.Empty,
+            entry?.sha256 ?? string.Empty,
+            entry?.folder ?? string.Empty,
+            entry?.is_removed == true ? "1" : "0");
+    }
+
+    private static string CreatePersistedEntryState(LR2SongDBExtended.playlist_entry entry)
+    {
+        return string.Join(
+            "\u001f",
+            entry?.md5 ?? string.Empty,
+            entry?.sha256 ?? string.Empty,
+            entry?.folder ?? string.Empty,
+            entry?.is_removed == true ? "1" : "0");
+    }
+
+    private static Dictionary<string, byte[]> CaptureFileSurface(string rootDirectory)
+    {
+        if (!Directory.Exists(rootDirectory))
+        {
+            return new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return Directory.EnumerateFiles(rootDirectory, "*", SearchOption.AllDirectories)
+            .ToDictionary(
+                path => Path.GetRelativePath(rootDirectory, path),
+                File.ReadAllBytes,
+                StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void AssertFileSurfaceUnchanged(
+        IReadOnlyDictionary<string, byte[]> expected,
+        IReadOnlyDictionary<string, byte[]> actual)
+    {
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), actual.Keys.ToArray());
+        foreach (string path in expected.Keys)
+        {
+            CollectionAssert.AreEqual(expected[path], actual[path], path);
+        }
+    }
+
+    private const string LocalMutationFirstHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    private const string LocalMutationSecondHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    private sealed class LocalPlaylistMutationCase
+    {
+        internal LocalPlaylistMutationCase(
+            string name,
+            Func<TestBmsPlaylist, BMSTable, bool, object> invoke,
+            Func<object, bool> wasApplied)
+        {
+            Name = name ?? throw new ArgumentNullException(nameof(name));
+            Invoke = invoke ?? throw new ArgumentNullException(nameof(invoke));
+            WasApplied = wasApplied ?? throw new ArgumentNullException(nameof(wasApplied));
+        }
+
+        internal string Name { get; }
+
+        internal Func<TestBmsPlaylist, BMSTable, bool, object> Invoke { get; }
+
+        internal Func<object, bool> WasApplied { get; }
+    }
+
+    private sealed class PlaylistModelSnapshot
+    {
+        internal PlaylistModelSnapshot(
+            DateTime lastUpdate,
+            IReadOnlyList<string> folderOrder,
+            IReadOnlyList<string> entryStates)
+        {
+            LastUpdate = lastUpdate;
+            FolderOrder = folderOrder ?? [];
+            EntryStates = entryStates ?? [];
+        }
+
+        internal DateTime LastUpdate { get; }
+
+        internal IReadOnlyList<string> FolderOrder { get; }
+
+        internal IReadOnlyList<string> EntryStates { get; }
+    }
+
     private enum UiScheduleOutcome
     {
         AcceptedPending,
@@ -1323,73 +1551,41 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
-    private sealed class BlockingLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFolderSynchronizationPort, IDisposable
+    private sealed class CountingMutationLeaseProvider
     {
-        private readonly string songDbPath;
+        private readonly object ownerIdentity = new();
 
-        private int syncCallCount;
+        private int activeLease;
 
-        private int blockedSyncCallNumber = -1;
+        private int callCount;
 
-        internal BlockingLr2PlaylistFolderSynchronizationPort(string songDbPath)
+        internal bool DenyAll { get; set; }
+
+        internal int CallCount => Volatile.Read(ref callCount);
+
+        internal LibraryFileMutationLease TryBegin(string _)
         {
-            this.songDbPath = songDbPath;
-        }
-
-        internal ManualResetEventSlim BlockedSyncEntered { get; } = new(initialState: false);
-
-        private ManualResetEventSlim ContinueBlockedSync { get; } = new(initialState: false);
-
-        internal void BlockNextSync()
-        {
-            BlockedSyncEntered.Reset();
-            ContinueBlockedSync.Reset();
-            Volatile.Write(ref blockedSyncCallNumber, Volatile.Read(ref syncCallCount) + 1);
-        }
-
-        internal void ReleaseBlockedSync()
-        {
-            ContinueBlockedSync.Set();
-        }
-
-        public CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
-        {
-            return CustomFolderOutputPhysicalSurface.Empty;
-        }
-
-        public Lr2FolderFileDbSyncResult SyncPlaylistLr2FolderFileRows(
-            string operation,
-            Lr2FolderFileDbSyncRequest request)
-        {
-            int callNumber = Interlocked.Increment(ref syncCallCount);
-            if (callNumber == Volatile.Read(ref blockedSyncCallNumber))
+            Interlocked.Increment(ref callCount);
+            if (DenyAll || Interlocked.CompareExchange(ref activeLease, 1, 0) != 0)
             {
-                BlockedSyncEntered.Set();
-                if (!ContinueBlockedSync.Wait(TimeSpan.FromSeconds(10)))
-                {
-                    throw new TimeoutException("Timed out waiting to release the blocked LR2 folder-row synchronization.");
-                }
+                return null!;
             }
 
-            using var songDb = new LR2SongDBExtended(songDbPath);
-            string savepoint = songDb.SaveTransactionPoint();
-            try
-            {
-                Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, request);
-                songDb.Commit();
-                return result;
-            }
-            catch
-            {
-                songDb.RollbackTo(savepoint);
-                throw;
-            }
+            return new LibraryFileMutationLease(
+                ownerIdentity,
+                () => Volatile.Read(ref activeLease) != 0,
+                () => Volatile.Write(ref activeLease, 0));
         }
 
-        public void Dispose()
+        internal LibraryFileMutationLease AcquireIncumbent()
         {
-            BlockedSyncEntered.Dispose();
-            ContinueBlockedSync.Dispose();
+            return TryBegin("test_incumbent")
+                ?? throw new InvalidOperationException("The test mutation lease provider did not admit the incumbent.");
+        }
+
+        internal void ResetCallCount()
+        {
+            Interlocked.Exchange(ref callCount, 0);
         }
     }
 }

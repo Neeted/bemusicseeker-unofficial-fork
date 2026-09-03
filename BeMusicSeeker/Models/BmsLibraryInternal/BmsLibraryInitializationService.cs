@@ -478,6 +478,132 @@ internal sealed class Lr2NormalFolderMtimeSnapshot(
 }
 
 /// <summary>
+/// Immutable startup observation for a folder whose timestamp may be the LR2
+/// leap-year sentinel. The repair operation revalidates this observation after
+/// admission, immediately before changing the filesystem.
+/// </summary>
+internal sealed class LeapYearFolderRepairCandidate
+{
+    private readonly FolderCatalogIdentity catalogIdentity;
+
+    /// <summary>
+    /// Creates a candidate from the pre-admission filesystem timestamp and
+    /// catalog row snapshot.
+    /// </summary>
+    internal LeapYearFolderRepairCandidate(
+        string originalFolderPath,
+        string normalizedPath,
+        DateTime lastWriteTime,
+        LR2SongDB.folder folder)
+    {
+        OriginalFolderPath = originalFolderPath ?? string.Empty;
+        Path = normalizedPath ?? string.Empty;
+        LastWriteTime = lastWriteTime;
+        catalogIdentity = FolderCatalogIdentity.Capture(folder);
+    }
+
+    /// <summary>
+    /// Gets the exact path stored by the catalog row. It is used for the
+    /// targeted database lookup and is intentionally not normalized.
+    /// </summary>
+    public string OriginalFolderPath { get; }
+
+    public string Path { get; }
+
+    public DateTime LastWriteTime { get; }
+
+    /// <summary>
+    /// Determines whether the current catalog row is the same row observed
+    /// before admission. All persisted folder fields are compared so a path
+    /// replacement cannot inherit an approval made for the previous row.
+    /// </summary>
+    internal bool MatchesCatalogRow(LR2SongDB.folder folder)
+        => catalogIdentity.Matches(folder);
+
+    private sealed class FolderCatalogIdentity
+    {
+        private FolderCatalogIdentity(LR2SongDB.folder folder)
+        {
+            Title = folder?.title;
+            Subtitle = folder?.subtitle;
+            Category = folder?.category;
+            InfoA = folder?.info_a;
+            InfoB = folder?.info_b;
+            Command = folder?.command;
+            Path = NormalizePath(folder?.path);
+            Type = folder?.type;
+            Banner = folder?.banner;
+            Parent = folder?.parent;
+            Date = folder?.date;
+            Max = folder?.max;
+            AddDate = folder?.adddate;
+        }
+
+        private string Title { get; }
+
+        private string Subtitle { get; }
+
+        private string Category { get; }
+
+        private string InfoA { get; }
+
+        private string InfoB { get; }
+
+        private string Command { get; }
+
+        private string Path { get; }
+
+        private int? Type { get; }
+
+        private string Banner { get; }
+
+        private string Parent { get; }
+
+        private int? Date { get; }
+
+        private int? Max { get; }
+
+        private int? AddDate { get; }
+
+        internal static FolderCatalogIdentity Capture(LR2SongDB.folder folder)
+            => new(folder);
+
+        internal bool Matches(LR2SongDB.folder folder)
+        {
+            return folder != null
+                && string.Equals(Title, folder.title, StringComparison.Ordinal)
+                && string.Equals(Subtitle, folder.subtitle, StringComparison.Ordinal)
+                && string.Equals(Category, folder.category, StringComparison.Ordinal)
+                && string.Equals(InfoA, folder.info_a, StringComparison.Ordinal)
+                && string.Equals(InfoB, folder.info_b, StringComparison.Ordinal)
+                && string.Equals(Command, folder.command, StringComparison.Ordinal)
+                && string.Equals(Path, NormalizePath(folder.path), StringComparison.OrdinalIgnoreCase)
+                && Type == folder.type
+                && string.Equals(Banner, folder.banner, StringComparison.Ordinal)
+                && string.Equals(Parent, folder.parent, StringComparison.Ordinal)
+                && Date == folder.date
+                && Max == folder.max
+                && AddDate == folder.adddate;
+        }
+
+        private static string NormalizePath(string path)
+            => path?.TrimEnd('\\', '/') ?? string.Empty;
+    }
+}
+
+/// <summary>
+/// Detached outcome of the post-admission leap-year timestamp repair.
+/// </summary>
+internal sealed class LeapYearFolderRepairResult
+{
+    public int RepairedCount { get; internal set; }
+
+    public List<string> RepairedPaths { get; } = [];
+
+    public List<(string Path, Exception Exception)> Failures { get; } = [];
+}
+
+/// <summary>
 /// Loads initialization phases against snapshot inputs owned by BMSLibrary.
 /// The facade must acquire the required locks before invoking phase methods.
 /// </summary>
@@ -504,6 +630,113 @@ internal sealed class BmsLibraryInitializationService
             chartInfoBuildService,
             inlineChartInfoBatchSizeOverride,
             fileDiffCommitChunkSizeOverride);
+    }
+
+    /// <summary>
+    /// Revalidates approved startup candidates and repairs their timestamps
+    /// while the caller owns the mutation lease. This method performs no UI
+    /// callback; callers publish warnings and failures after releasing locks.
+    /// </summary>
+    internal LeapYearFolderRepairResult RepairLeapYearFolderTimestamps(
+        BmsLibraryDbGateway dbGateway,
+        IEnumerable<LeapYearFolderRepairCandidate> approvedCandidates,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        Func<Exception, string> getDisplayedExceptionMessage = null)
+    {
+        var result = new LeapYearFolderRepairResult();
+        List<LeapYearFolderRepairCandidate> approved = [.. (approvedCandidates ?? [])
+            .Where(candidate => candidate != null)
+            .GroupBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())];
+        if (dbGateway == null || approved.Count == 0)
+        {
+            return result;
+        }
+
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+        if (!TableExists(songDb, SQLiteTable<LR2SongDB.folder>.GetTableName()))
+        {
+            return result;
+        }
+
+        // The initial folder loop already identified the small approved set.
+        // Query only those exact catalog paths; do not enumerate unrelated
+        // rows or probe their filesystem timestamps again.
+        IReadOnlyList<LR2SongDB.folder> existingRows =
+            Lr2FolderExistingRowLookup.QueryExactPaths(
+                songDb,
+                approved.Select(candidate => candidate.OriginalFolderPath));
+        Dictionary<string, LR2SongDB.folder> rowsByExactPath = existingRows
+            .Where(folder => folder != null && !string.IsNullOrWhiteSpace(folder.path))
+            .GroupBy(folder => folder.path, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        var repairedRows = new List<LR2SongDB.folder>();
+
+        foreach (LeapYearFolderRepairCandidate candidate in approved)
+        {
+            string directoryPath = candidate.Path?.TrimEnd('\\', '/') ?? string.Empty;
+            if (!rowsByExactPath.TryGetValue(candidate.OriginalFolderPath, out LR2SongDB.folder folder)
+                || !candidate.MatchesCatalogRow(folder)
+                || folder.type != 1
+                || !(folder.date < 0 || !folder.date.HasValue)
+                || !LongPathFileSystem.DirectoryExists(directoryPath))
+            {
+                continue;
+            }
+
+            DateTime lastWriteTime = LongPathFileSystem.GetLastWriteTime(directoryPath, isDirectory: true);
+            if (lastWriteTime != candidate.LastWriteTime
+                || !IsLeapYearTimestamp(lastWriteTime))
+            {
+                continue;
+            }
+
+            if (fileMutationService == null)
+            {
+                result.Failures.Add((
+                    directoryPath,
+                    new InvalidOperationException(
+                        "A file mutation service is required to repair the LR2 leap-year folder timestamp.")));
+                continue;
+            }
+
+            try
+            {
+                fileMutationService.SetTimestamps(
+                    directoryPath,
+                    isDirectory: true,
+                    creationTime: null,
+                    lastWriteTime: DateTime.Now,
+                    targetOnlyFileMutationOptions);
+                folder.adddate = null;
+                folder.date = null;
+                result.RepairedPaths.Add(directoryPath);
+                repairedRows.Add(folder);
+                result.RepairedCount++;
+            }
+            catch (Exception exception)
+            {
+                result.Failures.Add((
+                    directoryPath,
+                    new IOException(
+                        getDisplayedExceptionMessage?.Invoke(exception) ?? exception.Message,
+                        exception)));
+            }
+        }
+
+        if (result.RepairedCount == 0)
+        {
+            return result;
+        }
+
+        songDb.BeginTransaction();
+        foreach (LR2SongDB.folder repairedRow in repairedRows)
+        {
+            songDb.InsertOrReplace(repairedRow, typeof(LR2SongDB.folder));
+        }
+        songDb.Commit();
+        return result;
     }
 
     public SongTableLoadResult LoadSongTable(
@@ -574,10 +807,6 @@ internal sealed class BmsLibraryInitializationService
                 loadedSongs,
                 deletedFiles,
                 result,
-                dialogService,
-                fileMutationService,
-                targetOnlyFileMutationOptions,
-                getDisplayedExceptionMessage,
                 logInstallPerformance);
         }
         else
@@ -2188,9 +2417,39 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             List<ChartPackage> packages = dbGateway.LoadInstallPackages();
-            result.PendingPackages.AddRange(packages.Where(pkg => pkg != null && (File.Exists(pkg.path) || Directory.Exists(pkg.path)) && pkg.ChartEntries.Count > 0));
-            result.StalePackages.AddRange(packages.Except(result.PendingPackages));
-            result.StaleInstallPaths.AddRange(result.StalePackages.Where(pkg => !string.IsNullOrWhiteSpace(pkg.path)).Select(pkg => pkg.path));
+            var seenCanonicalPaths = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ChartPackage package in packages ?? [])
+            {
+                string rawPath = package?.path;
+                if (package == null
+                    || !TryNormalizePendingPackagePath(rawPath, out string canonicalPath)
+                    || (!LongPathFileSystem.FileExists(canonicalPath)
+                        && !LongPathFileSystem.DirectoryExists(canonicalPath))
+                    || package.ChartEntries == null
+                    || package.ChartEntries.Count == 0
+                    || !seenCanonicalPaths.Add(canonicalPath))
+                {
+                    if (package != null)
+                    {
+                        result.StalePackages.Add(package);
+                    }
+                    if (!string.IsNullOrWhiteSpace(rawPath))
+                    {
+                        result.StaleInstallPaths.Add(rawPath);
+                    }
+                    continue;
+                }
+
+                if (!string.Equals(rawPath, canonicalPath, StringComparison.Ordinal))
+                {
+                    // Keep the raw primary-key path in the reconciliation set.
+                    // The owner deletes it and upserts this canonical survivor
+                    // in one existing install-table transaction before publish.
+                    result.StaleInstallPaths.Add(rawPath);
+                }
+                package.path = canonicalPath;
+                result.PendingPackages.Add(package);
+            }
         }
         catch
         {
@@ -2233,6 +2492,30 @@ internal sealed class BmsLibraryInitializationService
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    private static bool TryNormalizePendingPackagePath(string path, out string normalizedPath)
+    {
+        normalizedPath = null;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+        try
+        {
+            normalizedPath = LongPathFileSystem.TrimTrailingDirectorySeparators(
+                LongPathFileSystem.NormalizePathForStorage(path.Trim()));
+            return !string.IsNullOrWhiteSpace(normalizedPath);
+        }
+        catch (Exception exception) when (
+            exception is ArgumentException
+            or NotSupportedException
+            or PathTooLongException
+            or IOException)
+        {
+            normalizedPath = null;
+            return false;
+        }
     }
 
     public InitializationExecutionResult RunInitialize(
@@ -2340,10 +2623,6 @@ internal sealed class BmsLibraryInitializationService
         List<BMSFile> loadedSongs,
         List<BMSFile> deletedFiles,
         SongTableLoadResult result,
-        IBmsLibraryDialogService dialogService,
-        IFileMutationService fileMutationService,
-        FileMutationOptions targetOnlyFileMutationOptions,
-        Func<Exception, string> getDisplayedExceptionMessage,
         Action<string> logInstallPerformance)
     {
         int unixtime = (DateTime.Now + new TimeSpan(30, 0, 0, 0)).ToUnixtime();
@@ -2446,25 +2725,20 @@ internal sealed class BmsLibraryInitializationService
                     }
                     if ((folder.date < 0 || !folder.date.HasValue) && folder.type == 1 && !string.IsNullOrWhiteSpace(folder.path))
                     {
-                        string directoryPath = folder.path.TrimEnd('\\');
-                        if (Directory.Exists(directoryPath))
+                        string originalFolderPath = folder.path;
+                        string directoryPath = originalFolderPath.TrimEnd('\\', '/');
+                        if (LongPathFileSystem.DirectoryExists(directoryPath))
                         {
-                            DateTime lastWriteTime = Directory.GetLastWriteTime(directoryPath);
-                            if (IsLeapYearTimestamp(lastWriteTime)
-                                && dialogService?.Show(string.Format(Resources.Warn_LR2LeapYearFolderDetected, directoryPath, lastWriteTime.ToShortDateString(), DateTime.Now.ToShortDateString()), Resources.MessageBoxTitle_Warning, MessageBoxButton.YesNo, MessageBoxImage.Exclamation, MessageBoxResult.No) == MessageBoxResult.Yes)
+                            DateTime lastWriteTime = LongPathFileSystem.GetLastWriteTime(directoryPath, isDirectory: true);
+                            if (IsLeapYearTimestamp(lastWriteTime))
                             {
-                                try
-                                {
-                                    fileMutationService?.SetTimestamps(directoryPath, isDirectory: true, creationTime: null, lastWriteTime: DateTime.Now, targetOnlyFileMutationOptions);
-                                    folder.adddate = null;
-                                    folder.date = null;
-                                    result.LeapYearDetected = true;
-                                    return true;
-                                }
-                                catch (Exception ex)
-                                {
-                                    dialogService?.Show(string.Format(Resources.Error_FailedToChangeDate, getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                }
+                                result.LeapYearDetected = true;
+                                result.LeapYearRepairCandidates.Add(
+                                    new LeapYearFolderRepairCandidate(
+                                        originalFolderPath,
+                                        directoryPath,
+                                        lastWriteTime,
+                                        folder));
                             }
                         }
                     }
@@ -2513,10 +2787,6 @@ internal sealed class BmsLibraryInitializationService
             result.CommitMs = stopwatchCommit.ElapsedMilliseconds;
             stopwatchDbWrite.Stop();
             result.DbWriteMs = stopwatchDbWrite.ElapsedMilliseconds;
-        }
-        if (result.LeapYearDetected)
-        {
-            dialogService?.Show(Resources.Warn_LR2LeapYearBugDetected, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
         stopwatchFixApply.Stop();
         result.FixApplyMs = stopwatchFixApply.ElapsedMilliseconds;

@@ -3994,16 +3994,20 @@ public partial class MainWindowViewModel : ViewModel,
             throw new ArgumentNullException(nameof(library));
         }
 
-        files = library;
-        using (chartFileOperations.Enter())
+        if (!chartFileOperations.TryEnter(out IDisposable operationGate))
         {
+            throw new InvalidOperationException("A chart-file operation is already active during startup attachment.");
+        }
+        using (operationGate)
+        {
+            files = library;
             ShellShutdownWorkflow.AttachLibrary(files);
             PackageInstallWorkflow.AttachLibrary(files);
             MaintenanceRescanWorkflow.AttachLibrary(files);
             FolderAutoRenameWorkflow.AttachLibrary(files);
             regularChartListOwner.AttachNormalLibraryRefreshSource(files);
+            PlaybackPanel.AttachLibrary(files);
         }
-        PlaybackPanel.AttachLibrary(files);
     }
 
     void IStartupLibraryApplicationPort.AttachStartupServices(StartupLibraryServices services)

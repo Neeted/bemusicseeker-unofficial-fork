@@ -81,44 +81,12 @@ internal static class PlaylistSummaryAggregationTestSupport
 
     internal static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)
     {
-        var result = new SongTableFileCheckResult
-        {
-            HasDbDiff = true
-        };
-        result.NextFiles.AddRange(files ?? []);
-        result.NextBmsonSongs.AddRange(library.BmsonSongs);
-        InvokeApplyCatalogStorageRowsWithoutNotification(library, result);
+        OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, files);
     }
 
     internal static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
     {
-        var result = new SongTableFileCheckResult
-        {
-            HasDbDiff = true
-        };
-        result.NextFiles.AddRange(library.BMSFiles);
-        result.NextBmsonSongs.AddRange(songs ?? []);
-        InvokeApplyCatalogStorageRowsWithoutNotification(library, result);
-    }
-
-    internal static void InvokeApplyCatalogStorageRowsWithoutNotification(
-        BMSLibrary library,
-        SongTableFileCheckResult result)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod(
-            "ApplyCatalogStorageRows",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(
-            library,
-            [
-                result.NextFiles,
-                result.NextBmsonSongs,
-                true,
-                true,
-                false,
-                false
-            ]);
+        OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, songs);
     }
 
     internal static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)

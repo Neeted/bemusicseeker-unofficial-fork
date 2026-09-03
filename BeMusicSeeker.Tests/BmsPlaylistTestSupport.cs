@@ -197,6 +197,8 @@ internal sealed class TestLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFol
 
     internal Exception Failure { get; set; } = null!;
 
+    internal Action<LibraryFileMutationCapability> SynchronizationStartProbe { get; set; } = null!;
+
     public CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
     {
         return PhysicalSurfaceFactory?.Invoke()
@@ -207,8 +209,14 @@ internal sealed class TestLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFol
 
     public Lr2FolderFileDbSyncResult SyncPlaylistLr2FolderFileRows(
         string operation,
-        Lr2FolderFileDbSyncRequest request)
+        Lr2FolderFileDbSyncRequest request,
+        LibraryFileMutationCapability mutationCapability)
     {
+        if (mutationCapability == null)
+        {
+            throw new ArgumentNullException(nameof(mutationCapability));
+        }
+        SynchronizationStartProbe?.Invoke(mutationCapability);
         Operations.Add(operation);
         if (Failure != null)
         {

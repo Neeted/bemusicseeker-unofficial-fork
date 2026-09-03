@@ -355,12 +355,9 @@ function Assert-VerificationTestOutcomes {
 
     $requiredReceipt = [System.Collections.Generic.List[object]]::new()
     foreach ($entry in $required) {
-        $matches = if ($resultsByName.ContainsKey($entry.FullyQualifiedName)) {
-            @($resultsByName[$entry.FullyQualifiedName])
-        }
-        else {
-            @()
-        }
+        $matches = @(if ($resultsByName.ContainsKey($entry.FullyQualifiedName)) {
+                $resultsByName[$entry.FullyQualifiedName]
+            })
         if ($matches.Count -eq 0) {
             throw "Required verification FQN is missing: $($entry.FullyQualifiedName)"
         }

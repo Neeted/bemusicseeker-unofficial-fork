@@ -31,7 +31,24 @@ internal interface IPackageInstallTerminalMutationPort
         Action<string, int, int> onEachArchiveExtractStarted);
 }
 
-internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMutationPort, IPackageInstallTerminalMutationPort
+/// <summary>
+/// Progress-aware package mutation seam.  The legacy mutation-port methods
+/// remain available to test doubles and older composition code, while the
+/// production owner uses this narrow writer-only boundary.
+/// </summary>
+internal interface IPackageInstallProgressMutationPort
+{
+    PackageInstallCommandResult InstallWithProgress(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        IPackageInstallProgressWriter progressWriter);
+}
+
+internal sealed class BmsLibraryPackageInstallMutationPort :
+    IPackageInstallMutationPort,
+    IPackageInstallTerminalMutationPort,
+    IPackageInstallProgressMutationPort
 {
     public IReadOnlyList<ChartPackage> Install(
         BMSLibrary library,
@@ -42,9 +59,7 @@ internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMuta
     {
         return library?.InstallChartPackagesAuto(
             installPaths,
-            token,
-            onEachPathProcessed,
-            onEachArchiveExtractStarted) ?? [];
+            token) ?? [];
     }
 
     public PackageInstallCommandResult InstallWithResult(
@@ -54,11 +69,23 @@ internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMuta
         Action onEachPathProcessed,
         Action<string, int, int> onEachArchiveExtractStarted)
     {
-        return library?.InstallChartPackagesAutoWithResult(
+        return library?.InstallChartPackagesAutoWithProgress(
             installPaths,
             token,
-            onEachPathProcessed,
-            onEachArchiveExtractStarted)
+            NullPackageInstallProgressWriter.Instance)
+            ?? new PackageInstallCommandResult([], null);
+    }
+
+    public PackageInstallCommandResult InstallWithProgress(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        IPackageInstallProgressWriter progressWriter)
+    {
+        return library?.InstallChartPackagesAutoWithProgress(
+            installPaths,
+            token,
+            progressWriter)
             ?? new PackageInstallCommandResult([], null);
     }
 }
@@ -402,12 +429,14 @@ internal sealed class PackageInstallWorkflowOwner
             return;
         }
 
+        var progressWriter = new PackageInstallProgressWriter(this, context);
         int completedPathCount = 0;
         PackageInstallCommandResult commandResult = ExecuteInstallBatch(
             currentGeneration,
             currentLibrary,
             request,
             token,
+            progressWriter,
             () => context.Processor.ReportActiveBatchProgress(++completedPathCount),
             (path, index, total) => context.Processor.ReportActiveBatchCurrentWork(
                 index,
@@ -440,6 +469,7 @@ internal sealed class PackageInstallWorkflowOwner
         BMSLibrary library,
         DroppedInstallBatchRequest request,
         CancellationToken token,
+        IPackageInstallProgressWriter progressWriter,
         Action onEachPathProcessed,
         Action<string, int, int> onEachArchiveExtractStarted)
     {
@@ -460,9 +490,12 @@ internal sealed class PackageInstallWorkflowOwner
         PackageInstallCommandResult commandResult = null;
         try
         {
+            if (!chartFileOperations.TryEnter(out operationGate))
+            {
+                throw new InvalidOperationException("A chart-file operation is already active.");
+            }
             dialogScope = library.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
-            operationGate = chartFileOperations.Enter();
             if (token.IsCancellationRequested
                 || !IsCurrentGeneration(expectedGeneration, library))
             {
@@ -478,7 +511,16 @@ internal sealed class PackageInstallWorkflowOwner
                 }
                 else
                 {
-                    if (mutationPort is IPackageInstallTerminalMutationPort terminalMutationPort)
+                    if (mutationPort is IPackageInstallProgressMutationPort progressMutationPort)
+                    {
+                        commandResult = progressMutationPort.InstallWithProgress(
+                            library,
+                            normalizedInstallPaths,
+                            token,
+                            progressWriter);
+                        packages = commandResult?.RegisteredPackages ?? [];
+                    }
+                    else if (mutationPort is IPackageInstallTerminalMutationPort terminalMutationPort)
                     {
                         commandResult = terminalMutationPort.InstallWithResult(
                             library,
@@ -506,6 +548,10 @@ internal sealed class PackageInstallWorkflowOwner
         }
         finally
         {
+            if (progressWriter is PackageInstallProgressWriter packageProgressWriter)
+            {
+                packageProgressWriter.Seal();
+            }
             if (suppressionStarted)
             {
                 CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
@@ -583,14 +629,24 @@ internal sealed class PackageInstallWorkflowOwner
 
             if (!copy.IsActive)
             {
-                activeStatusPublication = null;
+                if (activeStatusPublication != null
+                    && activeStatusPublication.Generation == context.Generation)
+                {
+                    activeStatusPublication.TerminalQueued = true;
+                }
                 schedule = false;
             }
             else
             {
                 publication = activeStatusPublication;
-                if (publication == null || publication.Generation != context.Generation)
+                if (publication == null
+                    || publication.Generation != context.Generation
+                    || publication.TerminalQueued)
                 {
+                    if (publication != null)
+                    {
+                        publication.Superseded = true;
+                    }
                     publication = new ActiveStatusPublication(context.Generation, copy);
                     activeStatusPublication = publication;
                     schedule = true;
@@ -634,6 +690,10 @@ internal sealed class PackageInstallWorkflowOwner
         DropInstallQueueStatusSnapshot snapshot;
         lock (statusPublicationGate)
         {
+            if (publication.Superseded)
+            {
+                return;
+            }
             snapshot = publication.Snapshot;
             if (ReferenceEquals(activeStatusPublication, publication))
             {
@@ -660,6 +720,68 @@ internal sealed class PackageInstallWorkflowOwner
         internal long Generation { get; }
 
         internal DropInstallQueueStatusSnapshot Snapshot { get; set; }
+
+        internal bool TerminalQueued { get; set; }
+
+        internal bool Superseded { get; set; }
+    }
+
+    /// <summary>
+    /// Converts immutable package progress facts into queue-owned status
+    /// updates. The writer is sealed before terminal cleanup so a late source
+    /// callback cannot update a later batch.
+    /// </summary>
+    private sealed class PackageInstallProgressWriter : IPackageInstallProgressWriter
+    {
+        private readonly PackageInstallWorkflowOwner owner;
+
+        private readonly QueueProcessorContext context;
+
+        private int completedPathCount;
+
+        private int sealedState;
+
+        internal PackageInstallProgressWriter(
+            PackageInstallWorkflowOwner owner,
+            QueueProcessorContext context)
+        {
+            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
+            this.context = context ?? throw new ArgumentNullException(nameof(context));
+        }
+
+        public void TryWrite(PackageInstallProgressUpdate update)
+        {
+            if (Volatile.Read(ref sealedState) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                switch (update.Kind)
+                {
+                    case PackageInstallProgressKind.SourceProcessed:
+                        int processed = Interlocked.Increment(ref completedPathCount);
+                        context.Processor.ReportActiveBatchProgress(processed);
+                        break;
+                    case PackageInstallProgressKind.ArchiveExtractStarted:
+                        context.Processor.ReportActiveBatchCurrentWork(
+                            update.Index,
+                            update.Total,
+                            GetInstallPathDisplayName(update.Path));
+                        break;
+                }
+            }
+            catch (Exception exception)
+            {
+                owner.ReportNotificationFailure(exception);
+            }
+        }
+
+        internal void Seal()
+        {
+            Interlocked.Exchange(ref sealedState, 1);
+        }
     }
 
     private void PublishBatchFailure(QueueProcessorContext context, Exception exception)

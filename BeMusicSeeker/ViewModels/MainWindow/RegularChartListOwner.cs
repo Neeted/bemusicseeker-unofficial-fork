@@ -149,7 +149,9 @@ internal sealed class RegularChartListOwner : IDisposable
     internal void AttachNormalLibraryRefreshSource(BMSLibrary library)
     {
         PropertyChangedEventListener previousListener = null;
-        using (chartFileOperations.Enter())
+        // Attachment only updates this owner's listener state.  It must not
+        // wait on the shared physical-file gate because startup attachment is
+        // performed while that gate is intentionally held.
         {
             PropertyChangedEventListener nextListener = null;
             lock (normalLibraryRefreshApplyLock)
@@ -1022,10 +1024,15 @@ internal sealed class RegularChartListOwner : IDisposable
         IDisposable operationGate = null;
         bool suppressionStarted = false;
         bool normalRefreshApplySuppressed = false;
+        bool operationAdmitted = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
-            operationGate = chartFileOperations.Enter();
+            if (!chartFileOperations.TryEnter(out operationGate))
+            {
+                throw new InvalidOperationException("A chart-file operation is already active.");
+            }
+            operationAdmitted = true;
             if (IsCurrentLibrary(library))
             {
                 dialogScope = library.BeginOperationDialogScope();
@@ -1072,6 +1079,15 @@ internal sealed class RegularChartListOwner : IDisposable
         }
         finally
         {
+            // Failure dialogs and all queued refresh callbacks must flush
+            // after the outer chart-operation gate has been released.  A
+            // dialog callback may re-enter this owner, so retaining the gate
+            // until the end of this cleanup block would deadlock that reentry.
+            if (operationGate != null)
+            {
+                CaptureCleanupFailure(operationGate.Dispose, failures);
+                operationGate = null;
+            }
             if (normalRefreshApplySuppressed)
             {
                 lock (syncRoot)
@@ -1095,11 +1111,10 @@ internal sealed class RegularChartListOwner : IDisposable
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
                 CaptureCleanupFailure(dialogScope.Flush, failures);
             }
-            if (operationGate != null)
+            if (operationAdmitted)
             {
-                CaptureCleanupFailure(operationGate.Dispose, failures);
+                CaptureCleanupFailure(mainChartList.RequestDisplayRefresh, failures);
             }
-            CaptureCleanupFailure(mainChartList.RequestDisplayRefresh, failures);
         }
         switch (failures.Count)
         {

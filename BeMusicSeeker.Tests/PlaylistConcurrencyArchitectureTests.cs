@@ -126,30 +126,6 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
-    public void CustomFolderCommit_HydratesBeforeHoldingTableWriterLock()
-    {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        foreach (string methodName in new[]
-        {
-            "internal void ReOutputCustomFolderAndCommitToDB(BMSTable bmsTable)",
-            "internal void MigrateCustomFolderOutputDirectoryAndCommitToDB("
-        })
-        {
-            string method = ExtractMethodBody(source, methodName);
-            int hydrationIndex = method.IndexOf("EnsurePlaylistEntriesLoaded(", StringComparison.Ordinal);
-            int writerIndex = method.IndexOf("using (bmsTable.ReaderWriterLock.GetWriterGuard())", StringComparison.Ordinal);
-            int commitIndex = method.IndexOf("playlistAggregatePersistenceOwner.CommitTablesWithEntries(", StringComparison.Ordinal);
-
-            Assert.IsTrue(hydrationIndex >= 0, methodName + " must hydrate before the output commit.");
-            Assert.IsTrue(writerIndex >= 0, methodName + " must hold the table writer across commit/output.");
-            Assert.IsTrue(commitIndex >= 0, methodName + " must use the aggregate persistence owner.");
-            Assert.IsTrue(
-                hydrationIndex < writerIndex && writerIndex < commitIndex,
-                methodName + " must not wait for hydration while holding the table writer lock.");
-        }
-    }
-
-    [TestMethod]
     public void PlaylistHydrationOwner_PublishesReceiptInsteadOfCallbackLists()
     {
         string ownerSource = File.ReadAllText(Path.Combine(
@@ -350,11 +326,11 @@ public sealed class PlaylistConcurrencyArchitectureTests
 
         foreach (string route in new[]
         {
-            "customFolderOutputMaintenanceOwner.TryReOutputCustomFolder",
-            "customFolderOutputMaintenanceOwner.TryMigrateCustomFolderOutputDirectory",
+            "customFolderOutputMaintenanceOwner.TryReOutputPreparedCustomFolder",
+            "customFolderOutputMaintenanceOwner.TryMigratePreparedCustomFolderOutputDirectory",
             "customFolderOutputMaintenanceOwner.TryRemoveCustomFolder",
-            "customFolderOutputMaintenanceOwner.ReOutputTablesAsync",
-            "customFolderOutputMaintenanceOwner.MigrateCustomFolderOutputDirectories",
+            "customFolderOutputMaintenanceOwner.ReOutputPreparedTablesAsync",
+            "customFolderOutputMaintenanceOwner.MigratePreparedCustomFolderOutputDirectories",
             "customFolderOutputMaintenanceOwner.SyncRootFolderOutputDirectoriesToLr2Config",
             "customFolderOutputMaintenanceOwner.SyncCustomFolderOutputSearchRootsAfterSettingsChange"
         })
@@ -375,10 +351,10 @@ public sealed class PlaylistConcurrencyArchitectureTests
             Assert.IsFalse(playlistSource.Contains(legacyRoute), "BMSPlaylist must not retain custom-folder maintenance route: " + legacyRoute);
         }
 
-        StringAssert.Contains(ownerSource, "internal bool TryMigrateCustomFolderOutputDirectory(");
-        StringAssert.Contains(ownerSource, "internal void MigrateCustomFolderOutputDirectories(");
-        StringAssert.Contains(ownerSource, "internal bool TryRemoveCustomFolder(");
-        StringAssert.Contains(ownerSource, "internal async Task<CustomFolderBatchOutputResult> ReOutputTablesAsync(");
+        StringAssert.Contains(ownerSource, "internal CustomFolderBatchOutputResult TryMigratePreparedCustomFolderOutputDirectory(");
+        StringAssert.Contains(ownerSource, "internal CustomFolderBatchOutputResult MigratePreparedCustomFolderOutputDirectories(");
+        StringAssert.Contains(ownerSource, "internal CustomFolderBatchOutputResult TryRemoveCustomFolder(");
+        StringAssert.Contains(ownerSource, "internal Task<CustomFolderBatchOutputResult> ReOutputPreparedTablesAsync(");
         StringAssert.Contains(ownerSource, "CreateMigrationProtectedOutputDirectories(");
     }
 

@@ -1357,56 +1357,60 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             throw new InvalidOperationException("Playback library must be attached before temporary-install playback.");
         }
-
-        ChartPackage chartPackage = library.ChartPackagesPending
-            .FirstOrDefault(package => ContainsChartTarget(package, playbackChart));
-        if (chartPackage == null)
+        if (!chartFileOperations.TryEnter(out IDisposable operationGate))
         {
-            if (playbackSettings.UsesLr2Body
-                && playbackSettings.UsesLr2Database
-                && !playbackDialogs.ConfirmTemporaryInstallPlayback())
-            {
-                TryStopPlaybackForGeneration(generation, bmsFile);
-                return;
-            }
-            chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
-            chartPackage.delete_parent = false;
+            return;
         }
 
-        string originalPath = bmsFile.path;
-        Task<bool> playbackStartTask = null;
-        PlaybackStartObservation playbackStartObservation = null;
-        try
+        using (operationGate)
         {
-            while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))))
+            ChartPackage chartPackage = library.ChartPackagesPending
+            .FirstOrDefault(package => ContainsChartTarget(package, playbackChart));
+            if (chartPackage == null)
             {
-                string temporaryName = Path.GetFileNameWithoutExtension(bmsFile.path) + "_" + Path.GetExtension(bmsFile.path);
-                LongPathFileSystem.MoveFile(
-                    bmsFile.path,
-                    Path.Combine(Path.GetDirectoryName(bmsFile.path), temporaryName),
-                    overwrite: false);
-                bmsFile.path = Path.Combine(Path.GetDirectoryName(bmsFile.path), temporaryName);
+                if (playbackSettings.UsesLr2Body
+                    && playbackSettings.UsesLr2Database
+                    && !playbackDialogs.ConfirmTemporaryInstallPlayback())
+                {
+                    TryStopPlaybackForGeneration(generation, bmsFile);
+                    return;
+                }
+                chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
+                chartPackage.delete_parent = false;
             }
 
-            List<string> sourceFiles = [];
-            if (LongPathFileSystem.DirectoryExists(chartPackage.path))
+            string originalPath = bmsFile.path;
+            Task<bool> playbackStartTask = null;
+            PlaybackStartObservation playbackStartObservation = null;
+            try
             {
-                string[] permittedExtensions =
-                [
-                    .. ChartFileKindResolver.BmsExtensions,
+                while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))))
+                {
+                    string temporaryName = Path.GetFileNameWithoutExtension(bmsFile.path) + "_" + Path.GetExtension(bmsFile.path);
+                    LongPathFileSystem.MoveFile(
+                        bmsFile.path,
+                        Path.Combine(Path.GetDirectoryName(bmsFile.path), temporaryName),
+                        overwrite: false);
+                    bmsFile.path = Path.Combine(Path.GetDirectoryName(bmsFile.path), temporaryName);
+                }
+
+                List<string> sourceFiles = [];
+                if (LongPathFileSystem.DirectoryExists(chartPackage.path))
+                {
+                    string[] permittedExtensions =
+                    [
+                        .. ChartFileKindResolver.BmsExtensions,
                     .. ChartResourceExtensions.AudioExtensions,
                     .. ChartResourceExtensions.ImageExtensions,
                 ];
-                sourceFiles = [.. LongPathFileSystem.EnumerateFiles(chartPackage.path, "*", SearchOption.TopDirectoryOnly)
+                    sourceFiles = [.. LongPathFileSystem.EnumerateFiles(chartPackage.path, "*", SearchOption.TopDirectoryOnly)
                     .Where(file => permittedExtensions.Any(extension => file.EndsWith(extension, StringComparison.OrdinalIgnoreCase)))];
-            }
-            else
-            {
-                sourceFiles.Add(bmsFile.path);
-            }
+                }
+                else
+                {
+                    sourceFiles.Add(bmsFile.path);
+                }
 
-            using (chartFileOperations.Enter())
-            {
                 using (new temporarilyCopyFiles(sourceFiles, installDestination, 2000))
                 {
                     string playbackPath = Path.Combine(installDestination, Path.GetFileName(bmsFile.path));
@@ -1444,21 +1448,21 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     }
                 }
             }
-        }
-        finally
-        {
-            if (!string.Equals(originalPath, bmsFile.path, StringComparison.OrdinalIgnoreCase))
+            finally
             {
-                LongPathFileSystem.MoveFile(
-                    bmsFile.path,
-                    originalPath,
-                    overwrite: false);
-                bmsFile.path = originalPath;
+                if (!string.Equals(originalPath, bmsFile.path, StringComparison.OrdinalIgnoreCase))
+                {
+                    LongPathFileSystem.MoveFile(
+                        bmsFile.path,
+                        originalPath,
+                        overwrite: false);
+                    bmsFile.path = originalPath;
+                }
             }
-        }
-        if (playbackStartTask != null)
-        {
-            NotifyPlaybackStarted(generation);
+            if (playbackStartTask != null)
+            {
+                NotifyPlaybackStarted(generation);
+            }
         }
     }
 

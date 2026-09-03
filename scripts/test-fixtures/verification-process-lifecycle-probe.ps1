@@ -4,6 +4,7 @@ param(
     [ValidateSet(
         'normal',
         'nonzero',
+        'late-success',
         'descendant-root',
         'nonzero-descendant',
         'stream-timeout',
@@ -13,6 +14,7 @@ param(
         'post-start-exception',
         'terminal-diagnostic',
         'terminal-flush-failure',
+        'functional-completed-success',
         'functional-shared-deadline',
         'missing-result',
         'fanout-order',
@@ -216,9 +218,12 @@ if ($Scenario -ceq 'fanout-order') {
     }
 
     $fanoutDeadlineUtc = [DateTime]::UtcNow.AddSeconds(4)
+    $fanoutExecutionDeadlineUtc = $fanoutDeadlineUtc.AddSeconds(-10)
     $functionalCleanup = Invoke-VerificationFunctionalCleanup `
         -Entries @($fanoutRoots.ToArray()) `
+        -ExecutionDeadlineUtc $fanoutExecutionDeadlineUtc `
         -CleanupDeadlineUtc $fanoutDeadlineUtc `
+        -FailureCleanup `
         -StopRoots `
         -PrimitiveObserver $primitiveObserver
     $lineageResults = [System.Collections.Generic.List[object]]::new()
@@ -314,7 +319,6 @@ if ($Scenario -ceq 'same-pwsh-late-fault') {
         -CommandIdentity 'same-pwsh-A' `
         -DiagnosticsDirectory $a.Directory `
         -ProcessDeadlineUtc ([DateTime]::UtcNow) `
-        -PhaseDeadlineUtc $aDeadline `
         -CleanupDeadlineUtc $aDeadline `
         -PrimitiveObserver $primitiveObserver `
         -LifecycleName 'same-pwsh-A'
@@ -337,7 +341,6 @@ if ($Scenario -ceq 'same-pwsh-late-fault') {
         -CommandIdentity 'same-pwsh-B' `
         -DiagnosticsDirectory $b.Directory `
         -ProcessDeadlineUtc ([DateTime]::UtcNow) `
-        -PhaseDeadlineUtc $bDeadline `
         -CleanupDeadlineUtc $bDeadline `
         -PrimitiveObserver $primitiveObserver `
         -LifecycleName 'same-pwsh-B'
@@ -450,6 +453,71 @@ if ($Scenario -ceq 'post-start-exception') {
     exit 0
 }
 
+if ($Scenario -ceq 'functional-completed-success') {
+    $directory = Join-Path $DiagnosticsDirectory 'functional-completed-success'
+    [void](New-Item -ItemType Directory -Path $directory -Force)
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = 'pwsh'
+    $startInfo.WorkingDirectory = $repositoryRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in @('-NoProfile', '-File', $childScript, '-Scenario', 'late-success')) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) {
+        throw 'Unable to start the completed-success wrapper root.'
+    }
+    $identity = Get-VerificationProcessIdentity `
+        -Process $process `
+        -CommandIdentity 'pwsh -File verification-process-lifecycle-child.ps1 -Scenario late-success'
+    $entry = [pscustomobject]@{
+        Name = 'functional-completed-success'
+        Directory = $directory
+        Process = $process
+        ProcessId = $identity.ProcessId
+        RootProcessIdentity = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
+        CommandIdentity = 'pwsh -File verification-process-lifecycle-child.ps1 -Scenario late-success'
+        StandardOutputTask = $process.StandardOutput.ReadToEndAsync()
+        StandardErrorTask = $process.StandardError.ReadToEndAsync()
+    }
+    $executionDeadlineUtc = [DateTime]::UtcNow.AddSeconds(5)
+    $cleanupDeadlineUtc = $executionDeadlineUtc.AddSeconds(10)
+    $functionalCleanup = Invoke-VerificationFunctionalCleanup `
+        -Entries @($entry) `
+        -ExecutionDeadlineUtc $executionDeadlineUtc `
+        -CleanupDeadlineUtc $cleanupDeadlineUtc `
+        -PrimitiveObserver $primitiveObserver
+    $entryResult = @($functionalCleanup.EntryResults)[0]
+    [System.IO.File]::WriteAllText(
+        $ResultPath,
+        ([ordered]@{
+                scenario = $Scenario
+                entryName = $entryResult.Entry.Name
+                skippedAfterDeadline = [bool]$entryResult.SkippedAfterDeadline
+                entryError = if ($null -ne $entryResult.Error) { $entryResult.Error.Exception.Message } else { $null }
+                processTimedOut = if ($null -ne $entryResult.Result) { [bool]$entryResult.Result.ProcessTimedOut } else { $null }
+                processExited = if ($null -ne $entryResult.Result) { [bool]$entryResult.Result.ProcessExited } else { $null }
+                exitCode = if ($null -ne $entryResult.Result) { $entryResult.Result.ExitCode } else { $null }
+                primaryFailureKind = if ($null -ne $entryResult.Result) { $entryResult.Result.PrimaryFailureKind } else { $null }
+                stdout = if ($null -ne $entryResult.Result) { $entryResult.Result.StandardOutput } else { $null }
+                stderr = if ($null -ne $entryResult.Result) { $entryResult.Result.StandardError } else { $null }
+                stdoutArtifact = if (Test-Path -LiteralPath (Join-Path $directory 'stdout.log') -PathType Leaf) {
+                    [System.IO.File]::ReadAllText((Join-Path $directory 'stdout.log'), [System.Text.UTF8Encoding]::new($false))
+                }
+                else { $null }
+                executionDeadlineUtcTicks = $executionDeadlineUtc.Ticks
+                cleanupDeadlineUtcTicks = $cleanupDeadlineUtc.Ticks
+                cleanupCutoffUtcTicks = if ($null -ne $entryResult.Result) { $entryResult.Result.CleanupCutoffUtc.Ticks } else { $null }
+                secondaryDiagnostics = if ($null -ne $entryResult.Result) { @($entryResult.Result.SecondaryDiagnostics) } else { @($entryResult.Error.Exception.Message) }
+            } | ConvertTo-Json -Depth 8 -Compress),
+        [System.Text.UTF8Encoding]::new($false))
+    exit 0
+}
+
 if ($Scenario -ceq 'functional-shared-deadline') {
     function Start-SharedDeadlineRoot {
         param(
@@ -495,9 +563,12 @@ if ($Scenario -ceq 'functional-shared-deadline') {
     $first.StandardOutputTask = [System.Threading.Tasks.Task[string]]::FromResult([string]'first-complete')
     $first.StandardErrorTask = [VerificationLifecycleProbeTasks]::FaultWhen($neverReleased, 'first pending stream')
     $sharedDeadline = [DateTime]::UtcNow.AddSeconds(1)
+    $sharedExecutionDeadline = $sharedDeadline.AddSeconds(-10)
     $cleanup = Invoke-VerificationFunctionalCleanup `
         -Entries @($first, $second) `
+        -ExecutionDeadlineUtc $sharedExecutionDeadline `
         -CleanupDeadlineUtc $sharedDeadline `
+        -FailureCleanup `
         -PrimitiveObserver $primitiveObserver
     $entryResults = @($cleanup.EntryResults)
     [System.IO.File]::WriteAllText(
@@ -632,9 +703,20 @@ if ($Scenario -eq 'terminal-flush-failure') {
     # so the result secondary diagnostics are authoritative and no empty file is created.
     [void](New-Item -ItemType Directory -Path (Join-Path $DiagnosticsDirectory 'process-lifecycle.log') -Force)
 }
-$processBudgetSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero' -or $Scenario -ceq 'expired-residual') { 10 } else { 2 }
-$scenarioCleanupSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero') { 12 } elseif ($Scenario -ceq 'expired-residual') { 1 } else { 4 }
-$phaseDeadlineUtc = [DateTime]::UtcNow.AddSeconds($scenarioCleanupSeconds)
+$processBudgetSeconds = if ($Scenario -ceq 'normal' -or $Scenario -ceq 'nonzero') { 10 } elseif ($Scenario -ceq 'late-success') { 1 } else { 2 }
+$phaseStartUtc = [DateTime]::UtcNow
+$processDeadlineUtc = if ($Scenario -ceq 'late-success') {
+    $phaseStartUtc.AddSeconds($processBudgetSeconds)
+}
+elseif ($Scenario -ceq 'expired-residual') {
+    # Start this failure probe with an already-expired execution deadline while retaining
+    # the exact ten-second cleanup pair for the owned residual.
+    $phaseStartUtc.AddSeconds(-1)
+}
+else {
+    $phaseStartUtc.AddSeconds($processBudgetSeconds)
+}
+$phaseDeadlineUtc = $processDeadlineUtc.AddSeconds(10)
 $residualGate = $null
 $residualReleaseTask = $null
 if ($Scenario -ceq 'expired-residual') {
@@ -652,8 +734,7 @@ $result = Invoke-BoundedProcessLifecycle `
     -RootProcessIdentity ("$($identity.StartTimeUtcTicks)|$($identity.ProcessId)") `
     -CommandIdentity $commandIdentity `
     -DiagnosticsDirectory $DiagnosticsDirectory `
-    -ProcessDeadlineUtc ([DateTime]::UtcNow.AddSeconds($processBudgetSeconds)) `
-    -PhaseDeadlineUtc $phaseDeadlineUtc `
+    -ProcessDeadlineUtc $processDeadlineUtc `
     -CleanupDeadlineUtc $phaseDeadlineUtc `
     -PrimitiveObserver $primitiveObserver `
     -LifecycleName $Scenario

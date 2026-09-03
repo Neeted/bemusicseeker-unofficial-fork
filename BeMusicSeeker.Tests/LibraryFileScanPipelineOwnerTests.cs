@@ -40,8 +40,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Bad\r\n#00111:01\r\n");
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
             var owner = CreateOwner(callbacks);
-
-            SongTableFileCheckResult result = owner.ApplyFileScanDiff(
+            Lr2FolderFileDiffPreparationResult scan = owner.ApplyFileScanDiff(
                 new BmsLibraryOptionsSnapshot(),
                 [directoryPath],
                 new ChartScanPrefetchInfo
@@ -60,6 +59,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 trackLibraryFileCheckProgress: true,
                 reason: "test_inline_chart_info_failure",
                 installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
+            SongTableFileCheckResult result = scan.FileCheckResult;
 
             Assert.AreEqual(1, result.InlineChartInfoParseFailedCount, "parse_failed");
             Assert.AreEqual(1, result.InlineChartInfoFailurePersistedCount, "failure_persisted");
@@ -86,7 +86,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
         var owner = CreateOwner(callbacks);
 
-        SongTableFileCheckResult first = owner.ApplyFileScanDiff(
+        Lr2FolderFileDiffPreparationResult first = owner.ApplyFileScanDiff(
             new BmsLibraryOptionsSnapshot(),
             [],
             null!,
@@ -94,7 +94,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             trackLibraryFileCheckProgress: true,
             reason: "test_first",
             installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
-        SongTableFileCheckResult second = owner.ApplyFileScanDiff(
+        Lr2FolderFileDiffPreparationResult second = owner.ApplyFileScanDiff(
             new BmsLibraryOptionsSnapshot(),
             null!,
             null!,
@@ -127,7 +127,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             }
         };
 
-        SongTableFileCheckResult result = owner.ApplyFileScanDiff(
+        Lr2FolderFileDiffPreparationResult scan = owner.ApplyFileScanDiff(
             new BmsLibraryOptionsSnapshot(),
             ["C:\\charts"],
             prefetch,
@@ -135,6 +135,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             trackLibraryFileCheckProgress: true,
             reason: "test_incomplete",
             installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
+        SongTableFileCheckResult result = scan.FileCheckResult;
 
         Assert.IsNotNull(result);
         Assert.AreEqual(1, callbacks.IncompleteWarningCount);
@@ -149,11 +150,11 @@ public sealed class LibraryFileScanPipelineOwnerTests
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
         var owner = CreateOwner(callbacks);
         long generation = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_request");
-
-        SongTableFileCheckResult result = owner.ApplyActiveFileScan(
+        Lr2FolderFileDiffPreparationResult scan = owner.ApplyActiveFileScan(
             generation,
             trackLibraryFileCheckProgress: true,
             installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
+        SongTableFileCheckResult result = scan.FileCheckResult;
 
         Assert.IsNotNull(result);
         Assert.AreEqual(1, callbacks.EnumerationCompletedCount);
@@ -167,14 +168,14 @@ public sealed class LibraryFileScanPipelineOwnerTests
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
         var owner = CreateOwner(callbacks);
         long firstGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_first");
-
         Assert.ThrowsException<InvalidOperationException>(
             () => owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_overlap"));
 
-        SongTableFileCheckResult result = owner.ApplyActiveFileScan(
+        Lr2FolderFileDiffPreparationResult scan = owner.ApplyActiveFileScan(
             firstGeneration,
             trackLibraryFileCheckProgress: true,
             installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
+        SongTableFileCheckResult result = scan.FileCheckResult;
         Assert.IsNotNull(result);
         long secondGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_second");
         Assert.IsTrue(secondGeneration > firstGeneration);
@@ -190,7 +191,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         owner.AbortActiveFileScan(abortedGeneration);
         long nextGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_after_abort");
-
         Assert.ThrowsException<InvalidOperationException>(
             () => owner.ApplyActiveFileScan(
                 abortedGeneration,
@@ -199,10 +199,11 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual(0, callbacks.EnumerationCompletedCount);
         Assert.AreEqual(0, callbacks.DiffCompletedCount);
 
-        SongTableFileCheckResult result = owner.ApplyActiveFileScan(
+        Lr2FolderFileDiffPreparationResult scan = owner.ApplyActiveFileScan(
             nextGeneration,
             trackLibraryFileCheckProgress: true,
             installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
+        SongTableFileCheckResult result = scan.FileCheckResult;
         Assert.IsNotNull(result);
         Assert.AreEqual(1, callbacks.EnumerationCompletedCount);
         Assert.AreEqual(1, callbacks.DiffCompletedCount);
@@ -514,41 +515,11 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         owner.ApplyCatalogStorageReplacement(
             result,
-            "test_storage_replacement",
-            callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
+            "test_storage_replacement");
 
         Assert.IsNotNull(callbacks.LastCatalogReplacement);
         Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
         Assert.AreEqual(2, callbacks.CatalogStorageRowsOwner.CaptureSnapshot().BmsRows.Count);
-    }
-
-    [TestMethod]
-    public void ApplyCatalogStorageReplacement_WhenExpectedRowsChangedPublishesFailure()
-    {
-        var currentFile = new BMSFile { path = "current.bms" };
-        var replacementFile = new BMSFile { path = "replacement.bms" };
-        var callbacks = new RecordingLibraryFileScanPipelineCallbacks
-        {
-            BmsFiles = [currentFile]
-        };
-        var owner = CreateOwner(callbacks);
-        CatalogStorageRowsSnapshot expectedRows = callbacks.CatalogStorageRowsOwner.CaptureSnapshot();
-        callbacks.CatalogStorageRowsOwner.ReplaceBmsRows([replacementFile]);
-        var result = new SongTableFileCheckResult
-        {
-            HasDbDiff = true
-        };
-        result.NextFiles.Add(replacementFile);
-        result.AddedFiles.Add(replacementFile);
-
-        Assert.ThrowsException<InvalidOperationException>(
-            () => owner.ApplyCatalogStorageReplacement(result, "test_storage_conflict", expectedRows));
-
-        Assert.IsNotNull(callbacks.LastCatalogReplacementFailure);
-        Assert.IsNull(callbacks.LastCatalogReplacement);
-        Assert.AreEqual(
-            callbacks.CatalogStorageRowsOwner.CaptureSnapshot().BmsRowsVersion,
-            callbacks.LastCatalogReplacementFailure.Request.PreviousBmsRowsVersion);
     }
 
     private static LibraryFileScanPipelineOwner CreateOwner(RecordingLibraryFileScanPipelineCallbacks callbacks)
@@ -615,7 +586,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
             catalogChartInfoOwner,
             resourceHealthOwner,
             callbacks.PublishCatalogReplacement,
-            callbacks.PublishCatalogReplacementFailure,
             callbacks.PublishCatalogResidual,
             new BmsLibraryInitializationService(),
             new EverythingNative(ApplicationPathPolicy.Current));
@@ -650,8 +620,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public List<string> EventOrder { get; } = [];
 
         public FileScanCatalogReplacementEvent LastCatalogReplacement { get; private set; } = null!;
-
-        public FileScanCatalogReplacementFailureEvent LastCatalogReplacementFailure { get; private set; } = null!;
 
         public FileScanCatalogResidualEvent LastCatalogResidual { get; private set; } = null!;
 
@@ -712,20 +680,16 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
         }
 
-        public void PublishCatalogReplacement(FileScanCatalogReplacementEvent replacementEvent)
+        public Action PublishCatalogReplacement(FileScanCatalogReplacementEvent replacementEvent)
         {
             LastCatalogReplacement = replacementEvent;
+            return null;
         }
 
-        public void PublishCatalogReplacementFailure(FileScanCatalogReplacementFailureEvent failureEvent)
-        {
-            LastCatalogReplacementFailure = failureEvent;
-        }
-
-        public void PublishCatalogResidual(FileScanCatalogResidualEvent residualEvent)
+        public Action PublishCatalogResidual(FileScanCatalogResidualEvent residualEvent)
         {
             LastCatalogResidual = residualEvent;
-            EventOrder.Add("Residual");
+            return () => EventOrder.Add("Residual");
         }
 
     }

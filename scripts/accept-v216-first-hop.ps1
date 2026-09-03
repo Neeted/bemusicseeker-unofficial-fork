@@ -13,6 +13,9 @@ param(
     [ValidateRange(30, 300)]
     [int]$TimeoutSeconds = 180,
 
+    [DateTime]$ExecutionDeadlineUtc = [DateTime]::MinValue,
+    [DateTime]$CleanupDeadlineUtc = [DateTime]::MinValue,
+
     [switch]$KeepSandbox
 )
 
@@ -35,9 +38,14 @@ if ([string]::IsNullOrWhiteSpace($SqliteAssemblyRoot)) {
 . (Join-Path $repoRoot 'scripts\verification-process-lifecycle.ps1')
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
 . (Join-Path $repoRoot 'scripts\verification-runner-contract.ps1')
+. (Join-Path $repoRoot 'scripts\verification-ui-automation.ps1')
 $verificationRunnerContract = Get-VerificationRunnerContract
-Assert-VerificationRunnerContract -Contract $verificationRunnerContract
 $v216AcceptanceReceiptContract = $verificationRunnerContract.V216FirstHop.AcceptanceReceipt
+
+$script:deadlinePolicy = Resolve-VerificationDeadlinePair `
+    -TimeoutSeconds $TimeoutSeconds `
+    -ExecutionDeadlineUtc $ExecutionDeadlineUtc `
+    -CleanupDeadlineUtc $CleanupDeadlineUtc
 
 if (-not ('BeMusicSeekerV216AcceptanceWindowMessage' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -350,97 +358,12 @@ function Assert-ProfileStatePreserved {
     }
 }
 
-function New-RedirectedProcess {
-    param(
-        [Parameter(Mandatory)][string]$FileName,
-        [string[]]$Arguments = @(),
-        [Parameter(Mandatory)][string]$WorkingDirectory,
-        [hashtable]$Environment
-    )
-    $startInfo = [Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $FileName
-    $startInfo.WorkingDirectory = $WorkingDirectory
-    $startInfo.UseShellExecute = $false
-    $startInfo.CreateNoWindow = $true
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    foreach ($argument in $Arguments) {
-        [void]$startInfo.ArgumentList.Add([string]$argument)
-    }
-    if ($null -ne $Environment) {
-        foreach ($name in @($Environment.Keys)) {
-            $startInfo.Environment[$name] = [string]$Environment[$name]
-        }
-    }
-    $process = [Diagnostics.Process]::new()
-    $process.StartInfo = $startInfo
-    $started = $false
-    try {
-        if (-not $process.Start()) {
-            throw "Unable to start first-hop process: $FileName"
-        }
-        $started = $true
-        $commandIdentity = "$FileName $($Arguments -join ' ')"
-        $identity = Get-VerificationProcessIdentity -Process $process -CommandIdentity $commandIdentity
-        if ($null -eq $identity.StartTimeUtcTicks) {
-            throw "First-hop process start identity was unavailable: $commandIdentity"
-        }
-        $stdout = $process.StandardOutput.ReadToEndAsync()
-        $stderr = $process.StandardError.ReadToEndAsync()
-        return [pscustomobject]@{
-            Process = $process
-            ProcessId = $identity.ProcessId
-            RootProcessIdentity = "$($identity.StartTimeUtcTicks)|$($identity.ProcessId)"
-            CommandIdentity = $commandIdentity
-            StandardOutputTask = $stdout
-            StandardErrorTask = $stderr
-        }
-    }
-    catch {
-        if ($started -and -not $process.HasExited) {
-            try { $process.Kill() } catch { }
-            try { $process.WaitForExit(5000) } catch { }
-        }
-        $process.Dispose()
-        throw
-    }
-}
-
-function Complete-RedirectedProcess {
+function Wait-ForWindow {
     param(
         [Parameter(Mandatory)]$Started,
-        [Parameter(Mandatory)][string]$DiagnosticsDirectory,
-        [Parameter(Mandatory)][int]$TimeoutSeconds,
-        [switch]$TerminateProcessTree
+        [Parameter(Mandatory)][DateTime]$DeadlineUtc
     )
-    [void](New-Item -ItemType Directory -Path $DiagnosticsDirectory -Force)
-    $processDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-    $cleanupDeadline = $processDeadline.AddSeconds(10)
-    $result = Invoke-BoundedProcessLifecycle `
-        -Process $Started.Process `
-        -StandardOutputTask $Started.StandardOutputTask `
-        -StandardErrorTask $Started.StandardErrorTask `
-        -RootProcessId $Started.ProcessId `
-        -RootProcessIdentity $Started.RootProcessIdentity `
-        -CommandIdentity $Started.CommandIdentity `
-        -DiagnosticsDirectory $DiagnosticsDirectory `
-        -ProcessDeadlineUtc $processDeadline `
-        -PhaseDeadlineUtc $cleanupDeadline `
-        -CleanupDeadlineUtc $cleanupDeadline `
-        -TerminateProcessTree:$TerminateProcessTree `
-        -LifecycleName 'v216-first-hop'
-    if ($result.ProcessTimedOut) {
-        throw "First-hop process timed out after $TimeoutSeconds seconds: $($Started.CommandIdentity)"
-    }
-    if (@($result.SecondaryDiagnostics).Count -gt 0) {
-        throw "First-hop process lifecycle diagnostics reported failure: $(@($result.SecondaryDiagnostics) -join '; ')"
-    }
-    return $result
-}
-
-function Wait-ForWindow {
-    param([Parameter(Mandatory)]$Started, [Parameter(Mandatory)][int]$TimeoutSeconds)
-    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $deadline = $DeadlineUtc.ToUniversalTime()
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Started.Process.HasExited) {
             throw "Legacy v2 application exited before close (exit code $($Started.Process.ExitCode))."
@@ -449,20 +372,49 @@ function Wait-ForWindow {
         if ($Started.Process.MainWindowHandle -ne 0) {
             return
         }
-        Start-Sleep -Milliseconds 250
+        $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
+            -DeadlineUtc $deadline `
+            -OperationName 'legacy application window wait'
+        Start-Sleep -Milliseconds ([Math]::Min(250, $remainingMilliseconds))
     }
-    throw "Legacy v2 application did not expose a window within $TimeoutSeconds seconds."
+    throw 'Legacy v2 application did not expose a window before the acceptance execution deadline.'
+}
+
+function Assert-NoUnexpectedOwnedModal {
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [Parameter(Mandatory)][IntPtr]$MainWindowHandle
+    )
+
+    $observations = Get-VerificationUiAutomationObservations -ProcessId $ProcessId
+    $blockingWindows = @(Get-VerificationOwnedModalWindowCandidates `
+            -ProcessId $ProcessId `
+            -MainWindowHandle $MainWindowHandle `
+            -Windows $observations.Windows)
+    if ($blockingWindows.Count -gt 0) {
+        throw 'First-hop acceptance found an unexpected visible enabled modal owned by the application main window.'
+    }
 }
 
 function Close-RedirectedApplication {
     param(
         [Parameter(Mandatory)]$Started,
         [Parameter(Mandatory)][string]$DiagnosticsDirectory,
-        [Parameter(Mandatory)][int]$TimeoutSeconds
+        [Parameter(Mandatory)][object]$DeadlinePolicy
     )
+    $executionDeadline = $DeadlinePolicy.ExecutionDeadlineUtc
     try {
-        try { [void]$Started.Process.WaitForInputIdle([Math]::Min(30000, $TimeoutSeconds * 1000)) } catch { }
-        Wait-ForWindow -Started $Started -TimeoutSeconds $TimeoutSeconds
+        try {
+            $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
+                -DeadlineUtc $executionDeadline `
+                -OperationName 'legacy application input-idle wait'
+            [void]$Started.Process.WaitForInputIdle([Math]::Min(30000, $remainingMilliseconds))
+        }
+        catch { }
+        Wait-ForWindow -Started $Started -DeadlineUtc $executionDeadline
+        Assert-NoUnexpectedOwnedModal `
+            -ProcessId $Started.Process.Id `
+            -MainWindowHandle ([IntPtr]$Started.Process.MainWindowHandle)
         $requested = $Started.Process.CloseMainWindow()
         if (-not $requested) {
             $handle = $Started.Process.MainWindowHandle
@@ -470,19 +422,42 @@ function Close-RedirectedApplication {
                 throw 'Legacy v2 application did not accept a graceful shutdown request.'
             }
         }
-        return Complete-RedirectedProcess `
+        $result = Complete-VerificationRedirectedProcess `
             -Started $Started `
             -DiagnosticsDirectory $DiagnosticsDirectory `
-            -TimeoutSeconds $TimeoutSeconds `
+            -DeadlinePolicy $DeadlinePolicy `
+            -LifecycleName 'v216-first-hop-legacy-application' `
             -TerminateProcessTree
+        if ($null -ne $result.PrimaryFailureKind) {
+            throw (Get-VerificationLifecycleFailureMessage `
+                    -Label 'Legacy application graceful shutdown' `
+                    -Result $result `
+                    -TimeoutSeconds $DeadlinePolicy.TimeoutSeconds)
+        }
+        if (@($result.SecondaryDiagnostics).Count -gt 0) {
+            throw "Legacy application lifecycle diagnostics reported failure: $(@($result.SecondaryDiagnostics) -join '; ')"
+        }
+        return $result
     }
     catch {
-        if (-not $Started.Process.HasExited) {
-            try { $Started.Process.Kill() } catch { }
-            try { $Started.Process.WaitForExit(5000) } catch { }
+        $primaryException = $_.Exception
+        try {
+            $cleanup = Stop-VerificationOwnedProcessRecord `
+                -Started $Started `
+                -CleanupDeadlineUtc $DeadlinePolicy.CleanupDeadlineUtc `
+                -OperationName 'v216-first-hop legacy application cleanup'
+            foreach ($diagnostic in @($cleanup.Diagnostics)) {
+                Add-VerificationExceptionSecondaryDiagnostic `
+                    -Exception $primaryException `
+                    -Diagnostic ([string]$diagnostic)
+            }
         }
-        try { $Started.Process.Dispose() } catch { }
-        throw
+        catch {
+            Add-VerificationExceptionSecondaryDiagnostic `
+                -Exception $primaryException `
+                -Diagnostic ($_.Exception.ToString())
+        }
+        throw $primaryException
     }
 }
 
@@ -490,13 +465,16 @@ function Start-IsolatedV3Application {
     param(
         [Parameter(Mandatory)][string]$Executable,
         [Parameter(Mandatory)][string]$ProfileRoot,
-        [Parameter(Mandatory)][string]$LogDirectory
+        [Parameter(Mandatory)][string]$LogDirectory,
+        [Parameter(Mandatory)][object]$DeadlinePolicy,
+        [System.Collections.IList]$OwnedProcessRecords
     )
+    $executionDeadline = $DeadlinePolicy.ExecutionDeadlineUtc
     [void](New-Item -ItemType Directory -Path $LogDirectory -Force)
     $localAppData = Join-Path $ProfileRoot 'user\AppData\Local'
     $temp = Join-Path $ProfileRoot 'temp'
     New-Item -ItemType Directory -Path $temp -Force | Out-Null
-    $started = New-RedirectedProcess `
+    $started = Start-VerificationRedirectedProcess `
         -FileName $Executable `
         -Arguments @() `
         -WorkingDirectory (Split-Path -Parent $Executable) `
@@ -505,10 +483,19 @@ function Start-IsolatedV3Application {
             USERPROFILE = Join-Path $ProfileRoot 'user'
             TEMP = $temp
             TMP = $temp
-        }
+        } `
+        -DeadlinePolicy $DeadlinePolicy `
+        -DiagnosticsDirectory (Join-Path $LogDirectory 'process') `
+        -OwnedProcessRecords $OwnedProcessRecords
     try {
-        try { [void]$started.Process.WaitForInputIdle([Math]::Min(30000, $TimeoutSeconds * 1000)) } catch { }
-        $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+        try {
+            $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
+                -DeadlineUtc $executionDeadline `
+                -OperationName 'v3 application input-idle wait'
+            [void]$started.Process.WaitForInputIdle([Math]::Min(30000, $remainingMilliseconds))
+        }
+        catch { }
+        $deadline = $executionDeadline
         $readyLog = $null
         while ([DateTime]::UtcNow -lt $deadline) {
             if ($started.Process.HasExited) {
@@ -527,31 +514,52 @@ function Start-IsolatedV3Application {
             if ($null -ne $readyLog) {
                 break
             }
-            Start-Sleep -Milliseconds 250
+            $remainingMilliseconds = Get-VerificationRemainingMilliseconds `
+                -DeadlineUtc $executionDeadline `
+                -OperationName 'v3 startup-ready wait'
+            Start-Sleep -Milliseconds ([Math]::Min(250, $remainingMilliseconds))
             $started.Process.Refresh()
         }
         if ($null -eq $readyLog) {
-            throw "v3 application did not reach startup_ready_operable within $TimeoutSeconds seconds. Logs: $LogDirectory"
+            throw 'v3 application did not reach startup_ready_operable before the acceptance execution deadline. Logs: $LogDirectory'
         }
+        Wait-ForWindow -Started $started -DeadlineUtc $executionDeadline
         $started | Add-Member -NotePropertyName ReadyLogPath -NotePropertyValue $readyLog
         return $started
     }
     catch {
-        if (-not $started.Process.HasExited) {
-            try { $started.Process.Kill() } catch { }
-            try { $started.Process.WaitForExit(5000) } catch { }
+        $primaryException = $_.Exception
+        try {
+            $cleanup = Stop-VerificationOwnedProcessRecord `
+                -Started $started `
+                -CleanupDeadlineUtc $DeadlinePolicy.CleanupDeadlineUtc `
+                -OperationName 'v216-first-hop v3 startup cleanup'
+            foreach ($diagnostic in @($cleanup.Diagnostics)) {
+                Add-VerificationExceptionSecondaryDiagnostic `
+                    -Exception $primaryException `
+                    -Diagnostic ([string]$diagnostic)
+            }
         }
-        try { $started.Process.Dispose() } catch { }
-        throw
+        catch {
+            Add-VerificationExceptionSecondaryDiagnostic `
+                -Exception $primaryException `
+                -Diagnostic ($_.Exception.ToString())
+        }
+        throw $primaryException
     }
 }
 
 function Close-IsolatedV3Application {
     param(
         [Parameter(Mandatory)]$Started,
-        [Parameter(Mandatory)][string]$DiagnosticsDirectory
+        [Parameter(Mandatory)][string]$DiagnosticsDirectory,
+        [Parameter(Mandatory)][object]$DeadlinePolicy
     )
     try {
+        $Started.Process.Refresh()
+        Assert-NoUnexpectedOwnedModal `
+            -ProcessId $Started.Process.Id `
+            -MainWindowHandle ([IntPtr]$Started.Process.MainWindowHandle)
         $requested = $Started.Process.CloseMainWindow()
         if (-not $requested) {
             $handle = $Started.Process.MainWindowHandle
@@ -559,23 +567,45 @@ function Close-IsolatedV3Application {
                 throw 'v3 application did not accept a graceful shutdown request.'
             }
         }
-        $result = Complete-RedirectedProcess `
+        $result = Complete-VerificationRedirectedProcess `
             -Started $Started `
             -DiagnosticsDirectory $DiagnosticsDirectory `
-            -TimeoutSeconds $TimeoutSeconds `
+            -DeadlinePolicy $DeadlinePolicy `
+            -LifecycleName 'v216-first-hop-v3-application' `
             -TerminateProcessTree
+        if ($null -ne $result.PrimaryFailureKind) {
+            throw (Get-VerificationLifecycleFailureMessage `
+                    -Label 'v3 application graceful shutdown' `
+                    -Result $result `
+                    -TimeoutSeconds $DeadlinePolicy.TimeoutSeconds)
+        }
+        if (@($result.SecondaryDiagnostics).Count -gt 0) {
+            throw "v3 application lifecycle diagnostics reported failure: $(@($result.SecondaryDiagnostics) -join '; ')"
+        }
         if ($null -ne $result.ExitCode -and [int]$result.ExitCode -ne 0) {
             throw "v3 application shutdown returned exit code $($result.ExitCode)."
         }
         return $result
     }
     catch {
-        if (-not $Started.Process.HasExited) {
-            try { $Started.Process.Kill() } catch { }
-            try { $Started.Process.WaitForExit(5000) } catch { }
+        $primaryException = $_.Exception
+        try {
+            $cleanup = Stop-VerificationOwnedProcessRecord `
+                -Started $Started `
+                -CleanupDeadlineUtc $DeadlinePolicy.CleanupDeadlineUtc `
+                -OperationName 'v216-first-hop v3 application cleanup'
+            foreach ($diagnostic in @($cleanup.Diagnostics)) {
+                Add-VerificationExceptionSecondaryDiagnostic `
+                    -Exception $primaryException `
+                    -Diagnostic ([string]$diagnostic)
+            }
         }
-        try { $Started.Process.Dispose() } catch { }
-        throw
+        catch {
+            Add-VerificationExceptionSecondaryDiagnostic `
+                -Exception $primaryException `
+                -Diagnostic ($_.Exception.ToString())
+        }
+        throw $primaryException
     }
 }
 
@@ -632,18 +662,6 @@ function Assert-CurrentPackage {
     }
 }
 
-function Stop-SandboxProcesses {
-    param([Parameter(Mandatory)][string]$SandboxRoot)
-    $normalizedRoot = (Resolve-FullPath $SandboxRoot).TrimEnd('\') + '\'
-    foreach ($process in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-            $_.Name -in @('BeMusicSeeker.exe', 'BeMusicSeeker.Updater.exe') -and
-            $_.ExecutablePath -and
-            (Resolve-FullPath $_.ExecutablePath).StartsWith($normalizedRoot, [StringComparison]::OrdinalIgnoreCase)
-        })) {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-}
-
 $FixtureRoot = Resolve-FullPath $FixtureRoot
 $OutputDirectory = Resolve-FullPath $OutputDirectory
 $artifactMetadata = Assert-V216ArtifactIdentity -MetadataPath $ArtifactMetadataPath -RepositoryRoot $repoRoot
@@ -664,6 +682,7 @@ $script:receiptPath = Join-Path $OutputDirectory 'v216-first-hop-acceptance.json
 $script:failed = $false
 $script:primaryError = $null
 $script:successReceipt = $null
+$script:ownedProcessRecords = [Collections.Generic.List[object]]::new()
 
 try {
     $successRoot = Join-Path $script:sandboxRoot 'success'
@@ -676,7 +695,7 @@ try {
     # Start the actual released v2 application so protocol-1's --pid close wait is
     # exercised.  The old process is closed before the update mutates any managed path.
     New-Item -ItemType Directory -Path (Join-Path $successRoot 'temp') -Force | Out-Null
-    $legacyApp = New-RedirectedProcess `
+    $legacyApp = Start-VerificationRedirectedProcess `
         -FileName (Join-Path $successApp 'BeMusicSeeker.exe') `
         -Arguments @() `
         -WorkingDirectory $successApp `
@@ -685,23 +704,35 @@ try {
             USERPROFILE = Join-Path $successRoot 'user'
             TEMP = Join-Path $successRoot 'temp'
             TMP = Join-Path $successRoot 'temp'
-        }
+        } `
+        -DeadlinePolicy $script:deadlinePolicy `
+        -DiagnosticsDirectory (Join-Path $successRoot 'legacy-app') `
+        -OwnedProcessRecords $script:ownedProcessRecords
     $downloadedSuccessPackage = Copy-CurrentPackageIntoSandbox -PackagePath $currentPackage.Path -AppRoot $successApp
     $legacyArguments = New-LegacyUpdaterArguments -AppRoot $successApp -PackagePath $downloadedSuccessPackage -ProcessId $legacyApp.ProcessId
-    $legacyUpdater = New-RedirectedProcess `
+    $legacyUpdater = Start-VerificationRedirectedProcess `
         -FileName (Join-Path $successApp 'BeMusicSeeker.Updater.exe') `
         -Arguments $legacyArguments `
-        -WorkingDirectory $successApp
+        -WorkingDirectory $successApp `
+        -DeadlinePolicy $script:deadlinePolicy `
+        -DiagnosticsDirectory (Join-Path $successRoot 'legacy-updater') `
+        -OwnedProcessRecords $script:ownedProcessRecords
     $legacyCloseResult = Close-RedirectedApplication `
         -Started $legacyApp `
         -DiagnosticsDirectory (Join-Path $successRoot 'legacy-app') `
-        -TimeoutSeconds $TimeoutSeconds
+        -DeadlinePolicy $script:deadlinePolicy
     $beforeUpdaterTrees = Get-PreservedTrees -AppRoot $successApp
     $beforeV3State = Get-ProfileState -Profile $legacyProfile
-    $legacyUpdaterResult = Complete-RedirectedProcess `
+    $legacyUpdaterResult = Complete-VerificationRedirectedProcess `
         -Started $legacyUpdater `
         -DiagnosticsDirectory (Join-Path $successRoot 'legacy-updater') `
-        -TimeoutSeconds $TimeoutSeconds
+        -DeadlinePolicy $script:deadlinePolicy `
+        -LifecycleName 'v216-first-hop-legacy-updater'
+    Assert-VerificationProcessResult `
+        -Result $legacyUpdaterResult `
+        -Label 'Released v2.1.6.0 updater success path' `
+        -TimeoutSeconds $script:deadlinePolicy.TimeoutSeconds `
+        -RequireSuccess
     if ($legacyUpdaterResult.ExitCode -ne 0) {
         throw "Released v2.1.6.0 updater failed on the protocol-1 success path: exit=$($legacyUpdaterResult.ExitCode) stderr=$($legacyUpdaterResult.StandardError)"
     }
@@ -709,13 +740,22 @@ try {
     Assert-PreservedTreesEqual -Before $beforeUpdaterTrees -After $afterUpdaterTrees -Label 'protocol-1 success'
 
     $v3Log = Join-Path $successApp 'log'
+    # v2 and v3 share app\log; isolate legacy readiness markers before starting v3.
+    $legacyLogArchive = Join-Path $successRoot 'legacy-v2-log'
+    if (Test-Path -LiteralPath $v3Log) {
+        Move-Item -LiteralPath $v3Log -Destination $legacyLogArchive
+    }
+    New-Item -ItemType Directory -Path $v3Log -Force | Out-Null
     $v3App = Start-IsolatedV3Application `
         -Executable (Join-Path $successApp 'BeMusicSeeker.exe') `
         -ProfileRoot $successRoot `
-        -LogDirectory $v3Log
+        -LogDirectory $v3Log `
+        -DeadlinePolicy $script:deadlinePolicy `
+        -OwnedProcessRecords $script:ownedProcessRecords
     $v3CloseResult = Close-IsolatedV3Application `
         -Started $v3App `
-        -DiagnosticsDirectory (Join-Path $successRoot 'v3-app')
+        -DiagnosticsDirectory (Join-Path $successRoot 'v3-app') `
+        -DeadlinePolicy $script:deadlinePolicy
     $afterV3State = Get-ProfileState -Profile $legacyProfile
     Assert-ProfileStatePreserved -Before $beforeV3State -After $afterV3State -Profile $legacyProfile -Label 'v2.1.6.0 to v3 first hop'
     Assert-PortableSingleFilePayloadLayout $successApp
@@ -731,18 +771,27 @@ try {
     $lockStream = [IO.File]::Open($lockedManagedPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
     try {
         $lockArguments = New-LegacyUpdaterArguments -AppRoot $lockApp -PackagePath $downloadedLockPackage -ProcessId 0
-        $lockUpdater = New-RedirectedProcess `
+        $lockUpdater = Start-VerificationRedirectedProcess `
             -FileName (Join-Path $lockApp 'BeMusicSeeker.Updater.exe') `
             -Arguments $lockArguments `
-            -WorkingDirectory $lockApp
-        $lockUpdaterResult = Complete-RedirectedProcess `
+            -WorkingDirectory $lockApp `
+            -DeadlinePolicy $script:deadlinePolicy `
+            -DiagnosticsDirectory (Join-Path $lockRoot 'legacy-updater') `
+            -OwnedProcessRecords $script:ownedProcessRecords
+        $lockUpdaterResult = Complete-VerificationRedirectedProcess `
             -Started $lockUpdater `
             -DiagnosticsDirectory (Join-Path $lockRoot 'legacy-updater') `
-            -TimeoutSeconds $TimeoutSeconds
+            -DeadlinePolicy $script:deadlinePolicy `
+            -LifecycleName 'v216-first-hop-lock-updater'
     }
     finally {
         $lockStream.Dispose()
     }
+    Assert-VerificationProcessResult `
+        -Result $lockUpdaterResult `
+        -Label 'Released v2.1.6.0 updater lock characterization' `
+        -TimeoutSeconds $script:deadlinePolicy.TimeoutSeconds `
+        -ExpectedPrimaryFailureKind 'nonzero-exit'
     if ($lockUpdaterResult.ExitCode -eq 0) {
         throw 'Released v2.1.6.0 updater unexpectedly succeeded while a managed file was locked.'
     }
@@ -816,8 +865,8 @@ try {
 }
 catch {
     $script:failed = $true
-    $script:primaryError = $_
-    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+    $failureErrorRecord = $_
+    $script:primaryError = $failureErrorRecord
     $failure = [ordered]@{
         schemaVersion = 1
         manifestType = 'BeMusicSeeker.V216FirstHopAcceptance'
@@ -827,17 +876,56 @@ catch {
         currentPackagePath = $currentPackage.Path
         fixtureManifestSha256 = $script:fixtureManifestHash
         sandboxRoot = $script:sandboxRoot
-        error = $_.Exception.ToString()
+        error = $failureErrorRecord.Exception.ToString()
     }
-    [IO.File]::WriteAllText($script:receiptPath, ($failure | ConvertTo-Json -Depth 16), [Text.UTF8Encoding]::new($false))
-    throw
+    try {
+        New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+        [IO.File]::WriteAllText($script:receiptPath, ($failure | ConvertTo-Json -Depth 16), [Text.UTF8Encoding]::new($false))
+    }
+    catch {
+        Add-VerificationExceptionSecondaryDiagnostic `
+            -Exception $failureErrorRecord.Exception `
+            -Diagnostic "failure receipt write failed: $($_.Exception.ToString())"
+    }
+    throw $failureErrorRecord
 }
 finally {
-    Stop-SandboxProcesses -SandboxRoot $script:sandboxRoot
+    $sandboxCleanupDeadline = if ($script:failed) {
+        $script:deadlinePolicy.CleanupDeadlineUtc
+    }
+    else {
+        $script:deadlinePolicy.ExecutionDeadlineUtc
+    }
+    $ownedCleanupException = $null
+    try {
+        Stop-VerificationOwnedProcessRecords `
+            -StartedProcesses $script:ownedProcessRecords `
+            -CleanupDeadlineUtc $script:deadlinePolicy.CleanupDeadlineUtc
+    }
+    catch {
+        $ownedCleanupException = $_.Exception
+    }
+    if ($null -ne $ownedCleanupException) {
+        if ($script:failed -and $null -ne $script:primaryError) {
+            Add-VerificationExceptionSecondaryDiagnostic `
+                -Exception $script:primaryError.Exception `
+                -Diagnostic $ownedCleanupException.ToString()
+        }
+        else {
+            $script:failed = $true
+            throw $ownedCleanupException
+        }
+    }
     if ($KeepSandbox -or $script:failed) {
         Write-Host "v2.1.6.0 first-hop acceptance sandbox retained: $script:sandboxRoot"
     }
     elseif (Test-Path -LiteralPath $script:sandboxRoot) {
-        Remove-Item -LiteralPath $script:sandboxRoot -Recurse -Force
+        if ([DateTime]::UtcNow -ge $sandboxCleanupDeadline) {
+            throw 'Successful first-hop acceptance sandbox cleanup reached its execution deadline.'
+        }
+        Remove-Item -LiteralPath $script:sandboxRoot -Recurse -Force -ErrorAction Stop
+        if ([DateTime]::UtcNow -ge $sandboxCleanupDeadline) {
+            throw 'Successful first-hop acceptance sandbox cleanup crossed its execution deadline.'
+        }
     }
 }

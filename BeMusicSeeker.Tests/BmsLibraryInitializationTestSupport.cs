@@ -459,6 +459,8 @@ internal static class BmsLibraryInitializationTestSupport
     {
         public List<TimestampCall> TimestampCalls { get; } = [];
 
+        public Action<TimestampCall> OnSetTimestamps { get; set; }
+
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -509,13 +511,15 @@ internal static class BmsLibraryInitializationTestSupport
 
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
-            TimestampCalls.Add(new TimestampCall
+            var timestampCall = new TimestampCall
             {
                 Path = path,
                 IsDirectory = isDirectory,
                 CreationTime = creationTime,
                 LastWriteTime = lastWriteTime
-            });
+            };
+            TimestampCalls.Add(timestampCall);
+            OnSetTimestamps?.Invoke(timestampCall);
         }
     }
 
@@ -536,16 +540,20 @@ internal static class BmsLibraryInitializationTestSupport
 
         public MessageBoxResult ResultToReturn { get; set; } = MessageBoxResult.OK;
 
+        public Action<DialogCall> OnShow { get; set; }
+
         public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
-            Calls.Add(new DialogCall
+            var dialogCall = new DialogCall
             {
                 Message = messageBoxText,
                 Caption = caption,
                 Button = button,
                 Icon = icon,
                 DefaultResult = defaultResult
-            });
+            };
+            Calls.Add(dialogCall);
+            OnShow?.Invoke(dialogCall);
             return ResultToReturn;
         }
     }
@@ -561,5 +569,55 @@ internal static class BmsLibraryInitializationTestSupport
         public MessageBoxImage Icon { get; set; }
 
         public MessageBoxResult DefaultResult { get; set; }
+    }
+}
+
+/// <summary>
+/// Supplies one captured chart-scan result to a production-shaped library
+/// route without consulting the local Everything service or filesystem at
+/// scan time.
+/// </summary>
+internal sealed class CapturedChartFileScanner : IChartFileScanner
+{
+    private readonly ChartScanExecutionResult capturedResult;
+
+    private CapturedChartFileScanner(ChartScanExecutionResult capturedResult)
+    {
+        this.capturedResult = capturedResult ?? throw new ArgumentNullException(nameof(capturedResult));
+    }
+
+    /// <summary>
+    /// Captures the supplied fixture surface before the production ingress is
+    /// invoked, including any directory metadata present under the roots.
+    /// </summary>
+    /// <param name="chartPaths">Stable chart paths to publish from the fixture.</param>
+    /// <param name="resourcesByDirectory">Stable resource paths grouped by chart directory.</param>
+    /// <param name="directorySurfaceRoots">Directories whose metadata is captured for the scan result.</param>
+    internal static CapturedChartFileScanner FromFixture(
+        IEnumerable<string> chartPaths,
+        IDictionary<string, IEnumerable<string>> resourcesByDirectory,
+        IEnumerable<string>? directorySurfaceRoots = null)
+    {
+        return new CapturedChartFileScanner(new ChartScanExecutionResult
+        {
+            ScanSource = ChartScanSource.Everything,
+            Success = true,
+            IsComplete = true,
+            Result = BmsLibraryInitializationTestSupport.CreateScanResult(
+                chartPaths,
+                resourcesByDirectory,
+                directorySurfaceRoots)
+        });
+    }
+
+    /// <inheritdoc />
+    public ChartScanExecutionResult Scan(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> chartExtensions,
+        bool verboseLog = false,
+        bool includeTextSurface = true,
+        bool includeDirectorySurface = false)
+    {
+        return capturedResult;
     }
 }

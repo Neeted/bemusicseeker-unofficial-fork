@@ -1329,7 +1329,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static bool IsPostInitializationIdleOnly(string name)
     {
-        return string.Equals(name, "post_initialize_gc", StringComparison.OrdinalIgnoreCase);
+        return string.Equals(name, "post_initialize_gc", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FormatRequestKind(bool isPostInitialization)

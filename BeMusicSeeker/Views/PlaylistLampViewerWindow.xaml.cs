@@ -328,7 +328,7 @@ public sealed class PlaylistLampContrastForegroundConverter : IValueConverter
 
     /// <summary>One-way converter; reverse conversion is unsupported.</summary>
     /// <param name="value">Unused target value.</param>
-    /// <param name="targetTypes">Unused source types.</param>
+    /// <param name="targetType">Unused source type.</param>
     /// <param name="parameter">Unused binding parameter.</param>
     /// <param name="culture">Unused binding culture.</param>
     /// <returns>Never returns.</returns>

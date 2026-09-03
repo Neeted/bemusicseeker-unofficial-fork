@@ -1,18 +1,102 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal interface ILibraryFileOperationMutationBoundary
 {
-    IDisposable EnterMutationSequence();
-
-    IDisposable TryBeginMutation(string operation, bool showMessage);
+    LibraryFileMutationLease TryBeginMutation(string operation, bool showMessage);
 
     bool TryBlockMutation(string operation, bool showMessage);
+}
 
-    IDisposable BeginCollectionMutationScope();
+/// <summary>
+/// Identifies the exclusive file-mutation lease that owns a nested catalog or
+/// filesystem apply.  The capability is deliberately explicit: it is not
+/// carried by an ambient execution context and cannot authorize a later
+/// operation after either the capability or its lease has been disposed.
+/// </summary>
+internal sealed class LibraryFileMutationCapability : IDisposable
+{
+    private readonly object ownerIdentity;
+    private readonly Func<bool> isLeaseActive;
+    private int disposed;
+
+    internal LibraryFileMutationCapability(
+        object ownerIdentity,
+        Func<bool> isLeaseActive)
+    {
+        this.ownerIdentity = ownerIdentity ?? throw new ArgumentNullException(nameof(ownerIdentity));
+        this.isLeaseActive = isLeaseActive ?? throw new ArgumentNullException(nameof(isLeaseActive));
+    }
+
+    internal void Validate(object expectedOwner)
+    {
+        if (expectedOwner == null
+            || !ReferenceEquals(ownerIdentity, expectedOwner)
+            || Volatile.Read(ref disposed) != 0
+            || !isLeaseActive())
+        {
+            throw new InvalidOperationException(
+                "The file-mutation capability is not owned by the active lease.");
+        }
+    }
+
+    public void Dispose()
+    {
+        Interlocked.Exchange(ref disposed, 1);
+    }
+}
+
+/// <summary>
+/// Exclusive logical lease returned by the mutation owner. Disposal first
+/// invalidates all capabilities and then performs the short owner release.
+/// </summary>
+internal sealed class LibraryFileMutationLease : IDisposable
+{
+    private readonly Action release;
+    private readonly object ownerIdentity;
+    private readonly Func<bool> isActive;
+    private int disposed;
+
+    internal LibraryFileMutationLease(
+        object ownerIdentity,
+        Func<bool> isActive,
+        Action release)
+    {
+        this.ownerIdentity = ownerIdentity ?? throw new ArgumentNullException(nameof(ownerIdentity));
+        this.isActive = isActive ?? throw new ArgumentNullException(nameof(isActive));
+        this.release = release ?? throw new ArgumentNullException(nameof(release));
+    }
+
+    internal bool IsDisposed => Volatile.Read(ref disposed) != 0;
+
+    public LibraryFileMutationCapability CreateMutationCapability()
+    {
+        if (!IsLive)
+        {
+            throw new InvalidOperationException("The file-mutation lease is no longer active.");
+        }
+        return new LibraryFileMutationCapability(
+            ownerIdentity,
+            () => IsLive);
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) == 0)
+        {
+            // Invalidation is represented by the disposed bit and is visible
+            // to every nested capability before the owner release callback.
+            // The callback is deliberately short and has no I/O or external
+            // publication responsibility.
+            release();
+        }
+    }
+
+    private bool IsLive => Volatile.Read(ref disposed) == 0 && isActive();
 }
 
 /// <summary>
@@ -31,25 +115,21 @@ internal sealed class LibraryFileOperationSynchronization
 
     private readonly ReaderWriterLockSlimWrapper bmsFiles;
 
-    private readonly ReaderWriterLockSlimWrapper songDbInstall;
-
     internal LibraryFileOperationSynchronization(
         ILibraryFileOperationMutationBoundary mutationBoundary,
         ReaderWriterLockSlimWrapper bmsFilesInitializedAll,
         ReaderWriterLockSlimWrapper bmsFilesInitializedMin,
         ReaderWriterLockSlimWrapper pendingInstallCharts,
-        ReaderWriterLockSlimWrapper bmsFiles,
-        ReaderWriterLockSlimWrapper songDbInstall)
+        ReaderWriterLockSlimWrapper bmsFiles)
     {
         this.mutationBoundary = mutationBoundary ?? throw new ArgumentNullException(nameof(mutationBoundary));
         this.bmsFilesInitializedAll = bmsFilesInitializedAll ?? throw new ArgumentNullException(nameof(bmsFilesInitializedAll));
         this.bmsFilesInitializedMin = bmsFilesInitializedMin ?? throw new ArgumentNullException(nameof(bmsFilesInitializedMin));
         this.pendingInstallCharts = pendingInstallCharts ?? throw new ArgumentNullException(nameof(pendingInstallCharts));
         this.bmsFiles = bmsFiles ?? throw new ArgumentNullException(nameof(bmsFiles));
-        this.songDbInstall = songDbInstall ?? throw new ArgumentNullException(nameof(songDbInstall));
     }
 
-    internal IDisposable EnterFolderMoveWriteScope()
+    internal LibraryFileMutationLease EnterFolderMoveWriteScope()
     {
         // Admission/reservation is intentionally separate from the short
         // model snapshot scope.  Filesystem staging, the DB callback,
@@ -73,46 +153,61 @@ internal sealed class LibraryFileOperationSynchronization
             () => bmsFiles.GetReaderGuard());
     }
 
-    internal IDisposable EnterNormalInvalidExtensionRenameWriteScope()
+    internal LibraryFileMutationLease EnterNormalInvalidExtensionRenameWriteScope()
     {
-        return EnterWriteScope(
-            "library_invalid_extension_rename",
-            includePendingInstallCharts: false,
-            includeSongDbInstall: false,
-            showMessage: true,
-            includeInitializedAll: false);
+        return EnterWriteScope("library_invalid_extension_rename");
     }
 
-    internal IDisposable EnterPendingInvalidExtensionRenameWriteScope()
+    internal IDisposable EnterNormalInvalidExtensionRenameSnapshotScope()
     {
         return AcquireScopes(
-            () => mutationBoundary.BeginCollectionMutationScope(),
             () => bmsFilesInitializedMin.GetReaderGuard(),
-            () => pendingInstallCharts.GetWriterGuard(),
-            () => songDbInstall.GetWriterGuard());
+            () => bmsFiles.GetReaderGuard());
     }
 
-    internal IDisposable EnterLibraryChartRemovalWriteScope()
+    internal LibraryFileMutationLease EnterPendingInvalidExtensionRenameWriteScope()
     {
-        return EnterWriteScope(
-            "library_chart_removal",
-            includePendingInstallCharts: true,
-            includeSongDbInstall: false,
-            showMessage: true,
-            includeInitializedAll: false);
+        return EnterMutationReservation(
+            "library_pending_invalid_extension_rename",
+            showMessage: true);
     }
 
-    internal IDisposable EnterFixInstallationDirectoryWriteScope()
+    internal IDisposable EnterPendingInvalidExtensionRenameSnapshotScope()
     {
-        return EnterWriteScope(
-            nameof(BMSLibrary.FixInstallationDirectoryCharts),
-            includePendingInstallCharts: true,
-            includeSongDbInstall: false,
-            showMessage: true,
-            includeInitializedAll: true);
+        return AcquireScopes(
+            () => pendingInstallCharts.GetReaderGuard());
     }
 
-    internal IDisposable EnterMergeWriteScope(long operationId)
+    internal LibraryFileMutationLease EnterLibraryChartRemovalWriteScope()
+    {
+        return EnterWriteScope("library_chart_removal");
+    }
+
+    internal IDisposable EnterLibraryChartRemovalSnapshotScope()
+    {
+        return AcquireScopes(
+            () => bmsFilesInitializedMin.GetReaderGuard(),
+            () => pendingInstallCharts.GetReaderGuard(),
+            () => bmsFiles.GetReaderGuard());
+    }
+
+    internal LibraryFileMutationLease EnterFixInstallationDirectoryWriteScope()
+    {
+        return EnterWriteScope(nameof(BMSLibrary.FixInstallationDirectoryCharts));
+    }
+
+    internal IDisposable EnterFixInstallationDirectorySnapshotScope()
+    {
+        return AcquireScopes(
+            () => bmsFilesInitializedAll.GetReaderGuard(),
+            () => pendingInstallCharts.GetReaderGuard(),
+            () => bmsFiles.GetReaderGuard());
+    }
+
+    /// <summary>
+    /// Reserves the single logical mutation lease used by duplicate merge.
+    /// </summary>
+    internal LibraryFileMutationLease EnterMergeWriteScope()
     {
         return EnterMutationReservation("duplicate_merge_catalog_transition", showMessage: true);
     }
@@ -128,69 +223,18 @@ internal sealed class LibraryFileOperationSynchronization
     internal bool TryBlockMutation(string operation, bool showMessage)
         => mutationBoundary.TryBlockMutation(operation, showMessage);
 
-    internal IDisposable EnterWriteScope(
-        string operation,
-        bool includePendingInstallCharts,
-        bool includeSongDbInstall,
-        bool showMessage,
-        bool includeInitializedAll)
+    internal LibraryFileMutationLease EnterWriteScope(string operation)
     {
-        List<IDisposable> existingScopes = [];
-        try
-        {
-            existingScopes.Add(mutationBoundary.EnterMutationSequence());
-            IDisposable reservation = mutationBoundary.TryBeginMutation(operation, showMessage);
-            if (reservation == null)
-            {
-                new CompositeDisposable(existingScopes).Dispose();
-                return null;
-            }
-            existingScopes.Add(reservation);
-        }
-        catch
-        {
-            CompositeDisposable.DisposeScopesSafely(existingScopes);
-            throw;
-        }
-
-        List<Func<IDisposable>> acquisitions = [
-            () => mutationBoundary.BeginCollectionMutationScope(),
-            () => includeInitializedAll
-                ? bmsFilesInitializedAll.GetReaderGuard()
-                : bmsFilesInitializedMin.GetReaderGuard()
-        ];
-        if (includePendingInstallCharts)
-        {
-            acquisitions.Add(() => pendingInstallCharts.GetWriterGuard());
-        }
-        acquisitions.Add(() => bmsFiles.GetWriterGuard());
-        if (includeSongDbInstall)
-        {
-            acquisitions.Add(() => songDbInstall.GetWriterGuard());
-        }
-        return AcquireScopesWithExisting(existingScopes, acquisitions);
+        // Admission is intentionally the only long-lived scope.  Snapshot
+        // locks are acquired by the operation immediately around its model
+        // snapshot and are released before any filesystem, DB, cleanup, or
+        // publication work begins.
+        return EnterMutationReservation(operation, showMessage: true);
     }
 
-    private IDisposable EnterMutationReservation(string operation, bool showMessage)
+    private LibraryFileMutationLease EnterMutationReservation(string operation, bool showMessage)
     {
-        List<IDisposable> existingScopes = [];
-        try
-        {
-            existingScopes.Add(mutationBoundary.EnterMutationSequence());
-            IDisposable reservation = mutationBoundary.TryBeginMutation(operation, showMessage);
-            if (reservation == null)
-            {
-                new CompositeDisposable(existingScopes).Dispose();
-                return null;
-            }
-            existingScopes.Add(reservation);
-            return new CompositeDisposable(existingScopes);
-        }
-        catch
-        {
-            CompositeDisposable.DisposeScopesSafely(existingScopes);
-            throw;
-        }
+        return mutationBoundary.TryBeginMutation(operation, showMessage);
     }
 
     private static IDisposable AcquireScopes(

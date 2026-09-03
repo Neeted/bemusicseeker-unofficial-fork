@@ -77,6 +77,12 @@ internal sealed partial class PackageLifecycleOwner
             List<ChartPackage> nextPendingPackages = [.. (pendingPackages ?? [])
             .Where(package => package != null)];
             nextPendingPackages.AddRange(packagesToAddList);
+            if (packagesToAddList.Count > 0 || installRowsToUpsertList.Count > 0)
+            {
+                PackageLifecycleOwner.ValidatePendingPackagePathUniqueness(
+                    nextPendingPackages,
+                    installRowsToUpsertList);
+            }
             ObservableCollection<ChartPackage> remainingPackages = packageCollectionFactory(nextPendingPackages);
             if (remainingPackages == null)
             {

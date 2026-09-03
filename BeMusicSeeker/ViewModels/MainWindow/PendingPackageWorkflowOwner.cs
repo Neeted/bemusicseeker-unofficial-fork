@@ -340,7 +340,10 @@ internal sealed class PendingPackageWorkflowOwner
         IReadOnlyList<PackageChartEntry> entrySnapshot = [.. package.ChartEntries ?? []];
         foreach (PackageChartEntry entry in entrySnapshot)
         {
-            if (TryResolveInstallDestination(entry?.Chart, out string installDirectory, out reason))
+            if (TryResolveInstallDestination(
+                entry?.Chart,
+                out string installDirectory,
+                out reason))
             {
                 OpenInstallDestination(installDirectory);
                 return;
@@ -361,6 +364,11 @@ internal sealed class PendingPackageWorkflowOwner
         {
             return;
         }
+        OpenPackageSourceInExplorerCore(package);
+    }
+
+    private void OpenPackageSourceInExplorerCore(ChartPackage package)
+    {
         string packagePath = package.path;
         if (LongPathFileSystem.DirectoryExists(packagePath))
         {
@@ -384,13 +392,21 @@ internal sealed class PendingPackageWorkflowOwner
             throw new ArgumentNullException(nameof(packages));
         }
         IReadOnlyList<ChartPackage> packageSnapshot = [.. packages.Where(package => package != null)];
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
+        {
+            return ShowPendingOperationAdmissionBusyAsync("Pending package destination search");
+        }
         return RunSearchAsync(kind, () =>
         {
-            Execute(library => store.SearchPackages(library, kind, packageSnapshot));
-            PublishMutationApplied(
-                installDestinationStateChanged: true,
-                identitySortKeyChanged: true);
-        });
+            if (Execute(
+                library => store.SearchPackages(library, kind, packageSnapshot),
+                acquiredOperationGate: operationGate))
+            {
+                PublishMutationApplied(
+                    installDestinationStateChanged: true,
+                    identitySortKeyChanged: true);
+            }
+        }, operationGate);
     }
 
     internal Task SearchPendingAsync(PendingInstallDestinationSearchRequest request)
@@ -400,17 +416,23 @@ internal sealed class PendingPackageWorkflowOwner
             throw new ArgumentNullException(nameof(request));
         }
         ValidateKind(request.Kind);
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
+        {
+            return ShowPendingOperationAdmissionBusyAsync("Pending destination search");
+        }
         return RunSearchAsync(request.Kind, () =>
         {
-            Execute(library =>
+            if (Execute(library =>
             {
                 IReadOnlyList<ChartFile> changedCharts = store.SearchPending(library, request);
                 PublishChangedCharts(changedCharts);
-            });
-            PublishMutationApplied(
-                installDestinationStateChanged: true,
-                identitySortKeyChanged: true);
-        });
+            }, acquiredOperationGate: operationGate))
+            {
+                PublishMutationApplied(
+                    installDestinationStateChanged: true,
+                    identitySortKeyChanged: true);
+            }
+        }, operationGate);
     }
 
     internal Task ClearPackagesAsync(IEnumerable<ChartPackage> packages)
@@ -420,14 +442,27 @@ internal sealed class PendingPackageWorkflowOwner
             throw new ArgumentNullException(nameof(packages));
         }
         IReadOnlyList<ChartPackage> packageSnapshot = [.. packages.Where(package => package != null)];
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
+        {
+            return ShowPendingOperationAdmissionBusyAsync("Pending package clear");
+        }
         return Task.Run(() =>
         {
-            Execute(library =>
+            try
             {
-                IReadOnlyList<ChartFile> changedCharts = store.ClearPackages(packageSnapshot);
-                PublishChangedCharts(changedCharts);
-            }, requiresLibrary: false);
-            PublishMutationApplied(installDestinationStateChanged: true);
+                if (Execute(library =>
+                {
+                    IReadOnlyList<ChartFile> changedCharts = store.ClearPackages(packageSnapshot);
+                    PublishChangedCharts(changedCharts);
+                }, requiresLibrary: false, acquiredOperationGate: operationGate, releaseAcquiredOperationGate: false))
+                {
+                    PublishMutationApplied(installDestinationStateChanged: true);
+                }
+            }
+            finally
+            {
+                operationGate.Dispose();
+            }
         });
     }
 
@@ -438,15 +473,26 @@ internal sealed class PendingPackageWorkflowOwner
             throw new ArgumentNullException(nameof(request));
         }
         request.MaterializeLooseEntries();
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
+        {
+            return ShowPendingOperationAdmissionBusyAsync("Pending destination clear");
+        }
         return Task.Run(() =>
         {
-            if (Execute(library =>
+            try
             {
-                IReadOnlyList<ChartFile> changedCharts = store.ClearPending(library, request);
-                PublishChangedCharts(changedCharts);
-            }))
+                if (Execute(library =>
+                {
+                    IReadOnlyList<ChartFile> changedCharts = store.ClearPending(library, request);
+                    PublishChangedCharts(changedCharts);
+                }, acquiredOperationGate: operationGate, releaseAcquiredOperationGate: false))
+                {
+                    PublishMutationApplied(installDestinationStateChanged: true);
+                }
+            }
+            finally
             {
-                PublishMutationApplied(installDestinationStateChanged: true);
+                operationGate.Dispose();
             }
         });
     }
@@ -458,12 +504,26 @@ internal sealed class PendingPackageWorkflowOwner
             throw new ArgumentNullException(nameof(request));
         }
         request.MaterializeRepairEntries();
-        return Task.Run(() => Execute(library =>
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
         {
-            IReadOnlyList<ChartFile> changedCharts = store.SearchCorrect(library, request);
-            PublishChangedCharts(changedCharts);
-            PublishMutationApplied(installDestinationStateChanged: true);
-        }));
+            return ShowPendingOperationAdmissionBusyAsync("Installed-location search");
+        }
+        return Task.Run(() =>
+        {
+            try
+            {
+                Execute(library =>
+                {
+                    IReadOnlyList<ChartFile> changedCharts = store.SearchCorrect(library, request);
+                    PublishChangedCharts(changedCharts);
+                    PublishMutationApplied(installDestinationStateChanged: true);
+                }, acquiredOperationGate: operationGate, releaseAcquiredOperationGate: false);
+            }
+            finally
+            {
+                operationGate.Dispose();
+            }
+        });
     }
 
     internal Task ClearCorrectAsync(RepairInstalledLocationRequest request)
@@ -473,15 +533,26 @@ internal sealed class PendingPackageWorkflowOwner
             throw new ArgumentNullException(nameof(request));
         }
         request.MaterializeRepairEntries();
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
+        {
+            return ShowPendingOperationAdmissionBusyAsync("Installed-location clear");
+        }
         return Task.Run(() =>
         {
-            if (Execute(library =>
+            try
             {
-                IReadOnlyList<ChartFile> changedCharts = store.ClearCorrect(library, request);
-                PublishChangedCharts(changedCharts);
-            }))
+                if (Execute(library =>
+                {
+                    IReadOnlyList<ChartFile> changedCharts = store.ClearCorrect(library, request);
+                    PublishChangedCharts(changedCharts);
+                }, acquiredOperationGate: operationGate, releaseAcquiredOperationGate: false))
+                {
+                    PublishMutationApplied(installDestinationStateChanged: true);
+                }
+            }
+            finally
             {
-                PublishMutationApplied(installDestinationStateChanged: true);
+                operationGate.Dispose();
             }
         });
     }
@@ -494,17 +565,33 @@ internal sealed class PendingPackageWorkflowOwner
         {
             throw new ArgumentNullException(nameof(request));
         }
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
+        {
+            return ShowPendingOperationAdmissionBusyAsync("Pending destination edit");
+        }
         return Task.Run(() =>
         {
-            ChartFile changedChart = null;
-            Execute(library => changedChart = store.SetPending(library, request, destinationDirectory));
-            if (changedChart != null)
+            try
             {
-                PublishChangedCharts([changedChart]);
+                ChartFile changedChart = null;
+                if (!Execute(library => changedChart = store.SetPending(library, request, destinationDirectory),
+                    acquiredOperationGate: operationGate,
+                    releaseAcquiredOperationGate: false))
+                {
+                    return;
+                }
+                if (changedChart != null)
+                {
+                    PublishChangedCharts([changedChart]);
+                }
+                PublishMutationApplied(
+                    installDestinationStateChanged: changedChart != null,
+                    displayStateChanged: true);
             }
-            PublishMutationApplied(
-                installDestinationStateChanged: changedChart != null,
-                displayStateChanged: true);
+            finally
+            {
+                operationGate.Dispose();
+            }
         });
     }
 
@@ -531,6 +618,10 @@ internal sealed class PendingPackageWorkflowOwner
         {
             throw new ArgumentNullException(nameof(request));
         }
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
+        {
+            return PendingPackageMutationResult.Rejected;
+        }
         try
         {
             if (request.IsManualInstall && !await ConfirmManualInstallAsync())
@@ -538,12 +629,19 @@ internal sealed class PendingPackageWorkflowOwner
                 return PendingPackageMutationResult.Rejected;
             }
             IReadOnlyList<ChartPackage> packages = await Task.Run(() =>
-                Read(library => store.ResolvePendingPackages(library, request.Targets))) ?? [];
-            return await InstallResolvedPackagesAsync(request.Kind, packages);
+                Read(
+                    library => store.ResolvePendingPackages(library, request.Targets),
+                    operationGate,
+                    releaseAcquiredOperationGate: false)) ?? [];
+            return await InstallResolvedPackagesAsync(request.Kind, packages, operationGate);
         }
         catch (Exception exception)
         {
             return PendingPackageMutationResult.FailedBeforeMutation(exception);
+        }
+        finally
+        {
+            operationGate.Dispose();
         }
     }
 
@@ -557,212 +655,280 @@ internal sealed class PendingPackageWorkflowOwner
         {
             return;
         }
-        if (!request.HasInstallDestination)
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
         {
-            UiDialogResult warningResult = await dialogs.ShowMessageAsync(new UiMessageRequest(
-                BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning,
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxButton.OK,
-                MessageBoxImage.Exclamation,
-                MessageBoxResult.OK));
-            EnsureMessageWasShown(warningResult, "Installed-location repair warning");
+            await ShowPendingOperationAdmissionBusyAsync("Installed-location repair");
             return;
         }
-        UiDialogResult repairConfirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-            BeMusicSeeker.Properties.Resources.Msg_fix_installation,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Question,
-            MessageBoxResult.Cancel));
-        if (!ToConfirmationDecision(repairConfirmation, "Installed-location repair confirmation"))
+        try
         {
-            return;
-        }
-
-        request.MaterializeRepairEntries();
-        IReadOnlyList<ChartFile> repairCharts = request.RepairCharts;
-        IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> duplicateConfirmations =
-            await Task.Run(() => Read(library =>
-                store.GetDuplicateInstallRepairConfirmations(library, repairCharts))) ?? [];
-        var approvedDuplicateRemovalChartPaths = new List<string>();
-        foreach (BMSLibrary.DuplicateInstallRepairConfirmation duplicateConfirmation in duplicateConfirmations)
-        {
-            ChartFile chart = duplicateConfirmation.Chart;
-            if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+            if (!request.HasInstallDestination)
             {
-                continue;
+                UiDialogResult warningResult = await dialogs.ShowMessageAsync(new UiMessageRequest(
+                    BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning,
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Exclamation,
+                    MessageBoxResult.OK));
+                EnsureMessageWasShown(warningResult, "Installed-location repair warning");
+                return;
             }
-            UiDialogResult duplicateConfirmationResult = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-                string.Format(
-                    BeMusicSeeker.Properties.Resources.Confirm_DuplicateReinstallSkipped,
-                    chart.Path,
-                    string.Join(Environment.NewLine, duplicateConfirmation.DuplicatePaths)),
-                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
-                MessageBoxButton.YesNo,
+            UiDialogResult repairConfirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Msg_fix_installation,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
                 MessageBoxImage.Question,
-                MessageBoxResult.Yes));
-            if (ToConfirmationDecision(
-                duplicateConfirmationResult,
-                "Duplicate reinstall repair confirmation"))
+                MessageBoxResult.Cancel));
+            if (!ToConfirmationDecision(repairConfirmation, "Installed-location repair confirmation"))
             {
-                approvedDuplicateRemovalChartPaths.Add(chart.Path);
+                return;
             }
-        }
 
-        await Task.Run(() => Execute(
-            library => store.FixInstalledLocations(
-                library,
-                repairCharts,
-                approvedDuplicateRemovalChartPaths),
-            PendingPackageRefreshScope.PackageMutation,
-            [.. repairCharts.Where(ChartFileKindResolver.IsBmsChartFile)]));
+            request.MaterializeRepairEntries();
+            IReadOnlyList<ChartFile> repairCharts = request.RepairCharts;
+            IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> duplicateConfirmations =
+                await Task.Run(() => Read(
+                    library => store.GetDuplicateInstallRepairConfirmations(library, repairCharts),
+                    operationGate,
+                    releaseAcquiredOperationGate: false)) ?? [];
+            var approvedDuplicateRemovalChartPaths = new List<string>();
+            foreach (BMSLibrary.DuplicateInstallRepairConfirmation duplicateConfirmation in duplicateConfirmations)
+            {
+                ChartFile chart = duplicateConfirmation.Chart;
+                if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+                {
+                    continue;
+                }
+                UiDialogResult duplicateConfirmationResult = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                    string.Format(
+                        BeMusicSeeker.Properties.Resources.Confirm_DuplicateReinstallSkipped,
+                        chart.Path,
+                        string.Join(Environment.NewLine, duplicateConfirmation.DuplicatePaths)),
+                    BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question,
+                    MessageBoxResult.Yes));
+                if (ToConfirmationDecision(
+                    duplicateConfirmationResult,
+                    "Duplicate reinstall repair confirmation"))
+                {
+                    approvedDuplicateRemovalChartPaths.Add(chart.Path);
+                }
+            }
+
+            await Task.Run(() => Execute(
+                library => store.FixInstalledLocations(
+                    library,
+                    repairCharts,
+                    approvedDuplicateRemovalChartPaths),
+                PendingPackageRefreshScope.PackageMutation,
+                [.. repairCharts.Where(ChartFileKindResolver.IsBmsChartFile)],
+                acquiredOperationGate: operationGate,
+                releaseAcquiredOperationGate: false));
+        }
+        finally
+        {
+            operationGate.Dispose();
+        }
     }
 
     internal async Task DeleteInstalledOnlyPendingPackageSourcesAsync()
     {
-        IReadOnlyList<ChartPackage> packages = await Task.Run(() =>
-            Read(store.GetInstalledOnlyPendingPackages)) ?? [];
-        if (packages.Count == 0)
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
         {
-            await ShowMessageAsync(
-                BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages,
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxImage.Exclamation,
-                "Installed-only pending-package source warning");
+            await ShowPendingOperationAdmissionBusyAsync("Pending package source cleanup");
             return;
         }
-        UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-            string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_delete_pending_installed_only_packages_permanently,
-                packages.Count),
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Warning,
-            MessageBoxResult.Cancel));
-        if (!ToConfirmationDecision(
-            confirmation,
-            "Installed-only pending-package source deletion confirmation"))
+        try
         {
-            return;
-        }
+            IReadOnlyList<ChartPackage> packages = await Task.Run(() => Read(
+                store.GetInstalledOnlyPendingPackages,
+                operationGate,
+                releaseAcquiredOperationGate: false)) ?? [];
+            if (packages.Count == 0)
+            {
+                await ShowMessageAsync(
+                    BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages,
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxImage.Exclamation,
+                    "Installed-only pending-package source warning");
+                return;
+            }
+            UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                string.Format(
+                    BeMusicSeeker.Properties.Resources.Msg_delete_pending_installed_only_packages_permanently,
+                    packages.Count),
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning,
+                MessageBoxResult.Cancel));
+            if (!ToConfirmationDecision(
+                confirmation,
+                "Installed-only pending-package source deletion confirmation"))
+            {
+                return;
+            }
 
-        await RunBulkOperationAsync(
-            packages,
-            BeMusicSeeker.Properties.Resources.Remove,
-            package => package.path,
-            (cancellationToken, onEachProcessed) => Execute(library =>
-                store.DeletePendingPackageSources(
-                    library,
-                    packages,
-                    cancellationToken,
-                    onEachProcessed)));
+            await RunBulkOperationAsync(
+                packages,
+                BeMusicSeeker.Properties.Resources.Remove,
+                package => package.path,
+                (cancellationToken, onEachProcessed) => Execute(
+                    library => store.DeletePendingPackageSources(
+                        library,
+                        packages,
+                        cancellationToken,
+                        onEachProcessed),
+                    acquiredOperationGate: operationGate,
+                    releaseAcquiredOperationGate: false));
+        }
+        finally
+        {
+            operationGate.Dispose();
+        }
     }
 
     internal async Task RenamePendingZeroNoteChartsAsync()
     {
-        IReadOnlyList<ChartFile> charts = await Task.Run(() =>
-            Read(store.GetPendingBmsFormatCharts)) ?? [];
-        if (charts.Count == 0)
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
         {
-            await ShowMessageAsync(
-                BeMusicSeeker.Properties.Resources.Warn_no_pending_charts,
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxImage.Exclamation,
-                "Pending chart rename warning");
+            await ShowPendingOperationAdmissionBusyAsync("Pending zero-note chart rename");
             return;
         }
-        UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-            string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_rename_pending_zero_note_to_invalid_ext,
-                charts.Count),
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Warning,
-            MessageBoxResult.Cancel));
-        if (!ToConfirmationDecision(confirmation, "Pending zero-note chart rename confirmation"))
+        try
         {
-            return;
-        }
+            IReadOnlyList<ChartFile> charts = await Task.Run(() => Read(
+                store.GetPendingBmsFormatCharts,
+                operationGate,
+                releaseAcquiredOperationGate: false)) ?? [];
+            if (charts.Count == 0)
+            {
+                await ShowMessageAsync(
+                    BeMusicSeeker.Properties.Resources.Warn_no_pending_charts,
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxImage.Exclamation,
+                    "Pending chart rename warning");
+                return;
+            }
+            UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                string.Format(
+                    BeMusicSeeker.Properties.Resources.Msg_rename_pending_zero_note_to_invalid_ext,
+                    charts.Count),
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning,
+                MessageBoxResult.Cancel));
+            if (!ToConfirmationDecision(confirmation, "Pending zero-note chart rename confirmation"))
+            {
+                return;
+            }
 
-        await RunBulkOperationAsync(
-            charts,
-            BeMusicSeeker.Properties.Resources.Rename_invalid_ext,
-            chart => chart.Path,
-            (cancellationToken, onEachProcessed) => Execute(
-                library => store.RenamePendingZeroNoteCharts(
-                    library,
-                    charts,
-                    cancellationToken,
-                    onEachProcessed),
-                playbackTargets: charts));
+            await RunBulkOperationAsync(
+                charts,
+                BeMusicSeeker.Properties.Resources.Rename_invalid_ext,
+                chart => chart.Path,
+                (cancellationToken, onEachProcessed) => Execute(
+                    library => store.RenamePendingZeroNoteCharts(
+                        library,
+                        charts,
+                        cancellationToken,
+                        onEachProcessed),
+                    playbackTargets: charts,
+                    acquiredOperationGate: operationGate,
+                    releaseAcquiredOperationGate: false));
+        }
+        finally
+        {
+            operationGate.Dispose();
+        }
     }
 
     internal async Task OverwriteInstalledOnlyPendingPackageResourcesAsync()
     {
-        IReadOnlyList<ChartPackage> packages = await Task.Run(() =>
-            Read(store.GetInstalledOnlyPendingPackages)) ?? [];
-        if (packages.Count == 0)
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
         {
+            await ShowPendingOperationAdmissionBusyAsync("Pending package resource overwrite");
+            return;
+        }
+        try
+        {
+            IReadOnlyList<ChartPackage> packages = await Task.Run(() => Read(
+                store.GetInstalledOnlyPendingPackages,
+                operationGate,
+                releaseAcquiredOperationGate: false)) ?? [];
+            if (packages.Count == 0)
+            {
+                await ShowMessageAsync(
+                    BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages,
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxImage.Exclamation,
+                    "Installed-only pending-package overwrite warning");
+                return;
+            }
+            UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                string.Format(
+                    BeMusicSeeker.Properties.Resources.Msg_overwrite_pending_installed_only_packages_resources,
+                    packages.Count),
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Warning,
+                MessageBoxResult.Cancel));
+            if (!ToConfirmationDecision(
+                confirmation,
+                "Installed-only pending-package resource overwrite confirmation"))
+            {
+                return;
+            }
+
+            PendingInstalledOnlyResourceOverwriteResult overwriteResult = null;
+            await RunBulkOperationAsync(
+                packages,
+                BeMusicSeeker.Properties.Resources.Install_to_estimation,
+                package => package.path,
+                (cancellationToken, onEachProcessed) => Execute(
+                    library => overwriteResult = store.OverwriteInstalledOnlyPendingPackageResources(
+                        library,
+                        packages,
+                        cancellationToken,
+                        onEachProcessed),
+                    playbackTargets: CreatePlaybackTargetSnapshot(packages),
+                    acquiredOperationGate: operationGate,
+                    releaseAcquiredOperationGate: false));
+            if (overwriteResult == null)
+            {
+                return;
+            }
             await ShowMessageAsync(
-                BeMusicSeeker.Properties.Resources.Warn_no_pending_installed_only_packages,
+                string.Format(
+                    BeMusicSeeker.Properties.Resources.Warn_overwrite_pending_installed_only_packages_summary,
+                    overwriteResult.Requested,
+                    overwriteResult.Processed,
+                    overwriteResult.SucceededInstall,
+                    overwriteResult.SucceededCleanupOnly,
+                    overwriteResult.SkippedNotPending,
+                    overwriteResult.SkippedMissingInstlDst,
+                    overwriteResult.SkippedMultiDestination,
+                    overwriteResult.SkippedNoComponentTarget,
+                    overwriteResult.Failed,
+                    overwriteResult.Canceled),
                 BeMusicSeeker.Properties.Resources.Warning,
                 MessageBoxImage.Exclamation,
-                "Installed-only pending-package overwrite warning");
-            return;
+                "Installed-only pending-package resource overwrite summary");
         }
-        UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-            string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_overwrite_pending_installed_only_packages_resources,
-                packages.Count),
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Warning,
-            MessageBoxResult.Cancel));
-        if (!ToConfirmationDecision(
-            confirmation,
-            "Installed-only pending-package resource overwrite confirmation"))
+        finally
         {
-            return;
+            operationGate.Dispose();
         }
-
-        PendingInstalledOnlyResourceOverwriteResult overwriteResult = null;
-        await RunBulkOperationAsync(
-            packages,
-            BeMusicSeeker.Properties.Resources.Install_to_estimation,
-            package => package.path,
-            (cancellationToken, onEachProcessed) => Execute(
-                library => overwriteResult = store.OverwriteInstalledOnlyPendingPackageResources(
-                    library,
-                    packages,
-                    cancellationToken,
-                    onEachProcessed),
-                playbackTargets: CreatePlaybackTargetSnapshot(packages)));
-        if (overwriteResult == null)
-        {
-            return;
-        }
-        await ShowMessageAsync(
-            string.Format(
-                BeMusicSeeker.Properties.Resources.Warn_overwrite_pending_installed_only_packages_summary,
-                overwriteResult.Requested,
-                overwriteResult.Processed,
-                overwriteResult.SucceededInstall,
-                overwriteResult.SucceededCleanupOnly,
-                overwriteResult.SkippedNotPending,
-                overwriteResult.SkippedMissingInstlDst,
-                overwriteResult.SkippedMultiDestination,
-                overwriteResult.SkippedNoComponentTarget,
-                overwriteResult.Failed,
-                overwriteResult.Canceled),
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxImage.Exclamation,
-            "Installed-only pending-package resource overwrite summary");
     }
 
     private async Task<PendingPackageMutationResult> InstallPackagesAsync(
         PendingInstallPackageOperationKind kind,
         IReadOnlyList<ChartPackage> packages)
     {
+        if (!TryEnterPendingOperation(out IDisposable operationGate))
+        {
+            return PendingPackageMutationResult.Rejected;
+        }
         try
         {
             if (kind == PendingInstallPackageOperationKind.ManualInstall
@@ -770,17 +936,22 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 return PendingPackageMutationResult.Rejected;
             }
-            return await InstallResolvedPackagesAsync(kind, packages);
+            return await InstallResolvedPackagesAsync(kind, packages, operationGate);
         }
         catch (Exception exception)
         {
             return PendingPackageMutationResult.FailedBeforeMutation(exception);
         }
+        finally
+        {
+            operationGate.Dispose();
+        }
     }
 
     private async Task<PendingPackageMutationResult> InstallResolvedPackagesAsync(
         PendingInstallPackageOperationKind kind,
-        IReadOnlyList<ChartPackage> packages)
+        IReadOnlyList<ChartPackage> packages,
+        IDisposable acquiredOperationGate)
     {
         try
         {
@@ -795,21 +966,25 @@ internal sealed class PendingPackageWorkflowOwner
                                 library,
                                 packages,
                                 approvedPackages),
-                            packages);
+                            packages,
+                            acquiredOperationGate);
                     }
                     return await ExecuteInstallAsync(
                         library => store.ForceInstallPackages(library, packages, approvedPackages),
-                        packages);
+                        packages,
+                        acquiredOperationGate);
                 case PendingInstallPackageOperationKind.ManualInstall:
                     if (store is IPendingPackageTerminalMutationStore terminalManualStore)
                     {
                         return await ExecuteInstallAsync(
                             library => terminalManualStore.ManualInstallPackagesWithReceipt(library, packages)?.MutationReceipt,
-                            packages);
+                            packages,
+                            acquiredOperationGate);
                     }
                     return await ExecuteInstallAsync(
                         library => store.ManualInstallPackages(library, packages),
-                        packages);
+                        packages,
+                        acquiredOperationGate);
                 default:
                     throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported pending install package operation.");
             }
@@ -822,7 +997,8 @@ internal sealed class PendingPackageWorkflowOwner
 
     private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
         Action<BMSLibrary> mutation,
-        IReadOnlyList<ChartPackage> packages)
+        IReadOnlyList<ChartPackage> packages,
+        IDisposable acquiredOperationGate)
     {
         return await ExecuteInstallAsync(
             library =>
@@ -830,22 +1006,30 @@ internal sealed class PendingPackageWorkflowOwner
                 mutation(library);
                 return null;
             },
-            packages);
+            packages,
+            acquiredOperationGate);
     }
 
     private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
         Func<BMSLibrary, FileDbMutationBatchReceipt> mutationWithReceipt,
-        IReadOnlyList<ChartPackage> packages)
+        IReadOnlyList<ChartPackage> packages,
+        IDisposable acquiredOperationGate)
     {
         bool pendingSectionEmpty = false;
         FileDbMutationBatchReceipt mutationReceipt = null;
         try
         {
-            await Task.Run(() => Execute(
+            bool executed = await Task.Run(() => Execute(
                 library => mutationReceipt = mutationWithReceipt(library),
                 PendingPackageRefreshScope.PackageMutation,
                 CreatePlaybackTargetSnapshot(packages),
-                captureMutationFacts: library => pendingSectionEmpty = store.IsPendingSectionEmpty(library)));
+                captureMutationFacts: library => pendingSectionEmpty = store.IsPendingSectionEmpty(library),
+                acquiredOperationGate: acquiredOperationGate,
+                releaseAcquiredOperationGate: false));
+            if (!executed)
+            {
+                return PendingPackageMutationResult.Rejected;
+            }
             return PendingPackageMutationResult.FromTerminal(
                 mutationReceipt,
                 pendingSectionEmpty ? PackageCatalogSection.Pending : null);
@@ -1022,6 +1206,15 @@ internal sealed class PendingPackageWorkflowOwner
         EnsureMessageWasShown(result, routeName);
     }
 
+    private Task ShowPendingOperationAdmissionBusyAsync(string routeName)
+    {
+        return ShowMessageAsync(
+            BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning,
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxImage.Exclamation,
+            routeName + " admission warning");
+    }
+
     private bool TryResolveInstallDestination(
         ChartFile chart,
         out string installDirectory,
@@ -1057,7 +1250,19 @@ internal sealed class PendingPackageWorkflowOwner
         return false;
     }
 
-    private bool TryGetInstalledDirectoryByHash(string hash, out string installDirectory)
+    private bool TryEnterPendingOperation(out IDisposable operationGate)
+    {
+        BMSLibrary library = libraryProvider();
+        if (library?.IsPendingOperationAdmissionReady == true)
+        {
+            return library.TryEnterPendingOperation(out operationGate);
+        }
+        return chartFileOperations.TryEnter(out operationGate);
+    }
+
+    private bool TryGetInstalledDirectoryByHash(
+        string hash,
+        out string installDirectory)
     {
         installDirectory = null;
         BMSLibrary library = libraryProvider();
@@ -1065,10 +1270,7 @@ internal sealed class PendingPackageWorkflowOwner
         {
             return false;
         }
-        using (chartFileOperations.Enter())
-        {
-            return library.TryGetInstalledDirectoryByHash(hash, out installDirectory);
-        }
+        return library.TryGetInstalledDirectoryByHash(hash, out installDirectory);
     }
 
     private void OpenInstallDestination(string installDirectory)
@@ -1132,25 +1334,51 @@ internal sealed class PendingPackageWorkflowOwner
             .Where(chart => chart != null)];
     }
 
-    private Task RunSearchAsync(PendingInstallDestinationSearchKind kind, Action operation)
+    private Task RunSearchAsync(
+        PendingInstallDestinationSearchKind kind,
+        Action operation,
+        IDisposable acquiredOperationGate = null)
     {
-        return kind == PendingInstallDestinationSearchKind.MergeDestination
-            ? ConfirmAndRunSearchAsync(operation)
-            : Task.Run(operation);
+        if (kind == PendingInstallDestinationSearchKind.MergeDestination)
+        {
+            return ConfirmAndRunSearchAsync(operation, acquiredOperationGate);
+        }
+        try
+        {
+            return Task.Run(operation);
+        }
+        catch
+        {
+            acquiredOperationGate?.Dispose();
+            throw;
+        }
     }
 
-    private async Task ConfirmAndRunSearchAsync(Action operation)
+    private async Task ConfirmAndRunSearchAsync(Action operation, IDisposable acquiredOperationGate)
     {
-        UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-            BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Asterisk));
-        if (!ToConfirmationDecision(result, "Merge destination confirmation"))
+        bool operationScheduled = false;
+        try
         {
-            return;
+            UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Asterisk));
+            if (!ToConfirmationDecision(result, "Merge destination confirmation"))
+            {
+                return;
+            }
+            Task operationTask = Task.Run(operation);
+            operationScheduled = true;
+            await operationTask;
         }
-        await Task.Run(operation);
+        finally
+        {
+            if (!operationScheduled)
+            {
+                acquiredOperationGate?.Dispose();
+            }
+        }
     }
 
     private static bool ToConfirmationDecision(UiDialogResult result, string routeName)
@@ -1192,15 +1420,38 @@ internal sealed class PendingPackageWorkflowOwner
         PendingPackageRefreshScope refreshScope = PendingPackageRefreshScope.DestinationState,
         IReadOnlyList<ChartFile> playbackTargets = null,
         bool requiresLibrary = true,
-        Action<BMSLibrary> captureMutationFacts = null)
+        Action<BMSLibrary> captureMutationFacts = null,
+        IDisposable acquiredOperationGate = null,
+        bool releaseAcquiredOperationGate = true)
     {
-        BMSLibrary library = libraryProvider();
-        if (requiresLibrary && library == null)
+        IDisposable operationGate = acquiredOperationGate;
+        if (operationGate == null
+            && !TryEnterPendingOperation(out operationGate))
         {
             return false;
         }
+        BMSLibrary library;
+        try
+        {
+            library = libraryProvider();
+        }
+        catch
+        {
+            if (acquiredOperationGate == null || releaseAcquiredOperationGate)
+            {
+                operationGate.Dispose();
+            }
+            throw;
+        }
+        if (requiresLibrary && library == null)
+        {
+            if (acquiredOperationGate == null || releaseAcquiredOperationGate)
+            {
+                operationGate.Dispose();
+            }
+            return false;
+        }
         BMSLibrary.OperationDialogScope dialogScope = null;
-        IDisposable operationGate = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
         bool mutationAttempted = false;
@@ -1209,7 +1460,6 @@ internal sealed class PendingPackageWorkflowOwner
         {
             dialogScope = library?.BeginOperationDialogScope();
             activityLease = chartMutationActivity.Enter();
-            operationGate = chartFileOperations.Enter();
             if (playbackTargets != null)
             {
                 playback.StopIfPlayingCharts(playbackTargets);
@@ -1235,7 +1485,8 @@ internal sealed class PendingPackageWorkflowOwner
                     () => PublishRefreshSuppressionChanged(isSuppressed: false, refreshScope: null),
                     failures);
             }
-            if (operationGate != null)
+            if (operationGate != null
+                && (acquiredOperationGate == null || releaseAcquiredOperationGate))
             {
                 CaptureCleanupFailure(operationGate.Dispose, failures);
             }
@@ -1282,20 +1533,52 @@ internal sealed class PendingPackageWorkflowOwner
                 displayStateChanged));
     }
 
-    private T Read<T>(Func<BMSLibrary, T> operation)
+    private T Read<T>(
+        Func<BMSLibrary, T> operation,
+        IDisposable acquiredOperationGate = null,
+        bool releaseAcquiredOperationGate = true)
     {
         if (operation == null)
         {
             throw new ArgumentNullException(nameof(operation));
         }
-        BMSLibrary library = libraryProvider();
-        if (library == null)
+        IDisposable operationGate = acquiredOperationGate;
+        if (operationGate == null
+            && !TryEnterPendingOperation(out operationGate))
         {
             return default;
         }
-        using (chartFileOperations.Enter())
+        BMSLibrary library;
+        try
+        {
+            library = libraryProvider();
+        }
+        catch
+        {
+            if (acquiredOperationGate == null || releaseAcquiredOperationGate)
+            {
+                operationGate.Dispose();
+            }
+            throw;
+        }
+        if (library == null)
+        {
+            if (acquiredOperationGate == null || releaseAcquiredOperationGate)
+            {
+                operationGate.Dispose();
+            }
+            return default;
+        }
+        try
         {
             return operation(library);
+        }
+        finally
+        {
+            if (acquiredOperationGate == null || releaseAcquiredOperationGate)
+            {
+                operationGate.Dispose();
+            }
         }
     }
 

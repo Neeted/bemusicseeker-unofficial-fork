@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
 
@@ -34,6 +35,12 @@ internal sealed class PendingResourceOverwriteExecutionResult
     /// manual-recovery stop must remain observable to the command owner.
     /// </summary>
     public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
+
+    /// <summary>
+    /// Deferred authoritative package/catalog publications.  The outer
+    /// overwrite command owns their invocation after its lease is released.
+    /// </summary>
+    public List<Action> PostLeaseEffects { get; } = [];
 
     public bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
 

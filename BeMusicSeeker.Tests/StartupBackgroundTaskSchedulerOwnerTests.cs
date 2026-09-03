@@ -580,6 +580,235 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     }
 
     [TestMethod]
+    public async Task PostInitializationInstallableMaintenanceWaitsForRequiredSchedulingClosureAndLateRequiredEnrollment()
+    {
+        var maintenanceEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("installable_maintenance", "post", null, () =>
+        {
+            maintenanceEntered.TrySetResult(true);
+            return Task.CompletedTask;
+        });
+        owner.Start();
+
+        try
+        {
+            Assert.IsFalse(maintenanceEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+            owner.MarkPostInitializationSchedulingComplete();
+            Assert.IsFalse(maintenanceEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+
+            owner.Queue("lr2_song_db_sync", "late-required", null, async () =>
+            {
+                requiredEntered.TrySetResult(true);
+                await requiredRelease.Task.ConfigureAwait(false);
+            });
+            Assert.IsFalse(maintenanceEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+
+            owner.MarkRequiredInitializationSchedulingComplete();
+            await requiredEntered.Task;
+            Assert.IsFalse(maintenanceEntered.Task.IsCompleted, owner.DescribeWaitState());
+
+            requiredRelease.SetResult(true);
+            await maintenanceEntered.Task;
+            await WaitForFullyIdleAsync(owner);
+        }
+        finally
+        {
+            requiredRelease.TrySetResult(true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PostInitializationInstallableMaintenanceBlocksFollowingRequiredWorkUntilTerminal()
+    {
+        var maintenanceEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var maintenanceRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("installable_maintenance", "post", null, async () =>
+        {
+            maintenanceEntered.TrySetResult(true);
+            await maintenanceRelease.Task.ConfigureAwait(false);
+        });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+
+        try
+        {
+            await maintenanceEntered.Task;
+            owner.Queue("chart_info_hydration", "late-required", null, async () =>
+            {
+                requiredEntered.TrySetResult(true);
+                await requiredRelease.Task.ConfigureAwait(false);
+            });
+            Assert.IsFalse(requiredEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+
+            maintenanceRelease.SetResult(true);
+            await requiredEntered.Task;
+            requiredRelease.SetResult(true);
+            await WaitForFullyIdleAsync(owner);
+        }
+        finally
+        {
+            maintenanceRelease.TrySetResult(true);
+            requiredRelease.TrySetResult(true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PostInitializationInstallableMaintenanceStartsAfterRequiredFaultReachesTerminal()
+    {
+        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var maintenanceEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("chart_info_hydration", "required", null, async () =>
+        {
+            requiredEntered.TrySetResult(true);
+            await requiredRelease.Task.ConfigureAwait(false);
+            throw new InvalidOperationException("expected required failure");
+        });
+        owner.Queue("installable_maintenance", "post", null, () =>
+        {
+            maintenanceEntered.TrySetResult(true);
+            return Task.CompletedTask;
+        });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+
+        try
+        {
+            await requiredEntered.Task;
+            Assert.IsFalse(maintenanceEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+
+            requiredRelease.SetResult(true);
+            await maintenanceEntered.Task;
+            await WaitForFullyIdleAsync(owner);
+
+            StringAssert.Contains(owner.BuildSummaryLog(0L), "chart_info_hydration{queued=1,started=1,completed=0,failed=1,");
+            StringAssert.Contains(owner.BuildSummaryLog(0L), "installable_maintenance{queued=1,started=1,completed=1,failed=0,");
+        }
+        finally
+        {
+            requiredRelease.TrySetResult(true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PostInitializationCustomFolderRepairWaitsForRequiredSchedulingClosureAndLateRequiredEnrollment()
+    {
+        var repairEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("playlist_custom_folder_output_repair", "post", null, () =>
+        {
+            repairEntered.TrySetResult(true);
+            return Task.CompletedTask;
+        });
+        owner.Start();
+
+        Assert.IsFalse(repairEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+        owner.MarkPostInitializationSchedulingComplete();
+        Assert.IsFalse(repairEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+
+        owner.Queue("lr2_song_db_sync", "late-required", null, async () =>
+        {
+            requiredEntered.TrySetResult(true);
+            await requiredRelease.Task.ConfigureAwait(false);
+        });
+        Assert.IsFalse(repairEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+
+        owner.MarkRequiredInitializationSchedulingComplete();
+        await requiredEntered.Task;
+        Assert.IsFalse(repairEntered.Task.IsCompleted, owner.DescribeWaitState());
+
+        requiredRelease.SetResult(true);
+        await repairEntered.Task;
+        await WaitForFullyIdleAsync(owner);
+    }
+
+    [TestMethod]
+    public async Task PostInitializationCustomFolderRepairBlocksFollowingRequiredMaintenanceUntilTerminal()
+    {
+        var repairEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var repairRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var maintenanceEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("playlist_custom_folder_output_repair", "post", null, async () =>
+        {
+            repairEntered.TrySetResult(true);
+            await repairRelease.Task.ConfigureAwait(false);
+        });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+
+        await repairEntered.Task;
+        owner.Queue("installable_maintenance", "following-required", null, () =>
+        {
+            maintenanceEntered.TrySetResult(true);
+            return Task.CompletedTask;
+        });
+        Assert.IsFalse(maintenanceEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
+
+        repairRelease.SetResult(true);
+        await maintenanceEntered.Task;
+        await WaitForFullyIdleAsync(owner);
+
+        string summary = owner.BuildSummaryLog(0L);
+        StringAssert.Contains(summary, "playlist_custom_folder_output_repair{queued=1,started=1,completed=1,failed=0,lastStatus=done,lastMs=");
+        StringAssert.Contains(summary, "installable_maintenance{queued=1,started=1,completed=1,failed=0,lastStatus=done,lastMs=");
+    }
+
+    [TestMethod]
+    public async Task ShutdownDiscardsUnstartedCustomFolderRepairExactlyOnceWhileRequiredMaintenanceDrains()
+    {
+        bool shutdownRequested = false;
+        var maintenanceEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var maintenanceRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var repairDiscarded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int discardCount = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner(() => shutdownRequested);
+
+        owner.Queue("playlist_custom_folder_output_repair", "post", null, () => Task.CompletedTask, _ =>
+        {
+            if (Interlocked.Increment(ref discardCount) == 1)
+            {
+                repairDiscarded.TrySetResult(true);
+            }
+        });
+        owner.Queue("installable_maintenance", "required", null, async () =>
+        {
+            maintenanceEntered.TrySetResult(true);
+            await maintenanceRelease.Task.ConfigureAwait(false);
+        });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        owner.Start();
+        await maintenanceEntered.Task;
+
+        shutdownRequested = true;
+        owner.RequestShutdown("window_close");
+        await repairDiscarded.Task;
+        Assert.AreEqual(1, Volatile.Read(ref discardCount));
+
+        maintenanceRelease.SetResult(true);
+        await WaitForFullyIdleAsync(owner);
+        StringAssert.Contains(owner.BuildSummaryLog(0L), "playlist_custom_folder_output_repair");
+    }
+
+    [TestMethod]
     public async Task StaleRequiredSchedulingClosureCannotReleaseNewGenerationGarbageCollection()
     {
         var postEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -726,6 +955,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             order.Enqueue("installable");
             return Task.CompletedTask;
         });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
         owner.Start();
 
         await maintenanceEntered.Task;
@@ -954,7 +1185,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
             QueueGatedWork("maintenance_hydration", isReadHydration: false);
             await fourStarted.Task;
-            QueueGatedWork("installable_maintenance", isReadHydration: false);
+            QueueGatedWork("default_b", isReadHydration: false);
             Assert.AreEqual(new StartupBackgroundWorkSnapshot(2, 4), owner.CaptureWorkSnapshot());
 
             release.TrySetResult(true);
@@ -1008,7 +1239,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         QueueGatedWork(owner, "playlist_entries_hydration", newRelease, counters);
         QueueGatedWork(owner, "chart_info_hydration", newRelease, counters);
         QueueGatedWork(owner, "maintenance_hydration", newRelease, counters);
-        QueueGatedWork(owner, "installable_maintenance", newRelease, counters);
+        QueueGatedWork(owner, "default_c", newRelease, counters);
         await counters.ThreeNewStarted.Task;
         Assert.AreEqual(3, Volatile.Read(ref counters.NewStarted));
         Assert.AreEqual(4, Volatile.Read(ref counters.Active));
@@ -1075,6 +1306,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             return Task.CompletedTask;
         });
 
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
         owner.Start();
         await dependentRan.Task;
         await WaitForFullyIdleAsync(owner);
