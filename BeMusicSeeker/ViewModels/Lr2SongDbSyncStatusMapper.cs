@@ -19,7 +19,6 @@ internal static class Lr2SongDbSyncStatusMapper
             HasProgress = false,
             HasWarningStatus = false,
             CanRetry = false,
-            CanCancel = false,
             CanCleanupStartupScanBlockers = false,
             CheckedAt = DateTime.MinValue
         };
@@ -44,7 +43,6 @@ internal static class Lr2SongDbSyncStatusMapper
             HasProgress = HasProgress(snapshot),
             HasWarningStatus = HasWarningStatus(snapshot.Status),
             CanRetry = CanRetry(snapshot),
-            CanCancel = CanCancel(snapshot),
             CanCleanupStartupScanBlockers = CanCleanupStartupScanBlockers(snapshot),
             CheckedAt = checkedAt
         };
@@ -71,12 +69,6 @@ internal static class Lr2SongDbSyncStatusMapper
             || kind == Lr2SongDbSyncStatusKind.Failed
             || kind == Lr2SongDbSyncStatusKind.Incomplete
             || kind == Lr2SongDbSyncStatusKind.Cancelled;
-    }
-
-    private static bool CanCancel(Lr2SongDbSyncStatusSnapshot snapshot)
-    {
-        return snapshot?.Status == Lr2SongDbSyncStatusKind.Running
-            && !string.Equals(snapshot.Stage, "playlist_materialization", StringComparison.Ordinal);
     }
 
     private static bool CanCleanupStartupScanBlockers(Lr2SongDbSyncStatusSnapshot snapshot)

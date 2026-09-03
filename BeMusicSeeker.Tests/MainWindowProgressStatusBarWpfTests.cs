@@ -58,7 +58,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     ["styleFolderAutoRenameStatusBarItem"] = new[] { "IsFolderAutoRenameProgressActive" },
                     ["styleLr2SongDbSyncStatusBarItem"] = new[] { "IsLr2SongDbSyncStatusActive" },
                     ["styleLr2SongDbSyncRetryStatusBarItem"] = new[] { "IsLr2SongDbSyncRetryVisible" },
-                    ["styleLr2SongDbSyncCancelStatusBarItem"] = new[] { "IsLr2SongDbSyncCancelVisible" },
                     ["styleLr2SongDbSyncProgressStatusBarItem"] = new[] { "IsLr2SongDbSyncStatusProgressVisible" },
                     ["styleLr2SongDbSyncCleanupStatusBarItem"] = new[] { "IsLr2SongDbSyncCleanupVisible" },
                     ["styleInstallPipelineCancelButton"] = new[] { "InstallPipelineCanCancel" },
@@ -69,6 +68,9 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     Assert.IsNotNull(statusBar.Resources[key], key);
                     CollectionAssert.AreEquivalent(paths, GetTriggerBindingPaths((Style)statusBar.Resources[key]));
                 }
+
+                Assert.IsNull(statusBar.Resources["styleLr2SongDbSyncCancelStatusBarItem"]);
+                Assert.IsNull(window.FindName("lr2SongDbSyncCancelButton"));
 
                 var boundPaths = new HashSet<string>(StringComparer.Ordinal);
                 foreach (TextBlock textBlock in FindVisualChildren<TextBlock>(statusBar))
@@ -228,7 +230,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
                 hub.Lr2SongDbSyncStatusProgressValue = 7;
                 hub.IsLr2SongDbSyncStatusProgressVisible = true;
                 hub.IsLr2SongDbSyncRetryVisible = true;
-                hub.IsLr2SongDbSyncCancelVisible = true;
                 hub.IsLr2SongDbSyncCleanupVisible = true;
                 TestUiDispatcherHost.Drain();
                 AssertOwnerPresentation(
@@ -251,9 +252,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     FindStatusBarItem(statusBar, "styleLr2SongDbSyncRetryStatusBarItem").Visibility);
                 Assert.AreEqual(
                     Visibility.Visible,
-                    FindStatusBarItem(statusBar, "styleLr2SongDbSyncCancelStatusBarItem").Visibility);
-                Assert.AreEqual(
-                    Visibility.Visible,
                     FindStatusBarItem(statusBar, "styleLr2SongDbSyncCleanupStatusBarItem").Visibility);
             });
     }
@@ -266,7 +264,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
             () => calls.Add("install"),
             () => calls.Add("maintenance"),
             () => calls.Add("retry"),
-            () => calls.Add("cancel"),
             () => calls.Add("cleanup"));
 
         RunConstructorOnlyWithStatusBarTerminals(
@@ -276,12 +273,11 @@ public sealed class MainWindowProgressStatusBarWpfTests
                 RaiseButtonClick(window, "installPipelineCancelButton");
                 RaiseButtonClick(window, "maintenanceRescanCancelButton");
                 RaiseButtonClick(window, "lr2SongDbSyncRetryButton");
-                RaiseButtonClick(window, "lr2SongDbSyncCancelButton");
                 RaiseButtonClick(window, "lr2SongDbSyncCleanupButton");
             });
 
         CollectionAssert.AreEqual(
-            new[] { "install", "maintenance", "retry", "cancel", "cleanup" },
+            new[] { "install", "maintenance", "retry", "cleanup" },
             calls);
     }
 
@@ -296,7 +292,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
             () => calls.Add("package-cancel"),
             () => calls.Add("maintenance-cancel"),
             () => calls.Add("lr2-retry"),
-            () => calls.Add("lr2-cancel"),
             () => calls.Add("lr2-cleanup"));
 
         terminals.CancelInstallPipeline();
@@ -306,7 +301,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
         terminals.CancelInstallPipeline();
         terminals.CancelMaintenanceRescan();
         terminals.RetryLr2Sync();
-        terminals.CancelLr2Sync();
         terminals.CleanupLr2StartupBlockers();
 
         CollectionAssert.AreEqual(
@@ -316,7 +310,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
                 "package-cancel",
                 "maintenance-cancel",
                 "lr2-retry",
-                "lr2-cancel",
                 "lr2-cleanup"
             },
             calls);
@@ -337,14 +330,12 @@ public sealed class MainWindowProgressStatusBarWpfTests
         int packageCancelRequests = 0;
         int maintenanceCancelRequests = 0;
         int lr2RetryRequests = 0;
-        int lr2CancelRequests = 0;
         int lr2CleanupRequests = 0;
         int playlistCancelableSnapshots = 0;
         int playlistCanceledSnapshots = 0;
         viewModel.PackageInstallWorkflow.CancelAllRequested += () => packageCancelRequests++;
         viewModel.MaintenanceRescanWorkflow.CancellationRequested += () => maintenanceCancelRequests++;
         viewModel.Lr2SongDbSyncWorkflow.StatusBarRetryRequested += () => lr2RetryRequests++;
-        viewModel.Lr2SongDbSyncWorkflow.StatusBarCancellationRequested += () => lr2CancelRequests++;
         viewModel.Lr2SongDbSyncWorkflow.StartupScanBlockerCleanupRequested += () => lr2CleanupRequests++;
         viewModel.PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += (_, snapshot) =>
         {
@@ -367,25 +358,16 @@ public sealed class MainWindowProgressStatusBarWpfTests
             terminals.CancelMaintenanceRescan();
             Assert.AreEqual(1, maintenanceCancelRequests);
             Assert.AreEqual(0, lr2RetryRequests);
-            Assert.AreEqual(0, lr2CancelRequests);
             Assert.AreEqual(0, lr2CleanupRequests);
 
             terminals.RetryLr2Sync();
             Assert.AreEqual(1, maintenanceCancelRequests);
             Assert.AreEqual(1, lr2RetryRequests);
-            Assert.AreEqual(0, lr2CancelRequests);
-            Assert.AreEqual(0, lr2CleanupRequests);
-
-            terminals.CancelLr2Sync();
-            Assert.AreEqual(1, maintenanceCancelRequests);
-            Assert.AreEqual(1, lr2RetryRequests);
-            Assert.AreEqual(1, lr2CancelRequests);
             Assert.AreEqual(0, lr2CleanupRequests);
 
             terminals.CleanupLr2StartupBlockers();
             Assert.AreEqual(1, maintenanceCancelRequests);
             Assert.AreEqual(1, lr2RetryRequests);
-            Assert.AreEqual(1, lr2CancelRequests);
             Assert.AreEqual(1, lr2CleanupRequests);
 
             await using var server = new BlockingLoopbackHttpServer();
@@ -500,7 +482,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
         hub.IsLr2SongDbSyncStatusActive = false;
         hub.IsLr2SongDbSyncStatusProgressVisible = false;
         hub.IsLr2SongDbSyncRetryVisible = false;
-        hub.IsLr2SongDbSyncCancelVisible = false;
         hub.IsLr2SongDbSyncCleanupVisible = false;
         TestUiDispatcherHost.Drain();
     }

@@ -72,8 +72,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private bool isLr2SongDbSyncRetryVisible;
 
-    private bool isLr2SongDbSyncCancelVisible;
-
     private bool isLr2SongDbSyncCleanupVisible;
 
     private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
@@ -541,15 +539,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
     }
 
     /// <summary>
-    /// Gets whether the LR2 song DB sync cancel action is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncCancelVisible
-    {
-        get => isLr2SongDbSyncCancelVisible;
-        internal set => SetValue(ref isLr2SongDbSyncCancelVisible, value, nameof(IsLr2SongDbSyncCancelVisible));
-    }
-
-    /// <summary>
     /// Gets whether the LR2 song DB sync cleanup action is visible.
     /// </summary>
     public bool IsLr2SongDbSyncCleanupVisible
@@ -581,7 +570,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
         Lr2SongDbSyncStatusProgressMaximum = isActive ? status.ProgressMaximum : 1.0;
         IsLr2SongDbSyncStatusProgressVisible = isActive && status.HasProgress;
         IsLr2SongDbSyncRetryVisible = isActive && status.CanRetry;
-        IsLr2SongDbSyncCancelVisible = isActive && status.CanCancel;
         IsLr2SongDbSyncCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
     }
 

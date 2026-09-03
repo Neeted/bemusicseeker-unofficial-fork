@@ -87,8 +87,6 @@ internal interface ILr2SongDbSyncWorkflowRuntime
 
     void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason);
 
-    bool Cancel(string reason);
-
     Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(string reason);
 }
 
@@ -199,11 +197,6 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
         libraryProvider()?.Lr2Synchronization.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange(reason);
     }
 
-    public bool Cancel(string reason)
-    {
-        return libraryProvider()?.CancelLr2SongDbSync(reason) == true;
-    }
-
     public Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(string reason)
     {
         return libraryProvider()?.CleanupLr2SongDbSyncStartupScanBlockerFolderRows(reason);
@@ -224,11 +217,6 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
     /// Reports that the LR2 sync owner received a status-bar retry request.
     /// </summary>
     internal event Action StatusBarRetryRequested;
-
-    /// <summary>
-    /// Reports that the LR2 sync owner received a status-bar cancellation request.
-    /// </summary>
-    internal event Action StatusBarCancellationRequested;
 
     /// <summary>
     /// Reports that the LR2 sync owner received a startup-blocker cleanup request.
@@ -362,17 +350,6 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         ScheduleBackground(
             "SyncExternalLr2FolderRowsAfterCustomFolderOutputBaseSettingsChange",
             () => runtime.SyncExternalFolderRowsForCustomFolderOutputBaseChange(reason));
-    }
-
-    internal void CancelStatusBarSync()
-    {
-        NotifyStatusBarActionReceived(StatusBarCancellationRequested, "Lr2StatusBarCancelRequestNotification");
-        if (!CanRun())
-        {
-            return;
-        }
-
-        runtime.Cancel("status_bar_cancel");
     }
 
     internal void CleanupStartupScanBlockersAndRetry()

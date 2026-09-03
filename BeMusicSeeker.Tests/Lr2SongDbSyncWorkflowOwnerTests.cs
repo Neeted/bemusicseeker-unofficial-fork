@@ -48,7 +48,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         var owner = CreateOwner(runtime, dialogs);
 
         owner.RequestStatusBarRetry();
-        owner.CancelStatusBarSync();
         owner.CleanupStartupScanBlockersAndRetry();
 
         runtime.IsLr2ModeEnabled = true;
@@ -56,21 +55,8 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         owner.CleanupStartupScanBlockersAndRetry();
 
         Assert.AreEqual(0, runtime.QueueCalls.Count);
-        Assert.AreEqual(0, runtime.CancelCount);
         Assert.AreEqual(0, runtime.CleanupCount);
         CollectionAssert.AreEqual(Array.Empty<string>(), runtime.Events.ToArray());
-    }
-
-    [TestMethod]
-    public void CancelStatusBarSync_SendsStableReasonOnce()
-    {
-        var runtime = new RecordingRuntime();
-        var owner = CreateOwner(runtime);
-
-        owner.CancelStatusBarSync();
-
-        Assert.AreEqual(1, runtime.CancelCount);
-        Assert.AreEqual("status_bar_cancel", runtime.CancelReasons[0]);
     }
 
     [TestMethod]
@@ -220,10 +206,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
 
         internal List<QueueCall> QueueCalls { get; } = [];
 
-        internal List<string> CancelReasons { get; } = [];
-
-        internal int CancelCount { get; private set; }
-
         internal int CleanupCount { get; private set; }
 
         internal Exception CleanupFailure { get; set; } = null!;
@@ -270,14 +252,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         public void SyncExternalFolderRowsForCustomFolderOutputBaseChange(string reason)
         {
             Events.Add("external:" + reason);
-        }
-
-        public bool Cancel(string reason)
-        {
-            CancelCount++;
-            CancelReasons.Add(reason);
-            Events.Add("cancel:" + reason);
-            return true;
         }
 
         public Lr2StartupScanBlockerCleanupResult CleanupStartupScanBlockerFolderRows(string reason)

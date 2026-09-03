@@ -6939,11 +6939,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         progressStatusBarTerminals.RetryLr2Sync();
     }
 
-    private void cancelLr2SongDbSyncClick(object sender, RoutedEventArgs e)
-    {
-        progressStatusBarTerminals.CancelLr2Sync();
-    }
-
     private void cleanupLr2SongDbSyncStartupScanBlockersClick(object sender, RoutedEventArgs e)
     {
         progressStatusBarTerminals.CleanupLr2StartupBlockers();

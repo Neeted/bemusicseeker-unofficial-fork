@@ -1055,14 +1055,6 @@
                 </DataTrigger>
               </Style.Triggers>
             </Style>
-            <Style x:Key="styleLr2SongDbSyncCancelStatusBarItem" TargetType="{x:Type StatusBarItem}">
-              <Setter Property="Visibility" Value="Collapsed" />
-              <Style.Triggers>
-                <DataTrigger Binding="{Binding IsLr2SongDbSyncCancelVisible}" Value="True">
-                  <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-              </Style.Triggers>
-            </Style>
             <Style x:Key="styleLr2SongDbSyncProgressStatusBarItem" TargetType="{x:Type StatusBarItem}">
               <Setter Property="Visibility" Value="Collapsed" />
               <Style.Triggers>
@@ -1201,9 +1193,6 @@
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleLr2SongDbSyncRetryStatusBarItem}">
             <Button x:Name="lr2SongDbSyncRetryButton" MinWidth="70" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_retry, Mode=OneWay}" Click="retryLr2SongDbSyncClick" />
-          </StatusBarItem>
-          <StatusBarItem Style="{StaticResource styleLr2SongDbSyncCancelStatusBarItem}">
-            <Button x:Name="lr2SongDbSyncCancelButton" MinWidth="70" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="cancelLr2SongDbSyncClick" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleLr2SongDbSyncCleanupStatusBarItem}">
             <Button x:Name="lr2SongDbSyncCleanupButton" MinWidth="150" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_cleanup_startup_scan_blockers, Mode=OneWay}" Click="cleanupLr2SongDbSyncStartupScanBlockersClick" />

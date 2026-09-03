@@ -400,7 +400,6 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(status.ProgressMaximum, hub.Lr2SongDbSyncStatusProgressMaximum);
         Assert.IsTrue(hub.IsLr2SongDbSyncStatusProgressVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
-        Assert.IsTrue(hub.IsLr2SongDbSyncCancelVisible);
 
         hub.StartupProgress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         hub.PropertyChanged += (_, args) =>
@@ -416,7 +415,6 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(string.Empty, hub.Lr2SongDbSyncStatusLabel);
         Assert.AreEqual(1.0, hub.Lr2SongDbSyncStatusProgressMaximum);
         Assert.IsFalse(hub.IsLr2SongDbSyncStatusProgressVisible);
-        Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
 
         CompleteStartupProgress(hub.StartupProgress);
         await delayEntered.Task;
@@ -449,7 +447,6 @@ public sealed class OperationProgressHubViewModelTests
 
         Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
         Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
-        Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
         Assert.IsTrue(hub.IsLr2SongDbSyncCleanupVisible);
 
         hub.UpdateLr2SongDbSyncStatus(null);
@@ -462,7 +459,6 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(1.0, hub.Lr2SongDbSyncStatusProgressMaximum);
         Assert.IsFalse(hub.IsLr2SongDbSyncStatusProgressVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
-        Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncCleanupVisible);
     }
 
