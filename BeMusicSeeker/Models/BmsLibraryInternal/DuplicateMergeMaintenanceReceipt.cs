@@ -91,6 +91,12 @@ internal sealed class DuplicateMergeMaintenanceReceipt
 
     internal bool HasDurableCommit => MutationReceipt?.DurableCommit == true;
 
+    /// <summary>
+    /// Gets whether the merge finalizer failed after the file and catalog
+    /// state became durable.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed;
+
     internal bool ManualRecoveryRequired => MutationReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired;
 
     internal bool CompletedWithCleanupFailure => MutationReceipt?.TerminalState == FileDbMutationTerminalState.CompletedWithCleanupFailure;

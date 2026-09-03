@@ -500,6 +500,106 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
+    public void MergeChartDirectory_Lr2FinalizationFailureReturnsDurableNonSuccessWithoutMaintenancePublication()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(
+                Path.GetTempPath(),
+                "BeMusicSeeker_DuplicateMergeDurableFinalizationFailure_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Source");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "PackFinalizationFailure");
+            string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            string destinationChartPath = Path.Combine(destinationDirectoryPath, "chart.bms");
+            string lr2RootPath = Path.Combine(tempRootPath, "LR2beta3");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            File.WriteAllText(
+                sourceChartPath,
+                "#PLAYER 1\r\n#TITLE merge finalization failure\r\n#ARTIST artist\r\n#00111:01\r\n",
+                Encoding.ASCII);
+            try
+            {
+                BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    () => lr2Config,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = true,
+                        LR2RootPath = lr2RootPath
+                    })
+                {
+                    BMSFiles = [sourceFile],
+                    BmsonSongs = []
+                };
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(sourceFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.Execute(
+                        "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%PackFinalizationFailure%' "
+                        + "BEGIN SELECT RAISE(ABORT, 'forced durable finalization failure'); END;");
+                }
+
+                int ownedCollectionPublicationCount = 0;
+                int normalRefreshPublicationCount = 0;
+                library.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                    {
+                        ownedCollectionPublicationCount++;
+                    }
+                    if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                    {
+                        normalRefreshPublicationCount++;
+                    }
+                };
+
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(
+                    sourceDirectoryPath,
+                    destinationDirectoryPath,
+                    operationId: 1);
+
+                Assert.IsNotNull(receipt);
+                Assert.IsFalse(receipt.MergeApplied);
+                Assert.IsTrue(receipt.HasDurableCommit);
+                Assert.IsTrue(receipt.HasDurableFinalizationFailure);
+                Assert.IsFalse(receipt.ManualRecoveryRequired);
+                Assert.IsFalse(receipt.CompletedWithCleanupFailure);
+                Assert.IsNotNull(receipt.MutationReceipt);
+                Assert.AreEqual(
+                    FileDbMutationTerminalState.DurableFinalizationFailed,
+                    receipt.MutationReceipt.TerminalState);
+                Assert.IsTrue(receipt.MutationReceipt.DurableCommit);
+                Assert.IsNotNull(receipt.MutationReceipt.Failure);
+                Assert.AreSame(receipt.MutationReceipt.FinalizationFailure, receipt.MutationReceipt.Failure);
+                Assert.IsFalse(receipt.MaintenanceHadUpdates);
+                Assert.IsFalse(receipt.MaintenanceResult.HasUpdates);
+                Assert.AreEqual(0, ownedCollectionPublicationCount);
+                Assert.AreEqual(0, normalRefreshPublicationCount);
+                Assert.IsFalse(File.Exists(sourceChartPath));
+                Assert.IsTrue(File.Exists(destinationChartPath));
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(sourceChartPath));
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void MergeChartDirectory_FailedDialogEffectIsIsolatedAndCanReenterAfterLeaseRelease()
     {
         WithTemporarySongDb(delegate (string songDbPath)

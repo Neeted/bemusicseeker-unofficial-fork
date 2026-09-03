@@ -122,6 +122,11 @@ internal sealed class PackageInstallCompletionReceipt : EventArgs
 
     internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
+    /// <summary>
+    /// Gets whether package finalization failed after durable state.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
     internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
 
     internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
@@ -450,6 +455,7 @@ internal sealed class PackageInstallWorkflowOwner
         }
         if (packages.Count == 0
             && !commandResult.ManualRecoveryRequired
+            && !commandResult.HasDurableFinalizationFailure
             && !commandResult.CompletedWithCleanupFailure)
         {
             return;

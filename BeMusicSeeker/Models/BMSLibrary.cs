@@ -4026,6 +4026,27 @@ public partial class BMSLibrary : ObservableObject
             .Select(entry => entry.DeferPropertyChangedNotificationPublication())];
     }
 
+    private static void DiscardPackageEntryNotificationPublication(
+        IEnumerable<Func<Action>> notificationDeferrals)
+    {
+        foreach (Func<Action> notificationDeferral in notificationDeferrals ?? [])
+        {
+            try
+            {
+                // Release the deferral scope, but intentionally discard the
+                // publication because the command has a durable finalization
+                // failure and must not emit ordinary success state.
+                notificationDeferral?.Invoke();
+            }
+            catch (Exception exception)
+            {
+                NLogWrapper.FileLogger?.Warn(
+                    exception,
+                    "package_entry_notification_deferral_discard_failed");
+            }
+        }
+    }
+
     private bool QueuePackageEntryNotificationPublication(
         IReadOnlyList<Func<Action>> notificationDeferrals,
         PerformanceInteraction? firstVisibleInteraction = null)
@@ -12396,7 +12417,11 @@ public partial class BMSLibrary : ObservableObject
     /// </summary>
     internal void AutoRenameChartFolders(IEnumerable<ChartFile> chartFiles, bool renameRootFolder = false, Action<int, int, string> progressReporter = null)
     {
-        AutoRenameChartFoldersWithResult(chartFiles, renameRootFolder, progressReporter);
+        AutoRenameBatchResult result = AutoRenameChartFoldersWithResult(chartFiles, renameRootFolder, progressReporter);
+        if (result?.HasDurableFinalizationFailure == true)
+        {
+            result.PrimaryFailure?.Throw();
+        }
     }
 
     internal AutoRenameBatchResult AutoRenameChartFoldersWithResult(
@@ -12443,6 +12468,10 @@ public partial class BMSLibrary : ObservableObject
             catch (Exception exception)
             {
                 primaryFailure = ExceptionDispatchInfo.Capture(exception);
+                if (result?.HasDurableCommit == true)
+                {
+                    result = result.WithDurableFinalizationFailure(primaryFailure);
+                }
             }
             FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications);
         }
@@ -12463,7 +12492,8 @@ public partial class BMSLibrary : ObservableObject
 
     internal bool AutoRenameAllChartFolders(string parentDir = null, Action<int, int, string> progressReporter = null)
     {
-        return AutoRenameAllChartFoldersWithResult(parentDir, progressReporter).HasActionablePlan;
+        AutoRenameBatchResult result = AutoRenameAllChartFoldersWithResult(parentDir, progressReporter);
+        return result.HasActionablePlan && !result.HasDurableFinalizationFailure;
     }
 
     internal AutoRenameBatchResult AutoRenameAllChartFoldersWithResult(
@@ -12503,6 +12533,10 @@ public partial class BMSLibrary : ObservableObject
             catch (Exception exception)
             {
                 primaryFailure = ExceptionDispatchInfo.Capture(exception);
+                if (result?.HasDurableCommit == true)
+                {
+                    result = result.WithDurableFinalizationFailure(primaryFailure);
+                }
             }
             FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications);
             return result ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
@@ -12562,7 +12596,14 @@ public partial class BMSLibrary : ObservableObject
                     "auto_rename_lr2_incomplete_publish_failed_after_primary_failure");
             }
         }
-        InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+        // A batch-level finalizer can fail after every individual mutation has
+        // become durable.  Its queued success publications describe a result
+        // that is no longer an ordinary success, so discard them while still
+        // retaining diagnostics and the typed durable receipt.
+        if (result?.MutationReceipt?.FinalizationFailure == null)
+        {
+            InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+        }
         FlushAutoRenameDiagnostics(result);
         if (firstFailure == null && result?.AppliedPlanCount > 0)
         {
@@ -12570,7 +12611,7 @@ public partial class BMSLibrary : ObservableObject
                 PublishAutoRenameBatchRefreshNotification,
                 "auto_rename_batch_refresh_notification_failed");
         }
-        if (firstFailure != null)
+        if (firstFailure != null && result?.HasDurableFinalizationFailure != true)
         {
             firstFailure.Throw();
         }

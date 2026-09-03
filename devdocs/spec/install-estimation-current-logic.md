@@ -407,5 +407,6 @@ metadata frontier が発生した場合は `estimate_install metadata_frontier` 
 - source package と install row は destination と DB の durable receipt が確定するまで保持する。install row の削除は対象 chart upsert と同じ DB durable mutation に含める。
 - durable receipt 前の failure は一回だけ compensation し、compensation failure は `ManualRecoveryRequired` として batch の後続 mutation を停止する。source / backup / staging / recovery paths は保持する。
 - durable receipt 後は compensation せず、source / staging / backup の cleanup を一度だけ行う。cleanup failure は `CompletedWithCleanupFailure` とし、leftover を保持したまま terminal result として通知する。fresh install retry や pending への自動復帰はしない。
+- durable receipt 後の内部 finalizer exception は `DurableFinalizationFailed` とし、`DurableCommit=true` のまま compensation / retry を行わない。destination と DB を authoritative に保持し、失敗 item を成功登録・maintenance・score・state apply・after-apply から除外して batch の後続 mutation を停止する。cleanup-only failure は従来どおり `CompletedWithCleanupFailure` とし、non-throwing LR2 incomplete や post-lease callback failure はこの terminal state に分類しない。
 
 package batch、folder move、merge、auto-rename の command result は durable receipt、terminal state、recovery paths を direct caller / UI workflow まで伝播する。receipt 前の collection projection、notification、task start は行わず、durable success 後の projection と notification は post-commit phase に限定する。persistent journal、crash replay、cross-volume atomicity は保証しない。

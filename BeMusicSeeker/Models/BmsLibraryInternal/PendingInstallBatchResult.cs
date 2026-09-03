@@ -19,6 +19,11 @@ internal sealed class PendingInstallBatchResult
 
     public bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
+    /// <summary>
+    /// Gets whether a post-durable finalizer failed for any pending install.
+    /// </summary>
+    public bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
     public bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
 
     public IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];

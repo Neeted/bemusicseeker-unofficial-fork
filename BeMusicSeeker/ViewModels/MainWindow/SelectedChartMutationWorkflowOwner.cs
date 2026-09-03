@@ -180,6 +180,11 @@ internal sealed class SelectedChartMutationResult
 
     internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
+    /// <summary>
+    /// Gets whether selected-chart finalization failed after durable state.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
     internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
 
     internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
@@ -189,8 +194,10 @@ internal sealed class SelectedChartMutationResult
     internal static SelectedChartMutationResult FromReceipt(FileDbMutationBatchReceipt mutationReceipt)
     {
         return new SelectedChartMutationResult(
-            mutationReceipt?.ManualRecoveryRequired != true,
-            null,
+            mutationReceipt?.ManualRecoveryRequired != true
+                && mutationReceipt?.HasDurableFinalizationFailure != true,
+            mutationReceipt?.Receipts?.FirstOrDefault(receipt =>
+                receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)?.Failure,
             mutationReceipt);
     }
 
@@ -655,7 +662,9 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 mutation(library);
             }
             if (publishMutationApplied
-                && (mutationReceipt == null || mutationReceipt.HasDurableCommit))
+                && (mutationReceipt == null
+                    || (mutationReceipt.HasDurableCommit
+                        && !mutationReceipt.HasDurableFinalizationFailure)))
             {
                 publishMutationAppliedAfterRelease = true;
             }

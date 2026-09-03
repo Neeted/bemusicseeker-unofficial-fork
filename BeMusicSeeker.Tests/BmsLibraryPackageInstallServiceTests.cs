@@ -3514,6 +3514,101 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void InstallPackagesWithFileMutationReceipts_StopsBatchAfterDurableFinalizationFailure()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string firstSourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingFirst");
+            string secondSourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingSecond");
+            string thirdSourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingThird");
+            Directory.CreateDirectory(firstSourceDirectoryPath);
+            Directory.CreateDirectory(secondSourceDirectoryPath);
+            Directory.CreateDirectory(thirdSourceDirectoryPath);
+            string firstChartPath = Path.Combine(firstSourceDirectoryPath, "first.bms");
+            string secondChartPath = Path.Combine(secondSourceDirectoryPath, "second.bms");
+            string thirdChartPath = Path.Combine(thirdSourceDirectoryPath, "third.bms");
+            File.WriteAllText(firstChartPath, "first");
+            File.WriteAllText(secondChartPath, "second");
+            File.WriteAllText(thirdChartPath, "third");
+            ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([
+                CreateFile("cccccccccccccccccccccccccccccccc", firstChartPath)]);
+            firstPackage.path = firstSourceDirectoryPath;
+            ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage([
+                CreateFile("dddddddddddddddddddddddddddddddd", secondChartPath)]);
+            secondPackage.path = secondSourceDirectoryPath;
+            ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage([
+                CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", thirdChartPath)]);
+            thirdPackage.path = thirdSourceDirectoryPath;
+            string firstDestinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledFirst");
+            string secondDestinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledSecond");
+            string thirdDestinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledThird");
+            int moveInvocationCount = 0;
+            int maintenanceInvocationCount = 0;
+            int scoreInvocationCount = 0;
+            int stateInvocationCount = 0;
+            var finalizationFailure = new InvalidOperationException("deferred-effect");
+            var service = new BmsLibraryPackageInstallService();
+
+            PackageInstallExecutionResult result = service.InstallPackagesWithFileMutationReceipts(
+                [firstPackage, secondPackage, thirdPackage],
+                string.Empty,
+                (package, _, _, _, _, applyDurableCommit) =>
+                {
+                    moveInvocationCount++;
+                    string destinationDirectoryPath = ReferenceEquals(package, firstPackage)
+                        ? firstDestinationDirectoryPath
+                        : ReferenceEquals(package, secondPackage)
+                            ? secondDestinationDirectoryPath
+                            : thirdDestinationDirectoryPath;
+                    return service.MovePackageFilesWithReceipt(
+                        package,
+                        destinationDirectoryPath,
+                        new BmsLibraryOptionsSnapshot
+                        {
+                            EnableSmartComponentOverwrite = false,
+                            KeepSmartOverwriteProtectedFilesByRenaming = false
+                        },
+                        (_, _) => destinationDirectoryPath,
+                        exception => exception.Message,
+                        new RealFileMutationService(),
+                        null,
+                        new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                        new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                        _ => { },
+                        _ => ReferenceEquals(package, secondPackage)
+                            ? FileDbMutationCommitResult.Durable(
+                                () => throw finalizationFailure)
+                            : FileDbMutationCommitResult.Durable(),
+                        showMessageBoxOnInstallFail: false);
+                },
+                _ => FileDbMutationCommitResult.Durable(),
+                _ => maintenanceInvocationCount++,
+                _ => scoreInvocationCount++,
+                _ => stateInvocationCount++);
+
+            Assert.AreEqual(2, moveInvocationCount);
+            Assert.AreEqual(1, result.AddedEntries.Count);
+            Assert.AreEqual(1, result.InstalledPackagesToRegister.Count);
+            Assert.AreSame(firstPackage, result.InstalledPackagesToRegister[0]);
+            Assert.AreEqual(1, result.FailedPackages.Count);
+            Assert.AreSame(secondPackage, result.FailedPackages[0]);
+            Assert.AreEqual(1, maintenanceInvocationCount);
+            Assert.AreEqual(1, scoreInvocationCount);
+            Assert.AreEqual(1, stateInvocationCount);
+            Assert.IsTrue(result.MutationReceipt.HasDurableFinalizationFailure);
+            Assert.AreEqual(FileDbMutationTerminalState.DurableFinalizationFailed, result.MutationReceipt.Receipts[1].TerminalState);
+            Assert.AreSame(finalizationFailure, result.MutationReceipt.Receipts[1].FinalizationFailure);
+            Assert.IsTrue(Directory.Exists(firstDestinationDirectoryPath));
+            Assert.IsFalse(Directory.Exists(firstSourceDirectoryPath));
+            Assert.IsTrue(Directory.Exists(secondDestinationDirectoryPath));
+            Assert.IsFalse(Directory.Exists(secondSourceDirectoryPath));
+            Assert.IsTrue(Directory.Exists(thirdSourceDirectoryPath));
+            Assert.IsFalse(Directory.Exists(thirdDestinationDirectoryPath));
+        });
+    }
+
+    [TestMethod]
     public void MovePackageFiles_MovesDirectoryPackageAndUpdatesChartPaths()
     {
         TestResourceInitializer.EnsureJapaneseResources();

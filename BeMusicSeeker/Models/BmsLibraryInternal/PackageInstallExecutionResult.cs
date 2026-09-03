@@ -21,6 +21,11 @@ internal sealed class PackageInstallExecutionResult
     public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
 
     /// <summary>
+    /// Gets whether a post-durable finalizer failed for this package batch.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
+    /// <summary>
     /// Pending install-row path consumed by this package, if one exists.
     /// </summary>
     public string InstallPathToDelete { get; internal set; }
@@ -56,6 +61,11 @@ internal sealed class PackageInstallCommandResult
     internal FileDbMutationBatchReceipt MutationReceipt { get; }
 
     internal bool HasDurableCommit => MutationReceipt.HasDurableCommit;
+
+    /// <summary>
+    /// Gets whether a post-durable finalizer failed for this command.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt.HasDurableFinalizationFailure;
 
     internal bool ManualRecoveryRequired => MutationReceipt.ManualRecoveryRequired;
 

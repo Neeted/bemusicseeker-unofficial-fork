@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -172,6 +173,12 @@ internal sealed class FolderAutoRenameExecutionResult
 
     internal bool HasDurableCommit => MutationResult?.HasDurableCommit == true;
 
+    /// <summary>
+    /// Gets whether the auto-rename command reached durable state but failed
+    /// while finalizing it.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationResult?.HasDurableFinalizationFailure == true;
+
     internal bool ManualRecoveryRequired => MutationResult?.ManualRecoveryRequired == true;
 
     internal bool CompletedWithCleanupFailure => MutationResult?.CompletedWithCleanupFailure == true;
@@ -182,7 +189,8 @@ internal sealed class FolderAutoRenameExecutionResult
     {
         return new FolderAutoRenameExecutionResult
         {
-            RefreshRequired = result?.HasDurableCommit == true,
+            RefreshRequired = result?.HasDurableCommit == true
+                && result?.HasDurableFinalizationFailure != true,
             MutationResult = result
         };
     }
@@ -196,6 +204,7 @@ internal sealed class FolderAutoRenameCompletionReceipt
         AllFolders = allFolders;
         RefreshRequired = result?.RefreshRequired == true;
         HasDurableCommit = result?.HasDurableCommit == true;
+        HasDurableFinalizationFailure = result?.HasDurableFinalizationFailure == true;
         ManualRecoveryRequired = result?.ManualRecoveryRequired == true;
         CompletedWithCleanupFailure = result?.CompletedWithCleanupFailure == true;
         RecoveryPaths = result?.RecoveryPaths ?? [];
@@ -209,6 +218,11 @@ internal sealed class FolderAutoRenameCompletionReceipt
 
     internal bool HasDurableCommit { get; }
 
+    /// <summary>
+    /// Gets whether finalization failed after the requested move became durable.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure { get; }
+
     internal bool ManualRecoveryRequired { get; }
 
     internal bool CompletedWithCleanupFailure { get; }
@@ -218,18 +232,64 @@ internal sealed class FolderAutoRenameCompletionReceipt
 
 internal sealed class FolderAutoRenameFailure
 {
-    internal FolderAutoRenameFailure(long generation, bool allFolders, Exception exception)
+    /// <summary>
+    /// Creates an immutable failure publication, retaining the mutation facts
+    /// when the command produced a typed execution result before failing.
+    /// </summary>
+    /// <param name="generation">The workflow generation that failed.</param>
+    /// <param name="allFolders">Whether the failed request covered all folders.</param>
+    /// <param name="exception">The primary workflow failure.</param>
+    /// <param name="executionResult">The partial mutation result, when available.</param>
+    internal FolderAutoRenameFailure(
+        long generation,
+        bool allFolders,
+        Exception exception,
+        FolderAutoRenameExecutionResult executionResult = null)
     {
         Generation = generation;
         AllFolders = allFolders;
         Exception = exception ?? throw new ArgumentNullException(nameof(exception));
+        ExecutionResult = executionResult;
     }
 
     internal long Generation { get; }
 
     internal bool AllFolders { get; }
 
+    /// <summary>
+    /// Gets the immutable execution facts produced before the failure, when a
+    /// mutation reached the typed result boundary.
+    /// </summary>
+    internal FolderAutoRenameExecutionResult ExecutionResult { get; }
+
+    /// <summary>
+    /// Gets the underlying immutable auto-rename batch facts, when available.
+    /// </summary>
+    internal AutoRenameBatchResult MutationResult => ExecutionResult?.MutationResult;
+
     internal Exception Exception { get; }
+
+    /// <summary>
+    /// Gets whether the failed mutation reached durable filesystem and DB
+    /// state.
+    /// </summary>
+    internal bool HasDurableCommit => ExecutionResult?.HasDurableCommit == true;
+
+    /// <summary>
+    /// Gets whether finalization failed after the mutation became durable.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure =>
+        ExecutionResult?.HasDurableFinalizationFailure == true;
+
+    /// <summary>
+    /// Gets whether cleanup also reported a cleanup-only terminal failure.
+    /// </summary>
+    internal bool CompletedWithCleanupFailure => ExecutionResult?.CompletedWithCleanupFailure == true;
+
+    /// <summary>
+    /// Gets the recovery paths retained by the failed mutation.
+    /// </summary>
+    internal IReadOnlyList<string> RecoveryPaths => ExecutionResult?.RecoveryPaths ?? [];
 }
 
 /// <summary>
@@ -628,6 +688,15 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 throw new InvalidOperationException("Folder auto-rename executor returned no result.");
             }
             LogInfoSafely("folder_auto_rename done scope=" + (run.AllFolders ? "all" : "selected") + " refreshRequired=" + result.RefreshRequired);
+            if (result.HasDurableFinalizationFailure)
+            {
+                CompleteFailure(
+                    run,
+                    result.MutationResult?.PrimaryFailure?.SourceException
+                        ?? new IOException("Folder move finalization failed."),
+                    result);
+                return;
+            }
             CompleteSuccess(run, result);
         }
         catch (Exception exception)
@@ -903,7 +972,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
     }
 
-    private void CompleteFailure(RunContext run, Exception exception)
+    private void CompleteFailure(
+        RunContext run,
+        Exception exception,
+        FolderAutoRenameExecutionResult executionResult = null)
     {
         BeginProgressTerminalization(run);
         ReleaseOperationGate(run);
@@ -932,7 +1004,11 @@ internal sealed class FolderAutoRenameWorkflowOwner
             return;
         }
         FolderAutoRenameProgressSnapshot terminalProgress = CreateTerminalProgress(run);
-        var failure = new FolderAutoRenameFailure(run.Generation, run.AllFolders, exception);
+        var failure = new FolderAutoRenameFailure(
+            run.Generation,
+            run.AllFolders,
+            exception,
+            executionResult);
         bool dispatched = DispatchNotification(() =>
         {
             bool staleTerminal;

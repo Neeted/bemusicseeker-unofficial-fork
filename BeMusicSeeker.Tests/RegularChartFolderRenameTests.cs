@@ -270,4 +270,92 @@ public sealed class RegularChartFolderRenameTests
             Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "queued-destination")));
         });
     }
+
+    [TestMethod]
+    public void FolderRename_Lr2FinalizationFailureDoesNotApplySuccessRefresh()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string libraryRoot = Path.GetDirectoryName(songDbPath)!;
+            string sourceDirectory = Path.Combine(libraryRoot, "workflow-source");
+            string destinationDirectory = Path.Combine(libraryRoot, "PackFinalizationFailure");
+            string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+            string destinationChartPath = Path.Combine(destinationDirectory, "chart.bms");
+            string lr2RootPath = Path.Combine(libraryRoot, "LR2beta3");
+            Directory.CreateDirectory(sourceDirectory);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE workflow finalization failure\r\n");
+            try
+            {
+                var file = CreateTestableBmsFile(chartPath);
+                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    () => lr2Config,
+                    null,
+                    null,
+                    null,
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = true,
+                        LR2RootPath = lr2RootPath
+                    })
+                {
+                    BMSFiles = [file]
+                };
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.Execute(
+                        "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%PackFinalizationFailure%' "
+                        + "BEGIN SELECT RAISE(ABORT, 'forced durable finalization failure'); END;");
+                }
+
+                var table = new MainChartListViewModel();
+                int normalRefreshApplyCount = 0;
+                table.DisplayRefreshRequested += (_, _) => { };
+                using RegularChartListOwner owner = CreateOwner(
+                    table,
+                    CreateWorkspaceForOwner(),
+                    action => action());
+                owner.AttachNormalLibraryRefreshSource(library);
+                owner.NormalLibraryRefreshApplied += (_, args) =>
+                {
+                    if (args.NotificationBatch.HasRefreshNotification)
+                    {
+                        Interlocked.Increment(ref normalRefreshApplyCount);
+                    }
+                };
+                RenameChartFolderRequest request = CreateRenameRequest(file);
+
+                Task renameTask = owner.RenameChartFolderAsync(request, "PackFinalizationFailure");
+                renameTask.GetAwaiter().GetResult();
+
+                Assert.IsFalse(Directory.Exists(sourceDirectory));
+                Assert.IsTrue(File.Exists(destinationChartPath));
+                Assert.AreEqual(destinationChartPath, file.path);
+                Assert.AreEqual(0, Volatile.Read(ref normalRefreshApplyCount));
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(chartPath));
+                owner.StopAsync().GetAwaiter().GetResult();
+            }
+            finally
+            {
+                if (Directory.Exists(Path.Combine(libraryRoot, "LR2beta3")))
+                {
+                    Directory.Delete(Path.Combine(libraryRoot, "LR2beta3"), recursive: true);
+                }
+                if (Directory.Exists(sourceDirectory))
+                {
+                    Directory.Delete(sourceDirectory, recursive: true);
+                }
+                if (Directory.Exists(destinationDirectory))
+                {
+                    Directory.Delete(destinationDirectory, recursive: true);
+                }
+            }
+        });
+    }
 }

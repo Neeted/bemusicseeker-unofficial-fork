@@ -118,6 +118,11 @@ internal sealed class DuplicateMaintenanceMutationResult
 
     internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
 
+    /// <summary>
+    /// Gets whether merge finalization failed after durable file/catalog state.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
     internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
     internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
@@ -160,13 +165,14 @@ internal sealed class DuplicateMaintenanceMutationResult
         string selectionHeader,
         DuplicateMergeMaintenanceReceipt mutationReceipt)
     {
-        if (mutationReceipt?.ManualRecoveryRequired == true)
+        if (mutationReceipt?.ManualRecoveryRequired == true
+            || mutationReceipt?.HasDurableFinalizationFailure == true)
         {
             return new DuplicateMaintenanceMutationResult(
                 false,
                 selectionHeader,
                 0,
-                null,
+                mutationReceipt?.MutationReceipt?.Failure,
                 mutationReceipt);
         }
         if (mutationReceipt?.MergeApplied != true)

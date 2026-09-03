@@ -139,7 +139,12 @@ internal enum FileDbMutationTerminalState
     Failed,
     ManualRecoveryRequired,
     Completed,
-    CompletedWithCleanupFailure
+    CompletedWithCleanupFailure,
+
+    /// <summary>
+    /// The filesystem and DB are durable, but a post-commit finalizer failed.
+    /// </summary>
+    DurableFinalizationFailed
 }
 
 /// <summary>
@@ -147,6 +152,24 @@ internal enum FileDbMutationTerminalState
 /// </summary>
 internal sealed class FileDbMutationReceipt
 {
+    /// <summary>
+    /// Creates immutable terminal facts for one filesystem/DB mutation.
+    /// Finalization and cleanup failures remain separate dimensions so a
+    /// durable result is not confused with ordinary completion.
+    /// </summary>
+    /// <param name="operationId">The mutation operation identity.</param>
+    /// <param name="terminalState">The authoritative terminal state.</param>
+    /// <param name="durableCommit">Whether filesystem and DB state committed.</param>
+    /// <param name="compensationAttemptCount">Number of compensation attempts.</param>
+    /// <param name="cleanupAttemptCount">Number of post-commit cleanup attempts.</param>
+    /// <param name="sourcePaths">Source paths associated with the mutation.</param>
+    /// <param name="destinationPaths">Destination paths associated with the mutation.</param>
+    /// <param name="stagingPaths">Staging paths retained by the mutation plan.</param>
+    /// <param name="backupPaths">Backup paths retained by the mutation plan.</param>
+    /// <param name="recoveryPaths">Paths that require manual recovery, if any.</param>
+    /// <param name="failure">The primary terminal failure, if any.</param>
+    /// <param name="finalizationFailure">A failure from post-commit finalization, if any.</param>
+    /// <param name="cleanupFailure">A failure from post-commit cleanup, if any.</param>
     public FileDbMutationReceipt(
         Guid operationId,
         FileDbMutationTerminalState terminalState,
@@ -158,7 +181,9 @@ internal sealed class FileDbMutationReceipt
         IEnumerable<string> stagingPaths,
         IEnumerable<string> backupPaths,
         IEnumerable<string> recoveryPaths,
-        Exception failure = null)
+        Exception failure = null,
+        Exception finalizationFailure = null,
+        Exception cleanupFailure = null)
     {
         OperationId = operationId;
         TerminalState = terminalState;
@@ -171,6 +196,8 @@ internal sealed class FileDbMutationReceipt
         BackupPaths = Freeze(backupPaths);
         RecoveryPaths = Freeze(recoveryPaths);
         Failure = failure;
+        FinalizationFailure = finalizationFailure;
+        CleanupFailure = cleanupFailure;
     }
 
     public Guid OperationId { get; }
@@ -195,6 +222,27 @@ internal sealed class FileDbMutationReceipt
 
     public Exception Failure { get; }
 
+    /// <summary>
+    /// Gets the exception raised after the filesystem and DB became durable.
+    /// This remains separate from cleanup failure so the durable outcome is
+    /// never misreported as an ordinary completion.
+    /// </summary>
+    public Exception FinalizationFailure { get; }
+
+    /// <summary>
+    /// Gets the exception raised while best-effort cleanup was attempted.
+    /// </summary>
+    public Exception CleanupFailure { get; }
+
+    /// <summary>
+    /// Gets whether cleanup produced an exception after the durable commit.
+    /// </summary>
+    public bool HasCleanupFailure => CleanupFailure != null;
+
+    /// <summary>
+    /// Returns a receipt that preserves all terminal dimensions while adding
+    /// an additional failure to the primary failure fact.
+    /// </summary>
     internal FileDbMutationReceipt WithFailure(Exception additionalFailure)
     {
         if (additionalFailure == null)
@@ -215,7 +263,9 @@ internal sealed class FileDbMutationReceipt
             StagingPaths,
             BackupPaths,
             RecoveryPaths,
-            combinedFailure);
+            combinedFailure,
+            FinalizationFailure,
+            CleanupFailure);
     }
 
     private static IReadOnlyList<string> Freeze(IEnumerable<string> values)
@@ -234,12 +284,27 @@ internal sealed class FileDbMutationReceipt
 /// </summary>
 internal sealed class FileDbMutationBatchReceipt
 {
-    internal FileDbMutationBatchReceipt(IEnumerable<FileDbMutationReceipt> receipts)
+    /// <summary>
+    /// Creates immutable terminal facts for a set of independent mutations.
+    /// A non-null batch finalization failure describes a post-commit owner
+    /// finalizer that ran after the individual mutation receipts were durable.
+    /// </summary>
+    /// <param name="receipts">The individual mutation receipts to retain.</param>
+    /// <param name="finalizationFailure">
+    /// An optional failure raised by a finalizer for the batch as a whole.
+    /// </param>
+    internal FileDbMutationBatchReceipt(
+        IEnumerable<FileDbMutationReceipt> receipts,
+        Exception finalizationFailure = null)
     {
         Receipts = Array.AsReadOnly([.. (receipts ?? []).Where(receipt => receipt != null)]);
         HasDurableCommit = Receipts.Any(receipt => receipt.DurableCommit);
+        FinalizationFailure = finalizationFailure;
         ManualRecoveryRequired = Receipts.Any(receipt =>
             receipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired);
+        HasDurableFinalizationFailure = FinalizationFailure != null
+            || Receipts.Any(receipt =>
+                receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed);
         CompletedWithCleanupFailure = Receipts.Any(receipt =>
             receipt.TerminalState == FileDbMutationTerminalState.CompletedWithCleanupFailure);
         RecoveryPaths = Array.AsReadOnly(Receipts
@@ -253,11 +318,35 @@ internal sealed class FileDbMutationBatchReceipt
 
     internal bool HasDurableCommit { get; }
 
+    /// <summary>
+    /// Gets the failure raised by a post-commit finalizer for the batch as a
+    /// whole, when one exists.  Individual receipt finalization failures stay
+    /// on their respective <see cref="FileDbMutationReceipt"/> instances.
+    /// </summary>
+    internal Exception FinalizationFailure { get; }
+
     internal bool ManualRecoveryRequired { get; }
+
+    /// <summary>
+    /// Gets whether any durable mutation or batch finalizer reached the typed
+    /// durable-finalization-failure terminal state.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure { get; }
 
     internal bool CompletedWithCleanupFailure { get; }
 
     internal IReadOnlyList<string> RecoveryPaths { get; }
+
+    /// <summary>
+    /// Returns the same immutable batch facts with a failure from a
+    /// post-commit finalizer that applies to the batch as a whole.
+    /// </summary>
+    internal FileDbMutationBatchReceipt WithFinalizationFailure(Exception failure)
+    {
+        return failure == null || FinalizationFailure != null
+            ? this
+            : new FileDbMutationBatchReceipt(Receipts, failure);
+    }
 }
 
 /// <summary>
@@ -572,21 +661,28 @@ internal sealed class FileDbMutationExecutor
         BestEffortDeleteStaging(cleanupFailures, cleanupFailurePaths);
         BestEffortDeleteBackups(cleanupFailures, cleanupFailurePaths);
 
+        Exception cleanupFailure = cleanupFailures.Count == 0
+            ? null
+            : new AggregateException(cleanupFailures);
         Exception failure = postCommitFailure;
-        if (cleanupFailures.Count > 0)
+        if (cleanupFailure != null)
         {
             failure = failure == null
-                ? new IOException("Filesystem cleanup failed after the durable DB commit.", new AggregateException(cleanupFailures))
-                : new AggregateException(failure, new AggregateException(cleanupFailures));
+                ? new IOException("Filesystem cleanup failed after the durable DB commit.", cleanupFailure)
+                : new AggregateException(failure, cleanupFailure);
         }
 
         return CreateReceipt(
-            cleanupFailures.Count > 0
-                ? FileDbMutationTerminalState.CompletedWithCleanupFailure
-                : FileDbMutationTerminalState.Completed,
+            postCommitFailure != null
+                ? FileDbMutationTerminalState.DurableFinalizationFailed
+                : cleanupFailure != null
+                    ? FileDbMutationTerminalState.CompletedWithCleanupFailure
+                    : FileDbMutationTerminalState.Completed,
             durableCommit: true,
             failure,
-            cleanupFailurePaths);
+            cleanupFailurePaths,
+            finalizationFailure: postCommitFailure,
+            cleanupFailure: cleanupFailure);
     }
 
     private void TryCleanupPath(
@@ -714,11 +810,15 @@ internal sealed class FileDbMutationExecutor
         FileDbMutationTerminalState terminalState,
         bool durableCommit,
         Exception failure,
-        IEnumerable<string> additionalRecoveryPaths = null)
+        IEnumerable<string> additionalRecoveryPaths = null,
+        Exception finalizationFailure = null,
+        Exception cleanupFailure = null)
     {
         List<string> recoveryPaths = [];
         if (terminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-            || terminalState == FileDbMutationTerminalState.CompletedWithCleanupFailure)
+            || terminalState == FileDbMutationTerminalState.CompletedWithCleanupFailure
+            || (terminalState == FileDbMutationTerminalState.DurableFinalizationFailed
+                && cleanupFailure != null))
         {
             recoveryPaths.AddRange(plan.SourceCleanupPaths);
             recoveryPaths.AddRange(plan.SourceCleanupDirectoryPaths.Select(path => path.Path));
@@ -740,6 +840,8 @@ internal sealed class FileDbMutationExecutor
             plan.Paths.Select(path => path.StagingPath),
             plan.Paths.Select(path => path.BackupPath),
             recoveryPaths,
-            failure);
+            failure,
+            finalizationFailure,
+            cleanupFailure);
     }
 }

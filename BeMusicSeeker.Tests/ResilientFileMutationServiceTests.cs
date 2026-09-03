@@ -489,11 +489,77 @@ public sealed class ResilientFileMutationServiceTests
             FileDbMutationReceipt receipt = executor.Execute(() =>
                 FileDbMutationCommitResult.Durable(() => throw new InvalidOperationException("deferred-effect")));
 
-            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
+            Assert.AreEqual(FileDbMutationTerminalState.DurableFinalizationFailed, receipt.TerminalState);
             Assert.IsTrue(receipt.DurableCommit);
             Assert.IsNotNull(receipt.Failure);
             Assert.AreEqual("deferred-effect", receipt.Failure.Message);
+            Assert.AreEqual("deferred-effect", receipt.FinalizationFailure.Message);
+            Assert.IsFalse(receipt.HasCleanupFailure);
             Assert.AreEqual(0, receipt.CompensationAttemptCount);
+            Assert.IsFalse(File.Exists(sourcePath));
+            Assert.AreEqual("source", File.ReadAllText(destinationPath));
+        });
+    }
+
+    [TestMethod]
+    public void FileDbMutationExecutor_DurableFinalizerAndCleanupFailurePreserveBothFailures()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination.bms");
+            File.WriteAllText(sourcePath, "source");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
+            var executor = new FileDbMutationExecutor(
+                plan,
+                new FailingDeleteFileMutationService(sourcePath),
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+            var finalizationFailure = new InvalidOperationException("deferred-effect");
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+                FileDbMutationCommitResult.Durable(() => throw finalizationFailure));
+
+            Assert.AreEqual(FileDbMutationTerminalState.DurableFinalizationFailed, receipt.TerminalState);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.AreEqual(0, receipt.CompensationAttemptCount);
+            Assert.IsTrue(receipt.HasCleanupFailure);
+            Assert.IsTrue(receipt.RecoveryPaths.Any(path =>
+                string.Equals(path, sourcePath, StringComparison.OrdinalIgnoreCase)));
+            Assert.AreSame(finalizationFailure, receipt.FinalizationFailure);
+            Assert.IsNotNull(receipt.CleanupFailure);
+            Assert.IsTrue(ContainsException(receipt.Failure, finalizationFailure));
+            Assert.IsTrue(receipt.Failure.ToString().Contains("injected-delete-failure", StringComparison.Ordinal));
+            Assert.IsTrue(File.Exists(sourcePath));
+            Assert.AreEqual("source", File.ReadAllText(destinationPath));
+        });
+    }
+
+    [TestMethod]
+    public void FileDbMutationExecutor_DurableCommitResultFailureIsDurableFinalizationFailure()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination.bms");
+            File.WriteAllText(sourcePath, "source");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
+            var finalizationFailure = new InvalidOperationException("durable-commit-failure");
+            var executor = new FileDbMutationExecutor(
+                plan,
+                resilientFileMutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+                FileDbMutationCommitResult.Durable(durableFailure: finalizationFailure));
+
+            Assert.AreEqual(FileDbMutationTerminalState.DurableFinalizationFailed, receipt.TerminalState);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.AreEqual(0, receipt.CompensationAttemptCount);
+            Assert.AreSame(finalizationFailure, receipt.Failure);
+            Assert.AreSame(finalizationFailure, receipt.FinalizationFailure);
+            Assert.IsFalse(receipt.HasCleanupFailure);
             Assert.IsFalse(File.Exists(sourcePath));
             Assert.AreEqual("source", File.ReadAllText(destinationPath));
         });
@@ -643,6 +709,24 @@ public sealed class ResilientFileMutationServiceTests
 
         LongPathFileSystem.SetAttributes(directoryPath, FileAttributes.Normal);
         LongPathFileSystem.DeleteDirectory(directoryPath, recursive: true);
+    }
+
+    private static bool ContainsException(Exception candidate, Exception expected)
+    {
+        if (candidate == null)
+        {
+            return false;
+        }
+        if (ReferenceEquals(candidate, expected))
+        {
+            return true;
+        }
+        if (candidate is AggregateException aggregate
+            && aggregate.InnerExceptions.Any(exception => ContainsException(exception, expected)))
+        {
+            return true;
+        }
+        return ContainsException(candidate.InnerException, expected);
     }
 
     private sealed class FailingDeleteFileMutationService(string failurePath) : IFileMutationService

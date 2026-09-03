@@ -1704,6 +1704,78 @@ public sealed class PackageInstallWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task DurableFinalizationFailure_PublishesTypedCompletionWithoutRegisteredPackages()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PackageInstallWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath))
+            {
+            }
+
+            var finalizationFailure = new IOException("package finalization failed");
+            var mutationReceipt = new FileDbMutationBatchReceipt([
+                new FileDbMutationReceipt(
+                    Guid.NewGuid(),
+                    FileDbMutationTerminalState.DurableFinalizationFailed,
+                    durableCommit: true,
+                    compensationAttemptCount: 0,
+                    cleanupAttemptCount: 0,
+                    sourcePaths: [Path.Combine(root, "source.zip")],
+                    destinationPaths: [Path.Combine(root, "installed", "chart.bms")],
+                    stagingPaths: [],
+                    backupPaths: [],
+                    recoveryPaths: [],
+                    failure: finalizationFailure,
+                    finalizationFailure: finalizationFailure)]);
+            int installCalls = 0;
+            var port = new DelegatePackageInstallTerminalMutationPort(
+                (_, _, _, _, _) =>
+                {
+                    Interlocked.Increment(ref installCalls);
+                    return new PackageInstallCommandResult([], mutationReceipt);
+                });
+            var completion = new TaskCompletionSource<PackageInstallCompletionReceipt>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var owner = new PackageInstallWorkflowOwner(
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                port,
+                action =>
+                {
+                    action();
+                    return true;
+                });
+            owner.CompletionPublished += published => completion.TrySetResult(published);
+            owner.AttachLibrary(new TestBmsLibrary(songDbPath, null, null, string.Empty));
+            owner.Enqueue([Path.Combine(root, "source.zip")]);
+
+            PackageInstallCompletionReceipt publishedReceipt = await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await AssertOwnerIdleAsync(owner);
+
+            Assert.AreEqual(1, installCalls);
+            Assert.IsTrue(publishedReceipt.HasDurableFinalizationFailure);
+            Assert.IsTrue(publishedReceipt.HasDurableCommit);
+            Assert.AreEqual(0, publishedReceipt.Packages.Count);
+            Assert.AreSame(finalizationFailure, publishedReceipt.MutationReceipt.Receipts.Single().Failure);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task AttachLibrary_BusyRequestFailsFastThenFreshRequestRunsAfterRelease()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2523,5 +2595,43 @@ internal sealed class DelegatePackageInstallMutationPort : IPackageInstallMutati
         Action<string, int, int> onEachArchiveExtractStarted)
     {
         return install(library, installPaths, token, onEachPathProcessed, onEachArchiveExtractStarted);
+    }
+}
+
+internal sealed class DelegatePackageInstallTerminalMutationPort :
+    IPackageInstallMutationPort,
+    IPackageInstallTerminalMutationPort
+{
+    private readonly Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, PackageInstallCommandResult> installWithResult;
+
+    internal DelegatePackageInstallTerminalMutationPort(
+        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, PackageInstallCommandResult> installWithResult)
+    {
+        this.installWithResult = installWithResult ?? throw new ArgumentNullException(nameof(installWithResult));
+    }
+
+    public IReadOnlyList<ChartPackage> Install(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        Action onEachPathProcessed,
+        Action<string, int, int> onEachArchiveExtractStarted)
+    {
+        throw new AssertFailedException("The terminal package route was not selected.");
+    }
+
+    public PackageInstallCommandResult InstallWithResult(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        Action onEachPathProcessed,
+        Action<string, int, int> onEachArchiveExtractStarted)
+    {
+        return installWithResult(
+            library,
+            installPaths,
+            token,
+            onEachPathProcessed,
+            onEachArchiveExtractStarted);
     }
 }

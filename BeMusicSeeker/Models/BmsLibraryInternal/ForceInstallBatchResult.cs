@@ -24,6 +24,11 @@ internal sealed class ForceInstallBatchResult
 
     public bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
+    /// <summary>
+    /// Gets whether a post-durable finalizer failed for any batch mutation.
+    /// </summary>
+    public bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
     public bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
 
     public IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];

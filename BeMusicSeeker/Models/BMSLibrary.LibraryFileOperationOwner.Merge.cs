@@ -73,7 +73,9 @@ internal sealed partial class LibraryFileOperationOwner
 
                 ChartStorageTargetSet movedTargets = null;
                 MaintenanceWorkflowResult maintenanceResult = null;
-                FileDbMutationReceipt mutationReceipt = packageInstallService.MovePackageFilesWithReceipt(
+                List<Action> mutationPostLeaseNotifications = [];
+                FileDbMutationReceipt mutationReceipt = null;
+                mutationReceipt = packageInstallService.MovePackageFilesWithReceipt(
                     detachedPackage.Package,
                     destinationDirectory,
                     lr2SynchronizationOwner.CurrentOptionsSnapshot,
@@ -95,7 +97,7 @@ internal sealed partial class LibraryFileOperationOwner
                             "duplicate_merge_catalog_transition op=" + operationId,
                             suppressNormalRefreshNotification: false,
                             capability: mutationCapability,
-                            postLeaseNotificationObserver: postLeaseNotifications.Add);
+                            postLeaseNotificationObserver: mutationPostLeaseNotifications.Add);
                         if (!databaseResult.DurableCommit)
                         {
                             return databaseResult;
@@ -121,33 +123,42 @@ internal sealed partial class LibraryFileOperationOwner
                                 ? maintenanceInputCaptureFailure
                                 : new AggregateException(postCommitFailure, maintenanceInputCaptureFailure);
                         }
-                        postLeaseNotifications.Add(() =>
+                        if (postCommitFailure == null)
                         {
-                            if (maintenanceInputCaptureFailure != null)
+                            postLeaseNotifications.Add(() =>
                             {
-                                throw new InvalidOperationException(
-                                    "Duplicate merge maintenance input could not be captured.",
-                                    maintenanceInputCaptureFailure);
-                            }
-                            if (ChartDirectoryScanBuilder.TryBuildFromRoots(
-                                [destinationDirectory],
-                                out ChartScanResult scan,
-                                out string scanFailureReason))
-                            {
-                                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
-                                    resourceIndexOwner.ReplaceSourceDirectoryWithScan(sourceDirectory, scan).MutationResult;
-                                LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
-                            }
-                            else
-                            {
-                                LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
-                            }
-                            maintenanceResult = ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
-                            LogInstallPerformance("duplicate_merge_model done op=" + operationId
-                                + " movedBms=" + (movedTargets?.BmsFiles.Count ?? 0)
-                                + " movedBmson=" + (movedTargets?.BmsonSongs.Count ?? 0)
-                                + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                        });
+                                // The package executor may still report a durable
+                                // finalization failure after this callback returns
+                                // (for example when its live-package finalizer
+                                // throws).  Gate all success publication on the
+                                // terminal receipt that is available by the time
+                                // the lease is released.
+                                if (mutationReceipt?.TerminalState
+                                    == FileDbMutationTerminalState.DurableFinalizationFailed)
+                                {
+                                    return;
+                                }
+                                InvokePostLeaseNotificationsBestEffort(mutationPostLeaseNotifications);
+                                if (ChartDirectoryScanBuilder.TryBuildFromRoots(
+                                    [destinationDirectory],
+                                    out ChartScanResult scan,
+                                    out string scanFailureReason))
+                                {
+                                    DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+                                        resourceIndexOwner.ReplaceSourceDirectoryWithScan(sourceDirectory, scan).MutationResult;
+                                    LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
+                                }
+                                else
+                                {
+                                    LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
+                                }
+                                maintenanceResult = ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
+                                LogInstallPerformance("duplicate_merge_model done op=" + operationId
+                                    + " movedBms=" + (movedTargets?.BmsFiles.Count ?? 0)
+                                    + " movedBmson=" + (movedTargets?.BmsonSongs.Count ?? 0)
+                                    + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                            });
+                        }
                         return FileDbMutationCommitResult.Durable(durableFailure: postCommitFailure);
                     },
                     showMessageBoxOnInstallFail: false,
@@ -165,7 +176,8 @@ internal sealed partial class LibraryFileOperationOwner
                             detachedPackage,
                             movedTargets);
                     });
-                if (!mutationReceipt.DurableCommit)
+                if (!mutationReceipt.DurableCommit
+                    || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                 {
                     return () =>
                     {
@@ -380,7 +392,8 @@ internal sealed partial class LibraryFileOperationOwner
     {
         maintenanceResult ??= new MaintenanceWorkflowResult();
         return new DuplicateMergeMaintenanceReceipt(
-            mergeApplied: mutationReceipt?.DurableCommit == true,
+            mergeApplied: mutationReceipt?.DurableCommit == true
+                && mutationReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed,
             intermediateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
             maintenanceResult: MaintenanceWorkflowResultFacts.From(maintenanceResult),
             intermediateDeferred: maintenanceResult.ResourceHealthIndexDeferred,

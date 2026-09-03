@@ -93,6 +93,11 @@ internal sealed class PendingPackageMutationResult
 
     internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
+    /// <summary>
+    /// Gets whether a durable pending-package finalizer failed.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
     internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
 
     internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
@@ -134,11 +139,15 @@ internal sealed class PendingPackageMutationResult
         FileDbMutationBatchReceipt mutationReceipt,
         PackageCatalogSection? emptySection = null)
     {
-        if (mutationReceipt?.ManualRecoveryRequired == true)
+        if (mutationReceipt?.ManualRecoveryRequired == true
+            || mutationReceipt?.HasDurableFinalizationFailure == true)
         {
             return new PendingPackageMutationResult(
                 false,
-                null,
+                mutationReceipt.Receipts
+                    .FirstOrDefault(receipt =>
+                        receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
+                    ?.Failure,
                 true,
                 emptySection,
                 mutationReceipt);

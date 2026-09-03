@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -391,6 +392,77 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             await owner.WaitForIdleAsync();
             Assert.AreEqual(1, executorCalls);
             Assert.AreEqual(root, observedParentDirectory);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    [TestMethod]
+    public async Task AllRequest_DurableFinalizationFailurePublishesFailureWithoutSuccessCompletion()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string root = CreateRoot();
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            var finalizationFailure = new IOException("auto finalization failed");
+            var cleanupFailure = new IOException("auto cleanup failed");
+            string cleanupPath = Path.Combine(root, "cleanup-source");
+            var mutationReceipt = new FileDbMutationBatchReceipt([
+                new FileDbMutationReceipt(
+                    Guid.NewGuid(),
+                    FileDbMutationTerminalState.DurableFinalizationFailed,
+                    durableCommit: true,
+                    compensationAttemptCount: 0,
+                    cleanupAttemptCount: 1,
+                    sourcePaths: [cleanupPath],
+                    destinationPaths: [Path.Combine(root, "destination")],
+                    stagingPaths: [],
+                    backupPaths: [],
+                    recoveryPaths: [cleanupPath],
+                    failure: finalizationFailure,
+                    finalizationFailure: finalizationFailure,
+                    cleanupFailure: cleanupFailure)]);
+            var mutationResult = new AutoRenameBatchResult(
+                hasActionablePlan: true,
+                appliedPlanCount: 1,
+                mutationReceipt,
+                primaryFailure: ExceptionDispatchInfo.Capture(finalizationFailure));
+            var mutationPort = new TerminalFolderAutoRenameMutationPort(mutationResult);
+            var owner = new FolderAutoRenameWorkflowOwner(
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                mutationPort,
+                new NoopFolderAutoRenamePlaybackPort(),
+                action => Task.Run(action),
+                action => action(),
+                new AcceptedFolderDialogService());
+            owner.AttachLibrary(library);
+            var failurePublished = new TaskCompletionSource<FolderAutoRenameFailure>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            int completionCount = 0;
+            int terminalCount = 0;
+            owner.FailurePublished += failure => failurePublished.TrySetResult(failure);
+            owner.CompletionPublished += _ => Interlocked.Increment(ref completionCount);
+            owner.TerminalPublished += () => Interlocked.Increment(ref terminalCount);
+
+            await owner.RequestStartAllAsync(root);
+            FolderAutoRenameFailure failure = await failurePublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await owner.WaitForIdleAsync();
+
+            Assert.AreSame(finalizationFailure, failure.Exception);
+            Assert.IsTrue(failure.HasDurableCommit);
+            Assert.IsTrue(failure.HasDurableFinalizationFailure);
+            Assert.IsFalse(failure.CompletedWithCleanupFailure);
+            CollectionAssert.Contains(failure.RecoveryPaths.ToArray(), cleanupPath);
+            Assert.IsNotNull(failure.MutationResult);
+            Assert.IsTrue(failure.MutationResult.MutationReceipt.Receipts[0].HasCleanupFailure);
+            Assert.AreEqual(1, mutationPort.HasTargetsCallCount);
+            Assert.AreEqual(1, mutationPort.RenameAllWithReceiptCallCount);
+            Assert.AreEqual(0, completionCount);
+            Assert.AreEqual(1, terminalCount);
         }
         finally
         {
@@ -1144,6 +1216,49 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             BMSLibrary library,
             string parentDirectory,
             Action<int, int, string> progressReporter) => executeAll(library, parentDirectory, progressReporter)?.RefreshRequired == true;
+    }
+
+    private sealed class TerminalFolderAutoRenameMutationPort :
+        IFolderAutoRenameMutationPort,
+        IFolderAutoRenameTerminalMutationPort
+    {
+        private readonly AutoRenameBatchResult result;
+
+        internal TerminalFolderAutoRenameMutationPort(AutoRenameBatchResult result)
+        {
+            this.result = result ?? throw new ArgumentNullException(nameof(result));
+        }
+
+        internal int HasTargetsCallCount { get; private set; }
+
+        internal int RenameAllWithReceiptCallCount { get; private set; }
+
+        public bool HasTargets(BMSLibrary library, string parentDirectory)
+        {
+            HasTargetsCallCount++;
+            return true;
+        }
+
+        public FolderAutoRenameExecutionResult RenameSelected(
+            BMSLibrary library,
+            ChartFolderAutoRenameRequest request,
+            Action<int, int, string> progressReporter) =>
+            throw new AssertFailedException("selected route was not expected");
+
+        public bool RenameAll(
+            BMSLibrary library,
+            string parentDirectory,
+            Action<int, int, string> progressReporter) =>
+            throw new AssertFailedException("legacy all-folder route was not expected");
+
+        public AutoRenameBatchResult RenameAllWithReceipt(
+            BMSLibrary library,
+            string parentDirectory,
+            Action<int, int, string> progressReporter)
+        {
+            RenameAllWithReceiptCallCount++;
+            return result;
+        }
     }
 
     private sealed class NoopFolderAutoRenamePlaybackPort : IFolderAutoRenamePlaybackPort

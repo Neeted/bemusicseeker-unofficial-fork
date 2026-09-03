@@ -120,6 +120,11 @@ internal sealed class ForceInstallPackageApplyResult
 
     internal bool ManualRecoveryRequired { get; }
 
+    /// <summary>
+    /// Gets whether a post-durable finalizer failed in this apply result.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
     internal FileDbMutationBatchReceipt MutationReceipt { get; }
 }
 
@@ -1602,15 +1607,20 @@ internal sealed class BmsLibraryPackageInstallService
                 return FileDbMutationCommitResult.Durable(
                     () =>
                     {
-                        databaseResult.DurableFinalizer?.Invoke();
-                        ApplyLivePackageInstallState(
-                            package,
-                            destinationMap,
-                            liveInstallEntrySnapshots);
+                        if (databaseResult.Failure == null)
+                        {
+                            databaseResult.DurableFinalizer?.Invoke();
+                            ApplyLivePackageInstallState(
+                                package,
+                                destinationMap,
+                                liveInstallEntrySnapshots);
+                        }
                     },
                     databaseResult.Failure);
             });
-            if (!receipt.DurableCommit && showMessageBoxOnInstallFail)
+            if ((!receipt.DurableCommit
+                || receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
+                && showMessageBoxOnInstallFail)
             {
                 Action showFailure = () => ShowPackageMutationFailure(
                     package,
@@ -2438,6 +2448,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return result;
         }
+        bool terminalStopRequested = false;
         foreach (PendingInstallBatchGroup groupEntry in plan.Groups)
         {
             var groupStopwatch = Stopwatch.StartNew();
@@ -2457,8 +2468,9 @@ internal sealed class BmsLibraryPackageInstallService
                 true,
                 deletePendingPackageSourceAfterInstall) ?? [];
             installStopwatch.Stop();
-            bool groupRequiresManualRecovery = mutationReceipts
-                .Any(receipt => receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+            bool groupRequiresTerminalStop = mutationReceipts
+                .Any(receipt => receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
+                    || receipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                 || manualRecoveryObserved?.Invoke() == true;
             var itemByInstallWorkPackage = groupEntry.Items
                 .Where(item => item.InstallWorkPackage != null)
@@ -2522,12 +2534,15 @@ internal sealed class BmsLibraryPackageInstallService
                 " pendingBefore=" + pendingCountBeforeRemove +
                 " pendingMarked=" + removedPendingCount +
                 " totalGroupMs=" + groupStopwatch.ElapsedMilliseconds);
-            if (groupRequiresManualRecovery)
+            if (groupRequiresTerminalStop)
             {
+                terminalStopRequested = true;
                 break;
             }
         }
-        if (deletePendingPackageSourceAfterInstall && plan.CleanupOnlyCandidates.Count > 0)
+        if (!terminalStopRequested
+            && deletePendingPackageSourceAfterInstall
+            && plan.CleanupOnlyCandidates.Count > 0)
         {
             foreach (ChartPackage cleanupOnlyPackage in plan.CleanupOnlyCandidates.Distinct())
             {
@@ -2542,7 +2557,8 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     mutationReceipts.Add(cleanupReceipt);
                     mutationReceiptObserver?.Invoke(cleanupReceipt);
-                    success = cleanupReceipt.DurableCommit;
+                    success = cleanupReceipt.DurableCommit
+                        && cleanupReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed;
                     sourceKind = ClassifyCleanupSource(cleanupOnlyPackage);
                 }
                 else
@@ -2571,7 +2587,8 @@ internal sealed class BmsLibraryPackageInstallService
                     result.CleanupOnlyFailed++;
                     logInfo?.Invoke("estimated_install_cleanup_only_failed package=" + cleanupOnlyPackage.path);
                 }
-                if (cleanupReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+                if (cleanupReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
+                    || cleanupReceipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                 {
                     break;
                 }
@@ -2718,7 +2735,8 @@ internal sealed class BmsLibraryPackageInstallService
                     return applyDurableStorageRows?.Invoke(packageResult)
                         ?? FileDbMutationCommitResult.Durable();
                 });
-            if (mutationReceipt?.DurableCommit == true)
+            if (mutationReceipt?.DurableCommit == true
+                && mutationReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed)
             {
                 committedPackageResult ??= CreatePackageInstallExecutionResult(package);
                 result.AddedEntries.AddRange(committedPackageResult.AddedEntries);
@@ -2756,14 +2774,17 @@ internal sealed class BmsLibraryPackageInstallService
             if (mutationReceipt != null)
             {
                 mutationReceipts.Add(mutationReceipt);
-                if (!mutationReceipt.DurableCommit)
+                if (!mutationReceipt.DurableCommit
+                    || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                 {
                     result.FailedPackages.Add(package);
-                    if (mutationReceipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+                    if (mutationReceipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
+                        || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                     {
-                        // A failed compensation leaves recovery paths authoritative;
-                        // continuing the batch would create a second mutation owner
-                        // while the first one still requires manual intervention.
+                        // A manual-recovery or durable-finalization stop leaves the
+                        // current receipt authoritative; continuing the batch would
+                        // create a second mutation owner while the first one still
+                        // requires terminal handling.
                         break;
                     }
                 }
@@ -2861,7 +2882,7 @@ internal sealed class BmsLibraryPackageInstallService
                 mutationReceipts.AddRange(applyResult.MutationReceipt.Receipts);
             }
             result.Processed++;
-            if (failedPackages.Count == 0)
+            if (failedPackages.Count == 0 && !applyResult.HasDurableFinalizationFailure)
             {
                 result.PendingPackagesToRemove.Add(pendingPackage);
                 result.DeferredInstalledPackages.AddRange(deferredInstalledPackages.Where(pkg => pkg != null));
@@ -2874,7 +2895,8 @@ internal sealed class BmsLibraryPackageInstallService
                 result.Failed++;
                 logInfo?.Invoke("force_install_batch failed path=" + (pendingPackage.path ?? "(null)"));
             }
-            if (applyResult.ManualRecoveryRequired)
+            if (applyResult.ManualRecoveryRequired
+                || applyResult.HasDurableFinalizationFailure)
             {
                 // Recovery paths from this package remain authoritative; no
                 // later package may start a second mutation owner.
@@ -2956,7 +2978,8 @@ internal sealed class BmsLibraryPackageInstallService
                         mutationReceiptObserver?.Invoke(cleanupReceipt);
                     }
                     (bool Success, CleanupSourceKind SourceKind) = cleanupReceipt != null
-                        ? (cleanupReceipt.DurableCommit, sourceKindBeforeCleanup)
+                        ? (cleanupReceipt.DurableCommit
+                            && cleanupReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed, sourceKindBeforeCleanup)
                         : cleanupPendingPackageSource != null
                             ? cleanupPendingPackageSource(pendingPackage)
                             : (false, CleanupSourceKind.MissingSource);
@@ -2976,6 +2999,7 @@ internal sealed class BmsLibraryPackageInstallService
                         logInfo?.Invoke("advanced_pending_resource_overwrite cleanup_only_failed path=" + pendingPackage.path);
                     }
                     stopAfterCurrent = cleanupReceipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
+                        || cleanupReceipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed
                         || manualRecoveryObserved?.Invoke() == true;
                 }
                 else
@@ -3011,7 +3035,8 @@ internal sealed class BmsLibraryPackageInstallService
                     {
                         mutationReceiptObserver?.Invoke(mutationReceipt);
                     }
-                    installSucceeded = installBatchResult?.HasDurableCommit == true;
+                    installSucceeded = installBatchResult?.HasDurableCommit == true
+                        && !installBatchResult.HasDurableFinalizationFailure;
                 }
                 else
                 {
@@ -3042,6 +3067,7 @@ internal sealed class BmsLibraryPackageInstallService
             result.Processed++;
             onEachProcessed?.Invoke();
             if (installBatchResult?.ManualRecoveryRequired == true
+                || installBatchResult?.HasDurableFinalizationFailure == true
                 || manualRecoveryObserved?.Invoke() == true)
             {
                 break;
@@ -3070,7 +3096,8 @@ internal sealed class BmsLibraryPackageInstallService
             return first;
         }
         return new FileDbMutationBatchReceipt(
-            first.Receipts.Concat(second.Receipts));
+            first.Receipts.Concat(second.Receipts),
+            first.FinalizationFailure ?? second.FinalizationFailure);
     }
 
     internal PendingZeroNoteRenameResult RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(

@@ -122,13 +122,14 @@ internal sealed class AutoRenameBatchCoordinator
                     });
                     Stopwatch moveStopwatch = Stopwatch.StartNew();
                     FileDbMutationCommitResult databaseResult = null;
+                    List<Action> mutationPostLeaseNotifications = [];
                     FileDbMutationReceipt mutationReceipt = host.CreateFileDbMutationExecutor(mutationPlan).Execute(() =>
                     {
                         databaseResult = host.ApplyLibraryMutationDeltaForFileMutationWithoutLr2NormalFolderSync(
                             mutationDelta,
                             "auto_rename_folder",
                             suppressNormalRefreshNotification: true,
-                            postLeaseNotificationObserver: action => postLeaseNotifications.Add(action));
+                            postLeaseNotificationObserver: mutationPostLeaseNotifications.Add);
                         if (!databaseResult.DurableCommit)
                         {
                             return databaseResult;
@@ -136,12 +137,19 @@ internal sealed class AutoRenameBatchCoordinator
                         return FileDbMutationCommitResult.Durable(
                             () =>
                             {
-                                databaseResult.DurableFinalizer?.Invoke();
-                                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
-                                    host.MoveFolderReferencesAfterCommit(srcDir, dstDir);
-                                postLeaseNotifications.Add(() => host.LogReverseLookupMutationAndQueueWarmupIfNeeded(
-                                    "auto_rename_folders",
-                                    reverseLookupMutation));
+                                if (databaseResult.Failure == null)
+                                {
+                                    databaseResult.DurableFinalizer?.Invoke();
+                                    DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+                                        host.MoveFolderReferencesAfterCommit(srcDir, dstDir);
+                                    foreach (Action notification in mutationPostLeaseNotifications)
+                                    {
+                                        postLeaseNotifications.Add(notification);
+                                    }
+                                    postLeaseNotifications.Add(() => host.LogReverseLookupMutationAndQueueWarmupIfNeeded(
+                                        "auto_rename_folders",
+                                        reverseLookupMutation));
+                                }
                             },
                             databaseResult.Failure);
                     });
@@ -150,7 +158,8 @@ internal sealed class AutoRenameBatchCoordinator
                     metrics.MoveFileMs += moveStopwatch.ElapsedMilliseconds;
                     // The outer command owns lease release.  Receipt effects
                     // are flushed by that command only after the lease exits.
-                    if (!mutationReceipt.DurableCommit)
+                    if (!mutationReceipt.DurableCommit
+                        || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                     {
                         metrics.MoveFailedCount++;
                         diagnostics.Add(new AutoRenameBatchDiagnostic(
@@ -158,6 +167,12 @@ internal sealed class AutoRenameBatchCoordinator
                             sourceDirectory: srcDir,
                             destinationDirectory: dstDir,
                             failure: mutationReceipt.Failure ?? new IOException("Folder move failed.")));
+                        if (mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
+                        {
+                            primaryFailure ??= ExceptionDispatchInfo.Capture(
+                                mutationReceipt.Failure ?? new IOException("Folder move finalization failed."));
+                            break;
+                        }
                         if (mutationReceipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
                         {
                             break;

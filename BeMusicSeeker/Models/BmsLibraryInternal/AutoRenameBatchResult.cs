@@ -139,11 +139,40 @@ internal sealed class AutoRenameBatchResult
     /// </summary>
     internal bool HasOperationFailure => PrimaryFailure != null;
 
+    /// <summary>
+    /// Gets whether at least one filesystem/catalog mutation reached the
+    /// durable commit point.
+    /// </summary>
     internal bool HasDurableCommit => MutationReceipt.HasDurableCommit;
+
+    /// <summary>
+    /// Gets whether an individual mutation or the batch finalizer failed after
+    /// the filesystem and catalog had become durable.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt.HasDurableFinalizationFailure;
 
     internal bool ManualRecoveryRequired => MutationReceipt.ManualRecoveryRequired;
 
     internal bool CompletedWithCleanupFailure => MutationReceipt.CompletedWithCleanupFailure;
 
     internal IReadOnlyList<string> RecoveryPaths => MutationReceipt.RecoveryPaths;
+
+    /// <summary>
+    /// Returns immutable facts for a batch-level post-commit finalizer
+    /// failure, preserving the failure's original exception identity.
+    /// </summary>
+    internal AutoRenameBatchResult WithDurableFinalizationFailure(ExceptionDispatchInfo failure)
+    {
+        if (failure == null || MutationReceipt.FinalizationFailure != null)
+        {
+            return this;
+        }
+        return new AutoRenameBatchResult(
+            HasActionablePlan,
+            AppliedPlanCount,
+            MutationReceipt.WithFinalizationFailure(failure.SourceException),
+            Lr2NormalFolderPathChanges,
+            Diagnostics,
+            PrimaryFailure ?? failure);
+    }
 }

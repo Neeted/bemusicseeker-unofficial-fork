@@ -46,6 +46,11 @@ internal sealed class PendingResourceOverwriteExecutionResult
 
     public bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
+    /// <summary>
+    /// Gets whether a post-durable finalizer failed for this overwrite batch.
+    /// </summary>
+    public bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
     public bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
 
     public IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
@@ -66,6 +71,7 @@ internal sealed class PendingResourceOverwriteExecutionResult
             Canceled = Canceled,
             HasDurableCommit = HasDurableCommit,
             ManualRecoveryRequired = ManualRecoveryRequired,
+            HasDurableFinalizationFailure = HasDurableFinalizationFailure,
             CompletedWithCleanupFailure = CompletedWithCleanupFailure,
             RecoveryPaths = RecoveryPaths
         };

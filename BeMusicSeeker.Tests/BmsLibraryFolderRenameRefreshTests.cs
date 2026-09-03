@@ -305,6 +305,94 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void RenameChartFolder_Lr2FinalizationFailureKeepsDurableStateWithoutSuccessPublication()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(
+                Path.GetTempPath(),
+                "BeMusicSeeker_RenameDurableFinalizationFailure_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Source");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "PackFinalizationFailure");
+            string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            string destinationChartPath = Path.Combine(destinationDirectoryPath, "chart.bms");
+            string lr2RootPath = Path.Combine(tempRootPath, "LR2beta3");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE Durable finalization failure\r\n");
+            try
+            {
+                var file = new TestableBmsFile { path = sourceChartPath };
+                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    () => lr2Config,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = true,
+                        LR2RootPath = lr2RootPath
+                    })
+                {
+                    BMSFiles = [file]
+                };
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.Execute(
+                        "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%PackFinalizationFailure%' "
+                        + "BEGIN SELECT RAISE(ABORT, 'forced durable finalization failure'); END;");
+                }
+
+                int ownedCollectionPublicationCount = 0;
+                int normalRefreshPublicationCount = 0;
+                library.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                    {
+                        ownedCollectionPublicationCount++;
+                    }
+                    if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                    {
+                        normalRefreshPublicationCount++;
+                    }
+                };
+
+                FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                    sourceDirectoryPath,
+                    "PackFinalizationFailure");
+
+                Assert.IsNotNull(receipt);
+                Assert.IsTrue(receipt.DurableCommit);
+                Assert.AreEqual(FileDbMutationTerminalState.DurableFinalizationFailed, receipt.TerminalState);
+                Assert.IsNotNull(receipt.FinalizationFailure);
+                Assert.AreSame(receipt.FinalizationFailure, receipt.Failure);
+                Assert.IsFalse(receipt.HasCleanupFailure);
+                Assert.IsFalse(receipt.RecoveryPaths.Any());
+                Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+                Assert.IsTrue(File.Exists(destinationChartPath));
+                Assert.AreEqual(destinationChartPath, file.path);
+                Assert.AreEqual(0, ownedCollectionPublicationCount);
+                Assert.AreEqual(0, normalRefreshPublicationCount);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(sourceChartPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -533,6 +621,103 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(Path.Combine(destinationDirectoryPath, chartFileName), file.path);
                 Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
                 Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void AutoRenameChartFolders_Lr2FinalizationFailureReturnsDurableNonSuccess()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(
+                Path.GetTempPath(),
+                "BeMusicSeeker_AutoRenameDurableFinalizationFailure_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Source");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "[Artist] PackFinalizationFailure");
+            string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            string destinationChartPath = Path.Combine(destinationDirectoryPath, "chart.bms");
+            string lr2RootPath = Path.Combine(tempRootPath, "LR2beta3");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE PackFinalizationFailure\r\n#ARTIST Artist\r\n");
+            try
+            {
+                var file = new TestableBmsFile { path = sourceChartPath };
+                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                file.SetTitle("PackFinalizationFailure");
+                file.SetArtist("Artist");
+                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, tempRootPath);
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    () => lr2Config,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = true,
+                        LR2RootPath = lr2RootPath,
+                        FolderNameFormat = "[%ARTIST%] %TITLE%"
+                    })
+                {
+                    BMSFiles = [file]
+                };
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.Execute(
+                        "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%PackFinalizationFailure%' "
+                        + "BEGIN SELECT RAISE(ABORT, 'forced durable finalization failure'); END;");
+                }
+
+                int ownedCollectionPublicationCount = 0;
+                int normalRefreshPublicationCount = 0;
+                library.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                    {
+                        ownedCollectionPublicationCount++;
+                    }
+                    if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                    {
+                        normalRefreshPublicationCount++;
+                    }
+                };
+
+                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult(
+                    [ChartFileProjection.FromBmsFile(file)]);
+
+                Assert.IsNotNull(result);
+                Assert.IsTrue(result.HasDurableCommit);
+                Assert.IsTrue(result.HasDurableFinalizationFailure);
+                Assert.IsNotNull(result.PrimaryFailure);
+                Assert.AreEqual(1, result.AppliedPlanCount);
+                FileDbMutationReceipt receipt = result.MutationReceipt.Receipts.Single();
+                // The LR2 normal-folder sync is the auto command's single
+                // batch finalizer, after the individual folder mutation has
+                // already completed durably.  Keep that failure at the batch
+                // boundary instead of mislabeling the completed item receipt.
+                Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
+                Assert.AreSame(result.MutationReceipt.FinalizationFailure, result.PrimaryFailure.SourceException);
+                Assert.IsTrue(result.MutationReceipt.HasDurableFinalizationFailure);
+                Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
+                Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+                Assert.IsTrue(File.Exists(destinationChartPath));
+                Assert.AreEqual(destinationChartPath, file.path);
+                Assert.AreEqual(0, ownedCollectionPublicationCount);
+                Assert.AreEqual(0, normalRefreshPublicationCount);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(sourceChartPath));
             }
             finally
             {

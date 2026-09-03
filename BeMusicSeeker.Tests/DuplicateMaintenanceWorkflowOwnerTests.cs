@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -48,6 +49,69 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 "suppression-start",
                 "priority-start:merge_folder",
                 "store-merge",
+                "suppression-end",
+                "priority-release:merge_folder",
+                "activity-end"
+            },
+            events);
+    }
+
+    [TestMethod]
+    public async Task RunFolderMergeAsync_DurableFinalizationFailurePublishesFailureWithoutSuccess()
+    {
+        var events = new List<string>();
+        var finalizationFailure = new IOException("merge finalization failed");
+        var mutationReceipt = new FileDbMutationReceipt(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.DurableFinalizationFailed,
+            durableCommit: true,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            sourcePaths: [@"C:\Songs\Source"],
+            destinationPaths: [@"C:\Songs\Destination\chart.bms"],
+            stagingPaths: [],
+            backupPaths: [],
+            recoveryPaths: [],
+            failure: finalizationFailure,
+            finalizationFailure: finalizationFailure);
+        var mergeReceipt = new DuplicateMergeMaintenanceReceipt(
+            mergeApplied: false,
+            intermediateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
+            maintenanceResult: MaintenanceWorkflowResultFacts.From(null),
+            intermediateDeferred: false,
+            maintenanceHadUpdates: false,
+            resourceHealthIndexDeferred: false,
+            resourceHealthIndexDeltaApplied: false,
+            resourceHealthIndexFullRebuilt: false,
+            mutationReceipt);
+        var store = new TerminalRecordingStore(events, mergeReceipt);
+        var owner = CreateOwner(
+            events,
+            new RecordingPresentation(events),
+            AcceptedDialogs(),
+            store);
+        string source = @"C:\Songs\Source";
+        string destination = @"C:\Songs\Destination";
+
+        DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(
+            source,
+            destination,
+            new DuplicateGroup([], [source, destination]));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsTrue(result.HasDurableCommit);
+        Assert.IsTrue(result.HasDurableFinalizationFailure);
+        Assert.AreSame(finalizationFailure, result.Failure);
+        Assert.AreSame(mergeReceipt, result.MutationReceipt);
+        Assert.AreEqual(1, store.MergeWithReceiptCallCount);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "activity-start",
+                "stop-merge",
+                "suppression-start",
+                "priority-start:merge_folder",
+                "store-merge-with-receipt",
                 "suppression-end",
                 "priority-release:merge_folder",
                 "activity-end"
@@ -381,7 +445,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         public void StopPlaybackForCharts(IReadOnlyList<ChartFile> charts) => events.Add("stop-charts");
     }
 
-    private sealed class RecordingStore : IDuplicateMaintenanceStore
+    private class RecordingStore : IDuplicateMaintenanceStore
     {
         private readonly List<string> events;
 
@@ -396,6 +460,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         internal IReadOnlyList<ChartFile> Charts { get; private set; } = [];
 
+        protected void AddEvent(string value) => events.Add(value);
+
         public void MergeFolder(BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId)
         {
             events.Add("store-merge");
@@ -407,6 +473,32 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         {
             events.Add("store-remove");
             Charts = charts;
+        }
+    }
+
+    private sealed class TerminalRecordingStore : RecordingStore, IDuplicateMaintenanceTerminalStore
+    {
+        private readonly DuplicateMergeMaintenanceReceipt receipt;
+
+        internal TerminalRecordingStore(
+            List<string> events,
+            DuplicateMergeMaintenanceReceipt receipt)
+            : base(events)
+        {
+            this.receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
+        }
+
+        internal int MergeWithReceiptCallCount { get; private set; }
+
+        public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
+            BMSLibrary library,
+            string sourceDirectory,
+            string destinationDirectory,
+            long operationId)
+        {
+            MergeWithReceiptCallCount++;
+            AddEvent("store-merge-with-receipt");
+            return receipt;
         }
     }
 

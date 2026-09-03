@@ -1055,7 +1055,8 @@ internal sealed class RegularChartListOwner : IDisposable
                         normalLibraryRefreshApplySuppressed = false;
                         normalRefreshApplySuppressed = false;
                     }
-                    if (mutationReceipt?.DurableCommit != true)
+                    if (mutationReceipt?.DurableCommit != true
+                        || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                     {
                         logWarning(
                             "regular_chart_folder_rename_not_committed state="

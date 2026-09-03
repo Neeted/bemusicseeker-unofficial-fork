@@ -36,6 +36,12 @@ public sealed class PendingInstalledOnlyResourceOverwriteResult
     public bool ManualRecoveryRequired { get; internal set; }
 
     /// <summary>
+    /// Gets whether a post-durable finalizer failed.  Durable filesystem and
+    /// database state remains authoritative, but the command is non-success.
+    /// </summary>
+    public bool HasDurableFinalizationFailure { get; internal set; }
+
+    /// <summary>
     /// Gets whether the durable operation completed with retained cleanup
     /// leftovers.
     /// </summary>

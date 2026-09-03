@@ -157,11 +157,12 @@ internal static class LibraryFolderMoveCoordinator
                     {
                         receipts.Add(receipt);
                     }
-                    if (receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
+                    if (receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
+                        || receipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                     {
-                        // The first compensation failure leaves an uncertain
-                        // source/backup/staging tree.  No later folder mutation may
-                        // start until that tree is recovered manually.
+                        // A manual-recovery or durable-finalization stop leaves the
+                        // current source/backup/staging outcome authoritative.  No
+                        // later folder mutation may start in the same batch.
                         break;
                     }
                 }
@@ -220,6 +221,7 @@ internal static class LibraryFolderMoveCoordinator
             FileDbMutationExecutor executor = host.CreateFileDbMutationExecutor(plan);
             DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
                 DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            List<Action> mutationPostLeaseNotifications = [];
             FileDbMutationReceipt receipt = executor.Execute(() =>
             {
                 FileDbMutationCommitResult databaseResult = delta == null
@@ -228,7 +230,7 @@ internal static class LibraryFolderMoveCoordinator
                         delta,
                         "move_folder",
                         capability: mutationCapability,
-                        postLeaseNotificationObserver: postLeaseNotifications.Add);
+                        postLeaseNotificationObserver: mutationPostLeaseNotifications.Add);
                 if (!databaseResult.DurableCommit)
                 {
                     return databaseResult;
@@ -236,22 +238,31 @@ internal static class LibraryFolderMoveCoordinator
                 return FileDbMutationCommitResult.Durable(
                     () =>
                     {
-                        databaseResult.DurableFinalizer?.Invoke();
-                        reverseLookupMutation = host.MoveFolderReferencesAfterCommit(srcDir, dstDir);
-                        if (unregister == false)
+                        if (databaseResult.Failure == null)
                         {
-                            host.InvalidateDuplicateChartGroupsCache();
+                            databaseResult.DurableFinalizer?.Invoke();
+                            reverseLookupMutation = host.MoveFolderReferencesAfterCommit(srcDir, dstDir);
+                            if (unregister == false)
+                            {
+                                host.InvalidateDuplicateChartGroupsCache();
+                            }
+                            foreach (Action notification in mutationPostLeaseNotifications)
+                            {
+                                postLeaseNotifications.Add(notification);
+                            }
                         }
                     },
                     databaseResult.Failure);
             });
-            if (receipt?.DurableCommit == true)
+            if (receipt?.DurableCommit == true
+                && receipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed)
             {
                 postLeaseNotifications.Add(() => host.LogReverseLookupMutationAndQueueWarmupIfNeeded(
                     "move_folder",
                     reverseLookupMutation));
             }
-            if (!receipt.DurableCommit)
+            if (!receipt.DurableCommit
+                || receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
             {
                 Action showFailure = () => host.ShowFolderMoveFailed(
                     srcDir,

@@ -26,6 +26,11 @@ internal sealed class AutoInstallApplyResult
 
     public bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
+    /// <summary>
+    /// Gets whether a post-durable finalizer failed for the candidate batch.
+    /// </summary>
+    public bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+
     public bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
 
     public IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
@@ -55,4 +60,9 @@ internal sealed class AutoInstallCandidateApplyResult
     internal FileDbMutationBatchReceipt MutationReceipt { get; }
 
     internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+
+    /// <summary>
+    /// Gets whether a post-durable finalizer failed for the candidate batch.
+    /// </summary>
+    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
 }
