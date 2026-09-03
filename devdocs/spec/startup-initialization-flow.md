@@ -51,8 +51,8 @@ flowchart TD
     R4 --> M
     R5 --> M
     R6 --> M
-    M --> C1[Show pending first-startup completion dialog]
     M --> C2[Queue one automatic LR2 song.db sync<br/>dedicated status]
+    C2 --> C1[Show pending first-startup completion dialog]
 
     L --> P1[Scheduler-owned post work<br/>concurrency 1]
     P1 --> P2[folder tree / playlist index]
@@ -84,8 +84,8 @@ profile / schema
   → ready operable + scheduler start
        ├─ required local hydration
        │    → startup_initialization_complete
-       │         ├─ pending completion dialog を表示
-       │         └─ one automatic LR2 sync queue (dedicated status)
+       │         → one automatic LR2 sync queue (dedicated status)
+       │         → pending completion dialog を表示
        ├─ scheduler-owned optional maintenance / network / prewarm
        │    → startup_post_initialization_maintenance_complete
        ├─ independent ranking/XML refresh → own marker
