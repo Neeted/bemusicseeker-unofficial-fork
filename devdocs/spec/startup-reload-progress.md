@@ -96,11 +96,11 @@ Startup では `PlaylistReferenceApplied`、`ExternalPlaylistSyncDone`、`Mainte
 
 file / chart件数を持つ処理はsub labelへ`processed / total`と現在対象を出せる。長い文字列は省略表示し、tooltipへ全文を出す。
 
-post-initialization taskはStartup progressの分母へ追加しない。自動 LR2 `song.db` 同期も同じ扱いで、正常な `startup_initialization_complete` 後、初回完了ダイアログが pending ならその dismiss が戻った後に一度だけ queue する。LR2 の `Running` / progress / `Incomplete` / `Failed` は専用 status のみを更新し、startup の expected/completed/failed/gauge を変更しない。startup の visual linger 中は専用 status を一時的に隠せるが、linger が消えたら最新の非終端 status を表示する。scheduler 管理下の task は`startup_background_task`、`startup_background_summary`、`startup_post_initialization_maintenance_complete`で観測し、scheduler 外の ranking/XML refresh や遅延 presentation flush は固有の phase / lifecycle markerで観測する。
+post-initialization taskはStartup progressの分母へ追加しない。自動 LR2 `song.db` 同期も同じ扱いで、正常な `startup_initialization_complete` 後に一度だけ queue する。初回完了ダイアログが pending の場合も、同期を先に queue し、ダイアログの終了は待機条件にしない。LR2 の `Running` / progress / `Incomplete` / `Failed` は専用 status のみを更新し、startup の expected/completed/failed/gauge を変更しない。startup の visual linger 中は専用 status を一時的に隠せるが、linger が消えたら最新の非終端 status を表示する。scheduler 管理下の task は`startup_background_task`、`startup_background_summary`、`startup_post_initialization_maintenance_complete`で観測し、scheduler 外の ranking/XML refresh や遅延 presentation flush は固有の phase / lifecycle markerで観測する。
 
 ## 初期化完了メッセージ
 
-初回設定後の完了メッセージは`startup_initialization_complete`後に表示する。既に完了ダイアログが pending の場合、表示処理は dismiss まで同期的に戻らない。ダイアログの戻り後に自動 LR2 同期を queue するため、modal 中に LR2 が開始することはない。これはrequired local initializationの完了を意味し、LR2 sync、external sync、physical audit、export、sort prewarmまで完了したことは意味しない。
+初回設定後の完了メッセージは`startup_initialization_complete`後に従来のダイアログ経路で表示する。自動 LR2 同期はその前に queue するため、ダイアログの終了を待たない。これはrequired local initializationの完了を意味し、LR2 sync、external sync、physical audit、export、sort prewarmまで完了したことは意味しない。
 
 ## ガード
 

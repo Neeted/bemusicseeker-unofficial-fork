@@ -51,8 +51,8 @@ flowchart TD
     R4 --> M
     R5 --> M
     R6 --> M
-    M --> C1[Show pending first-startup completion dialog<br/>wait for dismissal]
-    C1 --> C2[Queue one automatic LR2 song.db sync<br/>dedicated status]
+    M --> C1[Show pending first-startup completion dialog]
+    M --> C2[Queue one automatic LR2 song.db sync<br/>dedicated status]
 
     L --> P1[Scheduler-owned post work<br/>concurrency 1]
     P1 --> P2[folder tree / playlist index]
@@ -84,8 +84,8 @@ profile / schema
   → ready operable + scheduler start
        ├─ required local hydration
        │    → startup_initialization_complete
-       │         → pending completion dialog returns
-       │         → one automatic LR2 sync queue (dedicated status)
+       │         ├─ pending completion dialog を表示
+       │         └─ one automatic LR2 sync queue (dedicated status)
        ├─ scheduler-owned optional maintenance / network / prewarm
        │    → startup_post_initialization_maintenance_complete
        ├─ independent ranking/XML refresh → own marker
@@ -157,7 +157,7 @@ app-owned schema の ensure / repair は `BmsLibraryDbGateway` が開始した 1
 
 app schema repair は `song` table 全件を走査して実ファイルから SHA-256 を生成しない。missing digest は file diff / install / inline `chart_info` / chart info backfill など、譜面 bytes を読む後続 pipeline の責務とする。
 
-初回設定後の `Msg_init_completed` は `files_initialize_done` 直後ではなく、required local initialization が完了して `startup_initialization_complete` を記録した後に表示する。既に初回完了ダイアログが pending の場合、表示処理は dismiss まで同期的に戻らない。ダイアログの戻り後に限り、正常完了したこの Startup generation の自動 LR2 `song.db` 同期を既存 scheduler へ一度だけ queue する。pending が無い場合も同じ completion boundary を通り、同期 queue は startup 完了後に実行する。起動失敗・中断では自動 queue を作らない。自動 LR2 同期の `Running` / 進捗 / `Incomplete` / `Failed` は dedicated status として扱い、startup progress の phase、分母、値、成功・失敗には含めない。同期が startup の visual linger 中に完了した場合は一時表示を要求せず、linger 後は最新の非終端 status を表示する。自動外部同期、physical consistency audit、export、prewarm まで完了したことは `startup_initialization_complete` の意味ではない。scheduler 管理下の post task は `startup_post_initialization_maintenance_complete` で別に観測し、scheduler 外の ranking/XML refresh と遅延 presentation flush は独立した lifecycle で観測する。
+初回設定後の `Msg_init_completed` は `files_initialize_done` 直後ではなく、required local initialization が完了して `startup_initialization_complete` を記録した後に従来のダイアログ経路で表示する。自動 LR2 `song.db` 同期は同じ completion boundary で先に queue し、ダイアログの終了を開始条件にしない。pending が無い場合も同期 queue は startup 完了後に実行する。起動失敗・中断では自動 queue を作らない。自動 LR2 同期の `Running` / 進捗 / `Incomplete` / `Failed` は dedicated status として扱い、startup progress の phase、分母、値、成功・失敗には含めない。同期が startup の visual linger 中に完了した場合は一時表示を要求せず、linger 後は最新の非終端 status を表示する。自動外部同期、physical consistency audit、export、prewarm まで完了したことは `startup_initialization_complete` の意味ではない。scheduler 管理下の post task は `startup_post_initialization_maintenance_complete` で別に観測し、scheduler 外の ranking/XML refresh と遅延 presentation flush は独立した lifecycle で観測する。
 
 既存データ受入の LR2 `CompletedThisRun` はこの completion modal を、captured main HWND が native owner である visible/enabled modal window として観測する。window が一つだけあり、その配下に visible/enabled で `AutomationId=ThemedMessageBoxOK` かつ `InvokePattern` 対応の action が一つだけある場合に限り、その action を実行し、同じ process ID/HWND の window が execution deadline 前に消えたことを確認する。caption、本文、言語 catalog、Enter/Escape/WM_CLOSE は判定や dismiss に使わない。既存データ acceptance の LR2 成功は、graceful shutdown 後に canonical folder/data と `lr2_song_db_sync_status` の Completed terminal row（空 error、non-empty signature/run ID、completed cursor）が揃うことを durable oracle とする。
 
@@ -261,7 +261,7 @@ startup background scheduler は `MainWindowViewModel` が `BMSLibrary.StartupBa
 | `default` | `score_hydration_deferred` | 1 | score state |
 | progress phase | chart digest / chart-info backfill phase | task に応じる | request が不要ならskip完了。必要ならchart-info factsと既存BMS songのnarrow chart-info projectionを同じtransactionでcommitし、receipt後session/publicationまでそのrequestの完了を待つ |
 
-`StartupBackgroundTasksDone` は scheduler 全体の empty ではなく、`runningRequiredCount == 0` かつ required request が queue に無い状態を表す。required scheduling enrollment が閉じ、他の expected startup phase も完了したときだけ進捗上の完了になる。LR2 `song.db` 同期の自動 queue はこの判定や startup progress の分母に含めず、`startup_initialization_complete` の completion presentation が戻った後に専用 status として開始する。
+`StartupBackgroundTasksDone` は scheduler 全体の empty ではなく、`runningRequiredCount == 0` かつ required request が queue に無い状態を表す。required scheduling enrollment が閉じ、他の expected startup phase も完了したときだけ進捗上の完了になる。LR2 `song.db` 同期の自動 queue はこの判定や startup progress の分母に含めず、`startup_initialization_complete` 後に専用 status として開始する。初回完了ダイアログの終了は queue の待機条件にしない。
 
 ### Post-initialization work
 

@@ -3,7 +3,7 @@
 ## Decisions
 
 - Automatic LR2 `song.db` synchronization belongs after successful normal `Startup` completion, not in the startup progress phase set.
-- `startup_initialization_complete` is the production completion boundary. The pending first-startup completion dialog is shown synchronously; the automatic LR2 queue is created only after that call returns (dismissal), and no queue is created for failed or aborted startup.
+- `startup_initialization_complete` is the production completion boundary. The once-guarded, current-generation automatic LR2 enrollment is attempted at that boundary before the existing first-startup completion dialog presentation. The dialog keeps its pre-remediation presentation behavior and its dismissal is not an LR2 prerequisite. No queue is created for failed or aborted startup.
 - One in-memory scheduling guard limits automatic queueing to once per successful Startup generation. Existing durable `Completed` + signature gating, scheduler generation checks, shutdown behavior, manual resync, and coalescing remain authoritative.
 - LR2 `Running`, progress, `Incomplete`, and `Failed` states remain in the dedicated `OperationProgressHub` status. They do not alter startup expected/completed counts, gauge, or failure. Startup visual linger may temporarily hide the dedicated status; the latest nonterminal status is shown after linger clears.
 - Unit B removes the user-facing LR2 status-bar cancellation control and route. Internal application-shutdown cancellation, durable `Cancelled` status, retry/incomplete/failed presentation, and runtime latest-state publication remain unchanged.
@@ -14,7 +14,7 @@ Packet ID: `LR2-POSTSTARTUP-2026-09`
 
 | Contract | Authority / expected observable | Coverage |
 | --- | --- | --- |
-| ORDER-1 | User requirement: completion, including pending dialog dismissal, precedes one automatic LR2 queue; failed/aborted startup does not queue | `MainWindowViewModelStartupProgressTests.StartupProgress_BackgroundTasksWaitForRequiredSchedulingClosure` proves idle-before-close cannot complete and close+idle can complete; `StartupBackgroundTaskSchedulerOwnerTests` proves LR2 requests use the post lane. Existing dialog/UI-coordinator tests own synchronous dismissal, while durable/full acceptance owns the real startup/dialog/LR2 terminal route. No local test asserts private call order. |
+| ORDER-1 | User requirement: after successful startup completion, one automatic LR2 queue remains post-initialization; the existing completion dialog does not gate it; failed/aborted startup does not queue | `MainWindowViewModelStartupProgressTests.StartupProgress_BackgroundTasksWaitForRequiredSchedulingClosure` proves required scheduling closure; `StartupBackgroundTaskSchedulerOwnerTests` proves LR2 requests use the post lane. Existing dialog/UI-coordinator tests cover dialog mechanics, while durable/full acceptance owns the real startup/LR2 terminal route. |
 | PRESENT-1 | User requirement: LR2 status is dedicated; startup accounting stays unchanged; latest status appears after visual linger | `OperationProgressHubViewModelTests.Lr2SongDbSyncPresentation_UsesRuntimeStatusAndSuppression` |
 | FAILURE-1 | User requirement: incomplete/failure remains dedicated and retryable; successful startup stays successful | `OperationProgressHubViewModelTests.Lr2SongDbSyncIncompleteStatus_RemainsDedicatedAndRetryableWithoutStartupAccounting` |
 | PROGRESS-1 | Preserve coalescing/latest-state publication | Existing runtime-status publication coverage retained; no publication contract rewrite |
@@ -27,7 +27,15 @@ Implemented the production route and retired LR2 startup-phase coupling. Focused
 
 ## ORDER-1 evidence amendment
 
-The local automated evidence is intentionally decomposed across existing production-owned seams. No new full startup/LR2 integration fixture, fake startup library, temporary DB/configuration, constructor port, generic harness, source/reflection test, or placement mutant is added. The workflow-owner test covers the required-scheduling-close boundary, scheduler tests cover post-lane classification, existing dialog/UI-coordinator tests cover synchronous dismissal, and durable/full acceptance covers the real application ingress and terminal LR2 behavior. The canonical `MainWindowViewModel` sequence and existing once guard remain a production review point rather than a test-owned copy of that state.
+The local automated evidence is intentionally decomposed across existing production-owned seams. No new full startup/LR2 integration fixture, fake startup library, temporary DB/configuration, constructor port, generic harness, source/reflection test, or placement mutant is added. The workflow-owner test covers the required-scheduling-close boundary, scheduler tests cover post-lane classification, existing dialog/UI-coordinator tests cover dialog mechanics, and durable/full acceptance covers the real application ingress and terminal LR2 behavior. The canonical `MainWindowViewModel` sequence and existing once guard remain a production review point rather than a test-owned copy of that state.
+
+## ORDER-1 amendment (2026-09-03)
+
+The pending first-startup completion dialog is only an informational presentation. Its implementation is restored to the pre-remediation `DispatchUiAction` route. On successful `startup_initialization_complete`, the existing once/current-generation LR2 enrollment is attempted before presenting the dialog, so dialog dismissal is not an LR2 prerequisite. Failed/aborted startup remains queue-free; warmup and deferred presentation flush remain unchanged. No notification state, retry route, timing assertion, or new test fixture is added.
+
+The focused Quick for the existing UI scheduler, startup progress, scheduler, and LR2 workflow fixtures passed 87/87 (`artifacts/verification/tests-quick-20260903-173228/functional/results.trx`).
+
+The final focused Quick for `ApplicationUiSchedulerBoundaryTests`, `MainWindowViewModelStartupProgressTests`, `StartupBackgroundTaskSchedulerOwnerTests`, and `Lr2SongDbSyncWorkflowOwnerTests` passed 87/87 on 2026-09-03 (`artifacts/verification/tests-quick-20260903-173228/functional/results.trx`); the filtered build emitted only pre-existing warnings. `git diff --check` is clean.
 
 ## Unit B status and evidence (2026-09-03)
 

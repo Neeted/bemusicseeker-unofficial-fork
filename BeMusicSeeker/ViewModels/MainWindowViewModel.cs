@@ -455,10 +455,10 @@ public partial class MainWindowViewModel : ViewModel,
             }
             startupPostInitializationLr2EnrollmentScheduled = true;
         }
-        ShowInitialSetupCompletionMessageIfPending(expectedOperationToken);
         SchedulePostStartupLr2Enrollment(
             "startup_initialization_complete",
             expectedOperationToken);
+        ShowInitialSetupCompletionMessageIfPending(expectedOperationToken);
         ScheduleStartupPostInitializationWarmup("startup_initialization_complete", expectedOperationToken);
         QueueDeferredStartupPresentationFlushAfterInitialization(expectedOperationToken);
     }
@@ -609,14 +609,7 @@ public partial class MainWindowViewModel : ViewModel,
             ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, "Initial setup completion notification");
             initialSetupCompletionMessagePending = false;
         };
-        if (uiScheduler.CanExecuteInline)
-        {
-            showMessage();
-        }
-        else
-        {
-            uiScheduler.Invoke(showMessage, UiSchedulePriority.Normal);
-        }
+        DispatchUiAction(showMessage);
     }
 
     private void QueueStartupInitializationCompleteRetryUnsafe(long expectedOperationToken = 0L)
@@ -4402,7 +4395,10 @@ public partial class MainWindowViewModel : ViewModel,
         if (applicationLifetime.IsFirstStartup)
         {
             applicationLifetime.CompleteFirstStartup();
-            initialSetupCompletionMessagePending = true;
+            lock (startupInitializationCompletionLock)
+            {
+                initialSetupCompletionMessagePending = true;
+            }
         }
         initializationCompleted = true;
         hasActiveLibraryProfile = true;

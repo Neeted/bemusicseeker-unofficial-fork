@@ -154,7 +154,7 @@ steady-state 起動では、`Completed` かつ signature が一致していれ�
 この status は `chart_info` row の現存・完全性・currentnessを表しません。chart-info hydrationはLR2 linkedでもstandaloneでも実在する`chart_info`、current parse failure、owned chartを照合し、`Completed` statusをskip条件に使いません。statusのscopeとchart-info lifecycleの境界は [chart-info-lifecycle.md](chart-info-lifecycle.md) を正本とします。
 
 root 変更、custom folder 出力設定変更、playlist 出力変更、file diff、前回 incomplete / failed / cancelled などは同期必要判定または scoped sync の入力です。
-通常起動の自動同期は、正常な `startup_initialization_complete` が記録された後にだけ既存 scheduler へ一度 queue します。初回完了ダイアログが pending の場合は、その表示処理が dismiss 後に戻ってから queue します。起動失敗・中断では自動 queue を作りません。同じ Startup generation では in-memory の scheduling guard により重複 queue を作らず、既存の `Completed` + signature gate が不要な full sync を抑止します。
+通常起動の自動同期は、正常な `startup_initialization_complete` が記録された後にだけ既存 scheduler へ一度 queue します。初回完了ダイアログが pending の場合も、同期を queue してから従来の表示処理へ進み、ダイアログの終了を同期開始の条件にしません。起動失敗・中断では自動 queue を作りません。同じ Startup generation では in-memory の scheduling guard により重複 queue を作らず、既存の `Completed` + signature gate が不要な full sync を抑止します。
 LR2 同期の実行中にユーザーが status bar からキャンセルする操作と workflow route は提供しません。アプリ終了時の内部 shutdown drain は既存の cancellation token と `BMSLibrary` の終了処理を使い、durable な `Cancelled` status を従来どおり保持します。
 自動同期の `Running` / 進捗 / `Incomplete` / `Failed` は `OperationProgressHub` の LR2 専用 status として UI / log に出し、startup progress の phase、分母、値、成功・失敗には参加させません。同期中は read-only 操作を許容し、DB mutation を伴う操作は制限します。
 full sync の主要 stage は、normal folder、`.lr2folder` file、song row、stale prune、diagnostic、completed の順です。
