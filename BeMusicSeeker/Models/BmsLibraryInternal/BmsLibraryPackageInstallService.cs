@@ -1354,6 +1354,7 @@ internal sealed class BmsLibraryPackageInstallService
 
             var reservedDestinationPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var mutationPaths = new List<FileDbMutationPathPlan>();
+            var chartDestinationPaths = new List<KeyValuePair<string, string>>();
             var sourceCleanupFiles = new List<string>();
             var sourceCleanupDirectories = new List<FileDbMutationCleanupPathPlan>();
             var reservedTemporaryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1367,6 +1368,22 @@ internal sealed class BmsLibraryPackageInstallService
                     isDirectory: true,
                     destinationExists: false,
                     reservedTemporaryPaths));
+                foreach (PackageChartEntry entry in installTargetEntries)
+                {
+                    ChartFile chart = entry?.Chart;
+                    if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+                    {
+                        continue;
+                    }
+                    string destinationChartPath = BuildDestinationChartPath(sourcePath, destinationDirectory, chart);
+                    if (string.IsNullOrWhiteSpace(destinationChartPath))
+                    {
+                        throw new InvalidOperationException(
+                            "The package-install preflight did not produce a destination for chart path: "
+                            + chart.Path);
+                    }
+                    chartDestinationPaths.Add(new KeyValuePair<string, string>(chart.Path, destinationChartPath));
+                }
                 sourceCleanupDirectories.Add(new FileDbMutationCleanupPathPlan(sourcePath, recursive: true));
             }
             else
@@ -1471,6 +1488,7 @@ internal sealed class BmsLibraryPackageInstallService
                     }
                     EnsureMutationDestinationIsDistinct(chart.Path, destinationChartPath);
                     EnsureUniqueDestinationPath(reservedDestinationPaths, destinationChartPath);
+                    chartDestinationPaths.Add(new KeyValuePair<string, string>(chart.Path, destinationChartPath));
                     mutationPaths.Add(CreateMutationPathPlan(
                         chart.Path,
                         destinationChartPath,
@@ -1507,6 +1525,39 @@ internal sealed class BmsLibraryPackageInstallService
                 sourceCleanupFiles,
                 sourceCleanupDirectories,
                 recursiveSourceCleanup: false);
+            string packageDestinationPath = isSingleFile
+                ? chartDestinationPaths
+                    .Where(path => string.Equals(path.Key, sourcePath, StringComparison.OrdinalIgnoreCase))
+                    .Select(path => path.Value)
+                    .SingleOrDefault()
+                    ?? mutationPaths
+                        .Where(path => string.Equals(path.SourcePath, sourcePath, StringComparison.OrdinalIgnoreCase))
+                        .Select(path => path.DestinationPath)
+                        .SingleOrDefault()
+                    // A single-file package with no installable chart has no
+                    // moved chart destination.  Keep its package path at the
+                    // chosen installation directory instead of deriving a
+                    // basename after preflight.
+                    ?? destinationDirectory
+                : destinationDirectory;
+            var destinationMap = new PackageInstallDestinationMap(
+                sourcePath,
+                packageDestinationPath,
+                mutationPaths,
+                chartDestinationPaths);
+            // Durable storage finalization may update a shared chart owner to
+            // its destination before live package state is applied.  Preserve
+            // each source key now so that finalization cannot make the map
+            // lookup derive from an already-promoted path.
+            List<(PackageChartEntry Entry, string SourcePath)> liveInstallEntrySnapshots = [];
+            foreach (PackageChartEntry entry in installTargetEntries)
+            {
+                if (entry?.Chart == null)
+                {
+                    continue;
+                }
+                liveInstallEntrySnapshots.Add((entry, entry.Chart.Path));
+            }
             var executor = new FileDbMutationExecutor(
                 plan,
                 fileMutationService,
@@ -1534,12 +1585,7 @@ internal sealed class BmsLibraryPackageInstallService
                 .Where(chart => chart != null)
                 .Select(chart => CreateInstalledChartProjection(
                     chart,
-                    isSingleFile
-                        ? Path.Combine(destinationDirectory, Path.GetFileName(chart.Path))
-                        : chart.Path.ReplaceFromStart(
-                            sourcePath + Path.DirectorySeparatorChar,
-                            destinationDirectory + Path.DirectorySeparatorChar,
-                            isIgnoreCase: true)) )];
+                    destinationMap.GetRequiredDestinationPath(chart.Path)))];
             PackageInstallExecutionResult detachedPackageResult =
                 CreatePackageInstallExecutionResult(detachedInstallEntries, detachedInstalledCharts);
             detachedPackageResult.InstallPathToDelete = sourcePath;
@@ -1559,10 +1605,8 @@ internal sealed class BmsLibraryPackageInstallService
                         databaseResult.DurableFinalizer?.Invoke();
                         ApplyLivePackageInstallState(
                             package,
-                            sourcePath,
-                            destinationDirectory,
-                            isSingleFile,
-                            installTargetEntries);
+                            destinationMap,
+                            liveInstallEntrySnapshots);
                     },
                     databaseResult.Failure);
             });
@@ -1608,32 +1652,25 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static void ApplyLivePackageInstallState(
         ChartPackage package,
-        string sourcePath,
-        string destinationDirectory,
-        bool isSingleFile,
-        IEnumerable<PackageChartEntry> installTargetEntries)
+        PackageInstallDestinationMap destinationMap,
+        IEnumerable<(PackageChartEntry Entry, string SourcePath)> installTargetEntrySnapshots)
     {
-        if (package == null)
+        if (package == null || destinationMap == null)
         {
             return;
         }
-        List<PackageChartEntry> entries = [.. (installTargetEntries ?? [])
-            .Where(entry => entry?.Chart != null)];
-        if (isSingleFile)
+        List<(PackageChartEntry Entry, string SourcePath)> entries = [.. (installTargetEntrySnapshots ?? [])
+            .Where(snapshot => snapshot.Entry?.Chart != null)];
+        foreach ((PackageChartEntry Entry, string SourcePath) entry in entries)
         {
-            package.ApplySingleFileInstallDestination(destinationDirectory, entries);
-            package.path = Path.Combine(destinationDirectory, Path.GetFileName(sourcePath));
+            entry.Entry.ApplyInstalledPath(destinationMap.GetRequiredDestinationPath(entry.SourcePath));
         }
-        else
+        package.path = destinationMap.PackageDestinationPath;
+        foreach ((PackageChartEntry Entry, string SourcePath) entry in entries)
         {
-            package.ApplyDirectoryInstallDestination(sourcePath, destinationDirectory, entries);
-            package.path = destinationDirectory;
+            entry.Entry.ClearPostInstallState();
         }
-        foreach (PackageChartEntry entry in entries)
-        {
-            entry.ClearPostInstallState();
-        }
-        package.ReplaceChartEntries(entries);
+        package.ReplaceChartEntries(entries.Select(entry => entry.Entry));
     }
 
     private static PackageInstallExecutionResult CreatePackageInstallExecutionResult(ChartPackage package)

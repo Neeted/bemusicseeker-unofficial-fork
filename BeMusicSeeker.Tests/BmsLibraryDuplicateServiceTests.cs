@@ -664,6 +664,96 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// A different-content same-name merge collision keeps the existing row
+    /// and file at C while every moved-chart projection uses the receipt's
+    /// collision-resolved destination D.
+    /// </summary>
+    [TestMethod]
+    public void MergeChartDirectory_DifferentContentCollisionUsesReceiptDestinationEverywhere()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(
+                Path.GetTempPath(),
+                "BeMusicSeeker_DuplicateMergeBmsCollision_" + System.Guid.NewGuid().ToString("N"));
+            string srcDir = Path.Combine(tempRootPath, "Src");
+            string dstDir = Path.Combine(tempRootPath, "Dst");
+            string srcChartPath = Path.Combine(srcDir, "chart.bms");
+            string collisionPath = Path.Combine(dstDir, "chart.bms");
+            Directory.CreateDirectory(srcDir);
+            Directory.CreateDirectory(dstDir);
+            File.WriteAllText(srcChartPath, "#PLAYER 1\r\n#TITLE merge source\r\n#ARTIST source\r\n#00111:01\r\n");
+            File.WriteAllText(collisionPath, "#PLAYER 1\r\n#TITLE existing destination\r\n#ARTIST existing\r\n#00111:02\r\n");
+            byte[] sourceBytes = File.ReadAllBytes(srcChartPath);
+            byte[] collisionBytes = File.ReadAllBytes(collisionPath);
+            try
+            {
+                BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(srcChartPath);
+                BMSFile existingFile = BMSFile.CreateBMSFileFromFile(collisionPath);
+                existingFile.favorite = 7;
+                existingFile.adddate = 12345;
+                existingFile.tag = "existing-user-tag";
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(sourceFile, typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                }
+
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService())
+                {
+                    BMSFiles = [sourceFile, existingFile],
+                    BmsonSongs = []
+                };
+
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
+
+                Assert.IsTrue(receipt.MergeApplied);
+                Assert.IsNotNull(receipt.MutationReceipt);
+                Assert.IsTrue(receipt.MutationReceipt.DurableCommit);
+                string actualDestinationPath = receipt.MutationReceipt.DestinationPaths.Single(path =>
+                    File.Exists(path)
+                    && !string.Equals(path, collisionPath, StringComparison.Ordinal));
+
+                Assert.AreEqual(actualDestinationPath, sourceFile.path);
+                Assert.IsFalse(File.Exists(srcChartPath));
+                Assert.IsTrue(File.Exists(collisionPath));
+                Assert.IsTrue(File.Exists(actualDestinationPath));
+                CollectionAssert.AreEqual(collisionBytes, File.ReadAllBytes(collisionPath));
+                CollectionAssert.AreEqual(sourceBytes, File.ReadAllBytes(actualDestinationPath));
+                Assert.IsNotNull(library.BMSFiles.SingleOrDefault(file =>
+                    string.Equals(file.path, collisionPath, StringComparison.Ordinal)));
+                Assert.IsNotNull(library.BMSFiles.SingleOrDefault(file =>
+                    string.Equals(file.path, actualDestinationPath, StringComparison.Ordinal)));
+
+                using var verify = new LR2SongDBExtended(songDbPath);
+                LR2SongDB.song existingRow = verify.Find<LR2SongDB.song>(collisionPath);
+                Assert.IsNotNull(existingRow);
+                Assert.AreEqual(existingFile.hash, existingRow.hash);
+                Assert.AreEqual(7, existingRow.favorite);
+                Assert.AreEqual(12345, existingRow.adddate);
+                Assert.AreEqual("existing-user-tag", existingRow.tag);
+                LR2SongDB.song movedRow = verify.Find<LR2SongDB.song>(actualDestinationPath);
+                Assert.IsNotNull(movedRow);
+                Assert.AreEqual(sourceFile.hash, movedRow.hash);
+                Assert.IsNull(verify.Find<LR2SongDB.song>(srcChartPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
     [TestMethod]
     public void MergeChartDirectory_BmsonDuplicateSkip_KeepsDestinationOnly()
     {

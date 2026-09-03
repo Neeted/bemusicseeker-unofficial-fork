@@ -142,6 +142,12 @@ LR2 custom-folder 出力を伴うローカル playlist 編集は、entry hydrati
 
 `FileDbMutationExecutor` は live outer session 内で durable DB apply を終えた後、session-local な one-shot `DurableFinalizer` をちょうど一度だけ実行する。receipt は callback-free の immutable な terminal fact であり、receipt 自身の callback、replay、retry を持たない。`Failed` / `ManualRecoveryRequired` receipt には成功 publication を付けず、command owner は canonical finalization 後に plain な one-shot publication action を command-owned の post-lease list へ記録する。lease と全 model lock を解放した後、その list を best-effort で実行し、subscriber / dialog / UI scheduler の失敗は durable / cleanup terminal state、compensation、retry、既存の primary failure を変更せず、後続 publication を中断しない。dialog、UI scheduler / Dispatcher、PropertyChanged / public subscriber、terminal progress / terminal publication、通常 refresh / index warmup、task start、別 owner callback はこの post-lease phase に遅延する。失敗・manual receipt の対象 item は成功 publication されない。中間 progress だけは feature-local の narrow writer へ immutable fact を nonblocking に送れるが、owner 側 consumer は latest-wins の pending / draining を各1以下に制限し、model / package / collection lock を保持せずに配信する。writer は terminalization 開始時に seal し、同一 generation の late progress を捨てる。中間 progress や診断通知の失敗は durable / cleanup terminal state、compensation、retry、既存の primary failure を変更しない。
 
+### package install destination coherence
+
+`BmsLibraryPackageInstallService.MovePackageFilesWithReceipt` は、filesystem mutation plan の preflight 中に source path ごとの actual destination を一度だけ確定する。collision resolution や directory-relative projection を完了した後で、basename、source root、または destination root から chart path を再計算してはならない。receipt の destination、detached DB / storage projection、live package entry、installed package registration、duplicate merge の catalog delta は、同じ preflight map の destination value を使う。
+
+既存 destination file との collision では、選択済みの collision suffix path だけを新しい chart の destination とし、旧 file と旧 DB row は変更しない。single-file package に installable chart がない cleanup-only case では、chart destination は作らず package path は preflight で選択した installation directory を保持する。map は package-install owner の immutable fact として扱い、generic file/DB boundary、retry、rollback、persistent recovery state は追加しない。
+
 LR2 preparation の中間 stage / table / batch progress は `BMSLibrary` の既存 facade dispatcher queue が latest-state として coalesce して配信し、lease 保持中に public `PropertyChanged` subscriber を同期実行しない。dispatcher drain 内の subscriber 例外はログ後に次の property を継続し、generated output、LR2 folder row、DB status の durable 結果や terminal failure を変更しない。
 
 

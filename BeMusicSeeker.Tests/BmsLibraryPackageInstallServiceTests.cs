@@ -2730,6 +2730,198 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
+    /// A collision-resolved destination is the single path shared by the
+    /// filesystem receipt, the detached projection, and the live package.
+    /// The destination is intentionally discovered from the completed receipt
+    /// and filesystem rather than reimplementing collision resolution here.
+    /// </summary>
+    [TestMethod]
+    public void MovePackageFilesWithReceipt_CollisionUsesReceiptDestinationForAllPackageState()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "PendingPkg", "chart.bms");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            string collisionPath = Path.Combine(destinationDirectoryPath, "chart.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(sourcePath)!);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            File.WriteAllText(sourcePath, "#PLAYER 1\r\n#TITLE source\r\n");
+            File.WriteAllText(collisionPath, "#PLAYER 1\r\n#TITLE existing\r\n");
+            byte[] sourceBytes = File.ReadAllBytes(sourcePath);
+            byte[] collisionBytes = File.ReadAllBytes(collisionPath);
+
+            BMSFile chart = BMSFile.CreateBMSFileFromFile(sourcePath);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
+            package.path = sourcePath;
+            package.delete_parent = false;
+            string detachedProjectionPath = string.Empty;
+
+            FileDbMutationReceipt receipt = new BmsLibraryPackageInstallService().MovePackageFilesWithReceipt(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                exception => exception.Message,
+                new RealFileMutationService(),
+                null,
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                _ => { },
+                installResult =>
+                {
+                    detachedProjectionPath = installResult.AddedCharts.Single().Path;
+                    return FileDbMutationCommitResult.Durable();
+                },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.IsTrue(receipt.DurableCommit);
+            string actualDestinationPath = receipt.DestinationPaths.Single(path =>
+                File.Exists(path)
+                && !string.Equals(path, collisionPath, StringComparison.Ordinal));
+
+            Assert.AreEqual(actualDestinationPath, detachedProjectionPath);
+            Assert.AreEqual(actualDestinationPath, package.ChartEntries.Single().Chart.Path);
+            Assert.AreEqual(actualDestinationPath, package.path);
+            CollectionAssert.AreEqual(collisionBytes, File.ReadAllBytes(collisionPath));
+            Assert.IsFalse(File.Exists(sourcePath));
+            CollectionAssert.AreEqual(sourceBytes, File.ReadAllBytes(actualDestinationPath));
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow("single-bms")]
+    [DataRow("single-bmson")]
+    [DataRow("directory-mixed")]
+    public void MovePackageFilesWithReceipt_FormatShapesShareExactDestinationMap(string shape)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            bool isDirectoryPackage = string.Equals(shape, "directory-mixed", StringComparison.Ordinal);
+            string sourceRootPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            Directory.CreateDirectory(sourceRootPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            var sourcePaths = new List<string>();
+            var collisionPaths = new List<string>();
+            var sourceBytesByPath = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            var collisionBytesByPath = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            var entries = new List<PackageChartEntry>();
+
+            void AddBmsChart(string relativePath, string sourceTitle, string existingTitle, string hash)
+            {
+                string sourcePath = Path.Combine(sourceRootPath, relativePath);
+                string collisionPath = Path.Combine(destinationDirectoryPath, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(sourcePath)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(collisionPath)!);
+                File.WriteAllText(sourcePath, "#PLAYER 1\r\n#TITLE " + sourceTitle + "\r\n#00111:01\r\n");
+                File.WriteAllText(collisionPath, "#PLAYER 1\r\n#TITLE " + existingTitle + "\r\n#00111:02\r\n");
+                sourcePaths.Add(sourcePath);
+                collisionPaths.Add(collisionPath);
+                sourceBytesByPath[sourcePath] = File.ReadAllBytes(sourcePath);
+                collisionBytesByPath[collisionPath] = File.ReadAllBytes(collisionPath);
+                entries.Add(PackageChartEntry.FromChart(
+                    ChartFileProjection.FromBmsFile(
+                        BMSFile.CreateBMSFileFromFile(sourcePath))));
+            }
+
+            void AddBmsonChart(string relativePath, string soundName, string md5)
+            {
+                string sourcePath = Path.Combine(sourceRootPath, relativePath);
+                string collisionPath = Path.Combine(destinationDirectoryPath, relativePath);
+                Directory.CreateDirectory(Path.GetDirectoryName(sourcePath)!);
+                Directory.CreateDirectory(Path.GetDirectoryName(collisionPath)!);
+                File.WriteAllText(sourcePath, CreateBmsonJsonWithSound(soundName));
+                File.WriteAllText(collisionPath, CreateBmsonJsonWithSound(soundName + "-existing"));
+                sourcePaths.Add(sourcePath);
+                collisionPaths.Add(collisionPath);
+                sourceBytesByPath[sourcePath] = File.ReadAllBytes(sourcePath);
+                collisionBytesByPath[collisionPath] = File.ReadAllBytes(collisionPath);
+                entries.Add(PackageChartEntry.FromChart(
+                    ChartFileProjection.FromBmsonSong(
+                        new LR2SongDBExtended.bmson_song
+                        {
+                            path = sourcePath,
+                            folder = Path.GetDirectoryName(sourcePath),
+                            title = "Bmson " + soundName,
+                            md5 = md5
+                        },
+                        includeWarningSnapshot: false,
+                        includeResourceReferences: false)));
+            }
+
+            if (string.Equals(shape, "single-bms", StringComparison.Ordinal))
+            {
+                AddBmsChart("chart.bms", "single bms source", "single bms existing", "11111111111111111111111111111111");
+            }
+            else if (string.Equals(shape, "single-bmson", StringComparison.Ordinal))
+            {
+                AddBmsonChart("chart.bmson", "single-bmson", "22222222222222222222222222222222");
+            }
+            else
+            {
+                AddBmsChart("chart.bms", "mixed bms source", "mixed bms existing", "33333333333333333333333333333333");
+                AddBmsonChart("nested\\chart.bmson", "mixed-bmson", "44444444444444444444444444444444");
+            }
+
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(entries);
+            package.path = isDirectoryPackage
+                ? sourceRootPath
+                : sourcePaths.Single();
+            package.delete_parent = false;
+            List<string> detachedProjectionPaths = [];
+            FileDbMutationReceipt receipt = new BmsLibraryPackageInstallService().MovePackageFilesWithReceipt(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                exception => exception.Message,
+                new RealFileMutationService(),
+                null,
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                _ => { },
+                installResult =>
+                {
+                    detachedProjectionPaths.AddRange(installResult.AddedCharts.Select(chart => chart.Path));
+                    return FileDbMutationCommitResult.Durable();
+                },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.IsTrue(receipt.DurableCommit);
+            List<string> actualDestinationPaths = [.. receipt.DestinationPaths
+                .Where(path => File.Exists(path))
+                .Where(path => !collisionPaths.Contains(path, StringComparer.Ordinal))];
+            Assert.AreEqual(sourcePaths.Count, actualDestinationPaths.Count);
+            List<string> livePaths = [.. package.ChartEntries.Select(entry => entry.Chart.Path)];
+            foreach (string sourcePath in sourcePaths)
+            {
+                string actualDestinationPath = actualDestinationPaths.Single(path =>
+                    sourceBytesByPath[sourcePath].SequenceEqual(File.ReadAllBytes(path)));
+                Assert.IsTrue(detachedProjectionPaths.Contains(actualDestinationPath, StringComparer.Ordinal));
+                Assert.IsTrue(livePaths.Contains(actualDestinationPath, StringComparer.Ordinal));
+                string collisionPath = collisionPaths.Single(path =>
+                    string.Equals(Path.GetRelativePath(destinationDirectoryPath, path),
+                        Path.GetRelativePath(sourceRootPath, sourcePath),
+                        StringComparison.Ordinal));
+                CollectionAssert.AreEqual(collisionBytesByPath[collisionPath], File.ReadAllBytes(collisionPath));
+            }
+            Assert.AreEqual(
+                isDirectoryPackage ? destinationDirectoryPath : actualDestinationPaths.Single(),
+                package.path);
+        });
+    }
+
+    /// <summary>
     /// durable DB receipt 後にだけ source を finalize cleanup し、canonical
     /// package state finalizer は cleanup 前に実行されることを検証します。
     /// </summary>
@@ -2974,9 +3166,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(
                 FileDbMutationTerminalState.ManualRecoveryRequired,
                 commandResult.MutationReceipt.Receipts[1].TerminalState);
-
             Assert.IsTrue(commandResult.RegisteredPackages.Any(package =>
-                string.Equals(package.path, Path.Combine(installRootPath, "Auto Prefix First"), StringComparison.OrdinalIgnoreCase)));
+                string.Equals(package.path, Path.Combine(installRootPath, "Auto Prefix First"), StringComparison.OrdinalIgnoreCase)),
+                "registered=" + string.Join("|", commandResult.RegisteredPackages.Select(package => package?.path ?? "<null>")));
             Assert.IsTrue(library.ChartPackagesInstalled.Any(package =>
                 string.Equals(package.path, Path.Combine(installRootPath, "Auto Prefix First"), StringComparison.OrdinalIgnoreCase)));
             Assert.IsFalse(library.ChartPackagesPending.Any(package =>
