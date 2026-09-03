@@ -367,10 +367,19 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     [TestMethod]
-    public void Lr2SongDbSyncPresentation_UsesRuntimeStatusAndSuppression()
+    public async Task Lr2SongDbSyncPresentation_UsesRuntimeStatusAndSuppression()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        var delayEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDelay = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var statusVisibleAfterStartup = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hub = new OperationProgressHubViewModel(
+            TestStartupProgressOwnerFactory.Create(
+                completionHideDelay: () =>
+                {
+                    delayEntered.TrySetResult(true);
+                    return releaseDelay.Task;
+                }));
         Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(
             new Lr2SongDbSyncStatusSnapshot
             {
@@ -394,13 +403,32 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsTrue(hub.IsLr2SongDbSyncCancelVisible);
 
         hub.StartupProgress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
-        hub.StartupProgress.TrackStartupProgressLr2SongDbSyncRequested(1);
+        hub.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(OperationProgressHubViewModel.IsLr2SongDbSyncStatusActive)
+                && hub.IsLr2SongDbSyncStatusActive)
+            {
+                statusVisibleAfterStartup.TrySetResult(true);
+            }
+        };
 
         Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
         Assert.AreEqual(string.Empty, hub.Lr2SongDbSyncStatusLabel);
         Assert.AreEqual(1.0, hub.Lr2SongDbSyncStatusProgressMaximum);
         Assert.IsFalse(hub.IsLr2SongDbSyncStatusProgressVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
+
+        CompleteStartupProgress(hub.StartupProgress);
+        await delayEntered.Task;
+        Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
+
+        releaseDelay.TrySetResult(true);
+        await statusVisibleAfterStartup.Task;
+
+        Assert.AreEqual(status.StatusText, hub.Lr2SongDbSyncStatusLabel);
+        Assert.AreEqual(status.ProgressText, hub.Lr2SongDbSyncStatusSubLabel);
+        Assert.AreEqual(status.ProgressValue, hub.Lr2SongDbSyncStatusProgressValue);
+        Assert.AreEqual(status.ProgressMaximum, hub.Lr2SongDbSyncStatusProgressMaximum);
     }
 
     [TestMethod]
@@ -436,6 +464,90 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
         Assert.IsFalse(hub.IsLr2SongDbSyncCleanupVisible);
+    }
+
+    [TestMethod]
+    public async Task Lr2SongDbSyncIncompleteStatus_RemainsDedicatedAndRetryableWithoutStartupAccounting()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var delayEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDelay = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var statusVisible = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hub = new OperationProgressHubViewModel(
+            TestStartupProgressOwnerFactory.Create(
+                completionHideDelay: () =>
+                {
+                    delayEntered.TrySetResult(true);
+                    return releaseDelay.Task;
+                }));
+        hub.StartupProgress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        double startupValue = hub.StartupProgress.Value;
+        double startupMaximum = hub.StartupProgress.Maximum;
+        Lr2SongDbSyncRuntimeStatus incomplete = Lr2SongDbSyncStatusMapper.Create(
+            new Lr2SongDbSyncStatusSnapshot
+            {
+                Status = Lr2SongDbSyncStatusKind.Incomplete,
+                Stage = "song_rows",
+                LastError = "sync failed"
+            },
+            DateTime.MinValue);
+
+        hub.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(OperationProgressHubViewModel.IsLr2SongDbSyncStatusActive)
+                && hub.IsLr2SongDbSyncStatusActive)
+            {
+                statusVisible.TrySetResult(true);
+            }
+        };
+        hub.UpdateLr2SongDbSyncStatus(incomplete);
+
+        Assert.IsFalse(hub.StartupProgress.IsFailed);
+        Assert.AreEqual(startupValue, hub.StartupProgress.Value);
+        Assert.AreEqual(startupMaximum, hub.StartupProgress.Maximum);
+
+        Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
+
+        CompleteStartupProgress(hub.StartupProgress);
+        await delayEntered.Task;
+        releaseDelay.TrySetResult(true);
+        await statusVisible.Task;
+
+        Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
+        Assert.IsTrue(hub.IsLr2SongDbSyncRetryVisible);
+    }
+
+    private static void CompleteStartupProgress(StartupProgressWorkflowOwner owner)
+    {
+        owner.TryCompleteStartupProgressLibraryDatabaseLoad(1);
+        owner.TryCompleteStartupProgressLibraryFileEnumeration(1);
+        owner.TryCompleteStartupProgressLibraryFileDiff(1);
+        owner.MarkStartupProgressPhaseCompleted(
+            StartupProgressPhase.StartupReadyData,
+            owner.GetActiveStartupProgressOperationToken());
+        owner.MarkStartupProgressPhaseCompleted(
+            StartupProgressPhase.StartupReadyUi,
+            owner.GetActiveStartupProgressOperationToken());
+        owner.MarkStartupProgressPhaseCompleted(
+            StartupProgressPhase.StartupReadyOperable,
+            owner.GetActiveStartupProgressOperationToken());
+        foreach (StartupProgressPhase phase in new[]
+        {
+            StartupProgressPhase.PlaylistEntriesHydrationDone,
+            StartupProgressPhase.ChartInfoHydrationDone,
+            StartupProgressPhase.ChartInfoBackfillDone,
+            StartupProgressPhase.ChartDigestBackfillDone,
+            StartupProgressPhase.ScoreHydrationDone
+        })
+        {
+            owner.SkipStartupProgressPhaseIfExpected(
+                phase,
+                "test",
+                owner.GetActiveStartupProgressOperationToken());
+        }
+        owner.MarkStartupProgressPhaseCompleted(
+            StartupProgressPhase.StartupBackgroundTasksDone,
+            owner.GetActiveStartupProgressOperationToken());
     }
 
     private static PlaylistWorkspaceViewModel AttachPlaylistProgressSources(

@@ -308,7 +308,6 @@ public partial class MainWindowViewModel : ViewModel,
             ChartInfoBackfillCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
             ChartInfoHydrationCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
             ChartInfoBackfillRequestedVersion = files?.ChartInfoBackfillRequestedVersion ?? 0,
-            Lr2SongDbSyncCompletedVersion = files?.Lr2SongDbSyncCompletedVersion ?? 0,
             PlaylistEntriesHydrationCompletedVersion = tables?.PlaylistEntriesHydrationCompletedVersion ?? 0,
             LibraryDatabaseLoadCompletedVersion = files?.LibraryDatabaseLoadCompletedVersion ?? 0,
             LibraryFileEnumerationCompletedVersion = files?.LibraryFileEnumerationCompletedVersion ?? 0,
@@ -343,7 +342,6 @@ public partial class MainWindowViewModel : ViewModel,
                 startupPostInitializationWarmupScheduled = false;
                 startupPostInitializationWarmupCompleted = false;
                 startupPostInitializationLr2EnrollmentScheduled = false;
-                startupPostInitializationLr2Enrolled = false;
                 startupInitializationCompleteRetryQueued = false;
                 startupCompletionContinuationToken = 0L;
             }
@@ -376,15 +374,6 @@ public partial class MainWindowViewModel : ViewModel,
     {
         startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete();
         startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
-    }
-
-    private bool IsStartupRequiredBackgroundTaskEnrollmentComplete()
-    {
-        lock (startupInitializationCompletionLock)
-        {
-            return !startupPostInitializationCompletionTracking
-                || startupPostInitializationLr2Enrolled;
-        }
     }
 
     internal static bool IsCurrentStartupPostInitializationCallback(
@@ -440,8 +429,7 @@ public partial class MainWindowViewModel : ViewModel,
                 {
                     return;
                 }
-                if ((startupPostInitializationCompletionTracking && !startupPostInitializationLr2Enrolled)
-                    || !startupProgressWorkflowOwner.IsStartupInitializationRequiredProgressComplete(expectedOperationToken)
+                if (!startupProgressWorkflowOwner.IsStartupInitializationRequiredProgressComplete(expectedOperationToken)
                     || !startupBackgroundTaskScheduler.IsStarted
                     || !startupBackgroundTaskScheduler.IsIdle)
                 {
@@ -459,6 +447,18 @@ public partial class MainWindowViewModel : ViewModel,
         }
         LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
         LogUiSuppression(startupBackgroundTaskScheduler.BuildSummaryLog(elapsedMs));
+        lock (startupInitializationCompletionLock)
+        {
+            if (startupPostInitializationLr2EnrollmentScheduled)
+            {
+                return;
+            }
+            startupPostInitializationLr2EnrollmentScheduled = true;
+        }
+        ShowInitialSetupCompletionMessageIfPending(expectedOperationToken);
+        SchedulePostStartupLr2Enrollment(
+            "startup_initialization_complete",
+            expectedOperationToken);
         ScheduleStartupPostInitializationWarmup("startup_initialization_complete", expectedOperationToken);
         QueueDeferredStartupPresentationFlushAfterInitialization(expectedOperationToken);
     }
@@ -609,7 +609,14 @@ public partial class MainWindowViewModel : ViewModel,
             ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, "Initial setup completion notification");
             initialSetupCompletionMessagePending = false;
         };
-        DispatchUiAction(showMessage);
+        if (uiScheduler.CanExecuteInline)
+        {
+            showMessage();
+        }
+        else
+        {
+            uiScheduler.Invoke(showMessage, UiSchedulePriority.Normal);
+        }
     }
 
     private void QueueStartupInitializationCompleteRetryUnsafe(long expectedOperationToken = 0L)
@@ -683,8 +690,6 @@ public partial class MainWindowViewModel : ViewModel,
     private bool startupPostInitializationWarmupCompleted;
 
     private bool startupPostInitializationLr2EnrollmentScheduled;
-
-    private bool startupPostInitializationLr2Enrolled;
 
     private bool startupInitializationCompleteRetryQueued;
 
@@ -2443,65 +2448,43 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void SchedulePostStartupLr2Enrollment(string reason, long operationToken)
     {
+        if (operationToken != 0L && !IsStartupCompletionTokenCurrent(operationToken))
+        {
+            return;
+        }
         long schedulerGeneration;
         lock (startupInitializationCompletionLock)
         {
             if (!startupPostInitializationCompletionTracking
-                || startupPostInitializationLr2EnrollmentScheduled)
+                || !startupInitializationCompleteLogged)
             {
                 return;
             }
-            startupPostInitializationLr2EnrollmentScheduled = true;
             schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
         }
 
-        int terminalPublished = 0;
-        Action enrollmentCompleted = delegate
-        {
-            if (Interlocked.Exchange(ref terminalPublished, 1) != 0
-                || !IsCurrentStartupPostInitializationCallback(
-                    operationToken,
-                    schedulerGeneration,
-                    IsStartupCompletionTokenCurrent,
-                    startupBackgroundTaskScheduler.IsCurrentGeneration)
-                || !startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete(schedulerGeneration))
-            {
-                return;
-            }
-            lock (startupInitializationCompletionLock)
-            {
-                if (!IsCurrentStartupPostInitializationCallback(
-                        operationToken,
-                        schedulerGeneration,
-                        IsStartupCompletionTokenCurrent,
-                        startupBackgroundTaskScheduler.IsCurrentGeneration))
-                {
-                    return;
-                }
-                startupPostInitializationLr2Enrolled = true;
-            }
-            startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
-            TryLogStartupInitializationComplete(operationToken);
-        };
         Func<Action, Task> startupScheduler = action =>
         {
-            bool accepted = startupBackgroundTaskScheduler.Queue(
+            startupBackgroundTaskScheduler.Queue(
                 "lr2_song_db_sync_enrollment",
                 reason,
                 null,
                 () =>
                 {
+                    if (!IsCurrentStartupPostInitializationCallback(
+                            operationToken,
+                            schedulerGeneration,
+                            IsStartupCompletionTokenCurrent,
+                            startupBackgroundTaskScheduler.IsCurrentGeneration))
+                    {
+                        return Task.CompletedTask;
+                    }
                     action();
                     return Task.CompletedTask;
-                },
-                _ => enrollmentCompleted());
-            if (!accepted)
-            {
-                enrollmentCompleted();
-            }
+                });
             return Task.CompletedTask;
         };
-        Lr2SongDbSyncWorkflow.SchedulePostStartupSync(reason, enrollmentCompleted, startupScheduler);
+        Lr2SongDbSyncWorkflow.SchedulePostStartupSync(reason, scheduler: startupScheduler);
     }
 
     private void ScheduleStartupPostInitializationWarmup(string reason, long operationToken)
@@ -2787,12 +2770,9 @@ public partial class MainWindowViewModel : ViewModel,
             FormatTextForLog,
             (generation, revision) =>
             {
-                if (IsStartupRequiredBackgroundTaskEnrollmentComplete())
-                {
-                    startupProgressWorkflowOwner?.TryCompleteStartupBackgroundTasksPhaseIfIdle(
-                        schedulerGeneration: generation,
-                        schedulerRevision: revision);
-                }
+                startupProgressWorkflowOwner?.TryCompleteStartupBackgroundTasksPhaseIfIdle(
+                    schedulerGeneration: generation,
+                    schedulerRevision: revision);
                 TryLogStartupPostInitializationComplete();
             },
             startupBackgroundTaskProgressSynchronization);
@@ -2804,8 +2784,8 @@ public partial class MainWindowViewModel : ViewModel,
             TryLogStartupInitializationComplete,
             () => startupBackgroundTaskScheduler.IsStarted && startupBackgroundTaskScheduler.IsIdle,
             (generation, revision) => startupBackgroundTaskScheduler.IsCurrentIdleSnapshot(generation, revision),
-            startupBackgroundTaskProgressSynchronization,
-            IsStartupRequiredBackgroundTaskEnrollmentComplete);
+            () => startupBackgroundTaskScheduler.IsRequiredInitializationSchedulingComplete,
+            startupBackgroundTaskProgressSynchronization);
         treeViewFilterTypeSelected = GetStartupSettingsSnapshot().StartupSelectInstallPending
             ? MainViewUpdateMode.PendingInstallFolderSelected
             : MainViewUpdateMode.FolderFilterSelected;
@@ -3791,7 +3771,6 @@ public partial class MainWindowViewModel : ViewModel,
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
             StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.Lr2SongDbSyncDone,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.MaintenanceDeferredDone,
             StartupProgressPhase.InstallableMaintenanceDeferredDone);
@@ -4299,41 +4278,9 @@ public partial class MainWindowViewModel : ViewModel,
         {
             startupProgressWorkflowOwner.UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationTotalCount, files.ChartInfoHydrationAppliedCount);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncRequestedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TrackStartupProgressLr2SongDbSyncRequested(files.Lr2SongDbSyncRequestedVersion);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncCompletedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TryCompleteStartupProgressLr2SongDbSync(files.Lr2SongDbSyncCompletedVersion);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncFailedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TryFailStartupProgressLr2SongDbSync(files.Lr2SongDbSyncFailedVersion, files.Lr2SongDbSyncFailureMessage);
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStatusVersion, delegate
         {
             UpdateLr2SongDbSyncRuntimeStatus(files.GetLr2SongDbSyncStatusSnapshot());
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncTotalCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncProcessedCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStage, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStageProcessedCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStageTotalCount, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressLr2SongDbSyncStatus(files.Lr2SongDbSyncTotalCount, files.Lr2SongDbSyncProcessedCount, files.Lr2SongDbSyncStage, files.Lr2SongDbSyncStageProcessedCount, files.Lr2SongDbSyncStageTotalCount);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.PendingEstimateQueueStatusVersion, delegate
         {
@@ -4480,7 +4427,6 @@ public partial class MainWindowViewModel : ViewModel,
                 publishReferenceReceipt: true,
                 operationToken: operationToken);
         }
-        SchedulePostStartupLr2Enrollment("startup_initialization_ready", operationToken);
         startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
             "Initialize:scheduled",
             operationToken,
@@ -4488,14 +4434,15 @@ public partial class MainWindowViewModel : ViewModel,
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
             StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.Lr2SongDbSyncDone,
             StartupProgressPhase.ExternalPlaylistSyncDone,
             StartupProgressPhase.PlaylistReferenceApplied,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
             StartupProgressPhase.InstallableMaintenanceDeferredDone);
+        startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete();
         startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
+        startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
         return true;
     }
 

@@ -572,7 +572,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private void RecomputeLr2SongDbSyncStatusPresentation()
     {
         Lr2SongDbSyncRuntimeStatus status = latestLr2SongDbSyncStatus ?? Lr2SongDbSyncStatusMapper.CreateNone();
-        bool isActive = status.HasWarningStatus && !StartupProgress.IsStartupProgressBlockingLr2SongDbSyncStatus;
+        bool isActive = status.HasWarningStatus && !StartupProgress.IsStartupProgressBlockingDedicatedStatus;
         IsLr2SongDbSyncStatusActive = isActive;
         Lr2SongDbSyncStatusLabel = isActive ? status.StatusText : string.Empty;
         Lr2SongDbSyncStatusSubLabel = isActive ? status.ProgressText : string.Empty;

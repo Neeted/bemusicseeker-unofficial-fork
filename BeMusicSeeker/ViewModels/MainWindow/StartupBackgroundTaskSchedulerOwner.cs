@@ -246,6 +246,20 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
     }
 
+    /// <summary>
+    /// Gets whether no more required-initialization requests may be enrolled in the current generation.
+    /// </summary>
+    internal bool IsRequiredInitializationSchedulingComplete
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return requiredInitializationSchedulingComplete;
+            }
+        }
+    }
+
     internal long CurrentGeneration
     {
         get
@@ -1313,7 +1327,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static bool IsPostInitializationTask(string name)
     {
-        return string.Equals(name, "external_table_catalog", StringComparison.OrdinalIgnoreCase)
+        return string.Equals(name, "lr2_song_db_sync_enrollment", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "external_table_catalog", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)

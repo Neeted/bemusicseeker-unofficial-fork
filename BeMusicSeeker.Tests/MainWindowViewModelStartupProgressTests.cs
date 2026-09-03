@@ -22,10 +22,10 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void StartupProgress_InitialExpectedCounts_ArePublishedByOwner()
     {
-        Assert.AreEqual(14.0, Start(StartupProgressOperationKind.Startup).Maximum);
+        Assert.AreEqual(13.0, Start(StartupProgressOperationKind.Startup).Maximum);
         Assert.AreEqual(6.0, Start(StartupProgressOperationKind.ReloadFileDiff).Maximum);
         Assert.AreEqual(4.0, Start(StartupProgressOperationKind.ScoreOnly).Maximum);
-        Assert.AreEqual(15.0, Start(StartupProgressOperationKind.FullReinitialize).Maximum);
+        Assert.AreEqual(14.0, Start(StartupProgressOperationKind.FullReinitialize).Maximum);
         Assert.AreEqual(5.0, Start(StartupProgressOperationKind.ReloadTables).Maximum);
     }
 
@@ -87,6 +87,34 @@ public sealed class MainWindowViewModelStartupProgressTests
         owner.FailStartupProgressOperation("startup failed before operation");
 
         Assert.IsFalse(owner.IsStartupUiInteractionBlocked);
+    }
+
+    [TestMethod]
+    public async Task StartupProgress_BackgroundTasksWaitForRequiredSchedulingClosure()
+    {
+        bool requiredSchedulingClosed = false;
+        var hideEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHide = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create(
+            completionHideDelay: () =>
+            {
+                hideEntered.TrySetResult(true);
+                return releaseHide.Task;
+            },
+            backgroundTasksIdle: () => true,
+            requiredInitializationSchedulingComplete: () => requiredSchedulingClosed);
+        owner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        CompleteUntilBackground(owner);
+
+        owner.TryCompleteStartupBackgroundTasksPhaseIfIdle(owner.GetActiveStartupProgressOperationToken());
+        Assert.AreNotEqual(Resources.Statusbar_progress_complete, owner.Label);
+
+        requiredSchedulingClosed = true;
+        owner.TryCompleteStartupBackgroundTasksPhaseIfIdle(owner.GetActiveStartupProgressOperationToken());
+        await hideEntered.Task;
+        Assert.AreEqual(Resources.Statusbar_progress_complete, owner.Label);
+
+        releaseHide.TrySetResult(true);
     }
 
     [TestMethod]
@@ -312,6 +340,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             _ => { },
             () => true,
             (_, _) => true,
+            () => true,
             new object());
 
         long startedToken = owner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
@@ -360,29 +389,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         SkipAllOptionalStartupPhases(owner);
         Mark(owner, StartupProgressPhase.StartupBackgroundTasksDone);
 
-        Assert.AreEqual(14.0, owner.Value);
-        Assert.AreEqual(Resources.Statusbar_progress_complete, owner.Label);
-    }
-
-    [TestMethod]
-    public void StartupProgress_BackgroundTasksWaitForRequiredEnrollment()
-    {
-        bool enrollmentReady = false;
-        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create(() => enrollmentReady);
-        owner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
-        owner.TryCompleteStartupProgressLibraryDatabaseLoad(1);
-        owner.TryCompleteStartupProgressLibraryFileEnumeration(1);
-        owner.TryCompleteStartupProgressLibraryFileDiff(1);
-        Mark(owner, StartupProgressPhase.StartupReadyData);
-        Mark(owner, StartupProgressPhase.StartupReadyUi);
-        Mark(owner, StartupProgressPhase.StartupReadyOperable);
-        SkipAllOptionalStartupPhases(owner);
-
-        Mark(owner, StartupProgressPhase.StartupBackgroundTasksDone);
-        Assert.AreNotEqual(Resources.Statusbar_progress_complete, owner.Label);
-
-        enrollmentReady = true;
-        Mark(owner, StartupProgressPhase.StartupBackgroundTasksDone);
+        Assert.AreEqual(13.0, owner.Value);
         Assert.AreEqual(Resources.Statusbar_progress_complete, owner.Label);
     }
 
@@ -430,7 +437,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         owner.TrackStartupProgressChartDigestBackfillRequested(1);
         owner.TryCompleteStartupProgressChartDigestBackfill(1);
 
-        Assert.AreEqual(15.0, owner.Maximum);
+        Assert.AreEqual(14.0, owner.Maximum);
         Assert.AreEqual(valueAfterSkip, owner.Value);
     }
 
@@ -479,33 +486,6 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupProgress_Lr2SongDbSyncUsesDedicatedStageSubLabel()
-    {
-        StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.Startup);
-        CompleteUntilLr2(owner);
-        owner.TrackStartupProgressLr2SongDbSyncRequested(1);
-        owner.UpdateStartupProgressLr2SongDbSyncStatus(432464, 243780, "song_rows", 209000, 209684);
-
-        Assert.AreEqual(Resources.Statusbar_progress_operable_background, owner.Label);
-        Assert.AreEqual("[209000/209684] " + Resources.Statusbar_progress_phase_lr2_song_db_sync + " song rows", owner.SubLabel);
-        Assert.AreEqual(209000.0, owner.Value);
-        Assert.AreEqual(209684.0, owner.Maximum);
-    }
-
-    [TestMethod]
-    public void StartupProgress_Lr2SongDbSyncFailureKeepsFailurePresentation()
-    {
-        StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.Startup);
-        CompleteUntilLr2(owner);
-        owner.TrackStartupProgressLr2SongDbSyncRequested(1);
-        owner.TryFailStartupProgressLr2SongDbSync(1, "startup scan blockers");
-
-        Assert.AreEqual(Resources.Statusbar_progress_failed, owner.Label);
-        Assert.AreEqual("startup scan blockers", owner.SubLabel);
-        Assert.IsTrue(owner.IsFailed);
-    }
-
-    [TestMethod]
     public void Lr2SongDbSyncWarningStatus_IsVisibleWhenStartupProgressFailed()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -521,7 +501,6 @@ public sealed class MainWindowViewModelStartupProgressTests
             new DateTime(2026, 6, 5, 12, 0, 0));
 
         hub.StartupProgress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
-        hub.StartupProgress.TrackStartupProgressLr2SongDbSyncRequested(1);
         hub.UpdateLr2SongDbSyncStatus(status);
         Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
 
@@ -576,7 +555,6 @@ public sealed class MainWindowViewModelStartupProgressTests
             StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.Lr2SongDbSyncDone,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
@@ -608,7 +586,6 @@ public sealed class MainWindowViewModelStartupProgressTests
             StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
             StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.Lr2SongDbSyncDone,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
@@ -879,7 +856,6 @@ public sealed class MainWindowViewModelStartupProgressTests
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
             StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.Lr2SongDbSyncDone,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
@@ -906,36 +882,9 @@ public sealed class MainWindowViewModelStartupProgressTests
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
             StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.Lr2SongDbSyncDone,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone
-        })
-        {
-            Skip(owner, phase);
-        }
-    }
-
-    private static void CompleteUntilLr2(StartupProgressWorkflowOwner owner)
-    {
-        owner.TryCompleteStartupProgressLibraryDatabaseLoad(1);
-        owner.TryCompleteStartupProgressLibraryFileEnumeration(1);
-        owner.TryCompleteStartupProgressLibraryFileDiff(1);
-        Mark(owner, StartupProgressPhase.StartupReadyData);
-        Mark(owner, StartupProgressPhase.StartupReadyUi);
-        Mark(owner, StartupProgressPhase.StartupReadyOperable);
-        foreach (StartupProgressPhase phase in new[]
-        {
-            StartupProgressPhase.PlaylistReferenceApplied,
-            StartupProgressPhase.ExternalPlaylistSyncDone,
-            StartupProgressPhase.PlaylistEntriesHydrationDone,
-            StartupProgressPhase.ChartInfoHydrationDone,
-            StartupProgressPhase.ChartInfoBackfillDone,
-            StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.ScoreHydrationDone,
-            StartupProgressPhase.RankingRefreshDone,
-            StartupProgressPhase.MaintenanceDeferredDone,
-            StartupProgressPhase.InstallableMaintenanceDeferredDone
         })
         {
             Skip(owner, phase);

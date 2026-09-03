@@ -483,25 +483,27 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     }
 
     [TestMethod]
-    public async Task PostInitializationWorkDoesNotBlockRequiredIdleOrRequiredWorker()
+    public async Task Lr2SongDbSyncRequestsUsePostLaneWithoutChangingRequiredIdle()
     {
-        var postEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var postRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var enrollmentEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var enrollmentRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var syncEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var syncRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
 
-        owner.Queue("playlist_library_index_prewarm", "post", null, async () =>
+        owner.Queue("lr2_song_db_sync_enrollment", "post", null, async () =>
         {
-            postEntered.TrySetResult(true);
-            await postRelease.Task.ConfigureAwait(false);
+            enrollmentEntered.TrySetResult(true);
+            await enrollmentRelease.Task.ConfigureAwait(false);
         });
         owner.Start();
 
-        await postEntered.Task;
+        await enrollmentEntered.Task;
         Assert.IsTrue(owner.IsIdle);
         Assert.IsFalse(owner.IsFullyIdle);
 
-        owner.Queue("lr2_song_db_sync", "required", null, () =>
+        owner.Queue("chart_info_hydration", "required", null, () =>
         {
             requiredEntered.TrySetResult(true);
             return Task.CompletedTask;
@@ -510,8 +512,56 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         await WaitUntilAsync(owner, () => owner.IsIdle);
         Assert.IsFalse(owner.IsFullyIdle);
 
-        postRelease.SetResult(true);
+        owner.Queue("lr2_song_db_sync", "post", null, async () =>
+        {
+            syncEntered.TrySetResult(true);
+            await syncRelease.Task.ConfigureAwait(false);
+        });
+        Assert.IsFalse(syncEntered.Task.IsCompleted);
+
+        enrollmentRelease.SetResult(true);
+        await syncEntered.Task;
+        Assert.IsTrue(owner.IsIdle);
+
+        syncRelease.SetResult(true);
         await WaitForFullyIdleAsync(owner);
+
+        string summary = owner.BuildSummaryLog(0L);
+        StringAssert.Contains(summary, "lr2_song_db_sync_enrollment{queued=1,started=1,completed=1,failed=0,lastStatus=done,lastMs=");
+        StringAssert.Contains(summary, "lr2_song_db_sync{queued=1,started=1,completed=1,failed=0,lastStatus=done,lastMs=");
+        StringAssert.Contains(summary, "lane=post_initialization_default");
+    }
+
+    [TestMethod]
+    public async Task Lr2SongDbSyncPostClassificationPreservesShutdownDrain()
+    {
+        var syncEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var enrollmentDiscarded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int enrollmentRuns = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("lr2_song_db_sync", "sync", null, () =>
+        {
+            syncEntered.TrySetResult(true);
+            return Task.CompletedTask;
+        });
+        owner.Queue(
+            "lr2_song_db_sync_enrollment",
+            "enrollment",
+            null,
+            () =>
+            {
+                Interlocked.Increment(ref enrollmentRuns);
+                return Task.CompletedTask;
+            },
+            _ => enrollmentDiscarded.TrySetResult(true));
+
+        owner.RequestShutdown("window_close");
+        await enrollmentDiscarded.Task;
+        await syncEntered.Task;
+        await WaitForFullyIdleAsync(owner);
+
+        Assert.AreEqual(0, Volatile.Read(ref enrollmentRuns));
     }
 
     [TestMethod]
@@ -563,7 +613,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
         Assert.IsFalse(postEntered.Task.IsCompleted);
 
-        owner.Queue("lr2_song_db_sync", "required", null, async () =>
+        owner.Queue("chart_info_hydration", "required", null, async () =>
         {
             requiredEntered.TrySetResult(true);
             await requiredRelease.Task.ConfigureAwait(false);
@@ -600,7 +650,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             owner.MarkPostInitializationSchedulingComplete();
             Assert.IsFalse(maintenanceEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
 
-            owner.Queue("lr2_song_db_sync", "late-required", null, async () =>
+            owner.Queue("chart_info_hydration", "late-required", null, async () =>
             {
                 requiredEntered.TrySetResult(true);
                 await requiredRelease.Task.ConfigureAwait(false);
@@ -721,7 +771,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         owner.MarkPostInitializationSchedulingComplete();
         Assert.IsFalse(repairEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
 
-        owner.Queue("lr2_song_db_sync", "late-required", null, async () =>
+        owner.Queue("chart_info_hydration", "late-required", null, async () =>
         {
             requiredEntered.TrySetResult(true);
             await requiredRelease.Task.ConfigureAwait(false);

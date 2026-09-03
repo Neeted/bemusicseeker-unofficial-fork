@@ -20,7 +20,6 @@ internal sealed class StartupProgressVersionSnapshot
     internal int ChartInfoBackfillCompletedVersion { get; init; }
     internal int ChartInfoHydrationCompletedVersion { get; init; }
     internal int ChartInfoBackfillRequestedVersion { get; init; }
-    internal int Lr2SongDbSyncCompletedVersion { get; init; }
     internal int PlaylistEntriesHydrationCompletedVersion { get; init; }
     internal int LibraryDatabaseLoadCompletedVersion { get; init; }
     internal int LibraryFileEnumerationCompletedVersion { get; init; }
@@ -36,7 +35,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     private readonly Action<long> startupInitializationCompleted;
     private readonly Func<bool> backgroundTasksIdle;
     private readonly Func<long, long, bool> backgroundTasksIdleSnapshotCurrent;
-    private readonly Func<bool> backgroundTaskEnrollmentReady;
+    private readonly Func<bool> requiredInitializationSchedulingComplete;
     private readonly Func<Task> completionHideDelay;
     private readonly object backgroundTaskProgressSynchronization;
     private readonly object startupProgressLock = new();
@@ -60,8 +59,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     /// <param name="startupInitializationCompleted">Publishes completion of required startup initialization.</param>
     /// <param name="backgroundTasksIdle">Reports whether startup background tasks are currently idle.</param>
     /// <param name="backgroundTasksIdleSnapshotCurrent">Validates a scheduler generation and revision as an idle snapshot.</param>
+    /// <param name="requiredInitializationSchedulingComplete">Reports whether required task enrollment is closed for the current generation.</param>
     /// <param name="backgroundTaskProgressSynchronization">Synchronizes scheduler enrollment with progress completion.</param>
-    /// <param name="backgroundTaskEnrollmentReady">Reports whether required background-task enrollment is complete.</param>
     /// <param name="completionHideDelay">
     /// Waits before a completed operation is hidden. When omitted, the production two-second delay is used.
     /// </param>
@@ -73,8 +72,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         Action<long> startupInitializationCompleted,
         Func<bool> backgroundTasksIdle,
         Func<long, long, bool> backgroundTasksIdleSnapshotCurrent,
+        Func<bool> requiredInitializationSchedulingComplete,
         object backgroundTaskProgressSynchronization,
-        Func<bool> backgroundTaskEnrollmentReady = null,
         Func<Task> completionHideDelay = null)
     {
         this.versionSnapshotProvider = versionSnapshotProvider ?? throw new ArgumentNullException(nameof(versionSnapshotProvider));
@@ -86,7 +85,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         this.backgroundTasksIdle = backgroundTasksIdle ?? throw new ArgumentNullException(nameof(backgroundTasksIdle));
         this.backgroundTasksIdleSnapshotCurrent = backgroundTasksIdleSnapshotCurrent
             ?? throw new ArgumentNullException(nameof(backgroundTasksIdleSnapshotCurrent));
-        this.backgroundTaskEnrollmentReady = backgroundTaskEnrollmentReady ?? (() => true);
+        this.requiredInitializationSchedulingComplete = requiredInitializationSchedulingComplete
+            ?? throw new ArgumentNullException(nameof(requiredInitializationSchedulingComplete));
         this.completionHideDelay = completionHideDelay
             ?? (() => Task.Delay(TimeSpan.FromSeconds(2)));
         this.backgroundTaskProgressSynchronization = backgroundTaskProgressSynchronization
@@ -165,14 +165,16 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     {
         get { lock (startupProgressLock) { return startupProgressState.IsRetryableFailure; } }
     }
-    internal bool IsStartupProgressBlockingLr2SongDbSyncStatus
+    /// <summary>
+    /// Gets whether the active non-failed startup operation temporarily owns the status presentation.
+    /// </summary>
+    internal bool IsStartupProgressBlockingDedicatedStatus
     {
         get
         {
             lock (startupProgressLock)
             {
-                return startupProgressState.IsActive && !startupProgressState.IsFailed
-                    && CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone);
+                return startupProgressState.IsActive && !startupProgressState.IsFailed;
             }
         }
     }
@@ -208,15 +210,15 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         long schedulerGeneration = 0L,
         long schedulerRevision = 0L)
     {
-        if (!backgroundTaskEnrollmentReady())
-        {
-            return;
-        }
         bool marked = false;
         lock (backgroundTaskProgressSynchronization)
         {
             lock (startupProgressLock)
             {
+                if (!requiredInitializationSchedulingComplete())
+                {
+                    return;
+                }
                 if (schedulerGeneration != 0L
                     ? !backgroundTasksIdleSnapshotCurrent(schedulerGeneration, schedulerRevision)
                     : !backgroundTasksIdle())
@@ -237,7 +239,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         }
         if (marked)
         {
-            RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingLr2SongDbSyncStatus));
+            RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
             RecomputeStartupProgressPresentation();
         }
     }
@@ -283,7 +285,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             ChartDigestBackfillBaselineCompletedVersion = versionSnapshot.ChartDigestBackfillCompletedVersion,
             ChartInfoBackfillBaselineCompletedVersion = versionSnapshot.ChartInfoBackfillCompletedVersion,
             ChartInfoHydrationBaselineCompletedVersion = versionSnapshot.ChartInfoHydrationCompletedVersion,
-            Lr2SongDbSyncBaselineCompletedVersion = versionSnapshot.Lr2SongDbSyncCompletedVersion,
             PlaylistEntriesHydrationBaselineCompletedVersion = versionSnapshot.PlaylistEntriesHydrationCompletedVersion,
             LibraryDatabaseLoadBaselineCompletedVersion = versionSnapshot.LibraryDatabaseLoadCompletedVersion,
             LibraryFileEnumerationBaselineCompletedVersion = versionSnapshot.LibraryFileEnumerationCompletedVersion,
@@ -301,7 +302,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         RaiseStartupProgressPropertyChanged(nameof(IsFailed));
         RaiseStartupProgressPropertyChanged(nameof(IsRetryableFailure));
         RecomputeStartupProgressPresentation(operationToken);
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingLr2SongDbSyncStatus));
+        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         return state.OperationToken;
     }
 
@@ -322,7 +323,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             startupProgressState.FailureSubLabel = subLabel ?? string.Empty;
             startupProgressState.CompletionHideScheduled = false;
         }
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingLr2SongDbSyncStatus));
+        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         RecomputeStartupProgressPresentation();
     }
 
@@ -357,11 +358,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     /// <param name="phase">完了したフェーズ。</param>
     internal void MarkStartupProgressPhaseCompleted(StartupProgressPhase phase, long operationToken = 0L)
     {
-        if (phase == StartupProgressPhase.StartupBackgroundTasksDone
-            && !backgroundTaskEnrollmentReady())
-        {
-            return;
-        }
         bool marked = false;
         lock (startupProgressLock)
         {
@@ -383,7 +379,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         {
             return;
         }
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingLr2SongDbSyncStatus));
+        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         RecomputeStartupProgressPresentation(operationToken);
         if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
         {
@@ -393,11 +389,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
 
     internal void SkipStartupProgressPhaseIfExpected(StartupProgressPhase phase, string reason, long operationToken = 0L)
     {
-        if (phase == StartupProgressPhase.StartupBackgroundTasksDone
-            && !backgroundTaskEnrollmentReady())
-        {
-            return;
-        }
         bool skipped = false;
         StartupProgressOperationKind operationKind = StartupProgressOperationKind.None;
         lock (startupProgressLock)
@@ -416,7 +407,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         }
         if (skipped)
         {
-            RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingLr2SongDbSyncStatus));
+            RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
             log?.Invoke("startup_progress_phase_skipped operation=" + operationKind + " phase=" + phase + " reason=" + (reason ?? string.Empty));
             RecomputeStartupProgressPresentation(operationToken);
             if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
@@ -508,7 +499,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             log?.Invoke("startup_progress_request_ignored operation=" + operationKind + " phase=" + phase + " reason=" + ignoredReason + " requestReason=" + (reason ?? string.Empty) + " version=" + version);
             return false;
         }
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingLr2SongDbSyncStatus));
+        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         if (requestAfterSkip)
         {
             log?.Invoke("startup_progress_request_after_skip operation=" + operationKind + " phase=" + phase + " requestReason=" + (reason ?? string.Empty) + " version=" + version);
@@ -713,16 +704,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             operationToken);
     }
 
-    internal void TrackStartupProgressLr2SongDbSyncRequested(int requestedVersion)
-    {
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.Lr2SongDbSyncDone,
-            requestedVersion,
-            "lr2_song_db_sync",
-            state => requestedVersion > state.Lr2SongDbSyncBaselineCompletedVersion,
-            state => state.RequiredLr2SongDbSyncCompletedVersion = Math.Max(state.RequiredLr2SongDbSyncCompletedVersion, requestedVersion));
-    }
-
     internal void TrackStartupProgressPlaylistEntriesHydrationRequested(int requestedVersion, long operationToken = 0L)
     {
         TryTrackStartupProgressPhaseRequest(
@@ -761,7 +742,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         {
             return;
         }
-        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingLr2SongDbSyncStatus));
+        RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingDedicatedStatus));
         RecomputeStartupProgressPresentation(operationToken);
         MarkStartupProgressPhaseCompleted(StartupProgressPhase.PlaylistReferenceApplied, operationToken);
     }
@@ -834,28 +815,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             }
             startupProgressState.ChartInfoHydrationTotalCount = totalCount;
             startupProgressState.ChartInfoHydrationAppliedCount = appliedCount;
-        }
-        RecomputeStartupProgressPresentation();
-    }
-
-    internal void UpdateStartupProgressLr2SongDbSyncStatus(
-        int totalCount,
-        int processedCount,
-        string stage,
-        int stageProcessedCount,
-        int stageTotalCount)
-    {
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone))
-            {
-                return;
-            }
-            startupProgressState.Lr2SongDbSyncTotalCount = totalCount;
-            startupProgressState.Lr2SongDbSyncProcessedCount = processedCount;
-            startupProgressState.Lr2SongDbSyncStage = stage ?? string.Empty;
-            startupProgressState.Lr2SongDbSyncStageProcessedCount = Math.Max(0, stageProcessedCount);
-            startupProgressState.Lr2SongDbSyncStageTotalCount = Math.Max(0, stageTotalCount);
         }
         RecomputeStartupProgressPresentation();
     }
@@ -971,54 +930,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         if (shouldComplete)
         {
             MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartInfoHydrationDone, operationToken);
-        }
-    }
-
-    internal void TryCompleteStartupProgressLr2SongDbSync(int completedVersion)
-    {
-        bool shouldComplete = false;
-        long operationToken = 0L;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredLr2SongDbSyncCompletedVersion;
-            operationToken = startupProgressState.OperationToken;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.Lr2SongDbSyncDone, operationToken);
-        }
-    }
-
-    internal void TryFailStartupProgressLr2SongDbSync(int failedVersion, string message)
-    {
-        bool shouldFail = false;
-        long operationToken = 0L;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone))
-            {
-                return;
-            }
-            operationToken = startupProgressState.OperationToken;
-            shouldFail = failedVersion >= startupProgressState.RequiredLr2SongDbSyncCompletedVersion
-                && failedVersion > startupProgressState.Lr2SongDbSyncBaselineCompletedVersion;
-            if (shouldFail)
-            {
-                startupProgressState.IsFailed = true;
-                startupProgressState.FailureSubLabel = string.IsNullOrWhiteSpace(message)
-                    ? GetStartupProgressSubLabel(startupProgressState)
-                    : message;
-                startupProgressState.CompletionHideScheduled = false;
-            }
-        }
-        if (shouldFail && IsStartupProgressOperationTokenCurrent(operationToken))
-        {
-            RaiseStartupProgressPropertyChanged(nameof(IsStartupProgressBlockingLr2SongDbSyncStatus));
-            RecomputeStartupProgressPresentation();
         }
     }
 
@@ -1174,11 +1085,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             {
                 maximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
                 value = CountCompletedExpectedStartupProgressPhases(state);
-                if (TryGetStartupProgressStageValue(state, out double stageValue, out double stageMaximum))
-                {
-                    value = stageValue;
-                    maximum = stageMaximum;
-                }
                 bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
                 bool operationCompleted = !state.IsFailed && AreExpectedStartupProgressPhasesCompleted(state);
                 operationCompletedForLog = operationCompleted;
@@ -1361,20 +1267,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             string fileName = string.IsNullOrWhiteSpace(state.ChartDigestBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartDigestBackfillCurrentPath);
             return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info, state.ChartDigestBackfillProcessedCount, state.ChartDigestBackfillTotalCount, fileName);
         }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.Lr2SongDbSyncDone))
-        {
-            int displayedProcessedCount = state.Lr2SongDbSyncStageTotalCount > 0
-                ? state.Lr2SongDbSyncStageProcessedCount
-                : state.Lr2SongDbSyncProcessedCount;
-            int displayedTotalCount = state.Lr2SongDbSyncStageTotalCount > 0
-                ? state.Lr2SongDbSyncStageTotalCount
-                : state.Lr2SongDbSyncTotalCount;
-            return FormatStartupProgressCountLabel(
-                BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_song_db_sync,
-                displayedProcessedCount,
-                displayedTotalCount,
-                FormatLr2SongDbSyncStageLabel(state.Lr2SongDbSyncStage));
-        }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) || !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone))
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_ref;
@@ -1396,31 +1288,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_installable_maintenance;
         }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
-    }
-
-    internal static string FormatLr2SongDbSyncStageLabel(string stage)
-    {
-        return string.IsNullOrWhiteSpace(stage)
-            ? string.Empty
-            : stage.Replace('_', ' ');
-    }
-
-    internal static bool TryGetStartupProgressStageValue(StartupProgressState state, out double value, out double maximum)
-    {
-        value = 0.0;
-        maximum = 1.0;
-        if (state == null
-            || !state.IsActive
-            || state.IsFailed
-            || !CanCompleteStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone)
-            || state.Lr2SongDbSyncStageTotalCount <= 0)
-        {
-            return false;
-        }
-
-        maximum = Math.Max(1.0, state.Lr2SongDbSyncStageTotalCount);
-        value = Math.Max(0.0, Math.Min(maximum, state.Lr2SongDbSyncStageProcessedCount));
-        return true;
     }
 
     internal static string GetStartupProgressLibraryLoadSubLabel(StartupProgressState state)
@@ -1513,7 +1380,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
@@ -1535,7 +1401,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                                 | StartupProgressPhase.ChartDigestBackfillDone
                                 | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone
-                                | StartupProgressPhase.Lr2SongDbSyncDone
                                 | StartupProgressPhase.PlaylistEntriesHydrationDone
                                 | StartupProgressPhase.StartupBackgroundTasksDone,
             StartupProgressOperationKind.FullReinitialize => StartupProgressPhase.CoreInitializeStarted
@@ -1551,7 +1416,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                                 | StartupProgressPhase.ChartDigestBackfillDone
                                 | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone
-                                | StartupProgressPhase.Lr2SongDbSyncDone
                                 | StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressOperationKind.ReloadFileDiff => StartupProgressPhase.CoreInitializeStarted
                                 | StartupProgressPhase.LibraryFileEnumerationDone
@@ -1590,7 +1454,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.Lr2SongDbSyncDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
@@ -1697,7 +1560,6 @@ internal enum StartupProgressPhase
     LibraryFileEnumerationDone = 16384,
     LibraryFileDiffDone = 32768,
     InstallableMaintenanceDeferredDone = 65536,
-    Lr2SongDbSyncDone = 131072,
     StartupBackgroundTasksDone = 262144
 }
 
@@ -1749,8 +1611,6 @@ internal sealed class StartupProgressState
 
     internal int ChartInfoHydrationBaselineCompletedVersion;
 
-    internal int Lr2SongDbSyncBaselineCompletedVersion;
-
     internal int PlaylistEntriesHydrationBaselineCompletedVersion;
 
     internal int LibraryDatabaseLoadBaselineCompletedVersion;
@@ -1777,8 +1637,6 @@ internal sealed class StartupProgressState
 
     internal int RequiredChartInfoHydrationCompletedVersion;
 
-    internal int RequiredLr2SongDbSyncCompletedVersion;
-
     internal int ChartDigestBackfillTotalCount;
 
     internal int ChartDigestBackfillProcessedCount;
@@ -1794,16 +1652,6 @@ internal sealed class StartupProgressState
     internal int ChartInfoHydrationTotalCount;
 
     internal int ChartInfoHydrationAppliedCount;
-
-    internal int Lr2SongDbSyncTotalCount;
-
-    internal int Lr2SongDbSyncProcessedCount;
-
-    internal string Lr2SongDbSyncStage = string.Empty;
-
-    internal int Lr2SongDbSyncStageProcessedCount;
-
-    internal int Lr2SongDbSyncStageTotalCount;
 
     internal BMSLibrary.LibraryInitializationProgressStage LibraryInitializationProgressStage;
 
