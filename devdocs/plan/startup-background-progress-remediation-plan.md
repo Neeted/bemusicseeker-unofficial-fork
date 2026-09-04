@@ -34,7 +34,7 @@ repair、`.lr2folder` file diff、LR2 folder-table reconciliation の長時間�
 | --- | --- | --- | --- | --- | --- |
 | U1 LR2 preparation status | accepted automatic preparation は直ちに non-retryable Running/preparing となり、retry button を露出しない | LR2 request coordinator/status publication | `SBG-01` | focused LR2 Quick + static review | Complete |
 | U2 prewarm ordering | virtual-order prewarm は既登録 output work と enrollment が追加する LR2 work の後に開始し、LR2 no-op でも完了する | startup background scheduler/warmup | `SBG-02` | scheduler Quick + static review | Complete |
-| U3 custom-folder repair progress | startup repair は bounded table progress を公開し、zero target/terminal で非表示へ戻る | playlist repair/progress hub | `SBG-03` | playlist + hub Quick + static review | Pending |
+| U3 custom-folder repair progress | startup repair は bounded table progress を公開し、zero target/terminal で非表示へ戻る | playlist repair/progress hub | `SBG-03` | playlist + hub Quick + static review | Complete |
 | U4 folder progress | `.lr2folder` file diff と full LR2 folder reconciliation が bounded intermediate progress を公開する | library scan/LR2 folder reconciliation | `SBG-04A`, `SBG-04B` | LR2/library Quick + static review | Pending |
 | U5 background presentation | required gauge 後も scheduler-managed post work が連続して表示され、composite terminal だけで消える | startup lifecycle/progress hub/WPF | `SBG-05` | startup/hub/WPF Quick + Functional + static review | Pending |
 
@@ -162,3 +162,18 @@ committed before the next unit begins. Final integration runs one Functional ver
   reaches actual required completion while post work is active and proves that the warmup reservation count remains
   zero until first full idle. Consolidated focused Quick artifact after those corrections:
   `artifacts/verification/tests-quick-20260905-025655`.
+- U3 `SBG-03`: the progress reporter is a new composition seam, so the U2 baseline cannot compile the production-route
+  test. Two targeted mutants were exercised instead. Disconnecting the existing maintenance-owner callback failed the
+  multi-target test because no active intermediate was published
+  (`artifacts/verification/tests-quick-20260905-031348`); allowing the throwing observer to escape failed before the
+  durable repair assertions (`artifacts/verification/tests-quick-20260905-031456`). The implemented route publishes
+  only strict intermediate snapshots through the existing playlist progress hub, isolates observer failure, and uses
+  the queued repair's `finally` for inactive terminal publication. A contract correction that rejects an early
+  inactive snapshot from the maintenance owner's terminal callback failed before that callback was filtered
+  (`artifacts/verification/tests-quick-20260905-032102`). Multi-target, zero-target, busy-admission, and MainWindow
+  service-attachment coverage then passed in the consolidated focused Quick artifact
+  `artifacts/verification/tests-quick-20260905-032150`. Static review identified missing coverage for a repair failure
+  after active progress. The production route now injects an LR2 synchronization failure after strict intermediate
+  publication, preserves that exact failure, and requires final inactive cleanup. Removing the `finally` publication
+  failed this case (`artifacts/verification/tests-quick-20260905-032657`); the corrected four-test set passed in
+  `artifacts/verification/tests-quick-20260905-032750`.

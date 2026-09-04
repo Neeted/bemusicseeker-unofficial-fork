@@ -779,6 +779,68 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupServiceAttachmentRoutesCustomFolderRepairProgressToHub()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_StartupRepairProgress_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        MainWindowViewModel? owner = null;
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var settings = new Settings();
+            TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+            owner = MainWindowViewModelTestFactory.Create(settings);
+            var profile = new LibraryProfile(
+                operationModeLR2DB: false,
+                songDbPath,
+                [tempDirectory],
+                lr2ConfigProvider: null,
+                lr2ScoreDbPath: null,
+                canWriteLr2Config: false,
+                canOutputLr2Folders: false,
+                canUseLr2Backup: false,
+                canUseLr2IrScore: false);
+            IStartupLibraryApplicationPort applicationPort = owner;
+            applicationPort.AttachStartupLibrary(library);
+            applicationPort.AttachStartupServices(new StartupLibraryServices(profile, library, playlist));
+
+            Assert.IsNotNull(playlist.CustomFolderOutputRepairProgressReporter);
+            playlist.CustomFolderOutputRepairProgressReporter(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = true,
+                TotalTableCount = 3,
+                CompletedTableCount = 1,
+                CurrentTableName = "repair target"
+            });
+            TestUiDispatcherHost.Drain();
+
+            Assert.IsTrue(owner.ProgressHub.IsPlaylistSyncProgressActive);
+            Assert.AreEqual(3.0, owner.ProgressHub.PlaylistSyncProgressMaximum);
+            Assert.AreEqual(1.0, owner.ProgressHub.PlaylistSyncProgressValue);
+            Assert.AreEqual("repair target", owner.ProgressHub.PlaylistSyncProgressSubLabel);
+        }
+        finally
+        {
+            owner?.SettingDialog.Dispose();
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void StartupReadyUiMask_RequiresInstallTreeOnly()
     {
         Assert.IsFalse(StartupPresentationPolicy.IsReadyUiMaskSatisfied(false, true, true));

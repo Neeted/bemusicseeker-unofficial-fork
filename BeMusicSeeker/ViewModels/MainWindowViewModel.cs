@@ -4053,6 +4053,12 @@ public partial class MainWindowViewModel : ViewModel,
 
         files = services.Library;
         tables = services.Playlist;
+        files.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
+        files.StartupBackgroundTaskReporter = startupBackgroundTaskScheduler.Report;
+        files.StartupBackgroundWorkSnapshotProvider = startupBackgroundTaskScheduler.CaptureWorkSnapshot;
+        tables.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
+        tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
+        tables.CustomFolderOutputRepairProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
         ShellShutdownWorkflow.AttachPlaylist(tables);
         PlaylistWorkspace.RefreshPlaylistTreeTables(tables, files);
         PlaylistWorkspace.SetDetailDataSource(
@@ -4142,11 +4148,6 @@ public partial class MainWindowViewModel : ViewModel,
                 this);
             files = libraryServices.Library;
             tables = libraryServices.Playlist;
-            files.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
-            files.StartupBackgroundTaskReporter = startupBackgroundTaskScheduler.Report;
-            files.StartupBackgroundWorkSnapshotProvider = startupBackgroundTaskScheduler.CaptureWorkSnapshot;
-            tables.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
-            tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
             LibraryFolderTree.AttachLibrary(files);
             InstallTree.AttachLibrary(files);
             MaintenanceTree.AttachLibrary(files);

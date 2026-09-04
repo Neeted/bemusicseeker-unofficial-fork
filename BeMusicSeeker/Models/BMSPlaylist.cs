@@ -189,6 +189,11 @@ public partial class BMSPlaylist : ObservableObject
 
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
 
+    /// <summary>
+    /// Publishes best-effort startup custom-folder repair progress to the shell.
+    /// </summary>
+    internal Action<PlaylistSyncProgressSnapshot> CustomFolderOutputRepairProgressReporter { get; set; }
+
     internal PlaylistBmtOutputOwner BmtOutput => bmtOutput;
 
     internal PlaylistExternalSyncOwner ExternalSyncOwner => externalSyncOwner;
@@ -990,15 +995,32 @@ public partial class BMSPlaylist : ObservableObject
             return;
         }
 
+        Action<PlaylistSyncProgressSnapshot> progressReporter = CustomFolderOutputRepairProgressReporter;
+
         Task work()
         {
-            if (IsShutdownRequested)
+            try
             {
-                LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
+                if (IsShutdownRequested)
+                {
+                    LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
+                    return Task.CompletedTask;
+                }
+                RepairMissingCustomFolderOutputsAfterHydrationCore(
+                    reason,
+                    verifyRootOutputDirectoryRows,
+                    settings,
+                    (processed, total, tableName) => PublishCustomFolderOutputRepairProgress(
+                        progressReporter,
+                        processed,
+                        total,
+                        tableName));
                 return Task.CompletedTask;
             }
-            RepairMissingCustomFolderOutputsAfterHydrationCore(reason, verifyRootOutputDirectoryRows, settings);
-            return Task.CompletedTask;
+            finally
+            {
+                PublishCustomFolderOutputRepairProgress(progressReporter, 0, 0, string.Empty);
+            }
         }
 
         if (StartupBackgroundTaskScheduler != null)
@@ -2359,7 +2381,8 @@ public partial class BMSPlaylist : ObservableObject
     private int RepairMissingCustomFolderOutputsAfterHydrationCore(
         string reason,
         bool verifyRootOutputDirectoryRows,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings,
+        Action<int, int, string> progressCallback = null)
     {
         if (settings == null)
         {
@@ -2439,7 +2462,8 @@ public partial class BMSPlaylist : ObservableObject
                     buildPreparedDataSurface: false,
                     yieldBetweenTables: false,
                     syncMaterialization: request => SyncCustomFolderRowsBatch(request, mutationCapability),
-                    settings: settings)
+                    settings: settings,
+                    progressCallback: progressCallback)
                     .GetAwaiter()
                     .GetResult();
         }
@@ -2458,6 +2482,50 @@ public partial class BMSPlaylist : ObservableObject
                 "Custom-folder output could not verify one or more existing files during hydration repair.");
         }
         return result.ReOutputCount;
+    }
+
+    private static void PublishCustomFolderOutputRepairProgress(
+        Action<PlaylistSyncProgressSnapshot> progressReporter,
+        int processed,
+        int total,
+        string tableName)
+    {
+        if (progressReporter == null)
+        {
+            return;
+        }
+
+        bool isInactive = total == 0 && processed == 0;
+        bool isActive = total > 0 && processed > 0 && processed < total;
+        if (!isInactive && !isActive)
+        {
+            return;
+        }
+
+        try
+        {
+            progressReporter(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = isActive,
+                TotalTableCount = isActive ? total : 0,
+                CompletedTableCount = isActive ? Math.Min(processed, total) : 0,
+                CurrentTableName = isActive ? tableName ?? string.Empty : string.Empty,
+                LabelFormat = Resources.Custom_folder_output_progress_label_format,
+                SingleLabel = Resources.Custom_folder_output_progress_single_label
+            });
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                LogPlaylistPerformance("playlist_custom_folder_output_repair progress_publication_failed"
+                    + " exception=" + exception.GetType().Name);
+            }
+            catch
+            {
+                // Progress and its diagnostic are both best-effort; repair owns the durable outcome.
+            }
+        }
     }
 
     private List<CustomFolderOutputProjection> CreateCustomFolderOutputRepairPlans(

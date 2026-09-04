@@ -1088,6 +1088,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             statusRepository.PersistCustomFolderOutputStatusRows(seededStatusRows.Values);
 
             var scheduled = new List<(string Owner, Func<Task> Work)>();
+            var repairProgress = new List<PlaylistSyncProgressSnapshot>();
             object schedulerSync = new();
             PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt? receipt = null;
             int completionVersionAtReceipt = -1;
@@ -1103,6 +1104,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                     scheduled.Add((owner, work));
                 }
                 return true;
+            };
+            playlist.CustomFolderOutputRepairProgressReporter = snapshot =>
+            {
+                repairProgress.Add(snapshot);
+                throw new InvalidOperationException("deterministic progress observer failure");
             };
 
             playlist.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
@@ -1143,6 +1149,128 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual(tableB.Output_dir, Path.GetFileName(statusB!.OutputDirectory.TrimEnd(Path.DirectorySeparatorChar)));
             Assert.IsFalse(string.IsNullOrWhiteSpace(statusA.PhysicalMtimeSignature));
             Assert.IsFalse(string.IsNullOrWhiteSpace(statusB.PhysicalMtimeSignature));
+            PlaylistSyncProgressSnapshot[] activeProgress = repairProgress
+                .Where(snapshot => snapshot.IsActive)
+                .ToArray();
+            Assert.IsTrue(activeProgress.Length > 0);
+            Assert.AreEqual(1, activeProgress.Select(snapshot => snapshot.TotalTableCount).Distinct().Count());
+            Assert.IsTrue(activeProgress.All(snapshot => snapshot.TotalTableCount > 0));
+            Assert.IsTrue(activeProgress.All(snapshot => snapshot.CompletedTableCount > 0));
+            Assert.IsTrue(activeProgress.All(snapshot => snapshot.CompletedTableCount < snapshot.TotalTableCount));
+            Assert.IsTrue(activeProgress
+                .Zip(activeProgress.Skip(1), (previous, current) =>
+                    current.CompletedTableCount >= previous.CompletedTableCount)
+                .All(nondecreasing => nondecreasing));
+            Assert.IsTrue(repairProgress.Take(repairProgress.Count - 1).All(snapshot => snapshot.IsActive));
+            Assert.IsFalse(repairProgress[^1].IsActive);
+
+            repairProgress.Clear();
+            Dictionary<int, CustomFolderOutputStatusRow> staleStatusRows =
+                statusRepository.ReadCustomFolderOutputStatusRows();
+            foreach (CustomFolderOutputStatusRow row in staleStatusRows.Values)
+            {
+                row.PhysicalMtimeSignature = "stale-before-failure";
+            }
+            statusRepository.PersistCustomFolderOutputStatusRows(staleStatusRows.Values);
+            var expectedRepairFailure = new InvalidOperationException("deterministic startup repair failure");
+            synchronization.Failure = expectedRepairFailure;
+
+            playlist.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
+            (string Owner, Func<Task> Work) failingHydrationWork;
+            lock (schedulerSync)
+            {
+                failingHydrationWork = scheduled.Last(item => item.Owner == "playlist_entries_hydration");
+            }
+            await failingHydrationWork.Work();
+
+            (string Owner, Func<Task> Work) failingRepairWork;
+            lock (schedulerSync)
+            {
+                failingRepairWork = scheduled.Last(item => item.Owner == "playlist_custom_folder_output_repair");
+            }
+            InvalidOperationException actualRepairFailure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                failingRepairWork.Work);
+
+            Assert.AreSame(expectedRepairFailure, actualRepairFailure);
+            Assert.IsTrue(repairProgress.Any(snapshot => snapshot.IsActive));
+            Assert.IsTrue(repairProgress.Take(repairProgress.Count - 1).All(snapshot => snapshot.IsActive));
+            Assert.IsFalse(repairProgress[^1].IsActive);
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            Settings.Default.LR2RootPath = previousLr2RootPath;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadTables_ZeroTargetRepairPublishesOnlyInactiveProgress()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string lr2RootPath = Path.Combine(tempDirectory, "LR2");
+            string bmsRoot = Path.Combine(tempDirectory, "BMS");
+            string outputBaseDir = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            Directory.CreateDirectory(bmsRoot);
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2RootPath = lr2RootPath;
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            LR2Config config = CreateLr2Config(lr2RootPath, bmsRoot);
+            CustomFolderOutputSettingsSnapshot repairSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = lr2RootPath,
+                LR2CustomFolderOutputBaseDir = outputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                () => config,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => repairSettings,
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                    songDbPath,
+                    CustomFolderOutputPhysicalSurface.Empty));
+            var scheduled = new List<(string Owner, Func<Task> Work)>();
+            var repairProgress = new List<PlaylistSyncProgressSnapshot>();
+            playlist.StartupBackgroundTaskScheduler = (owner, _, _, work) =>
+            {
+                scheduled.Add((owner, work));
+                return true;
+            };
+            playlist.CustomFolderOutputRepairProgressReporter = repairProgress.Add;
+
+            playlist.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
+            await scheduled.Single(item => item.Owner == "playlist_entries_hydration").Work();
+            await scheduled.Single(item => item.Owner == "playlist_custom_folder_output_repair").Work();
+
+            Assert.IsTrue(repairProgress.Count > 0);
+            Assert.IsFalse(repairProgress.Any(snapshot => snapshot.IsActive));
+            Assert.IsFalse(repairProgress[^1].IsActive);
         }
         finally
         {
