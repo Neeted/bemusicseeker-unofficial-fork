@@ -16,7 +16,7 @@
 
 `startup_initialization_complete` は、すべての起動後処理が終わったという意味ではない。通常利用に必要な local state の完了を表す。自動 URL 補完、playlist reference apply、external table / playlist sync、custom-folder physical consistency audit、beatoraja export、仮想 sort prewarm などは post-initialization work として別に観測する。
 
-この分離は計測値だけを短く見せるためのものではない。startup scheduler に登録された post-initialization task は `startup_ready_operable` 直後から required task と並行して開始でき、`startup_background_summary` と `startup_post_initialization_maintenance_complete` で完了を追跡する。`playlist_virtual_order_prewarm` のように required completion 後にのみ開始する best-effort warmup もある。scheduler 外で動く ranking/XML refresh と遅延 presentation flush は、それぞれの lifecycle marker / phase で追跡し、post marker から完了を推測しない。
+この分離は計測値だけを短く見せるためのものではない。startup scheduler に登録された post-initialization task は `startup_ready_operable` 直後から required task と並行して開始でき、`startup_background_summary` と `startup_post_initialization_maintenance_complete` で完了を追跡する。`playlist_virtual_order_prewarm` は pure cache warmup なので、post scheduling が閉じ、既登録 task と enrollment から動的に追加された LR2 同期を含めて scheduler が fully idle になった後にだけ登録する。scheduler 外で動く ranking/XML refresh と遅延 presentation flush は、それぞれの lifecycle marker / phase で追跡し、post marker から完了を推測しない。
 
 2026-08-01 の約 21 万譜面環境では、`folder-r2r` / `bundle-r2r` の PC 起動後初回・2回目とも、導入可能および操作可能が約 22 秒、required initialization complete が約 31～33 秒であった。旧 cold-start の約 100 秒化は、optional library-folder refresh が operability を gate していたためであり、現行実装では依存を除去している。数値は環境依存であり、仕様上の合否値ではない。
 
@@ -58,7 +58,11 @@ flowchart TD
     P1 --> P2[folder tree / playlist index]
     P1 --> P3[maintenance / URL / reference / external sync]
     P1 --> P4[custom-folder audit / GC / external catalog / export]
-    M --> P5[best-effort owned index / virtual sort prewarm]
+    P2 --> PI{post scheduling closed<br/>scheduler fully idle}
+    P3 --> PI
+    P4 --> PI
+    C2 --> PI
+    PI --> P5[best-effort owned index / virtual sort prewarm]
     P2 --> Z[startup_post_initialization_maintenance_complete]
     P3 --> Z
     P4 --> Z
@@ -86,7 +90,9 @@ profile / schema
        │    → startup_initialization_complete
        │         → one automatic LR2 sync queue (dedicated status)
        │         → pending completion dialog を表示
-       ├─ scheduler-owned optional maintenance / network / prewarm
+       ├─ scheduler-owned optional maintenance / network
+       │    → post scheduling closed + scheduler fully idle
+       │         → best-effort owned index / virtual sort prewarm
        │    → startup_post_initialization_maintenance_complete
        ├─ independent ranking/XML refresh → own marker
        └─ deferred presentation flush → startup_presentation_flush

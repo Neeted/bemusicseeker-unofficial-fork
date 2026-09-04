@@ -533,6 +533,57 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     }
 
     [TestMethod]
+    public async Task VirtualOrderPrewarmStartsAfterDynamicallyEnrolledLr2Work()
+    {
+        var order = new ConcurrentQueue<string>();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("playlist_virtual_order_prewarm", "post", null, () =>
+        {
+            order.Enqueue("prewarm");
+            return Task.CompletedTask;
+        });
+        owner.Queue("lr2_song_db_sync_enrollment", "post", null, () =>
+        {
+            order.Enqueue("enrollment");
+            owner.Queue("lr2_song_db_sync", "post", null, () =>
+            {
+                order.Enqueue("lr2");
+                return Task.CompletedTask;
+            });
+            return Task.CompletedTask;
+        });
+
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+
+        CollectionAssert.AreEqual(new[] { "enrollment", "lr2", "prewarm" }, order.ToArray());
+    }
+
+    [TestMethod]
+    public async Task VirtualOrderPrewarmStartsAfterNoOpLr2EnrollmentWithoutDependencyWait()
+    {
+        var order = new ConcurrentQueue<string>();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+
+        owner.Queue("playlist_virtual_order_prewarm", "post", null, () =>
+        {
+            order.Enqueue("prewarm");
+            return Task.CompletedTask;
+        });
+        owner.Queue("lr2_song_db_sync_enrollment", "post", null, () =>
+        {
+            order.Enqueue("enrollment");
+            return Task.CompletedTask;
+        });
+
+        owner.Start();
+        await WaitForFullyIdleAsync(owner);
+
+        CollectionAssert.AreEqual(new[] { "enrollment", "prewarm" }, order.ToArray());
+    }
+
+    [TestMethod]
     public async Task Lr2SongDbSyncPostClassificationPreservesShutdownDrain()
     {
         var syncEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);

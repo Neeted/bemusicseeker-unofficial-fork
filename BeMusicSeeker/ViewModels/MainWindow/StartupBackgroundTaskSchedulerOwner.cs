@@ -1360,7 +1360,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)) return 10;
         if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase)) return 15;
         if (string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)) return 16;
-        if (string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)) return 18;
+        if (string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)) return int.MaxValue;
         if (string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)) return 20;
         if (string.Equals(name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase)) return 30;
         if (string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)) return 40;

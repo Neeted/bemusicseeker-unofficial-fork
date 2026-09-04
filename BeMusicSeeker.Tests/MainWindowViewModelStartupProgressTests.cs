@@ -323,6 +323,159 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupPostInitializationWarmupEligibilityWaitsForFullIdleAndAllowsLr2NoOp()
+    {
+        Assert.IsFalse(MainWindowViewModel.ShouldScheduleStartupPostInitializationWarmup(
+            shutdownRequested: false,
+            schedulerStarted: true,
+            postInitializationSchedulingComplete: true,
+            schedulerFullyIdle: false,
+            completionTracking: true,
+            initializationCompleteLogged: true,
+            warmupScheduled: false));
+        Assert.IsFalse(MainWindowViewModel.ShouldScheduleStartupPostInitializationWarmup(
+            shutdownRequested: false,
+            schedulerStarted: true,
+            postInitializationSchedulingComplete: false,
+            schedulerFullyIdle: true,
+            completionTracking: true,
+            initializationCompleteLogged: true,
+            warmupScheduled: false));
+        Assert.IsTrue(MainWindowViewModel.ShouldScheduleStartupPostInitializationWarmup(
+            shutdownRequested: false,
+            schedulerStarted: true,
+            postInitializationSchedulingComplete: true,
+            schedulerFullyIdle: true,
+            completionTracking: true,
+            initializationCompleteLogged: true,
+            warmupScheduled: false));
+        Assert.IsFalse(MainWindowViewModel.ShouldScheduleStartupPostInitializationWarmup(
+            shutdownRequested: false,
+            schedulerStarted: true,
+            postInitializationSchedulingComplete: true,
+            schedulerFullyIdle: true,
+            completionTracking: true,
+            initializationCompleteLogged: true,
+            warmupScheduled: true));
+        Assert.IsFalse(MainWindowViewModel.ShouldScheduleStartupPostInitializationWarmup(
+            shutdownRequested: true,
+            schedulerStarted: true,
+            postInitializationSchedulingComplete: true,
+            schedulerFullyIdle: true,
+            completionTracking: true,
+            initializationCompleteLogged: true,
+            warmupScheduled: false));
+    }
+
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task StartupPostInitializationIdleRouteEnrollsWarmupOnceAfterPredecessors(
+        bool enrollmentQueuesLr2)
+    {
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        StartupProgressWorkflowOwner progress = owner.ProgressHub.StartupProgress;
+        long operationToken = progress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        SetPrivateField(owner, "startupPostInitializationCompletionTracking", true);
+        SetPrivateField(owner, "startupInitializationCompleteLogged", true);
+        SetPrivateField(owner, "startupCompletionContinuationToken", operationToken);
+        StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
+            owner,
+            "startupBackgroundTaskScheduler");
+        var predecessorStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePredecessor = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Assert.IsTrue(scheduler.Queue(
+            "lr2_song_db_sync_enrollment",
+            "test",
+            null,
+            async () =>
+            {
+                if (enrollmentQueuesLr2)
+                {
+                    Assert.IsTrue(scheduler.Queue(
+                        "lr2_song_db_sync",
+                        "test",
+                        null,
+                        async () =>
+                        {
+                            predecessorStarted.TrySetResult(true);
+                            await releasePredecessor.Task;
+                        }));
+                    return;
+                }
+
+                predecessorStarted.TrySetResult(true);
+                await releasePredecessor.Task;
+            }));
+
+        scheduler.Start();
+        scheduler.MarkPostInitializationSchedulingComplete();
+        await predecessorStarted.Task;
+        Assert.IsFalse(GetPrivateField<bool>(owner, "startupPostInitializationWarmupScheduled"));
+
+        releasePredecessor.TrySetResult(true);
+        Assert.IsTrue(
+            SpinWait.SpinUntil(
+                () => GetPrivateField<bool>(owner, "startupPostInitializationCompletionLogged"),
+                TimeSpan.FromSeconds(5)),
+            scheduler.DescribeWaitState());
+        Assert.IsTrue(GetPrivateField<bool>(owner, "startupPostInitializationWarmupScheduled"));
+        Assert.IsTrue(GetPrivateField<bool>(owner, "startupPostInitializationWarmupCompleted"));
+        Assert.IsTrue(scheduler.IsFullyIdle, scheduler.DescribeWaitState());
+
+        object warmupOwner = GetPrivateField<object>(owner, "startupPostInitializationWarmupOwner");
+        Assert.AreEqual(1L, GetPrivateField<long>(warmupOwner, "reservationAttemptSequence"));
+        InvokePrivate(owner, "TryLogStartupPostInitializationComplete", []);
+        InvokePrivate(owner, "TryLogStartupPostInitializationComplete", []);
+        Assert.AreEqual(1L, GetPrivateField<long>(warmupOwner, "reservationAttemptSequence"));
+    }
+
+    [TestMethod]
+    public async Task StartupRequiredCompletionDoesNotEnrollWarmupBeforePostWorkIsIdle()
+    {
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        StartupProgressWorkflowOwner progress = owner.ProgressHub.StartupProgress;
+        long operationToken = progress.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
+            owner,
+            "startupBackgroundTaskScheduler");
+        object warmupOwner = GetPrivateField<object>(owner, "startupPostInitializationWarmupOwner");
+        var postWorkStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releasePostWork = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        Assert.IsTrue(scheduler.Queue(
+            "playlist_ref_apply",
+            "test",
+            null,
+            async () =>
+            {
+                postWorkStarted.TrySetResult(true);
+                await releasePostWork.Task;
+            }));
+        scheduler.Start();
+        scheduler.MarkPostInitializationSchedulingComplete();
+        await postWorkStarted.Task;
+        CompleteUntilBackground(progress);
+        Assert.IsTrue(scheduler.MarkRequiredInitializationSchedulingComplete(scheduler.CurrentGeneration));
+        progress.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
+
+        InvokePrivate(owner, "TryLogStartupInitializationComplete", [operationToken]);
+
+        Assert.IsTrue(GetPrivateField<bool>(owner, "startupInitializationCompleteLogged"));
+        Assert.IsFalse(GetPrivateField<bool>(owner, "startupPostInitializationWarmupScheduled"));
+        Assert.AreEqual(0L, GetPrivateField<long>(warmupOwner, "reservationAttemptSequence"));
+
+        releasePostWork.TrySetResult(true);
+        Assert.IsTrue(
+            SpinWait.SpinUntil(
+                () => GetPrivateField<bool>(owner, "startupPostInitializationCompletionLogged"),
+                TimeSpan.FromSeconds(5)),
+            scheduler.DescribeWaitState());
+        Assert.AreEqual(1L, GetPrivateField<long>(warmupOwner, "reservationAttemptSequence"));
+    }
+
+    [TestMethod]
     public void StartupProgress_PublishesNewTokenBeforePrepareCallback()
     {
         StartupProgressWorkflowOwner owner = null!;

@@ -33,7 +33,7 @@ repair、`.lr2folder` file diff、LR2 folder-table reconciliation の長時間�
 | Unit | Observable outcome | Main ownership | Contract | Verification | Status |
 | --- | --- | --- | --- | --- | --- |
 | U1 LR2 preparation status | accepted automatic preparation は直ちに non-retryable Running/preparing となり、retry button を露出しない | LR2 request coordinator/status publication | `SBG-01` | focused LR2 Quick + static review | Complete |
-| U2 prewarm ordering | virtual-order prewarm は既登録 output work と enrollment が追加する LR2 work の後に開始し、LR2 no-op でも完了する | startup background scheduler/warmup | `SBG-02` | scheduler Quick + static review | Pending |
+| U2 prewarm ordering | virtual-order prewarm は既登録 output work と enrollment が追加する LR2 work の後に開始し、LR2 no-op でも完了する | startup background scheduler/warmup | `SBG-02` | scheduler Quick + static review | Complete |
 | U3 custom-folder repair progress | startup repair は bounded table progress を公開し、zero target/terminal で非表示へ戻る | playlist repair/progress hub | `SBG-03` | playlist + hub Quick + static review | Pending |
 | U4 folder progress | `.lr2folder` file diff と full LR2 folder reconciliation が bounded intermediate progress を公開する | library scan/LR2 folder reconciliation | `SBG-04A`, `SBG-04B` | LR2/library Quick + static review | Pending |
 | U5 background presentation | required gauge 後も scheduler-managed post work が連続して表示され、composite terminal だけで消える | startup lifecycle/progress hub/WPF | `SBG-05` | startup/hub/WPF Quick + Functional + static review | Pending |
@@ -150,3 +150,15 @@ committed before the next unit begins. Final integration runs one Functional ver
   now atomically transfers the existing preparation lease into running ownership before the lease is disposed. An
   inline competing request at the transfer boundary verifies that only the accepted work is scheduled. Focused Quick
   artifact after the ownership correction: `artifacts/verification/tests-quick-20260905-022426`.
+- U2 `SBG-02`: the dynamic-LR2 and LR2-no-op scheduler tests both failed on the U1 baseline because the previously
+  enrolled priority-18 prewarm ran before LR2 enrollment. The implementation now enrolls the one-shot prewarm only
+  after post scheduling is closed and the scheduler is fully idle; the prewarm task also has the scheduler's lowest
+  priority so no already-queued post work can follow it. Dynamic LR2 work therefore terminates first, while an LR2
+  no-op leaves no unsatisfied dependency. The first static review found that the scheduler-only tests did not protect
+  the MainWindow idle-callback wiring. The production-route regression now holds either a dynamically enrolled LR2
+  task or a no-op enrollment active, proves warmup is absent before first full idle, and then verifies one reservation
+  plus final composite completion through the actual callback. The fresh review found that an early-scheduling mutant
+  at required completion could coexist with the correct idle callback without being observed. A second route test now
+  reaches actual required completion while post work is active and proves that the warmup reservation count remains
+  zero until first full idle. Consolidated focused Quick artifact after those corrections:
+  `artifacts/verification/tests-quick-20260905-025655`.

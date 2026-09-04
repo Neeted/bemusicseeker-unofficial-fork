@@ -459,7 +459,9 @@ public partial class MainWindowViewModel : ViewModel,
             "startup_initialization_complete",
             expectedOperationToken);
         ShowInitialSetupCompletionMessageIfPending(expectedOperationToken);
-        ScheduleStartupPostInitializationWarmup("startup_initialization_complete", expectedOperationToken);
+        TryScheduleStartupPostInitializationWarmupAfterPostWork(
+            "startup_initialization_complete",
+            expectedOperationToken);
         QueueDeferredStartupPresentationFlushAfterInitialization(expectedOperationToken);
     }
 
@@ -467,8 +469,19 @@ public partial class MainWindowViewModel : ViewModel,
     {
         if (ShellShutdownWorkflow?.IsShutdownRequested == true
             || !startupBackgroundTaskScheduler.IsStarted
-            || !startupBackgroundTaskScheduler.IsPostInitializationSchedulingComplete
-            || !startupBackgroundTaskScheduler.IsFullyIdle)
+            || !startupBackgroundTaskScheduler.IsPostInitializationSchedulingComplete)
+        {
+            return;
+        }
+        long operationToken;
+        lock (startupInitializationCompletionLock)
+        {
+            operationToken = startupCompletionContinuationToken;
+        }
+        TryScheduleStartupPostInitializationWarmupAfterPostWork(
+            "startup_background_tasks_idle",
+            operationToken);
+        if (!startupBackgroundTaskScheduler.IsFullyIdle)
         {
             return;
         }
@@ -2499,6 +2512,56 @@ public partial class MainWindowViewModel : ViewModel,
                 reason,
                 operationToken,
                 schedulerGeneration));
+    }
+
+    private void TryScheduleStartupPostInitializationWarmupAfterPostWork(
+        string reason,
+        long operationToken)
+    {
+        bool tracking;
+        bool initializationCompleteLogged;
+        bool warmupScheduled;
+        lock (startupInitializationCompletionLock)
+        {
+            tracking = startupPostInitializationCompletionTracking;
+            initializationCompleteLogged = startupInitializationCompleteLogged;
+            warmupScheduled = startupPostInitializationWarmupScheduled;
+        }
+        if (!ShouldScheduleStartupPostInitializationWarmup(
+                ShellShutdownWorkflow?.IsShutdownRequested == true,
+                startupBackgroundTaskScheduler.IsStarted,
+                startupBackgroundTaskScheduler.IsPostInitializationSchedulingComplete,
+                startupBackgroundTaskScheduler.IsFullyIdle,
+                tracking,
+                initializationCompleteLogged,
+                warmupScheduled))
+        {
+            return;
+        }
+
+        ScheduleStartupPostInitializationWarmup(reason, operationToken);
+    }
+
+    /// <summary>
+    /// Determines whether all scheduler-managed post-initialization work has
+    /// reached terminal state and the one-shot cache warmup may be enrolled.
+    /// </summary>
+    internal static bool ShouldScheduleStartupPostInitializationWarmup(
+        bool shutdownRequested,
+        bool schedulerStarted,
+        bool postInitializationSchedulingComplete,
+        bool schedulerFullyIdle,
+        bool completionTracking,
+        bool initializationCompleteLogged,
+        bool warmupScheduled)
+    {
+        return !shutdownRequested
+            && schedulerStarted
+            && postInitializationSchedulingComplete
+            && schedulerFullyIdle
+            && completionTracking
+            && initializationCompleteLogged
+            && !warmupScheduled;
     }
 
     private static void RunStartupPostInitializationWarmupStage(

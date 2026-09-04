@@ -41,7 +41,7 @@ post-initialization taskがqueueまたはrunningでも完了できる。required
 
 ### `startup_post_initialization_maintenance_complete`
 
-進捗ゲージのphaseではない。scheduler 管理下の post schedulingが閉じ、schedulerがfully idleで、post-startup warmup pending countが0になった時に別markerとして記録する。scheduler 外の ranking/XML refresh と遅延 presentation flush の完了はこのmarkerに含めず、それぞれのphase / lifecycle markerで記録する。
+進捗ゲージのphaseではない。scheduler 管理下の post schedulingが閉じ、既登録 task と enrollment から動的に追加された task が収束して scheduler が fully idle になった後に、post-startup warmup を一度だけ登録する。その warmup を含めて scheduler が再び fully idle となり、warmup pending countが0になった時に別markerとして記録する。LR2 同期が no-op で task を追加しない場合は、存在しない task への依存を作らず同じ手順で warmup へ進む。scheduler 外の ranking/XML refresh と遅延 presentation flush の完了はこのmarkerに含めず、それぞれのphase / lifecycle markerで記録する。
 
 この分離により、通常利用に必要なlocal initializationと、scheduler 管理下の network / audit / export / prewarmの完了を同じ分母へ混ぜない。独立 worker の完了もStartup progressの分母へ暗黙に追加しない。
 
@@ -96,7 +96,7 @@ Startup では `PlaylistReferenceApplied`、`ExternalPlaylistSyncDone`、`Mainte
 
 file / chart件数を持つ処理はsub labelへ`processed / total`と現在対象を出せる。長い文字列は省略表示し、tooltipへ全文を出す。
 
-post-initialization taskはStartup progressの分母へ追加しない。自動 LR2 `song.db` 同期も同じ扱いで、正常な `startup_initialization_complete` 後に一度だけ queue する。初回完了ダイアログが pending の場合も、同期を先に queue し、ダイアログの終了は待機条件にしない。LR2 の `Running` / progress / `Incomplete` / `Failed` は専用 status のみを更新し、startup の expected/completed/failed/gauge を変更しない。startup の visual linger 中は専用 status を一時的に隠せるが、linger が消えたら最新の非終端 status を表示する。scheduler 管理下の task は`startup_background_task`、`startup_background_summary`、`startup_post_initialization_maintenance_complete`で観測し、scheduler 外の ranking/XML refresh や遅延 presentation flush は固有の phase / lifecycle markerで観測する。
+post-initialization taskはStartup progressの分母へ追加しない。自動 LR2 `song.db` 同期も同じ扱いで、正常な `startup_initialization_complete` 後に一度だけ queue する。初回完了ダイアログが pending の場合も、同期を先に queue し、ダイアログの終了は待機条件にしない。LR2 の `Running` / progress / `Incomplete` / `Failed` は専用 status のみを更新し、startup の expected/completed/failed/gauge を変更しない。startup の visual linger 中は専用 status を一時的に隠せるが、linger が消えたら最新の非終端 status を表示する。pure cache の virtual-order prewarm は、LR2 enrollment を含む scheduler 管理下の post work が一度 fully idle になった後にだけ登録する。scheduler 管理下の task は`startup_background_task`、`startup_background_summary`、`startup_post_initialization_maintenance_complete`で観測し、scheduler 外の ranking/XML refresh や遅延 presentation flush は固有の phase / lifecycle markerで観測する。
 
 ## 初期化完了メッセージ
 
