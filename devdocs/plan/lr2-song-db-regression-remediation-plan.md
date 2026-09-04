@@ -1,6 +1,6 @@
 # LR2 `song.db` one-shot 回帰修正計画
 
-- **状態:** Implementation complete; integration verification pending
+- **状態:** Complete
 - **基準 revision:** `dfea9be7`
 - **開始時 HEAD:** `4b1d2d34`
 - **対象:** prepared app-managed `.lr2folder` の complete projection と、file-diff commit 後の receipt／scan surface version ordering
@@ -112,6 +112,15 @@ typed manual capture は deterministic fixture mechanics であり、file-scan c
 - 統合 snapshot で `-Mode Functional` を一回実行する。
 - startup／durable DB／Full runner acceptance への影響を含むため、最終 snapshot で `-Mode Full` を実行する。
 - static reviewer には base／head、Contract ID、base-fail／head-pass または承認済み negative-control evidence、退役 route と replacement を渡す。
+
+### Integration completion evidence
+
+- Unit A は `5d6c6908`、Unit B は `fb09e29b` として独立 commit にした。
+- shutdown interruption test は、非同期 `PropertyChanged` 通知を worker の停止境界とみなして exact stage を固定していた。Test Contract Packet `LR2-SHUTDOWN-01` に従い、durable stage／count と完了後の authoritative runtime snapshot の一致を検証する test に置換し、`cc37c5b8` とした。focused Quick は 1/1 passed、fresh static review は blocking finding なし。
+- `ChartFileOperationSynchronizerTests` は、通常完了する `Task.Run` に 5 秒の成功 timeout を課していたため、高負荷の canonical shard で二度 timeout した。assertion と cross-thread lease contract を変えず direct await に置換し、`3cad0962` とした。focused Quick は 2/2 passed、fresh static review は blocking finding なし。
+- final snapshot `3cad0962` の Functional は 2812 tests（2804 passed、8 skipped）、test execution 174.6 秒で成功した。artifact は `artifacts/verification/tests-functional-20260904-155626`。
+- 同じ snapshot の Full は成功した。内部 Functional は 2812 tests（2804 passed、8 skipped）、test execution 141.4 秒、ProcessIntegration は 57 tests（55 passed、2 skipped）、ReleaseAcceptance は 2/2 passed。tool smoke、current／baseline publish、existing-data、update、v2.1.6.0 first-hop、format、analyzer も成功し、analyzer は 0 diagnostics。artifact は `artifacts/verification/tests-full-20260904-155953`。
+- 最終 fresh static review で Unit A、Unit B、両 test-only correction のいずれにも P0／P1／受入条件へ直接反する P2 は残っていない。
 
 ## Replan triggers
 
