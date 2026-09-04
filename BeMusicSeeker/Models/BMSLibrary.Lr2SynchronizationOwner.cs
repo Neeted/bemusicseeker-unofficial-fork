@@ -469,6 +469,10 @@ public partial class BMSLibrary
                 metadataScopeDirectories);
         }
 
+        /// <summary>
+        /// Synchronizes the prepared LR2 folder-file rows through the caller-owned mutation lease.
+        /// </summary>
+        /// <param name="progressReporter">Optional best-effort per-file preparation progress reporter.</param>
         internal Lr2FolderFileDbSyncResult SyncLr2FolderFileRows(
             BmsLibraryOptionsSnapshot options,
             Lr2SongDbSyncRequest request,
@@ -479,7 +483,8 @@ public partial class BMSLibrary
             IReadOnlyCollection<string> pruneExcludedDirectories = null,
             IReadOnlyCollection<string> pruneExcludedPaths = null,
             bool scopeReadLr2FolderRowsOnly = false,
-            bool updateParentDirectoryRowsForPreservedItems = true)
+            bool updateParentDirectoryRowsForPreservedItems = true,
+            Action<int, int, string> progressReporter = null)
         {
             RequireMutationCapability(mutationCapability);
             var stopwatch = Stopwatch.StartNew();
@@ -493,7 +498,8 @@ public partial class BMSLibrary
                         request.Lr2FolderFilePaths,
                         request,
                         request.Lr2FolderFileEntries,
-                        path => existingRows.RowsByPath.TryGetValue(path, out LR2SongDB.folder row) ? row : null);
+                        path => existingRows.RowsByPath.TryGetValue(path, out LR2SongDB.folder row) ? row : null,
+                        progressReporter);
                 IReadOnlyCollection<Lr2FolderFileSyncItem> parentDirectorySyncItems = updateParentDirectoryRowsForPreservedItems
                     ? syncItems.Items
                     : [.. syncItems.Items.Where(item => item != null && !item.PreserveExistingRowOnly)];

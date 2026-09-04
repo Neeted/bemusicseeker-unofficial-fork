@@ -401,6 +401,22 @@ Everything が正常に検索できた結果 chart 0 件を返した場合は、
 
 手動 `ReloadFileDiff` は、prefetch の有無、reason/progress/UI 更新、後段 playlist reference scheduling を除き、`Startup` の file diff と同じ `ApplyFileScanDiff()` 経路を使う。軽量 parse、inline `chart_info`、inline `maintenance`、snapshot 由来 encoding reload の意味論は起動時 file diff と揃える。
 
+LR2 mode で file diff が `.lr2folder` candidates を返す場合、prepared folder-file apply は候補 path のうち
+空白でない materialized request path 数を固定分母として `FileDiff` progress を報告する。item preparation の
+processed 値は 0 以上 total 以下で単調に進み、複数 item では terminal より前に strict intermediate を少なくとも
+1 回報告する。progress observer は best-effort で、folder row の commit、prune、failure、cancellation の意味を
+変えない。deferred UI publication が最新値へ coalesce する場合でも、先頭の strict intermediate は 1 slot だけ
+保持して terminal の前に公開する。この保持は LR2 folder-file callback にだけ opt-in し、通常の FileDiff report
+の coalescing semantics は変更しない。1 回の publication drain は 1 snapshot だけを公開し、保持した先頭値の後に
+新しい値が残る場合は、その LR2 専用の bounded Background continuation が次の drain を所有する。LR2 request が無い場合の
+FileDiff completion point は従来どおりであり、request がある場合だけ prepared apply の成功後に completion を publish する。
+apply が authoritative failure になった場合は completion を成功として進めず、既存の failure terminal と cleanup を caller 側へ伝える。
+completion は prepared apply が成功した後に同じ UI scheduler の Background 境界へ後置し、completion action は未排出の
+bounded progress publication を先に drain してから `LibraryFileDiffCompletedVersion` を publish する。これにより
+deferred UI drain でも startup progress consumer は strict intermediate、terminal、FileDiff completion の順で観測する。
+UI scheduler が利用できない場合は既存の同期 completion fallback を使い、durable apply、ready 境界、shutdown/failure
+semantics は変更しない。
+
 ## ReloadTables
 
 ```text

@@ -27,13 +27,16 @@ internal sealed class Lr2FolderFileDiffOwner
 
     private readonly EverythingNative everythingNative;
 
+    private readonly IRootFileEnumerator rootFileEnumerator;
+
     internal Lr2FolderFileDiffOwner(
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         Func<Exception, string> getDisplayedExceptionMessage,
         Action<string> logEverythingScan,
         BMSLibrary.Lr2SynchronizationOwner lr2Synchronization,
-        EverythingNative everythingNative)
+        EverythingNative everythingNative,
+        IRootFileEnumerator rootFileEnumerator = null)
     {
         this.logInstallPerformance = logInstallPerformance ?? throw new ArgumentNullException(nameof(logInstallPerformance));
         this.logInstallPerformanceWarn = logInstallPerformanceWarn ?? throw new ArgumentNullException(nameof(logInstallPerformanceWarn));
@@ -41,6 +44,7 @@ internal sealed class Lr2FolderFileDiffOwner
         this.logEverythingScan = logEverythingScan ?? throw new ArgumentNullException(nameof(logEverythingScan));
         this.lr2Synchronization = lr2Synchronization ?? throw new ArgumentNullException(nameof(lr2Synchronization));
         this.everythingNative = everythingNative ?? throw new ArgumentNullException(nameof(everythingNative));
+        this.rootFileEnumerator = rootFileEnumerator;
     }
 
     internal bool CanPrepare(
@@ -140,11 +144,13 @@ internal sealed class Lr2FolderFileDiffOwner
     /// caller-owned mutation lease.  Preparation and the terminal bridge are
     /// intentionally separate so the scan owner remains capability-free.
     /// </summary>
+    /// <param name="progressReporter">Optional best-effort per-file progress reporter.</param>
     internal void ApplyPrepared(
         BmsLibraryOptionsSnapshot options,
         Lr2FolderFileDiffPreparationResult preparation,
         string reason,
-        LibraryFileMutationCapability mutationCapability)
+        LibraryFileMutationCapability mutationCapability,
+        Action<int, int, string> progressReporter = null)
     {
         if (preparation?.Request == null)
         {
@@ -156,6 +162,27 @@ internal sealed class Lr2FolderFileDiffOwner
         }
 
         bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
+        List<string> progressPaths = [..
+            (preparation.Request.Lr2FolderFilePaths ?? [])
+                .Where(path => !string.IsNullOrWhiteSpace(path))];
+        int totalCount = progressPaths.Count;
+        string finalPath = totalCount == 0 ? null : progressPaths[^1];
+        Action<int, int, string> reportItemProgress = progressReporter == null
+            ? null
+            : (total, processed, path) =>
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    finalPath = path;
+                }
+                if (processed < total)
+                {
+                    // The final item is still only prepared here.  Hold its
+                    // terminal publication until the durable folder-file
+                    // apply below succeeds.
+                    TryReportProgress(progressReporter, total, processed, path);
+                }
+            };
         lr2Synchronization.SyncLr2FolderFileRows(
             options,
             preparation.Request,
@@ -165,7 +192,33 @@ internal sealed class Lr2FolderFileDiffOwner
             allowPrune,
             pruneExcludedDirectories: preparation.AppManagedOutputDirectories,
             pruneExcludedPaths: preparation.AppManagedPruneExcludedPaths,
-            scopeReadLr2FolderRowsOnly: true);
+            scopeReadLr2FolderRowsOnly: true,
+            progressReporter: reportItemProgress);
+        if (totalCount > 0)
+        {
+            TryReportProgress(progressReporter, totalCount, totalCount, finalPath);
+        }
+    }
+
+    private static void TryReportProgress(
+        Action<int, int, string> progressReporter,
+        int totalCount,
+        int processedCount,
+        string currentPath)
+    {
+        if (progressReporter == null || totalCount <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            progressReporter(totalCount, processedCount, currentPath);
+        }
+        catch
+        {
+            // Progress observation is best effort and must not affect the database result.
+        }
     }
 
     internal Lr2FolderFileDiffPreparationResult Prepare(
@@ -236,11 +289,23 @@ internal sealed class Lr2FolderFileDiffOwner
         }
         else
         {
+            Lr2FolderFileCandidateSnapshot scanCandidates = rootFileEnumerator == null
+                ? new Lr2FolderFileCandidateSnapshot(
+                    fileCheckResult.Lr2ScanLr2FolderFilePaths,
+                    fileCheckResult.Lr2ScanLr2FolderFileEntries,
+                    fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete)
+                : Lr2FolderFileDiscoveryService.CreateFileCandidates(
+                    fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
+                    currentSettings.LR2RootPath,
+                    lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
+                    logEverythingScan,
+                    everythingNative,
+                    rootFileEnumerator: rootFileEnumerator);
             fileDiffCandidates = Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
-                fileCheckResult.Lr2ScanLr2FolderFilePaths,
-                fileCheckResult.Lr2ScanLr2FolderFileEntries,
+                scanCandidates.Paths,
+                scanCandidates.EntriesByPath,
                 appManagedOutputScope.FilePaths,
-                fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
+                scanCandidates.DiscoveryComplete,
                 out appManagedCandidateCount,
                 appManagedOutputScope.Directories);
         }

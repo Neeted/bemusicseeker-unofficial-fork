@@ -35,7 +35,8 @@ repair、`.lr2folder` file diff、LR2 folder-table reconciliation の長時間�
 | U1 LR2 preparation status | accepted automatic preparation は直ちに non-retryable Running/preparing となり、retry button を露出しない | LR2 request coordinator/status publication | `SBG-01` | focused LR2 Quick + static review | Complete |
 | U2 prewarm ordering | virtual-order prewarm は既登録 output work と enrollment が追加する LR2 work の後に開始し、LR2 no-op でも完了する | startup background scheduler/warmup | `SBG-02` | scheduler Quick + static review | Complete |
 | U3 custom-folder repair progress | startup repair は bounded table progress を公開し、zero target/terminal で非表示へ戻る | playlist repair/progress hub | `SBG-03` | playlist + hub Quick + static review | Complete |
-| U4 folder progress | `.lr2folder` file diff と full LR2 folder reconciliation が bounded intermediate progress を公開する | library scan/LR2 folder reconciliation | `SBG-04A`, `SBG-04B` | LR2/library Quick + static review | Pending |
+| U4A `.lr2folder` file-diff progress | LR2-request route は apply 成功まで FileDiff を完了扱いにせず、bounded intermediate progress を公開する | library scan/LR2 folder-file diff | `SBG-04A` | library Quick + static review | Complete |
+| U4B folder-table reconciliation progress | full reconciliation の pre-transaction projection progress を公開し、durable cursor は atomic apply 成功後だけ進める | LR2 folder reconciliation/status | `SBG-04B` | LR2 Quick + static review | Pending |
 | U5 background presentation | required gauge 後も scheduler-managed post work が連続して表示され、composite terminal だけで消える | startup lifecycle/progress hub/WPF | `SBG-05` | startup/hub/WPF Quick + Functional + static review | Pending |
 
 Units are sequential because U3-U5 share progress presentation and resource/spec paths. Each unit is reviewed and
@@ -86,6 +87,9 @@ committed before the next unit begins. Final integration runs one Functional ver
   progress -> startup status bar.
 - Required outcome: multi-item input publishes a fixed total and bounded monotonic strict intermediate before terminal.
   Existing DB commit, prune, failure and cancellation semantics remain unchanged; observer failure is isolated.
+- Completion ownership: no-LR2-request routes keep the existing FileDiff completion point. LR2-request routes publish
+  FileDiff completion only after prepared folder-file apply succeeds; authoritative apply failure must preserve its
+  existing failure terminal and cannot leave FileDiff presentation active.
 - Allowed variation: bounded batch size, path display, stage identifier/copy, duplicate-value coalescing.
 - Wrong implementations: scan start/end only, first `N/N` after all work, decreasing/overrun progress, observer failure
   changing the folder DB result.
@@ -177,3 +181,34 @@ committed before the next unit begins. Final integration runs one Functional ver
   publication, preserves that exact failure, and requires final inactive cleanup. Removing the `finally` publication
   failed this case (`artifacts/verification/tests-quick-20260905-032657`); the corrected four-test set passed in
   `artifacts/verification/tests-quick-20260905-032750`.
+- U4A `SBG-04A`: the captured-surface reload route first failed on the base implementation because the LR2 folder
+  apply completed after `LibraryFileDiffCompletedVersion` had already advanced and no multi-item `FileDiff` progress
+  was observable (`artifacts/verification/tests-quick-20260905-040441`). The route now materializes a fixed nonblank
+  candidate denominator, reports best-effort bounded item progress with a forced first intermediate/terminal around the
+  existing throttle, and advances FileDiff completion only after prepared apply succeeds. Route fixtures use
+  `MissingEverythingBridge` plus an immutable captured grouped enumerator for deterministic `.lr2folder` entries. The
+  captured success route passed in `artifacts/verification/tests-quick-20260905-045645`; the throwing-reporter/no-
+  candidate service coverage passed in `artifacts/verification/tests-quick-20260905-045620`; the authoritative
+  apply-failure route passed in `artifacts/verification/tests-quick-20260905-045710`; and the deferred-drain retained-
+  leading regression passed in `artifacts/verification/tests-quick-20260905-045531`. Removing the retained-leading
+  selection produced the intended strict-intermediate failure in `artifacts/verification/tests-quick-20260905-045744`;
+  the mutation was reverted before handoff. The consolidated four-test U4A Quick passed in
+  `artifacts/verification/tests-quick-20260905-045956`; after the assertion relaxation, the final four-test U4A Quick
+  passed in `artifacts/verification/tests-quick-20260905-050444`. A subsequent integration correction kept the retained-leading
+  slot explicitly opt-in to the LR2 folder-file callback while leaving the generic six-argument progress reporter's
+  coalescing semantics unchanged; the four U4A tests plus the existing generic coalescing test passed in
+  `artifacts/verification/tests-quick-20260905-050910`. A fresh review then found that synchronous completion could
+  close the StartupProgress FileDiff phase before a deferred progress drain. The LR2 completion notification now queues
+  behind the bounded progress owner, and its action drains any pending intermediate/terminal snapshot before publishing
+  completion; no-LR2 completion remains synchronous. The deferred StartupProgress.SubLabel regression failed under the
+  early-synchronous-completion mutant in `artifacts/verification/tests-quick-20260905-053955` and the restored route,
+  including the existing generic coalescing test, passed in `artifacts/verification/tests-quick-20260905-055056`; the
+  direct generic initialization coalescing regression also passed in `artifacts/verification/tests-quick-20260905-055619`.
+  A follow-up deferred scheduler test then failed against the same-turn retained-plus-latest drain in
+  `artifacts/verification/tests-quick-20260905-061214`, proving that the canonical StartupProgress consumer could observe
+  the terminal frame before a render opportunity. The corrected owner publishes one snapshot per drain, schedules the
+  retained LR2 continuation at Background, and schedules LR2 completion at the same Background boundary; the deferred
+  route passed in `artifacts/verification/tests-quick-20260905-062042`. The consolidated four U4A tests plus the
+  existing generic coalescing regression passed in `artifacts/verification/tests-quick-20260905-062125`.
+  Issue-resolver review confirmed the Background continuation is required so an apply failure cannot strand publication
+  ownership when no completion action is enqueued. Implementation is complete and pending fresh static review.

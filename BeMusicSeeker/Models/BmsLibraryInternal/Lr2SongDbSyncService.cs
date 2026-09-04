@@ -677,21 +677,26 @@ internal static class Lr2SongDbSyncService
         }
     }
 
+    /// <summary>
+    /// Creates the folder-file sync items and reports fixed-denominator preparation progress when requested.
+    /// </summary>
+    /// <param name="progressReporter">Optional best-effort per-item preparation progress reporter.</param>
     internal static Lr2FolderFileSyncItemsResult CreateLr2FolderFileSyncItems(
         IEnumerable<string> filePaths,
         Lr2SongDbSyncRequest request,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath = null,
-        Func<string, LR2SongDB.folder> existingRowResolver = null)
+        Func<string, LR2SongDB.folder> existingRowResolver = null,
+        Action<int, int, string> progressReporter = null)
     {
+        List<string> materializedFilePaths = [..
+            (filePaths ?? [])
+                .Where(filePath => !string.IsNullOrWhiteSpace(filePath))];
         var items = new List<Lr2FolderFileSyncItem>();
         bool hasReadFailures = false;
-        foreach (string filePath in filePaths ?? [])
+        int totalCount = materializedFilePaths.Count;
+        int processedCount = 0;
+        foreach (string filePath in materializedFilePaths)
         {
-            if (string.IsNullOrWhiteSpace(filePath))
-            {
-                continue;
-            }
-
             RootFileEnumerationEntry entry = ResolveEnumerationEntry(entriesByPath, filePath);
             Lr2FolderFileSyncItem item = CreateLr2FolderFileSyncItem(filePath, request, entry, existingRowResolver);
             if (item.LastWriteTimeUtc == null)
@@ -699,8 +704,31 @@ internal static class Lr2SongDbSyncService
                 hasReadFailures = true;
             }
             items.Add(item);
+            processedCount++;
+            ReportLr2FolderFileSyncProgress(progressReporter, totalCount, processedCount, filePath);
         }
         return new Lr2FolderFileSyncItemsResult(items, hasReadFailures);
+    }
+
+    private static void ReportLr2FolderFileSyncProgress(
+        Action<int, int, string> progressReporter,
+        int totalCount,
+        int processedCount,
+        string currentPath)
+    {
+        if (progressReporter == null || totalCount <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            progressReporter(totalCount, processedCount, currentPath);
+        }
+        catch
+        {
+            // Progress observation is best effort and must not affect sync preparation.
+        }
     }
 
     internal static IReadOnlyDictionary<string, LR2SongDB.folder> CreateExistingLr2FolderRowMap(

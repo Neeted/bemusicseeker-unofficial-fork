@@ -149,6 +149,8 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// service and index.
     /// </summary>
     /// <param name="chartFileScanner">Optional captured scanner for the test fixture; null keeps the selected bridge-backed scan.</param>
+    /// <param name="uiScheduler">Optional scheduler for deterministic progress publication in route tests.</param>
+    /// <param name="rootFileEnumerator">Optional captured grouped enumerator for deterministic LR2 file candidates.</param>
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config,
@@ -156,8 +158,10 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string startupRequiredFileScanReason,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         ApplicationPathSnapshot applicationPathSnapshot,
-        IChartFileScanner chartFileScanner = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot, chartFileScanner)
+        IChartFileScanner chartFileScanner = null,
+        IUiScheduler uiScheduler = null,
+        IRootFileEnumerator rootFileEnumerator = null)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler ?? new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot, chartFileScanner, rootFileEnumerator)
     {
     }
 

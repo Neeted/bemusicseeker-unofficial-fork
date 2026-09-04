@@ -101,6 +101,7 @@ internal sealed class LibraryFileScanPipelineOwner
     /// application construction leaves it null and uses the Everything scanner.
     /// </summary>
     /// <param name="chartFileScanner">Optional captured chart scanner; null selects the normal Everything scanner.</param>
+    /// <param name="rootFileEnumerator">Optional captured grouped enumerator; null selects the normal LR2 file enumeration path.</param>
     internal LibraryFileScanPipelineOwner(
         BmsLibraryDbGateway dbGateway,
         CatalogStorageRowsOwner catalogStorageRowsOwner,
@@ -125,7 +126,8 @@ internal sealed class LibraryFileScanPipelineOwner
         Func<FileScanCatalogResidualEvent, Action> publishCatalogResidual,
         BmsLibraryInitializationService initializationService,
         EverythingNative everythingNative,
-        IChartFileScanner chartFileScanner = null)
+        IChartFileScanner chartFileScanner = null,
+        IRootFileEnumerator rootFileEnumerator = null)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.catalogStorageRowsOwner = catalogStorageRowsOwner ?? throw new ArgumentNullException(nameof(catalogStorageRowsOwner));
@@ -154,7 +156,8 @@ internal sealed class LibraryFileScanPipelineOwner
             getDisplayedExceptionMessage,
             logEverythingScan,
             lr2Synchronization,
-            everythingNative);
+            everythingNative,
+            rootFileEnumerator);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.everythingNative = everythingNative ?? throw new ArgumentNullException(nameof(everythingNative));
         this.chartFileScanner = chartFileScanner;
@@ -328,17 +331,20 @@ internal sealed class LibraryFileScanPipelineOwner
     /// mutation lease.  The scan pipeline itself never stores or accepts the
     /// capability while it performs ordinary scan and catalog work.
     /// </summary>
+    /// <param name="progressReporter">Optional best-effort progress reporter for the prepared LR2 folder-file apply.</param>
     internal void ApplyPreparedLr2FolderFileDiffForFileMutation(
         BmsLibraryOptionsSnapshot options,
         string reason,
         Lr2FolderFileDiffPreparationResult preparation,
-        LibraryFileMutationCapability mutationCapability)
+        LibraryFileMutationCapability mutationCapability,
+        Action<int, int, string> progressReporter = null)
     {
         lr2FolderFileDiffOwner.ApplyPrepared(
             options,
             preparation,
             reason,
-            mutationCapability);
+            mutationCapability,
+            progressReporter);
     }
 
     private static void ObserveTaskFailure(Task task)
@@ -826,7 +832,7 @@ internal sealed class LibraryFileScanPipelineOwner
         // its post-apply buffers are released and is then consumed by the
         // immediate follow-up queue at most once.
         lr2Synchronization.PublishLr2SongDbSyncCommittedPathReceipt(fileCheckResult, reason);
-        if (trackLibraryFileCheckProgress)
+        if (trackLibraryFileCheckProgress && lr2FolderFileDiffPreparation?.Request == null)
         {
             completeLibraryFileDiffProgress();
         }
