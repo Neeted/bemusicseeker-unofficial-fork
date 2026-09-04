@@ -316,12 +316,18 @@ internal static class RootFileEnumerationService
         return result.Success ? "enumeration_incomplete" : "enumeration_failed";
     }
 
+    /// <summary>
+    /// Enumerates the requested groups through the supplied bounded enumerator when present;
+    /// otherwise retains the production Everything-to-fast fallback and bridge fail-closed behavior.
+    /// </summary>
+    /// <param name="rootFileEnumerator">Optional internal enumerator for a caller-owned grouped surface.</param>
     internal static RootFileEnumerationResult EnumerateFilesWithFallback(
         IEnumerable<string> rootDirectories,
         IEnumerable<RootFileEnumerationGroup> groups,
         EverythingNative everythingNative,
         bool verboseLog = false,
-        bool retryEmptyEverythingResultWithFastEnumerator = false)
+        bool retryEmptyEverythingResultWithFastEnumerator = false,
+        IRootFileEnumerator rootFileEnumerator = null)
     {
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         if (groupList.Count == 0)
@@ -331,6 +337,11 @@ internal static class RootFileEnumerationService
                 Success = true,
                 BackendName = "fast"
             };
+        }
+
+        if (rootFileEnumerator != null)
+        {
+            return rootFileEnumerator.EnumerateFiles(rootDirectories, groupList, verboseLog);
         }
 
         RootFileEnumerationResult result = new EverythingRootFileEnumerator(everythingNative).EnumerateFiles(rootDirectories, groupList, verboseLog);

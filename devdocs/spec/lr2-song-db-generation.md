@@ -198,6 +198,11 @@ file-diff の直後に実行される startup/reload full sync には、直前�
 - `BeMusicSeeker/Models/LR2/LR2Config.cs`
 - `BeMusicSeeker/ViewModels/MainWindowViewModel.cs`
 
+## Verification map
+
+- `LR2-FDR-06-02` no-scan candidate composition: `Lr2SongDbSyncInputBuilderTests`
+- `LR2-FDR-06-01` durable prepared-row/status behavior: `BmsLibraryLr2SongDbSyncTests`
+
 ## 関連仕様
 
 - [data-and-indexes.md](data-and-indexes.md)

@@ -31,18 +31,28 @@ internal sealed class Lr2TextMetadataCandidateSnapshot(
 
 internal static class Lr2FolderInfoCandidateEnumerationService
 {
+    /// <summary>
+    /// Creates a folder-info candidate snapshot from grouped text enumeration.
+    /// </summary>
+    /// <param name="rootFileEnumerator">Optional internal grouped enumerator; null preserves the production fallback.</param>
     internal static Lr2FolderInfoCandidateSnapshot CreateSnapshot(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories,
-        EverythingNative everythingNative)
+        EverythingNative everythingNative,
+        IRootFileEnumerator rootFileEnumerator = null)
     {
-        return CreateTextMetadataSnapshot(rootDirectories, targetDirectories, everythingNative).FolderInfoCandidates;
+        return CreateTextMetadataSnapshot(rootDirectories, targetDirectories, everythingNative, rootFileEnumerator).FolderInfoCandidates;
     }
 
+    /// <summary>
+    /// Creates folder-info and text-directory candidates from one grouped text enumeration.
+    /// </summary>
+    /// <param name="rootFileEnumerator">Optional internal grouped enumerator; null preserves the production fallback.</param>
     internal static Lr2TextMetadataCandidateSnapshot CreateTextMetadataSnapshot(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories,
-        EverythingNative everythingNative)
+        EverythingNative everythingNative,
+        IRootFileEnumerator rootFileEnumerator = null)
     {
         HashSet<string> targetSet = new((targetDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
@@ -62,7 +72,11 @@ internal static class Lr2FolderInfoCandidateEnumerationService
         }
 
         RootFileEnumerationGroup[] groups = [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.TextGroupName, ChartDirectoryScanBuilder.TextExtensions)];
-        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(roots, groups, everythingNative);
+        RootFileEnumerationResult result = RootFileEnumerationService.EnumerateFilesWithFallback(
+            roots,
+            groups,
+            everythingNative,
+            rootFileEnumerator: rootFileEnumerator);
         if (!result.Success)
         {
             throw new InvalidOperationException("folderinfo grouped enumeration failed: " + (result.ErrorReason ?? "unknown"));

@@ -61,10 +61,15 @@ internal static class Lr2FolderDirectoryEnumerationService
         return entries;
     }
 
+    /// <summary>
+    /// Projects grouped directory enumeration into the requested normalized target entries.
+    /// </summary>
+    /// <param name="rootFileEnumerator">Optional internal grouped enumerator; null preserves the production fallback.</param>
     internal static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateEntriesFromGroupedEnumeration(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories,
-        EverythingNative everythingNative)
+        EverythingNative everythingNative,
+        IRootFileEnumerator rootFileEnumerator = null)
     {
         HashSet<string> targetSet = new((targetDirectories ?? [])
             .Select(Lr2FolderPath.NormalizeDirectoryPath)
@@ -79,7 +84,8 @@ internal static class Lr2FolderDirectoryEnumerationService
             roots,
             [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)],
             everythingNative,
-            retryEmptyEverythingResultWithFastEnumerator: true);
+            retryEmptyEverythingResultWithFastEnumerator: true,
+            rootFileEnumerator: rootFileEnumerator);
         return CreateEntriesFromGroupedResult(result, roots, targetSet);
     }
 

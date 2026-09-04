@@ -55,13 +55,18 @@ internal static class Lr2FolderFileDiscoveryService
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
+    /// <summary>
+    /// Enumerates grouped .lr2folder candidates for the requested roots and LR2 source rules.
+    /// </summary>
+    /// <param name="rootFileEnumerator">Optional internal grouped enumerator; null preserves the production fallback.</param>
     internal static Lr2FolderFileCandidateSnapshot CreateFileCandidates(
         IEnumerable<string> rootDirectories,
         string lr2RootPath,
         Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
         Action<string> logScan,
         EverythingNative everythingNative,
-        IEnumerable<string> excludedDirectories = null)
+        IEnumerable<string> excludedDirectories = null,
+        IRootFileEnumerator rootFileEnumerator = null)
     {
         List<string> roots = [.. (rootDirectories ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path) && LongPathFileSystem.DirectoryExists(path))
@@ -84,7 +89,8 @@ internal static class Lr2FolderFileDiscoveryService
             roots,
             groups,
             everythingNative,
-            retryEmptyEverythingResultWithFastEnumerator: true);
+            retryEmptyEverythingResultWithFastEnumerator: true,
+            rootFileEnumerator: rootFileEnumerator);
         if (!result.Success)
         {
             logScan?.Invoke("lr2folder_scan failed"
