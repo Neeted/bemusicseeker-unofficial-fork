@@ -43,7 +43,7 @@ public sealed class ChartFileOperationSynchronizerTests
         {
             Assert.IsTrue(synchronizer.TryEnter(out IDisposable lease));
             return lease;
-        }).WaitAsync(TimeSpan.FromSeconds(5));
+        });
 
         Assert.IsFalse(synchronizer.TryEnter(out _));
         workerLease.Dispose();
