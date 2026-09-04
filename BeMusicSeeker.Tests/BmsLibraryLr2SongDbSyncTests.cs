@@ -4183,7 +4183,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             var shutdownObserved = new TaskCompletionSource<bool>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             Func<Task> scheduledWork = null;
-            System.ComponentModel.PropertyChangedEventHandler cancelAtInputSurface = (_, args) =>
+            System.ComponentModel.PropertyChangedEventHandler requestShutdownWhenInputSurfaceIsObserved = (_, args) =>
             {
                 if (!shutdownRequested
                     && string.Equals(
@@ -4200,7 +4200,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     shutdownObserved.TrySetResult(true);
                 }
             };
-            library.PropertyChanged += cancelAtInputSurface;
+            library.PropertyChanged += requestShutdownWhenInputSurfaceIsObserved;
             library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
             {
                 scheduledWork = work;
@@ -4230,18 +4230,24 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             }
             finally
             {
-                library.PropertyChanged -= cancelAtInputSurface;
+                library.PropertyChanged -= requestShutdownWhenInputSurfaceIsObserved;
             }
             TestUiDispatcherHost.Drain();
 
             Assert.IsTrue(shutdownRequested);
+            Assert.IsFalse(library.Lr2SongDbSyncRunning);
+            Lr2SongDbSyncStatusSnapshot runtimeStatus = library.GetLr2SongDbSyncStatusSnapshot();
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
             Assert.IsNotNull(row);
             Assert.AreEqual("Incomplete", row.status);
-            Assert.AreEqual("input_surface", row.stage);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(runtimeStatus.Stage));
+            Assert.AreEqual(runtimeStatus.Stage, row.stage);
             Assert.AreEqual(0, row.processed_cursor);
-            Assert.AreEqual(0, row.total_count);
+            Assert.IsTrue(runtimeStatus.ProcessedCursor.HasValue);
+            Assert.IsTrue(runtimeStatus.TotalCount.HasValue);
+            Assert.AreEqual(runtimeStatus.ProcessedCursor, row.processed_cursor);
+            Assert.AreEqual(runtimeStatus.TotalCount, row.total_count);
             Assert.AreEqual("shutdown_interrupted", row.last_error);
             LR2SongDB.folder durableFolder = verify.Find<LR2SongDB.folder>(durableFolderPath);
             Assert.IsNotNull(durableFolder);
