@@ -115,6 +115,20 @@ internal static class Lr2SongDbSyncRequestCoordinator
             }
             return status;
         }
+
+        // Once this owner accepts the request, the user must no longer be offered
+        // retry even while generated data is still being prepared.  Publication is
+        // deliberately tied to the existing reservation instead of a new token.
+        host.PublishLr2SongDbSyncStatus(CreateRuntimeLr2SongDbSyncStatus(
+            Lr2SongDbSyncStatusKind.Running,
+            signature,
+            stage: prepareGeneratedData != null ? "preparing" : "queued",
+            processedCursor: 0,
+            totalCount: 0,
+            lastError: null,
+            stageProcessedCount: 0,
+            stageTotalCount: 0));
+        int requestVersion;
         if (prepareGeneratedData != null)
         {
             var prepareStopwatch = Stopwatch.StartNew();
@@ -123,15 +137,11 @@ internal static class Lr2SongDbSyncRequestCoordinator
             {
                 host.LogInstallPerformance("lr2_song_db_sync prepare_start"
                     + " reason=" + (reason ?? "unknown"));
-                using (preparationLease)
-                {
-                    preparedSurface = prepareGeneratedData(preparationLease);
-                    prepareStopwatch.Stop();
-                }
-                // The canonical prepared surface is published only after
-                // physical output materialization and verification have
-                // completed and the preparation lease has released normally;
-                // LR2 folder-row persistence remains part of reconciliation.
+                preparedSurface = prepareGeneratedData(preparationLease);
+                prepareStopwatch.Stop();
+                // Keep the existing preparation reservation through surface
+                // publication.  That makes success or failure terminal before a
+                // newer request can observe the owner as available.
                 host.LogInstallPerformance("lr2_song_db_sync prepare_done"
                     + " reason=" + (reason ?? "unknown")
                     + " scopeDirs=" + (preparedSurface?.Lr2FolderScopeDirectories?.Count ?? 0)
@@ -142,6 +152,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
                     + " discoveryComplete=" + (preparedSurface?.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant() ?? "true")
                     + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds);
                 host.ApplyLr2SongDbSyncPreparedDataSurface("prepare_generated_data", preparedSurface);
+                requestVersion = host.BeginLr2SongDbSyncRequestFromPreparation(preparationLease);
             }
             catch (Exception ex)
             {
@@ -151,12 +162,23 @@ internal static class Lr2SongDbSyncRequestCoordinator
                 host.LogInstallPerformance("lr2_song_db_sync prepare_failed reason=" + (reason ?? "unknown")
                     + " elapsedMs=" + prepareStopwatch.ElapsedMilliseconds
                     + " message=" + ex.Message);
-                preparationLease?.Dispose();
+                host.PublishLr2SongDbSyncStatus(CreateRuntimeLr2SongDbSyncStatus(
+                    Lr2SongDbSyncStatusKind.Failed,
+                    signature,
+                    stage: "preparation_failed",
+                    processedCursor: 0,
+                    totalCount: 0,
+                    lastError: ex.Message,
+                    stageProcessedCount: 0,
+                    stageTotalCount: 0));
                 throw;
             }
+            finally
+            {
+                preparationLease?.Dispose();
+            }
         }
-
-        if (!host.TryBeginLr2SongDbSyncRequest(out int requestVersion))
+        else if (!host.TryBeginLr2SongDbSyncRequest(out requestVersion))
         {
             host.DiscardLr2SongDbSyncCommittedPathReceipt("queue_begin_rejected");
             host.ClearLr2SongDbSyncPreparedDataSurface("queue_skipped");

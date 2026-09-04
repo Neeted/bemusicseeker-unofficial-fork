@@ -1423,7 +1423,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
-    public void QueueLr2SongDbSync_RunsPrepareBeforeMarkingSyncRunning()
+    public void QueueLr2SongDbSync_PublishesRunningStatusBeforePreparingWithoutQueuingDuplicateWork()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         try
@@ -1432,31 +1432,140 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             Directory.CreateDirectory(rootDirectory);
-            var library = new TestBmsLibrary(scope.SongDbPath)
+            var library = new TestBmsLibrary(
+                scope.SongDbPath,
+                getLR2Config: null,
+                _lr2ScoreDB: null,
+                fileMutationService: null,
+                dialogService: null,
+                uiScheduler: new InlineUiScheduler())
             {
                 SearchTargets = [rootDirectory]
             };
+            int scheduledWorkCount = 0;
             library.StartupBackgroundTaskScheduler = delegate
             {
+                scheduledWorkCount++;
                 return true;
             };
-            bool prepareCalled = false;
+            int prepareCallCount = 0;
+            Lr2SongDbSyncStatusSnapshot handoffCompetingStatus = null;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (string.Equals(
+                        args.PropertyName,
+                        nameof(BMSLibrary.Lr2SongDbSyncRequestedVersion),
+                        StringComparison.Ordinal)
+                    && library.Lr2SongDbSyncRequestedVersion > 0
+                    && handoffCompetingStatus == null)
+                {
+                    handoffCompetingStatus = library.QueueLr2SongDbSync(
+                        "test_prepare_handoff_competing_request",
+                        force: false);
+                }
+            };
 
             Lr2SongDbSyncStatusSnapshot snapshot = library.QueueLr2SongDbSync(
                 "test_prepare_order",
                 force: false,
                 _ =>
                 {
-                    prepareCalled = true;
-                    Assert.IsFalse(library.Lr2SongDbSyncRunning);
-                    Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
+                    prepareCallCount++;
+                    Assert.AreEqual(
+                        Lr2SongDbSyncStatusKind.Running,
+                        library.GetLr2SongDbSyncStatusSnapshot().Status);
+
+                    Lr2SongDbSyncStatusSnapshot duplicate = library.QueueLr2SongDbSync(
+                        "test_prepare_duplicate",
+                        force: false,
+                        _ =>
+                        {
+                            prepareCallCount++;
+                            return Lr2SongDbSyncPreparedDataSurface.Empty;
+                        });
+
+                    Assert.AreEqual(Lr2SongDbSyncStatusKind.Running, duplicate.Status);
                     return Lr2SongDbSyncPreparedDataSurface.Empty;
                 });
 
-            Assert.IsTrue(prepareCalled);
+            Assert.AreEqual(1, prepareCallCount);
+            Assert.AreEqual(1, scheduledWorkCount);
+            Assert.IsNotNull(handoffCompetingStatus);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Running, handoffCompetingStatus.Status);
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, snapshot.Status);
             Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);
             Assert.IsTrue(library.Lr2SongDbSyncRunning);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void QueueLr2SongDbSync_PreparationFailurePublishesRetryableTerminalStatus()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            var library = new TestBmsLibrary(
+                scope.SongDbPath,
+                getLR2Config: null,
+                _lr2ScoreDB: null,
+                fileMutationService: null,
+                dialogService: null,
+                uiScheduler: new InlineUiScheduler())
+            {
+                SearchTargets = [rootDirectory]
+            };
+            int scheduledWorkCount = 0;
+            library.StartupBackgroundTaskScheduler = delegate
+            {
+                scheduledWorkCount++;
+                return true;
+            };
+            Lr2SongDbSyncStatusSnapshot competingStatus = null;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (string.Equals(
+                        args.PropertyName,
+                        nameof(BMSLibrary.Lr2SongDbSyncStatusVersion),
+                        StringComparison.Ordinal)
+                    && library.GetLr2SongDbSyncStatusSnapshot().Status == Lr2SongDbSyncStatusKind.Failed
+                    && competingStatus == null)
+                {
+                    competingStatus = library.QueueLr2SongDbSync(
+                        "test_prepare_failure_competing_request",
+                        force: false);
+                }
+            };
+            string acceptedSignature = string.Empty;
+            var expectedFailure = new InvalidOperationException("expected preparation failure");
+
+            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() => library.QueueLr2SongDbSync(
+                "test_prepare_failure",
+                force: false,
+                _ =>
+                {
+                    acceptedSignature = library.GetLr2SongDbSyncStatusSnapshot().Signature;
+                    throw expectedFailure;
+                }));
+
+            Lr2SongDbSyncStatusSnapshot status = library.GetLr2SongDbSyncStatusSnapshot();
+            Assert.AreSame(expectedFailure, failure);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, status.Status);
+            Assert.AreEqual(acceptedSignature, status.Signature);
+            Assert.AreEqual(expectedFailure.Message, status.LastError);
+            Assert.IsTrue(Lr2SongDbSyncStatusMapper.Create(status, DateTime.UtcNow).CanRetry);
+            Assert.IsNotNull(competingStatus);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, competingStatus.Status);
+            Assert.AreEqual(0, scheduledWorkCount);
+            Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
+            Assert.IsFalse(library.Lr2SongDbSyncRunning);
         }
         finally
         {
@@ -6201,5 +6310,34 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 throw;
             }
         }
+    }
+
+    private sealed class InlineUiScheduler : IUiScheduler
+    {
+        public bool IsAvailable => true;
+
+        public bool CanExecuteInline => true;
+
+        public bool CheckAccess() => true;
+
+        public IUiScheduledOperation Schedule(
+            Action action,
+            UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            action();
+            return CompletedUiScheduledOperation.Instance;
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => action();
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => action();
+
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => action();
     }
 }

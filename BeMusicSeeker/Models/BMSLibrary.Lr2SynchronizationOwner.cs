@@ -1296,20 +1296,39 @@ public partial class BMSLibrary
                     requestVersion = RequestedVersion;
                     return false;
                 }
-                RequestedVersion++;
-                requestVersion = RequestedVersion;
-                Cancellation?.Dispose();
-                Cancellation = new CancellationTokenSource();
-                SetObservableRequestedVersion(requestVersion);
-                SetObservableTotalCount(0);
-                SetObservableProcessedCount(0);
-                SetObservableStage("queued");
-                SetObservableStageProcessedCount(0);
-                SetObservableStageTotalCount(0);
-                SetObservableFailureMessage(string.Empty);
-                Running = true;
-                SetObservableRunning(true);
+                requestVersion = BeginLr2SongDbSyncRequestUnsafe();
                 return true;
+            }
+        }
+
+        /// <summary>
+        /// Atomically transfers an accepted preparation lease into the running
+        /// LR2 synchronization request so no other request can observe an idle
+        /// owner between those phases.
+        /// </summary>
+        internal int BeginLr2SongDbSyncRequestFromPreparation(
+            LibraryFileMutationLease preparationLease)
+        {
+            ArgumentNullException.ThrowIfNull(preparationLease);
+            using LibraryFileMutationCapability capability = preparationLease.CreateMutationCapability();
+            lock (mutationSequenceGate)
+            {
+                lock (RequestGate)
+                {
+                    RequireMutationCapability(capability);
+                    if (!PreparationInProgress || MutationInProgress != 1 || Running || StatusPublicationInProgress)
+                    {
+                        throw new InvalidOperationException(
+                            "The LR2 preparation reservation cannot be transferred to a running request.");
+                    }
+
+                    int requestVersion = BeginLr2SongDbSyncRequestUnsafe();
+                    MutationInProgress = 0;
+                    activeMutationLeaseId = 0;
+                    PreparationInProgress = false;
+                    Monitor.PulseAll(RequestGate);
+                    return requestVersion;
+                }
             }
         }
 
@@ -2299,6 +2318,24 @@ public partial class BMSLibrary
             {
                 return MutationInProgress == 1 && activeMutationLeaseId == leaseId;
             }
+        }
+
+        private int BeginLr2SongDbSyncRequestUnsafe()
+        {
+            RequestedVersion++;
+            int requestVersion = RequestedVersion;
+            Cancellation?.Dispose();
+            Cancellation = new CancellationTokenSource();
+            SetObservableRequestedVersion(requestVersion);
+            SetObservableTotalCount(0);
+            SetObservableProcessedCount(0);
+            SetObservableStage("queued");
+            SetObservableStageProcessedCount(0);
+            SetObservableStageTotalCount(0);
+            SetObservableFailureMessage(string.Empty);
+            Running = true;
+            SetObservableRunning(true);
+            return requestVersion;
         }
 
         private void EndMutation(long leaseId)
