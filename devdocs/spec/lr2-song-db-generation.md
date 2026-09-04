@@ -168,6 +168,8 @@ LR2 同期の実行中にユーザーが status bar からキャンセルする�
 自動同期の `Running` / 進捗 / `Incomplete` / `Failed` は `OperationProgressHub` の LR2 専用 status として UI / log に出し、startup progress の phase、分母、値、成功・失敗には参加させません。同期中は read-only 操作を許容し、DB mutation を伴う操作は制限します。
 full sync の主要 stage は、normal folder、`.lr2folder` file、folder preflight/apply、song generated-column update、source-current check、completed の順です。diagnostic/repair/cleanup stage は存在しません。
 
+folder table の full reconciliation は、完全な projection を作り、既存 row の表示用列を一行ずつ merge/preparation しながら、whole-table transaction を開始する前に runtime-only の stage progress を公開できます。この stage の分母は反復開始前に確定した projection row 数であり、各値は当該 row の pre-transaction preparation 後に公開され、その分母を超えず単調に進みます。atomic apply が戻るまで durable `processed_cursor` は進めません。projection row が空の場合は正の分母を公開せず、入力の全体数を事前に確定できない場合も determinate な値を作りません。progress observer の例外は同期結果、DB commit、failure/cancellation の表面化を変更しません。UI scheduler が status 通知を遅延させる場合も、runtime-only owner は最初の strict な folder-reconciliation frame だけを一時保持し、最初の status 通知でその一枚だけを公開した後、後続の UI turn で最新 status を一度だけ通知します。失敗・中断 status は保持 frame を置き換え、古い進捗を端末表示へ漏らしません。
+
 `song_rows` stage は開始時に current parser version の `chart_info` resolver と timeout-aware current parse-failure MD5 set を取得します。各 worker は、song generated columns に使う既存の `ChartFileSnapshot` とこの事前取得 facts を route-neutral chart-info evaluator へ渡します。worker 内で譜面を追加読取したり、`chart_info` / parse failure を DB query したりしません。missing / stale `chart_info` は LR2 専用 parser ではなく inline / full backfill と同じ evaluator で生成します。
 
 ## 失敗と退役した startup route

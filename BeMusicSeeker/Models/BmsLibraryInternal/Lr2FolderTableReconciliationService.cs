@@ -341,11 +341,15 @@ internal static class Lr2FolderTableReconciliationService
     /// <summary>
     /// Runs complete preflight, reads existing folder rows once, then applies
     /// one delete/upsert transaction for the app-generated folder table.
+    /// The optional reporter is invoked as each projection row is merged with
+    /// existing user columns, after the full projection count is known and
+    /// before that transaction starts.
     /// </summary>
     internal static Lr2FolderTableReconciliationResult Reconcile(
         LR2SongDBExtended songDb,
         Lr2SongDbSyncRequest request,
-        bool commitTransaction = true)
+        bool commitTransaction = true,
+        Action<int, int, string> progressReporter = null)
     {
         if (songDb == null)
         {
@@ -364,10 +368,19 @@ internal static class Lr2FolderTableReconciliationService
             .ToDictionary(group => group.Key, group => group
                 .OrderBy(row => row.path, StringComparer.Ordinal)
                 .First(), PathComparer);
-        List<LR2SongDB.folder> rows = [.. projection.Rows.Select(row =>
-            existingByPath.TryGetValue(row.path, out LR2SongDB.folder existing)
-                ? CopyWithAddDate(row, existing.adddate)
-                : row)];
+        int total = projection.Rows.Count;
+        var rows = new List<LR2SongDB.folder>(total);
+        for (int index = 0; index < total; index++)
+        {
+            LR2SongDB.folder projectedRow = projection.Rows[index];
+            LR2SongDB.folder preparedRow = existingByPath.TryGetValue(
+                projectedRow.path,
+                out LR2SongDB.folder existingRow)
+                ? CopyWithAddDate(projectedRow, existingRow.adddate)
+                : projectedRow;
+            rows.Add(preparedRow);
+            ReportProgress(progressReporter, index + 1, total, preparedRow?.path);
+        }
         Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ReplaceAllRows(
             songDb,
             existingRows,
@@ -378,6 +391,27 @@ internal static class Lr2FolderTableReconciliationService
             new Lr2FolderTableProjection(rows, projection.SourceKinds),
             existingRows.Count,
             writeResult);
+    }
+
+    private static void ReportProgress(
+        Action<int, int, string> progressReporter,
+        int processed,
+        int total,
+        string currentPath)
+    {
+        if (progressReporter == null || total <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            progressReporter(processed, total, currentPath);
+        }
+        catch
+        {
+            // Progress observation must not affect the atomic folder apply.
+        }
     }
 
     private static Dictionary<string, ProjectionCandidate> SelectCandidates(

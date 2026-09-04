@@ -43,6 +43,17 @@ public partial class BMSLibrary
 
         private long activeMutationLeaseId;
 
+        // The LR2 status property is coalesced by the facade before it is
+        // raised on the UI thread.  Keep one pre-terminal folder-reconciliation
+        // frame so a deferred observer can still see the work in progress.
+        // This is process-local presentation state; the durable status remains
+        // the latest value in Status.
+        private Lr2SongDbSyncStatusSnapshot retainedFolderReconciliationStatus;
+
+        private Lr2SongDbSyncStatusSnapshot statusPublicationSnapshot;
+
+        private Lr2SongDbSyncStatusSnapshot statusPublicationLeadingSnapshot;
+
         internal Lr2SynchronizationOwner(
             ILr2SynchronizationDataPort data,
             ILr2SynchronizationRuntimePort runtime,
@@ -1599,7 +1610,7 @@ public partial class BMSLibrary
         {
             lock (StatusGate)
             {
-                return Status?.Clone() ?? new Lr2SongDbSyncStatusSnapshot
+                return (statusPublicationSnapshot ?? Status)?.Clone() ?? new Lr2SongDbSyncStatusSnapshot
                 {
                     Status = Lr2SongDbSyncStatusKind.NotNeeded
                 };
@@ -1610,12 +1621,104 @@ public partial class BMSLibrary
         {
             lock (StatusGate)
             {
-                Status = status?.Clone() ?? new Lr2SongDbSyncStatusSnapshot
+                Lr2SongDbSyncStatusSnapshot next = status?.Clone() ?? new Lr2SongDbSyncStatusSnapshot
                 {
                     Status = Lr2SongDbSyncStatusKind.NotNeeded
                 };
+                Status = next;
+                if (IsStrictFolderReconciliationProgress(next))
+                {
+                    retainedFolderReconciliationStatus ??= next;
+                }
+                else if (IsTerminalStatusThatMustSupersedeLeadingProgress(next))
+                {
+                    retainedFolderReconciliationStatus = null;
+                }
             }
             SetObservableStatusVersion(ObservableStatusVersion + 1);
+        }
+
+        /// <summary>
+        /// Selects the retained folder-reconciliation frame for the status
+        /// property notification currently being raised by the UI publisher.
+        /// </summary>
+        /// <returns><see langword="true"/> when a retained frame was selected.</returns>
+        internal bool BeginLr2SongDbSyncStatusPublication()
+        {
+            lock (StatusGate)
+            {
+                if (retainedFolderReconciliationStatus == null)
+                {
+                    statusPublicationSnapshot = null;
+                    statusPublicationLeadingSnapshot = null;
+                    return false;
+                }
+
+                statusPublicationSnapshot = retainedFolderReconciliationStatus.Clone();
+                statusPublicationLeadingSnapshot = retainedFolderReconciliationStatus;
+                retainedFolderReconciliationStatus = null;
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// Ends a status property notification and reports whether the latest
+        /// non-failure status needs one bounded continuation notification.
+        /// </summary>
+        internal bool EndLr2SongDbSyncStatusPublication()
+        {
+            lock (StatusGate)
+            {
+                bool needsContinuation = statusPublicationSnapshot != null
+                    && !ReferenceEquals(statusPublicationLeadingSnapshot, Status)
+                    && IsStatusPublicationContinuationAllowed(Status);
+                statusPublicationSnapshot = null;
+                statusPublicationLeadingSnapshot = null;
+                return needsContinuation;
+            }
+        }
+
+        /// <summary>
+        /// Discards presentation-only LR2 status frames when their UI
+        /// publication cannot be accepted or completes abnormally.
+        /// </summary>
+        internal void DiscardLr2SongDbSyncStatusPublication()
+        {
+            lock (StatusGate)
+            {
+                retainedFolderReconciliationStatus = null;
+                statusPublicationSnapshot = null;
+                statusPublicationLeadingSnapshot = null;
+            }
+        }
+
+        private static bool IsStrictFolderReconciliationProgress(Lr2SongDbSyncStatusSnapshot status)
+        {
+            int stageTotalCount = status?.StageTotalCount.GetValueOrDefault() ?? 0;
+            int stageProcessedCount = status?.StageProcessedCount.GetValueOrDefault() ?? 0;
+            return status?.Status == Lr2SongDbSyncStatusKind.Running
+                && string.Equals(status.Stage, "folder_reconciliation", StringComparison.Ordinal)
+                && status.ProcessedCursor.GetValueOrDefault() == 0
+                && stageTotalCount > 1
+                && stageProcessedCount > 0
+                && stageProcessedCount < stageTotalCount;
+        }
+
+        private static bool IsTerminalStatusThatMustSupersedeLeadingProgress(
+            Lr2SongDbSyncStatusSnapshot status)
+        {
+            return status?.Status == Lr2SongDbSyncStatusKind.Failed
+                || status?.Status == Lr2SongDbSyncStatusKind.Incomplete
+                || status?.Status == Lr2SongDbSyncStatusKind.Cancelled
+                || status?.Status == Lr2SongDbSyncStatusKind.Needed
+                || status?.Status == Lr2SongDbSyncStatusKind.NotNeeded;
+        }
+
+        private static bool IsStatusPublicationContinuationAllowed(
+            Lr2SongDbSyncStatusSnapshot status)
+        {
+            return status?.Status == Lr2SongDbSyncStatusKind.Running
+                || status?.Status == Lr2SongDbSyncStatusKind.Completed;
         }
 
         private void OnPropertyChanged(string propertyName)
@@ -2328,6 +2431,14 @@ public partial class BMSLibrary
 
         private int BeginLr2SongDbSyncRequestUnsafe()
         {
+            lock (StatusGate)
+            {
+                // A new request owns a fresh presentation sequence.  Do not
+                // carry a leading frame from a completed request into it.
+                retainedFolderReconciliationStatus = null;
+                statusPublicationSnapshot = null;
+                statusPublicationLeadingSnapshot = null;
+            }
             RequestedVersion++;
             int requestVersion = RequestedVersion;
             Cancellation?.Dispose();

@@ -4807,6 +4807,261 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
+    public void QueueLr2SongDbSync_PublishesFolderReconciliationProgressThroughRuntimeStatus()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "FolderProgressRoot");
+            string firstDirectory = Path.Combine(rootDirectory, "First");
+            string secondDirectory = Path.Combine(rootDirectory, "Second");
+            Directory.CreateDirectory(firstDirectory);
+            Directory.CreateDirectory(secondDirectory);
+            var scheduler = new QueuedUiScheduler();
+            var library = new TestBmsLibrary(
+                scope.SongDbPath,
+                null,
+                null,
+                null,
+                null,
+                scheduler)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            BmsLibraryOptionsSnapshot options = new()
+            {
+                OperationModeLR2DB = true
+            };
+            Dictionary<string, RootFileEnumerationEntry> directoryEntries =
+                CreateDirectoryEntryMap(rootDirectory, firstDirectory, secondDirectory);
+            InvokeCaptureLr2SongDbSyncScanSurface(
+                library,
+                options,
+                [rootDirectory],
+                new SongTableFileCheckResult
+                {
+                    Lr2ScanSurfaceAvailable = true,
+                    Lr2ScanNormalFolderDirectoryPaths = [rootDirectory, firstDirectory, secondDirectory],
+                    Lr2ScanNormalFolderDirectoryEntries = directoryEntries,
+                    Lr2ScanDirectoryEntries = directoryEntries,
+                    Lr2ScanFolderInfoFilePaths = [],
+                    Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                    Lr2ScanTextFileDirectories = [],
+                    Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                    Lr2ScanLr2FolderFilePaths = [],
+                    Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                    Lr2ScanLr2FolderFileDiscoveryComplete = true
+                });
+
+            StartupProgressWorkflowOwner startupProgress = CreateStartupProgressConsumer(library);
+            var progressHub = new OperationProgressHubViewModel(startupProgress);
+            var timeline = new List<(
+                Lr2SongDbSyncStatusSnapshot Snapshot,
+                Lr2SongDbSyncRuntimeStatus Runtime,
+                bool IsActive,
+                string SubLabel)>();
+            library.PropertyChanged += (_, args) =>
+            {
+                if (string.Equals(
+                    args.PropertyName,
+                    nameof(BMSLibrary.Lr2SongDbSyncStatusVersion),
+                    StringComparison.Ordinal))
+                {
+                    Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
+                    Lr2SongDbSyncRuntimeStatus runtime = Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.UtcNow);
+                    progressHub.UpdateLr2SongDbSyncStatus(runtime);
+                    timeline.Add((
+                        snapshot,
+                        runtime,
+                        progressHub.IsLr2SongDbSyncStatusActive,
+                        progressHub.Lr2SongDbSyncStatusSubLabel));
+                }
+            };
+            int subscriberFailureCount = 0;
+            System.ComponentModel.PropertyChangedEventHandler throwingSubscriber = (_, args) =>
+            {
+                if (string.Equals(
+                        args.PropertyName,
+                        nameof(BMSLibrary.Lr2SongDbSyncStatusVersion),
+                        StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref subscriberFailureCount);
+                    throw new InvalidOperationException("forced LR2 status observer failure");
+                }
+            };
+            library.PropertyChanged += throwingSubscriber;
+            library.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2SongDbSync("folder_reconciliation_progress");
+
+            Assert.IsTrue(scheduler.PendingCount > 0);
+            Assert.AreEqual(UiSchedulePriority.Normal, scheduler.NextPriority);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, library.GetLr2SongDbSyncStatusSnapshot().Status);
+
+            scheduler.ExecuteNext();
+
+            List<(Lr2SongDbSyncStatusSnapshot Snapshot, Lr2SongDbSyncRuntimeStatus Runtime, bool IsActive, string SubLabel)> strictProgress = [.. timeline
+                .Where(entry => entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Running
+                    && entry.Snapshot.ProcessedCursor.GetValueOrDefault() == 0
+                    && entry.Snapshot.StageTotalCount.GetValueOrDefault() > 0
+                    && entry.Snapshot.StageProcessedCount.GetValueOrDefault() > 0
+                    && entry.Snapshot.StageProcessedCount.GetValueOrDefault()
+                        < entry.Snapshot.StageTotalCount.GetValueOrDefault())];
+            Assert.IsTrue(strictProgress.Count > 0);
+            int stageTotal = strictProgress[0].Snapshot.StageTotalCount.GetValueOrDefault();
+            Assert.IsTrue(strictProgress.All(entry =>
+                entry.Snapshot.StageTotalCount.GetValueOrDefault() == stageTotal
+                && entry.Snapshot.StageProcessedCount.GetValueOrDefault() > 0
+                && entry.Snapshot.StageProcessedCount.GetValueOrDefault() < stageTotal
+                && entry.Runtime.HasProgress
+                && entry.Runtime.ProgressValue > 0
+                && entry.Runtime.ProgressValue < entry.Runtime.ProgressMaximum
+                && entry.IsActive
+                && !string.IsNullOrWhiteSpace(entry.SubLabel)));
+            Assert.IsTrue(strictProgress[0].IsActive);
+            Assert.AreEqual(UiSchedulePriority.Background, scheduler.NextPriority);
+            Assert.IsFalse(timeline.Any(entry =>
+                entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Completed));
+            Assert.IsTrue(progressHub.IsLr2SongDbSyncStatusActive);
+
+            scheduler.ExecuteNext();
+
+            Assert.IsTrue(timeline.Any(entry =>
+                entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Completed
+                && !entry.IsActive));
+            Assert.IsFalse(progressHub.IsLr2SongDbSyncStatusActive);
+            Assert.IsTrue(subscriberFailureCount > 0);
+
+            Lr2SongDbSyncStatusSnapshot completed = library.GetLr2SongDbSyncStatusSnapshot();
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, completed.Status);
+            Assert.AreEqual(completed.TotalCount, completed.ProcessedCursor);
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.AreEqual(stageTotal, verify.Table<LR2SongDB.folder>().Count());
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void QueueLr2SongDbSync_DoesNotPublishRetainedFolderProgressAfterApplyFailure()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "FolderProgressFailureRoot");
+            string childDirectory = Path.Combine(rootDirectory, "Child");
+            Directory.CreateDirectory(childDirectory);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.Execute(
+                    "CREATE TRIGGER fail_folder_reconciliation BEFORE INSERT ON folder "
+                    + "BEGIN SELECT RAISE(ABORT, 'forced folder table apply failure'); END;");
+            }
+
+            var scheduler = new QueuedUiScheduler();
+            var library = new TestBmsLibrary(
+                scope.SongDbPath,
+                null,
+                null,
+                null,
+                null,
+                scheduler)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            BmsLibraryOptionsSnapshot options = new()
+            {
+                OperationModeLR2DB = true
+            };
+            Dictionary<string, RootFileEnumerationEntry> directoryEntries =
+                CreateDirectoryEntryMap(rootDirectory, childDirectory);
+            InvokeCaptureLr2SongDbSyncScanSurface(
+                library,
+                options,
+                [rootDirectory],
+                new SongTableFileCheckResult
+                {
+                    Lr2ScanSurfaceAvailable = true,
+                    Lr2ScanNormalFolderDirectoryPaths = [rootDirectory, childDirectory],
+                    Lr2ScanNormalFolderDirectoryEntries = directoryEntries,
+                    Lr2ScanDirectoryEntries = directoryEntries,
+                    Lr2ScanFolderInfoFilePaths = [],
+                    Lr2ScanFolderInfoFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                    Lr2ScanTextFileDirectories = [],
+                    Lr2ScanLr2FolderDiscoveryDirectories = [rootDirectory],
+                    Lr2ScanLr2FolderFilePaths = [],
+                    Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                    Lr2ScanLr2FolderFileDiscoveryComplete = true
+                });
+
+            StartupProgressWorkflowOwner startupProgress = CreateStartupProgressConsumer(library);
+            var progressHub = new OperationProgressHubViewModel(startupProgress);
+            var timeline = new List<(Lr2SongDbSyncStatusSnapshot Snapshot, bool IsActive)>();
+            library.PropertyChanged += (_, args) =>
+            {
+                if (string.Equals(
+                    args.PropertyName,
+                    nameof(BMSLibrary.Lr2SongDbSyncStatusVersion),
+                    StringComparison.Ordinal))
+                {
+                    Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
+                    progressHub.UpdateLr2SongDbSyncStatus(
+                        Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.UtcNow));
+                    timeline.Add((snapshot, progressHub.IsLr2SongDbSyncStatusActive));
+                }
+            };
+            library.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            library.QueueLr2SongDbSync("folder_reconciliation_failure");
+
+            Lr2SongDbSyncStatusSnapshot latest = library.GetLr2SongDbSyncStatusSnapshot();
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, latest.Status);
+            StringAssert.Contains(latest.LastError, "forced folder table apply failure");
+            Assert.IsTrue(scheduler.PendingCount > 0);
+
+            scheduler.ExecuteNext();
+
+            Assert.IsTrue(timeline.Any(entry =>
+                entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Failed
+                && entry.IsActive));
+            Assert.IsFalse(timeline.Any(entry =>
+                entry.Snapshot.Status == Lr2SongDbSyncStatusKind.Running
+                && entry.Snapshot.ProcessedCursor.GetValueOrDefault() == 0
+                && entry.Snapshot.StageTotalCount.GetValueOrDefault() > 1
+                && entry.Snapshot.StageProcessedCount.GetValueOrDefault() > 0
+                && entry.Snapshot.StageProcessedCount.GetValueOrDefault()
+                    < entry.Snapshot.StageTotalCount.GetValueOrDefault()));
+            Assert.IsTrue(progressHub.IsLr2SongDbSyncStatusActive);
+            Assert.IsTrue(progressHub.IsLr2SongDbSyncRetryVisible);
+            Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void Lr2PropertyPublication_CoalescesRepeatedChangesIntoOneUiDrain()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

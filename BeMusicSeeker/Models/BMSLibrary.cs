@@ -639,6 +639,8 @@ public partial class BMSLibrary : ObservableObject
 
     private bool lr2PropertyPublicationScheduled;
 
+    private UiSchedulePriority pendingLr2PropertyPublicationPriority = UiSchedulePriority.Normal;
+
     private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
     private readonly EverythingNative everythingNative;
@@ -2935,12 +2937,14 @@ public partial class BMSLibrary : ObservableObject
         ScheduleLr2PropertyChanges(publicationVersion);
     }
 
-    private void ScheduleLr2PropertyChanges(long publicationVersion)
+    private void ScheduleLr2PropertyChanges(
+        long publicationVersion,
+        UiSchedulePriority priority = UiSchedulePriority.Normal)
     {
         IUiScheduledOperation publication;
         try
         {
-            publication = uiScheduler.Schedule(DrainLr2PropertyChanges);
+            publication = uiScheduler.Schedule(DrainLr2PropertyChanges, priority);
         }
         catch (Exception ex)
         {
@@ -2994,8 +2998,16 @@ public partial class BMSLibrary : ObservableObject
 
         foreach (string propertyName in propertyNames)
         {
+            bool statusPublicationSelected = false;
             try
             {
+                if (string.Equals(
+                    propertyName,
+                    nameof(BMSLibrary.Lr2SongDbSyncStatusVersion),
+                    StringComparison.Ordinal))
+                {
+                    statusPublicationSelected = lr2SynchronizationOwner.BeginLr2SongDbSyncStatusPublication();
+                }
                 RaisePropertyChanged(propertyName);
             }
             catch (Exception ex)
@@ -3008,23 +3020,44 @@ public partial class BMSLibrary : ObservableObject
                     + " message="
                     + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
             }
+            finally
+            {
+                if (statusPublicationSelected
+                    && lr2SynchronizationOwner.EndLr2SongDbSyncStatusPublication())
+                {
+                    lock (lr2PropertyPublicationGate)
+                    {
+                        pendingLr2PropertyNames.Add(nameof(BMSLibrary.Lr2SongDbSyncStatusVersion));
+                        lr2PropertyPublicationVersion++;
+                        // The retained leading frame must be visible before
+                        // the latest/terminal status is raised.  A Background
+                        // continuation leaves the normal UI turn available
+                        // for that frame without delaying the worker.
+                        pendingLr2PropertyPublicationPriority = UiSchedulePriority.Background;
+                    }
+                }
+            }
         }
 
         long nextPublicationVersion = 0;
+        UiSchedulePriority nextPriority = UiSchedulePriority.Normal;
         lock (lr2PropertyPublicationGate)
         {
             if (pendingLr2PropertyNames.Count == 0)
             {
                 lr2PropertyPublicationScheduled = false;
+                pendingLr2PropertyPublicationPriority = UiSchedulePriority.Normal;
             }
             else
             {
                 nextPublicationVersion = lr2PropertyPublicationVersion;
+                nextPriority = pendingLr2PropertyPublicationPriority;
+                pendingLr2PropertyPublicationPriority = UiSchedulePriority.Normal;
             }
         }
         if (nextPublicationVersion != 0)
         {
-            ScheduleLr2PropertyChanges(nextPublicationVersion);
+            ScheduleLr2PropertyChanges(nextPublicationVersion, nextPriority);
         }
     }
 
@@ -3034,7 +3067,9 @@ public partial class BMSLibrary : ObservableObject
         {
             pendingLr2PropertyNames.Clear();
             lr2PropertyPublicationScheduled = false;
+            pendingLr2PropertyPublicationPriority = UiSchedulePriority.Normal;
         }
+        lr2SynchronizationOwner.DiscardLr2SongDbSyncStatusPublication();
     }
 
     /// <summary>

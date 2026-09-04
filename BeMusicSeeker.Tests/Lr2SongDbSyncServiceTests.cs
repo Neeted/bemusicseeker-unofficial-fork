@@ -18,6 +18,152 @@ public sealed class Lr2SongDbSyncServiceTests
 {
 
     [TestMethod]
+    public void SyncService_FolderReconciliationPublishesPreCommitMonotonicProgress()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "FolderProgressRoot");
+        string firstDirectory = Path.Combine(rootDirectory, "First");
+        string secondDirectory = Path.Combine(rootDirectory, "Second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        DateTime rootTime = new(2026, 6, 8, 6, 0, 0, DateTimeKind.Utc);
+        DateTime firstTime = rootTime.AddMinutes(1);
+        DateTime secondTime = rootTime.AddMinutes(2);
+        string stalePath = ToFolderPath(Path.Combine(scope.DirectoryPath, "stale"));
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.folder>();
+        songDb.InsertOrReplace(new LR2SongDB.folder
+        {
+            path = stalePath,
+            title = "Durable before reconciliation",
+            date = 1
+        }, typeof(LR2SongDB.folder));
+
+        var progressEvents = new List<Lr2SongDbSyncProgress>();
+        bool observedPreCommitState = false;
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "folder-reconciliation-progress",
+            RunId = "folder-reconciliation-progress",
+            RootDirectories = [rootDirectory],
+            NormalFolderDirectoryPaths = [rootDirectory, firstDirectory, secondDirectory],
+            DirectoryEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [rootDirectory] = new RootFileEnumerationEntry(rootDirectory, rootTime),
+                [firstDirectory] = new RootFileEnumerationEntry(firstDirectory, firstTime),
+                [secondDirectory] = new RootFileEnumerationEntry(secondDirectory, secondTime)
+            },
+            StartedAtUtc = rootTime.AddHours(1),
+            ProgressReporter = progress =>
+            {
+                if (progress == null)
+                {
+                    return;
+                }
+
+                progressEvents.Add(progress);
+                if (progress.ProcessedCursor == 0
+                    && progress.StageTotalCount > 0
+                    && progress.StageProcessedCount > 0
+                    && songDb.Find<LR2SongDB.folder>(stalePath)?.title == "Durable before reconciliation"
+                    && songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName)?.processed_cursor == 0)
+                {
+                    observedPreCommitState = true;
+                }
+            }
+        });
+
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
+        Assert.IsTrue(observedPreCommitState);
+        List<Lr2SongDbSyncProgress> reconciliationProgress = [.. progressEvents
+            .Where(progress => progress.ProcessedCursor == 0
+                && progress.StageTotalCount > 0
+                && progress.StageProcessedCount > 0)];
+        Assert.IsTrue(reconciliationProgress.Count > 0);
+        int stageTotal = reconciliationProgress[0].StageTotalCount;
+        Assert.IsTrue(stageTotal > 0);
+        Assert.IsTrue(reconciliationProgress.Any(progress =>
+            progress.StageProcessedCount > 0
+            && progress.StageProcessedCount < stageTotal));
+        for (int index = 0; index < reconciliationProgress.Count; index++)
+        {
+            Lr2SongDbSyncProgress progress = reconciliationProgress[index];
+            Assert.AreEqual(stageTotal, progress.StageTotalCount);
+            Assert.IsTrue(progress.StageProcessedCount > 0);
+            Assert.IsTrue(progress.StageProcessedCount <= stageTotal);
+            if (index > 0)
+            {
+                Assert.IsTrue(progress.StageProcessedCount >= reconciliationProgress[index - 1].StageProcessedCount);
+            }
+        }
+
+        Assert.AreEqual(result.FolderTableReconciliationResult.GeneratedCount, stageTotal);
+        Assert.AreEqual(result.FolderTableReconciliationResult.GeneratedCount, songDb.Table<LR2SongDB.folder>().Count());
+        LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", completed.status);
+        Assert.AreEqual(completed.total_count, completed.processed_cursor);
+        Assert.IsTrue(completed.total_count > 0);
+    }
+
+    [TestMethod]
+    public void SyncService_FolderReconciliationProgressReporterFailureDoesNotChangeResult()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        string rootDirectory = Path.Combine(scope.DirectoryPath, "FolderProgressObserverFailure");
+        string firstDirectory = Path.Combine(rootDirectory, "First");
+        string secondDirectory = Path.Combine(rootDirectory, "Second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        DateTime rootTime = new(2026, 6, 8, 7, 0, 0, DateTimeKind.Utc);
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.folder>();
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "folder-reconciliation-observer-failure",
+            RunId = "folder-reconciliation-observer-failure",
+            RootDirectories = [rootDirectory],
+            NormalFolderDirectoryPaths = [rootDirectory, firstDirectory, secondDirectory],
+            DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, firstDirectory, secondDirectory),
+            StartedAtUtc = rootTime,
+            ProgressReporter = _ => throw new InvalidOperationException("progress observer failure")
+        });
+
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
+        Assert.IsNotNull(result.FolderTableReconciliationResult);
+        Assert.AreEqual(result.FolderTableReconciliationResult.GeneratedCount, songDb.Table<LR2SongDB.folder>().Count());
+        LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.AreEqual("Completed", completed.status);
+        Assert.AreEqual(completed.total_count, completed.processed_cursor);
+    }
+
+    [TestMethod]
+    public void SyncService_EmptyFolderProjectionDoesNotPublishPositiveStageTotal()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        var progressEvents = new List<Lr2SongDbSyncProgress>();
+
+        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        {
+            Signature = "empty-folder-projection",
+            RunId = "empty-folder-projection",
+            StartedAtUtc = new DateTime(2026, 6, 8, 8, 0, 0, DateTimeKind.Utc),
+            ProgressReporter = progress =>
+            {
+                if (progress != null)
+                {
+                    progressEvents.Add(progress);
+                }
+            }
+        });
+
+        Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
+        Assert.IsFalse(progressEvents.Any(progress => progress.StageTotalCount > 0));
+        Assert.AreEqual(0, result.FolderTableReconciliationResult.GeneratedCount);
+    }
+
+    [TestMethod]
     public void SyncService_FullStageDoesNotDeleteExistingSongMembership()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

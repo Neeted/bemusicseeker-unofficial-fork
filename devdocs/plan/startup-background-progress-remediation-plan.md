@@ -36,7 +36,7 @@ repair、`.lr2folder` file diff、LR2 folder-table reconciliation の長時間�
 | U2 prewarm ordering | virtual-order prewarm は既登録 output work と enrollment が追加する LR2 work の後に開始し、LR2 no-op でも完了する | startup background scheduler/warmup | `SBG-02` | scheduler Quick + static review | Complete |
 | U3 custom-folder repair progress | startup repair は bounded table progress を公開し、zero target/terminal で非表示へ戻る | playlist repair/progress hub | `SBG-03` | playlist + hub Quick + static review | Complete |
 | U4A `.lr2folder` file-diff progress | LR2-request route は apply 成功まで FileDiff を完了扱いにせず、bounded intermediate progress を公開する | library scan/LR2 folder-file diff | `SBG-04A` | library Quick + static review | Complete |
-| U4B folder-table reconciliation progress | full reconciliation の pre-transaction projection progress を公開し、durable cursor は atomic apply 成功後だけ進める | LR2 folder reconciliation/status | `SBG-04B` | LR2 Quick + static review | Pending |
+| U4B folder-table reconciliation progress | full reconciliation の pre-transaction projection progress を公開し、durable cursor は atomic apply 成功後だけ進める | LR2 folder reconciliation/status | `SBG-04B` | LR2 Quick + static review | Complete |
 | U5 background presentation | required gauge 後も scheduler-managed post work が連続して表示され、composite terminal だけで消える | startup lifecycle/progress hub/WPF | `SBG-05` | startup/hub/WPF Quick + Functional + static review | Pending |
 
 Units are sequential because U3-U5 share progress presentation and resource/spec paths. Each unit is reviewed and
@@ -101,6 +101,8 @@ committed before the next unit begins. Final integration runs one Functional ver
   status -> hub.
 - Required outcome: multi-item reconciliation publishes stage total and bounded monotonic strict intermediate before
   terminal. Whole-table atomic apply, durable cursor meaning, cancellation and failure terminal semantics are unchanged.
+- Count ownership: determinate progress is used only when the complete projection-row total is known before iteration.
+  Unknown or late-discovered totals remain indeterminate rather than inventing a percentage.
 - Allowed variation: normal/`.lr2folder` stage split, bounded callback frequency, current-path display.
 - Wrong implementations: stage boundary only; treating progress as durable partial commit; partial rows after cancel;
   reporter exception failing sync.
@@ -212,3 +214,25 @@ committed before the next unit begins. Final integration runs one Functional ver
   existing generic coalescing regression passed in `artifacts/verification/tests-quick-20260905-062125`.
   Issue-resolver review confirmed the Background continuation is required so an apply failure cannot strand publication
   ownership when no completion action is enqueued. Implementation is complete and pending fresh static review.
+- U4B `SBG-04B`: the service baseline failed the production-shaped reconciliation regression because no strict
+   pre-commit folder progress was published (`artifacts/verification/tests-quick-20260905-063215`). The implemented
+   callback now runs as each fully materialized projection row is merged/prepared, after the complete projection-row
+   count is known and before the whole-table writer; it reports the fixed denominator, leaves the durable cursor at
+   zero until the atomic apply returns, and isolates observer exceptions. The focused service set (multi-row
+   monotonic progress, throwing observer, and empty projection) passed in
+   `artifacts/verification/tests-quick-20260905-064503`. The actual queue/coordinator, runtime status, and
+   status-mapper route passed in `artifacts/verification/tests-quick-20260905-064503`. The consolidated 38-test
+   service/reconciliation/production-route filter passed in `artifacts/verification/tests-quick-20260905-064556`.
+   Existing projection-preflight and whole-table rollback tests remain in place. The callback surface exposes only
+   count/path, so no deterministic
+   runtime mutant can distinguish post-hoc replay from per-row preparation without adding a test-only seam; static
+   placement review is the oracle. A deferred production-route regression then reproduced the LR2 runtime latest-only
+   loss: the hub saw only Completed after the work finished and before the queued UI drain
+   (`artifacts/verification/tests-quick-20260905-070247`). The bounded LR2 status owner now retains only the first
+   semantic folder-reconciliation intermediate, exposes it during the first status-property drain, and schedules one
+   Background continuation for the latest/terminal status. The canonical `OperationProgressHub` route, throwing
+   status observer, failure supersession, and existing LR2 property coalescing tests passed in
+   `artifacts/verification/tests-quick-20260905-071124`. The tightened deferred timeline additionally proves the
+   first drain contains no terminal status before the Background boundary in
+   `artifacts/verification/tests-quick-20260905-071735`. Failure clears the retained frame so retryable terminal
+   visibility is not delayed. Implementation is complete and pending static review.

@@ -297,7 +297,16 @@ internal static class Lr2SongDbSyncService
         }
 
         LogStage(request, "stage_start", "folder_reconciliation", normalFolderTargetCount + lr2FolderFilePaths.Count, 0, 0);
-        folderTableResult = Lr2FolderTableReconciliationService.Reconcile(songDb, request);
+        folderTableResult = Lr2FolderTableReconciliationService.Reconcile(
+            songDb,
+            request,
+            progressReporter: (stageProcessedCount, stageTotalCount, currentPath) => ReportProgress(
+                request,
+                freshStartCursor,
+                totalCount,
+                "folder_reconciliation",
+                stageProcessedCount,
+                stageTotalCount));
         normalFolderProcessedCount = normalFolderTargetCount;
         lr2FolderFileProcessedCount = lr2FolderFilePaths.Count;
         folderProcessedCount = normalFolderProcessedCount + lr2FolderFileProcessedCount;
