@@ -139,6 +139,15 @@ public sealed class BmsLibraryInitializationFileScanTests
         Assert.IsTrue(library.BMSFiles.Any(file =>
             string.Equals(file?.path, chartPath, StringComparison.OrdinalIgnoreCase)));
 
+        BMSLibrary.Lr2SynchronizationOwner synchronizationOwner =
+            (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        Lr2SongDbSyncInput scanInput = synchronizationOwner.CreateLr2SongDbSyncInput();
+        Assert.IsTrue(scanInput.ScanSurfaceGeneration > 0);
+        Assert.AreEqual(library.OwnedChartCollectionVersion, scanInput.OwnedChartCollectionVersion);
+        Assert.IsNotNull(synchronizationOwner.CommittedPathReceipt);
+        Assert.AreEqual(scanInput.OwnedChartCollectionVersion, synchronizationOwner.CommittedPathReceipt.OwnedChartCollectionVersion);
+        Assert.AreEqual(scanInput.BmsRowsVersion, synchronizationOwner.CommittedPathReceipt.BmsRowsVersion);
+
         using var verify = new LR2SongDBExtended(songDbPath);
         Assert.IsTrue(verify.Table<BMSFile>().Any(row =>
             string.Equals(row?.path, chartPath, StringComparison.OrdinalIgnoreCase)));

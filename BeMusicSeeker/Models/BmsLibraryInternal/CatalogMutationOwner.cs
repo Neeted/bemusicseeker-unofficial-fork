@@ -1012,6 +1012,11 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>
+    /// Applies a file-scan catalog replacement and captures its committed owned
+    /// collection version for post-lease consumers.
+    /// </summary>
+    /// <param name="request">The immutable replacement request, or <see langword="null"/> when no replacement is applied.</param>
     internal CatalogFileScanStorageReplacementReceipt ApplyFileScanStorageReplacement(
         CatalogFileScanStorageReplacementRequest request)
     {
@@ -1031,6 +1036,11 @@ internal sealed class CatalogMutationOwner
             CatalogOwnedCollectionReplacementResult ownedReplacement = request.HasDbDiff
                 ? ownedCollectionOwner.ReplaceForFileScan(storageRows)
                 : CatalogOwnedCollectionReplacementResult.NotApplied;
+            // The receipt is captured at this commit boundary; post-lease
+            // publication must observe this version without advancing again.
+            int ownedCollectionVersion = request.HasDbDiff
+                ? ownedCollectionOwner.IncrementVersion()
+                : ownedCollectionOwner.CollectionVersion;
             StorageRowsVersionSnapshot versions = new(
                 previousVersions.BmsRowsVersion,
                 previousVersions.BmsonRowsVersion,
@@ -1040,7 +1050,7 @@ internal sealed class CatalogMutationOwner
                 applied: request.HasDbDiff,
                 ownedCollectionApplied: ownedReplacement.Applied,
                 versions,
-                ownedCollectionOwner.CollectionVersion,
+                ownedCollectionVersion,
                 ownedReplacement.FilterSummary,
                 request.AddedCharts,
                 request.RemovedCharts,
@@ -1747,6 +1757,9 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
 
     internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
 
+    /// <summary>
+    /// Gets the owned collection version committed at the file-scan apply boundary.
+    /// </summary>
     internal int OwnedCollectionVersion { get; }
 
     internal OwnedChartStorageRowFilterSummary FilterSummary { get; }

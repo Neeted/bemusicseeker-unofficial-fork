@@ -1,6 +1,6 @@
 # LR2 `song.db` one-shot 回帰修正計画
 
-- **状態:** In progress
+- **状態:** Implementation complete; integration verification pending
 - **基準 revision:** `dfea9be7`
 - **開始時 HEAD:** `4b1d2d34`
 - **対象:** prepared app-managed `.lr2folder` の complete projection と、file-diff commit 後の receipt／scan surface version ordering
@@ -65,7 +65,46 @@ coverage ledger:
 
 ## Unit B: committed version publication ordering
 
-Test Contract Packet `LR2-FDR-07` は Unit A 完了後、実装前に凍結する。observable contract は、successful `HasDbDiff` commit ごとに owned version がちょうど一度進み、同じ version を持つ scan surface／one-shot receipt を post-lease notification 後の immediate full sync が利用すること、BMS source version が変われば receipt を拒否すること、二回目の take は失敗することである。
+### Test Contract Packet `LR2-FDR-07`
+
+Independent authority は user-approved reproduction、`devdocs/spec/lr2-song-db-generation.md`、one-shot ADR、`library-mutation-boundary.md`、`workflow-concurrency-and-complexity.md`、および「successful `HasDbDiff` commit でちょうど一回 advance、post-lease notification は notification-only」という resolved decision とする。absolute version、production-scale件数、現行 constructor／test expected は oracle にしない。
+
+- `FDR07-COMMIT-01`: applied file-scan catalog replacement は owned version を `V -> V+1` へ一度進め、immutable replacement receipt も同じ committed version を持つ。no-diff／pre-apply failure は進めない。
+- `FDR07-PUBLISH-02`: PropertyChanged publication は lease 解放後のまま、already committed `V+1` を通知し、二度目の increment を行わない。
+- `FDR07-STAMP-03`: LR2 scan surface、committed-path receipt、immediate input は同じ committed owned version と current BMS rows version を持ち、input は positive captured scan generation を持つ。
+- `FDR07-REUSE-04`: source revision が介在しなければ immediate reload／startup full sync は scan surface と receipt を利用し、eligible committed BMS を reader／currentness verifier へ戻さず、scan 後に追加された folder metadata を今回の projection へ入れない。
+- `FDR07-VALIDATE-05`: owned-only mismatch と BMS-only mismatch は各々 receipt を無効化し、全 take は slot を消費する。matching receipt も一回だけ取得できる。
+- `FDR07-FAIL-06`: post-lease publication failure は committed catalog を rollback／再incrementしないが、次の consumer に usable receipt を残さない。
+
+coverage ledger:
+
+- `CatalogMutationOwnerTests`: `extend`。commit-boundary `+1` と no-diff不変を所有する。
+- `BmsLibraryLr2SongDbSyncTests`: `extend`。real reload、post-lease event、scan／receipt stamp、captured scheduled work の reuse を所有する。
+- `BmsLibraryInitializationFileScanTests`: `extend`。startup側の最終version整合を所有する。startup全体の absolute increment回数は固定しない。
+- `Lr2SongDbSyncCommittedPathReceiptTests`: `replace／extend`。owned-only／BMS-only mismatch、matching one-take、real BMS mutation invalidationを所有する。
+- `LibraryFileScanPipelineOwnerTests`: `extend`。late post-lease failure後の actual take null と version不変を所有する。
+
+base-fail／head-pass は、production fix 前の同じ test が setup／compile error ではなく old-owned/new-BMS stamp、deferred double-boundary mismatch、scan／receipt non-reuseの observable mismatch で失敗することを証拠とする。negative filesystem variation は一つの committed chart と一つの post-capture candidate に限定し、件数／時間閾値は固定しない。
+
+### `FDR07-REUSE-04` deterministic coverage split
+
+Functional test を live Everything に依存させず、BMSLibrary へ test-only runtime seam を増やさないため、次の合成 coverage を採用する。
+
+1. real `ReloadFileDiff` と `MissingEverythingBridge` で actual `HasDbDiff` commit、final owned／BMS version、committed-path receipt、post-lease notification の一回だけの version advance を確認する。この環境で naturally incomplete となる initial LR2 physical scan は、successful scan-capture evidence とみなさない。
+2. 同じ committed state に対し、既存の typed production owner `CaptureLr2SongDbSyncScanSurface` へ complete immutable surface を渡す。scan surface、input、receipt、library の version 一致と positive generation を queue 前に確認する。
+3. actual library／coordinator routeへ receipt eligibility 付きで queue し、scheduled work 実行前に committed BMS を別の valid title／artist へ変更し、captured surface に無い `.lr2folder` を追加する。
+4. exact scheduled task を await し、DB が file-diff commit 時の title／artist を保持すること、late folder が projection に無いこと、terminal `Completed`、subsequent take が null であることを確認する。
+
+typed manual capture は deterministic fixture mechanics であり、file-scan capture ordering の単独証拠にはしない。pipeline／startup test が、real catalog replacement 後に scan surface／receipt が final committed version で stamp される edge を別途所有する。
+
+### Unit B completion evidence
+
+- commit-boundary increment を除く mutant は `expected 1, actual 0` で失敗した。
+- post-lease 側の increment を復活させる mutant は `expected 2, actual 3` で失敗した。
+- coordinator から receipt eligibility を除く mutant は DB title が commit 時の `Captured` ではなく変更後の `Rewritten After Capture` になって失敗した。
+- captured scan surface を消す mutant は `MissingEverythingBridge` の fail-closed path に入り、`expected Completed, actual Failed` で失敗した。
+- affected five test classes の標準 Quick は 204/204 passed。mutant はすべて削除済み。
+- fix 後の fresh static review は P0／P1／受入条件へ直接反する P2 なし。
 
 ## Verification and review
 

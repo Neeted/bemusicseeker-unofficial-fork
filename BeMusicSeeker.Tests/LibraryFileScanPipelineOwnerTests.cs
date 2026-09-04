@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -93,6 +94,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
             var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
             var owner = CreateOwner(callbacks, lr2ModeEnabled: true);
             var injectedException = new InvalidOperationException("injected post-lease observer failure");
+            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            int initialSynchronizationOwnedCollectionVersion =
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion;
 
             InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
                 () => owner.ApplyFileScanDiff(
@@ -120,7 +124,156 @@ public sealed class LibraryFileScanPipelineOwnerTests
                     postLeaseEffectObserver: _ => throw injectedException));
 
             Assert.AreSame(injectedException, thrown);
+            Assert.IsNotNull(callbacks.LastCatalogReplacement);
+            int committedOwnedCollectionVersion = callbacks.LastCatalogReplacement.Receipt.OwnedCollectionVersion;
+            Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
+            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.CollectionVersion);
             Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
+            Lr2SongDbSyncInput input = callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput();
+            Assert.AreEqual(initialSynchronizationOwnedCollectionVersion, input.OwnedChartCollectionVersion);
+            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_late_receipt_failure_first_take"));
+            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_late_receipt_failure_second_take"));
+            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.CollectionVersion);
+        }
+        finally
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyActiveFileScan_NoDiffDiscardsCommittedReceiptWithoutAdvancingVersion()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directoryPath);
+        try
+        {
+            string bmsPath = Path.Combine(directoryPath, "unchanged.bms");
+            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Unchanged\r\n#BPM 120\r\n#00111:01\r\n");
+            IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
+                [bmsPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [directoryPath] = []
+                },
+                [directoryPath]);
+            var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
+            var owner = CreateOwner(callbacks, lr2ModeEnabled: true, chartFileScanner: chartFileScanner);
+            BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
+            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            int initialSynchronizationOwnedCollectionVersion =
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion;
+
+            long firstGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_initial_commit");
+            Lr2FolderFileDiffPreparationResult first = owner.ApplyActiveFileScan(
+                firstGeneration,
+                trackLibraryFileCheckProgress: true,
+                installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
+            Assert.IsTrue(first.FileCheckResult.HasDbDiff);
+            Assert.IsNotNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
+            int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
+
+            long secondGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_no_diff");
+            Lr2FolderFileDiffPreparationResult second = owner.ApplyActiveFileScan(
+                secondGeneration,
+                trackLibraryFileCheckProgress: true,
+                installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
+
+            Assert.IsFalse(second.FileCheckResult.HasDbDiff);
+            Assert.IsNotNull(callbacks.LastCatalogReplacement);
+            Assert.IsFalse(callbacks.LastCatalogReplacement.Receipt.Applied);
+            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.CollectionVersion);
+            Assert.AreEqual(
+                initialSynchronizationOwnedCollectionVersion,
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion);
+            Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
+            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput(),
+                "test_no_diff_first_take"));
+            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput(),
+                "test_no_diff_second_take"));
+        }
+        finally
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyActiveFileScan_IncompletePrefetchDiscardsCommittedReceiptWithoutAdvancingVersion()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directoryPath);
+        try
+        {
+            string bmsPath = Path.Combine(directoryPath, "committed.bms");
+            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Committed\r\n#BPM 120\r\n#00111:01\r\n");
+            ChartScanExecutionResult completeScan = new()
+            {
+                Success = true,
+                IsComplete = true,
+                Result = new ChartScanResult
+                {
+                    ChartFilePaths = new HashSet<string>([bmsPath], StringComparer.Ordinal),
+                    ChartDirectories = new HashSet<string>([directoryPath], StringComparer.OrdinalIgnoreCase)
+                }
+            };
+            ChartScanExecutionResult incompleteScan = new()
+            {
+                Success = false,
+                IsComplete = false,
+                ErrorReason = "bridge_dll_not_found:test_incomplete_after_commit"
+            };
+            var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
+            var owner = CreateOwner(
+                callbacks,
+                lr2ModeEnabled: true,
+                chartFileScanner: new SequenceChartFileScanner(completeScan, incompleteScan));
+            BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
+            int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            int initialSynchronizationOwnedCollectionVersion =
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion;
+
+            long firstGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_initial_commit");
+            Lr2FolderFileDiffPreparationResult first = owner.ApplyActiveFileScan(
+                firstGeneration,
+                trackLibraryFileCheckProgress: true,
+                installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
+            Assert.IsTrue(first.FileCheckResult.HasDbDiff);
+            Assert.IsNotNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
+            int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.CollectionVersion;
+            Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
+
+            long secondGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_incomplete");
+            Assert.ThrowsException<InvalidOperationException>(
+                () => owner.ApplyActiveFileScan(
+                    secondGeneration,
+                    trackLibraryFileCheckProgress: true,
+                    installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty));
+
+            Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
+            Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.CollectionVersion);
+            Assert.AreEqual(
+                initialSynchronizationOwnedCollectionVersion,
+                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedChartCollectionVersion);
+            Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
+            Lr2SongDbSyncInput input = callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput();
+            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
+                input,
+                "test_incomplete_first_take"));
+            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
+                input,
+                "test_incomplete_second_take"));
         }
         finally
         {
@@ -575,7 +728,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
     private static LibraryFileScanPipelineOwner CreateOwner(
         RecordingLibraryFileScanPipelineCallbacks callbacks,
-        bool lr2ModeEnabled = false)
+        bool lr2ModeEnabled = false,
+        IChartFileScanner chartFileScanner = null)
     {
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
@@ -652,7 +806,27 @@ public sealed class LibraryFileScanPipelineOwnerTests
             callbacks.PublishCatalogReplacement,
             callbacks.PublishCatalogResidual,
             new BmsLibraryInitializationService(),
-            new EverythingNative(ApplicationPathPolicy.Current));
+            new EverythingNative(ApplicationPathPolicy.Current),
+            chartFileScanner);
+    }
+
+    private sealed class SequenceChartFileScanner(params ChartScanExecutionResult[] results) : IChartFileScanner
+    {
+        private readonly IReadOnlyList<ChartScanExecutionResult> results = results ?? throw new ArgumentNullException(nameof(results));
+        private int nextResultIndex;
+
+        public ChartScanExecutionResult Scan(
+            IEnumerable<string> rootDirectories,
+            IEnumerable<string> chartExtensions,
+            bool verboseLog = false,
+            bool includeTextSurface = true,
+            bool includeDirectorySurface = false)
+        {
+            int resultIndex = Math.Min(
+                Interlocked.Increment(ref nextResultIndex) - 1,
+                results.Count - 1);
+            return results[resultIndex];
+        }
     }
 
     private sealed class RecordingLibraryFileScanPipelineCallbacks

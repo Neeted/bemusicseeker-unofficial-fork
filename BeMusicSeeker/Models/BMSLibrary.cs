@@ -8347,6 +8347,8 @@ public partial class BMSLibrary : ObservableObject
         OwnedChartCollectionMutationResult mutationResult = CreateFileScanMutationProjection(
             replacementEvent.Request,
             replacementEvent.ResourceHealthIndexCurrentAtBase);
+        mutationResult.OwnedCollectionVersion = receipt.OwnedCollectionVersion;
+        mutationResult.OwnedCollectionVersionAlreadyAdvanced = receipt.Applied;
         string dispatchReason = string.IsNullOrWhiteSpace(replacementEvent.Reason)
             ? "file_scan"
             : "file_scan_" + replacementEvent.Reason;

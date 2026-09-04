@@ -1563,6 +1563,150 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
+    public async Task ReloadFileDiff_ReusesCommittedReceiptAfterCapturedSurfaceFilesystemChanges()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            string chartPath = Path.Combine(rootDirectory, "captured.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE Captured\r\n#ARTIST Artist\r\n#BPM 120\r\n#00111:01\r\n");
+
+            BmsLibraryOptionsSnapshot options = new()
+            {
+                OperationModeLR2DB = true
+            };
+            IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
+                [chartPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [rootDirectory] = []
+                },
+                [rootDirectory]);
+            var library = new TestBmsLibrary(
+                scope.SongDbPath,
+                getLR2Config: null,
+                _lr2ScoreDB: null,
+                startupRequiredFileScanReason: null,
+                optionsSnapshotProvider: () => options,
+                // Keep any accidental fresh LR2 folder enumeration fail-closed;
+                // the explicit complete surface below is the captured production input.
+                applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                chartFileScanner: chartFileScanner)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            BMSLibrary.Lr2SynchronizationOwner synchronizationOwner =
+                (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+            int initialOwnedCollectionVersion = library.OwnedChartCollectionVersion;
+            int observedNotificationVersion = 0;
+            bool mutationLeaseWasAvailable = false;
+            System.ComponentModel.PropertyChangedEventHandler notificationObserver = (_, args) =>
+            {
+                if (!string.Equals(
+                        args.PropertyName,
+                        nameof(BMSLibrary.OwnedChartCollectionVersion),
+                        StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                observedNotificationVersion = library.OwnedChartCollectionVersion;
+                using LibraryFileMutationLease reentryLease = synchronizationOwner.TryBeginMutation(
+                    "test_reload_committed_receipt_post_lease_reentry",
+                    showMessage: false);
+                mutationLeaseWasAvailable |= reentryLease != null;
+            };
+            library.PropertyChanged += notificationObserver;
+            try
+            {
+                library.ReloadFileDiff();
+            }
+            finally
+            {
+                library.PropertyChanged -= notificationObserver;
+            }
+
+            Lr2SongDbSyncCommittedPathReceipt committedReceipt = synchronizationOwner.CommittedPathReceipt;
+            Assert.IsNotNull(committedReceipt);
+            Assert.IsTrue(committedReceipt.CommittedBmsPaths.Contains(chartPath));
+            Assert.AreEqual(initialOwnedCollectionVersion + 1, committedReceipt.OwnedChartCollectionVersion);
+            Assert.AreEqual(committedReceipt.OwnedChartCollectionVersion, observedNotificationVersion);
+            Assert.IsTrue(mutationLeaseWasAvailable);
+            Assert.AreEqual(committedReceipt.OwnedChartCollectionVersion, library.OwnedChartCollectionVersion);
+
+            // The native LR2 grouped scan is intentionally unavailable in this fixture.
+            // Replace that incomplete physical result with the existing typed immutable
+            // capture path so the queued coordinator must reuse this explicit surface.
+            InvokeCaptureLr2SongDbSyncScanSurface(
+                library,
+                options,
+                [rootDirectory],
+                CreateCompleteLr2ScanSurface(
+                    [rootDirectory],
+                    [rootDirectory],
+                    [],
+                    [rootDirectory]));
+            Lr2SongDbSyncInput capturedInput = synchronizationOwner.CreateLr2SongDbSyncInput();
+            Assert.IsTrue(capturedInput.ScanSurfaceGeneration > 0);
+            Assert.AreEqual(committedReceipt.OwnedChartCollectionVersion, capturedInput.OwnedChartCollectionVersion);
+            Assert.AreEqual(committedReceipt.BmsRowsVersion, capturedInput.BmsRowsVersion);
+
+            Func<Task> queuedWork = null;
+            int schedulerInvocationCount = 0;
+            library.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
+            {
+                Assert.AreEqual("lr2_song_db_sync", name);
+                Assert.AreEqual("test_reload_committed_receipt", reason);
+                queuedWork = work;
+                schedulerInvocationCount++;
+                return true;
+            };
+            Lr2SongDbSyncStatusSnapshot queuedStatus = library.QueueLr2SongDbSync(
+                "test_reload_committed_receipt",
+                force: false,
+                allowCommittedPathReceipt: true);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, queuedStatus.Status);
+            Assert.AreEqual(1, schedulerInvocationCount);
+            Assert.IsNotNull(queuedWork);
+
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE Rewritten After Capture\r\n#ARTIST Rewritten Artist\r\n#BPM 120\r\n#00111:01\r\n");
+            string postCaptureFolderDirectory = Path.Combine(rootDirectory, "post-capture");
+            Directory.CreateDirectory(postCaptureFolderDirectory);
+            string postCaptureFolderPath = Path.Combine(postCaptureFolderDirectory, "late.lr2folder");
+            File.WriteAllText(postCaptureFolderPath, "#TITLE Late Candidate");
+
+            await queuedWork();
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_song_db_sync_status status =
+                verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.IsNotNull(status);
+            Assert.AreEqual("Completed", status.status);
+            BMSFile persistedSong = verify.Table<BMSFile>().Single(row =>
+                string.Equals(row?.path, chartPath, StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual("Captured", persistedSong.title);
+            Assert.AreEqual("Artist", persistedSong.artist);
+            Assert.IsFalse(verify.Table<LR2SongDB.folder>().Any(row =>
+                string.Equals(row?.path, postCaptureFolderPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsNull(synchronizationOwner.CommittedPathReceipt);
+            Assert.AreEqual(committedReceipt.OwnedChartCollectionVersion, library.OwnedChartCollectionVersion);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void ReloadFileDiff_RepairsMissingParentRowForPreservedExternalLr2Folder()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();

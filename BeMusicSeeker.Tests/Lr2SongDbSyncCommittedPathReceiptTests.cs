@@ -35,7 +35,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     }
 
     [TestMethod]
-    public void Receipt_VersionMismatchIsDiscardedWithoutReuse()
+    public void Receipt_OwnedCollectionVersionMismatchIsDiscardedWithoutReuse()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         var library = CreateLr2Library(scope.SongDbPath);
@@ -43,10 +43,26 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         Lr2SongDbSyncInput input = owner.CreateLr2SongDbSyncInput();
         owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
             input.OwnedChartCollectionVersion + 1,
+            input.BmsRowsVersion,
+            [Path.Combine(scope.DirectoryPath, "mismatch.bms")]);
+
+        Assert.IsNull(owner.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_owned_version_mismatch"));
+        Assert.IsNull(owner.CommittedPathReceipt);
+    }
+
+    [TestMethod]
+    public void Receipt_BmsRowsVersionMismatchIsDiscardedWithoutReuse()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        var library = CreateLr2Library(scope.SongDbPath);
+        BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        Lr2SongDbSyncInput input = owner.CreateLr2SongDbSyncInput();
+        owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
+            input.OwnedChartCollectionVersion,
             input.BmsRowsVersion + 1,
             [Path.Combine(scope.DirectoryPath, "mismatch.bms")]);
 
-        Assert.IsNull(owner.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_mismatch"));
+        Assert.IsNull(owner.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_bms_version_mismatch"));
         Assert.IsNull(owner.CommittedPathReceipt);
     }
 

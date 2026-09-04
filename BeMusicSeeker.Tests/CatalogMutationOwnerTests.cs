@@ -578,6 +578,7 @@ public sealed class CatalogMutationOwnerTests
             OwnedChartCollectionState.FromStorageRows([oldBms], [oldBmson]),
             initialRows.BmsRowsVersion,
             initialRows.BmsonRowsVersion);
+        int initialOwnedCollectionVersion = ownedCollectionOwner.CollectionVersion;
         var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
 
         CatalogFileScanStorageReplacementRequest request = owner.CreateFileScanStorageReplacementRequest(
@@ -604,6 +605,7 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(nextBmson.path, receipt.AddedCharts[1].Path);
         Assert.AreEqual(oldBms.path, receipt.RemovedCharts[0].Path);
         Assert.AreEqual(oldBmson.path, receipt.RemovedCharts[1].Path);
+        Assert.AreEqual(initialOwnedCollectionVersion + 1, receipt.OwnedCollectionVersion);
         Assert.AreEqual(ownedCollectionOwner.CollectionVersion, receipt.OwnedCollectionVersion);
     }
 
@@ -614,6 +616,7 @@ public sealed class CatalogMutationOwnerTests
         var storageRowsOwner = new CatalogStorageRowsOwner();
         CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
         var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        int initialOwnedCollectionVersion = ownedCollectionOwner.CollectionVersion;
         var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
 
         CatalogFileScanStorageReplacementRequest request = owner.CreateFileScanStorageReplacementRequest(
@@ -634,6 +637,8 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
         Assert.AreEqual(0, receipt.AddedCharts.Count);
         Assert.AreEqual(0, receipt.RemovedCharts.Count);
+        Assert.AreEqual(initialOwnedCollectionVersion, receipt.OwnedCollectionVersion);
+        Assert.AreEqual(initialOwnedCollectionVersion, ownedCollectionOwner.CollectionVersion);
         Assert.AreSame(bms, storageRowsOwner.BmsRows[0]);
     }
 
