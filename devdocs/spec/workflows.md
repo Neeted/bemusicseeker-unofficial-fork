@@ -2,6 +2,8 @@
 
 この資料は主要操作の現行フローをまとめる。startup の詳細は [startup-initialization-flow.md](startup-initialization-flow.md) を正本にする。
 
+主要 workflow 間の並行可否、queue / lane、stale input、version token の共通方針は [workflow-concurrency-and-complexity.md](workflow-concurrency-and-complexity.md) を参照する。
+
 ## Startup
 
 入口: `MainWindow.ContentRendered` (`async void` event boundary)。ViewModel の唯一の awaitable な `InitializeAsync()` が startup と settings apply の実処理を担う。

@@ -54,6 +54,8 @@ optional library-folder refreshやDispatcher Background workをglobal operabilit
 
 ## UI / model concurrency boundary
 
+UI responsiveness と domain mutation concurrency の区別、logical mutation lane、snapshot、version / generation token の使用条件は [workflow-concurrency-and-complexity.md](workflow-concurrency-and-complexity.md) を正本にする。
+
 WPF binding collectionはUI read modelとして扱い、所有者のUI scheduler / collection applierを通して更新する。
 
 - domain writer lock保持中にUI、dialog、event subscriber、別owner callbackを同期実行しない。

@@ -60,6 +60,11 @@
 - model lock、DB transaction、operation gate を保持したまま UI、dialog、event subscriber、別 owner の完了を同期的に待たない。UI スレッドで sync-over-async を行わず、非 event handler の `async void` を追加しない。
 - 既存の owner / gateway / scheduler 境界を迂回して global state や platform API へ直接依存しない。境界を変える場合は挙動、失敗、shutdown、thread affinity をテストする。
 
+### 非同期ワークフローと並行性
+
+- scheduler、background task、owner間callback、snapshot、version / generation token、mutation laneを変更する場合は、`devdocs\spec\workflow-concurrency-and-complexity.md`を先に確認する。
+- UI responsiveness だけから mutation concurrency を推測しない。対象 feature spec と承認済み decision がない競合 mutation は、UI を応答可能に保つ直列化案または replan とする。
+
 ## ログ
 
 - production code から NLog を直接構成・取得・呼び出さない。logger の取得と出力は `Ribbit\Logging\NLogWrapper.cs` を経由する。

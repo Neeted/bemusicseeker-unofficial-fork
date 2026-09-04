@@ -2,6 +2,8 @@
 
 この directory 以下でテストを追加、変更、削除する場合、root `AGENTS.md` に加えて `../devdocs/spec/test-authoring-contract.md` と `../devdocs/spec/testing-strategy.md` を先に読む。ここにはテスト作業で毎回必要な差分だけを置く。
 
+非同期 workflow、version token、mutation lane の test では、`../devdocs/spec/workflow-concurrency-and-complexity.md` を共通設計制約として参照する。個別 behavior、production timeline、completion invariant の authority は、承認済み Test Contract Packet と対象 feature spec に置く。
+
 ## Test Contract Packet gate
 
 - durable test の assertion、expected value、snapshot、golden、source / reflection contract を追加・変更・削除する場合は、編集前にルートが承認した `Test Contract Packet` と対象 Contract ID を受け取る。名前変更、移動、format、生成物更新だけで assertion semantics が変わらない場合は例外とする。
