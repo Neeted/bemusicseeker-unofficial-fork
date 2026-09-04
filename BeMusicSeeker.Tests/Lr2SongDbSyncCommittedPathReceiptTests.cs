@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2SongDbSyncCommittedPathReceiptTests
 {
     [TestMethod]
-    public void Receipt_IsTakenOnceWhenVersionsMatch()
+    public void Receipt_IsTakenOnceWhenBmsRowsVersionMatches()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         var library = CreateLr2Library(scope.SongDbPath);
@@ -35,18 +35,30 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     }
 
     [TestMethod]
-    public void Receipt_OwnedCollectionVersionMismatchIsDiscardedWithoutReuse()
+    public void Receipt_OwnedCollectionVersionMismatchDoesNotInvalidateMatchingBmsRows()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
         var library = CreateLr2Library(scope.SongDbPath);
         BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         Lr2SongDbSyncInput input = owner.CreateLr2SongDbSyncInput();
+        Lr2SongDbSyncInput ownedChangedInput = WithOwnedCollectionVersion(
+            input,
+            input.OwnedChartCollectionVersion + 1);
         owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
-            input.OwnedChartCollectionVersion + 1,
             input.BmsRowsVersion,
             [Path.Combine(scope.DirectoryPath, "mismatch.bms")]);
 
-        Assert.IsNull(owner.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_owned_version_mismatch"));
+        Lr2SongDbSyncCommittedPathReceipt receipt = owner.TakeLr2SongDbSyncCommittedPathReceipt(
+            ownedChangedInput,
+            "test_owned_version_mismatch");
+
+        Assert.IsNotNull(receipt);
+        CollectionAssert.AreEquivalent(
+            new[] { Path.Combine(scope.DirectoryPath, "mismatch.bms") },
+            receipt.CommittedBmsPaths.ToArray());
+        Assert.IsNull(owner.TakeLr2SongDbSyncCommittedPathReceipt(
+            ownedChangedInput,
+            "test_owned_version_mismatch_again"));
         Assert.IsNull(owner.CommittedPathReceipt);
     }
 
@@ -58,11 +70,24 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         Lr2SongDbSyncInput input = owner.CreateLr2SongDbSyncInput();
         owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
-            input.OwnedChartCollectionVersion,
             input.BmsRowsVersion + 1,
             [Path.Combine(scope.DirectoryPath, "mismatch.bms")]);
 
         Assert.IsNull(owner.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_bms_version_mismatch"));
+        Assert.IsNull(owner.CommittedPathReceipt);
+    }
+
+    [TestMethod]
+    public void Receipt_NullInputIsDiscardedWithoutReuse()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        var library = CreateLr2Library(scope.SongDbPath);
+        BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+        owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
+            0,
+            [Path.Combine(scope.DirectoryPath, "null-input.bms")]);
+
+        Assert.IsNull(owner.TakeLr2SongDbSyncCommittedPathReceipt(null, "test_null_input"));
         Assert.IsNull(owner.CommittedPathReceipt);
     }
 
@@ -73,7 +98,6 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         var library = CreateLr2Library(scope.SongDbPath);
         BMSLibrary.Lr2SynchronizationOwner owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
-            0,
             0,
             [Path.Combine(scope.DirectoryPath, "manual.bms")]);
         library.StartupBackgroundTaskScheduler = (_, _, _, _) => true;
@@ -90,7 +114,6 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         var firstLibrary = CreateLr2Library(scope.SongDbPath);
         BMSLibrary.Lr2SynchronizationOwner firstOwner = (BMSLibrary.Lr2SynchronizationOwner)firstLibrary.Lr2Synchronization;
         firstOwner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(
-            0,
             0,
             [Path.Combine(scope.DirectoryPath, "disposed.bms")]);
 
@@ -126,7 +149,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
             Signature = "receipt-reader-gate",
             RunId = "receipt-reader-gate",
             SongRows = [skippedFile, processedFile],
-            CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(0, 0, [skippedPath]),
+            CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt(0, [skippedPath]),
             ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
             ChartFileBufferReader = path =>
             {
@@ -163,5 +186,35 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
             {
                 OperationModeLR2DB = true
             });
+    }
+
+    private static Lr2SongDbSyncInput WithOwnedCollectionVersion(
+        Lr2SongDbSyncInput input,
+        int ownedCollectionVersion)
+    {
+        return new Lr2SongDbSyncInput(
+            input.RootDirectories,
+            input.ChartPaths,
+            input.NormalFolderDirectoryPaths,
+            input.FolderInfoFilePaths,
+            input.FolderInfoFileEntries,
+            input.DirectoryEntries,
+            input.Lr2FolderDiscoveryDirectories,
+            input.Lr2FolderPruneDirectories,
+            input.Lr2RootPath,
+            input.Lr2NormalCustomFolderOutputBaseDir,
+            input.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
+            input.Lr2RootCustomFolderOutputBaseDir,
+            input.Lr2BuiltinFolderSourceDirectories,
+            input.Lr2BuiltinCustomFolderSettings,
+            input.Lr2FolderFilePaths,
+            input.Lr2FolderFileEntries,
+            input.Lr2FolderFileDiscoveryComplete,
+            input.SongRows,
+            input.TextFileDirectories,
+            input.ScanSurfaceGeneration,
+            ownedCollectionVersion,
+            input.BmsRowsVersion,
+            input.BmsonRowsVersion);
     }
 }

@@ -1,6 +1,7 @@
 # LR2 song.db one-shot reconciliation plan
 
-Status: Complete; final static review passed
+Status: Complete; final static review passed. Receipt validity wording was superseded by
+`LR2-OWNED-NARROW-20260904`; see `lr2-song-db-regression-remediation-plan.md`.
 
 Base revision: `9101ff7bc1717b1a9cab24614edb030dafd2ae0f`
 
@@ -62,7 +63,10 @@ the unreachable `startup_scan_blockers` cleanup route.
 4. Shutdown cancellation rolls back the current transaction and records `Incomplete` / `shutdown_interrupted` when
    status persistence is safely available. A remaining `Running` row is acceptable if that write cannot complete.
    An unexpected non-shutdown `OperationCanceledException` is a failure.
-5. The in-memory file-diff receipt is keyed by `OwnedChartCollectionVersion` and `BmsRowsVersion` only.
+5. Historical implementation decision: the in-memory file-diff receipt was keyed by
+   `OwnedChartCollectionVersion` and `BmsRowsVersion`. The later
+   `LR2-OWNED-NARROW-20260904` correction removed the unrelated broad-version dependency
+   and retained `BmsRowsVersion` as the transitional narrow guard.
 6. A receipt contains BMS paths whose full-sync-equivalent parse or safe metadata-only update, inline maintenance,
    matching LR2 row write, and SQLite chunk commit succeeded. BMSON and failed/rolled-back work are excluded.
 7. The receipt is published only after the whole file-diff pipeline succeeds. It is atomically taken once by the
@@ -87,7 +91,7 @@ the unreachable `startup_scan_blockers` cleanup route.
 - Matching `Completed` automatic requests execute no reader or writer.
 - Every other/forced run starts with the first input regardless of persisted cursor/stage/total.
 - A two-BMS empty-DB startup reads each path once across file diff plus its immediate full sync.
-- Receipt version mismatch or any later/manual/retry/settings run performs normal reads.
+- A BMS-row receipt mismatch or any later/manual/retry/settings run performs normal reads.
 - Receipt paths are never persisted, reverified, or reused.
 - Full folder output equals the independently expected fresh projection; all unexpected rows are deleted.
 - Folder projection conflicts and incomplete input fail before any folder mutation.

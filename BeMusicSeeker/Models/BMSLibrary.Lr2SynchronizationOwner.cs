@@ -1220,7 +1220,6 @@ public partial class BMSLibrary
 
             StorageRowsVersionSnapshot storageRowsVersion = data.CaptureStorageRowsVersionSnapshot();
             var receipt = new Lr2SongDbSyncCommittedPathReceipt(
-                data.OwnedChartCollectionVersion,
                 storageRowsVersion.BmsRowsVersion,
                 fileCheckResult.CommittedLr2SongDbSyncBmsPaths);
             lock (CommittedPathReceiptGate)
@@ -1230,7 +1229,6 @@ public partial class BMSLibrary
             LogInstallPerformance("lr2_song_db_sync committed_path_receipt published"
                 + " reason=" + (reason ?? "unknown")
                 + " paths=" + receipt.CommittedBmsPaths.Count
-                + " ownedChartCollectionVersion=" + receipt.OwnedChartCollectionVersion
                 + " bmsRowsVersion=" + receipt.BmsRowsVersion);
         }
 
@@ -1252,8 +1250,6 @@ public partial class BMSLibrary
             {
                 LogInstallPerformance("lr2_song_db_sync committed_path_receipt discarded"
                     + " reason=version_mismatch_" + (reason ?? "unknown")
-                    + " receiptOwnedChartCollectionVersion=" + receipt.OwnedChartCollectionVersion
-                    + " inputOwnedChartCollectionVersion=" + (input?.OwnedChartCollectionVersion ?? 0)
                     + " receiptBmsRowsVersion=" + receipt.BmsRowsVersion
                     + " inputBmsRowsVersion=" + (input?.BmsRowsVersion ?? 0));
                 return null;
@@ -1261,7 +1257,6 @@ public partial class BMSLibrary
             LogInstallPerformance("lr2_song_db_sync committed_path_receipt taken"
                 + " reason=" + (reason ?? "unknown")
                 + " paths=" + receipt.CommittedBmsPaths.Count
-                + " ownedChartCollectionVersion=" + receipt.OwnedChartCollectionVersion
                 + " bmsRowsVersion=" + receipt.BmsRowsVersion);
             return receipt;
         }
@@ -1910,11 +1905,6 @@ public partial class BMSLibrary
                 missReason = "row_snapshot";
                 return null;
             }
-            if (snapshot.OwnedCollectionVersion != rowSnapshot.OwnedCollectionVersion)
-            {
-                missReason = "owned_collection_version";
-                return null;
-            }
             if (snapshot.BmsRowsVersion != rowSnapshot.BmsRowsVersion)
             {
                 missReason = "bms_rows_version";
@@ -1952,7 +1942,6 @@ public partial class BMSLibrary
             }
             return snapshot != null
                 && snapshot.Generation == input.ScanSurfaceGeneration
-                && snapshot.OwnedCollectionVersion == input.OwnedChartCollectionVersion
                 && snapshot.BmsRowsVersion == input.BmsRowsVersion
                 && snapshot.BmsonRowsVersion == input.BmsonRowsVersion
                 && BMSLibrary.ArePathSetsEqual(snapshot.RootDirectories, input.RootDirectories)

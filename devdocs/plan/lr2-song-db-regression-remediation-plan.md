@@ -19,8 +19,20 @@ retry、fallback、新しい persistent state、scoped DB prewrite、旧 prune-p
 - base の physical／captured discovery は current app-managed directory scope で除外し、その後に authoritative な current `PendingSurface` を overlay する。
 - prepared surface の全 member は managed directory 配下でも full projection の入力である。同 scope の nonprepared physical file は入力ではない。scope 外の external candidate は維持する。
 - managed scope または required discovery が incomplete なら、whole-table folder mutation は行わず `Completed` にしない。
-- receipt／scan surface の version 条件は弱めない。`HasDbDiff` の catalog commit 境界で `OwnedChartCollectionVersion` を一度だけ進め、その committed version を receipt／projection へ運ぶ。
+- receipt／scan surface の validity は `OwnedChartCollectionVersion` に依存させない。receipt は transitional な `BmsRowsVersion` guard を維持し、scan surface は generation、BMS/BMSON rows、BMS roots、LR2 roots を guard とする。`HasDbDiff` の catalog commit 境界で `OwnedChartCollectionVersion` を一度だけ進める契約と、runtime-wide input currentness の guard は維持する。
 - UI／PropertyChanged notification の timing は post-lease のまま維持し、そこで二度目の version increment は行わない。
+
+## Follow-up correction: `LR2-OWNED-NARROW-20260904`
+
+この follow-up は、上記の旧「version 条件は弱めない」という判断を supersede します。`OwnedChartCollectionVersion` は runtime-wide input currentness の guard としては必要ですが、captured scan surface の選択/currentness や committed-path receipt の validity dependency ではありません。
+
+- `LR2-NR-01`: 同じ generation、BMS/BMSON rows version、BMS roots、LR2 roots なら Owned だけが異なる scan surface を再利用し、それらの narrow guard の不一致は拒否する。
+- `LR2-NR-02`: receipt は BMS rows version が一致する限り Owned の差だけでは無効化せず、first take のみ path set を返す。BMS mismatch/null は破棄し、後から復活させない。
+- `LR2-NR-03`: accepted receipt path の reader/currentness query skip と nonreceipt の通常処理を維持する。
+- `LR2-NR-04`: input 作成後の Owned change は runtime-wide currentness では stale/non-success のままにし、surface/receipt の narrow validity 修正を global currentness へ波及させない。
+- `LR2-NR-05`: supported reload/startup fixture で production chart-info route が生成可能な場合だけ publication から consumption までを拡張し、生成不能なら NR-01～04 の negative control で閉じる。新しい public/private/test-only seam は追加しない。
+
+`OwnedChartCollectionVersion` の token restamp/carry-forward、新 token、retry/replay/rollback/fallback、persistent state、filesystem live revalidation は追加しません。将来の application-level procedural startup owner は [lr2-startup-procedural-orchestration-plan.md](lr2-startup-procedural-orchestration-plan.md) にのみ記録し、今回の修正では実装しません。
 
 ## Unit A: prepared managed folder projection
 
@@ -65,15 +77,15 @@ coverage ledger:
 
 ## Unit B: committed version publication ordering
 
-### Test Contract Packet `LR2-FDR-07`
+### Test Contract Packet `LR2-FDR-07` (historical; validity wording superseded)
 
 Independent authority は user-approved reproduction、`devdocs/spec/lr2-song-db-generation.md`、one-shot ADR、`library-mutation-boundary.md`、`workflow-concurrency-and-complexity.md`、および「successful `HasDbDiff` commit でちょうど一回 advance、post-lease notification は notification-only」という resolved decision とする。absolute version、production-scale件数、現行 constructor／test expected は oracle にしない。
 
 - `FDR07-COMMIT-01`: applied file-scan catalog replacement は owned version を `V -> V+1` へ一度進め、immutable replacement receipt も同じ committed version を持つ。no-diff／pre-apply failure は進めない。
 - `FDR07-PUBLISH-02`: PropertyChanged publication は lease 解放後のまま、already committed `V+1` を通知し、二度目の increment を行わない。
-- `FDR07-STAMP-03`: LR2 scan surface、committed-path receipt、immediate input は同じ committed owned version と current BMS rows version を持ち、input は positive captured scan generation を持つ。
+- `FDR07-STAMP-03` (historical): LR2 scan surface と immediate input は committed owned/BMS versions を facts として carry し、input は positive captured scan generation を持つ。receipt の validity は current follow-up で BMS rows version のみに狭めた。
 - `FDR07-REUSE-04`: source revision が介在しなければ immediate reload／startup full sync は scan surface と receipt を利用し、eligible committed BMS を reader／currentness verifier へ戻さず、scan 後に追加された folder metadata を今回の projection へ入れない。
-- `FDR07-VALIDATE-05`: owned-only mismatch と BMS-only mismatch は各々 receipt を無効化し、全 take は slot を消費する。matching receipt も一回だけ取得できる。
+- `FDR07-VALIDATE-05` (superseded): old wording treated owned-only mismatch as a receipt invalidation. The current follow-up contract `LR2-OWNED-NARROW-20260904` keeps BMS-only mismatch invalidation and allows an owned-only mismatch while preserving one-take consumption.
 - `FDR07-FAIL-06`: post-lease publication failure は committed catalog を rollback／再incrementしないが、次の consumer に usable receipt を残さない。
 
 coverage ledger:

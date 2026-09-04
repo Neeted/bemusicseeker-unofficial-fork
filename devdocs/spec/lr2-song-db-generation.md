@@ -176,7 +176,8 @@ full preparation が不完全、projection が衝突、folder apply または so
 
 startup scan diagnostic、missing/unknown-root inference、date sentinel 判定、startup repair、startup cleanup/retry action は現行 route ではありません。`folder.date`、`song.date` の zero および負値は有効な Unix 秒値としてそのまま保存します。
 
-file-diff の直後に実行される startup/reload full sync には、直前の file-diff pipeline が全体として commit した chart path だけを対象にした in-memory committed-path receipt を一度だけ渡せます。receipt は `OwnedChartCollectionVersion` と `BmsRowsVersion` の二つの version で一致を確認し、消費・失敗・retry・manual/settings run・shutdown・dispose のいずれでも保持・再利用・永続化しません。eligible path は BMS reader 呼び出しと DB currentness/verifier query を省略します。
+file-diff の直後に実行される startup/reload full sync には、直前の file-diff pipeline が全体として commit した chart path だけを対象にした in-memory committed-path receipt を一度だけ渡せます。receipt は `BmsRowsVersion` を transitional な narrow guard として一致確認し、`OwnedChartCollectionVersion` には依存しません。消費・失敗・retry・manual/settings run・shutdown・dispose のいずれでも保持・再利用・永続化しません。eligible path は BMS reader 呼び出しと DB currentness/verifier query を省略します。
+scan surface の選択・currentness は、`ScanSurfaceGeneration`、BMS/BMSON storage-row version、BMS root、LR2 folder discovery root を guard とします。`OwnedChartCollectionVersion` は scan surface や receipt の validity dependency ではありませんが、runtime-wide な input currentness 判定では引き続き stale input を拒否するために使います。
 
 ## 性能方針
 

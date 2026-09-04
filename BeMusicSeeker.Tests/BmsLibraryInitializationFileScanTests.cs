@@ -145,7 +145,6 @@ public sealed class BmsLibraryInitializationFileScanTests
         Assert.IsTrue(scanInput.ScanSurfaceGeneration > 0);
         Assert.AreEqual(library.OwnedChartCollectionVersion, scanInput.OwnedChartCollectionVersion);
         Assert.IsNotNull(synchronizationOwner.CommittedPathReceipt);
-        Assert.AreEqual(scanInput.OwnedChartCollectionVersion, synchronizationOwner.CommittedPathReceipt.OwnedChartCollectionVersion);
         Assert.AreEqual(scanInput.BmsRowsVersion, synchronizationOwner.CommittedPathReceipt.BmsRowsVersion);
 
         using var verify = new LR2SongDBExtended(songDbPath);

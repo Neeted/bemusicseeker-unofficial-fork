@@ -11,22 +11,15 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class Lr2SongDbSyncCommittedPathReceipt
 {
     internal Lr2SongDbSyncCommittedPathReceipt(
-        int ownedChartCollectionVersion,
         int bmsRowsVersion,
         IEnumerable<string> committedBmsPaths)
     {
-        OwnedChartCollectionVersion = ownedChartCollectionVersion;
         BmsRowsVersion = bmsRowsVersion;
         CommittedBmsPaths = new HashSet<string>(
             (committedBmsPaths ?? [])
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
     }
-
-    /// <summary>
-    /// Gets the catalog collection version captured after the file-diff commit.
-    /// </summary>
-    internal int OwnedChartCollectionVersion { get; }
 
     /// <summary>
     /// Gets the BMS storage-row version captured after the file-diff commit.
@@ -41,8 +34,9 @@ internal sealed class Lr2SongDbSyncCommittedPathReceipt
 
     internal bool Matches(Lr2SongDbSyncInput input)
     {
+        // This receipt proves a committed set of BMS storage rows. Keep that
+        // narrow guard without coupling the proof to unrelated catalog changes.
         return input != null
-            && OwnedChartCollectionVersion == input.OwnedChartCollectionVersion
             && BmsRowsVersion == input.BmsRowsVersion;
     }
 }

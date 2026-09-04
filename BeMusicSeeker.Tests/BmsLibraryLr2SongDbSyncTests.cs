@@ -1636,10 +1636,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Lr2SongDbSyncCommittedPathReceipt committedReceipt = synchronizationOwner.CommittedPathReceipt;
             Assert.IsNotNull(committedReceipt);
             Assert.IsTrue(committedReceipt.CommittedBmsPaths.Contains(chartPath));
-            Assert.AreEqual(initialOwnedCollectionVersion + 1, committedReceipt.OwnedChartCollectionVersion);
-            Assert.AreEqual(committedReceipt.OwnedChartCollectionVersion, observedNotificationVersion);
+            Assert.AreEqual(initialOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
+            Assert.AreEqual(library.OwnedChartCollectionVersion, observedNotificationVersion);
             Assert.IsTrue(mutationLeaseWasAvailable);
-            Assert.AreEqual(committedReceipt.OwnedChartCollectionVersion, library.OwnedChartCollectionVersion);
 
             // The native LR2 grouped scan is intentionally unavailable in this fixture.
             // Replace that incomplete physical result with the existing typed immutable
@@ -1655,8 +1654,47 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     [rootDirectory]));
             Lr2SongDbSyncInput capturedInput = synchronizationOwner.CreateLr2SongDbSyncInput();
             Assert.IsTrue(capturedInput.ScanSurfaceGeneration > 0);
-            Assert.AreEqual(committedReceipt.OwnedChartCollectionVersion, capturedInput.OwnedChartCollectionVersion);
             Assert.AreEqual(committedReceipt.BmsRowsVersion, capturedInput.BmsRowsVersion);
+            StorageRowsVersionSnapshot capturedStorageRows = library.CatalogStorageRowsVersion;
+            int capturedOwnedCollectionVersion = capturedInput.OwnedChartCollectionVersion;
+            string[] capturedRootDirectories = [.. capturedInput.RootDirectories];
+            string[] capturedLr2FolderDiscoveryDirectories = [.. capturedInput.Lr2FolderDiscoveryDirectories];
+
+            // Use the supported inline chart-info route to change the live chart
+            // digest after the committed receipt and scan surface were captured.
+            // This publishes an owned-only mutation while leaving storage-row
+            // versions, roots, and scan generation valid for the queued input.
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE Captured\r\n#ARTIST Artist\r\n#BPM 120\r\n#00111:02\r\n");
+            BMSFile catalogFile = library.BMSFiles.Single(file =>
+                string.Equals(file?.path, chartPath, StringComparison.OrdinalIgnoreCase));
+            ChartInfoInlineBuildResult ownedOnlyMutation =
+                OwnedChartCollectionTestSupport.InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                    library,
+                    "test_reload_committed_receipt_owned_digest",
+                    [ChartFileProjection.FromBmsFile(catalogFile, includeWarningSnapshot: false)]);
+            Assert.AreEqual(1, ownedOnlyMutation.DigestChanges.Count);
+            Assert.AreEqual(capturedOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
+
+            StorageRowsVersionSnapshot mutatedStorageRows = library.CatalogStorageRowsVersion;
+            Assert.AreEqual(capturedStorageRows.BmsRowsVersion, mutatedStorageRows.BmsRowsVersion);
+            Assert.AreEqual(capturedStorageRows.BmsonRowsVersion, mutatedStorageRows.BmsonRowsVersion);
+
+            // Recreate the input through the production owner after the owned-only
+            // mutation. It must reuse the same scan surface and roots while seeing
+            // the advanced owned version; the captured pre-mutation input is stale.
+            Lr2SongDbSyncInput ownedChangedInput = synchronizationOwner.CreateLr2SongDbSyncInput();
+            Assert.AreEqual(capturedOwnedCollectionVersion + 1, ownedChangedInput.OwnedChartCollectionVersion);
+            Assert.AreEqual(capturedInput.BmsRowsVersion, ownedChangedInput.BmsRowsVersion);
+            Assert.AreEqual(capturedInput.BmsonRowsVersion, ownedChangedInput.BmsonRowsVersion);
+            Assert.AreEqual(capturedInput.ScanSurfaceGeneration, ownedChangedInput.ScanSurfaceGeneration);
+            CollectionAssert.AreEqual(capturedRootDirectories, ownedChangedInput.RootDirectories.ToArray());
+            CollectionAssert.AreEqual(
+                capturedLr2FolderDiscoveryDirectories,
+                ownedChangedInput.Lr2FolderDiscoveryDirectories.ToArray());
+            Assert.IsFalse(synchronizationOwner.IsLr2SongDbSyncInputCurrent(capturedInput));
+            Assert.IsTrue(synchronizationOwner.IsLr2SongDbSyncInputCurrent(ownedChangedInput));
 
             Func<Task> queuedWork = null;
             int schedulerInvocationCount = 0;
@@ -1698,7 +1736,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.IsFalse(verify.Table<LR2SongDB.folder>().Any(row =>
                 string.Equals(row?.path, postCaptureFolderPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsNull(synchronizationOwner.CommittedPathReceipt);
-            Assert.AreEqual(committedReceipt.OwnedChartCollectionVersion, library.OwnedChartCollectionVersion);
+            Assert.AreEqual(ownedChangedInput.OwnedChartCollectionVersion, library.OwnedChartCollectionVersion);
         }
         finally
         {
@@ -2239,6 +2277,101 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             });
 
             Assert.IsFalse(InvokeIsLr2SongDbSyncInputCurrent(library, input));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void GetCurrentLr2SongDbSyncScanSurface_IgnoresOwnedCollectionVersionMismatch()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            var library = new TestBmsLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
+            BmsLibraryOptionsSnapshot options = new()
+            {
+                OperationModeLR2DB = true
+            };
+
+            InvokeCaptureLr2SongDbSyncScanSurface(
+                library,
+                options,
+                [rootDirectory],
+                CreateCompleteLr2ScanSurface(
+                    [rootDirectory],
+                    [rootDirectory],
+                    [],
+                    [rootDirectory]));
+            Lr2SongDbSyncInput input = InvokeCreateLr2SongDbSyncInput(library);
+            var rowSnapshot = new Lr2SongDbSyncInputRowSnapshot(
+                input.ChartPaths,
+                input.SongRows,
+                input.OwnedChartCollectionVersion + 1,
+                input.BmsRowsVersion,
+                input.BmsonRowsVersion);
+
+            Lr2SongDbSyncScanSurfaceSnapshot surface = owner.GetCurrentLr2SongDbSyncScanSurface(
+                input.RootDirectories,
+                input.Lr2FolderDiscoveryDirectories,
+                rowSnapshot,
+                out string missReason);
+
+            Assert.IsNotNull(surface);
+            Assert.AreEqual(string.Empty, missReason);
+
+            Lr2SongDbSyncInput ownedChangedInput = WithOwnedCollectionVersion(
+                input,
+                input.OwnedChartCollectionVersion + 1);
+            Assert.IsTrue(owner.IsCurrentLr2SongDbSyncScanSurface(ownedChangedInput));
+            Assert.IsFalse(owner.IsLr2SongDbSyncInputCurrent(ownedChangedInput));
+
+            var bmsRowsChangedSnapshot = new Lr2SongDbSyncInputRowSnapshot(
+                input.ChartPaths,
+                input.SongRows,
+                input.OwnedChartCollectionVersion,
+                input.BmsRowsVersion + 1,
+                input.BmsonRowsVersion);
+            Assert.IsNull(owner.GetCurrentLr2SongDbSyncScanSurface(
+                input.RootDirectories,
+                input.Lr2FolderDiscoveryDirectories,
+                bmsRowsChangedSnapshot,
+                out _));
+
+            var bmsonRowsChangedSnapshot = new Lr2SongDbSyncInputRowSnapshot(
+                input.ChartPaths,
+                input.SongRows,
+                input.OwnedChartCollectionVersion,
+                input.BmsRowsVersion,
+                input.BmsonRowsVersion + 1);
+            Assert.IsNull(owner.GetCurrentLr2SongDbSyncScanSurface(
+                input.RootDirectories,
+                input.Lr2FolderDiscoveryDirectories,
+                bmsonRowsChangedSnapshot,
+                out _));
+
+            string otherRootDirectory = Path.Combine(scope.DirectoryPath, "OtherBms");
+            Assert.IsNull(owner.GetCurrentLr2SongDbSyncScanSurface(
+                [otherRootDirectory],
+                input.Lr2FolderDiscoveryDirectories,
+                rowSnapshot,
+                out _));
+            Assert.IsNull(owner.GetCurrentLr2SongDbSyncScanSurface(
+                input.RootDirectories,
+                [otherRootDirectory],
+                rowSnapshot,
+                out _));
         }
         finally
         {
@@ -5741,6 +5874,36 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     private static BMSLibrary.Lr2SynchronizationOwner GetLr2SynchronizationOwner(BMSLibrary library)
     {
         return (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
+    }
+
+    private static Lr2SongDbSyncInput WithOwnedCollectionVersion(
+        Lr2SongDbSyncInput input,
+        int ownedCollectionVersion)
+    {
+        return new Lr2SongDbSyncInput(
+            input.RootDirectories,
+            input.ChartPaths,
+            input.NormalFolderDirectoryPaths,
+            input.FolderInfoFilePaths,
+            input.FolderInfoFileEntries,
+            input.DirectoryEntries,
+            input.Lr2FolderDiscoveryDirectories,
+            input.Lr2FolderPruneDirectories,
+            input.Lr2RootPath,
+            input.Lr2NormalCustomFolderOutputBaseDir,
+            input.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
+            input.Lr2RootCustomFolderOutputBaseDir,
+            input.Lr2BuiltinFolderSourceDirectories,
+            input.Lr2BuiltinCustomFolderSettings,
+            input.Lr2FolderFilePaths,
+            input.Lr2FolderFileEntries,
+            input.Lr2FolderFileDiscoveryComplete,
+            input.SongRows,
+            input.TextFileDirectories,
+            input.ScanSurfaceGeneration,
+            ownedCollectionVersion,
+            input.BmsRowsVersion,
+            input.BmsonRowsVersion);
     }
 
     private static Lr2SongDbSyncPreparedDataSurface CreatePreparedLr2FolderSurface(
