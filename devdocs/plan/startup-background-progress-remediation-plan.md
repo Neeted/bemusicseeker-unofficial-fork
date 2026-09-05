@@ -37,7 +37,7 @@ repair、`.lr2folder` file diff、LR2 folder-table reconciliation の長時間�
 | U3 custom-folder repair progress | startup repair は bounded table progress を公開し、zero target/terminal で非表示へ戻る | playlist repair/progress hub | `SBG-03` | playlist + hub Quick + static review | Complete |
 | U4A `.lr2folder` file-diff progress | LR2-request route は apply 成功まで FileDiff を完了扱いにせず、bounded intermediate progress を公開する | library scan/LR2 folder-file diff | `SBG-04A` | library Quick + static review | Complete |
 | U4B folder-table reconciliation progress | full reconciliation の pre-transaction projection progress を公開し、durable cursor は atomic apply 成功後だけ進める | LR2 folder reconciliation/status | `SBG-04B` | LR2 Quick + static review | Complete |
-| U5 background presentation | required gauge 後も scheduler-managed post work が連続して表示され、composite terminal だけで消える | startup lifecycle/progress hub/WPF | `SBG-05` | startup/hub/WPF Quick + Functional + static review | Pending |
+| U5 background presentation | required gauge 後も scheduler-managed post work が連続して表示され、composite terminal だけで消える | startup lifecycle/progress hub/WPF | `SBG-05` | startup/hub/WPF Quick + Functional + static review | Complete |
 
 Units are sequential because U3-U5 share progress presentation and resource/spec paths. Each unit is reviewed and
 committed before the next unit begins. Final integration runs one Functional verification on the final snapshot.
@@ -116,6 +116,9 @@ committed before the next unit begins. Final integration runs one Functional ver
   queued/running post work after required completion. Dedicated playlist/LR2 progress replaces generic presentation;
   generic returns if the composite terminal is not reached. Only the composite terminal clears it. Dedicated LR2
   failure/retry remains visible and scheduler-external work does not extend lifetime.
+- Supersession: starting a non-Startup progress operation resets the existing startup scheduler/warmup tracking and
+  therefore explicitly invalidates the old generic presentation. This is not a successful composite terminal and must
+  not preserve an unreachable latch. Shutdown may leave process-local presentation latched during terminal teardown.
 - Allowed variation: localized copy, animation/layout, generic task detail.
 - Wrong implementations: clear at required completion or transient idle; clear before warmup; show generic and dedicated
   simultaneously; hide LR2 failure; block UI; wait for scheduler-external work.
@@ -236,3 +239,33 @@ committed before the next unit begins. Final integration runs one Functional ver
    first drain contains no terminal status before the Background boundary in
    `artifacts/verification/tests-quick-20260905-071735`. Failure clears the retained frame so retryable terminal
    visibility is not delayed. Implementation is complete and pending static review.
+- U5 `SBG-05`: startup lifecycle now latches an ephemeral generic background presentation immediately before scheduler start and
+  clears it only at the existing post-initialization composite terminal. Hub precedence tests cover required StartupProgress,
+  dedicated playlist/LR2 suppression and return, LR2 warning visibility, reset supersession, and throwing presentation observers;
+  the startup lifecycle test proves scheduler start still succeeds with a throwing observer. The compiled WPF route binds a separate
+  indeterminate item with the existing localized label and verifies dedicated suppression/resume. The base test run was a structural
+  compile red before the new hub seam (`artifacts/verification/tests-quick-20260905-074928`); focused green artifacts are
+  `artifacts/verification/tests-quick-20260905-080030`, `artifacts/verification/tests-quick-20260905-080113`, and
+  `artifacts/verification/tests-quick-20260905-081006`. A targeted mutant that cleared the latch immediately in `Begin` failed
+  the precedence/latch test in `artifacts/verification/tests-quick-20260905-080525`; the mutation was reverted. Implementation
+  is complete and pending static review. The review follow-up makes the public generic-active property getter-only,
+  covers production-mapped LR2 `Incomplete`/`Failed` retry precedence, and extends the existing signal-driven
+  predecessor/warmup route with a real library writer-guard barrier so the latch is observed while warmup remains
+   pending. The early-clear-at-transient-idle mutant failed that lifecycle assertion in
+   `artifacts/verification/tests-quick-20260905-083059`; after reverting it, the focused lifecycle/precedence run
+   passed in `artifacts/verification/tests-quick-20260905-083251`, and the consolidated 62-case U5 filter passed in
+   `artifacts/verification/tests-quick-20260905-083359`. Two Functional serial-state-b runs timed out after the
+   binding test while the representative WPF test drained ApplicationIdle with the compiled indeterminate ProgressBar
+   animation active; the test-only mechanics fix now retrieves that ProgressBar directly from StatusBarItem.Content,
+   asserts the required indeterminate binding, and disables animation on that instance before precedence-transition
+   drains. Production behavior and SBG-05 assertions are unchanged; the post-fix standard focused Quick passed all five
+   class tests in `artifacts/verification/tests-quick-20260905-085951`, and the same class under the existing
+   serial-state-b one-worker/ClassLevel runsettings passed all five tests in
+   `artifacts/verification/tests-quick-20260905-090640`. The review-ordering correction then exposed and fixed a
+   deterministic Content-selection red (the first matching style item is a `Separator`) in
+   `artifacts/verification/tests-quick-20260905-090514`; selecting the style item whose compiled Content is the
+   `ProgressBar` allowed the required pre-Begin assertion and animation stop. The corrected standard focused Quick
+   passed all five class tests in `artifacts/verification/tests-quick-20260905-090608`, followed by the known first
+   eight serial-state-b classes under the existing one-worker/ClassLevel runsettings: 172/172 passed in
+   `artifacts/verification/tests-quick-20260905-090650`. The final canonical Functional run passed all six hosts in
+   168.7 seconds at `artifacts/verification/tests-functional-20260905-091113`.

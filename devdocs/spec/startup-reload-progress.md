@@ -98,6 +98,29 @@ file / chart件数を持つ処理はsub labelへ`processed / total`と現在対�
 
 post-initialization taskはStartup progressの分母へ追加しない。自動 LR2 `song.db` 同期も同じ扱いで、正常な `startup_initialization_complete` 後に一度だけ queue する。初回完了ダイアログが pending の場合も、同期を先に queue し、ダイアログの終了は待機条件にしない。LR2 の `Running` / progress / `Incomplete` / `Failed` は専用 status のみを更新し、startup の expected/completed/failed/gauge を変更しない。startup の visual linger 中は専用 status を一時的に隠せるが、linger が消えたら最新の非終端 status を表示する。pure cache の virtual-order prewarm は、LR2 enrollment を含む scheduler 管理下の post work が一度 fully idle になった後にだけ登録する。scheduler 管理下の task は`startup_background_task`、`startup_background_summary`、`startup_post_initialization_maintenance_complete`で観測し、scheduler 外の ranking/XML refresh や遅延 presentation flush は固有の phase / lifecycle markerで観測する。
 
+## Operable 後の background presentation
+
+`startup_ready_operable` では required gauge と UI の操作可能境界を変えず、scheduler の開始直前に process-local な
+generic background presentation latch を開始する。この latch は永続化せず、scheduler の task 数や別の token として扱わない。
+
+表示は latch が有効で、`StartupProgress.IsActive` が false、かつ playlist / LR2 の dedicated status が inactive の場合だけ
+有効になる。Startup progress の visual linger 中や dedicated playlist progress の実行中は generic を表示せず、dedicated LR2
+の `Running`、`Incomplete`、`Failed`、retryable status も generic より優先する。dedicated status が消え、composite terminal に
+まだ到達していなければ generic 表示へ戻る。generic 表示は専用の indeterminate progress item を使い、required Startup progress
+の determinate value / maximum を再利用しない。
+
+通常の clear は `startup_post_initialization_maintenance_complete` の既存条件（post scheduling の close、scheduler fully idle、
+登録済み warmup の完了）が成立した時だけ行う。ranking/XML refresh など scheduler 外の処理と遅延 presentation flush はこの
+latch の寿命を延長しない。Startup を supersede する non-Startup operation の reset 時は古い latch を明示的に無効化するが、
+shutdown の terminal teardown 中に process-local state が残ることは許容する。
+
+generic の対象は scheduler が管理する `playlist_library_index_prewarm`、`library_folder_tree_refresh`、
+`playlist_url_completion`、`playlist_ref_apply`、`external_playlist_sync`、`external_table_catalog`、
+`maintenance_hydration`、`installable_maintenance`、`playlist_custom_folder_output_repair`、`post_initialize_gc`、
+`beatoraja_bmt_export_all` / per-table export、LR2 enrollment / sync、`virtual_order_prewarm` である。required の三つの
+startup task は従来どおり required gauge に含める。ranking/XML refresh と遅延 presentation flush は scheduler 外として
+generic の対象にも寿命条件にも含めない。
+
 ## 初期化完了メッセージ
 
 初回設定後の完了メッセージは`startup_initialization_complete`後に従来のダイアログ経路で表示する。自動 LR2 同期はその前に queue するため、ダイアログの終了を待たない。これはrequired local initializationの完了を意味し、LR2 sync、external sync、physical audit、export、sort prewarmまで完了したことは意味しない。

@@ -48,6 +48,10 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private bool isPlaylistSyncProgressActive;
 
+    private bool isStartupBackgroundInitializationActive;
+
+    private bool startupBackgroundInitializationPresentationLatched;
+
     private string playlistSyncProgressLabel = string.Empty;
 
     private string playlistSyncProgressSubLabel = string.Empty;
@@ -170,6 +174,48 @@ public sealed class OperationProgressHubViewModel : ViewModel
     {
         get => isInstallPipelineStatusActive;
         internal set => SetValue(ref isInstallPipelineStatusActive, value, nameof(IsInstallPipelineStatusActive));
+    }
+
+    /// <summary>
+    /// Gets whether the ephemeral startup background initialization presentation is visible.
+    /// Dedicated startup, playlist, and LR2 presentations take precedence over this generic indicator.
+    /// </summary>
+    public bool IsStartupBackgroundInitializationActive
+    {
+        get => isStartupBackgroundInitializationActive;
+    }
+
+    /// <summary>
+    /// Gets the localized label for the generic startup background initialization presentation.
+    /// </summary>
+    public string StartupBackgroundInitializationLabel =>
+        BeMusicSeeker.Properties.Resources.Statusbar_progress_operable_background;
+
+    /// <summary>
+    /// Starts the process-local startup background initialization presentation latch.
+    /// </summary>
+    internal void BeginStartupBackgroundInitializationPresentation()
+    {
+        startupBackgroundInitializationPresentationLatched = true;
+        RecomputeStartupBackgroundInitializationPresentation();
+    }
+
+    /// <summary>
+    /// Clears the startup background initialization presentation at the composite terminal boundary.
+    /// </summary>
+    internal void CompleteStartupBackgroundInitializationPresentation()
+    {
+        startupBackgroundInitializationPresentationLatched = false;
+        RecomputeStartupBackgroundInitializationPresentation();
+    }
+
+    /// <summary>
+    /// Clears stale startup background initialization presentation when a new operation supersedes startup.
+    /// </summary>
+    internal void ResetStartupBackgroundInitializationPresentation()
+    {
+        startupBackgroundInitializationPresentationLatched = false;
+        RecomputeStartupBackgroundInitializationPresentation();
     }
 
     /// <summary>
@@ -377,7 +423,11 @@ public sealed class OperationProgressHubViewModel : ViewModel
     public bool IsPlaylistSyncProgressActive
     {
         get => isPlaylistSyncProgressActive;
-        internal set => SetValue(ref isPlaylistSyncProgressActive, value, nameof(IsPlaylistSyncProgressActive));
+        internal set
+        {
+            SetValue(ref isPlaylistSyncProgressActive, value, nameof(IsPlaylistSyncProgressActive));
+            RecomputeStartupBackgroundInitializationPresentation();
+        }
     }
 
     /// <summary>
@@ -470,7 +520,11 @@ public sealed class OperationProgressHubViewModel : ViewModel
     public bool IsLr2SongDbSyncStatusActive
     {
         get => isLr2SongDbSyncStatusActive;
-        internal set => SetValue(ref isLr2SongDbSyncStatusActive, value, nameof(IsLr2SongDbSyncStatusActive));
+        internal set
+        {
+            SetValue(ref isLr2SongDbSyncStatusActive, value, nameof(IsLr2SongDbSyncStatusActive));
+            RecomputeStartupBackgroundInitializationPresentation();
+        }
     }
 
     /// <summary>
@@ -545,6 +599,34 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private void StartupProgressPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
         RecomputeLr2SongDbSyncStatusPresentation();
+        RecomputeStartupBackgroundInitializationPresentation();
+    }
+
+    private void RecomputeStartupBackgroundInitializationPresentation()
+    {
+        bool isVisible = startupBackgroundInitializationPresentationLatched
+            && !StartupProgress.IsActive
+            && !IsPlaylistSyncProgressActive
+            && !IsLr2SongDbSyncStatusActive;
+        SetStartupBackgroundInitializationValue(isVisible);
+    }
+
+    private void SetStartupBackgroundInitializationValue(bool value)
+    {
+        if (isStartupBackgroundInitializationActive == value)
+        {
+            return;
+        }
+
+        isStartupBackgroundInitializationActive = value;
+        try
+        {
+            RaisePropertyChanged(nameof(IsStartupBackgroundInitializationActive));
+        }
+        catch
+        {
+            // Presentation observers are best-effort and must not affect startup scheduling.
+        }
     }
 
     private void RecomputeLr2SongDbSyncStatusPresentation()

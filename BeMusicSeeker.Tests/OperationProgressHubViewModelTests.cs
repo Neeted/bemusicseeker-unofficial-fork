@@ -367,6 +367,91 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     [TestMethod]
+    public void StartupBackgroundInitializationPresentation_UsesLatchAndDedicatedPrecedence()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+
+        hub.StartupProgress.ApplyPresentation(true, "required", "required phase", 1.0, 2.0);
+        hub.BeginStartupBackgroundInitializationPresentation();
+
+        Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
+
+        hub.StartupProgress.ApplyPresentation(false, null, null, 0.0, 1.0);
+        Assert.IsTrue(hub.IsStartupBackgroundInitializationActive);
+
+        hub.IsPlaylistSyncProgressActive = true;
+        Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
+
+        hub.IsPlaylistSyncProgressActive = false;
+        Assert.IsTrue(hub.IsStartupBackgroundInitializationActive);
+
+        hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(
+            new Lr2SongDbSyncStatusSnapshot
+            {
+                Status = Lr2SongDbSyncStatusKind.Running,
+                Stage = "song_rows",
+                StageProcessedCount = 1,
+                StageTotalCount = 2
+            },
+            DateTime.UtcNow));
+        Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
+
+        hub.UpdateLr2SongDbSyncStatus(null);
+        Assert.IsTrue(hub.IsStartupBackgroundInitializationActive);
+
+        foreach (Lr2SongDbSyncStatusKind terminalKind in new[]
+        {
+            Lr2SongDbSyncStatusKind.Incomplete,
+            Lr2SongDbSyncStatusKind.Failed
+        })
+        {
+            hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(
+                new Lr2SongDbSyncStatusSnapshot
+                {
+                    Status = terminalKind,
+                    Stage = "folder_rows",
+                    LastError = "test failure"
+                },
+                DateTime.UtcNow));
+
+            Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
+            Assert.IsTrue(hub.IsLr2SongDbSyncRetryVisible);
+            Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
+
+            hub.UpdateLr2SongDbSyncStatus(null);
+            Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
+            Assert.IsTrue(hub.IsStartupBackgroundInitializationActive);
+        }
+
+        hub.CompleteStartupBackgroundInitializationPresentation();
+        Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
+
+        hub.ResetStartupBackgroundInitializationPresentation();
+        Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
+    }
+
+    [TestMethod]
+    public void StartupBackgroundInitializationPresentation_IsolatesThrowingSubscriber()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        hub.StartupProgress.ApplyPresentation(false, null, null, 0.0, 1.0);
+        hub.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(OperationProgressHubViewModel.IsStartupBackgroundInitializationActive))
+            {
+                throw new InvalidOperationException("background presentation observer failed");
+            }
+        };
+
+        hub.BeginStartupBackgroundInitializationPresentation();
+        Assert.IsTrue(hub.IsStartupBackgroundInitializationActive);
+
+        hub.CompleteStartupBackgroundInitializationPresentation();
+        Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
+    }
+
+    [TestMethod]
     public async Task Lr2SongDbSyncPresentation_UsesRuntimeStatusAndSuppression()
     {
         TestResourceInitializer.EnsureJapaneseResources();

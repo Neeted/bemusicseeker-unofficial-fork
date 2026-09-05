@@ -319,6 +319,7 @@ public partial class MainWindowViewModel : ViewModel,
         StartupProgressOperationKind operationKind,
         long operationToken)
     {
+        ProgressHub?.ResetStartupBackgroundInitializationPresentation();
         lock (startupBackgroundTaskProgressSynchronization)
         {
             lock (lockUiSuppression)
@@ -502,6 +503,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
+        ProgressHub?.CompleteStartupBackgroundInitializationPresentation();
         LogUiSuppression("startup_post_initialization_maintenance_complete");
         if (Net10PerformanceLog.IsEnabled && startupPerformanceInteraction.InteractionId > 0L)
         {
@@ -1764,6 +1766,7 @@ public partial class MainWindowViewModel : ViewModel,
         startupReadyOperableReached = true;
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
         startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
+        ProgressHub.BeginStartupBackgroundInitializationPresentation();
         startupBackgroundTaskScheduler.Start();
         startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
     }

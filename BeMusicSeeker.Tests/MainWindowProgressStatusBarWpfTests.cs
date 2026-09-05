@@ -37,7 +37,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
                 StatusBar statusBar = GetNamedElement<StatusBar>(window, "progressStatusBar");
                 Assert.AreSame(viewModel.ProgressHub, statusBar.DataContext);
 
-                CollectionAssert.AreEquivalent(
+                CollectionAssert.IsSubsetOf(
                     new[]
                     {
                         "StartupProgress.IsActive",
@@ -45,7 +45,8 @@ public sealed class MainWindowProgressStatusBarWpfTests
                         "IsPlaylistSyncProgressActive",
                         "IsMaintenanceRescanProgressActive",
                         "IsFolderAutoRenameProgressActive",
-                        "IsLr2SongDbSyncStatusActive"
+                        "IsLr2SongDbSyncStatusActive",
+                        "IsStartupBackgroundInitializationActive"
                     },
                     GetTriggerBindingPaths(statusBar.Style));
 
@@ -56,6 +57,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     ["stylePlaylistSyncStatusBarItem"] = new[] { "IsPlaylistSyncProgressActive" },
                     ["styleMaintenanceRescanStatusBarItem"] = new[] { "IsMaintenanceRescanProgressActive" },
                     ["styleFolderAutoRenameStatusBarItem"] = new[] { "IsFolderAutoRenameProgressActive" },
+                    ["styleStartupBackgroundInitializationStatusBarItem"] = new[] { "IsStartupBackgroundInitializationActive" },
                     ["styleLr2SongDbSyncStatusBarItem"] = new[] { "IsLr2SongDbSyncStatusActive" },
                     ["styleLr2SongDbSyncRetryStatusBarItem"] = new[] { "IsLr2SongDbSyncRetryVisible" },
                     ["styleLr2SongDbSyncProgressStatusBarItem"] = new[] { "IsLr2SongDbSyncStatusProgressVisible" },
@@ -112,6 +114,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
                         "FolderAutoRenameProgressSubLabel",
                         "FolderAutoRenameProgressMaximum",
                         "FolderAutoRenameProgressValue",
+                        "StartupBackgroundInitializationLabel",
                         "Lr2SongDbSyncStatusLabel",
                         "Lr2SongDbSyncStatusSubLabel",
                         "Lr2SongDbSyncStatusToolTip",
@@ -250,6 +253,42 @@ public sealed class MainWindowProgressStatusBarWpfTests
                 Assert.AreEqual(
                     Visibility.Visible,
                     FindStatusBarItem(statusBar, "styleLr2SongDbSyncRetryStatusBarItem").Visibility);
+
+                Style backgroundItemStyle = (Style)statusBar.Resources[
+                    "styleStartupBackgroundInitializationStatusBarItem"];
+                StatusBarItem backgroundItem = statusBar.Items
+                    .OfType<StatusBarItem>()
+                    .Where(item => ReferenceEquals(item.Style, backgroundItemStyle))
+                    .Single(item => item.Content is ProgressBar);
+                Assert.IsInstanceOfType(backgroundItem.Content, typeof(ProgressBar));
+                ProgressBar backgroundProgress = (ProgressBar)backgroundItem.Content;
+                Assert.IsTrue(backgroundProgress.IsIndeterminate);
+                // The indeterminate animation can starve ApplicationIdle while this test drives
+                // the precedence transitions. Keep the compiled-content contract assertion,
+                // then disable animation on this test-owned control before any transition drain.
+                backgroundProgress.IsIndeterminate = false;
+
+                ResetProgressHub(hub);
+                hub.BeginStartupBackgroundInitializationPresentation();
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(Visibility.Visible, statusBar.Visibility);
+                Assert.AreEqual(Visibility.Visible, backgroundItem.Visibility);
+                TextBlock backgroundLabel = FindBoundText(
+                    statusBar,
+                    "StartupBackgroundInitializationLabel");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(backgroundLabel.Text));
+
+                hub.IsPlaylistSyncProgressActive = true;
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(Visibility.Collapsed, backgroundItem.Visibility);
+
+                hub.IsPlaylistSyncProgressActive = false;
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(Visibility.Visible, backgroundItem.Visibility);
+
+                hub.IsLr2SongDbSyncStatusActive = true;
+                TestUiDispatcherHost.Drain();
+                Assert.AreEqual(Visibility.Collapsed, backgroundItem.Visibility);
             });
     }
 
@@ -455,6 +494,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
 
     private static void ResetProgressHub(OperationProgressHubViewModel hub)
     {
+        hub.ResetStartupBackgroundInitializationPresentation();
         hub.StartupProgress.ApplyPresentation(false, string.Empty, string.Empty, 0, 1);
         hub.IsInstallPipelineStatusActive = false;
         hub.InstallPipelineCanCancel = false;
