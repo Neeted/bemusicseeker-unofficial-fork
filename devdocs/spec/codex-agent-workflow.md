@@ -1,10 +1,10 @@
 # Codex エージェント運用契約
 
-最終更新: 2026-09-05
+最終更新: 2026-09-06
 
 この文書は、BeMusicSeeker で複数段階の変更を計画・実装・レビューするときの Codex 運用の正本である。目的は、ルートエージェントへ要件・判断・統合責任を残しながら、必要な作業だけを適切なモデルへ委譲し、重複調査、実装バイアス、過剰な並列化、長い生ログによる rate limit と context の消費を抑えることである。
 
-単純な質問、読み取りだけの確認、Markdown の軽微な修正まで機械的にサブエージェントへ渡す必要はない。production code、test harness、runner、設定の bounded implementation は原則 `implementation-worker` へ委譲し、section 5 の条件を満たす複雑な unit だけ root が `implementation-worker-frontier` を選ぶ。ルート自身の書込みは計画文書、統合 conflict、機械的な handoff 修正などに限定する。
+単純な質問、読み取りだけの確認、Markdown の軽微な修正まで機械的にサブエージェントへ渡す必要はない。production code、test harness、runner、設定の bounded implementation は `implementation-worker` へ委譲し、ルート自身の書込みは計画文書、統合 conflict、機械的な handoff 修正などに限定する。
 
 ## 役割
 
@@ -13,12 +13,11 @@
 | ルート | 現在の主セッション | ユーザー対話、要件と decision の整理、設計、最終計画、test contract の承認、割当、統合、統合検証、review 対応 | 統合時だけ |
 | 計画点検 | `plan-clarifier` | draft plan の未決事項、危険な仮定、test-design gate、並列境界を短く点検 | なし |
 | テスト契約設計 | `test-contract-designer` | 実装から独立した oracle、allowed variation、wrong implementation、coverage placement を設計 | なし |
-| 通常実装 | `implementation-worker` | 完成済みの bounded unit と承認済み Test Contract Packet を実装し、focused Quick と handoff を返す | 指定 path 内 |
-| 複雑 unit 実装 | `implementation-worker-frontier` | ルートが選択した複雑な bounded unit を共通 worker 契約内で実装し、focused verification と handoff を返す | 指定 path 内 |
+| 実装 | `implementation-worker` | 完成済みの bounded unit と承認済み Test Contract Packet を実装し、focused Quick と handoff を返す | 指定 path 内 |
 | blocker 解決 | `issue-resolver` | worker が発見した重大問題を調査・修正。observable semantics は変更しない | 指定 path 内 |
 | 静的 review | `repo-static-review` | 凍結 snapshot と Test Contract Packet を fresh / read-only で review | なし |
 
-委譲の深さは `root -> implementation-worker` または `root -> implementation-worker-frontier`、必要な blocker がある場合だけその各 worker から `issue-resolver` までとする。`plan-clarifier`、`test-contract-designer`、`repo-static-review` は root 直下の leaf とし、追加サブエージェントを起動しない。worker は `issue-resolver` 以外を起動せず、`issue-resolver` から先へ再帰しない。この契約は runtime の depth enforcement にかかわらず守る。
+委譲の深さは `root -> implementation-worker -> issue-resolver` までとする。`plan-clarifier`、`test-contract-designer`、`repo-static-review` は root 直下の leaf とし、追加サブエージェントを起動しない。worker は `issue-resolver` 以外を起動せず、`issue-resolver` から先へ再帰しない。この契約は runtime の depth enforcement にかかわらず守る。
 
 ## 1. ルートによる要件整理
 
@@ -146,11 +145,9 @@ Inputs that must not become oracle authority:
 
 ## 5. 並列作業
 
-書込み worker の既定は1つ、`implementation-worker` と `implementation-worker-frontier` の合算で同時実行は最大2つとする。通常は `implementation-worker` を使う。ルートは割当前に、複雑な concurrency、persistence、failure、shutdown、runner、process、release、ownership の設計判断が unit の正しさを左右すると判断した場合だけ `implementation-worker-frontier` を選ぶ。frontier は通常 worker と同じ bounded unit の実装者であり、設計権限、test oracle の決定権、優先順位の決定権を持たない。未決 semantics を frontier へ委ねない。
+書込み worker の既定は1つ、同時実行は最大2つとする。独立した unit の並列化は、速度向上が agent 起動・統合コストを上回り、次をすべて満たす場合だけ使う。
 
-同じ unit を両 worker へ重複割当せず、worker 比較、shadow 評価、二重実装を行わない。実装途中で worker の選択や unit の意味を変更する必要が生じた場合は、worker が root へ handoff して再計画を待つ。各 worker は `issue-resolver` 以外の agent を起動しない。
-
-並列化は、速度向上が agent 起動・統合コストを上回り、次をすべて満たす場合だけ使う。
+同じ unit を複数 worker へ重複割当せず、worker 比較、shadow 評価、二重実装を行わない。各 worker は `issue-resolver` 以外の agent を起動しない。
 
 - writable path、生成物、schema / migration、shared fixture が重ならない。
 - 一方の結果を見ないと他方の正しい実装が決まらない関係ではない。
@@ -164,7 +161,7 @@ read-heavy な探索、oracle design、inventory、log analysis は write-heavy 
 
 ## 6. worker と issue resolver
 
-この section の worker 契約は `implementation-worker` と `implementation-worker-frontier` の双方に共通する。frontier は root が明示的に選択した場合だけ使うが、所有境界、failure contract、test oracle、verification、handoff の規則は通常 worker と同一である。
+この section の worker 契約は `implementation-worker` に適用する。worker は final plan の unit だけを実装し、所有境界、failure contract、test oracle、verification、handoff の規則を守る。
 
 ### worker の開始確認
 
