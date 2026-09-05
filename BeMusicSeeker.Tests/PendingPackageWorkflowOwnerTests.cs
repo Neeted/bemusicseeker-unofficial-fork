@@ -20,6 +20,57 @@ namespace BeMusicSeeker.Tests;
 public sealed class PendingPackageWorkflowOwnerTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task FixInstalledLocationsAsync_HandlesOnlyDeletionFailureAfterRelease(bool requiredFinalization)
+    {
+        var events = new List<string>();
+        var catalogFailure = new IOException("repair deletion catalog failure");
+        var outcome = new LibraryChartRemovalOutcome([new("removed.bms", LibraryChartRemovalState.Confirmed)],
+            true, requiredFinalization, catalogFailure);
+        var store = new RecordingStore(events) { RepairFailure = new LibraryChartRemovalException(outcome) };
+        var gate = new ChartFileOperationSynchronizer();
+        bool releasedAtReport = false;
+        var dialogs = new FileDbReportRecordingDialogs { OnMessage = () =>
+        {
+            releasedAtReport = gate.TryEnter(out IDisposable lease) && events.Contains("activity-end");
+            lease?.Dispose();
+        }};
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
+        var chart = CreateChart(installDestination: @"C:\Installed");
+        Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
+            [CreateTarget(chart, ChartOperationCapabilities.RepairInstalledLocation)], out var request));
+
+        await owner.FixInstalledLocationsAsync(request);
+
+        Assert.IsTrue(releasedAtReport);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages.Single().Icon);
+        Assert.AreEqual(1, events.Count(value => value == "store-fix-installed-locations"));
+        Assert.AreSame(catalogFailure, outcome.CatalogFailure);
+        store.RepairFailure = new IOException("unrelated failure");
+        Exception unrelated = await Assert.ThrowsExceptionAsync<IOException>(() => owner.FixInstalledLocationsAsync(request));
+        Assert.AreSame(store.RepairFailure, unrelated);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+    }
+
+    [TestMethod]
+    public async Task FixInstalledLocationsAsync_ReportsFilesystemOnlyOutcomeWithoutStoppingContinuation()
+    {
+        var events = new List<string>();
+        var outcome = new LibraryChartRemovalOutcome([new("unverified.bms", LibraryChartRemovalState.NotExecuted)], true, true);
+        var store = new RecordingStore(events) { RemovalOutcome = outcome };
+        var dialogs = new FileDbReportRecordingDialogs { MessageFailure = new IOException("optional report failure") };
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs);
+        Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
+            [CreateTarget(CreateChart(installDestination: @"C:\Installed"), ChartOperationCapabilities.RepairInstalledLocation)], out var request));
+        await owner.FixInstalledLocationsAsync(request);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(1, events.Count(value => value == "store-fix-installed-locations"));
+        Assert.IsTrue(events.Contains("activity-end"));
+    }
+
+    [TestMethod]
     public void CanOpenInstallDestination_RequiresPendingSectionAndEffectiveTargetCapability()
     {
         var owner = CreateOwner(
@@ -1828,7 +1879,10 @@ public sealed class PendingPackageWorkflowOwnerTests
             return DuplicateConfirmations;
         }
 
-        public void FixInstalledLocations(
+        internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
+        internal Exception? RepairFailure { get; set; }
+
+        public LibraryChartRemovalOutcome FixInstalledLocations(
             BMSLibrary library,
             IReadOnlyList<ChartFile> repairCharts,
             IReadOnlyList<string> approvedDuplicateRemovalChartPaths)
@@ -1837,6 +1891,8 @@ public sealed class PendingPackageWorkflowOwnerTests
             ChangedCharts = repairCharts;
             ApprovedDuplicateRemovalChartPaths = approvedDuplicateRemovalChartPaths;
             ThrowIfConfigured();
+            if (RepairFailure != null) throw RepairFailure;
+            return RemovalOutcome ?? null;
         }
 
         public IReadOnlyList<ChartPackage> GetInstalledOnlyPendingPackages(BMSLibrary library)

@@ -926,5 +926,13 @@
   "FileDbMutationReport_Guidance": "已提交的更改会保留。请手动检查相关文件和数据库状态。完整信息及省略的路径或错误请查看日志。",
   "FileDbMutationReport_Rename": "重命名文件夹",
   "FileDbMutationReport_Move": "移动文件夹",
-  "FileDbMutationReport_Merge": "合并重复文件夹"
+  "FileDbMutationReport_Merge": "合并重复文件夹",
+  "LibraryChartRemovalReport_Title": "曲库删除结果",
+  "LibraryChartRemovalReport_Counts": "已确认删除的谱面：{0}；未执行 / 存在情况未确认：{1}；删除结果未确认：{2}；已变更或无法解析的目标：{3}",
+  "LibraryChartRemovalReport_CatalogNotAttempted": "尚未尝试更新目录数据。",
+  "LibraryChartRemovalReport_CatalogDurable": "已确认目录数据提交完成。",
+  "LibraryChartRemovalReport_CatalogUnconfirmed": "已尝试更新目录数据，但无法确认提交完成。",
+  "LibraryChartRemovalReport_FinalizationFailed": "目录数据已提交，但必要的后续处理失败。",
+  "LibraryChartRemovalReport_Targets": "待检查目标（当前是否存在未经确认，最多3项）：",
+  "LibraryChartRemovalReport_Guidance": "已确认的删除不会撤销。请手动检查文件和曲库状态。省略的目标和完整错误详情请参阅日志。"
 }

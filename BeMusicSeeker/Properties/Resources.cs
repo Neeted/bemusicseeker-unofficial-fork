@@ -2286,6 +2286,30 @@ public class Resources
     internal Resources()
     {
     }
+    /// <summary>Localized library deletion result text.</summary>
+    public static string LibraryChartRemovalReport_Title => ResourceManager.GetString("LibraryChartRemovalReport_Title", resourceCulture);
+
+    /// <summary>Localized library deletion result text.</summary>
+    public static string LibraryChartRemovalReport_Counts => ResourceManager.GetString("LibraryChartRemovalReport_Counts", resourceCulture);
+
+    /// <summary>Localized library deletion result text.</summary>
+    public static string LibraryChartRemovalReport_CatalogNotAttempted => ResourceManager.GetString("LibraryChartRemovalReport_CatalogNotAttempted", resourceCulture);
+
+    /// <summary>Localized library deletion result text.</summary>
+    public static string LibraryChartRemovalReport_CatalogDurable => ResourceManager.GetString("LibraryChartRemovalReport_CatalogDurable", resourceCulture);
+
+    /// <summary>Localized library deletion result text.</summary>
+    public static string LibraryChartRemovalReport_CatalogUnconfirmed => ResourceManager.GetString("LibraryChartRemovalReport_CatalogUnconfirmed", resourceCulture);
+
+    /// <summary>Localized library deletion result text.</summary>
+    public static string LibraryChartRemovalReport_FinalizationFailed => ResourceManager.GetString("LibraryChartRemovalReport_FinalizationFailed", resourceCulture);
+
+    /// <summary>Localized library deletion result text.</summary>
+    public static string LibraryChartRemovalReport_Targets => ResourceManager.GetString("LibraryChartRemovalReport_Targets", resourceCulture);
+
+    /// <summary>Localized library deletion result text.</summary>
+    public static string LibraryChartRemovalReport_Guidance => ResourceManager.GetString("LibraryChartRemovalReport_Guidance", resourceCulture);
+
     public static string FileDbMutationReport_Title => ResourceManager.GetString("FileDbMutationReport_Title", resourceCulture);
 
     public static string FileDbMutationReport_Operation => ResourceManager.GetString("FileDbMutationReport_Operation", resourceCulture);

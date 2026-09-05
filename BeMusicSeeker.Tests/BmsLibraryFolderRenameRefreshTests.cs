@@ -1958,7 +1958,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void FixInstallationDirectoryCharts_BmsonDuplicateRemovesRepairSourceAndKeepsInstalledRow()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FixInstallationDirectoryCharts_BmsonDuplicateRemovesRepairSourceAndKeepsInstalledRow(bool catalogFailure)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1992,14 +1994,27 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     md5 = md5,
                     sha256 = sha256
                 };
+                string movedSource = Path.Combine(sourceDirectoryPath, "other.bmson");
+                string movedDestination = Path.Combine(destinationDirectoryPath, "other.bmson");
+                File.WriteAllText(movedSource, "{}");
+                var movedSong = new LR2SongDBExtended.bmson_song
+                {
+                    path = movedSource, folder = sourceDirectoryPath,
+                    title = "Independent repair target", md5 = "11111111111111111111111111111111",
+                    sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
+                };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                     songDb.InsertOrReplace(sourceSong, typeof(LR2SongDBExtended.bmson_song));
                     songDb.InsertOrReplace(installedSong, typeof(LR2SongDBExtended.bmson_song));
+                    songDb.InsertOrReplace(movedSong, typeof(LR2SongDBExtended.bmson_song));
+                    if (catalogFailure)
+                        songDb.Execute("CREATE TRIGGER fail_repair_delete BEFORE DELETE ON bmson_song WHEN OLD.path = '"
+                            + sourceChartPath.Replace("'", "''") + "' BEGIN SELECT RAISE(ABORT, 'repair-deletion-fault'); END;");
                 }
                 var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                library.BmsonSongs = [sourceSong, installedSong];
+                library.BmsonSongs = [sourceSong, installedSong, movedSong];
                 ChartFile repairTarget = ChartFileProjection.WithPackageState(
                     ChartFileProjection.FromBmsonSong(sourceSong),
                     destinationDirectoryPath,
@@ -2007,16 +2022,36 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     string.Empty,
                     []);
 
-                library.FixInstallationDirectoryCharts([repairTarget]);
+                ChartFile independentTarget = ChartFileProjection.WithPackageState(
+                    ChartFileProjection.FromBmsonSong(movedSong), destinationDirectoryPath, string.Empty, string.Empty, []);
+                if (catalogFailure)
+                {
+                    LibraryChartRemovalException exception = Assert.ThrowsException<LibraryChartRemovalException>(() =>
+                        library.FixInstallationDirectoryCharts([independentTarget, repairTarget], [sourceChartPath]));
+                    Assert.AreEqual(1, exception.Outcome.ConfirmedChartCount);
+                    Assert.IsTrue(exception.Outcome.CatalogApplyAttempted);
+                    Assert.IsFalse(exception.Outcome.CatalogDurable);
+                    Assert.IsNotNull(exception.Outcome.CatalogFailure);
+                }
+                else
+                {
+                    LibraryChartRemovalOutcome outcome = library.FixInstallationDirectoryCharts([independentTarget, repairTarget], [sourceChartPath]);
+                    Assert.AreEqual(1, outcome.ConfirmedChartCount);
+                    Assert.IsFalse(outcome.HasError);
+                }
+                Assert.IsFalse(File.Exists(movedSource));
+                Assert.IsTrue(File.Exists(movedDestination));
 
                 Assert.IsFalse(File.Exists(sourceChartPath));
                 Assert.IsTrue(File.Exists(installedChartPath));
-                Assert.IsFalse(library.BmsonSongs.Any(song => string.Equals(song.path, sourceChartPath, StringComparison.OrdinalIgnoreCase)));
+                Assert.AreEqual(catalogFailure, library.BmsonSongs.Any(song => string.Equals(song.path, sourceChartPath, StringComparison.OrdinalIgnoreCase)));
                 Assert.IsTrue(library.BmsonSongs.Any(song => string.Equals(song.path, installedChartPath, StringComparison.OrdinalIgnoreCase)));
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
                     BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                    Assert.AreEqual(0, songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == sourceChartPath));
+                    Assert.AreEqual(catalogFailure ? 1 : 0, songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == sourceChartPath));
+                    Assert.AreEqual(1, songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == movedDestination));
+                    Assert.AreEqual(0, songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == movedSource));
                     Assert.AreEqual(1, songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == installedChartPath));
                 }
             }

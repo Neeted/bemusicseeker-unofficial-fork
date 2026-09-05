@@ -73,7 +73,8 @@ internal interface ISelectedChartMutationStore
         BMSLibrary library,
         IReadOnlyList<LibraryChartRef> charts);
 
-    void RemoveLibraryCharts(
+    /// <summary>Returns observed library deletion facts to the operation terminal.</summary>
+    LibraryChartRemovalOutcome RemoveLibraryCharts(
         BMSLibrary library,
         IReadOnlyList<LibraryChartRef> charts,
         IReadOnlyList<string> approvedWholeFolderDeletePaths);
@@ -163,11 +164,24 @@ internal sealed class SelectedChartMutationResult
     private SelectedChartMutationResult(
         bool succeeded,
         Exception failure,
-        FileDbMutationBatchReceipt mutationReceipt = null)
+        FileDbMutationBatchReceipt mutationReceipt = null,
+        LibraryChartRemovalOutcome removalOutcome = null)
     {
+        RemovalOutcome = removalOutcome;
         Succeeded = succeeded;
         Failure = failure;
         MutationReceipt = mutationReceipt;
+    }
+
+    /// <summary>Deletion facts retained independently of workflow cleanup failures.</summary>
+    internal LibraryChartRemovalOutcome RemovalOutcome { get; }
+
+    /// <summary>Catalog failure prevents success; filesystem-only partial failure preserves continuation.</summary>
+    internal static SelectedChartMutationResult FromRemoval(LibraryChartRemovalOutcome outcome, Exception failure)
+    {
+        Exception primary = outcome?.CatalogFailure;
+        Exception combined = primary == null ? failure : failure == null ? primary : new AggregateException(primary, failure);
+        return new SelectedChartMutationResult(combined == null, combined, removalOutcome: outcome);
     }
 
     internal bool Succeeded { get; }
@@ -176,14 +190,15 @@ internal sealed class SelectedChartMutationResult
 
     internal FileDbMutationBatchReceipt MutationReceipt { get; }
 
-    internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+    /// <summary>Includes the catalog commit observed by library deletion.</summary>
+    internal bool HasDurableCommit => RemovalOutcome?.CatalogDurable == true || MutationReceipt?.HasDurableCommit == true;
 
     internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
     /// <summary>
     /// Gets whether selected-chart finalization failed after durable state.
     /// </summary>
-    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+    internal bool HasDurableFinalizationFailure => RemovalOutcome?.RequiredFinalizationFailed == true || MutationReceipt?.HasDurableFinalizationFailure == true;
 
     internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
 
@@ -348,6 +363,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 }
             }
 
+            LibraryChartRemovalOutcome removalOutcome = null;
             IReadOnlyList<string> approvedFolderPaths = approvedWholeFolderDeletePaths.ToArray();
             SelectedChartMutationResult result = await Task.Run(() => ExecuteMutation(
                 resolution.Route == ChartDeleteRoute.Pending
@@ -379,13 +395,18 @@ internal sealed class SelectedChartMutationWorkflowOwner
                     return;
                 }
 
-                store.RemoveLibraryCharts(
+                removalOutcome = store.RemoveLibraryCharts(
                     library,
                     libraryCharts,
                     approvedFolderPaths);
             },
             acquiredOperationGate: operationGate)).ConfigureAwait(false);
             operationGateTransferred = true;
+            if (removalOutcome != null)
+            {
+                result = SelectedChartMutationResult.FromRemoval(removalOutcome, result.Failure);
+                await LibraryChartRemovalReport.ShowAsync(dialogs, removalOutcome, result.Failure).ConfigureAwait(false);
+            }
             return result;
         }
         catch (Exception ex)
@@ -841,12 +862,13 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
         return library.GetLibraryWholeFolderDeleteConfirmationPaths(charts);
     }
 
-    public void RemoveLibraryCharts(
+    /// <summary>Preserves the model deletion outcome for terminal reporting.</summary>
+    public LibraryChartRemovalOutcome RemoveLibraryCharts(
         BMSLibrary library,
         IReadOnlyList<LibraryChartRef> charts,
         IReadOnlyList<string> approvedWholeFolderDeletePaths)
     {
-        library.RemoveLibraryCharts(
+        return library.RemoveLibraryCharts(
             charts,
             approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
     }

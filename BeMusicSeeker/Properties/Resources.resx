@@ -3271,4 +3271,12 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="FileDbMutationReport_Rename" xml:space="preserve"><value>フォルダ名の変更</value></data>
   <data name="FileDbMutationReport_Move" xml:space="preserve"><value>フォルダの移動</value></data>
   <data name="FileDbMutationReport_Merge" xml:space="preserve"><value>重複フォルダの統合</value></data>
+  <data name="LibraryChartRemovalReport_Title" xml:space="preserve"><value>ライブラリ削除の結果</value></data>
+  <data name="LibraryChartRemovalReport_Counts" xml:space="preserve"><value>削除確認済みの譜面: {0}、削除未実行・実在未確認: {1}、削除結果未確認: {2}、対象が変更済み・解決不能: {3}</value></data>
+  <data name="LibraryChartRemovalReport_CatalogNotAttempted" xml:space="preserve"><value>カタログ反映は実行されていません。</value></data>
+  <data name="LibraryChartRemovalReport_CatalogDurable" xml:space="preserve"><value>カタログの保存完了を確認しました。</value></data>
+  <data name="LibraryChartRemovalReport_CatalogUnconfirmed" xml:space="preserve"><value>カタログ反映を試みましたが、保存完了は確認できません。</value></data>
+  <data name="LibraryChartRemovalReport_FinalizationFailed" xml:space="preserve"><value>カタログは保存済みですが、必須の後処理に失敗しました。</value></data>
+  <data name="LibraryChartRemovalReport_Targets" xml:space="preserve"><value>確認対象（現在の実在は未確認、最大3件）:</value></data>
+  <data name="LibraryChartRemovalReport_Guidance" xml:space="preserve"><value>確認済みの削除は取り消されません。対象ファイルとライブラリの状態を手動で確認してください。省略された対象・エラーの詳細はログを参照してください。</value></data>
 </root>

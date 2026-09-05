@@ -183,3 +183,7 @@ folder merge の terminal reporting は [library-mutation-boundary.md](library-m
   - `OwnedChartCollectionState.CreateDuplicateChartRowSnapshot()`
   - `MainWindowViewModel.EnsureDuplicateChartGroupsReady()`
   - `MainWindow.ExecuteDuplicateFolderMerge()`
+
+### Hash cleanup deletion outcome
+
+hash cleanup の `RemovedChartCount` は計画件数ではなく、削除 API の正常 return で確認した chart target 数とする。keeper 選択と純 FS 個別失敗時の既存 continuation を維持する。catalog／必須反映失敗では成功扱いの次 group 選択をしない。確認済み FS 成果と catalog failure は同じ outcome に保持し、gate／activity 解放後の一回の Error report で伝える。詳細契約と C1–C6 の Verification map は [library-mutation-boundary.md](library-mutation-boundary.md#library-deletion-terminal-facts) を正本とする。

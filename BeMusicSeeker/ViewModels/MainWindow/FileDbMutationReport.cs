@@ -135,6 +135,7 @@ internal static class FileDbMutationReport
         catch { /* Diagnostic sinks are optional too. */ }
     }
 
-    private static string Limit(string value, int maximum) =>
+    /// <summary>Bounds a displayed field without altering the retained diagnostic facts.</summary>
+    internal static string Limit(string value, int maximum) =>
         string.IsNullOrEmpty(value) || value.Length <= maximum ? value : value[..(maximum - 1)] + "…";
 }

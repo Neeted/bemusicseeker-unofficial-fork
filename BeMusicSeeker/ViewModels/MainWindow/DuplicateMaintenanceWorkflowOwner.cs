@@ -78,7 +78,8 @@ internal interface IDuplicateMaintenanceStore
 {
     void MergeFolder(BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId);
 
-    void RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts);
+    /// <summary>Returns observed library deletion facts to the operation terminal.</summary>
+    LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts);
 }
 
 internal interface IDuplicateMaintenanceTerminalStore
@@ -97,13 +98,28 @@ internal sealed class DuplicateMaintenanceMutationResult
         string selectionHeader,
         int removedChartCount,
         Exception failure,
-        DuplicateMergeMaintenanceReceipt mutationReceipt = null)
+        DuplicateMergeMaintenanceReceipt mutationReceipt = null,
+        LibraryChartRemovalOutcome removalOutcome = null)
     {
+        RemovalOutcome = removalOutcome;
         Succeeded = succeeded;
         SelectionHeader = selectionHeader;
         RemovedChartCount = removedChartCount;
         Failure = failure;
         MutationReceipt = mutationReceipt;
+    }
+
+    /// <summary>Confirmed deletion and independent catalog failure facts.</summary>
+    internal LibraryChartRemovalOutcome RemovalOutcome { get; }
+
+    /// <summary>Uses confirmed filesystem targets, never the cleanup plan size.</summary>
+    internal static DuplicateMaintenanceMutationResult FromRemoval(string header,
+        LibraryChartRemovalOutcome outcome, Exception failure)
+    {
+        Exception primary = outcome?.CatalogFailure;
+        Exception combined = primary == null ? failure : failure == null ? primary : new AggregateException(primary, failure);
+        return new DuplicateMaintenanceMutationResult(combined == null, header,
+            outcome?.ConfirmedChartCount ?? 0, combined, removalOutcome: outcome);
     }
 
     internal bool Succeeded { get; }
@@ -116,12 +132,13 @@ internal sealed class DuplicateMaintenanceMutationResult
 
     internal DuplicateMergeMaintenanceReceipt MutationReceipt { get; }
 
-    internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
+    /// <summary>Includes the catalog commit observed by library deletion.</summary>
+    internal bool HasDurableCommit => RemovalOutcome?.CatalogDurable == true || MutationReceipt?.HasDurableCommit == true;
 
     /// <summary>
     /// Gets whether merge finalization failed after durable file/catalog state.
     /// </summary>
-    internal bool HasDurableFinalizationFailure => MutationReceipt?.HasDurableFinalizationFailure == true;
+    internal bool HasDurableFinalizationFailure => RemovalOutcome?.RequiredFinalizationFailed == true || MutationReceipt?.HasDurableFinalizationFailure == true;
 
     internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
 
@@ -536,22 +553,26 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 return DuplicateMaintenanceMutationResult.Failed(
                     plan.SelectionHeader,
                     confirmation.Failure,
-                    plan.ChartsToRemove.Count);
+                    0);
             }
             if (!confirmation.Accepted)
             {
                 return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionHeader);
             }
 
+            LibraryChartRemovalOutcome removalOutcome = null;
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 plan.SelectionHeader,
-                library => store.RemoveCharts(library, plan.ChartsToRemove),
+                library => removalOutcome = store.RemoveCharts(library, plan.ChartsToRemove),
                 () => playback.StopPlaybackForCharts(plan.ChartsToRemove),
                 refreshPriorityReason: null,
-                removedChartCount: plan.ChartsToRemove.Count,
+                removedChartCount: 0,
                 acquiredOperationGate: operationGate));
             operationGateTransferred = true;
-            return await mutationTask;
+            DuplicateMaintenanceMutationResult result = await mutationTask;
+            result = DuplicateMaintenanceMutationResult.FromRemoval(plan.SelectionHeader, removalOutcome, result.Failure);
+            await LibraryChartRemovalReport.ShowAsync(dialogs, removalOutcome, result.Failure);
+            return result;
         }
         finally
         {
@@ -828,14 +849,16 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
             reportAtTerminal: true);
     }
 
-    public void RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts)
+    /// <summary>Preserves the model deletion outcome for terminal reporting.</summary>
+    public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts)
     {
         List<LibraryChartRef> chartRefs = [.. (charts ?? [])
             .Select(LibraryChartRef.FromChartFile)
             .Where(chart => chart != null)];
         if (chartRefs.Count > 0)
         {
-            library.RemoveLibraryCharts(chartRefs);
+            return library.RemoveLibraryCharts(chartRefs);
         }
+        return null;
     }
 }

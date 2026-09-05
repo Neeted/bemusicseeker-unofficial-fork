@@ -18,6 +18,39 @@ namespace BeMusicSeeker.Tests;
 public sealed class SelectedChartMutationWorkflowOwnerTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DeleteAsync_ReportsCatalogFailureAfterReleaseAndRetainsFacts(bool reportThrows)
+    {
+        var failure = new IOException("catalog deletion failure");
+        var outcome = new LibraryChartRemovalOutcome([new("deleted.bms", LibraryChartRemovalState.Confirmed)], true, true, failure);
+        var store = new RecordingStore { RemovalOutcome = outcome };
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        var dialogs = AcceptedMessageDialogs();
+        bool releasedAtReport = false;
+        dialogs.OnMessage = () =>
+        {
+            releasedAtReport = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
+            lease?.Dispose();
+            if (reportThrows) throw new IOException("optional report failed");
+        };
+        var owner = CreateOwner(new RecordingPresentation(), dialogs, store, gate, activity);
+        ChartOperationTarget target = CreateTarget("deleted.bms", ChartOperationSourceScope.Library, false,
+            ChartOperationCapabilities.RemoveFromLibrary);
+
+        var result = await owner.DeleteAsync(new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
+
+        Assert.IsTrue(releasedAtReport);
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreSame(outcome, result.RemovalOutcome);
+        Assert.AreSame(failure, result.Failure);
+        Assert.AreEqual(1, store.LibraryDeleteCalls);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages.Single().Icon);
+    }
+
+    [TestMethod]
     public async Task DeletePendingAsync_RejectedDialogDoesNotMutate()
     {
         var store = new RecordingStore();
@@ -737,13 +770,16 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         public IReadOnlyList<string> GetLibraryWholeFolderDeleteConfirmationPaths(BMSLibrary library, IReadOnlyList<LibraryChartRef> charts) => WholeFolderDeletePaths;
 
-        public void RemoveLibraryCharts(BMSLibrary library, IReadOnlyList<LibraryChartRef> charts, IReadOnlyList<string> approvedWholeFolderDeletePaths)
+        internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
+
+        public LibraryChartRemovalOutcome RemoveLibraryCharts(BMSLibrary library, IReadOnlyList<LibraryChartRef> charts, IReadOnlyList<string> approvedWholeFolderDeletePaths)
         {
             ThrowIfConfigured();
             LibraryDeleteCalls++;
             events?.Add("store-library-delete");
             LibraryCharts = charts;
             ApprovedWholeFolderDeletePaths = approvedWholeFolderDeletePaths;
+            return RemovalOutcome ?? new LibraryChartRemovalOutcome(charts.Select(chart => new LibraryChartRemovalTarget(chart.Path, LibraryChartRemovalState.Confirmed)), true, true);
         }
 
         public void RemovePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, bool sendToRecycleBin, bool deleteContainingPackageFoldersWhenNoBms)

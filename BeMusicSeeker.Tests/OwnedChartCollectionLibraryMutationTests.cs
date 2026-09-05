@@ -18,6 +18,104 @@ namespace BeMusicSeeker.Tests;
 public sealed class OwnedChartCollectionLibraryMutationTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RemoveLibraryCharts_CatalogFailureReturnsAfterConfirmedFilesystemDeletion(bool afterCommit)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string folder = Path.Combine(root, "Pack");
+            Directory.CreateDirectory(folder);
+            string chartPath = Path.Combine(folder, "delete.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            var file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            string lr2Root = Path.Combine(root, "LR2");
+            LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
+            var filesystem = new TestFileMutationService();
+            var library = new TestBmsLibrary(songDbPath, () => config, null, filesystem, null,
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = afterCommit, LR2RootPath = lr2Root })
+            {
+                BMSFiles = [file], BmsonSongs = []
+            };
+            string folderRowPath = Lr2FolderPath.ToFolderPath(folder);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                db.InsertOrReplace(new LR2SongDB.folder { path = folderRowPath, title = "Pack", type = 1 }, typeof(LR2SongDB.folder));
+                db.Execute(afterCommit
+                    ? "CREATE TRIGGER fail_delete BEFORE DELETE ON folder BEGIN SELECT RAISE(ABORT, 'required-folder-prune-fault'); END;"
+                    : "CREATE TRIGGER fail_delete BEFORE DELETE ON song BEGIN SELECT RAISE(ABORT, 'catalog-delete-fault'); END;");
+            }
+
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts([LibraryChartRef.FromBmsFile(file)], false, []);
+
+            Assert.IsFalse(File.Exists(chartPath));
+            Assert.AreEqual(1, filesystem.FileDeleteCalls);
+            Assert.AreEqual(1, outcome.ConfirmedChartCount);
+            Assert.AreEqual(chartPath, outcome.Targets.Single().Path);
+            Assert.IsTrue(outcome.CatalogApplyAttempted);
+            Assert.AreEqual(afterCommit, outcome.CatalogDurable);
+            Assert.AreEqual(afterCommit, outcome.RequiredFinalizationFailed);
+            Assert.IsNotNull(outcome.CatalogFailure);
+            using var readback = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(afterCommit ? 0 : 1, readback.Table<LR2SongDB.song>().Count());
+            Assert.AreEqual(1, readback.Table<LR2SongDB.folder>().Count(row => row.path == folderRowPath));
+        });
+    }
+
+    [TestMethod]
+    public void RemoveLibraryCharts_OnlySuccessfulApiTargetsAreConfirmed()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string partialDirectory = Path.Combine(root, "Partial");
+            Directory.CreateDirectory(partialDirectory);
+            string success = Path.Combine(root, "success.bms");
+            string missing = Path.Combine(root, "missing.bms");
+            string partial = Path.Combine(partialDirectory, "partial.bms");
+            File.WriteAllText(success, "#PLAYER 1");
+            File.WriteAllText(partial, "#PLAYER 1");
+            var files = new[] { CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", success),
+                CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", missing),
+                CreateFile("cccccccccccccccccccccccccccccccc", partial) };
+            var partialFailure = new IOException("directory changed before failure");
+            var filesystem = new TestFileMutationService { BeforeDirectoryDelete = path =>
+            {
+                Assert.AreEqual(partialDirectory, path);
+                File.Delete(partial);
+                throw partialFailure;
+            }};
+            var dialogs = new FileDbReportRecordingDialogs();
+            var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs)
+            { BMSFiles = files, BmsonSongs = [] };
+            using (var db = new LR2SongDBExtended(songDbPath))
+                foreach (var file in files)
+                    db.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
+                files.Select(LibraryChartRef.FromBmsFile), false, [partialDirectory]);
+
+            Assert.AreEqual(1, outcome.ConfirmedChartCount);
+            Assert.AreEqual(LibraryChartRemovalState.Confirmed, outcome.Targets.Single(target => target.Path == success).State);
+            Assert.AreEqual(LibraryChartRemovalState.NotExecuted, outcome.Targets.Single(target => target.Path == missing).State);
+            Assert.AreEqual(LibraryChartRemovalState.Unconfirmed, outcome.Targets.Single(target => target.Path == partial).State);
+            Assert.AreSame(partialFailure, outcome.Targets.Single(target => target.Path == partial).Failure);
+            Assert.IsFalse(File.Exists(success));
+            Assert.IsFalse(File.Exists(partial));
+            Assert.AreEqual(1, filesystem.FileDeleteCalls);
+            Assert.AreEqual(1, filesystem.DirectoryDeleteCalls);
+            Assert.AreEqual(0, dialogs.ModelMessages);
+            using var readback = new LR2SongDBExtended(songDbPath);
+            CollectionAssert.AreEquivalent(new[] { missing, partial }, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_UnregisterKeepsOwnedCollectionInitializedAndSynced()
     {
         TestResourceInitializer.EnsureJapaneseResources();

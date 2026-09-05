@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -195,7 +196,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task RunHashCleanupAsync_ChoosesShortestNameAndReturnsRemovalCount()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RunHashCleanupAsync_ChoosesShortestNameAndReturnsRemovalCount(bool catalogFailure)
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -205,25 +208,43 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         {
             ChartFile keeper = CreateChart(Path.Combine(root, "a.bms"), "same-hash");
             ChartFile duplicate = CreateChart(Path.Combine(root, "long-name.bms"), "same-hash");
-            var store = new RecordingStore([]);
+            ChartFile missing = CreateChart(Path.Combine(root, "missing-long-name.bms"), "same-hash");
+            var outcome = new LibraryChartRemovalOutcome([
+                new(duplicate.Path, LibraryChartRemovalState.Confirmed),
+                new(missing.Path, LibraryChartRemovalState.NotExecuted)], true, true,
+                catalogFailure ? new IOException("required catalog finalization failure") : null);
+            var store = new RecordingStore([]) { RemovalOutcome = outcome };
             var dialogs = AcceptedDialogs();
+            var gate = new ChartFileOperationSynchronizer();
+            var activity = new ChartMutationActivityOwner();
+            bool releasedAtReport = false;
+            dialogs.OnMessage = () =>
+            {
+                releasedAtReport = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
+                lease?.Dispose();
+            };
             var owner = CreateOwner(
                 [],
                 new RecordingPresentation([]),
                 dialogs,
                 store,
-                duplicateGroupNextHeaderProvider: _ => "Next group");
+                duplicateGroupNextHeaderProvider: _ => "Next group", gate: gate, activity: activity);
 
             DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(
-                new DuplicateGroup([keeper, duplicate], [root]),
+                new DuplicateGroup([keeper, duplicate, missing], [root]),
                 root);
 
-            Assert.IsTrue(result.Succeeded);
+            Assert.AreEqual(!catalogFailure, result.Succeeded);
+            Assert.AreSame(outcome.CatalogFailure, result.Failure);
+            Assert.AreEqual(catalogFailure, result.HasDurableFinalizationFailure);
             Assert.AreEqual(1, result.RemovedChartCount);
             Assert.AreEqual("Next group", result.SelectionHeader);
-            CollectionAssert.AreEqual(new[] { duplicate }, (System.Collections.ICollection)store.Charts);
+            CollectionAssert.AreEqual(new[] { duplicate, missing }, (System.Collections.ICollection)store.Charts);
             Assert.IsNotNull(dialogs.ConfirmationRequest);
-            StringAssert.Contains(dialogs.ConfirmationRequest!.MessageBoxText, "1");
+            StringAssert.Contains(dialogs.ConfirmationRequest!.MessageBoxText, "2");
+            Assert.IsTrue(releasedAtReport);
+            Assert.AreSame(outcome, result.RemovalOutcome);
+            Assert.AreEqual(1, dialogs.Messages.Count);
         }
         finally
         {
@@ -512,10 +533,13 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             DestinationDirectory = destinationDirectory;
         }
 
-        public void RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts)
+        internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
+
+        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts)
         {
             events.Add("store-remove");
             Charts = charts;
+            return RemovalOutcome ?? new LibraryChartRemovalOutcome(charts.Select(chart => new LibraryChartRemovalTarget(chart.Path, LibraryChartRemovalState.Confirmed)), true, true);
         }
     }
 
@@ -553,7 +577,14 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         internal UiConfirmationRequest? ConfirmationRequest { get; private set; }
 
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        internal List<UiMessageRequest> Messages { get; } = [];
+        internal Action? OnMessage { get; set; }
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            Messages.Add(request);
+            OnMessage?.Invoke();
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {

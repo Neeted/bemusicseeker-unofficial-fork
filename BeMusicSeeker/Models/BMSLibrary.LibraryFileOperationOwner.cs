@@ -612,6 +612,7 @@ internal sealed partial class LibraryFileOperationOwner
         IReadOnlyList<string> preflightUnresolvedPaths,
         LibraryFileMutationCapability mutationCapability,
         out List<LibraryDeleteFailure> failures,
+        out LibraryChartRemovalOutcome filesystemOutcome,
         out int inputChartCount,
         out int canonicalChartCount,
         out int unresolvedChartCount,
@@ -625,6 +626,7 @@ internal sealed partial class LibraryFileOperationOwner
         var validCanonicalCharts = new List<LibraryChartRef>();
         var validTargets = new List<LibraryFileOperationTargetSnapshot>();
         var unresolved = new List<LibraryDeleteFailure>();
+        var targetFacts = new List<LibraryChartRemovalTarget>();
         LibraryChartRemovalPlan plan;
         List<LibraryChartRemovalInstallDestinationBinding> installDestinationBindings;
         CanonicalChartResolveResult currentResolveResult;
@@ -655,12 +657,15 @@ internal sealed partial class LibraryFileOperationOwner
                 if (identityChanged || currentTarget == null)
                 {
                     staleTargetCount++;
+                    targetFacts.Add(new(currentChart.Path, LibraryChartRemovalState.Stale));
                     continue;
                 }
                 validCanonicalCharts.Add(currentChart);
                 validTargets.Add(currentTarget);
             }
             staleTargetCount += Math.Max(0, (preflightTargets?.Count ?? 0) - usedPreflightTargets.Count);
+            targetFacts.AddRange((preflightTargets ?? []).Where(target => !usedPreflightTargets.Contains(target))
+                .Select(target => new LibraryChartRemovalTarget(target.SourcePath, LibraryChartRemovalState.Stale)));
             unresolved.AddRange((preflightUnresolvedPaths ?? [])
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .Select(path => new LibraryDeleteFailure
@@ -706,6 +711,10 @@ internal sealed partial class LibraryFileOperationOwner
             fileMutationService,
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions);
+        targetFacts.AddRange(execution.Targets);
+        targetFacts.AddRange(unresolved.Select(failure => new LibraryChartRemovalTarget(
+            failure.Path, LibraryChartRemovalState.Unresolved, failure.Exception)));
+        filesystemOutcome = new LibraryChartRemovalOutcome(targetFacts);
         var delta = new LibraryMutationDelta
         {
             SkippedCount = staleTargetCount + unresolved.Count,
@@ -782,7 +791,7 @@ internal sealed partial class LibraryFileOperationOwner
         return delta;
     }
 
-    private void RemoveLibraryChartsCore(
+    private LibraryChartRemovalOutcome RemoveLibraryChartsCore(
         IEnumerable<LibraryChartRef> charts,
         bool sendToRecycleBin,
         IEnumerable<string> approvedWholeFolderDeletePaths,
@@ -802,6 +811,7 @@ internal sealed partial class LibraryFileOperationOwner
             preflightUnresolvedPaths,
             mutationCapability,
             out List<LibraryDeleteFailure> failures,
+            out LibraryChartRemovalOutcome filesystemOutcome,
             out int inputChartCount,
             out int canonicalChartCount,
             out int unresolvedChartCount,
@@ -819,24 +829,18 @@ internal sealed partial class LibraryFileOperationOwner
             + " folderDeletes=" + folderDeleteCount
             + " fileDeletes=" + fileDeleteCount;
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
-        List<Action> diagnosticEffects =
-        [
-            () => LogInstallPerformance(resultLog),
-            () => LogReverseLookupMutationAndQueueWarmupIfNeeded("delete_library", resourceIndexMutation)
-        ];
-        foreach (LibraryDeleteFailure failure in failures)
-        {
-            diagnosticEffects.Add(() => ShowDeleteFailure(failure));
-        }
-        ApplyLibraryMutationDeltaUnderExistingReservation(
-            mutationDelta,
-            "delete_library",
-            mutationCapability,
-            postLeaseNotifications);
-        foreach (Action diagnosticEffect in diagnosticEffects)
-        {
-            postLeaseNotifications.Add(diagnosticEffect);
-        }
+        FileDbMutationCommitResult commit = ApplyLibraryMutationDeltaForFileMutation(
+            mutationDelta, "delete_library", mutationCapability,
+            action => postLeaseNotifications.Add(action));
+        postLeaseNotifications.Add(() => LogInstallPerformance(resultLog));
+        // Preserve the existing success-only warmup boundary even though catalog
+        // failure now returns facts instead of throwing past these effects.
+        if (commit.DurableCommit && commit.Failure == null)
+            postLeaseNotifications.Add(() => LogReverseLookupMutationAndQueueWarmupIfNeeded("delete_library", resourceIndexMutation));
+        var outcome = new LibraryChartRemovalOutcome(filesystemOutcome.Targets, true,
+            commit.DurableCommit, commit.Failure ?? (!commit.DurableCommit
+                ? new InvalidOperationException("Catalog mutation did not produce a durable receipt.") : null));
+        return outcome;
     }
 
     private void ShowDeleteFailure(LibraryDeleteFailure failure)
@@ -1899,14 +1903,15 @@ internal sealed partial class LibraryFileOperationOwner
         return execution;
     }
 
-    internal void RemoveLibraryCharts(
+    /// <summary>Returns observed filesystem and catalog facts after releasing the deletion lease.</summary>
+    internal LibraryChartRemovalOutcome RemoveLibraryCharts(
         IEnumerable<LibraryChartRef> charts,
         bool sendToRecycleBin,
         IEnumerable<string> approvedWholeFolderDeletePaths)
     {
         if (TryBlockMutation(nameof(BMSLibrary.RemoveLibraryCharts), showMessage: true))
         {
-            return;
+            return null;
         }
         List<LibraryChartRef> requestedCharts = CreateNonNullChartRefList(charts);
         LibraryChartRemovalPreflight preflight = CaptureLibraryChartRemovalPreflight(requestedCharts);
@@ -1931,8 +1936,9 @@ internal sealed partial class LibraryFileOperationOwner
             }
         }
         List<Action> postLeaseNotifications = [];
+        LibraryChartRemovalOutcome outcome = null;
         RunWithLibraryChartRemovalWriteLocks(
-            mutationCapability => RemoveLibraryChartsCore(
+            mutationCapability => outcome = RemoveLibraryChartsCore(
                 requestedCharts,
                 sendToRecycleBin,
                 approvedPaths,
@@ -1941,6 +1947,7 @@ internal sealed partial class LibraryFileOperationOwner
                 preflight.Targets,
                 preflight.UnresolvedPaths));
         InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
+        return outcome;
     }
 
     internal void RemovePendingCharts(
@@ -1985,7 +1992,8 @@ internal sealed partial class LibraryFileOperationOwner
         InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
     }
 
-    internal void FixInstallationDirectoryCharts(
+    /// <summary>Returns optional deletion facts; a deletion catalog failure stops dependent repair maintenance.</summary>
+    internal LibraryChartRemovalOutcome FixInstallationDirectoryCharts(
         IEnumerable<ChartFile> charts,
         IEnumerable<string> approvedDuplicateRemovalChartPaths)
     {
@@ -1995,7 +2003,7 @@ internal sealed partial class LibraryFileOperationOwner
         }
         if (TryBlockMutation(nameof(BMSLibrary.FixInstallationDirectoryCharts), showMessage: true))
         {
-            return;
+            return null;
         }
 
         List<ChartFile> chartList = [.. charts.Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
@@ -2032,6 +2040,7 @@ internal sealed partial class LibraryFileOperationOwner
             }
         }
 
+        LibraryChartRemovalOutcome removalOutcome = null;
         List<Action> postLeaseNotifications = [];
         try
         {
@@ -2039,7 +2048,7 @@ internal sealed partial class LibraryFileOperationOwner
             {
                 if (mutationLease == null)
                 {
-                    return;
+                    return null;
                 }
                 using LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability();
                 mutationCapability.Validate(lr2SynchronizationOwner);
@@ -2062,12 +2071,14 @@ internal sealed partial class LibraryFileOperationOwner
                     postLeaseNotifications);
                 if (chartsToRemove.Count > 0)
                 {
-                    RemoveLibraryChartsCore(
+                    removalOutcome = RemoveLibraryChartsCore(
                         chartsToRemove.Select(LibraryChartRef.FromChartFile),
                         sendToRecycleBin: true,
                         approvedWholeFolderDeletePaths: [],
                         mutationCapability,
                         postLeaseNotifications);
+                    if (removalOutcome.CatalogFailure != null)
+                        throw new LibraryChartRemovalException(removalOutcome);
                 }
                 List<ChartFile> maintenanceTargets = NormalizeResourceMaintenanceTargetCharts(maintenanceCharts);
                 if (maintenanceTargets.Count > 0)
@@ -2083,6 +2094,7 @@ internal sealed partial class LibraryFileOperationOwner
         {
             InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
         }
+        return removalOutcome;
     }
 
     /// <summary>

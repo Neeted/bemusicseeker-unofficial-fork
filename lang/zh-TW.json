@@ -926,5 +926,13 @@
   "FileDbMutationReport_Guidance": "已提交的變更會保留。請手動檢查相關檔案和資料庫狀態。完整資訊及省略的路徑或錯誤請查看記錄。",
   "FileDbMutationReport_Rename": "重新命名資料夾",
   "FileDbMutationReport_Move": "移動資料夾",
-  "FileDbMutationReport_Merge": "合併重複資料夾"
+  "FileDbMutationReport_Merge": "合併重複資料夾",
+  "LibraryChartRemovalReport_Title": "曲庫刪除結果",
+  "LibraryChartRemovalReport_Counts": "已確認刪除的譜面：{0}；未執行 / 存在情況未確認：{1}；刪除結果未確認：{2}；已變更或無法解析的目標：{3}",
+  "LibraryChartRemovalReport_CatalogNotAttempted": "尚未嘗試更新目錄資料。",
+  "LibraryChartRemovalReport_CatalogDurable": "已確認目錄資料提交完成。",
+  "LibraryChartRemovalReport_CatalogUnconfirmed": "已嘗試更新目錄資料，但無法確認提交完成。",
+  "LibraryChartRemovalReport_FinalizationFailed": "目錄資料已提交，但必要的後續處理失敗。",
+  "LibraryChartRemovalReport_Targets": "待檢查目標（目前是否存在未經確認，最多3項）：",
+  "LibraryChartRemovalReport_Guidance": "已確認的刪除不會撤銷。請手動檢查檔案和曲庫狀態。省略的目標及完整錯誤詳情請參閱記錄。"
 }

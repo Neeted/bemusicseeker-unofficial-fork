@@ -926,5 +926,13 @@
   "FileDbMutationReport_Guidance": "확정된 변경은 유지됩니다. 해당 파일과 DB 상태를 수동으로 확인하세요. 전체 내용과 생략된 경로 또는 오류는 로그를 확인하세요.",
   "FileDbMutationReport_Rename": "폴더 이름 변경",
   "FileDbMutationReport_Move": "폴더 이동",
-  "FileDbMutationReport_Merge": "중복 폴더 병합"
+  "FileDbMutationReport_Merge": "중복 폴더 병합",
+  "LibraryChartRemovalReport_Title": "라이브러리 삭제 결과",
+  "LibraryChartRemovalReport_Counts": "삭제가 확인된 패턴: {0}; 미실행 / 존재 미확인: {1}; 삭제 결과 미확인: {2}; 변경되었거나 확인할 수 없는 대상: {3}",
+  "LibraryChartRemovalReport_CatalogNotAttempted": "카탈로그 반영을 시도하지 않았습니다.",
+  "LibraryChartRemovalReport_CatalogDurable": "카탈로그 저장이 확인되었습니다.",
+  "LibraryChartRemovalReport_CatalogUnconfirmed": "카탈로그 반영을 시도했지만 저장 완료는 확인되지 않았습니다.",
+  "LibraryChartRemovalReport_FinalizationFailed": "카탈로그는 저장되었으나 필수 후처리에 실패했습니다.",
+  "LibraryChartRemovalReport_Targets": "확인할 대상 (현재 존재 여부 미확인, 최대 3개):",
+  "LibraryChartRemovalReport_Guidance": "확인된 삭제는 취소되지 않습니다. 파일과 라이브러리 상태를 직접 확인하세요. 생략된 대상과 전체 오류는 로그를 참조하세요."
 }

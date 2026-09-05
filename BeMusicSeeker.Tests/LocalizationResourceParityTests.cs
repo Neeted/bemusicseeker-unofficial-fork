@@ -122,6 +122,14 @@ public sealed class LocalizationResourceParityTests
         string root = FindRepositoryRoot();
         var required = new Dictionary<string, int>
         {
+            [nameof(Resources.LibraryChartRemovalReport_Title)] = 0,
+            [nameof(Resources.LibraryChartRemovalReport_Counts)] = 4,
+            [nameof(Resources.LibraryChartRemovalReport_CatalogNotAttempted)] = 0,
+            [nameof(Resources.LibraryChartRemovalReport_CatalogDurable)] = 0,
+            [nameof(Resources.LibraryChartRemovalReport_CatalogUnconfirmed)] = 0,
+            [nameof(Resources.LibraryChartRemovalReport_FinalizationFailed)] = 0,
+            [nameof(Resources.LibraryChartRemovalReport_Targets)] = 0,
+            [nameof(Resources.LibraryChartRemovalReport_Guidance)] = 0,
             [nameof(Resources.FileDbMutationReport_Title)] = 0,
             [nameof(Resources.FileDbMutationReport_Operation)] = 1,
             [nameof(Resources.FileDbMutationReport_Counts)] = 6,

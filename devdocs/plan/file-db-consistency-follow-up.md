@@ -2,13 +2,15 @@
 
 最終更新: 2026-09-05
 
-Status: Active（A 完了・274a5d83、B 実装・関連検証済み、静的レビュー待ち。C のテスト契約承認済み）
+Status: Complete（A: 274a5d83、B: 6bd3a7d1、C: 本完了記録を含む commit。統合 Functional / 最終独立静的レビュー完了）
 
 ## 目的と範囲
 
 共通契約の正本は [file-db-consistency.md](../spec/file-db-consistency.md)。本資料は確認済みの実装差分と、後続 unit の切り方だけを記録する。全 FS+DB route を監査済みとする記録ではない。
 
 共通仕様は `402cd729` で commit 済み。後続実装と必要な単位ごとの commit はユーザー承認済み。push、version 更新、公開は対象外。
+
+以下の決定事項・ownership・現行 evidence は実装前の承認計画と base `402cd729` の調査履歴を保存したものであり、未実装事項の一覧ではない。恒久的な実装契約の正本は `devdocs/spec/file-db-consistency.md`、`library-mutation-boundary.md`、`duplicate-file-check.md`、`install-estimation-current-logic.md`。本資料と [test packets](fsdb-report-test-contracts.md) は承認と検証証跡の完了記録として扱う。
 
 ## 実装の決定事項
 
@@ -115,8 +117,22 @@ C は FS 結果、catalog durable/finalization fact、repair bridge の unwind �
 
 ## 確認済みの後続 unit
 
+### Unit C の検証証跡
+
+- Packet `FSDB-C-20260905` C1–C6。最終 Quick: 188/188 pass、build + test 44.1 秒、test execution 14.94 秒。artifact: `artifacts/verification/tests-quick-20260905-190735/functional/results.trx`。fingerprint: `3E03F3A385A68E97012BAE438A02FE2565F9343144EC34DBFF0E7C18089C9A6A`。
+- Base red `184457`: 実 song DELETE abort による FS 結果消失で 1 intended failure。mutant `190435`: false exists の confirmed 扱い / durable 消失 / duplicate 計画件数 / repair typed catch 無効化で 5 intended failures / 6 cases。全 mutant 復元済み。
+- `190323` は mutation 適用 script の encoding error により mutant 未適用であり、6/6 head-green のみとして扱う。中間 compile failure は test mechanics の using / dialog enum 訂正で解消。timeout なし。
+- 実 FS 部分変更後 directory throw、実 song / LR2 folder DELETE abort、BMSON 修理の先行 DB path 更新保持、confirmed 件数、post-release 一回表示を検証。catalog failure 後の依存 maintenance / index warmup は従来どおり抑止する。
+
+### 統合受入
+
+- Functional: `pwsh -NoProfile -File ./scripts/verify-refactor.ps1 -Mode Functional` 一回成功。4,403 pass / 13 既存 skip / 0 fail、test execution 178.9 秒（300 秒予算内）、全 host exit 0。artifact: `artifacts/verification/tests-functional-20260905-191116`。fingerprint `A3E7DB189F26671C544E85703C8EEC25722B6B79346BE1DE7A75D2716C061407` 不変。
+- 最終独立静的レビュー: 凍結した C 差分と A/B との接続、C1–C6、failure / 通知 ownership / 多言語 parity を確認し、blocking findings なし。レビュー後は本完了状態・証跡の記録のみ。製品・テストの追加変更なし。
+
+
 ### Unit B の検証証跡
 
+- 凍結 snapshot の独立静的レビューは blocking findings なし。commit: `6bd3a7d1`。
 - Packet `FSDB-B-20260905` B1–B5 と同 packet の root 補足を実装。最終 Quick: 310 pass / 2 既存 cross-volume skip / 0 fail、build + test 54 秒、test execution 24.51 秒。artifact: `artifacts/verification/tests-quick-20260905-183221/functional/results.trx`。
 - Base red `175636`: 自動 rename cleanup による durable facts 消失。mutant `181903`: failure 購読欠落 / package 0 guard / 旧通知復活で 5 intended failures / 10 cases。mixed 案内 red `183048`: 異常 canonical の旧案内残存で 1 intended failure / 4 cases。すべて復元し head pass。
 - `182106` と同条件 retry `182250` で新 consumer fixture の close が 2 timeout。全 application close の process-global SQLite drain と別 fixture の接続が競合するため、既存 application-lifetime fixture へ収容。`182853` は 198 pass / 2 既存 skip、最終 Quick も成功。新 DNP / runner / timeout 変更なし。

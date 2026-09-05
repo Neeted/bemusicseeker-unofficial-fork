@@ -194,3 +194,25 @@ batch で compensation を所有するのは一つの owner だけであり、pe
 既存 Functional lane を使い、新しい DNP／固定待ち／process／共有 logger 設定は追加しない。drop の cleanup-only が空 package となる直積は要求しない。
 
 既存の estimated cleanup-only 正常完了案内は保持する。同じ batch に異常 receipt が含まれる canonical route の場合だけ、この案内を一回の異常 report へ統合し、正常部分は durable 操作件数に残す。legacy と receipt のない案内は抑止しない。`BmsLibraryPackageInstallServiceTests.EstimatedCleanupKeepsNormalAdviceButDefersMixedAbnormalAdviceToTerminal` が実 cleanup の正常／異常と canonical／legacy の対照を検証する。
+
+### Library deletion terminal facts
+
+`LibraryChartRemovalOutcome` は削除 executor が既存 API 呼出し時に観測した chart target と、既存 catalog owner の apply attempted／durable／failure を保持する callback-free immutable result とする。削除 API が正常 return した対象だけを確認済み件数に含める。exists=false は削除未実行・実在未確認、directory 削除例外は配下の削除結果未確認として保持し、新しい probe／rescan／DB purge は行わない。catalog 失敗で確認済み FS 結果を捨てず、durable 後の必須反映失敗を未 commit や cleanup warning に読み替えない。
+
+選択削除・重複 hash 削除・導入先修正は、outer gate／activity／dialog scope／model lease の解放後に `LibraryChartRemovalReport` へ一回だけ結果を渡す。正常は silent、未実行・未確認・stale・unresolved・FS failure・catalog failure は Error。確認済み件数、未確認対象、catalog 段階、手動確認・詳細ログ案内を表示する。path は最大3件・各240字、代表 error は最大3件・各400字、本文4096字まで。任意 report failure は既存診断のみとし、結果変更や再通知をしない。削除固有 facts を folder receipt に偽装しない。
+
+catalog／必須反映失敗後は success-only selection／maintenance を進めない。導入先修正では先行 repair delta の保存を取り消さず、削除 outcome を持つ `LibraryChartRemovalException` で依存 maintenance を停止する。pending owner は outer finally 解放後にこの型だけを捕捉して報告し、global error handler へ再送出しない。付随 cleanup failure は同じ exception chain に保持する。純 FS 個別失敗の既存 continuation と無関係な exception の伝播は維持する。削除なしの修理は outcome なしで返す。
+
+#### Verification map — FSDB-C-20260905
+
+| IDs / behavior | Fixture | Completion / resource |
+| --- | --- | --- |
+| C1–C3: real library ingress、成功／exists=false／directory部分変更後throw、song DELETE abort、durable後folder DELETE abort | `OwnedChartCollectionLibraryMutationTests` | 同期 library return、固有 FS／SQLite、既存 file adapter／LR2 config helper |
+| C1/C4: BMSON pending row の確認済み削除 | `BmsLibraryDuplicateServiceTests` | real library outcome／DB readback |
+| C4: keeper維持、計画2件中確認済み1件、解放後一回報告 | `DuplicateMaintenanceWorkflowOwnerTests` | awaited owner Task、local gate/activity/dialog |
+| C4/C6: catalog failure／任意 reporter failure後もfacts保持 | `SelectedChartMutationWorkflowOwnerTests` | awaited owner Task、gate再取得／activity inactive |
+| C5: 先行repair DB path更新保持と後段削除failure | `BmsLibraryFolderRenameRefreshTests` | real repair return／typed exception、固有FS／SQLite trigger |
+| C5/C6: typed failureのみ処理、無関係exception伝播、FS-only outcome報告 | `PendingPackageWorkflowOwnerTests` | awaited owner Task、local ports／post-release dialog |
+| C6: unknownはError、正常silent、bounds／任意reportfailure | `LibraryChartRemovalReportTests`、`LocalizationResourceParityTests` | renderer return／dialog Task、read-only resources |
+
+既存 Functional lane を使う。新 DNP、固定待ち、共有 logger 設定、アプリ lifetime fixture は追加しない。削除個別 failure dialog、結果を失う catalog throw、計画件数を実績とする旧 route は上記 terminal と confirmed outcome へ置換する。

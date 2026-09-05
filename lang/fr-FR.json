@@ -926,5 +926,13 @@
   "FileDbMutationReport_Guidance": "Les modifications validées sont conservées. Vérifiez manuellement les fichiers concernés et l’état de la base. Consultez le journal pour les détails et les chemins ou erreurs omis.",
   "FileDbMutationReport_Rename": "Renommer le dossier",
   "FileDbMutationReport_Move": "Déplacer les dossiers",
-  "FileDbMutationReport_Merge": "Fusionner les dossiers en double"
+  "FileDbMutationReport_Merge": "Fusionner les dossiers en double",
+  "LibraryChartRemovalReport_Title": "Résultat de la suppression de la bibliothèque",
+  "LibraryChartRemovalReport_Counts": "Partitions supprimées confirmées : {0} ; non exécutées / existence non vérifiée : {1} ; résultat non confirmé : {2} ; cibles modifiées ou non résolues : {3}",
+  "LibraryChartRemovalReport_CatalogNotAttempted": "La mise à jour du catalogue n’a pas été tentée.",
+  "LibraryChartRemovalReport_CatalogDurable": "L’enregistrement du catalogue est confirmé.",
+  "LibraryChartRemovalReport_CatalogUnconfirmed": "La mise à jour du catalogue a été tentée, mais son enregistrement n’est pas confirmé.",
+  "LibraryChartRemovalReport_FinalizationFailed": "Le catalogue a été enregistré, mais la finalisation requise a échoué.",
+  "LibraryChartRemovalReport_Targets": "Cibles à vérifier (existence actuelle non vérifiée, 3 maximum) :",
+  "LibraryChartRemovalReport_Guidance": "Les suppressions confirmées ne sont pas annulées. Vérifiez manuellement les fichiers et la bibliothèque. Consultez le journal pour les cibles omises et les erreurs complètes."
 }

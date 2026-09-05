@@ -368,6 +368,9 @@ internal sealed class LibraryChartRemovalInstallDestinationTarget
 
 internal sealed class LibraryChartRemovalExecutionResult
 {
+    /// <summary>Filesystem facts recorded at the existing API call sites, without additional probes.</summary>
+    internal List<LibraryChartRemovalTarget> Targets { get; } = [];
+
     internal List<int> RemovedTargetIndexes { get; } = [];
 
     internal List<string> DeletedFolderPaths { get; } = [];
@@ -549,6 +552,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 if (!LongPathFileSystem.DirectoryExists(folder.Path))
                 {
+                    RecordFolderTargets(folder, LibraryChartRemovalState.NotExecuted);
                     continue;
                 }
                 try
@@ -561,9 +565,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     result.FolderDeleteCount++;
                     result.DeletedFolderPaths.Add(folder.Path);
                     result.RemovedTargetIndexes.AddRange(folder.TargetIndexes ?? []);
+                    RecordFolderTargets(folder, LibraryChartRemovalState.Confirmed);
                 }
                 catch (Exception exception)
                 {
+                    RecordFolderTargets(folder, LibraryChartRemovalState.Unconfirmed, exception);
                     result.Failures.Add(new LibraryDeleteFailure
                     {
                         Path = folder.Path,
@@ -594,10 +600,16 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                             targetOnlyFileMutationOptions);
                         result.FileDeleteCount++;
                         result.RemovedTargetIndexes.Add(target.Index);
+                        result.Targets.Add(new(target.Path, LibraryChartRemovalState.Confirmed));
+                    }
+                    else
+                    {
+                        result.Targets.Add(new(target.Path, LibraryChartRemovalState.NotExecuted));
                     }
                 }
                 catch (Exception exception)
                 {
+                    result.Targets.Add(new(target.Path, LibraryChartRemovalState.Unconfirmed, exception));
                     result.Failures.Add(new LibraryDeleteFailure
                     {
                         Path = target.Path,
@@ -608,6 +620,12 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         return result;
+
+        void RecordFolderTargets(LibraryChartRemovalPlanFolder folder, LibraryChartRemovalState state, Exception failure = null)
+        {
+            foreach (int index in folder.TargetIndexes ?? [])
+                result.Targets.Add(new(plan.Targets[index].Path, state, failure));
+        }
     }
 
     /// <summary>

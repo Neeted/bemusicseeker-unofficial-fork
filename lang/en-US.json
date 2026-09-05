@@ -925,5 +925,13 @@
   "FileDbMutationReport_Guidance": "Committed changes have been retained. Manually check the affected files and database state. See the log for full details and omitted paths or errors.",
   "FileDbMutationReport_Rename": "Rename folder",
   "FileDbMutationReport_Move": "Move folders",
-  "FileDbMutationReport_Merge": "Merge duplicate folders"
+  "FileDbMutationReport_Merge": "Merge duplicate folders",
+  "LibraryChartRemovalReport_Title": "Library deletion result",
+  "LibraryChartRemovalReport_Counts": "Confirmed chart deletions: {0}; not executed / existence unverified: {1}; deletion outcome unconfirmed: {2}; stale or unresolved targets: {3}",
+  "LibraryChartRemovalReport_CatalogNotAttempted": "Catalog application was not attempted.",
+  "LibraryChartRemovalReport_CatalogDurable": "The catalog commit was confirmed.",
+  "LibraryChartRemovalReport_CatalogUnconfirmed": "Catalog application was attempted, but its commit was not confirmed.",
+  "LibraryChartRemovalReport_FinalizationFailed": "The catalog was committed, but required finalization failed.",
+  "LibraryChartRemovalReport_Targets": "Targets to inspect (current existence unverified, up to 3):",
+  "LibraryChartRemovalReport_Guidance": "Confirmed deletions are not undone. Inspect the files and library state manually. See the log for omitted targets and full error details."
 }

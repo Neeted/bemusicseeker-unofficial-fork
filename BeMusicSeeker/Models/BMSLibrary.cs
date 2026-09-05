@@ -12621,9 +12621,10 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    internal void FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths = null)
+    /// <summary>Returns observed deletion facts without retrying or inferring filesystem state.</summary>
+    internal LibraryChartRemovalOutcome FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths = null)
     {
-        libraryFileOperationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths);
+        return libraryFileOperationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths);
     }
 
     /// <summary>
@@ -13183,9 +13184,10 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    internal void RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null)
+    /// <summary>Returns observed deletion facts without retrying or inferring filesystem state.</summary>
+    internal LibraryChartRemovalOutcome RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null)
     {
-        libraryFileOperationOwner.RemoveLibraryCharts(
+        return libraryFileOperationOwner.RemoveLibraryCharts(
             charts,
             sendToRecycleBin,
             approvedWholeFolderDeletePaths);

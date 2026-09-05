@@ -926,5 +926,13 @@
   "FileDbMutationReport_Guidance": "確定済みの変更は保持されています。対象のファイルと DB の状態を手動で確認してください。詳細・省略された対象やエラーはログを確認してください。",
   "FileDbMutationReport_Rename": "フォルダ名の変更",
   "FileDbMutationReport_Move": "フォルダの移動",
-  "FileDbMutationReport_Merge": "重複フォルダの統合"
+  "FileDbMutationReport_Merge": "重複フォルダの統合",
+  "LibraryChartRemovalReport_Title": "ライブラリ削除の結果",
+  "LibraryChartRemovalReport_Counts": "削除確認済みの譜面: {0}、削除未実行・実在未確認: {1}、削除結果未確認: {2}、対象が変更済み・解決不能: {3}",
+  "LibraryChartRemovalReport_CatalogNotAttempted": "カタログ反映は実行されていません。",
+  "LibraryChartRemovalReport_CatalogDurable": "カタログの保存完了を確認しました。",
+  "LibraryChartRemovalReport_CatalogUnconfirmed": "カタログ反映を試みましたが、保存完了は確認できません。",
+  "LibraryChartRemovalReport_FinalizationFailed": "カタログは保存済みですが、必須の後処理に失敗しました。",
+  "LibraryChartRemovalReport_Targets": "確認対象（現在の実在は未確認、最大3件）:",
+  "LibraryChartRemovalReport_Guidance": "確認済みの削除は取り消されません。対象ファイルとライブラリの状態を手動で確認してください。省略された対象・エラーの詳細はログを参照してください。"
 }

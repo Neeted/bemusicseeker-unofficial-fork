@@ -1,6 +1,6 @@
 # FS+DB 結果伝達 Test Contract Packets
 
-Status: Active
+Status: 実装済み Test Contract の承認・検証履歴（統合受入は実行計画参照）
 
 実行計画は [file-db-consistency-follow-up.md](file-db-consistency-follow-up.md)。本資料は独立した test-contract-designer が oracle-first で設計し、root が承認して実装前に凍結したテスト契約である。current output／既存 assertion／翻訳文言／snapshot は oracle の authority にしない。
 

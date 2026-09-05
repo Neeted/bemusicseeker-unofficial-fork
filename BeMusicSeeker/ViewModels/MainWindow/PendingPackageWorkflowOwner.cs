@@ -211,7 +211,8 @@ internal interface IPendingPackageStore
         BMSLibrary library,
         IReadOnlyList<ChartFile> repairCharts);
 
-    void FixInstalledLocations(
+    /// <summary>Returns observed library deletion facts to the operation terminal.</summary>
+    LibraryChartRemovalOutcome FixInstalledLocations(
         BMSLibrary library,
         IReadOnlyList<ChartFile> repairCharts,
         IReadOnlyList<string> approvedDuplicateRemovalChartPaths);
@@ -669,76 +670,87 @@ internal sealed class PendingPackageWorkflowOwner
             await ShowPendingOperationAdmissionBusyAsync("Installed-location repair");
             return;
         }
+        LibraryChartRemovalOutcome removalOutcome = null;
+        Exception removalFailure = null;
         try
         {
-            if (!request.HasInstallDestination)
+            try
             {
-                UiDialogResult warningResult = await dialogs.ShowMessageAsync(new UiMessageRequest(
-                    BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning,
-                    BeMusicSeeker.Properties.Resources.Warning,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Exclamation,
-                    MessageBoxResult.OK));
-                EnsureMessageWasShown(warningResult, "Installed-location repair warning");
-                return;
-            }
-            UiDialogResult repairConfirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-                BeMusicSeeker.Properties.Resources.Msg_fix_installation,
-                BeMusicSeeker.Properties.Resources.Confirm,
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Question,
-                MessageBoxResult.Cancel));
-            if (!ToConfirmationDecision(repairConfirmation, "Installed-location repair confirmation"))
-            {
-                return;
-            }
-
-            request.MaterializeRepairEntries();
-            IReadOnlyList<ChartFile> repairCharts = request.RepairCharts;
-            IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> duplicateConfirmations =
-                await Task.Run(() => Read(
-                    library => store.GetDuplicateInstallRepairConfirmations(library, repairCharts),
-                    operationGate,
-                    releaseAcquiredOperationGate: false)) ?? [];
-            var approvedDuplicateRemovalChartPaths = new List<string>();
-            foreach (BMSLibrary.DuplicateInstallRepairConfirmation duplicateConfirmation in duplicateConfirmations)
-            {
-                ChartFile chart = duplicateConfirmation.Chart;
-                if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+                if (!request.HasInstallDestination)
                 {
-                    continue;
+                    UiDialogResult warningResult = await dialogs.ShowMessageAsync(new UiMessageRequest(
+                        BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning,
+                        BeMusicSeeker.Properties.Resources.Warning,
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Exclamation,
+                        MessageBoxResult.OK));
+                    EnsureMessageWasShown(warningResult, "Installed-location repair warning");
+                    return;
                 }
-                UiDialogResult duplicateConfirmationResult = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-                    string.Format(
-                        BeMusicSeeker.Properties.Resources.Confirm_DuplicateReinstallSkipped,
-                        chart.Path,
-                        string.Join(Environment.NewLine, duplicateConfirmation.DuplicatePaths)),
-                    BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
-                    MessageBoxButton.YesNo,
+                UiDialogResult repairConfirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                    BeMusicSeeker.Properties.Resources.Msg_fix_installation,
+                    BeMusicSeeker.Properties.Resources.Confirm,
+                    MessageBoxButton.OKCancel,
                     MessageBoxImage.Question,
-                    MessageBoxResult.Yes));
-                if (ToConfirmationDecision(
-                    duplicateConfirmationResult,
-                    "Duplicate reinstall repair confirmation"))
+                    MessageBoxResult.Cancel));
+                if (!ToConfirmationDecision(repairConfirmation, "Installed-location repair confirmation"))
                 {
-                    approvedDuplicateRemovalChartPaths.Add(chart.Path);
+                    return;
                 }
-            }
 
-            await Task.Run(() => Execute(
-                library => store.FixInstalledLocations(
-                    library,
-                    repairCharts,
-                    approvedDuplicateRemovalChartPaths),
-                PendingPackageRefreshScope.PackageMutation,
-                [.. repairCharts.Where(ChartFileKindResolver.IsBmsChartFile)],
-                acquiredOperationGate: operationGate,
-                releaseAcquiredOperationGate: false));
+                request.MaterializeRepairEntries();
+                IReadOnlyList<ChartFile> repairCharts = request.RepairCharts;
+                IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> duplicateConfirmations =
+                    await Task.Run(() => Read(
+                        library => store.GetDuplicateInstallRepairConfirmations(library, repairCharts),
+                        operationGate,
+                        releaseAcquiredOperationGate: false)) ?? [];
+                var approvedDuplicateRemovalChartPaths = new List<string>();
+                foreach (BMSLibrary.DuplicateInstallRepairConfirmation duplicateConfirmation in duplicateConfirmations)
+                {
+                    ChartFile chart = duplicateConfirmation.Chart;
+                    if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+                    {
+                        continue;
+                    }
+                    UiDialogResult duplicateConfirmationResult = await dialogs.ConfirmAsync(new UiConfirmationRequest(
+                        string.Format(
+                            BeMusicSeeker.Properties.Resources.Confirm_DuplicateReinstallSkipped,
+                            chart.Path,
+                            string.Join(Environment.NewLine, duplicateConfirmation.DuplicatePaths)),
+                        BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Question,
+                        MessageBoxResult.Yes));
+                    if (ToConfirmationDecision(
+                        duplicateConfirmationResult,
+                        "Duplicate reinstall repair confirmation"))
+                    {
+                        approvedDuplicateRemovalChartPaths.Add(chart.Path);
+                    }
+                }
+
+                await Task.Run(() => Execute(
+                    library => removalOutcome = store.FixInstalledLocations(
+                        library,
+                        repairCharts,
+                        approvedDuplicateRemovalChartPaths),
+                    PendingPackageRefreshScope.PackageMutation,
+                    [.. repairCharts.Where(ChartFileKindResolver.IsBmsChartFile)],
+                    acquiredOperationGate: operationGate,
+                    releaseAcquiredOperationGate: false));
+            }
+            finally
+            {
+                operationGate.Dispose();
+            }
         }
-        finally
+        catch (LibraryChartRemovalException exception)
         {
-            operationGate.Dispose();
+            removalOutcome = exception.Outcome;
+            removalFailure = exception;
         }
+        await LibraryChartRemovalReport.ShowAsync(dialogs, removalOutcome, removalFailure);
     }
 
     internal async Task DeleteInstalledOnlyPendingPackageSourcesAsync()
@@ -1509,6 +1521,9 @@ internal sealed class PendingPackageWorkflowOwner
                 CaptureCleanupFailure(dialogScope.Flush, failures);
             }
         }
+        if (failures.Count > 1 && failures[0].SourceException is LibraryChartRemovalException removalFailure)
+            throw new LibraryChartRemovalException(removalFailure.Outcome,
+                new AggregateException(failures.Select(failure => failure.SourceException)));
         ThrowFailures(failures);
         return true;
     }
@@ -1785,12 +1800,13 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore, IPen
         return library.GetDuplicateInstallRepairConfirmations(repairCharts);
     }
 
-    public void FixInstalledLocations(
+    /// <summary>Preserves the model deletion outcome for terminal reporting.</summary>
+    public LibraryChartRemovalOutcome FixInstalledLocations(
         BMSLibrary library,
         IReadOnlyList<ChartFile> repairCharts,
         IReadOnlyList<string> approvedDuplicateRemovalChartPaths)
     {
-        library.FixInstallationDirectoryCharts(
+        return library.FixInstallationDirectoryCharts(
             repairCharts,
             approvedDuplicateRemovalChartPaths);
     }

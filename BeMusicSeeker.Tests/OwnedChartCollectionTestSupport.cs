@@ -256,6 +256,9 @@ internal static class OwnedChartCollectionTestSupport
 
     internal sealed class TestFileMutationService : IFileMutationService
     {
+        internal Action<string>? BeforeDirectoryDelete { get; set; }
+        internal int FileDeleteCalls { get; private set; }
+        internal int DirectoryDeleteCalls { get; private set; }
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -325,6 +328,7 @@ internal static class OwnedChartCollectionTestSupport
 
         public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
         {
+            FileDeleteCalls++;
             DeleteFileDirect(filePath, options);
         }
 
@@ -338,6 +342,8 @@ internal static class OwnedChartCollectionTestSupport
 
         public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
         {
+            DirectoryDeleteCalls++;
+            BeforeDirectoryDelete?.Invoke(directoryPath);
             DeleteDirectoryDirect(directoryPath, recursive: true, options);
         }
 
