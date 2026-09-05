@@ -1,6 +1,6 @@
 name = "issue-resolver"
-description = "Nested Sol High investigator and fixer for a major blocker found by an implementation worker."
-model = "gpt-5.6-sol"
+description = "Nested investigator and fixer for a major blocker found by an implementation worker."
+model = "gpt-6-astra"
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 approval_policy = "never"

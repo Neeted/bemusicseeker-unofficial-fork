@@ -1,5 +1,5 @@
 name = "plan-clarifier"
-description = "Read-only Luna Low check for unresolved plan questions, test-design gating, unsafe assumptions, and parallel work boundaries."
+description = "Read-only check for unresolved plan questions, test-design gating, unsafe assumptions, and parallel work boundaries."
 model = "gpt-5.6-luna"
 model_reasoning_effort = "low"
 sandbox_mode = "read-only"

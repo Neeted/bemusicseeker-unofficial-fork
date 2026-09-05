@@ -11,36 +11,17 @@
 
 複数段階の変更、実装の委譲、並列 worker、static review を伴う作業では、`devdocs\spec\codex-agent-workflow.md` を運用の正本として先に確認する。単純な質問や軽微な文書修正まで機械的にサブエージェントへ渡さない。
 
-### 要件整理と実装計画
+### durable な運用契約
 
-1. ルートエージェントが、ユーザー要件を Goal、Context、Constraints、Done when、対象外、互換性条件、decision list へ整理し、設計と最終計画に責任を持つ。生の会話をサブエージェントへ渡して解釈を委ねない。
-2. 契約候補は `codex-agent-workflow.md` の reachability / impact gate に従い、実 UI / startup / scheduler / owner / supported public ingress からの到達経路、入口 assumption、利用者または durable / external data への影響を先に立証する。private API、reflection、fake、code 上の representability だけを根拠にしない。
-3. repository の正本や既に合意した方針から一意に決まる事項は調査して解決する。永続化、fallback、failure contract、ownership、互換性など、選択で observable behavior が変わる事項だけをユーザーへ確認し、回答を decision list に残す。
-4. draft plan は、同じ behavior、owner、failure contract、verification scope が閉じる reviewable unit に分け、書込み path、依存順、統合検証を明示する。作成時に、独立した unit を安全に並列化できないか検討する。
-5. サブエージェントへ実装を渡す計画は、完成前に `.codex/agents/plan-clarifier.toml` の Luna Low `plan-clarifier` へ原則一度だけ渡す。repo で解けた事実、未決質問、並列境界、test-design gate、replan trigger を返させ、ルートが必要なユーザー回答を得て計画へ反映する。clarifier に計画全体や test oracle を代作させない。
-6. durable test の assertion / expected value / snapshot を追加・変更・削除する unit、observable behavior の変更へ regression test が必要な unit、または脆い source / copy / snapshot test を置換する unit では、decision list を閉じた後、実装前に `.codex/agents/test-contract-designer.toml` の Sol High `test-contract-designer` を呼ぶ。user requirement、approved issue、feature spec、public contract など実装から独立した authority を渡し、oracle、許容 variation、plausible wrong implementation、coverage placement を `Test Contract Packet` として凍結する。名前変更・移動・format だけで assertion semantics が変わらない作業では省略してよい。
-7. ルートは `Test Contract Packet` を受入条件と decision list に照らして承認する。authority が不足する期待値を designer や worker に推測させず、必要ならユーザー判断へ戻す。final plan には unit ごとの observable outcome、所有 path、依存関係、退役する旧 route、維持する invariant、packet / Contract ID、behavior test / filter、review scope、handoff、再計画条件を含める。
-8. feature 固有の現行仕様は `devdocs\spec`、背景・判断履歴は `devdocs\decisions`、一時的な計画は `devdocs\plan` に置く。個別機能仕様を `AGENTS.md` や汎用 agent 設定へ混ぜない。
-
-### 実装と並列作業
-
-- production code、test harness、runner、設定の bounded implementation は、原則 `.codex/agents/implementation-worker.toml` の Luna Max `implementation-worker` へ任せる。ルートは割当 path を同時に編集・重複調査せず、統合責任を持つ。
-- test semantics を変更する unit では、worker へ承認済み `Test Contract Packet` を渡す。worker は fixture、helper、data setup などの mechanics を repository に適合させてよいが、Contract ID の authority、expected outcome、allowed variation を current implementation / output に合わせて変更してはいけない。技術的な seam / ownership 不足は resolver の trigger とし、authority、expected semantics、allowed variation の変更が必要なら、green にするため expectation を弱めずルートへ戻す。
-- bugfix で承認済みの production ingress から再現できる場合は production 修正前に regression test を書き、意図した理由で失敗する red evidence を残す。base での実行が構造上不可能、または behavior-preserving replacement の場合は、packet が指定する targeted mutant / negative control で誤実装を落とす evidence を残す。
-- 書込み worker は既定1つ、同時実行は最大2つとする。writable path、生成物、schema / shared fixture、依存順が重ならず、並列化の利益が統合コストを上回る場合だけ並列化する。同じ巨大 file の別 method を同時編集しない。
-- worker が重大な correctness、安全性、compatibility、ownership 問題、packet を保ったまま解消できる可能性がある技術的な executable-seam 不足、または `testing-strategy.md` に定める retry 後の timeout / failure を発見した場合だけ、worker 自身が `.codex/agents/issue-resolver.toml` の Sol High `issue-resolver` を一度呼ぶ。worker は編集を止めて結果を待ち、resolver から先へ再帰しない。observable semantics の変更が必要なら resolver で決めずルートへ戻す。
-- worker は変更概要、path、focused verification、実装した Contract ID、red / negative-control evidence、旧 test / route と replacement、残る risk を要約して返す。test を触った場合は、検索した既存 fixture、`extend / replace / new`、shared resource / lane、completion signal と例外 seam も `TEST CONTRACT` / `TEST COVERAGE` / `TEST SAFETY` として返す。生ログや同じ調査をルートへ持ち帰らない。完了した agent thread は結果受領後に閉じる。
-- ルートは並列結果の path ownership と handoff を軽く確認し、機械的 conflict を解消して統合 snapshot の Quick / Functional / 必要な opt-in lane を実行してよい。worker と同じ範囲を最初から再実装・全面調査しない。
-
-### 実装後レビュー
-
-1. 実装と標準検証を終え、実装 agent を閉じたら、`.codex/agents/repo-static-review.toml` の `repo-static-review` を呼び出し、凍結した snapshot をレビューさせる。
-2. reviewer の実行中はルートエージェントを凍結し、repository の読み取り、検索、編集、build、test、format、stage、commit を行わない。reviewer と同じ scope の重複チェックも行わない。
-3. 初回 reviewer には対象 unit の intent、受入条件、承認済み `Test Contract Packet` と Contract ID、base / head、worktree diff、red / negative-control を含む検証結果を渡す。reviewer は assertion が packet の authority と allowed variation に一致し、実装や現在値の写経になっていないかも確認する。finding は P0 / P1、受入条件へ直接反する P2、pre-existing / out-of-scope、theoretical / unreachable、non-blocking recommendation を区別させる。blocking behavior finding は workflow の reachability / impact evidence 形式を満たすものに限り、満たさない事項のために現在の unit を広げない。P0 / P1 と直接反する P2 は修正対象とし、単なる改善提案を同じ変更へ無制限に取り込まない。
-4. 指摘を修正した場合は影響範囲を再検証し、変更後の snapshot を fresh reviewer へ渡す。fresh reviewer には前回確認済み snapshot、修正差分、前回 finding を明示し、修正とそこから直接影響する invariant を主対象にさせる。
-5. 同じ unit で2回の修正 review を完了した後も新しい P1 が続く場合は、指摘を順次継ぎ足さず、ownership、scope、受入条件、unit 分割を再計画する。新しい P0 / P1 を無視するための回数制限にはしない。
-6. pre-existing / out-of-scope の問題は影響と根拠を記録し、現在の受入条件を阻害する場合だけ scope 変更をユーザーへ提示する。現在の変更で生じた問題として扱わない。
-7. custom agent が利用できない場合は同じ model、permission、role contract を明示した built-in / generic agent を代替にする。`test-contract-designer` の代替では、少なくとも oracle-first の独立 session と repository-fit の二段階を分ける。multi-agent 機能自体が使えない場合は、ルートが同じ工程を順番に再現し、代替箇所、oracle の独立性、fresh review の有無を明記する。
+- ルートはユーザー要件を Goal、Context、Constraints、Done when、対象外、互換性条件、decision list、unit ごとの ownership と verification へ整理し、設計・最終計画・統合に責任を持つ。生の会話や未決 semantics を worker へ委ねない。
+- runtime state、failure、invariant を対象にする前に、workflow の reachability / impact gate に従い、canonical production ingress から production owner までの route、入口 assumption、user-observable または durable / external-data impact を立証する。private API、reflection、fake、code representability だけを根拠にしない。
+- 実装委譲前に `plan-clarifier` を原則一度だけ使い、repo で解けた事実、必要な質問、test-design gate、並列境界、replan trigger を計画へ反映する。workflow section 3 の test-design gate に該当する unit は `test-contract-designer` を使い、独立 authority に基づく `Test Contract Packet` と Contract ID をルートが承認して実装前に凍結する。名前変更・移動・format・生成物更新だけで assertion semantics が変わらなければ packet は不要とする。
+- bounded implementation は通常 `implementation-worker` へ任せる。複雑な concurrency、persistence、failure、shutdown、runner、process、release、ownership が unit の正しさを左右する場合だけ、root が割当前に `implementation-worker-frontier` を選ぶ。両 worker の合算は既定1、最大2とし、同じ unit の比較、shadow 評価、二重実装を行わない。
+- worker は指定 path と unit だけを変更し、UI、persisted data、file / protocol compatibility、threading、shutdown、failure invariant と packet semantics を維持する。worker が起動できる nested agent は `issue-resolver` だけで、対象 blocker に限り一度、編集を止めて呼び、resolver から再帰しない。commit 等は禁止する。
+- worker の開始確認、packet 不足時の `NEEDS_ROOT_INPUT`、red / negative-control、filtered Quick、verification failure の分類、完了時の `IMPLEMENTED` / `FILES` / `TEST CONTRACT` / `TEST COVERAGE` / `TEST SAFETY` / `VERIFICATION` / `HANDOFF` は workflow の共通契約に従う。root は handoff、path / Contract ID ownership、旧 route の退役を統合時に確認する。
+- 実装と標準検証後は implementation agent を閉じ、凍結 snapshot を `repo-static-review` へ渡す。review 中は root の read / search / edit / build / test / format / stage / commit と重複 review を停止する。blocking finding は classification、authority、reachability、assumption、observable impact、evidence を揃え、修正後は影響範囲を検証して fresh review を行う。2回の修正 review 後も新しい P1 が続けば、finding を継ぎ足さず再計画する。
+- custom agent が利用できない場合は、同じ model、permission、role contract を明示した built-in / generic agent へ代替する。multi-agent 機能自体が使えない場合も、planning、独立 oracle、implementation、verification、fresh review の境界を順番に再現し、代替と未実施 evidence を明記する。
+- 各 role の model / reasoning effort の正本は `.codex/agents/*.toml` の設定 field、`/review` の model の正本は `.codex/config.toml` とする。具体的なモデル名をこの文書、workflow、description へ重複記載しない。
 
 ## ドキュメント配置
 
