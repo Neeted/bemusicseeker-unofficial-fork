@@ -216,7 +216,7 @@ internal static class PlaylistWorkspaceFixtureFactory
         Func<bool>? restoreUiThreadCheck = null)
     {
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-        TestBmsPlaylist createdPlaylist = new TestBmsPlaylist(
+        BMSPlaylist createdPlaylist = new BMSPlaylist(
             songDbPath,
             null,
             null,
@@ -224,7 +224,11 @@ internal static class PlaylistWorkspaceFixtureFactory
             null,
             () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
             () => new BeatorajaBmtOptionsSnapshot(),
-            () => new CustomFolderOutputSettingsSnapshot())
+            () => new CustomFolderOutputSettingsSnapshot(),
+            TestBmsFactory.MissingEverythingBridge,
+            new RestoreUiScheduler(restoreUiApplyScheduler, restoreUiThreadCheck),
+            new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
+            (_, _) => new LibraryFileMutationLease(new object(), static () => true, static () => { }))
         {
             BMSTables = new ObservableCollection<BMSTable>(tables)
         };
@@ -241,6 +245,58 @@ internal static class PlaylistWorkspaceFixtureFactory
         playlist = createdPlaylist;
         notifications = capturedNotifications;
         return workspace;
+    }
+
+    /// <summary>復元テストの既存 callback を、本番 owner と同じ UI operation の完了境界へ接続します。</summary>
+    private sealed class RestoreUiScheduler(
+        Func<Action, Task>? schedule,
+        Func<bool>? threadCheck) : IUiScheduler
+    {
+        private readonly TestUiScheduler inner = new(() => TestUiDispatcherHost.Dispatcher);
+
+        public bool IsAvailable => inner.IsAvailable;
+        public bool CanExecuteInline => inner.CanExecuteInline;
+        public bool CheckAccess() => inner.CheckAccess();
+
+        public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            async Task ApplyAsync()
+            {
+                void Apply()
+                {
+                    if (threadCheck?.Invoke() == false)
+                    {
+                        throw new InvalidOperationException("Controlled restore UI thread rejection.");
+                    }
+                    // 注入 callback は受付/完了を制御する。実 collection event は常に共有 dispatcher に配送する。
+                    inner.Invoke(action, priority);
+                }
+                if (schedule == null)
+                {
+                    await inner.InvokeAsync(Apply, priority);
+                }
+                else
+                {
+                    await schedule(Apply);
+                }
+            }
+            return new RestoreUiOperation(ApplyAsync());
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.Invoke(action, priority);
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.InvokeAsync(action, priority);
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => inner.InvokeAsync(action, priority);
+    }
+
+    private sealed class RestoreUiOperation(Task completion) : IUiScheduledOperation
+    {
+        public bool IsAccepted => true;
+        public bool IsCompleted => completion.IsCompleted;
+        public bool IsAborted => completion.IsCanceled;
+        public string RejectionReason => string.Empty;
+        public Task Completion => completion;
+        public void Abort() => throw new NotSupportedException();
     }
 
 }

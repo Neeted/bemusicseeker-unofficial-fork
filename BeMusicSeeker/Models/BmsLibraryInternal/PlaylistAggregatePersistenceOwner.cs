@@ -179,7 +179,14 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private bool registrationActive;
 
-    private bool reloadActive;
+    private enum CollectionTransitionPurpose
+    {
+        None,
+        Reload,
+        Restore
+    }
+
+    private CollectionTransitionPurpose collectionTransition;
 
     private long activeCollectionGeneration;
 
@@ -244,7 +251,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
     {
         lock (synchronization)
         {
-            if (!reloadActive
+            if (collectionTransition == CollectionTransitionPurpose.None
                 || reloadCollectionApplyActive
                 || activeCollectionGeneration != expectedCollectionGeneration
                 || persistenceGeneration != expectedPersistenceGeneration
@@ -282,7 +289,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             if (hydrationPublishActive
                 || registrationActive
-                || reloadActive
+                || collectionTransition != CollectionTransitionPurpose.None
                 || reloadApplyReservations.Count > 0
                 || activeCollectionGeneration != generation)
             {
@@ -298,7 +305,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
     {
         lock (synchronization)
         {
-            if (reloadActive || registrationActive || hydrationPublishActive)
+            if (collectionTransition != CollectionTransitionPurpose.None || registrationActive || hydrationPublishActive)
             {
                 return false;
             }
@@ -374,20 +381,53 @@ internal sealed class PlaylistAggregatePersistenceOwner
     {
         lock (synchronization)
         {
-            if (registrationActive || reloadActive || hydrationPublishActive || reloadCollectionApplyActive)
+            if (registrationActive || collectionTransition != CollectionTransitionPurpose.None || hydrationPublishActive || reloadCollectionApplyActive)
             {
                 return false;
             }
-            reloadActive = true;
+            collectionTransition = CollectionTransitionPurpose.Reload;
             return true;
         }
     }
 
+    /// <summary>復元と競合する publication / reload がない場合に、UI 適用完了までの復元予約を取得します。</summary>
+    internal bool TryBeginRestore()
+    {
+        lock (synchronization)
+        {
+            if (registrationActive || collectionTransition != CollectionTransitionPurpose.None
+                || hydrationPublishActive || reloadCollectionApplyActive || reloadApplyReservations.Count > 0)
+            {
+                return false;
+            }
+            collectionTransition = CollectionTransitionPurpose.Restore;
+            return true;
+        }
+    }
+
+    /// <summary>復元中の競合操作を、entry 読込や collection mutation より前に拒否します。</summary>
+    internal void EnsureNotRestoring()
+    {
+        lock (synchronization)
+        {
+            EnsureNotRestoringUnsafe();
+        }
+    }
+
+    private void EnsureNotRestoringUnsafe()
+    {
+        if (collectionTransition == CollectionTransitionPurpose.Restore)
+        {
+            throw new InvalidOperationException("Playlist restore is in progress.");
+        }
+    }
+
+    /// <summary>通常 reload または復元の短命予約を終端時に解放します。</summary>
     internal void EndReload()
     {
         lock (synchronization)
         {
-            reloadActive = false;
+            collectionTransition = CollectionTransitionPurpose.None;
         }
     }
 
@@ -522,6 +562,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         string hydrationReason,
         bool ensureEntriesLoaded)
     {
+        EnsureNotRestoring();
         List<BMSTable> tableList = [.. (tables ?? [])
             .Where(table => table != null)
             .Distinct()
@@ -1048,12 +1089,14 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
-    internal void LoadPlaylistDump(string sql)
+    /// <summary>取得済み復元予約の下で DB を commit し、その後の UI 適用が使う永続化世代を返します。</summary>
+    internal long LoadPlaylistDump(string sql)
     {
+        // 復元予約が writer を排他するため、SQL 待機へ owner lock を持ち越さない。
+        repository.LoadPlaylistDump(sql);
         lock (synchronization)
         {
-            repository.LoadPlaylistDump(sql);
-            persistenceGeneration++;
+            return ++persistenceGeneration;
         }
     }
 
@@ -1082,6 +1125,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         string editedPropertyName,
         Func<IDisposable> acquireCollectionReadGuard = null)
     {
+        EnsureNotRestoring();
         if (!entry.playlist_id.HasValue)
         {
             return null;
@@ -1157,6 +1201,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 {
                     lock (synchronization)
                     {
+                        EnsureNotRestoringUnsafe();
                         if (hasParentReference)
                         {
                             throw new InvalidOperationException("Playlist entry owner is no longer active in the playlist collection.");
@@ -1197,7 +1242,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                     Monitor.Wait(synchronization, 50);
                     continue;
                 }
-                if (reloadActive || reloadCollectionApplyActive)
+                if (collectionTransition != CollectionTransitionPurpose.None || reloadCollectionApplyActive)
                 {
                     targetWasActiveAtReservation = false;
                     alreadyReserved = false;
@@ -1254,6 +1299,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private void EnsureWriteAllowedUnsafe(IEnumerable<BMSTable> tables, bool allowReloadReservation, bool requireCurrentTarget)
     {
+        EnsureNotRestoringUnsafe();
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
         if (hydrationPublishActive)
         {
@@ -1272,6 +1318,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private void EnsureRemovalAllowedUnsafe(IEnumerable<BMSTable> tables)
     {
+        EnsureNotRestoringUnsafe();
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
         if (hydrationPublishActive
             || tableList.Any(table => reloadApplyReservations.Contains(table) || reloadRetiredTables.TryGetValue(table, out _)))

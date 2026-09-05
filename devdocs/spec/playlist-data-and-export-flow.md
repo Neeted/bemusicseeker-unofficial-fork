@@ -73,6 +73,18 @@
 
 header の `course` は `[[{...}]]` のような入れ子配列も平坦化して course object として保存する。ローカルプレイリストの course は初期実装では空でよい。
 
+## バックアップ復元の所有境界
+
+設定画面の復元は workspace がファイルを読み、BMSPlaylist の非同期復元が DB 復元と一覧適用を所有する。DB Monitor の取得、復元 transaction、commit 後のヘッダー読込、Monitor / connection の解放は同じ worker の同期 scope に閉じる。UI scheduler へ一覧適用を予約する前に DB scope を終了し、受理だけで成功にせず operation の Completion を await する。一覧の変更は UI dispatcher で行い、エントリは従来どおり遅延読込とする。
+
+既存 aggregate owner の collection transition は通常 reload / restore を区別する短命予約である。復元は登録、hydration receipt snapshot 生成の publication lease、一覧 reload、個別 reload reservation と競合する場合に DB 更新前に失敗する。復元中は保存・削除・登録・reload・hydration publication を拒否し、UI 完了または失敗まで予約を保持して finally で解放する。通常 reload の保存許容や既存 hydration 通知の generation gate は変更しない。hydration receipt の subscriber 通知は既存 publication lease 解放後であり、通知 callback の全寿命を予約へ含めない。
+
+file read または復元 transaction の commit 前の失敗は旧 DB と live 一覧を保持する。commit 後のヘッダー読込、UI dispatch / apply の失敗は復元済み DB を保持して error を伝播する。apply 前の拒否なら旧 live 一覧を保持し、途中までの UI 適用は補償しない。自動 retry、DB rollback、失敗時の成功通知・出力・設定画面 close・shutdown は行わない。復元自身の commit 後の persistence generation と開始時の collection snapshot を一覧適用へ渡し、古い世代による自己拒否を避ける。世代は既存 owner の同じ surface を表し、追加 token は設けない。
+
+UI 一覧適用後に開始した required playlist readiness は、root 出力先同期などの後処理が失敗した場合も同じ元例外で終端する。復元 operation と readiness consumer の双方へ失敗を伝播し、後続 external import を pending のまま残さない。readiness 開始前の復元 failure では既存 readiness を変更しない。
+
+同期 LoadPlaylistDump は migration などの DB のみの互換入口として保持する。設定画面の旧同期 LoadPlaylistDump / ReloadTables 経路は使用しない。
+
 ## 外部同期と更新検知
 
 外部同期では、再取得した header/data JSON から `BMSTable` と `BMSTableEntry` を作り、既存 DB と比較して既存ローカル状態を引き継ぐ。
@@ -135,7 +147,7 @@ entry の追加・削除・folder 編集など、`playlist_entry` の全置換�
 
 playlist detail edit は DB / durable file mutation が成功した後だけ live source synchronization、success callback、`afterApply` を実行する。durable operation が失敗した場合は edit state を復元し、失敗前の active source を正本として維持する。playlist summary の bulk operation も同様に、durable failure 後の catalog / keyword / sort / live source 更新、`afterApply`、dialog close を抑止し、遅れて到着した presentation continuation を成功として適用しない。
 
-playlist backup / restore の file read/write または DB apply failure は caller へ terminal failure として伝播させ、成功 receipt、成功 dialog、後続 export、settings close、application shutdown の authorization を発行しない。restore input が不正、raw SQLite read が途中で失敗、または dump が partial の場合は既存 playlist tables と live collection を変更しない。raw reader は `SQLITE_ROW` / `SQLITE_DONE` 以外を failure とし、step failure を finalize failure より primary に保ち、partial rows を dump、restore、UI projectionへ公開しない。
+playlist backup / restore の file read/write または DB apply failure は caller へ terminal failure として伝播させ、成功 receipt、成功 dialog、後続 export、settings close、application shutdown の authorization を発行しない。restore input が不正、バックアップ作成時または復元 commit 前の raw SQLite read が途中で失敗、または dump が partial の場合は既存 playlist tables と live collection を変更しない。復元 commit 後のヘッダー read failure は上記の復元所有境界に従い、復元済み DB を保持する。raw reader は `SQLITE_ROW` / `SQLITE_DONE` 以外を failure とし、step failure を finalize failure より primary に保ち、partial rows を dump、restore、UI projectionへ公開しない。
 
 ## LR2 Custom Folder 出力
 
@@ -331,6 +343,15 @@ BMT manifest の失敗契約 (`BMT-MANIFEST-FAILURE-1`) は次の既存 fixture 
 | BMT-N: session 終了後の失敗報告と物理件数 0 の URL 同期 | `BmsPlaylistMigrationAndRegistrationTests` | Functional `serial-state-a`、既存 class-wide DNP / GUID DB と config |
 | BMT-N: 対象・原因を既存 presentation event へ配送 | `PlaylistWorkspacePersistenceCommandTests` | Functional、既存 workspace fixture |
 | BMT-L: resource key と対象・原因 placeholder | `LocalizationResourceParityTests` | Functional、resource artifact の読取り |
+
+U2 の復元応答性契約は既存 fixture に配置する。UI は共通 TestUiDispatcherHost を使い、scheduler の受付・実行・Completion、operation Task、collection event で完了を観測する。SQL/header read 専用の failure injection と hydration snapshot publication lease の途中停止は production seam がないため追加せず、後者は既存 admission guard を維持する。
+
+| 契約 | fixture | resource / 完了 |
+| --- | --- | --- |
+| U2-R1/R3/R5: DB 待機中 UI 応答、UI Completion、途中 SQL failure、成功と解放 | PlaylistWorkspacePersistenceCommandTests | GUID DB/file。process-wide LR2 Monitor の保持・再取得を検証する2 testのみ DNP、finallyでlock owner / dispatcher / restore Taskを回収 |
+| U2-R2/R4: 登録・一覧/個別 reload と復元の相互排他、UI reject/cancel/fault 後の DB 保持 | BmsPlaylistMigrationAndRegistrationTests / BmsPlaylistPersistenceLifecycleTests / BmsPlaylistExternalReloadTests | 既存 serial-state-a / Settings DNP。既存 UI scheduler と pending operation |
+| U2-R5-F1: 復元後の実出力先 I/O failure が readiness consumer を同じ元例外で終端 | BmsPlaylistPersistenceLifecycleTests | 既存 DNP、GUID LR2 config / DB / output。finally の RequestShutdown で未終端 waiter を回収 |
+| U2-R3/R4/R5: settings close/shutdown 抑止、同期 dump migration | SettingsWindowPresentationTests / PlaylistSchemaMigrationTests | 既存 presentation scope と独立 DB |
 
 ### Playlist property native-close verification
 

@@ -717,6 +717,7 @@ public sealed class BmsPlaylistExternalReloadTests
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
         Settings.Default.EnablePlaylistUrlCompletion = false;
         Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>>? reloadTask = null;
+        Task? competingRestore = null;
         try
         {
             reloadTask =
@@ -728,6 +729,15 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsFalse(reloadTask.IsCompleted);
             Assert.AreSame(table, playlist.BMSTables.Single());
             Assert.AreEqual(0, scheduler.ExecutionCount);
+            // U2-R2: 個別 reload の実 pending publication がある間、復元は DB 更新前に拒否する。
+            competingRestore = playlist.RestorePlaylistDumpAsync(
+                PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(77, "Rejected restore", "X"));
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+                competingRestore.WaitAsync(TimeSpan.FromSeconds(5)));
+            using (var db = new LR2SongDBExtended(Path.Combine(tempDirectory, "song.db")))
+            {
+                Assert.AreEqual(table.playlist_id, db.Table<BMSTable>().Single().playlist_id);
+            }
 
             scheduler.ReleasePending();
             List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await reloadTask;
@@ -745,17 +755,70 @@ public sealed class BmsPlaylistExternalReloadTests
                 try
                 {
                     scheduler.ReleasePending();
-                    await reloadTask;
+                    await reloadTask.WaitAsync(TimeSpan.FromSeconds(10));
                 }
                 catch
                 {
                 }
+            }
+            if (competingRestore != null)
+            {
+                try { await competingRestore.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch (InvalidOperationException) { }
             }
             Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
             }
+        }
+    }
+
+    // U2-R4/R2: 既存 operation scheduler で UI rejection / cancel / fault を区別し、DB 保持と予約解放を確認する。
+    [DataTestMethod]
+    [DataRow("Rejected")]
+    [DataRow("Aborted")]
+    [DataRow("Faulted")]
+    [TestCategory("Playlist")]
+    public async Task PlaylistRestore_UiTerminalFailureKeepsDatabaseAndReleasesReservation(string outcomeName)
+    {
+        UiScheduleOutcome outcome = Enum.Parse<UiScheduleOutcome>(outcomeName);
+        (string directory, TestBmsPlaylist playlist, BMSTable oldTable, ControlledUiScheduler scheduler) =
+            await CreateUiReplacementReloadFixtureAsync(outcome);
+        bool previousUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        bool previousLr2Mode = Settings.Default.OperationModeLR2DB;
+        Settings.Default.OperationModeLR2DB = false;
+        playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+        try
+        {
+            Exception? failure = null;
+            try
+            {
+                await playlist.RestorePlaylistDumpAsync(
+                    PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(77, "Committed despite UI failure", "R"));
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+            Assert.IsNotNull(failure);
+            Assert.AreSame(oldTable, playlist.BMSTables.Single());
+            Assert.AreEqual(0, scheduler.ExecutionCount);
+            using (var verify = new LR2SongDBExtended(Path.Combine(directory, "song.db")))
+            {
+                Assert.AreEqual(77, verify.Table<BMSTable>().Single().playlist_id);
+            }
+            // 独立した次の復元を受理する。失敗操作自身の repost / retry ではない。
+            await playlist.RestorePlaylistDumpAsync(
+                PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(88, "Next independent restore", "N"));
+            Assert.AreEqual(88, playlist.BMSTables.Single().playlist_id);
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousUrlCompletion;
+            Settings.Default.OperationModeLR2DB = previousLr2Mode;
+            Directory.Delete(directory, recursive: true);
         }
     }
 

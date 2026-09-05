@@ -5,12 +5,12 @@ using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    /// <summary>バックアップを読み込み、DB と UI 適用の成功後だけ出力と成功通知へ進みます。</summary>
     internal async Task RestorePlaylistBackupAsync(string fileName)
     {
         if (fileName == null)
@@ -19,30 +19,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         string playlistDump = await Task.Run(() => File.ReadAllText(fileName, Encoding.UTF8));
-        await playlistRestoreUiApplyScheduler(() => RestorePlaylistBackup(playlistDump));
-    }
-
-    private void RestorePlaylistBackup(string playlistDump)
-    {
         BMSPlaylist tables = GetPlaylistStore();
         using PlaylistOperationNotificationOwner.OperationNotificationSession session =
             tables.OperationNotificationOwner.BeginSession();
-        bool unlockAfterOperation = !LR2SongDBExtended.IsProcessLockEnteredByCurrentThread();
-        bool lockAcquired = false;
         ExceptionDispatchInfo failure = null;
         try
         {
-            if (!playlistRestoreUiThreadCheck())
-            {
-                throw new InvalidOperationException("Playlist restore requires the configured UI thread.");
-            }
-            if (!LR2SongDBExtended.Lock(new TimeSpan(0, 1, 0)))
-            {
-                throw new TimeoutException(BeMusicSeeker.Properties.Resources.Msg_error_timeout_dblock_restore);
-            }
-            lockAcquired = true;
-            tables.LoadPlaylistDump(playlistDump);
-            tables.ReloadTables();
+            await tables.RestorePlaylistDumpAsync(playlistDump);
             tables.BmtOutput.QueueBeatorajaBmtExportAll("RestoreBMSTables");
             tables.OperationNotificationOwner.QueueInformation(
                 BeMusicSeeker.Properties.Resources.Msg_success_playlist_restore,
@@ -60,17 +43,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         finally
         {
-            try
-            {
-                if (unlockAfterOperation && lockAcquired)
-                {
-                    LR2SongDBExtended.Unlock();
-                }
-            }
-            catch (Exception ex)
-            {
-                failure ??= ExceptionDispatchInfo.Capture(ex);
-            }
             try
             {
                 PublishPlaylistOperationNotificationReceipt(session, "playlist restore notification");

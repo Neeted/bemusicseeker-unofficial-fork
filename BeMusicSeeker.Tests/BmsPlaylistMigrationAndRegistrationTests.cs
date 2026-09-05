@@ -1838,6 +1838,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 Output_dir = "DurableBeforeVisible",
                 entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder")]
             };
+            Task? rejectedRestore = null;
             bool visibleNotificationObserved = false;
             bool durableAtVisibleNotification = false;
             playlist.BMSTables.CollectionChanged += (_, change) =>
@@ -1848,6 +1849,17 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 }
 
                 visibleNotificationObserved = true;
+                // U2-R2: 実 registration publication 内の復元は DB 前に拒否する。
+                rejectedRestore = playlist.RestorePlaylistDumpAsync(
+                    PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(77, "Rejected registration restore", "X"));
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(rejectedRestore, "restore rejection during publication");
+                }
+                catch (InvalidOperationException)
+                {
+                    // 予約による明示失敗は event 終了後に対象 Task で検証する。
+                }
                 using var verify = new LR2SongDBExtended(songDbPath);
                 durableAtVisibleNotification = verify.ExecuteScalar<long>(
                     "SELECT COUNT(1) FROM playlist WHERE playlist_id = ?;",
@@ -1859,6 +1871,8 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 renameDuplicateName: false,
                 reason: "durable_before_visible");
 
+            Assert.IsNotNull(rejectedRestore);
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => rejectedRestore!);
             Assert.IsTrue(visibleNotificationObserved);
             Assert.IsTrue(durableAtVisibleNotification);
             Assert.IsTrue(playlist.BMSTables.Contains(table));

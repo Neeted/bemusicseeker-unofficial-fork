@@ -412,7 +412,8 @@ public sealed class SettingsWindowPresentationTests
             Directory.CreateDirectory(scope);
             string songDbPath = Path.Combine(scope, "song.db");
             string backupPath = Path.Combine(scope, "restore.sql");
-            File.WriteAllText(backupPath, "restore fixture");
+            File.WriteAllText(backupPath,
+                PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(2, "Committed restore", "R"));
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
@@ -435,7 +436,7 @@ public sealed class SettingsWindowPresentationTests
                     [new BMSTable { playlist_id = 1, name = "Existing", symbol = "E" }],
                     out _,
                     out _,
-                    restoreUiApplyScheduler: _ => throw new InvalidOperationException("restore durable failure"));
+                    restoreUiApplyScheduler: _ => throw new InvalidOperationException("restore UI completion failure"));
                 var dialogs = new RecordingSettingsRouteDialogService
                 {
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes),
@@ -461,9 +462,13 @@ public sealed class SettingsWindowPresentationTests
                 }
                 Assert.IsNotNull(failure);
 
-                StringAssert.Contains(failure!.Message, "restore durable failure");
+                StringAssert.Contains(failure!.Message, "restore UI completion failure");
                 Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(SettingsWindowCloseReason.None, window.CloseReason);
+                using (var verify = new LR2SongDBExtended(songDbPath))
+                {
+                    Assert.AreEqual(2, verify.Table<BMSTable>().Single().playlist_id);
+                }
                 Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
                 Assert.AreEqual(1, dialogs.FileRequests.Count);
             }

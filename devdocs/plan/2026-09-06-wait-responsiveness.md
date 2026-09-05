@@ -157,3 +157,21 @@ Quick: `FullyQualifiedName~ShellShutdownWorkflowOwnerTests|FullyQualifiedName~Ma
 - U2 / U3: 未着手。
 
 - U1 静的確認: 新規 repo-static-review は thread limit で起動不可、close API なし。既存 designer は固定 role により代替不可。workflow §9 に従い root が実装と検証を止め、production diff/caller/consumer/failure/関連 test/spec/packet を逐次静的確認し、blocking finding なし。独立 reviewer は未実施。Functional の既存 progress test failure は上記のまま未解決として保持。
+
+- U2 R2 mechanics 補足: hydration publication の競合拒否は既存 TryBeginHydrationPublish lease（collection writer guardでreceipt snapshot/current確認を保護）の保有中に限定する。PlaylistEntriesHydrationOwner と BMSPlaylist は通知 callback 前に明示的にleaseを解放しているため、通知中のrestore拒否を新契約にしない。event内assertionは不適切な観測として撤回し、既存generation/current receipt契約を維持する。実lease中をproduction seamで停止できない場合は独立test未実証と明記し、private state/new callbackで補わない。R2主要実証はregistration/個別reload/restore中writeとterminal解放。
+
+- U1 commit: 4599b0d1。U2実装完了。最終Quick025616は111/111pass（test14.0100秒、build/test38.1秒、fingerprint不変）。base red022946、単独mutant025236（await欠落2.5539秒）/025329（UI DB待機7.5900秒）/025443（個別reload guard欠落2.6625秒）は有効。複合mutant024503は297秒timeout、cleanup補強と単独再検証を行いred証拠から除外。fixture setup失敗run023614/024015も除外。hydration snapshot lease途中停止とcommit後header read独立failure injectionは既存production seamがなく未実証。Functional/review/commitへ進む。
+
+- U2 Functional025805はremaining hostで2failure、他unit関連はpass、fingerprint不変。新R1のprocess-wide Monitor再取得を他fixtureが妨害したため当該methodのみDNPで隔離（assertion/予算変更なし）、Quick030218 1/1pass（2.7663秒）。もう1件は既存PlaylistViewPipelineTests.CommitPlaylistRow_ExternalSyncEntryDoesNotBackfillHashesFromResolvedChartの未初期化Settings instanceが共有bin/config/user.configを読み込む際のPortableSettingsException/IOException（別processがfile使用中）。今回変更前からあるfixture/composition routeで、rootは具体的stackと共有resourceを確認し、製品コード変更との因果なしとして対象外で記録。U1時のprogress test failureは今回再発なし。全体greenとはせず、U3最終Functionalで再確認する。
+
+- U2 fresh static review restore_static_review: P1、RestorePlaylistDumpAsyncのUI適用後BeginPlaylistInitializationに続く出力先同期failureでreadiness未終端となり、後続external importが永久pending。実root output同名file衝突等で到達、旧ReloadTablesのFailRequiredPlaylistReadiness互換が必要。rootはfindingを採用し、readiness開始後の既存後処理をcatchしてFailRequiredPlaylistReadinessへ渡し元例外を再throwする修正を承認。commit済DB/liveを戻さず、precommit/UI適用前failureに新たなreadiness変更を加えない。追加delta packetを独立designerへ依頼。
+
+## 承認済みU2 review delta packet: U2-R5-F1
+
+restore_failure_contract のoracle-first/R5 deltaをroot承認。authorityはuserのcommit後DB保持+error、復元所有境界、root決定の既存readiness failure終端維持。Phase Aはauthorityのみ、Phase Bはseam/placementのみ。入口は正常LR2 configとroot playlistを含むvalid backup、固有output directoryと同名の通常fileによる実I/O failure。restore commit/UI apply/readiness開始後に元I/O例外を返し、WaitForRequiredPlaylistReadinessAsyncも同じ元例外で終端する。DB/liveは復元後状態を保持、成功/cancel/pending/retry/rollbackへ変換しない。後続URIは既存admissionでreject可、consumer接続はstatic traceと既存StartupReadiness_FailedInitializationTerminalizesPendingImportDrainを再利用。
+
+coverage: BmsPlaylistPersistenceLifecycleTestsに1case追加、既存class DNP/serial-state-a、GUID DB/backup/output/config/既存UI host。正常完了はrestore/readiness Task、未終端検出のみ有限watchdog、finallyはRequestShutdownでpending waiterを回収。private Begin/Fail/state注入禁止。旧U2 catch欠落snapshotでred、修正後pass（開始baseには新APIがなくcompile不可なので現U2をnegative controlとする）。元例外identityは明示failure契約、文言/stack/translation/内部構造は固定しない。ownership追加不要。Quickは `FullyQualifiedName~BmsPlaylistPersistenceLifecycleTests|FullyQualifiedName~StartupLibraryInitializationWorkflowOwnerTests.StartupReadiness_FailedInitializationTerminalizesPendingImportDrain`。修正はreadiness開始後の後処理に既存failure終端catchを適用、元例外を再throw。rootはfocused検証後fresh fix-delta review、統合laneは最終U3 snapshotで再実行する。
+
+- U2 review修正: R5-F1 red031235は実file衝突後のreadiness未終端を5.7991秒で検出、finally shutdownで回収。readiness開始後の同期後処理に既存FailRequiredPlaylistReadiness+元例外rethrowを追加。Quick031345 26/26pass（6.6797秒、build/test65.9秒、fingerprint不変）。新1caseでDB/live保持と元IOException identityを確認、元URI admission既存coverage再利用。fresh fix-delta reviewへ渡す。
+
+- U2 fresh fix-delta review restore_fix_review: blocking findingなし、前回P1解消。readiness consumer/packet/red/Quick/仕様整合確認済み。最終FunctionalはU3後に実施する。

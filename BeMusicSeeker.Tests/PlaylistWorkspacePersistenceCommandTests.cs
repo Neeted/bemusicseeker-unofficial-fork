@@ -245,8 +245,174 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    // U2-R1/R2/R5: 実 workspace 入口で DB commit、UI 実行、operation completion を分けて観測する。
+    // DB Monitor の再取得は process-wide な所有確認のため、他 fixture の DB 保持から隔離する。
     [TestMethod]
-    public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_RejectsBackgroundSchedulerBeforeDatabaseApply()
+    [DoNotParallelize]
+    public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_AwaitsUiCompletionAndRejectsCompetingWrites()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "playlist-restore-completion-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var execute = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var executed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? restore = null;
+        int scheduleCount = 0;
+        var scheduledApplies = new List<Task>();
+        Task? registration = null;
+        Task? competingRestore = null;
+        bool assertionsCompleted = false;
+
+        async Task ApplyAsync(Action action)
+        {
+            await execute.Task;
+            action();
+            executed.TrySetResult();
+            await complete.Task;
+        }
+        try
+        {
+            string dbPath = Path.Combine(directory, "song.db");
+            using (var _ = new LR2SongDBExtended(dbPath)) { }
+            var oldTable = new BMSTable { playlist_id = 11, name = "Old live", symbol = "O" };
+            PlaylistWorkspaceViewModel workspace = CreateBackupWorkspace(
+                dbPath, [oldTable], out BMSPlaylist playlist, out var notifications,
+                action =>
+                {
+                    Interlocked.Increment(ref scheduleCount);
+                    Task task = ApplyAsync(action);
+                    lock (scheduledApplies) { scheduledApplies.Add(task); }
+                    accepted.TrySetResult();
+                    return task;
+                });
+            bool collectionOnUi = true;
+            playlist.BMSTables.CollectionChanged += (_, _) =>
+                collectionOnUi &= TestUiDispatcherHost.Dispatcher.CheckAccess();
+            string file = Path.Combine(directory, "restore.sql");
+            File.WriteAllText(file, CreatePlaylistRestoreDump(22, "Restored live", "R"), Encoding.UTF8);
+            restore = workspace.RestorePlaylistBackupAsync(file);
+            await accepted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsFalse(restore.IsCompleted);
+            Assert.AreSame(oldTable, playlist.BMSTables.Single());
+            Assert.AreEqual(0, notifications.Count);
+            bool lockAvailable = await Task.Run(() =>
+            {
+                bool acquired = LR2SongDBExtended.Lock(TimeSpan.FromSeconds(1));
+                if (acquired) { LR2SongDBExtended.Unlock(); }
+                return acquired;
+            });
+            Assert.IsTrue(lockAvailable, "UI completion 待機へ DB Monitor を持ち越さない。");
+            using (var db = new LR2SongDBExtended(dbPath))
+            {
+                Assert.AreEqual(22, db.Table<BMSTable>().Single().playlist_id);
+            }
+            Assert.ThrowsException<InvalidOperationException>(() => playlist.CommitBMSTableHeaderToDB(oldTable));
+            Assert.ThrowsException<InvalidOperationException>(() => playlist.RemoveBMSTable(oldTable));
+            Assert.ThrowsException<InvalidOperationException>(() => playlist.ReloadTables());
+            registration = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(
+                new BMSTable { name = "Rejected registration", Output_dir = "RejectedRegistration" },
+                renameDuplicateName: false, reason: "restore_exclusion");
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+                registration.WaitAsync(TimeSpan.FromSeconds(5)));
+            competingRestore = playlist.RestorePlaylistDumpAsync(CreatePlaylistRestoreDump(33, "Rejected", "X"));
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
+                competingRestore.WaitAsync(TimeSpan.FromSeconds(5)));
+            execute.TrySetResult();
+            await executed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.AreEqual("Restored live", playlist.BMSTables.Single().name);
+            Assert.IsTrue(collectionOnUi);
+            Assert.IsFalse(restore.IsCompleted);
+            Assert.AreEqual(0, notifications.Count);
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single()));
+            complete.TrySetResult();
+            await restore;
+            Assert.AreEqual(1, scheduleCount);
+            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
+                notifications.Single().Receipt.Notifications.Single().Severity);
+            playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single());
+            assertionsCompleted = true;
+        }
+        finally
+        {
+            execute.TrySetResult();
+            complete.TrySetResult();
+            // 誤実装が競合 request を受理しても、先に全 gate を開き、その operation と callback を回収する。
+            foreach (Task task in new[] { restore, registration, competingRestore }.OfType<Task>())
+            {
+                try { await task.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch (InvalidOperationException) when (task == registration || task == competingRestore) { }
+                catch when (!assertionsCompleted) { }
+            }
+            Task[] applies;
+            lock (scheduledApplies) { applies = scheduledApplies.ToArray(); }
+            foreach (Task apply in applies)
+            {
+                try { await apply.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch when (!assertionsCompleted) { }
+            }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    // U2-R1: 実 process lock の所有 worker は finally で解放する。時間指定は deadlock の watchdog のみ。
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task PlaylistRestore_DatabaseLockWaitKeepsDispatcherResponsive()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "playlist-restore-lock-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        using var releaseLock = new ManualResetEventSlim();
+        var lockEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? lockOwner = null;
+        Task? restore = null;
+        Task? dispatch = null;
+        try
+        {
+            string dbPath = Path.Combine(directory, "song.db");
+            using (var _ = new LR2SongDBExtended(dbPath)) { }
+            CreateBackupWorkspace(dbPath, [], out BMSPlaylist playlist, out _);
+            lockOwner = Task.Run(() =>
+            {
+                bool acquired = LR2SongDBExtended.Lock(TimeSpan.FromSeconds(5));
+                try
+                {
+                    if (!acquired) { throw new TimeoutException("Test lock acquisition failed."); }
+                    lockEntered.TrySetResult();
+                    if (!releaseLock.Wait(TimeSpan.FromSeconds(15))) { throw new TimeoutException("Test lock cleanup watchdog."); }
+                }
+                finally { if (acquired) { LR2SongDBExtended.Unlock(); } }
+            });
+            await lockEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            // 新 async owner API は admission を含む同期 DB 前半を worker へ渡す。
+            dispatch = TestUiDispatcherHost.Dispatcher.InvokeAsync(() =>
+            {
+                restore = playlist.RestorePlaylistDumpAsync(CreatePlaylistRestoreDump(44, "Worker DB", "W"));
+                Assert.IsFalse(restore.IsCompleted);
+            }).Task;
+            await dispatch.WaitAsync(TimeSpan.FromSeconds(5));
+            bool marker = false;
+            await TestUiDispatcherHost.Dispatcher.InvokeAsync(() => marker = true).Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsTrue(marker);
+            Assert.IsFalse(restore!.IsCompleted);
+            releaseLock.Set();
+            await lockOwner;
+            await restore;
+            Assert.AreEqual("Worker DB", playlist.BMSTables.Single().name);
+        }
+        finally
+        {
+            releaseLock.Set();
+            if (lockOwner != null) { await lockOwner.WaitAsync(TimeSpan.FromSeconds(10)); }
+            if (dispatch != null) { await dispatch.WaitAsync(TimeSpan.FromSeconds(10)); }
+            if (restore != null) { await restore.WaitAsync(TimeSpan.FromSeconds(10)); }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_UiApplyFailureKeepsCommittedDatabaseAndOldCollection()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -278,12 +444,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(1, notifications.Count);
             PlaylistOperationNotificationOwner.OperationNotification failure = notifications[0].Receipt.Notifications.Single();
             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
-            StringAssert.Contains(failure.Message, "Playlist restore requires the configured UI thread.");
             using (var verify = new LR2SongDBExtended(songDbPath))
             {
                 BMSTable existing = verify.Table<BMSTable>().Single();
-                Assert.AreEqual(1, existing.playlist_id);
-                Assert.AreEqual("Before background restore", existing.name);
+                Assert.AreEqual(2, existing.playlist_id);
+                Assert.AreEqual("Should not apply", existing.name);
             }
             Assert.AreEqual("Before background restore", workspace.CapturePlaylistTreeTablesSnapshot().Single().name);
             Assert.IsFalse(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
@@ -317,12 +482,18 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceViewModel workspace = CreateBackupWorkspace(
                 songDbPath,
                 [new BMSTable { playlist_id = 1, name = "Keep on failure", symbol = "keep" }],
-                out BMSPlaylist _,
+                out BMSPlaylist playlist,
                 out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications);
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.Execute("INSERT INTO playlist_entry (playlist_id, md5, title) VALUES (1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Old entry');");
+                seed.Execute("INSERT INTO playlist_course (playlist_id, course_order, course_json) VALUES (1, 0, '{old-course}');");
+            }
+            BMSTable oldLive = playlist.BMSTables.Single();
             string invalidBackupPath = Path.Combine(tempDirectory, "invalid.sql");
             File.WriteAllText(
                 invalidBackupPath,
-                string.Join("\v" + Environment.NewLine, ["THIS IS NOT SQL", string.Empty, string.Empty]),
+                CreatePlaylistRestoreDump(2, "Partial replacement", "P") + "\v" + Environment.NewLine + "THIS IS NOT SQL",
                 Encoding.UTF8);
 
             Exception? restoreFailure = null;
@@ -344,7 +515,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             using (var verify = new LR2SongDBExtended(songDbPath))
             {
                 Assert.AreEqual("Keep on failure", verify.Table<BMSTable>().Single().name);
+                Assert.AreEqual("Old entry", verify.Table<LR2SongDBExtended.playlist_entry>().Single().title);
+                Assert.AreEqual("{old-course}", verify.Table<LR2SongDBExtended.playlist_course>().Single().course_json);
             }
+            Assert.AreSame(oldLive, playlist.BMSTables.Single());
+            playlist.CommitBMSTableHeaderToDB(oldLive);
             Assert.IsFalse(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
         }
         finally

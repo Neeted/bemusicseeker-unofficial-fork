@@ -881,9 +881,77 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    // U2-R5-F1: 復元後の実出力先 I/O failure を readiness consumer へ同じ原因で伝播する。
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ReloadTables_ReloadsHeadersWithoutScoreInitialization()
+    public async Task PlaylistRestore_PostApplyOutputFailureTerminalizesReadiness()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "playlist-restore-readiness-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        Task? readiness = null;
+        try
+        {
+            string dbPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(dbPath);
+            string lr2Root = Path.Combine(directory, "LR2");
+            LR2Config config = CreateLr2Config(lr2Root, directory);
+            string outputBase = Path.Combine(directory, "RootOutput");
+            Directory.CreateDirectory(outputBase);
+            File.WriteAllText(Path.Combine(outputBase, "BlockedRoot"), "directory creation collision");
+            var settings = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = lr2Root,
+                LR2CustomFolderOutputBaseDirRootType = outputBase
+            };
+            playlist = new TestBmsPlaylist(
+                dbPath, () => config, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => settings,
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(dbPath, CustomFolderOutputPhysicalSurface.Empty));
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+            string backupPath = Path.Combine(directory, "restore.sql");
+            File.WriteAllText(backupPath,
+                PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(8011, "Restored root", "R")
+                + "\v" + Environment.NewLine
+                + "UPDATE playlist SET output_dir = 'BlockedRoot', is_root_folder = 1 WHERE playlist_id = 8011;");
+            IOException restoreFailure = await Assert.ThrowsExceptionAsync<IOException>(() =>
+                playlist.RestorePlaylistDumpAsync(File.ReadAllText(backupPath)));
+
+            using (var verify = new LR2SongDBExtended(dbPath))
+            {
+                BMSTable restored = verify.Table<BMSTable>().Single();
+                Assert.AreEqual(8011, restored.playlist_id);
+                Assert.AreEqual("Restored root", restored.name);
+                Assert.IsTrue(restored.is_root_folder);
+            }
+            Assert.AreEqual(8011, playlist.BMSTables.Single().playlist_id);
+            Assert.AreEqual("Restored root", playlist.BMSTables.Single().name);
+
+            readiness = playlist.StartupReadiness.WaitForRequiredPlaylistReadinessAsync();
+            IOException readinessFailure = await Assert.ThrowsExceptionAsync<IOException>(() =>
+                readiness.WaitAsync(TimeSpan.FromSeconds(3)));
+            Assert.AreSame(restoreFailure, readinessFailure);
+        }
+        finally
+        {
+            // catch 欠落の negative control でも pending consumer を残さない。
+            playlist?.RequestShutdown("restore_readiness_test_cleanup");
+            if (readiness != null)
+            {
+                try { await readiness.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch (OperationCanceledException) { }
+                catch (IOException) { }
+            }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadTables_ReloadsHeadersWithoutScoreInitialization()
     {
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
@@ -929,7 +997,28 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 return true;
             };
 
+            Task? rejectedRestore = null;
+            playlist.BMSTables.CollectionChanged += (_, _) =>
+            {
+                // U2-R2: 実 collection apply の再入操作は新しい DB 復元を開始しない。
+                rejectedRestore ??= playlist.RestorePlaylistDumpAsync(
+                    PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(77, "Rejected reload restore", "X"));
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(rejectedRestore, "restore rejection during publication");
+                }
+                catch (InvalidOperationException)
+                {
+                    // 予約による明示失敗は event 終了後に対象 Task で検証する。
+                }
+            };
             playlist.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
+            Assert.IsNotNull(rejectedRestore);
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => rejectedRestore!);
+            using (var verify = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(7001, verify.Table<BMSTable>().Single().playlist_id);
+            }
 
             Assert.IsTrue(hydrationQueued);
             Assert.AreEqual(1, playlist.PlaylistEntriesHydrationRequestedVersion);

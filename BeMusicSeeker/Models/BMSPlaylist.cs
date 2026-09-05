@@ -932,27 +932,8 @@ public partial class BMSPlaylist : ObservableObject
                 }
             }
             List<BMSTable> list = playlistEntriesHydrationOwner.LoadPlaylistHeaders(out long loadTablesMs);
-            InvokeBMSTablesCollectionMutation(() =>
-            {
-                using (rwlockBMSTablesInitializeAll.GetWriterGuard())
-                using (rwlockBMSTablesInitializeMin.GetWriterGuard())
-                using (rwlockBMSTables.GetWriterGuard())
-                {
-                    List<BMSTable> currentTables = [.. BMSTables.Where(table => table != null)];
-                    using IDisposable reloadApplyLease = playlistAggregatePersistenceOwner.TryBeginReloadCollectionApply(
-                        expectedGeneration,
-                        expectedPersistenceGeneration,
-                        previousTables);
-                    if (reloadApplyLease == null || !currentTables.SequenceEqual(previousTables))
-                    {
-                        throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
-                            "Playlist collection changed while the reload snapshot was being loaded.");
-                    }
-                    BMSTables.Clear();
-                    BMSTables.AddRange(list);
-                    playlistAggregatePersistenceOwner.SetActiveCollection(previousTables, BMSTables);
-                }
-            });
+            InvokeBMSTablesCollectionMutation(() => ApplyReloadedPlaylistHeaders(
+                previousTables, expectedGeneration, expectedPersistenceGeneration, list));
             LogPlaylistPerformance("playlist_reload_tables_header loadTablesMs=" + loadTablesMs
                 + " tableCount=" + list.Count
                 + " readOnly=true"
@@ -981,6 +962,107 @@ public partial class BMSPlaylist : ObservableObject
         {
             playlistAggregatePersistenceOwner.EndReload();
         }
+    }
+
+    private void ApplyReloadedPlaylistHeaders(
+        IReadOnlyList<BMSTable> previousTables,
+        long expectedGeneration,
+        long expectedPersistenceGeneration,
+        IReadOnlyList<BMSTable> headers)
+    {
+        using (rwlockBMSTablesInitializeAll.GetWriterGuard())
+        using (rwlockBMSTablesInitializeMin.GetWriterGuard())
+        using (rwlockBMSTables.GetWriterGuard())
+        {
+            using IDisposable reloadApplyLease = playlistAggregatePersistenceOwner.TryBeginReloadCollectionApply(
+                expectedGeneration, expectedPersistenceGeneration, previousTables);
+            if (reloadApplyLease == null || !BMSTables.Where(table => table != null).SequenceEqual(previousTables))
+            {
+                throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
+                    "Playlist collection changed while the reload snapshot was being loaded.");
+            }
+            BMSTables.Clear();
+            BMSTables.AddRange(headers);
+            playlistAggregatePersistenceOwner.SetActiveCollection(previousTables, BMSTables);
+        }
+    }
+
+    /// <summary>
+    /// 復元の DB ロック・transaction・ヘッダー読込を worker で実行し、UI 一覧適用の完了まで予約を保持します。
+    /// commit 後の読込・UI 失敗は復元 DB を保持したまま伝播し、再試行や巻戻しを行いません。
+    /// </summary>
+    internal Task RestorePlaylistDumpAsync(string sql)
+    {
+        ArgumentNullException.ThrowIfNull(sql);
+        return Task.Run(async () =>
+        {
+            if (!playlistAggregatePersistenceOwner.TryBeginRestore())
+            {
+                throw new InvalidOperationException("Playlist restore cannot run while another playlist persistence transition is active.");
+            }
+            try
+            {
+                var previous = playlistAggregatePersistenceOwner.GetActiveCollectionSnapshot();
+                List<BMSTable> headers;
+                long persistenceGeneration;
+                bool lockAcquired = false;
+                try
+                {
+                    if (!LR2SongDBExtended.Lock(new TimeSpan(0, 1, 0)))
+                    {
+                        throw new TimeoutException(Resources.Msg_error_timeout_dblock_restore);
+                    }
+                    lockAcquired = true;
+                    persistenceGeneration = playlistAggregatePersistenceOwner.LoadPlaylistDump(sql);
+                    headers = playlistEntriesHydrationOwner.LoadPlaylistHeaders(out _);
+                }
+                finally
+                {
+                    if (lockAcquired)
+                    {
+                        LR2SongDBExtended.Unlock();
+                    }
+                }
+
+                // Monitor と connection の寿命は上の同一 worker scope に閉じ、UI 完了待ちへ持ち越さない。
+                IUiScheduledOperation apply = uiScheduler.Schedule(() => ApplyReloadedPlaylistHeaders(
+                    previous.Tables, previous.Generation, persistenceGeneration, headers));
+                if (apply?.IsAccepted != true)
+                {
+                    throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
+                        "Playlist restore UI operation was rejected.");
+                }
+                await apply.Completion.ConfigureAwait(false);
+                if (apply.IsAborted)
+                {
+                    throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
+                        "Playlist restore UI operation was aborted.");
+                }
+
+                startupReadinessCoordinator.BeginPlaylistInitialization("RestorePlaylist");
+                try
+                {
+                    bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
+                    QueueDeferredPlaylistEntriesHydration(
+                        "RestorePlaylist",
+                        runExternalSyncAfterHydration: false,
+                        queueBeatorajaBmtExportAfterHydration: true,
+                        runCustomFolderOutputRepairAfterHydration: true,
+                        verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged);
+                    SchedulePlaylistUrlCompletionRefresh("RestorePlaylist");
+                }
+                catch (Exception exception)
+                {
+                    // 復元後の出力準備が失敗しても、後続 import の readiness 待機を pending のまま残さない。
+                    startupReadinessCoordinator.FailRequiredPlaylistReadiness(exception);
+                    throw;
+                }
+            }
+            finally
+            {
+                playlistAggregatePersistenceOwner.EndReload();
+            }
+        });
     }
 
     private void QueueCustomFolderOutputRepairAfterHydration(string reason, bool verifyRootOutputDirectoryRows)
@@ -4277,6 +4359,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <returns>実際に削除されたプレイリスト。対象が存在しない場合は <see langword="null"/>。</returns>
     public BMSTable RemoveBMSTable(BMSTable bmsTable)
     {
+        playlistAggregatePersistenceOwner.EnsureNotRestoring();
         Exception collectionNotificationFailure = null;
         BMSTable tableToRemove = InvokeBMSTablesCollectionMutation(delegate
         {
@@ -4290,6 +4373,7 @@ public partial class BMSPlaylist : ObservableObject
                 {
                     return null;
                 }
+                playlistAggregatePersistenceOwner.EnsureNotRestoring();
                 EnsurePlaylistEntriesLoaded(activeTable, "BMSPlaylist.RemoveBMSTable");
                 try
                 {
@@ -5340,14 +5424,22 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// プレイリスト関連テーブルを SQL ダンプから復元します。
+    /// migration 等の同期呼出し向けに DB のみを SQL ダンプから復元します。一覧反映は行いません。
     /// </summary>
     /// <param name="sql">復元する SQL ダンプ文字列。</param>
     public void LoadPlaylistDump(string sql)
     {
-        using (rwlockBMSTables.GetWriterGuard())
+        if (!playlistAggregatePersistenceOwner.TryBeginRestore())
+        {
+            throw new InvalidOperationException("Playlist restore cannot run while another playlist persistence transition is active.");
+        }
+        try
         {
             playlistAggregatePersistenceOwner.LoadPlaylistDump(sql);
+        }
+        finally
+        {
+            playlistAggregatePersistenceOwner.EndReload();
         }
     }
 
