@@ -1119,7 +1119,7 @@ public partial class BMSPlaylist : ObservableObject
             LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
             return;
         }
-        Task.Run(work).Logging("QueueCustomFolderOutputRepairAfterHydration");
+        Task.Run(work).ObserveFault("QueueCustomFolderOutputRepairAfterHydration");
     }
 
     private void PlaylistEntriesHydrationReceiptPublishedHandler(
@@ -1329,7 +1329,7 @@ public partial class BMSPlaylist : ObservableObject
         }
         if (!IsShutdownRequested)
         {
-            Task.Run(Work).Logging("QueueExternalPlaylistSyncAfterHydration");
+            Task.Run(Work).ObserveFault("QueueExternalPlaylistSyncAfterHydration");
         }
     }
 

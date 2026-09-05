@@ -128,7 +128,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         if (registerResult.StartWorker)
         {
-            Task.Run(ProcessPendingDetailRequests).Logging("ProcessPendingPlaylistDetailRequests");
+            Task.Run(ProcessPendingDetailRequests).ObserveFault("ProcessPendingPlaylistDetailRequests");
         }
         return request.RequestVersion;
     }
@@ -231,7 +231,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 if (PlaylistDetailBuildQueueCoordinator.FinishWorkerAfterFailure(DetailBuildState))
                 {
-                    Task.Run(ProcessPendingDetailRequests).Logging("ProcessPendingPlaylistDetailRequestsAfterFailure");
+                    Task.Run(ProcessPendingDetailRequests).ObserveFault("ProcessPendingPlaylistDetailRequestsAfterFailure");
                 }
                 failure.Throw();
             }

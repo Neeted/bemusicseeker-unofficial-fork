@@ -183,20 +183,35 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private ViewModelCommand CreateBackgroundCommand(Action action, string routeName)
     {
-        return new ViewModelCommand(async () =>
+        return new ViewModelCommand(
+            () => StartBackgroundPlaybackAction(action, routeName),
+            () => !shutdownStarted);
+    }
+
+    private void StartBackgroundPlaybackAction(Action action, string routeName)
+    {
+        if (shutdownStarted)
         {
-            if (shutdownStarted)
+            return;
+        }
+        Task.Run(() =>
+        {
+            if (!shutdownStarted)
             {
-                return;
-            }
-            await Task.Run(() =>
-            {
-                if (!shutdownStarted)
+                try
                 {
                     action();
                 }
-            }).Logging(routeName);
-        }, () => !shutdownStarted);
+                catch (OperationCanceledException)
+                {
+                }
+                catch (Exception exception)
+                {
+                    Task.FromException(exception).ObserveFault(routeName);
+                    NotifyPlaybackFailureSafely(exception);
+                }
+            }
+        }).ObserveFault(routeName);
     }
 
     /// <summary>
@@ -318,7 +333,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
         SetBmsPlayerHeader(bmsFile);
         bool shouldSelectBmsPlayerSurface = IsStoppedOrPaused;
-        System.Threading.Tasks.Task.Run(() => ExecuteTableRowActivation(rowIndex, row)).Logging("PlaybackPanel.ActivateRow");
+        StartBackgroundPlaybackAction(
+            () => ExecuteTableRowActivation(rowIndex, row),
+            "PlaybackPanel.ActivateRow");
         return shouldSelectBmsPlayerSurface;
     }
 
@@ -929,7 +946,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private static void TrackPlaybackStart(Task<bool> playStartTask)
     {
-        ((Task)playStartTask).Logging("PlaybackPanel.PlaybackStartObservation");
+        ((Task)playStartTask).ObserveFault("PlaybackPanel.PlaybackStartObservation");
     }
 
     private void CompletePlaybackStartObservation(
@@ -1026,20 +1043,19 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         catch (Exception exception)
         {
-            Task.FromException(exception).Logging("PlaybackPanel.PlaybackExit");
+            Task.FromException(exception).ObserveFault("PlaybackPanel.PlaybackExit");
         }
     }
 
     private void StopAfterPlaybackStartFailure(
         PlaybackStartObservation observation,
-        Exception failure,
-        bool propagateNotificationFailure)
+        Exception failure)
     {
         if (!TryStopPlaybackForStartObservation(observation))
         {
             return;
         }
-        NotifyPlaybackFailureSafely(failure, propagateNotificationFailure);
+        NotifyPlaybackFailureSafely(failure);
     }
 
     private bool TryStopPlaybackForStartObservation(PlaybackStartObservation observation)
@@ -1072,7 +1088,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return true;
     }
 
-    private void NotifyPlaybackFailureSafely(Exception failure, bool propagateNotificationFailure = false)
+    private void NotifyPlaybackFailureSafely(Exception failure)
     {
         try
         {
@@ -1080,11 +1096,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         catch (Exception notificationFailure)
         {
-            Task.FromException(notificationFailure).Logging("PlaybackPanel.PlaybackFailureNotification");
-            if (propagateNotificationFailure)
-            {
-                throw;
-            }
+            Task.FromException(notificationFailure).ObserveFault("PlaybackPanel.PlaybackFailureNotification");
         }
     }
 
@@ -1432,10 +1444,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 return;
             }
-            StopAfterPlaybackStartFailure(
-                observation,
-                ex,
-                propagateNotificationFailure: true);
+            StopAfterPlaybackStartFailure(observation, ex);
             return;
         }
         NotifyPlaybackStarted(generation);
@@ -1533,10 +1542,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     {
                         if (!IsPlaybackStartObservationCompleted(playbackStartObservation))
                         {
-                            StopAfterPlaybackStartFailure(
-                                playbackStartObservation,
-                                ex,
-                                propagateNotificationFailure: true);
+                            StopAfterPlaybackStartFailure(playbackStartObservation, ex);
                         }
                         return;
                     }

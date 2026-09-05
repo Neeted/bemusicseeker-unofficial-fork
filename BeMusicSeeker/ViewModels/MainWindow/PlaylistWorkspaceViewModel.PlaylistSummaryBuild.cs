@@ -222,7 +222,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 CompletePlaylistSummaryDataBuild(buildRequest);
                 throw;
             }
-            buildTask.Logging("RebuildPlaylistSummaryView");
+            buildTask.ObserveFault("RebuildPlaylistSummaryView");
         }
         else
         {

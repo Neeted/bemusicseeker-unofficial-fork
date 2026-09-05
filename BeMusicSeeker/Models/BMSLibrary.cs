@@ -1232,14 +1232,14 @@ public partial class BMSLibrary : ObservableObject
                     Task.Run(delegate
                     {
                         RaisePropertyChanged("BMSFiles");
-                    }).Logging("BMSFiles");
+                    }).ObserveFault("BMSFiles");
                 }
                 if (notifyBmsonRows && bmsonRowsChanged)
                 {
                     Task.Run(delegate
                     {
                         RaisePropertyChanged("BmsonSongs");
-                    }).Logging("BmsonSongs");
+                    }).ObserveFault("BmsonSongs");
                 }
                 if ((notifyBmsRows && bmsRowsChanged) || (notifyBmsonRows && bmsonRowsChanged))
                 {
@@ -1319,7 +1319,7 @@ public partial class BMSLibrary : ObservableObject
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("DuplicateChartGroups");
-                }).Logging("DuplicateChartGroups");
+                }).ObserveFault("DuplicateChartGroups");
             }
         }
     }
@@ -1339,7 +1339,7 @@ public partial class BMSLibrary : ObservableObject
             Task.Run(delegate
             {
                 RaisePropertyChanged(() => DuplicateChartGroupsInvalidationVersion);
-            }).Logging("DuplicateChartGroupsInvalidationVersion");
+            }).ObserveFault("DuplicateChartGroupsInvalidationVersion");
         }
         return true;
     }
@@ -6120,7 +6120,7 @@ public partial class BMSLibrary : ObservableObject
         }
 
         LogEverythingScan("everything fallback warning queued target=thread_pool fallbackReason=" + (fallbackReason ?? string.Empty));
-        Task.Run(() => ShowEverythingFallbackWarningSafely(fallbackReason, epoch)).Logging("EverythingFallbackWarningDialog");
+        Task.Run(() => ShowEverythingFallbackWarningSafely(fallbackReason, epoch)).ObserveFault("EverythingFallbackWarningDialog");
         return true;
     }
 
@@ -6160,7 +6160,7 @@ public partial class BMSLibrary : ObservableObject
         }
 
         LogEverythingScan("file scan incomplete warning queued target=thread_pool failureReason=" + (failureReason ?? string.Empty));
-        Task.Run(() => ShowFileScanSkippedIncompleteWarningSafely(failureReason)).Logging("FileScanSkippedIncompleteWarningDialog");
+        Task.Run(() => ShowFileScanSkippedIncompleteWarningSafely(failureReason)).ObserveFault("FileScanSkippedIncompleteWarningDialog");
         return true;
     }
 
@@ -6178,7 +6178,7 @@ public partial class BMSLibrary : ObservableObject
         }
 
         LogEverythingScan("empty scan with existing db warning queued target=thread_pool failureReason=" + (failureReason ?? string.Empty));
-        Task.Run(() => ShowEmptyScanWithExistingDbWarningSafely(failureReason)).Logging("EmptyScanWithExistingDbWarningDialog");
+        Task.Run(() => ShowEmptyScanWithExistingDbWarningSafely(failureReason)).ObserveFault("EmptyScanWithExistingDbWarningDialog");
         return true;
     }
 
@@ -6929,7 +6929,7 @@ public partial class BMSLibrary : ObservableObject
             return;
         }
 
-        Task.Run(ProcessDeferredScoreHydrationRequests).Logging("ProcessDeferredScoreHydrationRequests");
+        Task.Run(ProcessDeferredScoreHydrationRequests).ObserveFault("ProcessDeferredScoreHydrationRequests");
     }
 
     private void TryStartIrScorePrefetch(int lr2Id, BmsLibraryOptionsSnapshot options, string reason)
@@ -6985,7 +6985,7 @@ public partial class BMSLibrary : ObservableObject
                         FailureReason = "exception"
                     };
                 }
-            }).Logging("IrScorePrefetch");
+            }).LoggingAndPropagate("IrScorePrefetch");
         }
     }
 
@@ -7091,7 +7091,7 @@ public partial class BMSLibrary : ObservableObject
         ReportStartupBackgroundTask("ranking_refresh_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
         if (shouldStartWorker)
         {
-            Task.Run(ProcessDeferredRankingRefreshRequests).Logging("ProcessDeferredRankingRefreshRequests");
+            Task.Run(ProcessDeferredRankingRefreshRequests).ObserveFault("ProcessDeferredRankingRefreshRequests");
         }
     }
 
@@ -7124,7 +7124,7 @@ public partial class BMSLibrary : ObservableObject
         if (shouldStartWorker)
         {
             LogInstallPerformance("ranking_refresh_deferred start version=" + version);
-            Task.Run(ProcessDeferredRankingRefreshRequests).Logging("ProcessDeferredRankingRefreshRequests");
+            Task.Run(ProcessDeferredRankingRefreshRequests).ObserveFault("ProcessDeferredRankingRefreshRequests");
         }
     }
 

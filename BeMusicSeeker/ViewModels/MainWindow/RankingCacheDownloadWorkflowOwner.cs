@@ -69,7 +69,7 @@ internal sealed class RankingCacheDownloadWorkflowOwner
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.backgroundScheduler = backgroundScheduler ?? (action => Task.Run(action));
-        this.taskLogger = taskLogger ?? new Action<Task, string>((task, routeName) => task.Logging(routeName));
+        this.taskLogger = taskLogger ?? new Action<Task, string>((task, routeName) => task.ObserveFault(routeName));
     }
 
     internal bool HasRankingTarget(IEnumerable<ChartOperationTarget> targets)

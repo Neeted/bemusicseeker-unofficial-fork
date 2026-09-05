@@ -227,7 +227,7 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
     {
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         this.backgroundScheduler = backgroundScheduler ?? (action => Task.Run(action));
-        this.taskLogger = taskLogger ?? new Action<Task, string>((task, routeName) => task.Logging(routeName));
+        this.taskLogger = taskLogger ?? new Action<Task, string>((task, routeName) => task.ObserveFault(routeName));
     }
 
     internal void RequestStatusBarRetry()

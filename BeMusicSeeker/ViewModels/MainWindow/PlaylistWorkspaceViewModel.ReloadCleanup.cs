@@ -123,7 +123,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             + request.GcAllowed.ToString().ToLowerInvariant());
         if (workerId != 0L)
         {
-            _ = Task.Run(() => ProcessPendingPlaylistReloadCleanupAsync(workerId)).Logging("ProcessPendingPlaylistReloadCleanupAsync");
+            Task.Run(() => ProcessPendingPlaylistReloadCleanupAsync(workerId)).ObserveFault("ProcessPendingPlaylistReloadCleanupAsync");
         }
         return true;
     }
@@ -142,7 +142,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         if (workerId != 0L)
         {
-            _ = Task.Run(() => ProcessPendingPlaylistReloadCleanupAsync(workerId)).Logging("ProcessPendingPlaylistReloadCleanup");
+            Task.Run(() => ProcessPendingPlaylistReloadCleanupAsync(workerId)).ObserveFault("ProcessPendingPlaylistReloadCleanup");
         }
     }
 
@@ -297,7 +297,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             idleCompletion?.TrySetResult(true);
             if (restartWorkerId != 0L)
             {
-                _ = Task.Run(() => ProcessPendingPlaylistReloadCleanupAsync(restartWorkerId)).Logging("ProcessPendingPlaylistReloadCleanupAfterFailure");
+                Task.Run(() => ProcessPendingPlaylistReloadCleanupAsync(restartWorkerId)).ObserveFault("ProcessPendingPlaylistReloadCleanupAfterFailure");
             }
         }
     }

@@ -921,7 +921,7 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             if (startWorker)
             {
-                Task.Run(ProcessSortRefreshQueue).Logging("regularChartListSortRequested");
+                Task.Run(ProcessSortRefreshQueue).ObserveFault("regularChartListSortRequested");
             }
         }
     }
@@ -964,12 +964,12 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             pendingPackageWorkflow
                 .SetPendingAsync(installRequest, request.Text)
-                .Logging("regularChartListSetPendingInstallDestination");
+                .ObserveFault("regularChartListSetPendingInstallDestination");
         }
     }
 
     /// <summary>
-    /// Queues a folder rename and returns its logged completion task.
+    /// Queues a folder rename and returns its operation task; operation failures are observed for logging.
     /// Invalid requests, disposed owners, and owners without a library are completed no-ops.
     /// </summary>
     internal Task RenameChartFolderAsync(RenameChartFolderRequest request, string newFolder)
@@ -1004,8 +1004,8 @@ internal sealed class RegularChartListOwner : IDisposable
                 {
                     completion.TrySetResult(new object());
                 }
-            })
-                .Logging("regularChartListFolderEditRequested");
+            });
+            renameTask.ObserveFault("regularChartListFolderEditRequested");
             folderRenameTail = completion.Task;
             folderRenameTasks.Add(renameTask);
         }
@@ -1063,7 +1063,12 @@ internal sealed class RegularChartListOwner : IDisposable
                         normalLibraryRefreshApplySuppressed = false;
                         normalRefreshApplySuppressed = false;
                     }
+                    if (mutationReceipt?.Failure != null)
+                    {
+                        failures.Add(ExceptionDispatchInfo.Capture(mutationReceipt.Failure));
+                    }
                     if (mutationReceipt?.DurableCommit != true
+                        || mutationReceipt?.Failure != null
                         || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                     {
                         logWarning(
@@ -1127,11 +1132,20 @@ internal sealed class RegularChartListOwner : IDisposable
                 CaptureNotification(mainChartList.RequestDisplayRefresh);
             }
         }
-        if (mutationDialogs != null && mutationReceipt != null)
-            await FileDbMutationReport.ShowAsync(mutationDialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename,
-                new FileDbMutationBatchReceipt([mutationReceipt]),
-                failures.Count == 0 ? null : new AggregateException(failures.Select(failure => failure.SourceException)))
-                .ConfigureAwait(false);
+        if (mutationDialogs != null)
+        {
+            if (mutationReceipt != null)
+            {
+                await FileDbMutationReport.ShowAsync(mutationDialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename,
+                    new FileDbMutationBatchReceipt([mutationReceipt]),
+                    failures.Count == 0 ? null : new AggregateException(failures.Select(failure => failure.SourceException)))
+                    .ConfigureAwait(false);
+            }
+            else
+            {
+                await NotifyFolderRenameFailureAsync(failures).ConfigureAwait(false);
+            }
+        }
         switch (failures.Count)
         {
             case 0:
@@ -1149,6 +1163,41 @@ internal sealed class RegularChartListOwner : IDisposable
                 FileDbMutationReport.NotifyBestEffort(notification);
             else
                 CaptureCleanupFailure(notification, failures);
+        }
+    }
+
+    private async Task NotifyFolderRenameFailureAsync(IReadOnlyCollection<ExceptionDispatchInfo> failures)
+    {
+        Exception[] operationFailures = [..
+            failures
+                .Select(failure => failure.SourceException)
+                .Where(exception => exception is not OperationCanceledException)];
+        if (operationFailures.Length == 0)
+        {
+            return;
+        }
+
+        string details = string.Join(
+            Environment.NewLine,
+            operationFailures.Select(exception => FileDbMutationReport.Limit(exception.Message, 400)));
+        UiMessageRequest request = UiMessageRequest.CreateError(
+            BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + details,
+            BeMusicSeeker.Properties.Resources.Error);
+        try
+        {
+            UiDialogResult result = await mutationDialogs.ShowMessageAsync(request).ConfigureAwait(false);
+            if (result == null || result.Status is not (UiDialogStatus.Accepted
+                or UiDialogStatus.Rejected
+                or UiDialogStatus.CancelledByUser
+                or UiDialogStatus.ClosedByUser))
+            {
+                FileDbMutationReport.LogNotificationFailure(result?.Exception
+                    ?? new InvalidOperationException("Folder rename failure was not displayed."));
+            }
+        }
+        catch (Exception exception)
+        {
+            FileDbMutationReport.LogNotificationFailure(exception);
         }
     }
 
@@ -1241,7 +1290,7 @@ internal sealed class RegularChartListOwner : IDisposable
             }
             if (restartWorker)
             {
-                Task.Run(ProcessSortRefreshQueue).Logging("regularChartListSortRequested");
+                Task.Run(ProcessSortRefreshQueue).ObserveFault("regularChartListSortRequested");
             }
         }
     }
@@ -4491,7 +4540,15 @@ internal sealed class RegularChartListOwner : IDisposable
             await (prewarmCompletion ?? Task.CompletedTask).ConfigureAwait(false);
             await (normalLibraryRefreshCompletion ?? Task.CompletedTask).ConfigureAwait(false);
             await Task.WhenAll(virtualSummaryCompletions ?? []).ConfigureAwait(false);
-            await Task.WhenAll(folderRenameTasks ?? []).ConfigureAwait(false);
+            try
+            {
+                await Task.WhenAll(folderRenameTasks ?? []).ConfigureAwait(false);
+            }
+            catch
+            {
+                // rename の操作 fault は ObserveFault で既に観測済みのため、
+                // shutdown は残りの resource の drain と解放を継続する。
+            }
         }
         finally
         {

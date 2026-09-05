@@ -471,7 +471,7 @@ internal sealed class CatalogMaintenanceOwner
             return;
         }
         reportStartupBackgroundTask?.Invoke("maintenance_hydration", "queued", 0L, false, reason ?? string.Empty);
-        Task.Run(() => ProcessHydrationRequests(reportDirect: true)).Logging("ProcessDeferredMaintenanceHydrationRequests");
+        Task.Run(() => ProcessHydrationRequests(reportDirect: true)).ObserveFault("ProcessDeferredMaintenanceHydrationRequests");
     }
 
     internal void CompleteHydrationForShutdown()

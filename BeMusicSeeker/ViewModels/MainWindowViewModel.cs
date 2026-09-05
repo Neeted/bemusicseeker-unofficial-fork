@@ -2737,7 +2737,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             if (uiScheduler.CanExecuteInline)
             {
-                Task.Run(refresh).Logging("QueuePlayHistoryDisplayTargetsRefresh");
+                Task.Run(refresh).ObserveFault("QueuePlayHistoryDisplayTargetsRefresh");
             }
             else
             {
@@ -3255,7 +3255,7 @@ public partial class MainWindowViewModel : ViewModel,
         MainChartListCellEditContext context = request.Context;
         if (context.Row is PlaylistDetailRow)
         {
-            _ = PlaylistWorkspace.CompleteDetailEdit(request).Logging("playlistDetailCellEditCommit");
+            PlaylistWorkspace.CompleteDetailEdit(request).ObserveFault("playlistDetailCellEditCommit");
             return;
         }
         regularChartListOwner.CompleteCellEdit(request);
@@ -3444,7 +3444,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
 
         Task.Run(() => RefreshChartRowsView(MainViewUpdateMode.PlayHistorySelected, request))
-            .Logging("playHistoryPeriodSelect");
+            .ObserveFault("playHistoryPeriodSelect");
     }
 
     private void ChartListOwnerSortRefreshRequested(object sender, MainChartListSortRequestedEventArgs request)
@@ -4409,7 +4409,7 @@ public partial class MainWindowViewModel : ViewModel,
                     {
                         return Backup.BackupSaveResult.Failure(ex);
                     }
-                }).Logging("Initialize");
+                }).LoggingAndPropagate("Initialize");
                 if (backupSaveResult != null)
                 {
                     foreach (string warning in backupSaveResult.Warnings)

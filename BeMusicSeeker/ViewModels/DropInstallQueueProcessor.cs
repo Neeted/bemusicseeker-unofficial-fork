@@ -246,7 +246,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             ProcessLoop,
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
-            TaskScheduler.Default).Logging("DropInstallQueueProcessor");
+            TaskScheduler.Default).ObserveFault("DropInstallQueueProcessor");
     }
 
     private void ProcessLoop()
@@ -358,7 +358,7 @@ internal sealed class DropInstallQueueProcessor(Action<DroppedInstallBatchReques
             () => CompleteBackgroundCleanup(abandonedBatches),
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
-            TaskScheduler.Default).Logging("DropInstallQueueCleanup");
+            TaskScheduler.Default).ObserveFault("DropInstallQueueCleanup");
     }
 
     private void CompleteBackgroundCleanup(DroppedInstallBatchRequest[] abandonedBatches)

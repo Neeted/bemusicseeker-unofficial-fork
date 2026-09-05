@@ -69,19 +69,14 @@ public static class TaskEx
         }
     }
 
-    public static Task Logging(this Task task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
-    {
-        return task.Logging(log2file, memberName, filePath, lineNumber);
-    }
-
     /// <summary>
-    /// Logs a task fault after the task settles while preserving its success, fault, or cancellation outcome.
+    /// タスクの完了後にアプリケーションログへ診断情報を出力し、成功、例外、キャンセルを呼出元へ伝播します。ログの失敗は結果を変更しません。
     /// </summary>
-    /// <param name="task">The task whose outcome remains observable to the caller.</param>
-    /// <param name="memberName">The originating member name.</param>
-    /// <param name="filePath">The originating source path.</param>
-    /// <param name="lineNumber">The originating source line.</param>
-    /// <returns>A task that completes with the same outcome as <paramref name="task"/>.</returns>
+    /// <param name="task">完了結果を呼出元へ伝播する対象タスク。</param>
+    /// <param name="memberName">呼出元のメンバー名。</param>
+    /// <param name="filePath">呼出元のソースパス。</param>
+    /// <param name="lineNumber">呼出元のソース行番号。</param>
+    /// <returns>対象タスクと同じ成功、例外、またはキャンセルで完了するタスク。</returns>
     public static async Task LoggingAndPropagate(this Task task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
     {
         if (task == null)
@@ -91,8 +86,38 @@ public static class TaskEx
         await task.LoggingAndPropagate(log2file, memberName, filePath, lineNumber).ConfigureAwait(false);
     }
 
-    public static Task<T> Logging<T>(this Task<T> task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
+    /// <summary>
+    /// タスクの完了後にアプリケーションログへ診断情報を出力し、成功値、例外、キャンセルを呼出元へ伝播します。ログの失敗は結果を変更しません。
+    /// </summary>
+    /// <typeparam name="T">タスクが返す値の型。</typeparam>
+    /// <param name="task">完了結果を呼出元へ伝播する対象タスク。</param>
+    /// <param name="memberName">呼出元のメンバー名。</param>
+    /// <param name="filePath">呼出元のソースパス。</param>
+    /// <param name="lineNumber">呼出元のソース行番号。</param>
+    /// <returns>対象タスクと同じ成功値、例外、またはキャンセルで完了するタスク。</returns>
+    public static async Task<T> LoggingAndPropagate<T>(this Task<T> task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
     {
-        return task.Logging(log2file, memberName, filePath, lineNumber);
+        if (task == null)
+        {
+            throw new ArgumentNullException(nameof(task));
+        }
+        return await Ribbit.Util.Extensions.TaskEx.LoggingAndPropagate(task, log2file, memberName, filePath, lineNumber).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// タスクの失敗だけをアプリケーションログへ記録し、待機可能な結果を返さずに観測します。ログの失敗は未観測の例外にしません。
+    /// </summary>
+    /// <param name="task">失敗を観測する対象タスク。</param>
+    /// <param name="memberName">呼出元のメンバー名。</param>
+    /// <param name="filePath">呼出元のソースパス。</param>
+    /// <param name="lineNumber">呼出元のソース行番号。</param>
+    public static void ObserveFault(this Task task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
+    {
+        if (task == null)
+        {
+            throw new ArgumentNullException(nameof(task));
+        }
+        Ribbit.Util.Extensions.TaskEx.ObserveFault(task, log2file, memberName, filePath, lineNumber);
+    }
+
 }

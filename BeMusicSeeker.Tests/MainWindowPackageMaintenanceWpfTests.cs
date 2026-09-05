@@ -16,6 +16,7 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -1006,7 +1007,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
         MainWindowPlaybackTerminal? playbackTerminal = null,
         MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null,
         MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
-        Action<MainWindowViewModel>? prepareViewModel = null)
+        Action<MainWindowViewModel>? prepareViewModel = null,
+        IUiDialogService? playlistWorkspaceDialogService = null)
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
@@ -1024,7 +1026,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     settingsEditSession: new NoOpSettingsEditSession(settings),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    playlistWorkspaceDialogService: playlistWorkspaceDialogService)
                     .CreateMainWindowViewModelForTest();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
@@ -1052,7 +1055,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     selectedChartContextMenuTerminals,
                     playbackTerminal,
                     playlistWorkspaceTerminals,
-                    pendingPackageMutationViewTerminal: pendingPackageMutationViewTerminal);
+                    pendingPackageMutationViewTerminal: pendingPackageMutationViewTerminal,
+                    playlistWorkspaceDialogService: playlistWorkspaceDialogService);
                 // Constructor-only tests rehost MainWindow.Content in an on-screen HwndSource when they
                 // exercise compiled pointer routes. Keep the unshown Window's transform on that same
                 // monitor so MouseEventArgs.GetPosition is not based on a saved off-screen placement.

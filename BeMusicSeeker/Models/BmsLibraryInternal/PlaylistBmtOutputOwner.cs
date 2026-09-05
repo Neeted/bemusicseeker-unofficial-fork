@@ -415,7 +415,7 @@ internal sealed class PlaylistBmtOutputOwner
             Log("beatoraja_bmt_export_all skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
             return;
         }
-        Task.Run(Work).Logging("QueueBeatorajaBmtExportAll");
+        Task.Run(Work).ObserveFault("QueueBeatorajaBmtExportAll");
     }
 
     internal void QueueBeatorajaBmtExportForTable(BMSTable table, string reason)
@@ -505,7 +505,7 @@ internal sealed class PlaylistBmtOutputOwner
                 ReportFailures(failures);
             }
         }
-        Task.Run(Work).Logging("QueueBeatorajaBmtRemove");
+        Task.Run(Work).ObserveFault("QueueBeatorajaBmtRemove");
     }
 
     /// <summary>確定した manifest 所有権から URL を同期し、台帳読取り失敗を通知します。</summary>
@@ -547,7 +547,7 @@ internal sealed class PlaylistBmtOutputOwner
                 ReportFailures(failures);
             }
         }
-        Task.Run(Work).Logging("QueueBeatorajaBmtUrlSync");
+        Task.Run(Work).ObserveFault("QueueBeatorajaBmtUrlSync");
     }
 
     private void QueueBeatorajaBmtExport(BMSTable table, string reason)
@@ -620,7 +620,7 @@ internal sealed class PlaylistBmtOutputOwner
             CompleteExportQueueForShutdown(reason, "shutdown_requested");
             return;
         }
-        Task.Run(Work).Logging("QueueBeatorajaBmtExport");
+        Task.Run(Work).ObserveFault("QueueBeatorajaBmtExport");
     }
 
     private void CompleteExportQueueForShutdown(string reason, string shutdownReason)

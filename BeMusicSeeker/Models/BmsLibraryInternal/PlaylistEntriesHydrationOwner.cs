@@ -358,7 +358,7 @@ internal sealed class PlaylistEntriesHydrationOwner
                 CompleteQueueForShutdown(scheduledRequestReason, "shutdown_requested");
                 return;
             }
-            Task.Run(work).Logging("QueueDeferredPlaylistEntriesHydration");
+            Task.Run(work).ObserveFault("QueueDeferredPlaylistEntriesHydration");
         }
 
         async Task Work()

@@ -584,7 +584,11 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                 throw new InvalidDataException("Zero duration BMS file: " + bmsFilePath);
             }
             _onExitEvent = onExitEventHandler;
-            _infloopTask ??= Task.Run(_playbackThreadAction).Logging("PlayStart");
+            if (_infloopTask == null)
+            {
+                _infloopTask = Task.Run(_playbackThreadAction);
+                _infloopTask.ObserveFault("PlayStart");
+            }
         }
         try
         {

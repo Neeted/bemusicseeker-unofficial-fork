@@ -77,7 +77,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         if (shouldStartDrain)
         {
-            _ = DrainExternalPlaylistImportQueueAsync().Logging("DrainExternalPlaylistImportQueueAsync");
+            DrainExternalPlaylistImportQueueAsync().ObserveFault("DrainExternalPlaylistImportQueueAsync");
         }
         return true;
     }
@@ -326,7 +326,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 && !readiness.IsRequiredPlaylistReadinessFaulted
                 && !tables.IsShutdownRequested)
             {
-                _ = DrainExternalPlaylistImportQueueAsync().Logging("DrainExternalPlaylistImportQueueAsync");
+                DrainExternalPlaylistImportQueueAsync().ObserveFault("DrainExternalPlaylistImportQueueAsync");
             }
         }
         if (readiness.IsShutdownRequested

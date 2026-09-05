@@ -84,7 +84,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
             string tablePath = BeatorajaConfigService.GetTablePath(rootPath);
             started = true;
-            _ = Task.Run(() => ImportBeatorajaTableUrlsAsync(rootPath, tablePath, targets)).Logging("ImportBeatorajaTableUrlsAsync");
+            Task.Run(() => ImportBeatorajaTableUrlsAsync(rootPath, tablePath, targets)).ObserveFault("ImportBeatorajaTableUrlsAsync");
         }
         catch (Exception ex)
         {

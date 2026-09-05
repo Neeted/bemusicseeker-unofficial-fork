@@ -30,6 +30,7 @@ shutdown preparation は不可逆な終了準備として扱う。updater proces
 - 終了要求後の新規 queue は skip する
 - playlist source build、play history filter、playlist library index prewarm をキャンセルする
 - play history の keyword/display-target refresh、playlist reference apply、external playlist sync、playlist reload cleanup が idle になるまで待つ
+- regular chart folder rename は登録済みの操作 Task と既存 refresh の実完了まで drain する。rename の fault はログで観測したうえで終了 cleanup を短絡せず、残りの tracked worker と lock が idle になるまで終了準備を続ける
 - drop install queue と pending install estimate queue をキャンセルする
 - `BMSLibrary.RequestShutdown` で LR2 song.db sync と pending install estimate queue をキャンセルし、chart info/maintenance/score/ranking 系の deferred worker を shutdown skip 可能にする
 - `BMSPlaylist.RequestShutdown` で playlist entries hydration と beatoraja `.bmt` 出力の保留要求を止め、キュー済み worker が実行された場合も shutdown skip で状態を戻す

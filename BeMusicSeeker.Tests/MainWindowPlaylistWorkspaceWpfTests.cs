@@ -1039,6 +1039,184 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         RunPlaylistTableRemovalEmptyRootScenario();
     }
 
+    [TestMethod]
+    public void PlaylistTableRemovalFailure_NotifiesAndPreservesEmptyRootSelection()
+    {
+        RunPlaylistTableRemovalFailureScenario(
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+    }
+
+    [TestMethod]
+    public void PlaylistTableRemovalNotificationFailure_IsDiagnosticOnlyAndDoesNotRetry()
+    {
+        RunPlaylistTableRemovalFailureScenario(
+            UiDialogResult.Failed(new InvalidOperationException("playlist removal notification failed")));
+    }
+
+    [TestMethod]
+    public void PlaylistTableRemovalCancellation_DoesNotNotify()
+    {
+        // これは確認 dialog の Cancel であり、operation が OperationCanceledException になる経路とは分けて観測する。
+        var dialogs = new RecordingPlaylistWorkspaceDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+        };
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            new Settings(),
+            (_, window) =>
+            {
+                (TreeViewItem playlistRoot, MenuItem removeTable) =
+                    PreparePlaylistTableRemovalContext(window, new BMSTable { name = "Cancelled" });
+
+                RoutedEventArgs args = RaiseMenuClick(removeTable);
+                Assert.IsTrue(args.Handled);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    dialogs.ConfirmationShown.Task,
+                    "playlist table removal cancellation confirmation");
+                TestUiDispatcherHost.Drain();
+
+                Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+                Assert.AreEqual(0, dialogs.MessageRequests.Count);
+                Assert.IsTrue(playlistRoot.IsSelected);
+                Assert.AreEqual(1, playlistRoot.Items.Count);
+            },
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    [TestMethod]
+    public void PlaylistTableRemovalOperationCancellation_DoesNotNotify()
+    {
+        var selectionCompletion = NewCompletion();
+        var dialogs = new RecordingPlaylistWorkspaceDialogService();
+        var cancellationToken = new CancellationToken(canceled: true);
+        int callCount = 0;
+        MainWindowPlaylistTableRemovalTerminal removal = new(
+            (_, applySelectionBeforeMutation) =>
+            {
+                callCount++;
+                applySelectionBeforeMutation();
+                return Task.FromCanceled(cancellationToken);
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            new Settings(),
+            (viewModel, window) =>
+            {
+                EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
+                {
+                    if (!args.IsSummary && args.Detail != null && args.Detail.Table == null)
+                    {
+                        selectionCompletion.TrySetResult(null);
+                    }
+                };
+                viewModel.PlaylistWorkspace.TreeSelectionActivated += selectionActivated;
+                try
+                {
+                    (TreeViewItem playlistRoot, MenuItem removeTable) =
+                        PreparePlaylistTableRemovalContext(window, new BMSTable { name = "Cancelled operation" });
+                    playlistRoot.Items.Clear();
+                    playlistRoot.IsSelected = true;
+                    TestUiDispatcherHost.Drain();
+
+                    RoutedEventArgs args = RaiseMenuClick(removeTable);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, callCount);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        selectionCompletion.Task,
+                        "playlist table removal operation cancellation cleanup");
+                    TestUiDispatcherHost.Drain();
+
+                    Assert.AreEqual(0, dialogs.MessageRequests.Count);
+                    Assert.IsTrue(playlistRoot.IsSelected);
+                    Assert.AreEqual(0, playlistRoot.Items.Count);
+                    Assert.IsNull(viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection().Table);
+                }
+                finally
+                {
+                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
+                }
+            },
+            playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    private static void RunPlaylistTableRemovalFailureScenario(UiDialogResult messageResult)
+    {
+        BMSTable firstTable = new() { name = "First" };
+        var selectionCompletion = NewCompletion();
+        var failure = new InvalidOperationException("playlist table removal persistence failed");
+        var dialogs = new RecordingPlaylistWorkspaceDialogService
+        {
+            MessageResult = messageResult
+        };
+        int callCount = 0;
+        PlaylistTreeSelectionActivatedEventArgs emptyRootSelection = null;
+        MainWindowPlaylistTableRemovalTerminal removal = new(
+            (table, applySelectionBeforeMutation) =>
+            {
+                callCount++;
+                Assert.AreSame(firstTable, table);
+                applySelectionBeforeMutation();
+                return Task.FromException(failure);
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            new Settings(),
+            (viewModel, window) =>
+            {
+                EventHandler<PlaylistTreeSelectionActivatedEventArgs> selectionActivated = (_, args) =>
+                {
+                    if (!args.IsSummary && args.Detail != null && args.Detail.Table == null)
+                    {
+                        emptyRootSelection = args;
+                        selectionCompletion.TrySetResult(null);
+                    }
+                };
+                viewModel.PlaylistWorkspace.TreeSelectionActivated += selectionActivated;
+                try
+                {
+                    (TreeViewItem playlistRoot, MenuItem removeTable) =
+                        PreparePlaylistTableRemovalContext(window, firstTable);
+                    playlistRoot.Items.Clear();
+                    playlistRoot.IsSelected = true;
+                    TestUiDispatcherHost.Drain();
+
+                    RoutedEventArgs args = RaiseMenuClick(removeTable);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, callCount);
+
+                    // この fixture では pre-completed の Task.FromException と同期完了する dialog fake を使うため、
+                    // RaiseEvent の復帰時点まで async void handler が通知と cleanup を実行する前提を signal で確認する。
+                    // callback の開始だけを完了とみなさず、旧 Logging の ContinueWith が fault を吸収する経路とも区別する。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        Task.WhenAll(selectionCompletion.Task, dialogs.MessageShown.Task),
+                        "playlist table removal failure notification and empty-root cleanup");
+                    TestUiDispatcherHost.Drain();
+
+                    Assert.IsNotNull(emptyRootSelection);
+                    Assert.IsFalse(emptyRootSelection.IsSummary);
+                    Assert.IsNotNull(emptyRootSelection.Detail);
+                    Assert.IsNull(emptyRootSelection.Detail.Table);
+                    Assert.AreEqual(1, dialogs.MessageRequests.Count);
+                    Assert.IsTrue(
+                        dialogs.MessageRequests[0].MessageBoxText.Contains(
+                            failure.Message,
+                            StringComparison.Ordinal));
+                    Assert.AreEqual(MessageBoxImage.Hand, dialogs.MessageRequests[0].Icon);
+                    Assert.IsTrue(playlistRoot.IsSelected);
+                    Assert.AreEqual(0, playlistRoot.Items.Count);
+                    Assert.IsNull(viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection().Table);
+                }
+                finally
+                {
+                    viewModel.PlaylistWorkspace.TreeSelectionActivated -= selectionActivated;
+                }
+            },
+            playlistWorkspaceTerminals: CreateTerminals(tableRemoval: removal),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
     private static void RunPlaylistTableRemovalRejectionScenario()
     {
         BMSTable firstTable = new() { name = "First" };
@@ -1999,6 +2177,65 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             IsBmtOutput = table.is_bmt_output != false,
             TableRef = table
         };
+    }
+
+    private sealed class RecordingPlaylistWorkspaceDialogService : IUiDialogService
+    {
+        internal UiDialogResult ConfirmationResult { get; set; } =
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
+
+        internal UiDialogResult MessageResult { get; set; } =
+            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
+
+        internal List<UiMessageRequest> MessageRequests { get; } = [];
+
+        internal TaskCompletionSource<UiConfirmationRequest> ConfirmationShown { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource<UiMessageRequest> MessageShown { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<UiDialogResult> ShowMessageAsync(
+            UiMessageRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            MessageRequests.Add(request);
+            MessageShown.TrySetResult(request);
+            return Task.FromResult(MessageResult);
+        }
+
+        public Task<UiDialogResult> ConfirmAsync(
+            UiConfirmationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ConfirmationRequests.Add(request);
+            ConfirmationShown.TrySetResult(request);
+            return Task.FromResult(ConfirmationResult);
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(
+            UiFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(
+            UiFolderPickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(
+            UiSaveFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class ModalObservation<TWindow>

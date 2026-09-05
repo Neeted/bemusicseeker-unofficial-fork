@@ -124,7 +124,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             complete();
             throw;
         }
-        refreshTask.Logging(operationName);
+        refreshTask.ObserveFault(operationName);
     }
 
     private void EnsureViewRefreshSchedulerConfigured()
@@ -242,7 +242,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         {
             if (startWorker)
             {
-                Task.Run(ProcessSortRefreshQueue).Logging("playHistorySortRequested");
+                Task.Run(ProcessSortRefreshQueue).ObserveFault("playHistorySortRequested");
             }
         }
     }
@@ -283,7 +283,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             }
             if (restartWorker)
             {
-                Task.Run(ProcessSortRefreshQueue).Logging("playHistorySortRequested");
+                Task.Run(ProcessSortRefreshQueue).ObserveFault("playHistorySortRequested");
             }
         }
     }

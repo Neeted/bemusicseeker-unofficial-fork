@@ -255,7 +255,7 @@ internal sealed class LibraryFileScanPipelineOwner
                         {
                             logInstallPerformance(message);
                         }
-                    })).Logging("Lr2NormalFolderMtimeSnapshotPrefetch");
+                    })).LoggingAndPropagate("Lr2NormalFolderMtimeSnapshotPrefetch");
         }
     }
 
@@ -694,7 +694,7 @@ internal sealed class LibraryFileScanPipelineOwner
 
             lr2FolderFileDiffPreparationTask = Task.Run(() =>
                 lr2FolderFileDiffOwner.Prepare(options, bmsDirectories, partialResult, reason))
-                .Logging("Lr2FolderFileDiffPrepare");
+                .LoggingAndPropagate("Lr2FolderFileDiffPrepare");
         }
 
         IReadOnlyList<BMSFile> currentBmsRows = catalogStorageRowsOwner.BmsRows;

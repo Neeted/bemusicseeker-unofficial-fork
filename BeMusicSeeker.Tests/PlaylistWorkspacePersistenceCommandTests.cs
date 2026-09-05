@@ -1538,6 +1538,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             int notificationCount = 0;
             int notificationEffectOutsideLeaseCount = 0;
             bool notificationCallbackFailure = false;
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
             int bmtScheduleCount = 0;
             int bmtEffectOutsideLeaseCount = 0;
             List<Func<Task>> scheduledBmtWork = [];
@@ -1574,6 +1575,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 {
                     if (request.RouteName == "playlist drop custom folder output notification")
                     {
+                        notifications.Add(request);
                         using (LibraryFileMutationLease callbackLease = library.TryBeginLibraryFileMutation(
                                    "playlist_drop_notification_effect_probe",
                                    showMessage: false))
@@ -1726,6 +1728,15 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(2, uiEffectOutsideLeaseCount);
             Assert.AreEqual(notificationCountBeforeOutputFailure + 1, notificationCount);
             Assert.AreEqual(2, notificationEffectOutsideLeaseCount);
+            PlaylistOperationNotificationPresentationRequestedEventArgs outputFailureNotification = notifications[^1];
+            Assert.AreEqual(
+                1,
+                outputFailureNotification.Receipt.Notifications.Count(notification =>
+                    notification.Severity is PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
+                        or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
+            Assert.AreEqual(
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
+                outputFailureNotification.Receipt.Notifications.Single().Severity);
             Assert.AreEqual("DROP-ADMISSION", library.GetPlaylistReferenceDisplay(outputFailureChart).Symbols);
             Assert.AreEqual("Drop admission target", library.GetPlaylistReferenceDisplay(outputFailureChart).Names);
             await scheduledBmtWork[1]();
@@ -1769,6 +1780,47 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual("DROP-ADMISSION", library.GetPlaylistReferenceDisplay(preparationFailureChart).Symbols);
             Assert.AreEqual("Drop admission target", library.GetPlaylistReferenceDisplay(preparationFailureChart).Names);
             await scheduledBmtWork[2]();
+
+            // DB 書込み拒否は出力側の warning を生成しないため、drop の終端が generic error を一度だけ補う。
+            notificationCallbackFailure = false;
+            int notificationCountBeforeDatabaseFailure = notificationCount;
+            int notificationEffectCountBeforeDatabaseFailure = notificationEffectOutsideLeaseCount;
+            using (var failDatabaseWrite = new LR2SongDBExtended(songDbPath))
+            {
+                failDatabaseWrite.Execute(
+                    "CREATE TRIGGER playlist_drop_test_write_failure "
+                    + "BEFORE INSERT ON playlist WHEN NEW.playlist_id = 7816 "
+                    + "BEGIN SELECT RAISE(ABORT, 'playlist drop DB write failure'); END;");
+            }
+            const string databaseFailureMd5 = "33333333333333333333333333333333";
+            ChartFile databaseFailureChart = ChartFileProjection.FromBmsFile(
+                BMSFile.FromSongTableRawValues(CreateSongTableRow(
+                    databaseFailureMd5,
+                    Path.Combine(tempDirectory, "drop-database-failure-chart.bms"))));
+            Exception databaseFailure = null;
+            try
+            {
+                await workspace.AddRowsToFolderAsync(
+                    [LibraryChartRow.FromChartFile(databaseFailureChart)],
+                    table,
+                    PlaylistFolderNode.CreateFolder("DatabaseFault"));
+            }
+            catch (Exception exception)
+            {
+                databaseFailure = exception;
+            }
+
+            Assert.IsNotNull(databaseFailure);
+            StringAssert.Contains(databaseFailure.Message, "playlist drop DB write failure");
+            Assert.AreEqual(notificationCountBeforeDatabaseFailure + 1, notificationCount);
+            Assert.AreEqual(notificationEffectCountBeforeDatabaseFailure + 1, notificationEffectOutsideLeaseCount);
+            PlaylistOperationNotificationPresentationRequestedEventArgs databaseFailureNotification = notifications[^1];
+            Assert.AreEqual(1, databaseFailureNotification.Receipt.Notifications.Count);
+            PlaylistOperationNotificationOwner.OperationNotification databaseFailureNotice =
+                databaseFailureNotification.Receipt.Notifications.Single();
+            Assert.AreEqual(
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
+                databaseFailureNotice.Severity);
         }
         finally
         {

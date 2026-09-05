@@ -68,7 +68,7 @@ internal sealed class PendingInstallEstimateQueueProcessor(
         statusChanged(snapshot);
         if (startWorker)
         {
-            Task.Factory.StartNew(ProcessLoop, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Logging("PendingInstallEstimateQueueProcessor");
+            Task.Factory.StartNew(ProcessLoop, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).ObserveFault("PendingInstallEstimateQueueProcessor");
         }
     }
 

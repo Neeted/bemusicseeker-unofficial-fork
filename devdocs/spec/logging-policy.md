@@ -12,6 +12,22 @@
 
 NLog が扱う file target、logging rule、ローテーション設定は `NLogWrapper` に集約する。個別機能は logger 名とログメッセージの責務だけを持ち、出力先やローテーションの判断を持たない。
 
+## Task の完了結果と診断ログ
+
+操作結果を呼出元へ返す処理では `LoggingAndPropagate` を使う。対象の `Task` または `Task<T>` が完了した後に診断ログを記録し、成功値、元の例外、キャンセルをそのまま呼出元へ伝播する。ログ出力の失敗は操作結果を置き換えない。
+
+完了結果を利用しない fire-and-forget 処理では `ObserveFault` を使う。この API は待機可能な結果を返さず、元タスクが fault になった場合だけ例外を観測して診断ログを記録する。キャンセルはエラーとして記録せず、診断コールバックの失敗も未観測のタスク例外にしない。
+
+旧 `Logging` overload は廃止し、ログ continuation の完了を操作の成功として利用する経路を持たない。
+
+## UI 操作の失敗通知
+
+UI event が開始した操作は、元の Task を await して完了結果を保持する。成功時だけ行う表示更新や選択復元は、操作が成功した場合に限って実行する。新たに失敗通知を持つ event は raw Task を await し、catch した元例外を共通の `NotifyMainWindowOperationFailureAsync` へ渡す。同 reporter が `ObserveFault` で元例外を診断するため、これらの event で `LoggingAndPropagate` を重ねない。従前から `LoggingAndPropagate` を使う route と、合成 Task の専用診断はその構成を維持する。`OperationCanceledException` はユーザー操作のキャンセルとして通知せず、その event を終了する。その他の例外はログを記録したうえで既存の優先エラー表示へ渡し、event の外へ漏らさずにアプリケーションを継続する。
+
+エラー表示は既存の `IUiDialogService` を await して行い、既存翻訳の `Msg_error_unexpected` と `Error` を使う。表示結果が `UiDialogResult.Failed`、表示不可、または表示処理の例外になった場合は、その失敗を診断ログへ記録するだけで、代替 dialog や retry は行わない。表削除後の空 root 選択整理など部分成功後も必要な UI cleanup は `finally` で継続する。
+
+プレイリスト表へのドロップでは、workspace owner の notification session が作成する receipt を唯一の失敗通知境界とする。receipt に既存の Warning または Error がある場合はそれを優先し、一次失敗が未報告の場合だけ `Msg_error_unexpected` と `Error` による generic error を一件追加する。Information だけでは一次失敗を報告済みとみなさない。`playlistTableDrop` は完了した Task の一次結果を維持したまま診断ログを観測し、同じ失敗を汎用 dialog で重ねて表示しない。通知 subscriber の失敗は診断ログだけに記録し、一次失敗を置き換えず再試行しない。
+
 ## 出力先
 
 ログは実行ファイルと同じディレクトリにある `log/` フォルダへ出力する。

@@ -316,7 +316,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     applyEncoderFallback,
                     reportFileCompleted),
                 CancellationToken.None);
-            _ = conversionTask.Logging("tableContextMenuItemConvertToAudioFileClick");
+            conversionTask.ObserveFault("tableContextMenuItemConvertToAudioFileClick");
 
             UiProgressResult progressResult;
             try

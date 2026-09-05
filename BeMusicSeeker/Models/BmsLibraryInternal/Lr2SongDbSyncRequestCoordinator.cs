@@ -228,7 +228,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
             host.LogInstallPerformance("lr2_song_db_sync skipped version=" + requestVersion + " reason=shutdown_requested");
             return status;
         }
-        Task.Run(() => host.RunLr2SongDbSync(reason, signature, requestVersion, receiptEligible)).Logging("Lr2SongDbSync");
+        Task.Run(() => host.RunLr2SongDbSync(reason, signature, requestVersion, receiptEligible)).ObserveFault("Lr2SongDbSync");
         return status;
     }
 

@@ -69,7 +69,7 @@ public partial class BMSLibrary
             CompleteInstallableMaintenanceForShutdown("shutdown_requested");
             return;
         }
-        Task.Run(() => ProcessInstallableMaintenanceRequests()).Logging("ProcessDeferredInstallableMaintenance");
+        Task.Run(() => ProcessInstallableMaintenanceRequests()).ObserveFault("ProcessDeferredInstallableMaintenance");
     }
 
     private void CompleteInstallableMaintenanceForShutdown(string shutdownReason)

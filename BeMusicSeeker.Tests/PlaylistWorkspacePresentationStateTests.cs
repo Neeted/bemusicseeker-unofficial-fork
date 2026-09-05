@@ -1105,6 +1105,90 @@ public sealed class PlaylistWorkspacePresentationStateTests
     }
 
     [TestMethod]
+    public async Task PlaylistWorkspaceBmtPersistenceFailureFaultsTaskAndSuppressesSummaryRefresh()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspacePresentationStateTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
+            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
+            var playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([first, second])
+            };
+            playlist.CommitBMSTableHeadersToDB([first, second]);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.Execute(
+                    "CREATE TRIGGER fail_bmt_sort_insert BEFORE INSERT ON playlist "
+                    + "WHEN EXISTS (SELECT 1 FROM playlist WHERE playlist_id = NEW.playlist_id) "
+                    + "BEGIN SELECT RAISE(ABORT, 'bmt sort persistence failure'); END;");
+                db.Execute(
+                    "CREATE TRIGGER fail_bmt_sort_update BEFORE UPDATE OF bmt_sort ON playlist "
+                    + "BEGIN SELECT RAISE(ABORT, 'bmt sort persistence failure'); END;");
+            }
+
+            PlaylistSummaryBmtSortCoordinator bmtSort =
+                new(() => playlist, () => playlist.BMSTables);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistSummaryBmtSort: bmtSort);
+            int refreshRequestCount = 0;
+            workspace.PlaylistPresentationRefreshRequested += (_, _) => refreshRequestCount++;
+
+            Task operation = workspace.ApplyCurrentVisibleBmtOrderAsync(
+            [
+                new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
+                new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first }
+            ]);
+            Exception? failure = null;
+            try
+            {
+                await operation;
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+
+            Assert.IsNotNull(failure);
+            Assert.IsTrue(
+                failure!.ToString().Contains("bmt sort persistence failure", StringComparison.Ordinal));
+            Assert.AreEqual(0, refreshRequestCount);
+            using (var verify = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(
+                    1,
+                    verify.ExecuteScalar<int>(
+                        "SELECT bmt_sort FROM playlist WHERE playlist_id = ?;",
+                        first.playlist_id));
+                Assert.AreEqual(
+                    2,
+                    verify.ExecuteScalar<int>(
+                        "SELECT bmt_sort FROM playlist WHERE playlist_id = ?;",
+                        second.playlist_id));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task PlaylistWorkspaceSummarySelectionRestoreEventFailureAggregatesWithPropertyFailure()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));

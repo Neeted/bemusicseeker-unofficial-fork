@@ -30,20 +30,61 @@ public sealed class RegularChartFolderRenameTests
 {
 
     [TestMethod]
-    public void StopAsync_DrainsInFlightFolderRename()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void StopAsync_DrainsInFlightFolderRename(bool finalizationFails)
     {
+        TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string libraryRoot = Path.GetDirectoryName(songDbPath)!;
             string sourceDirectory = Path.Combine(libraryRoot, "rename-source");
             string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+            string destinationFolder = finalizationFails
+                ? "PackFinalizationFailure"
+                : "rename-destination";
+            string destinationDirectory = Path.Combine(libraryRoot, destinationFolder);
+            string destinationChartPath = Path.Combine(destinationDirectory, "chart.bms");
+            string lr2RootPath = Path.Combine(libraryRoot, "LR2beta3");
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE shutdown\r\n");
             var file = CreateTestableBmsFile(chartPath);
-            var library = new TestBmsLibrary(songDbPath)
+            var dialogs = new FileDbReportRecordingDialogs();
+            TestBmsLibrary library;
+            if (finalizationFails)
             {
-                BMSFiles = [file]
-            };
+                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRoot);
+                library = new TestBmsLibrary(
+                    songDbPath,
+                    () => lr2Config,
+                    null,
+                    null,
+                    dialogs,
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = true,
+                        LR2RootPath = lr2RootPath
+                    });
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.Execute(
+                        "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%PackFinalizationFailure%' "
+                        + "BEGIN SELECT RAISE(ABORT, 'forced durable finalization failure'); END;");
+                }
+            }
+            else
+            {
+                library = new TestBmsLibrary(
+                    songDbPath,
+                    null,
+                    null,
+                    null,
+                    dialogs,
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+            }
+            library.BMSFiles = [file];
             ChartFile chart = ChartFileProjection.FromBmsFile(file);
             var target = new ChartOperationTarget(
                 chart,
@@ -56,7 +97,6 @@ public sealed class RegularChartFolderRenameTests
             Assert.IsTrue(RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request));
 
             int appliedCount = 0;
-            var dialogs = new FileDbReportRecordingDialogs();
             using RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
@@ -81,7 +121,7 @@ public sealed class RegularChartFolderRenameTests
                 }
             };
 
-            owner.RenameChartFolderAsync(request, "rename-destination");
+            Task renameTask = owner.RenameChartFolderAsync(request, destinationFolder);
             Assert.IsTrue(suppressionEntered.Wait(TimeSpan.FromSeconds(10)));
 
             using var stopStarted = new ManualResetEventSlim();
@@ -92,13 +132,38 @@ public sealed class RegularChartFolderRenameTests
             });
             Assert.IsTrue(stopStarted.Wait(TimeSpan.FromSeconds(10)));
             Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
+            Assert.IsFalse(renameTask.IsCompleted, "The rename must still be in flight while shutdown begins draining it.");
 
             releaseSuppression.Set();
             stopTask.GetAwaiter().GetResult();
+            if (finalizationFails)
+            {
+                Exception renameFailure = null;
+                try
+                {
+                    renameTask.GetAwaiter().GetResult();
+                }
+                catch (Exception exception)
+                {
+                    renameFailure = exception;
+                }
+                Assert.IsNotNull(renameFailure, "The in-flight durable finalization failure must remain observable on the rename task.");
+                StringAssert.Contains(renameFailure!.ToString(), "forced durable finalization failure");
+            }
+            else
+            {
+                renameTask.GetAwaiter().GetResult();
+            }
             Assert.IsFalse(Directory.Exists(sourceDirectory));
-            Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "rename-destination")));
-            Assert.AreEqual(1, Volatile.Read(ref appliedCount), "The mutation notification must apply once after the gate is released.");
-            Assert.AreEqual(0, dialogs.Messages.Count);
+            Assert.IsTrue(Directory.Exists(destinationDirectory));
+            Assert.IsTrue(File.Exists(destinationChartPath));
+            Assert.AreEqual(
+                finalizationFails ? 0 : 1,
+                Volatile.Read(ref appliedCount),
+                finalizationFails
+                    ? "A durable finalization failure must not apply a success refresh."
+                    : "The mutation notification must apply once after the gate is released.");
+            Assert.AreEqual(finalizationFails ? 1 : 0, dialogs.Messages.Count);
         });
     }
 
@@ -122,17 +187,30 @@ public sealed class RegularChartFolderRenameTests
             int displayRefreshCount = 0;
             table.DisplayRefreshRequested += (_, _) => Interlocked.Increment(ref displayRefreshCount);
             var synchronizer = new ChartFileOperationSynchronizer();
+            var dialogs = new FileDbReportRecordingDialogs();
             using RegularChartListOwner owner = CreateOwner(
                 table,
                 CreateWorkspaceForOwner(),
                 action => action(),
-                chartFileOperations: synchronizer);
+                chartFileOperations: synchronizer,
+                mutationDialogs: dialogs);
             owner.AttachNormalLibraryRefreshSource(library);
             Assert.IsTrue(synchronizer.TryEnter(out IDisposable incumbent));
             try
             {
                 Task renameTask = owner.RenameChartFolderAsync(request, "busy-destination");
-                renameTask.GetAwaiter().GetResult();
+                Exception renameFailure = null;
+                try
+                {
+                    renameTask.GetAwaiter().GetResult();
+                }
+                catch (Exception exception)
+                {
+                    renameFailure = exception;
+                }
+                Assert.IsNotNull(renameFailure, "The busy gate failure must remain observable on the rename task.");
+                Assert.IsInstanceOfType(renameFailure, typeof(InvalidOperationException));
+                Assert.AreEqual(1, dialogs.Messages.Count, "The failed rename must notify through the mutation dialog route.");
                 Assert.IsTrue(Directory.Exists(sourceDirectory));
                 Assert.IsFalse(Directory.Exists(Path.Combine(libraryRoot, "busy-destination")));
                 Assert.AreEqual(0, Volatile.Read(ref displayRefreshCount));
@@ -352,7 +430,16 @@ public sealed class RegularChartFolderRenameTests
                 RenameChartFolderRequest request = CreateRenameRequest(file);
 
                 Task renameTask = owner.RenameChartFolderAsync(request, "PackFinalizationFailure");
-                renameTask.GetAwaiter().GetResult();
+                Exception renameFailure = null;
+                try
+                {
+                    renameTask.GetAwaiter().GetResult();
+                }
+                catch (Exception exception)
+                {
+                    renameFailure = exception;
+                }
+                Assert.IsNotNull(renameFailure, "The durable finalization failure must remain observable on the rename task.");
 
                 Assert.IsFalse(Directory.Exists(sourceDirectory));
                 Assert.IsTrue(File.Exists(destinationChartPath));
@@ -364,6 +451,7 @@ public sealed class RegularChartFolderRenameTests
                 Assert.IsTrue(reportAfterRelease);
                 Assert.IsTrue(modelLeaseReleased);
                 StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "forced durable finalization failure");
+                StringAssert.Contains(renameFailure!.ToString(), "forced durable finalization failure");
                 using var verifySongDb = new LR2SongDBExtended(songDbPath);
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(chartPath));

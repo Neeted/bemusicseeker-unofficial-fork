@@ -202,8 +202,8 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             }
             selectedAsOfDate = normalized;
             RaisePropertyChanged(nameof(SelectedAsOfDate));
-            _ = session.UpdateSelectedAsOfDateAsync(normalized)
-                .Logging("PlaylistLampViewerViewModel.SelectedAsOfDate");
+            session.UpdateSelectedAsOfDateAsync(normalized)
+                .ObserveFault("PlaylistLampViewerViewModel.SelectedAsOfDate");
         }
     }
 

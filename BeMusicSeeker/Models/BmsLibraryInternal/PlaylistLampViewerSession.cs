@@ -505,7 +505,7 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         // Source notifications can originate while a table/library writer owns its lock.
         // Defer the refresh so snapshot capture and result subscribers never run inline on
         // that publication stack.
-        _ = Task.Run(() => RefreshAsync()).Logging("PlaylistLampViewerSession.DataSourceChanged");
+        Task.Run(() => RefreshAsync()).ObserveFault("PlaylistLampViewerSession.DataSourceChanged");
     }
 
     private void PublishLoading(

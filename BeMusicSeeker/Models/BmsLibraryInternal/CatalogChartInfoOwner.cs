@@ -946,7 +946,7 @@ internal sealed class CatalogChartInfoOwner
                 ProcessBackfillRequests(waitForHydrationIdle: false);
                 return;
             }
-            Task.Run(() => ProcessBackfillRequests()).Logging("ProcessChartInfoBackfillRequests");
+            Task.Run(() => ProcessBackfillRequests()).ObserveFault("ProcessChartInfoBackfillRequests");
         }
         if (shouldWaitForCompletion)
         {
@@ -1503,7 +1503,7 @@ internal sealed class CatalogChartInfoOwner
             CompleteHydrationForShutdown("shutdown_requested");
             return;
         }
-        Task.Run(process).Logging("ProcessDeferredChartInfoHydrationRequests");
+        Task.Run(process).ObserveFault("ProcessDeferredChartInfoHydrationRequests");
     }
 
     internal void CompleteHydrationForShutdown(string reason)

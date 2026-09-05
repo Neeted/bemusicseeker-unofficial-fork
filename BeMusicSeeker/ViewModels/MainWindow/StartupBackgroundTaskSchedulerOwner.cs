@@ -1151,7 +1151,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 TryStartWorkers();
                 NotifyIdleChanged();
             }
-        }).Logging("StartupBackgroundTaskScheduler");
+        }).ObserveFault("StartupBackgroundTaskScheduler");
     }
 
     private void RecordStarted(Request request)

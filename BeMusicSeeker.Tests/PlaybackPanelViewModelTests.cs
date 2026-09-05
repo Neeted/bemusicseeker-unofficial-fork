@@ -786,7 +786,7 @@ public sealed class PlaybackPanelViewModelTests
             panel.PropertyChanged += stoppedHandler;
             try
             {
-                panel.Start();
+                panel.StartCommand.Execute();
                 completion.SetCanceled();
 
                 await stopped.Task;
@@ -944,7 +944,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
-    public void PlaybackPanel_DoesNotHideNotificationFailureOrRunFollowingStop()
+    public void PlaybackPanel_DirectStartContainsNotificationFailureWithoutFollowingPlayback()
     {
         string chartPath = Path.GetTempFileName();
         var playerFailure = new IOException("player start failed");
@@ -966,16 +966,43 @@ public sealed class PlaybackPanelViewModelTests
             new ChartFileOperationSynchronizer());
         try
         {
-            Assert.AreSame(notificationFailure, Assert.ThrowsException<InvalidOperationException>(() => panel.Start()));
+            panel.Start();
             Assert.AreSame(playerFailure, dialogs.LastPlaybackFailure);
+            Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
             Assert.IsNull(panel.NowPlayingBmsFile);
             Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.AreEqual(1, player.CloseProcessCount);
+            Assert.AreEqual(
+                1,
+                player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
         }
         finally
         {
             File.Delete(chartPath);
         }
+    }
+
+    [TestMethod]
+    public async Task PlaybackPanel_CommandFailureUsesPlaybackNotification()
+    {
+        var operationFailure = new IOException("player stop failed");
+        var notificationFailure = new InvalidOperationException("notification failed");
+        var player = new FakeBmsPlayer
+        {
+            BeforeClose = () => throw operationFailure
+        };
+        var dialogs = new FakePlaybackDialogService
+        {
+            PlaybackFailureException = notificationFailure
+        };
+        PlaybackPanelViewModel panel = CreatePanel(player, dialogs);
+        Task failureNotification = dialogs.WaitForPlaybackFailureAsync();
+
+        panel.StopCommand.Execute();
+
+        await failureNotification.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.AreSame(operationFailure, dialogs.LastPlaybackFailure);
     }
 
     [TestMethod]
@@ -1262,6 +1289,70 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(1, player.CloseProcessCount);
             Assert.IsNull(panel.NowPlayingBmsFile);
             Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+        }
+        finally
+        {
+            Settings.Default.UsePlayerLR2body = originalLr2Body;
+            Settings.Default.OperationModeLR2DB = originalLr2Database;
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaybackPanel_TableRowActivationNotifiesTemporaryInstallMoveFailure()
+    {
+        bool originalLr2Body = Settings.Default.UsePlayerLR2body;
+        bool originalLr2Database = Settings.Default.OperationModeLR2DB;
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackActivationMoveFailure_" + Guid.NewGuid().ToString("N"));
+        string sourceDirectory = Path.Combine(root, "Source");
+        string installDirectory = Path.Combine(root, "Install");
+        string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+        string installedChartPath = Path.Combine(installDirectory, "chart.bms");
+        string songDbPath = Path.Combine(root, "song.db");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(installDirectory);
+        File.WriteAllText(chartPath, "#TITLE source");
+        File.WriteAllText(installedChartPath, "#TITLE installed");
+        File.WriteAllBytes(songDbPath, []);
+        var player = new FakeBmsPlayer();
+        var dialogs = new FakePlaybackDialogService();
+        try
+        {
+            Settings.Default.UsePlayerLR2body = true;
+            Settings.Default.OperationModeLR2DB = true;
+            LibraryChartRow activationRow;
+            PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(
+                chartPath,
+                installDirectory,
+                songDbPath,
+                player,
+                dialogs,
+                out activationRow);
+            int startedCount = 0;
+            panel.PlaybackStarted += (_, _) => startedCount++;
+
+            using (FileStream sourceHandle = new(
+                chartPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read))
+            {
+                Task failureNotification = dialogs.WaitForPlaybackFailureAsync();
+                Assert.IsTrue(panel.HandleTableRowActivation(0, activationRow));
+                await failureNotification.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+
+            Assert.IsNotNull(dialogs.LastPlaybackFailure);
+            Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
+            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+            Assert.AreEqual(0, startedCount);
+            Assert.IsFalse(player.Commands.Any(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+            Assert.IsTrue(File.Exists(chartPath));
+            Assert.IsTrue(File.Exists(installedChartPath));
         }
         finally
         {
@@ -2143,13 +2234,31 @@ public sealed class PlaybackPanelViewModelTests
         IBMSPlayer player,
         IPlaybackDialogService dialogs)
     {
+        return CreateTemporaryInstallPanel(
+            chartPath,
+            installDirectory,
+            songDbPath,
+            player,
+            dialogs,
+            out _);
+    }
+
+    private static PlaybackPanelViewModel CreateTemporaryInstallPanel(
+        string chartPath,
+        string installDirectory,
+        string songDbPath,
+        IBMSPlayer player,
+        IPlaybackDialogService dialogs,
+        out LibraryChartRow activationRow)
+    {
         var bmsFile = new TestBmsFile(chartPath);
         ChartFile chart = ChartPackageTestExtensions
             .CreateEntryWithInstallDestination(bmsFile, installDirectory)
             .Chart;
+        activationRow = LibraryChartRow.FromChartFile(chart);
         var chartList = new MainChartListViewModel
         {
-            Rows = new List<object> { LibraryChartRow.FromChartFile(chart) },
+            Rows = new List<object> { activationRow },
             SelectedIndex = 0
         };
         var panel = new PlaybackPanelViewModel(
