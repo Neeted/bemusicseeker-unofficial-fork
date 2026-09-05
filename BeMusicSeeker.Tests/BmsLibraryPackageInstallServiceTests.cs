@@ -381,10 +381,18 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 : new RealFileMutationService();
             var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
                 new TestUiScheduler(() => null),
-                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false,
-                    BMSInstallDir = installedDirectory, FolderNameFormat = "%TITLE%", DeletePendingPackageSourceAfterInstall = true })
-            { BMSFiles = [installed], ChartPackagesPending = CreatePackageCollection([first, second]),
-                ChartPackagesInstalled = CreatePackageCollection([]) };
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installedDirectory,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = true
+                })
+            {
+                BMSFiles = [installed],
+                ChartPackagesPending = CreatePackageCollection([first, second]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
                 [first, second], reportAtTerminal: reportAtTerminal);
             Assert.AreEqual(2, result.CleanupOnlySucceeded);

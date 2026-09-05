@@ -77,9 +77,9 @@ internal sealed class ApplicationStartupCompositionOwner
         try
         {
             if (!acquireOwnership())
-        {
-            return;
-        }
+            {
+                return;
+            }
             prepareSettings();
             MainWindowViewModel viewModel = createViewModel()
                 ?? throw new InvalidOperationException("Startup composition returned a null view-model.");

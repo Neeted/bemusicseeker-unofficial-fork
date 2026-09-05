@@ -62,8 +62,12 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     cleanupOnly ? new BmsLibraryPackageInstallServiceTests.FailingDestinationDeleteFileMutationService(source)
                         : new ResilientFileMutationService(), dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = !cleanupOnly, LR2RootPath = lr2Root,
-                        FolderNameFormat = "[%ARTIST%] %TITLE%" })
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = !cleanupOnly,
+                        LR2RootPath = lr2Root,
+                        FolderNameFormat = "[%ARTIST%] %TITLE%"
+                    })
                 { BMSFiles = [chart], SearchTargets = [root] };
                 viewModel = MainWindowViewModelTestFactory.Create(new Settings(), dialogs);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
@@ -157,8 +161,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         failureKind == 1 ? source : destination);
                 var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false,
-                        FolderNameFormat = "%TITLE%", BMSInstallDir = installRoot, KeepInstallablePackagesPending = false })
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = false,
+                        FolderNameFormat = "%TITLE%",
+                        BMSInstallDir = installRoot,
+                        KeepInstallablePackagesPending = false
+                    })
                 { BMSFiles = [], SearchTargets = [root] };
                 viewModel = MainWindowViewModelTestFactory.Create(new Settings(), dialogs);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();

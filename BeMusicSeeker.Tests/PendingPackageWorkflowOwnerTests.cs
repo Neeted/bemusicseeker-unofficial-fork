@@ -31,11 +31,14 @@ public sealed class PendingPackageWorkflowOwnerTests
         var store = new RecordingStore(events) { RepairFailure = new LibraryChartRemovalException(outcome) };
         var gate = new ChartFileOperationSynchronizer();
         bool releasedAtReport = false;
-        var dialogs = new FileDbReportRecordingDialogs { OnMessage = () =>
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            OnMessage = () =>
         {
             releasedAtReport = gate.TryEnter(out IDisposable lease) && events.Contains("activity-end");
             lease?.Dispose();
-        }};
+        }
+        };
         var owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
         var chart = CreateChart(installDestination: @"C:\Installed");
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(

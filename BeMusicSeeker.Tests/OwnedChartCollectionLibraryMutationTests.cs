@@ -38,7 +38,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = afterCommit, LR2RootPath = lr2Root })
             {
-                BMSFiles = [file], BmsonSongs = []
+                BMSFiles = [file],
+                BmsonSongs = []
             };
             string folderRowPath = Lr2FolderPath.ToFolderPath(folder);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -84,12 +85,15 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", missing),
                 CreateFile("cccccccccccccccccccccccccccccccc", partial) };
             var partialFailure = new IOException("directory changed before failure");
-            var filesystem = new TestFileMutationService { BeforeDirectoryDelete = path =>
+            var filesystem = new TestFileMutationService
+            {
+                BeforeDirectoryDelete = path =>
             {
                 Assert.AreEqual(partialDirectory, path);
                 File.Delete(partial);
                 throw partialFailure;
-            }};
+            }
+            };
             var dialogs = new FileDbReportRecordingDialogs();
             var library = new TestBmsLibrary(songDbPath, null, null, filesystem, dialogs)
             { BMSFiles = files, BmsonSongs = [] };

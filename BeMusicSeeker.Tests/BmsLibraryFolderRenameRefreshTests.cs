@@ -1999,8 +1999,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 File.WriteAllText(movedSource, "{}");
                 var movedSong = new LR2SongDBExtended.bmson_song
                 {
-                    path = movedSource, folder = sourceDirectoryPath,
-                    title = "Independent repair target", md5 = "11111111111111111111111111111111",
+                    path = movedSource,
+                    folder = sourceDirectoryPath,
+                    title = "Independent repair target",
+                    md5 = "11111111111111111111111111111111",
                     sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
                 };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
