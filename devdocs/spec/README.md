@@ -47,6 +47,7 @@
 - [path-identity.md](path-identity.md)
 - [path-length-and-io.md](path-length-and-io.md)
 - [library-mutation-boundary.md](library-mutation-boundary.md)
+- [file-db-consistency.md](file-db-consistency.md): FS+DB の整合性、限定補償、前方回復、許容する非収束とレビュー基準。
 - [lr2-song-db-generation.md](lr2-song-db-generation.md)
 - [playlist-data-and-export-flow.md](playlist-data-and-export-flow.md)
 - [beatoraja-table-url-import.md](beatoraja-table-url-import.md)

@@ -1,0 +1,105 @@
+# ファイル操作と DB 操作の整合性・補償契約
+
+最終更新: 2026-09-05
+
+## 1. 目的と適用範囲
+
+本資料は、アプリ内で filesystem（FS）と DB を変更する操作について、不整合を減らす設計、補償の範囲、利用者へ伝える結果、受け入れる制限の正本とする。ライブラリ削除だけでなく、導入、移動、rename、merge、生成ファイルと関連 DB の更新にも適用する。`FileDbMutationBoundary.cs` を使うこと自体を全操作の要件にはしない。
+
+これは共通の設計・レビュー契約であり、全既存経路が対応済みであるという宣言ではない。現行の限定的な補償契約は section 4、確認済みの未達と後続作業は [整合性契約の適用計画](../plan/file-db-consistency-follow-up.md) に分ける。この文書の追加だけで production behavior、DB schema、既存テストの期待値は変更しない。
+
+並行性と ownership は [workflow-concurrency-and-complexity.md](workflow-concurrency-and-complexity.md)、ライブラリ操作の lease、finalization、notification の詳細は [library-mutation-boundary.md](library-mutation-boundary.md) に従う。DB 内だけの transaction、updater の backup／journal／rollback、取り込み前の一時ファイルの cleanup は、それぞれの既存契約を維持する。本資料を、それらの保証を取り除く根拠にはしない。
+
+## 2. 保証することと受け入れる制限
+
+| ID | 契約 |
+| --- | --- |
+| `FSDB-ORDER` | 確認済みの対象と計画を一つの command owner が扱い、既存の競合操作の排他境界内で FS、DB、canonical state、通知の順序を明示する。事前に判定できる不正入力や未承認の対象は、破壊的な I/O より前に拒否する。 |
+| `FSDB-FACTS` | 成功、失敗、部分完了の判断を、対象操作で確認できた FS の結果、DB commit、必要な内部反映の事実に基づける。未確認の結果を成功または変更なしと推測しない。 |
+| `FSDB-FORWARD` | 既に成功した FS 操作や別 item の durable commit を、操作全体を原子的に見せる目的で一律に巻き戻す必要はない。保持されたデータと現在の状態から安全に整合を取り直すことを既定とする。既存の限定補償は section 4 に従う。 |
+| `FSDB-REPORT` | 捕捉した不整合・部分失敗を通常の完了として黙って扱わない。対象、完了が確認できた段階、未完了または未確認の範囲、次に取れる対応を、利用可能な terminal result／UI と診断へ伝える。 |
+| `FSDB-LIMITS` | FS と DB を跨ぐ原子性、全失敗地点からの自動復旧、復旧完了までの時間、再起動を跨ぐ自動収束は保証しない。走査結果が 0 件の場合の保護により DB が収束しないことも許容する。 |
+
+FS と DB は同じ transaction に参加しない。DB の commit 成功は FS 全体の成功を意味せず、FS API の成功も DB の更新を保証しない。実行順序を入れ替えるだけでは、この制限は解消しない。source retention や staging は失敗時の損失を減らす手段であり、原子性の根拠ではない。
+
+契約が対象とするのは、サポートする production ingress から到達し、稼働中のプロセスで観測・捕捉できる結果である。プロセス強制終了、電源断、媒体故障、外部変更との TOCTOU、通知先やログ出力先も同時に利用不能となる場合まで、結果の永続記録・必達通知を保証しない。既存の process-exclusive DB／single writer 等の入口 assumption も維持する。
+
+これらの制限は、通常経路の順序誤り、既知の failure の握りつぶし、承認範囲外への削除、保持できる唯一のデータの不用意な破棄を許可するものではない。
+
+## 3. 不整合を減らす設計
+
+1. **破壊的処理前に対象と意味を決める。** stable identity、実際に使う path、上書き・削除の承認範囲を既存 owner の入口で確定する。既に検証された invariant の下流で、同じ確認や version token を増やさない。DB の試し書き等で「後の commit は失敗しない」と保証しようとしない。
+2. **同じ計画の事実を各段階へ渡す。** 実際の destination、削除・保持した対象を FS と DB の両方で使う。途中で別の path を再計算したり、失敗後に対象を拡大したりしない。
+3. **単一 DB 内では transaction を使う。** 一体で保存すべき関連行は既存 gateway／owner の transaction にまとめる。DB 内の rollback と FS に対する補償は別の契約とし、DB を rollback しただけで FS も元に戻ったと扱わない。複数 DB や外部出力も一つの commit と見なさない。
+4. **必要な順序を owner 内で閉じる。** durable result、canonical memory／関連参照の必須反映、任意の UI notification を区別する。必要な内部反映の失敗を、通知失敗や単なる cleanup 残りへ格下げしない。model lock／DB transaction を長時間の FS I/O や UI 待機のために保持しない。
+5. **失敗後に被害を増やさない。** 状態を確定できない対象の後続破壊的処理と、それに依存する成功処理を止める。独立 item の継続可否は各 batch の既存契約に従い、成功済み item の一括 rollback は追加しない。新しい global fault latch や全アプリ停止を一律に要求しない。
+
+FS はファイルの実在・内容の正本だが、DB の全情報を再生成できるとは限らない。利用者が編集した項目、playlist、導入状態等を「FS に合わせる」という理由で一括破棄しない。どの field が再走査・再生成可能かは各機能の契約に従う。
+
+## 4. 補償と前方回復の範囲
+
+前方回復とは、失敗後の状態と保持されたデータを起点に、原因を除いた後で再走査、関連 DB の反映、再生成または手動対応を選ぶことである。失敗した command を同じ引数で自動再実行することや、元の削除意図を後から無条件に完遂することではない。
+
+新規の FS+DB 操作に、成功した FS 操作の rollback を共通要件として課さない。一方、既存の補償を取り除く場合は、その操作の source、既存 destination、上書きデータの保全と UI 結果を改めて決め、機能仕様・テストと一緒に変更する。
+
+| 範囲 | 現行契約と共通方針との関係 |
+| --- | --- |
+| `FileDbMutationExecutor` を使う導入、folder move、merge、自動 rename 等 | source を DB durable receipt まで保持する。receipt 前の失敗に対し、同じ plan の promoted destination の取り消しと backup 復元を含む、一つの owner による一回限りの best-effort 補償を行う。これは既存経路の限定された契約として維持し、アプリ全体の rollback 義務へ拡張しない。詳細は [File / DB durable boundary](library-mutation-boundary.md#file--db-durable-boundary)。 |
+| 同じ executor の補償失敗 | primary failure と補償 failure、復旧に必要な path を残して手動対応へ移す。補償の補償、再帰的 rollback、無条件 cleanup は行わない。 |
+| DB durable receipt 後、または先行 item の durable success | rollback／compensation に戻らない。内部反映失敗と cleanup 失敗を区別して現在状態を保持する。残存物の cleanup に失敗しても、元の導入を fresh install としてやり直さない。 |
+| ライブラリ削除など、FS の削除が先に確定する操作 | 消したファイルの復元や trash の自動取り出しを要求しない。DB 反映失敗を明示し、後の対応は現在の対象・実在状態から判断する。既存 executor へ形式的に統合するためだけに staging／backup を追加しない。 |
+| 生成ファイルと DB／外部 DB の反映 | 必須出力と再生成可能な派生物を区別する。前段の commit を後段失敗で取り消すことを一律に要求せず、未完了の出力・同期を明示する。機能固有の stronger contract がある場合は維持する。 |
+
+共通方針のための persistent journal、pending-operation table、crash replay、定期 retry、永続的な repair queue は必須としない。追加する場合は、必要な利用者挙動、保存対象、再開時の安全性と終了条件を別の decision として承認する。
+
+## 5. 結果と利用者への表示
+
+以下は区別すべき意味であり、全操作に新しい共通 enum や result hierarchy を実装する指示ではない。既存 receipt／typed result を使い、caller が必要な違いを失わないことを契約とする。
+
+| 観測結果 | 終了時の扱い |
+| --- | --- |
+| 変更前に拒否・失敗 | 変更なしが確認できる場合だけ、そのように伝える。承認済み no-op と failure を混同しない。 |
+| FS を一部または全部変更し、DB 反映に失敗 | 部分完了・要確認として対象と確認済み FS 変更を伝える。ファイルが復元された、または DB が反映済みと推測しない。 |
+| FS または DB の結果を確定できない | 未確認の範囲を明示し、成功／未変更のどちらにも倒さない。この区別を既存の failure detail で表せるなら新しい state は作らない。 |
+| DB commit 済みで必要な内部反映が失敗 | commit 済みという事実を保持し、内部反映失敗として伝える。通常完了にせず、FS／DB の rollback や元 command の replay へ戻さない。 |
+| 必須の反映は完了し、cleanup だけ失敗 | 完了部分と残存物・cleanup failure を分けて伝える。既存の `CompletedWithCleanupFailure` は通常完了だけに潰さない。 |
+| 必須の反映と cleanup が完了し、任意通知だけ失敗 | durable success を failure に変更しない。利用可能な既存診断へ通知失敗を記録し、再帰的な通知／復旧機構は追加しない。 |
+
+結果に必要な情報は、operation の種類、対象 path／件数、確認済みの変更、未完了の段階、primary error、および存在する場合の補償・cleanup error／recovery paths とする。既存の request／receipt から得られる情報を使い、表示用のために新しい永続状態や全件監査ログを作らない。未処理 item を成功件数へ含めない。現行 `RecoveryPaths` は計画と実行中に追跡した path の集合であり、すべての残存物の実在を検証した一覧ではないため、確認候補として案内する。
+
+捕捉した部分失敗について、ログだけを残して通常完了を表示するのは不十分である。利用可能な UI の terminal path で要確認を伝え、詳細が多ければ既存ログの参照を案内する。後続処理の例外で primary error を置き換えず、lease／lock を解放してから通知する。表示文言の追加時は既存の多言語リソース契約に従う。
+
+UI、shutdown、logger 自身の failure を含めた必達保証は設けない。これは、通常利用可能な通知経路へ結果を渡し忘れる実装や、捕捉した failure を成功へ変換する実装を正当化しない。
+
+## 6. 後から安全に整合を取る条件
+
+自動的・無条件の最終収束は保証しない。DB 書込み不能、権限、媒体の接続等の原因が解消され、現在状態を安全に読めることが再整合の前提となる。通常は失敗しない操作の失敗を一過性と決めつけず、同じ command の単純 retry を標準の回復策にしない。既存の低レベル I/O の限定 retry を、この文書だけで削除・拡張しない。
+
+再整合を行うときは、次を守る。
+
+- 新しい明示 request として、対象の現在 identity／path、現在の承認範囲、必要な排他を確認する。古い計画の破壊的 replay はしない。同じ path に別のファイルが作られていても、過去の削除対象と自動的に見なさない。
+- 「存在しない」と「存在を確認できない」を区別する。アクセス拒否、媒体切断、不完全な走査を欠落確定として扱い、DB 行や利用者データを削除しない。
+- 完全かつ信頼できる走査で再構成可能な情報だけを、既存の再読込・再生成経路で反映する。再走査できない内容や対象が曖昧な内容は、手動確認へ移してよい。
+- 空走査の保護は維持する。検出 0 件で既存 catalog がある場合、保護によって DB 行が残ることを許容する。最後の譜面の削除後も含め、「再起動すれば必ず直る」「再読込で必ず消える」と案内しない。
+- 利用者へ案内する対応は、その機能で実際に利用可能かつ安全なものに限る。安全な再反映経路がない場合は、原因解消と対象確認・手動対応が必要であることを伝え、未実装の修復ボタンや必ず成功する再試行を約束しない。
+
+現行の空走査保護は `BmsLibraryInitializationService.ApplyFileScanDiff`／`ShouldSkipEmptyScanWithExistingDb` にあり、startup と `ReloadFileDiff` の共通経路に作用する。この保護の存在や、保護が収束より優先されること自体は不具合ではない。
+
+## 7. レビューと検証の終了基準
+
+レビューは [codex-agent-workflow.md](codex-agent-workflow.md) の reachability／impact gate と次の分類を併用する。理論上あらゆる API が throw できることだけを根拠に、保証範囲を増やさない。
+
+| 分類 | 判断と対応 |
+| --- | --- |
+| 契約違反 | production route、成立する入口 assumption、観測結果と破られる契約 ID／機能契約を示す。例: commit failure を成功表示する、DB と違う destination を使う、commit 後に補償する、確認不能な欠落から削除する。実際の影響に応じて修正対象とする。 |
+| 許容済みの残留リスク | 非原子性、一回の補償後にも残る不整合、成功済み FS を戻さないこと、空走査保護、crash recovery／必達通知の非保証。必要な停止・結果伝達が守られるなら、それ自体を blocking finding にしない。 |
+| 既存未達・対象外 | 今回の変更が導入・悪化させておらず、今回の受入条件にも含まれない gap。既存の追跡先へ結び付け、文書だけの作業に無関係な実装を混ぜない。 |
+| 保証を増やす提案 | 新しい journal、automatic retry、rollback、永続 UI 状態、全体停止、必ず収束する修復等。必要性と費用を別途判断し、承認済み仕様の bugfix と混同しない。 |
+
+同じ owner 境界で同じ結果情報が失われる問題は、代表する production route と影響範囲を添えた一つの finding／作業単位にまとめる。catch 箇所ごとに別の recovery subsystem を要求しない。ただし、異なる authority や利用者データへの影響を持つ独立した違反までまとめて隠さない。
+
+受入済みの制限を再度 blocking とするには、前提が production で成立しない証拠、新しい observable impact、または保証を変更する明示要件を示す。新しい例外仮説やより強い保証の好みだけでは、解決済みの判断を開き直さない。
+
+実装を変更する unit の受入条件では、到達する phase boundary を選び、FS failure／partial change、DB commit failure、commit 後の必須反映 failure、cleanup failure のうち該当する結果と caller／UI への伝達を検証する。既存の補償を触る場合だけ、その所有者、一回限りの試行、補償 failure も対象とする。全 API の全組合せ、無条件収束、保護された 0 件からの削除を要求しない。
+
+テスト追加・期待値変更には [test-authoring-contract.md](test-authoring-contract.md) と承認済み Test Contract Packet を用いる。今回の仕様整理には runtime test の追加・変更を含めない。

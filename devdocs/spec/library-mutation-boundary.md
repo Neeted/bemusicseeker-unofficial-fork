@@ -107,17 +107,19 @@ The old `BmsLibraryInitializationServiceTests` selector is absent from the route
 
 ## File / DB durable boundary
 
+アプリ全体の FS+DB の保証・非保証、前方回復、失敗の表示、レビューで受け入れる制限は [file-db-consistency.md](file-db-consistency.md) を正本とする。以下の `COMP-*` は `FileDbMutationExecutor` を使う既存経路の限定補償契約であり、削除等を含むすべての mutation に FS rollback を要求するものではない。この仕様整理だけでは、既存の補償や caller の挙動を変更しない。
+
 package install、estimated install、smart overwrite、folder move、merge、自動リネームは、共通の file/DB mutation boundary を使う。各 command は immutable な preflight plan を完成させてから executor を呼び、executor は destination filesystem 内の sibling staging / backup を使う。source は DB の durable success まで削除しない。
 
 executor の receipt は commit 前後を区別する terminal state を持つ。
 
 - `COMP-PREFLIGHT`: plan 完成まで filesystem / DB mutation は 0。staging と backup は destination の sibling でなければならない。
-- `COMP-PRECOMMIT`: durable receipt 前の failure は source と DB の prior state を保持し、batch に一つだけ指定された owner が exactly once の best-effort compensation を行う。
+- `COMP-PRECOMMIT`: durable receipt 前の failure は source を保持し、DB 側の rollback と結果判定は gateway の transaction 契約に従う。同じ plan 内の promoted destination の取り消しと backup 復元は、指定された一つの owner が一回限りの best-effort compensation として行い、その成功時だけ FS 側の補償完了として扱う。別 item の durable success は取り消さず、補償失敗は `COMP-MANUAL` に従う。FS+DB 全体の原子性は主張しない。
 - `COMP-MANUAL`: compensation failure は `ManualRecoveryRequired` とし、処理を直ちに停止する。source / backup / staging と recovery paths を保持し、後続 cleanup、再帰補償、自動 replay を行わない。
 - `COMP-DURABLE`: durable success 後は compensate しない。destination と DB を authoritative とし、receipt 前の cleanup は行わない。
 - `COMP-DURABLE-FINALIZATION`: durable filesystem / DB receipt 後の内部 finalizer exception は `DurableFinalizationFailed` とする。`DurableCommit=true`、compensation=0 とし、destination と DB を authoritative に保持する。finalization exception は receipt に保持し、cleanup exception が併発した場合も両方の診断事実と recovery paths を保持する。batch はその item で停止し、後続 mutation と通常 success publication を行わない。
 - `COMP-CLEANUP`: durable success 後の cleanup failure は `CompletedWithCleanupFailure` とし、leftover と recovery paths を保持する。fresh install / pending retry には戻さない。
-- `COMP-SUCCESS`: destination と DB が authoritative で、apply と post-commit cleanup / notification は各一回で完了する。
+- `COMP-SUCCESS`: destination と DB が authoritative で、必要な内部 apply と post-commit cleanup が完了する。post-lease notification は下記の best-effort 契約に従い、通知失敗で durable result を変更しない。
 
 receipt と recovery paths は package / folder command の public result と UI workflow completion まで保持する。legacy の void / failure-list だけで terminal outcome を表現してはならない。
 

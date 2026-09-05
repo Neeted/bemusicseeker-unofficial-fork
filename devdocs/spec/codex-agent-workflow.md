@@ -266,6 +266,8 @@ behavior / design finding を blocking とするには、次を一組で示す�
 
 production reachability または observable impact を示せない runtime-state 仮説は `theoretical / unreachable` または out-of-scope とし、現在の unit の production / test 変更を要求しない。private/direct invocation、reflection、fake-only setup、code representability は reachability evidence ではない。invalid state を ingress で防げる場合は downstream recovery を要求せず、明示承認のない新しい state、retry、replay、rollback、recovery lifecycle、abstraction を non-blocking recommendation から現在の scope へ取り込まない。
 
+FS+DB の finding は [file-db-consistency.md](file-db-consistency.md) section 7 の分類と終了基準を併用し、許容済みの残留リスクと契約違反を区別する。共通方針を理由に機能固有の既存補償を黙って取り除くことも、理論的な failure の追加だけで新しい復旧保証を要求することも行わない。
+
 blocking finding の修正後は、影響範囲の Quick と必要な統合検証を行い、fix delta、previous snapshot、previous findings、更新した packet があればその authority を fresh reviewer へ渡す。同じ unit で2回の修正 review 後も新しい P1 が続く場合は、finding を継ぎ足さず、ownership、scope、acceptance、packet、unit 分割を再計画する。
 
 ## 9. agent が利用できない場合

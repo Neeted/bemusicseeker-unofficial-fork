@@ -67,6 +67,8 @@ WPF binding collectionはUI read modelとして扱い、所有者のUI scheduler
 
 破壊的chart / package operationは [library-mutation-boundary.md](library-mutation-boundary.md) を正本にする。
 
+FS と DB を跨ぐ操作の保証範囲、補償、前方回復、失敗結果と許容する制限は [file-db-consistency.md](file-db-consistency.md) を正本にする。既存の機能固有の補償と、全操作に要求する保証を区別する。
+
 ## Native bridge policy
 
 Everythingが使える場合、通常起動のfile enumerationは`EBridge_ScanChartAndResources`を使う。chart-relative resource keyとreverse lookup surfaceをnative resultに含める。Everythingが使えない場合はmanaged fallback scanを使うが、旧native ABIやcontract mismatchへの互換fallbackは行わない。

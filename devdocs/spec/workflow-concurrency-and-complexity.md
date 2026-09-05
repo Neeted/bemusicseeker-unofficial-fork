@@ -207,6 +207,8 @@ shutdown後のapplyを防ぐためoperationToken追加
 
 ### 5.4 Commit and publication
 
+FS と DB を跨ぐ場合の成功・部分失敗、限定補償、前方回復、非収束の許容範囲は [file-db-consistency.md](file-db-consistency.md) に従う。ここでいう commit の順序は複数 surface の原子性を意味しない。
+
 - multi-step、破壊的、または複数 durable surface を跨ぐ mutation は immutable mutation plan を作成してから適用する。単一 owner 内の単純な atomic update は typed request と transaction invariant で足りる。
 - commit 前の検証、durable commit、authoritative in-memory apply、required publication の順序を一つの owner が定義する。
 - required publication failure を通常の `Completed` に埋め込まない。
