@@ -1121,9 +1121,9 @@ public sealed class SettingsWindowPresentationTests
                     {
                         window.CloseForOwnerShutdown();
                     }
-                    if (owner?.IsVisible == true)
+                    if (owner != null)
                     {
-                        owner.Close();
+                        CloseMainWindowThroughShutdownWorkflow(owner, lifetime);
                     }
                     context.Settings.Dispose();
                     shellViewModel.SettingDialog.Dispose();
@@ -1771,10 +1771,11 @@ public sealed class SettingsWindowPresentationTests
             object previousVmResource = hadPreviousVmResource ? Application.Current.Resources["vm"] : null;
             ExceptionDispatchInfo bodyFailure = null;
             Exception cleanupFailure = null;
+            DangerApplicationLifetime startupLifetime = null;
             try
             {
                 var startupEvents = new List<string>();
-                var startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
+                startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
                 var startupSettingsSession = new DangerSettingsEditSession(new Settings(), startupEvents);
                 var composition = new ApplicationComposition(
                     settingsEditSession: startupSettingsSession,
@@ -1896,11 +1897,11 @@ public sealed class SettingsWindowPresentationTests
                 {
                     cleanupFailure ??= exception;
                 }
-                if (mainWindow?.IsVisible == true && owner != null)
+                if (mainWindow != null && owner != null)
                 {
                     try
                     {
-                        CloseMainWindowThroughShutdownWorkflow(mainWindow, owner);
+                        CloseMainWindowThroughShutdownWorkflow(mainWindow, startupLifetime);
                     }
                     catch (Exception exception)
                     {
@@ -2950,17 +2951,20 @@ public sealed class SettingsWindowPresentationTests
             .SetValue(settings, "invalid mapping URI");
     }
 
-    private static void CloseMainWindowThroughShutdownWorkflow(MainWindow window, MainWindowViewModel viewModel)
+    private static void CloseMainWindowThroughShutdownWorkflow(
+        MainWindow window,
+        DangerApplicationLifetime lifetime)
     {
-        Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-        PumpUntil(
-            window.Dispatcher,
-            () => closeRequest.IsCompleted,
-            "The shell shutdown workflow did not complete within the bounded UI pump.");
-        closeRequest.GetAwaiter().GetResult();
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        window.Closed += (_, _) => closed.TrySetResult();
         window.Close();
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "settings-owner-terminal");
+        if (!closed.Task.IsCompleted)
+        {
+            window.Close();
+        }
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(closed.Task, "settings-owner-closed");
     }
-
     private static void PumpDispatcher(Dispatcher dispatcher)
     {
         dispatcher.Invoke(DispatcherPriority.Input, new Action(() => { }));
@@ -3327,9 +3331,9 @@ public sealed class SettingsWindowPresentationTests
                         settingsWindow.CloseFromPresentation();
                     }
 
-                    if (owner?.IsVisible == true)
+                    if (owner != null)
                     {
-                        CloseMainWindowThroughShutdownWorkflow(owner, viewModel);
+                        CloseMainWindowThroughShutdownWorkflow(owner, startupLifetime);
                     }
                 }
                 catch (Exception exception)
@@ -3482,9 +3486,9 @@ public sealed class SettingsWindowPresentationTests
                         createdSettingsWindow.CloseFromPresentation();
                     }
 
-                    if (owner?.IsVisible == true)
+                    if (owner != null)
                     {
-                        CloseMainWindowThroughShutdownWorkflow(owner, viewModel);
+                        CloseMainWindowThroughShutdownWorkflow(owner, startupLifetime);
                     }
                 }
                 catch (Exception exception)
@@ -4032,6 +4036,10 @@ public sealed class SettingsWindowPresentationTests
 
         internal int ShutdownRequestCount { get; private set; }
 
+        /// <summary>既存 lifetime request の実完了を Window cleanup へ通知する。</summary>
+        internal TaskCompletionSource ShutdownRequested { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public void CompleteFirstStartup()
         {
             firstStartup = false;
@@ -4047,6 +4055,7 @@ public sealed class SettingsWindowPresentationTests
         {
             ShutdownRequestCount++;
             events.Add("shutdown-request");
+            ShutdownRequested.TrySetResult();
         }
 
         public Task RestartApplicationAsync() => Task.CompletedTask;

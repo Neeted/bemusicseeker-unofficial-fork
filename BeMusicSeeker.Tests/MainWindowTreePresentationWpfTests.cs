@@ -381,14 +381,20 @@ internal static class MainWindowPresentationTestHarness
         {
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
-            bool windowClosed = false;
+            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var lifetime = new PresentationApplicationLifetime();
             bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
             object? previousViewModelResource = hadPreviousViewModelResource
                 ? Application.Current.Resources["vm"]
                 : null;
             try
             {
-                viewModel = MainWindowViewModelTestFactory.Create(settings);
+                viewModel = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(settings),
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                    .CreateMainWindowViewModelForTest();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(!allowStartupUiInteraction);
                 Application.Current.Resources["vm"] = viewModel;
@@ -402,6 +408,7 @@ internal static class MainWindowPresentationTestHarness
                     zeroNoteRecheckTerminal: zeroNoteRecheckTerminal,
                     columnResetTerminal: columnResetTerminal,
                     rootFolderUnregisterTerminal: rootFolderUnregisterTerminal);
+                window.Closed += (_, _) => windowClosed.TrySetResult();
                 TestUiDispatcherHost.Drain();
                 test(viewModel, window);
             }
@@ -409,14 +416,17 @@ internal static class MainWindowPresentationTestHarness
             {
                 try
                 {
-                    if (window != null && viewModel != null && !windowClosed)
+                    if (window != null && !windowClosed.Task.IsCompleted)
                     {
-                        Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            closeRequest,
-                            "MainWindowTreePresentationWpfTests.window-close");
+                        // 実 Close が準備と terminal を開始する。準備 Task だけでは Window は閉じない。
                         window.Close();
-                        windowClosed = true;
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            lifetime.ShutdownRequested.Task,
+                            "MainWindowPresentationTestHarness.terminal-shutdown");
+                        window.Close();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            windowClosed.Task,
+                            "MainWindowPresentationTestHarness.window-closed");
                     }
                 }
                 finally
@@ -441,4 +451,20 @@ internal static class MainWindowPresentationTestHarness
         });
     }
 
+    /// <summary>実 Window の terminal 完了を観測し、共有 test Application の終了を抑止する。</summary>
+    internal sealed class PresentationApplicationLifetime : IApplicationLifetimePort
+    {
+        internal TaskCompletionSource ShutdownRequested { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public bool IsFirstStartup => false;
+
+        public void CompleteFirstStartup() { }
+
+        public void MarkCoordinatedShutdownStarted(string reason) { }
+
+        public void RequestShutdown() => ShutdownRequested.TrySetResult();
+
+        public Task RestartApplicationAsync() => Task.CompletedTask;
+    }
 }

@@ -8,11 +8,15 @@ BeMusicSeeker は DB 読み書き、譜面/アーカイブ/メタデータのフ
 
 ## 終了の入口
 
-通常終了では `MainWindow.OnClosing` が最初の `Closing` を一度キャンセルし、`ShellShutdownWorkflowOwner` の window-close request を開始する。準備が完了すると `MainWindow.ApplyTerminalShutdown` が window state を capture し、settings 保存、player/audio/一時領域の terminal cleanup を完了してから、composition 済みの `IApplicationLifetimePort.RequestShutdown()` を要求する。production adapter はここで WPF application shutdown を開始する。final lifetime boundary は差し替え可能だが、`MainWindow.OnClosing`、終了準備、terminal cleanupを短絡してはならない。
+通常終了では `MainWindow.OnClosing` が最初の `Closing` を一度キャンセルし、`ShellShutdownWorkflowOwner` の window-close request を開始する。準備が完了すると `MainWindow.ApplyTerminalShutdown` が window state を capture し、player close の実完了を非同期に待ち、UI 上の settings 保存、audio/一時領域の terminal cleanup を完了してから、composition 済みの `IApplicationLifetimePort.RequestShutdown()` を要求する。production adapter はここで WPF application shutdown を開始する。final lifetime boundary は差し替え可能だが、`MainWindow.OnClosing`、終了準備、terminal cleanupを短絡してはならない。
 
 自動アップデートでは、更新パッケージをダウンロードし、updater の起動情報を先に作成する。この時点で updater exe の作業ディレクトリへのコピーも済ませる。その後、通常終了と同じ `ShellShutdownWorkflowOwner` の準備を通し、既知の DB/IO/background worker が idle になってから updater process を起動し、同じ application-lifetime boundary へ shutdown を要求する。updater は現在の PID 終了を待ってから上書きを開始する。
 
 shutdown preparation は不可逆な終了準備として扱う。updater process の起動が終了準備後に失敗した場合、アプリを半終了状態で継続せず、terminal cleanup 後に同じ application-lifetime boundary へ shutdown を要求する。失敗内容はログへ残す。
+
+`CompleteTerminalShutdownAsync` は進行中・完了済みを含め同じ Task を返す。player の同期 close/drain は worker で実行し、その待機中も UI dispatcher は処理を継続する。window state capture → player close 実完了 → UI 上の設定保存（失敗通知を含む）→ audio runtime 解放 → application shutdown の順序を守る。設定保存失敗はログと通知を行い、既存どおり cleanup を継続する。
+
+準備完了の `IsCloseAllowed` だけでは terminal Window close を認可しない。`MainWindow` は terminal Task を await した後にだけ認可し、再入 `OnClosing` と `Closed` は同期 terminal cleanup を再実行しない。terminal 内の regular chart stop と DB process lock 最終確認も非同期に待つ。timeout、detach、強制 native 解放は追加しない。
 
 ## 終了準備で行うこと
 
@@ -43,7 +47,7 @@ IR player score の prefetch は ranking worker の開始前から走るため�
 
 `SQLiteConnectionEx` は `ShutdownOperationTracker` で接続 lifetime を tracking する。終了準備では tracker の active connection count が 0 になるまで待つ。shutdown 準備中に SQLite close 失敗が発生した場合は result に失敗件数を残し、終了ログに記録する。
 
-`CloseProcess` の LR2 song/score DB lock 確認は取得後に必ず unlock する。これは最終確認であり、通常は `PrepareShutdownAsync` 側で idle まで待機済みである。最終確認でも lock を取得できない場合は、warning threshold を超えた時点で warn ログを出し、lock を取得できるまで待つ。
+terminal cleanup の LR2 song/score DB lock 確認は取得後に必ず unlock する。これは最終確認であり、通常は `PrepareShutdownAsync` 側で idle まで待機済みである。最終確認でも lock を取得できない場合は、warning threshold を超えた時点で warn ログを出し、lock を取得できるまで待つ。
 
 coordinated shutdown 中に限り、SQLite close の `unable to close due to unfinalized statements or unfinished backups` 例外は非常用エラーダイアログを出さずログに残す。通常動作中の同じ例外は抑止しない。これは終了直前の表示ノイズを避けるための最後の保険であり、tracked idle まで待つ終了準備で安全な終了タイミングへ寄せることを主対策とする。
 
@@ -58,3 +62,15 @@ SQLite connection lifetime は tracking しているが、すべての DB 操作
 未処理例外時の `Environment.Exit(1)` は安全終了 coordinator を通らない。致命的例外ではプロセス終了を優先しているため、通常終了/自動アップデートと同等の整合性待ちは保証しない。
 
 進捗ダイアログ付きの手動ファイル操作など、一部の UI 起点処理は個別の cancellation token と progress dialog に依存している。終了要求時に UI 側でキャンセル可能なものは止めるが、完全な一覧化は今後の改善対象。
+
+## Verification map: terminal player drain
+
+- `MainWindowViewHostTests.MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose`: 実非表示 Window の通常終了・更新準備済み終了と再入 Close、player 待機中の UI marker、共有 owner Task、capture / save / audio / lifetime の順序。既存 shared WPF Application と native runtime を使うため class の DNP を維持し、native bootstrap のみを行い device は開かない。finally で gate、player、owner Task、Window、runtime を回収する。
+- `ShellShutdownWorkflowOwnerTests`: 一度だけの保存、player が最後に取得した placement の永続化、更新準備との合流、保存失敗時の UI 通知と cleanup 継続。既存 Settings / UI の DNP fixture を使う。
+- `ApplicationCompositionTests.CompositionSettingsLifecycleSharesSessionAcrossOpenEditReloadRedisplayAndShutdown`: 既存 settings session の共有契約を async terminal completion まで確認する。
+
+### terminal 中の再生操作
+
+terminal owner は最初の非同期待機より前に PlaybackPanel の再生受付を閉じる。UI command、直接の再生・操作入口、古い player exit による自動送りは以後 player を再起動・操作しない。受付閉鎖は UI 上で player/session lock を待たず、worker の解放処理が既存の曲選択 workflow、player operation の順に合流する。先行する曲解決が復帰しても新たな再生を開始しない。通常の停止・次曲・player 交換ではこの終端受付を閉じない。終了済み player の replay や切離しは行わない。
+
+検証: MainWindowViewHostTests の通常/更新済 Close、PlaybackPanelViewModelTests の終了受付・先行 navigation・通常Stop後再開を既存 session/交換 coverageと併用する。

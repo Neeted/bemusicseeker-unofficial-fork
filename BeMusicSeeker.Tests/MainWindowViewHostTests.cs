@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Threading;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
@@ -259,6 +261,7 @@ public sealed class MainWindowViewHostTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     closeRequest,
                     "MainWindowViewHostTests.MainWindowConstructorOnlyPresentsInitialSetupThroughCompiledOverlay.window-close");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(applicationLifetime.ShutdownRequested.Task, "overlay-terminal-shutdown");
                 window.Close();
                 windowClosed = true;
 
@@ -351,6 +354,211 @@ public sealed class MainWindowViewHostTests
         }
     }
 
+    // U3-T1/T2/T3: 実 Close から入り、同期 player 待機中も UI と終了順序を守る。
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose(bool prepareForUpdate)
+    {
+        var settings = CreateSettings(279d, false, 23d, 25d, 13d);
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel? viewModel = null;
+            MainWindow? window = null;
+            bool closed = false;
+            bool hadResource = Application.Current.Resources.Contains("vm");
+            object? previous = hadResource ? Application.Current.Resources["vm"] : null;
+            var dispatcher = Dispatcher.CurrentDispatcher;
+            bool saveOnUi = false;
+            bool audioActiveAtSave = false;
+            bool audioInactiveAtShutdown = false;
+            bool shutdownOnUi = false;
+            bool capturedBeforePlayer = false;
+            bool playerCompletedBeforeSave = false;
+            var session = new RecordingSettingsEditSession(settings, () =>
+            {
+                saveOnUi = dispatcher.CheckAccess();
+                audioActiveAtSave = CanEnterAudioOperation();
+                playerCompletedBeforeSave = completed.Task.IsCompleted;
+            });
+            var lifetime = new RecordingApplicationLifetime(onShutdown: () =>
+            {
+                audioInactiveAtShutdown = !CanEnterAudioOperation();
+                shutdownOnUi = dispatcher.CheckAccess();
+            });
+            var player = new FakeBmsPlayer(() =>
+            {
+                capturedBeforePlayer = settings.TreeViewWidth == 359d;
+                entered.TrySetResult(true);
+                release.Wait();
+                completed.TrySetResult(true);
+            });
+            Task? observation = null;
+            Task? marker = null;
+            try
+            {
+                Ribbit.Media.Audio.BassAudioRuntime.Initialize();
+                viewModel = CreateComposition(session, lifetime).CreateMainWindowViewModel();
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                Application.Current.Resources["vm"] = viewModel;
+                window = new MainWindow(viewModel);
+                window.Closed += (_, _) => closed = true;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "attach-player");
+                GetNamedElement<ColumnDefinition>(window, "gridColumn0").Width = new GridLength(359d);
+                if (prepareForUpdate)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.PrepareForStartupUpdateAsync("update"), "update-preparation");
+                }
+                observation = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        marker = dispatcher.InvokeAsync(() =>
+                        {
+                            Assert.IsFalse(completed.Task.IsCompleted);
+                            Assert.IsTrue(CanEnterAudioOperation(), "player drain 中は audio runtime を解放しない。");
+                            Assert.AreEqual(0, session.SaveCount);
+                            Assert.AreEqual(0, lifetime.RequestShutdownCount);
+                            Assert.IsFalse(closed);
+                            Assert.IsFalse(viewModel.PlaybackPanel.NextCommand.CanExecute, "終了開始後は次の再生操作を受け付けない。");
+                            Assert.IsFalse(viewModel.PlaybackPanel.StartCommand.CanExecute);
+                            Task first = viewModel.ShellShutdownWorkflow.CompleteTerminalShutdownAsync();
+                            Task second = viewModel.ShellShutdownWorkflow.CompleteTerminalShutdownAsync();
+                            Assert.AreSame(first, second);
+                            Assert.IsFalse(first.IsCompleted);
+                            window.Close();
+                            Assert.IsFalse(closed, "準備完了だけで再入 Close を通さない。");
+                        }).Task;
+                        await marker.WaitAsync(TimeSpan.FromSeconds(5));
+                    }
+                    finally
+                    {
+                        // UI が同期 close で停止する mutant でも外部 coordinator が必ず解放する。
+                        release.Set();
+                    }
+                });
+                window.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "player-drain-marker");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "terminal-shutdown");
+                Assert.IsTrue(capturedBeforePlayer);
+                Assert.IsTrue(playerCompletedBeforeSave);
+                Assert.IsTrue(saveOnUi);
+                Assert.IsTrue(audioActiveAtSave);
+                Assert.IsTrue(audioInactiveAtShutdown);
+                Assert.IsTrue(shutdownOnUi);
+                Assert.AreEqual(1, session.SaveCount);
+                Assert.AreEqual(1, player.CloseProcessCount);
+                Assert.AreEqual(1, lifetime.RequestShutdownCount);
+                window.Close();
+                Assert.IsTrue(closed);
+                Assert.AreEqual(1, player.CloseProcessCount);
+                Assert.AreEqual(1, session.SaveCount);
+            }
+            finally
+            {
+                release.Set();
+                try
+                {
+                    if (observation != null)
+                    {
+                        try { TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "marker-cleanup"); }
+                        catch { /* 本体の失敗を保持し、下で所有資源を回収する。 */ }
+                        if (marker != null)
+                        {
+                            try { TestUiDispatcherHost.AwaitTaskOnDispatcher(marker, "queued-marker-cleanup"); }
+                            catch { /* coordinator に伝播済みの assertion。 */ }
+                        }
+                    }
+                    if (viewModel != null)
+                    {
+                        // 早期 Window close の mutant で terminal が未開始でも実 owner を drain する。
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            viewModel.ShellShutdownWorkflow.CompleteTerminalShutdownAsync(), "owner-cleanup");
+                    }
+                    if (observation != null)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(completed.Task, "player-cleanup");
+                        if (!closed)
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "terminal-cleanup");
+                        }
+                    }
+                }
+                finally
+                {
+                    try { CleanupViewHost(window, closed, viewModel, hadResource, previous); }
+                    finally { Ribbit.Media.Audio.BassAudioRuntime.Shutdown(); }
+                }
+            }
+        });
+    }
+
+    private static bool CanEnterAudioOperation()
+    {
+        if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioOperation(out var lease))
+        {
+            return false;
+        }
+        lease.Dispose();
+        return true;
+    }
+
+    private sealed class FakeBmsPlayer : IBMSPlayer
+    {
+        private readonly Action? onClose;
+
+        internal FakeBmsPlayer(Action? onClose = null)
+        {
+            this.onClose = onClose;
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public string ExePath { get; set; } = string.Empty;
+        public TimeSpan Duration { get; set; }
+        public TimeSpan CurrentTime { get; set; }
+        public TimeSpan StopTime { get; set; }
+        public TimeSpan BmsDuration { get; set; }
+        public TimeSpan MusicDuration { get; set; }
+        public int CurrentVoices { get; set; }
+        public int MaxVoices { get; set; }
+        public int NoteDensity { get; set; }
+        public int NoteDensityMax { get; set; }
+        public int Bpm { get; set; }
+        public int MinBpm { get; set; }
+        public int MaxBpm { get; set; }
+        public double Total { get; set; }
+        public int Combo { get; set; }
+        public int Notes { get; set; }
+        public int Measure { get; set; }
+        public int LastMeasure { get; set; }
+        public int CloseProcessCount { get; private set; }
+
+        public void CloseProcess()
+        {
+            CloseProcessCount++;
+            onClose?.Invoke();
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurrentTime)));
+        }
+        public Task PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null) => Task.CompletedTask;
+        public void RestartPlayingBMSfile() { }
+        public void PausePlayingBMSfileToggle() { }
+        public void FastForwardPlayingBMSfileStart() { }
+        public void FastForwardPlayingBMSfileEnd() { }
+        public void FastBackwardPlayingBMSfileStart() { }
+        public void FastBackwardPlayingBMSfileEnd() { }
+        public void ShowInfo() { }
+        public void ShowEffect() { }
+        public void ChangePlayside() { }
+        public void IncreaseHighSpeed() { }
+        public void DecreaseHighSpeed() { }
+        public void VolumeChanged() { }
+    }
+
     private static void CleanupViewHost(
         MainWindow? window,
         bool windowClosed,
@@ -420,10 +628,12 @@ public sealed class MainWindowViewHostTests
     private sealed class RecordingApplicationLifetime : IApplicationLifetimePort
     {
         private readonly List<string>? events;
+        private readonly Action? onShutdown;
 
-        internal RecordingApplicationLifetime(List<string>? events = null)
+        internal RecordingApplicationLifetime(List<string>? events = null, Action? onShutdown = null)
         {
             this.events = events;
+            this.onShutdown = onShutdown;
         }
 
         internal TaskCompletionSource<bool> ShutdownRequested { get; } =
@@ -444,6 +654,7 @@ public sealed class MainWindowViewHostTests
         public void RequestShutdown()
         {
             RequestShutdownCount++;
+            onShutdown?.Invoke();
             events?.Add("application-shutdown");
             ShutdownRequested.TrySetResult(true);
         }

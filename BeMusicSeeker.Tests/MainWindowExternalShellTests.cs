@@ -38,11 +38,12 @@ public sealed class MainWindowExternalShellTests
             var gateway = new RecordingExternalShellGateway();
             MainWindow? window = null;
             MainWindowViewModel? viewModel = null;
+            var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
             try
             {
                 var composition = new ApplicationComposition(
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(),
+                    applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     externalShellGateway: gateway);
                 viewModel = composition.CreateMainWindowViewModel();
@@ -91,7 +92,7 @@ public sealed class MainWindowExternalShellTests
                 {
                     try
                     {
-                        CloseWindowThroughShutdownWorkflow(window, viewModel);
+                        CloseWindowThroughShutdownWorkflow(window, viewModel, lifetime);
                     }
                     catch (Exception exception)
                     {
@@ -138,11 +139,12 @@ public sealed class MainWindowExternalShellTests
         {
             MainWindow? window = null;
             MainWindowViewModel? viewModel = null;
+            var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
             try
             {
                 var composition = new ApplicationComposition(
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(),
+                    applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     externalShellGateway: new RecordingExternalShellGateway());
                 viewModel = composition.CreateMainWindowViewModel();
@@ -210,7 +212,7 @@ public sealed class MainWindowExternalShellTests
                 {
                     try
                     {
-                        CloseWindowThroughShutdownWorkflow(window, viewModel);
+                        CloseWindowThroughShutdownWorkflow(window, viewModel, lifetime);
                     }
                     catch (Exception exception)
                     {
@@ -237,48 +239,25 @@ public sealed class MainWindowExternalShellTests
         });
     }
 
-    private static void CloseWindowThroughShutdownWorkflow(MainWindow window, MainWindowViewModel viewModel)
+    private static void CloseWindowThroughShutdownWorkflow(
+        MainWindow window,
+        MainWindowViewModel viewModel,
+        MainWindowPresentationTestHarness.PresentationApplicationLifetime lifetime)
     {
-        Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-        if (!closeRequest.IsCompleted)
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        window.Closed += (_, _) => closed.TrySetResult();
+        try
         {
-            Dispatcher dispatcher = window.Dispatcher;
-            var frame = new DispatcherFrame();
-            bool watchdogExpired = false;
-            var watchdog = new DispatcherTimer(
-                TimeSpan.FromSeconds(5),
-                DispatcherPriority.ApplicationIdle,
-                (_, _) =>
-                {
-                    watchdogExpired = true;
-                    frame.Continue = false;
-                },
-                dispatcher);
-            closeRequest.ContinueWith(_ =>
-            {
-                dispatcher.BeginInvoke(
-                    DispatcherPriority.ApplicationIdle,
-                    new Action(() => frame.Continue = false));
-            });
-            watchdog.Start();
-            try
-            {
-                Dispatcher.PushFrame(frame);
-            }
-            finally
-            {
-                watchdog.Stop();
-            }
-            if (watchdogExpired)
-            {
-                throw new TimeoutException("MainWindow shutdown did not complete within the cleanup watchdog.");
-            }
+            window.Close();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "external-shell-terminal");
+            window.Close();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(closed.Task, "external-shell-closed");
         }
-
-        closeRequest.GetAwaiter().GetResult();
-        window.Close();
+        finally
+        {
+            viewModel.SettingDialog.Dispose();
+        }
     }
-
     private sealed class RecordingExternalShellGateway : IExternalShellGateway
     {
         internal List<string> OpenedDirectoryPaths { get; } = [];

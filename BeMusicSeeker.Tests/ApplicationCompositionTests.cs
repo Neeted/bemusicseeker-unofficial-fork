@@ -1447,7 +1447,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
-    public void CompositionSettingsLifecycleSharesSessionAcrossOpenEditReloadRedisplayAndShutdown()
+    public async Task CompositionSettingsLifecycleSharesSessionAcrossOpenEditReloadRedisplayAndShutdown()
     {
         var values = new BeMusicSeeker.Properties.Settings
         {
@@ -1482,7 +1482,7 @@ public sealed class ApplicationCompositionTests
         Assert.IsFalse(redisplayed.OperationModeLR2DB);
         Assert.AreEqual(3, session.ReloadCount);
 
-        viewModel.ShellShutdownWorkflow.CompleteTerminalShutdown();
+        await viewModel.ShellShutdownWorkflow.CompleteTerminalShutdownAsync();
 
         Assert.AreEqual(2, session.SaveCount);
         CollectionAssert.AreEqual(

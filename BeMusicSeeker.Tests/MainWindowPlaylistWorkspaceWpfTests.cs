@@ -1553,13 +1553,24 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         {
             try
             {
-                Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    closeRequest,
-                    "MainWindowPlaylistWorkspaceWpfTests.main-window-failed-close");
-                if (window?.IsVisible == true)
+                if (window != null)
                 {
+                    var closed = NewCompletion();
+                    window.Closed += (_, _) => closed.TrySetResult(null);
                     window.Close();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        lifetime.ShutdownRequested.Task,
+                        "MainWindowPlaylistWorkspaceWpfTests.failed-terminal-shutdown");
+                    window.Close();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        closed.Task,
+                        "MainWindowPlaylistWorkspaceWpfTests.failed-window-closed");
+                }
+                else
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                        "MainWindowPlaylistWorkspaceWpfTests.failed-initialization-drain");
                 }
             }
             catch
@@ -2161,6 +2172,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             Root = root;
             ViewModel = viewModel;
             Window = window;
+            Window.Closed += (_, _) => windowClosed.TrySetResult(null);
             Playlist = playlist;
             Table = table;
             Lifetime = lifetime;
@@ -2183,19 +2195,24 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
         internal ModalPreparationRecorder ModalPreparation { get; }
 
+        private readonly TaskCompletionSource<object?> windowClosed = NewCompletion();
+
         private readonly bool hadPreviousViewModelResource;
 
         private readonly object previousViewModelResource;
 
         internal void Close()
         {
-            if (Window.IsVisible)
+            if (!windowClosed.Task.IsCompleted)
             {
-                Task closeRequest = ViewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    closeRequest,
-                    "MainWindowPlaylistWorkspaceWpfTests.fixture-close");
                 Window.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    Lifetime.ShutdownRequested.Task,
+                    "MainWindowPlaylistWorkspaceWpfTests.fixture-terminal-shutdown");
+                Window.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    windowClosed.Task,
+                    "MainWindowPlaylistWorkspaceWpfTests.fixture-window-closed");
             }
             ViewModel.SettingDialog.Dispose();
             if (hadPreviousViewModelResource)

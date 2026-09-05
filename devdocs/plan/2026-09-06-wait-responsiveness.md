@@ -1,4 +1,6 @@
-# 待機経路の応答性改善
+# 待機経路の応答性改善（完了記録）
+
+U1（4599b0d1）、U2（9010aed3）、U3（本記録の最終更新と同じcommit）の実装・検証・静的確認を完了。最終Functionalは4502成功/13skip/失敗0、188.8秒。updater/Everything、SQLiteの待機予算、native workerの強制切離しは対象外。以下の実施履歴には途中失敗と未実施の独立検証も保持する。
 
 ## Goal / Context
 
@@ -17,7 +19,7 @@
 - 変更した API の契約コメントと現行 feature spec を日本語で更新する。新しい UI 文言が必要なら全言語 resource parity を揃える。
 - 各 unit は直列実装。worker は commit せず root が unit ごとに commit する。push / version / release 操作は対象外。
 
-## Draft units / ownership / Done when
+## 実装単位 / ownership / Done when
 
 ### U1: IR 取得の期限と shutdown cancellation
 
@@ -148,7 +150,7 @@ U3 final ownership: ShellShutdownWorkflowOwner.cs、MainWindow.cs、必要なMai
 
 Quick: `FullyQualifiedName~ShellShutdownWorkflowOwnerTests|FullyQualifiedName~MainWindowViewHostTests|FullyQualifiedName~PlaybackPanelViewModelTests`。workerは標準Quick、rootは最終Functional→fresh review→commit。
 
-## 実施状況
+## 実施履歴（各時点の記録）
 
 - 計画点検: `wait_plan_check` 完了。U2 の DB 成功後 UI 反映失敗についてユーザー回答を得て解決。全3 unit は packet 必須、直列実装。review は検証後・commit 前に行う。
 - test packet: U1/U2/U3 承認済み。
@@ -175,3 +177,43 @@ coverage: BmsPlaylistPersistenceLifecycleTestsに1case追加、既存class DNP/s
 - U2 review修正: R5-F1 red031235は実file衝突後のreadiness未終端を5.7991秒で検出、finally shutdownで回収。readiness開始後の同期後処理に既存FailRequiredPlaylistReadiness+元例外rethrowを追加。Quick031345 26/26pass（6.6797秒、build/test65.9秒、fingerprint不変）。新1caseでDB/live保持と元IOException identityを確認、元URI admission既存coverage再利用。fresh fix-delta reviewへ渡す。
 
 - U2 fresh fix-delta review restore_fix_review: blocking findingなし、前回P1解消。readiness consumer/packet/red/Quick/仕様整合確認済み。最終FunctionalはU3後に実施する。
+
+- U2 commit: 9010aed3。U3実装完了。追加ownershipはApplicationCompositionTests.csの既存terminal caller1methodのみasync適合、assertion semantics維持。旧同期caller退役、PlaybackPanel APIは変更不要。実MainWindow通常/更新準備済2caseでUI marker・再入Close・owner sharedTask・settings/UI affinity・audio受付順序を確認。
+- U3最終Quick033128:77/77pass（test15.8827秒、build/test47.5秒）、fingerprint72B0978B15721C2B743DED11D6EF5902CDD96AB1EB1106719685901F2696D045不変、whitespace/UTF8LF確認。base red031943 UI marker停止8.5787秒。単独mutant032652二回目CompletedTask4.0462秒、032918 IsCloseAllowed迂回8.5150秒、033019 player await欠落で早期audio終了3.7900秒を検出し復旧済み。compile failure032115/032206、旧testのcompletion待ち不足032420、whitespace failure032557、旧cleanup問題032751はgreen/red証拠から除外。cleanup補強後owner/native/Window/queued markerを回収。最終Functional→fresh reviewへ進む。
+- 共有user.configの先行failure補足: 読み込みの実stackは確認したが、競合writerそのものは未特定。直接configを書き換えるPlayerPanelStateSettingsCompatibilityTestsはportable専用hostで先行実行されるため、そのfixtureを今回の原因と断定しない。製品diffへの因果未確認として結果を保持する。
+
+- U3 Functional033304: portable設定互換testの共有config原子的置換がIOExceptionで失敗。testhost残留なし、ReadOnlyなし、排他read可能を確認。対象Quick033407は2/2pass（2.7664秒）、同code/snapshotの診断後Functional033445ではportable成功。その全体runはserial-state-bで55件のmanaged Window残留failure、原因は複数既存Window helperが準備Taskだけ待ってCloseを完了扱いしていたU3追従漏れと特定。時限延長やassertion削除なし。
+- U3追加ownership（同invariantのcleanup mechanicsのみ）: MainWindowTreePresentationWpfTests / MainWindowPackageMaintenanceWpfTests / MainWindowProgressStatusBarWpfTests / MainWindowPlaylistWorkspaceWpfTests の既存Window helper/fixture。実Window.Close→composed terminal lifetime→実Closed完了待ちへ適合。VM-only preparation callerは維持、製品変更なし。共有のinert lifetime adapterをTree helperで再利用し、Playlistは既存RecordingApplicationLifetimeを使用。
+- 追従後Quick034230:173/173pass（test69.0573秒、build/test82.8秒）、fingerprint18F7995D1C7B17B95B23CB0BA4BBA0FB93086CB68865FAF96072DAEB7B4F0193不変。影響9fixtureとU3既存filterを検証し、UTF8LF/whitespace成功。最終Functionalへ進む。
+
+- Functional034446:serial-state-bにMainWindowExternalShellTestsの同型cleanup漏れ2failure、他完了hostはpass（remaining完了前にrunner回収）。新規Window生成/RequestWindowCloseAsyncを全Testsで検索し、名称Wpfだけの検索で漏れたcleanupを閉じた。追加ownershipはMainWindowExternalShellTestsのWindow後片付け2case、SettingsWindowPresentationTestsのCloseMainWindowThroughShutdownWorkflow/helperと4callerの明示lifetime接続・Closed回収。通常assertion/U2復元契約は維持、VM-only呼出しは変更なし。専用DispatcherFrameを既存AwaitTaskOnDispatcherへ退役。
+- 全MainWindow構築は14箇所/7fileを確認。External2、Settings4、ViewHost4、Tree/Package/Progress/Playlist各1、継承/Activator生成なし。残るRequestWindowCloseAsyncはowner-only/VM-only/window-null分岐/実Close後観測のみ。Quick035055は34/34pass（9.1524秒、build/test21.6秒）、fingerprintBAA507E30F4AFD572BBBF989634CA01A5232975DC0C5966712A7BEDEF152EDBC不変、UTF8LF/whitespace成功。再度最終Functionalへ進む。
+
+- 最終Functional035224成功: 全6host合計4500pass/13skip/0failure、test execution185.7秒（retained ExitTime基準、300秒budget内、180秒reporting target超過）。fingerprint67B2D4B113C769F36531406C7E176E43D71EDC247E368E5E229D94FF045821D2不変。先行progress failure/config file競合/window残留は再発なし。先行failed runを隠さず記録保持、U3 frozen static reviewへ渡す。
+
+## U3 review修正と承認済packet: U3-T4-shutdown-admission
+
+shutdown_static_reviewはP1を報告: terminal worker close待機中の実PlaybackPanel NextCommand→Next/StartAtIndex/TryPlayStartがclose後にplayerを再使用し、外部process再起動/audio終了競合へ到達する。root採用。UI応答性だけから競合再生を許可しない。独立shutdown_admission_contractのoracle-first/PhaseB packetを承認。authorityはU3 player→settings→audio→app、通常Stop/交換互換、concurrency §§2–3/13、root T4。observable gapなし、command非同期完了観測の制約は下記。
+
+確定設計: PlaybackPanelに終了中の受付を表す短命boolを一つ置き、Shell terminalの最初のawait前に明示BeginShutdownで不可逆に閉じ、既存generationで古いstart/exitを失効させる。command CanExecuteと実execution/queuedAction、通常player開始/control入口で閉鎖を検査。終了中の通常入力はnoop拒否し、新failure dialogを出さない。terminalの実closeはworker上で既存workflowGateへ合流して先行workflowを回収し、その後既存playerOperationGateでcloseする。UI上でworkflowGate待ちをせず、ownerlock中にUIcallback待ちを追加しない。通常Stop/通常close/交換で永久閉鎖せず、disk state/session ledger/retry/replay/detach/new recoveryなし。所有追加はPlaybackPanelViewModel.csとPlaybackPanelViewModelTests.cs、既存Shell/ViewHost/specの関連部分のみ。
+
+| ID | invariant / production route | coverage / wrong variant |
+| --- | --- | --- |
+| U3T4a | 実Window.Close→terminal最初await前受付閉鎖。以後UIcommand/direct入口/登録済exit自動Nextから新start/通常controlの増分0。command availability閉鎖、UImarker、T1-T3順序維持 | MainWindowViewHostTests既存gated通常/更新済2caseをextend、T4前snapshotでred。CanExecuteだけ/受付閉鎖遅延/旧exit受理を検出 |
+| U3T4b | 合法2譜面の先行Nextが既存workflow内queue解決で待つとき、実closeは先行workflowを追越さず、受付閉鎖後まだ開始していないstartを実行しない。両Taskjoin後も新startなし | PlaybackPanelViewModelTestsをextend、実MainChartListPlaybackQueueを委譲するGetRow gate wrapper、owned Next/terminal Taskをjoin。workflow合流除去/遅い再入口check除去mutant |
+| U3T4c | terminal前の通常Next/StopとStop後Start、既存player replacement互換 | 既存normal navigation/exit/Stop/交換coverage再利用、不足Stop→Startのみextend。通常Stopで永久閉鎖する誤実装を検出 |
+
+元の開始済player呼出しの完了とterminal自身closeは『禁止する新control』から除外。内部FIFO/privategate形状/訳文/内部順序/所要時間は固定しない。UIcommandはfire-and-forgetのためExecute直後のcount0を完了証拠にしない。実WindowはCanExecute/同期拒否を観測、raceはownedTaskでNext/terminalを回収しwiringを静的確認。新test-only完了API不要。既存DNP/sharedWPF/runtime、固有2譜面、既存UIhost、finally全gate/task/Window/native回収。新visible/process/reflection/sourceassert/fixedsleepなし。
+
+Quick: `FullyQualifiedName~MainWindowViewHostTests|FullyQualifiedName~PlaybackPanelViewModelTests|FullyQualifiedName~ShellShutdownWorkflowOwnerTests`。T4前U3snapshotのWindow redを先に取得、新terminalAPIがbaseにないowner caseは理由を記録し単独mutant。rootは修正後Functional/fresh fix-delta reviewを担当。
+
+- T4 fallback: worker新規/旧worker再開がthread limitで失敗したため、workflow §9の逐次代替でrootが実装。独立designer packetは利用済み。最初のred041038は実Windowの通常/更新済2caseで終了中CanExecute=trueを検出（041950ではなく040950はCanExecute API誤用compile failureとして除外）。初回Quick041403は78/78pass、test16.4233秒、build/test86.9秒。
+- T4 mechanics amendment: BeginShutdownはUIからsessionGateを取得しない。既存controlはそのlock内で外部playerを呼ぶため、新たなUI待機を作らないようvolatile boolで受付を閉じる。全current observation判定もflagを見るため、ここでのgeneration加算は不要として削除。generation更新と先行control待ちはworker closeの既存境界に残す。close済playerへ遅れて到着する通常stopはplayerOperationGate内のflag確認でterminal closeに委ねる。通常Stopの互換は維持。
+- T4b evidence amendment（独立designer確認済み）: queue解決中Next→同期受付閉鎖→queue解放→Next/terminal双方join後の新startなしは決定的に検証。close時のqueue解放済assertionは補助。workflowGate取得試行の既存signalがないため、合流だけを除去するmutantの決定的検出は未立証と明記し、static reviewのlock order確認で補う。新test-only API/private reflection/thread state/fixedsleepを導入しない。
+
+- T4 negative control041733: queue解決から復帰した旧workflowが受付flagを再開する単独mutantをT4bが追加PlayStartとして検出（2.0779秒）。復元後Quick041825はCopy-Itemの旧timestampによりmutant時DLLをincremental buildが再使用し1failure。保存済み正本とのbyte内容一致/flag再開なし/ソースとDLLのtimestampを確認し、File.WriteAllTextで内容同一のソースを再保存。再build Quick041948は78/78pass（test15.9133秒、build/test42.5秒）、fingerprint89E76F96B4E21F5F0B508EFF963C84E5016007E9EAC70B90362163D29D31995A不変。041825はhead品質証拠から除外し失敗記録を保持する。
+
+- T4 Functional042052は専用portable-settings hostの最初のround-tripで既存File.Replaceの『置換されるファイルを削除できません』を再検出。後続並列host開始前の失敗。残留testhostなし、ReadOnlyなし、失敗後の排他read成功。独立sqlite_investigationがfixture/provider/Settings初期化/runner順序を調査し、未Dispose streamや同時test ownerの証拠なし、holder不明。Defender等の稼働だけで原因とは断定しない。Quick042214は2/2pass（2.4311秒、build/test8.1秒）、同codeでの独立固有ファイル置換probe32回成功。初回PowerShell probeのnull引数変換エラーは原因証拠に使わない。新retry/wait/runner変更なし。
+- T4最終Functional042306成功: 4502pass/13skip/0failure、全6host完了、retained ExitTime実行188.8秒（300秒budget内、180秒target超過）。fingerprint39CDE3F200E43EE5B954D8F8C1C6285B35EDD8E28E383002865A2760E23F77D4不変。初回failed runを保持し、UI/player/DB復元/IRを含む最終codeを確認。fresh fix-delta reviewへ渡す。
+
+- U3 fresh fix-delta review shutdown_admission_fix_review: blocking findingなし、前回P1解消。受付閉鎖、先行workflow→player operation合流、通常Stop/Next/交換互換、packet/evidenceを確認。合流除去mutantの決定的検出は未立証のまま明示し、静的lock順確認で補完した。独立review中rootは全repo操作を停止。U3実装はworker起動上限によりroot逐次代替、独立oracleと最終reviewは実施済み。U1の独立review未実施は上記記録どおり。全unit完了。

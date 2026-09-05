@@ -48,6 +48,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private long playbackGeneration;
 
+    private volatile bool shutdownStarted;
+
     private BMSFile nowPlayingBmsFile;
 
     private BMSFile displayedBmsPlayerFile;
@@ -179,9 +181,56 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     public ViewModelCommand IncreaseHighSpeedCommand => increaseHighSpeedCommand ??= CreateBackgroundCommand(IncreaseHighSpeed, "PlaybackPanel.IncreaseHighSpeed");
     public ViewModelCommand DecreaseHighSpeedCommand => decreaseHighSpeedCommand ??= CreateBackgroundCommand(DecreaseHighSpeed, "PlaybackPanel.DecreaseHighSpeed");
 
-    private static ViewModelCommand CreateBackgroundCommand(Action action, string routeName)
+    private ViewModelCommand CreateBackgroundCommand(Action action, string routeName)
     {
-        return new ViewModelCommand(async () => await System.Threading.Tasks.Task.Run(action).Logging(routeName));
+        return new ViewModelCommand(async () =>
+        {
+            if (shutdownStarted)
+            {
+                return;
+            }
+            await Task.Run(() =>
+            {
+                if (!shutdownStarted)
+                {
+                    action();
+                }
+            }).Logging(routeName);
+        }, () => !shutdownStarted);
+    }
+
+    /// <summary>
+    /// 終了処理が UI を待機可能にする前に、再生操作の受付と古い終了 callback を失効させる。
+    /// 通常の停止では呼ばず、この owner の受付は再開しない。
+    /// </summary>
+    internal void BeginShutdown()
+    {
+        if (shutdownStarted)
+        {
+            return;
+        }
+        // sessionGate は通常の player control 中にも保持されるため、UI の終了受付では待たない。
+        // observation の current 判定もこの flag を見るので、generation の更新は不要。
+        shutdownStarted = true;
+        ViewModelCommand[] commands = [nextCommand, previousCommand, restartCommand, startCommand,
+            stopCommand, fastForwardStartCommand, fastForwardEndCommand, fastBackwardStartCommand,
+            fastBackwardEndCommand, showInfoCommand, showEffectCommand, changePlaysideCommand,
+            increaseHighSpeedCommand, decreaseHighSpeedCommand];
+        foreach (ViewModelCommand command in commands)
+        {
+            command?.RaiseCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// 受付を閉じた後、先行する曲選択処理を回収して player を解放する。worker から呼ぶ。
+    /// </summary>
+    internal void CloseForShutdown()
+    {
+        lock (workflowGate)
+        {
+            CloseProcessCore(forShutdown: true);
+        }
     }
 
     internal void AttachLibrary(BMSLibrary library)
@@ -257,9 +306,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>有効な譜面の再生要求を投入する。終了受付後は false を返す。</summary>
     internal bool HandleTableRowActivation(int rowIndex, object row)
     {
-        if (rowIndex < 0
+        if (shutdownStarted || rowIndex < 0
             || rowIndex >= playbackQueue.Count
             || !GridRowResolver.TryGetBmsPlayerFile(row, out BMSFile bmsFile))
         {
@@ -272,10 +322,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return shouldSelectBmsPlayerSurface;
     }
 
+    /// <summary>queue の同一行を確認して再生する。終了受付後の待機済み要求は破棄する。</summary>
     internal void ExecuteTableRowActivation(int rowIndex, object expectedRow)
     {
         lock (workflowGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             if (rowIndex < 0 || rowIndex >= playbackQueue.Count)
             {
                 return;
@@ -479,7 +534,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             lock (sessionGate)
             {
-                if (bmsPlayer == null)
+                if (shutdownStarted || bmsPlayer == null)
                 {
                     RaisePropertyChanged(nameof(CurrentlyPlayingTime));
                     return;
@@ -730,7 +785,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
-    internal void CloseProcess()
+    /// <summary>通常の player close。終了受付後の遅い要求は terminal close に委ねる。</summary>
+    internal void CloseProcess() => CloseProcessCore(forShutdown: false);
+
+    private void CloseProcessCore(bool forShutdown)
     {
         IBMSPlayer player;
         lock (sessionGate)
@@ -743,9 +801,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             playbackGeneration++;
             player = bmsPlayer;
         }
-        CloseCapturedPlayer(player);
+        CloseCapturedPlayer(player, forShutdown);
     }
 
+    /// <summary>現行 session の player 開始を試みる。終了受付後や失効済みの要求は false を返す。</summary>
     internal Task<bool> TryPlayStart(long expectedGeneration, string bmsFilePath, Action<object, EventArgs> onExitEventHandler)
     {
         Task<bool> playStartTask = TryPlayStart(
@@ -769,7 +828,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         {
             player = RequirePlayer();
             file = NowPlayingBmsFile;
-            if (file == null || expectedGeneration != playbackGeneration)
+            if (shutdownStarted || file == null || expectedGeneration != playbackGeneration)
             {
                 observation = null;
                 return Task.FromResult(false);
@@ -950,7 +1009,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
     private bool IsCurrentPlaybackObservation(PlaybackStartObservation observation)
     {
-        return observation != null
+        return !shutdownStarted && observation != null
             && observation.Generation == playbackGeneration
             && ReferenceEquals(observation.Player, bmsPlayer)
             && ReferenceEquals(observation.File, NowPlayingBmsFile);
@@ -988,7 +1047,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         IBMSPlayer playerToClose;
         lock (sessionGate)
         {
-            if (observation != null && !IsCurrentPlaybackObservation(observation))
+            if (shutdownStarted || (observation != null && !IsCurrentPlaybackObservation(observation)))
             {
                 return false;
             }
@@ -1003,7 +1062,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         IBMSPlayer playerToClose;
         lock (sessionGate)
         {
-            if (generation != playbackGeneration || !ReferenceEquals(file, NowPlayingBmsFile))
+            if (shutdownStarted || generation != playbackGeneration || !ReferenceEquals(file, NowPlayingBmsFile))
             {
                 return false;
             }
@@ -1037,10 +1096,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>選択譜面の再生または一時停止を行う。終了受付後は操作しない。</summary>
     internal void Start(bool forceNewPlay = true)
     {
         lock (workflowGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             if (!forceNewPlay && NowPlayingBmsFile != null)
             {
                 TogglePause();
@@ -1055,10 +1119,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>次の有効な譜面へ進む。終了受付後の入力と自動送りは操作しない。</summary>
     internal void Next(object sender = null, EventArgs e = null)
     {
         lock (workflowGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             int index = NowPlayingRowIndex;
             if (index < 0 || index >= playbackQueue.Count)
             {
@@ -1113,10 +1182,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>前の有効な譜面へ戻る。終了受付後は操作しない。</summary>
     internal void Previous(object sender = null, EventArgs e = null)
     {
         lock (workflowGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             int index = NowPlayingRowIndex;
             if (index < 0 || index >= playbackQueue.Count)
             {
@@ -1209,9 +1283,17 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return index;
     }
 
+    /// <summary>曲選択の所有境界で指定行を再生する。終了受付後は操作しない。</summary>
     internal void StartAtIndex(int index)
     {
-        StartAtIndex(index, initialRow: null, useInitialRow: false);
+        lock (workflowGate)
+        {
+            if (shutdownStarted)
+            {
+                return;
+            }
+            StartAtIndex(index, initialRow: null, useInitialRow: false);
+        }
     }
 
     private void StartAtIndex(int index, object initialRow, bool useInitialRow)
@@ -1222,6 +1304,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     ResolveCandidate:
         while (remainingCandidates > 0)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             object row;
             try
             {
@@ -1265,7 +1351,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
         }
 
+        if (shutdownStarted)
+        {
+            return;
+        }
         long generation = BeginPlayback(bmsFile, index);
+        if (shutdownStarted)
+        {
+            return;
+        }
         playbackQueue.SelectedIndex = index;
         playbackChart ??= ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false);
         string installDestination = playbackChart?.InstallDestination;
@@ -1535,6 +1629,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>譜面の準備 session を作成する。終了受付後は状態を変更しない。</summary>
     internal long BeginPlayback(BMSFile bmsFile, int rowIndex)
     {
         if (bmsFile == null)
@@ -1545,6 +1640,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         long generation;
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return playbackGeneration;
+            }
             ClearCurrentPlaybackStatus();
             playbackGeneration++;
             nowPlayingRowIndex = rowIndex;
@@ -1556,10 +1655,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return generation;
     }
 
+    /// <summary>利用できない候補を session から外す。終了受付後は状態を変更しない。</summary>
     internal void SkipUnavailablePlaybackCandidate(int rowIndex)
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             ClearCurrentPlaybackStatus();
             playbackGeneration++;
             NowPlayingBmsFile = null;
@@ -1572,11 +1676,16 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         DispatchPlaybackEvent(PlaybackStarted, expectedGeneration);
     }
 
+    /// <summary>通常の停止を行う。再開可能な受付を維持し、終了受付後は terminal に解放を委ねる。</summary>
     internal void StopPlayback(bool closeProcess = false)
     {
         IBMSPlayer playerToClose;
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             playerToClose = ClearPlaybackStateWithoutExternalCall(closeProcess);
         }
         CloseCapturedPlayer(playerToClose);
@@ -1595,7 +1704,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         return playerToClose;
     }
 
-    private void CloseCapturedPlayer(IBMSPlayer player)
+    private void CloseCapturedPlayer(IBMSPlayer player, bool forShutdown = false)
     {
         if (player == null)
         {
@@ -1603,6 +1712,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
         lock (playerOperationGate)
         {
+            // capture 済みの通常停止が terminal close 後に player を再度操作しない。
+            if (shutdownStarted && !forShutdown)
+            {
+                return;
+            }
             player.CloseProcess();
         }
         DispatchToUi(() =>
@@ -1617,10 +1731,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         });
     }
 
+    /// <summary>一時停止を切り替える。終了受付後は player を操作しない。</summary>
     internal void TogglePause()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             if (NowPlayingBmsFile != null)
             {
                 if (IsPlaying)
@@ -1639,18 +1758,28 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>再生位置を先頭へ戻す。終了受付後は player を操作しない。</summary>
     internal void RestartPlayingBmsFile()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             RequirePlayer().RestartPlayingBMSfile();
         }
     }
 
+    /// <summary>早送りを開始する。終了受付後は player を操作しない。</summary>
     internal void FastForwardStart()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             if (NowPlayingBmsFile != null)
             {
                 NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.FORWARD;
@@ -1660,10 +1789,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>早送りを終える。終了受付後は player を操作しない。</summary>
     internal void FastForwardEnd()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             if (NowPlayingBmsFile != null)
             {
                 NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.FORWARD;
@@ -1673,10 +1807,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>巻き戻しを開始する。終了受付後は player を操作しない。</summary>
     internal void FastBackwardStart()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             if (NowPlayingBmsFile != null)
             {
                 NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.BACKWARD;
@@ -1686,10 +1825,15 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>巻き戻しを終える。終了受付後は player を操作しない。</summary>
     internal void FastBackwardEnd()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             if (NowPlayingBmsFile != null)
             {
                 NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.BACKWARD;
@@ -1699,42 +1843,67 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         }
     }
 
+    /// <summary>player の情報表示を切り替える。終了受付後は操作しない。</summary>
     internal void ShowInfo()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             RequirePlayer().ShowInfo();
         }
     }
 
+    /// <summary>player の effect 表示を切り替える。終了受付後は操作しない。</summary>
     internal void ShowEffect()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             RequirePlayer().ShowEffect();
         }
     }
 
+    /// <summary>player のプレイ側を切り替える。終了受付後は操作しない。</summary>
     internal void ChangePlayside()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             RequirePlayer().ChangePlayside();
         }
     }
 
+    /// <summary>player のハイスピードを上げる。終了受付後は操作しない。</summary>
     internal void IncreaseHighSpeed()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             RequirePlayer().IncreaseHighSpeed();
         }
     }
 
+    /// <summary>player のハイスピードを下げる。終了受付後は操作しない。</summary>
     internal void DecreaseHighSpeed()
     {
         lock (sessionGate)
         {
+            if (shutdownStarted)
+            {
+                return;
+            }
             RequirePlayer().DecreaseHighSpeed();
         }
     }
@@ -1777,7 +1946,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         get => playbackSettings.PlayerVolume;
         set
         {
-            if (playbackSettings.PlayerVolume != value)
+            if (!shutdownStarted && playbackSettings.PlayerVolume != value)
             {
                 playbackSettings.PlayerVolume = value;
                 RaisePropertyChanged(nameof(PlayerVolume));
@@ -1976,7 +2145,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             bool isCurrent;
             lock (sessionGate)
             {
-                isCurrent = expectedGeneration == playbackGeneration && NowPlayingBmsFile != null;
+                isCurrent = !shutdownStarted && expectedGeneration == playbackGeneration && NowPlayingBmsFile != null;
             }
             if (isCurrent)
             {

@@ -1012,14 +1012,20 @@ internal static class MainWindowPackageMaintenanceTestHarness
         {
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
-            bool windowClosed = false;
+            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
             bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
             object? previousViewModelResource = hadPreviousViewModelResource
                 ? Application.Current.Resources["vm"]
                 : null;
             try
             {
-                viewModel = MainWindowViewModelTestFactory.Create(settings);
+                viewModel = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(settings),
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                    .CreateMainWindowViewModelForTest();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
                 prepareViewModel?.Invoke(viewModel);
@@ -1055,6 +1061,7 @@ internal static class MainWindowPackageMaintenanceTestHarness
                 window.Top = SystemParameters.WorkArea.Top;
                 window.ShowActivated = false;
                 window.ShowInTaskbar = false;
+                window.Closed += (_, _) => windowClosed.TrySetResult();
                 TestUiDispatcherHost.Drain();
                 test(viewModel, window);
             }
@@ -1062,14 +1069,16 @@ internal static class MainWindowPackageMaintenanceTestHarness
             {
                 try
                 {
-                    if (window != null && viewModel != null && !windowClosed)
+                    if (window != null && !windowClosed.Task.IsCompleted)
                     {
-                        Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            closeRequest,
-                            "MainWindowPackageMaintenanceWpfTests.window-close");
                         window.Close();
-                        windowClosed = true;
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            lifetime.ShutdownRequested.Task,
+                            "MainWindowPackageMaintenanceTestHarness.terminal-shutdown");
+                        window.Close();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            windowClosed.Task,
+                            "MainWindowPackageMaintenanceTestHarness.window-closed");
                     }
                 }
                 finally

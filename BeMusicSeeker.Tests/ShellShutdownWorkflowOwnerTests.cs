@@ -79,8 +79,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
         await owner.RequestWindowCloseAsync();
         viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
-        owner.CompleteTerminalShutdown();
-        owner.CompleteTerminalShutdown();
+        await owner.CompleteTerminalShutdownAsync();
+        await owner.CompleteTerminalShutdownAsync();
 
         Assert.AreEqual(1, settingsSession.SaveCount);
         Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
@@ -112,8 +112,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
             var session = new RecordingSettingsEditSession(settings.Save, settings);
             var owner = CreateDirectOwner(viewModel, settingsEditSession: session);
 
-            owner.CompleteTerminalShutdown();
-            owner.CompleteTerminalShutdown();
+            await owner.CompleteTerminalShutdownAsync();
+            await owner.CompleteTerminalShutdownAsync();
 
             Assert.AreEqual(1, session.SaveCount);
             Assert.AreEqual(1, saveRequests);
@@ -129,7 +129,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void TerminalApplicationShutdownIsExplicitAndRequestedOnlyOnceAfterCleanup()
+    public async Task TerminalApplicationShutdownIsExplicitAndRequestedOnlyOnceAfterCleanup()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         var events = new List<string>();
@@ -139,7 +139,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             settingsEditSession: settingsSession,
             requestApplicationShutdown: () => events.Add("application_shutdown"));
 
-        owner.CompleteTerminalShutdown();
+        await owner.CompleteTerminalShutdownAsync();
         CollectionAssert.AreEqual(new[] { "settings_save" }, events);
 
         owner.RequestTerminalApplicationShutdown();
@@ -149,36 +149,58 @@ public sealed class ShellShutdownWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task TerminalSettingsSaveFailureIsWarnedAndCleanupContinues()
+    public void TerminalSettingsSaveFailureIsWarnedAndCleanupContinues()
     {
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        var warnings = new List<string>();
-        var settingsSession = new RecordingSettingsEditSession
+        TestUiDispatcherHost.RunWindowTest(_ =>
         {
-            SaveException = new InvalidOperationException("settings unavailable")
-        };
-        var player = new FakeBmsPlayer();
-        await viewModel.PlaybackPanel.ReplacePlayerAsync(player);
-        var notices = new List<Exception>();
-        int exitCount = 0;
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(RunAsync(), "settings-save-failure");
 
-        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
-            viewModel,
-            settingsEditSession: settingsSession,
-            logShutdownWarning: warnings.Add,
-            reportSettingsSaveFailure: notices.Add,
-            requestApplicationShutdown: () => exitCount++);
+            async Task RunAsync()
+            {
+                MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+                try
+                {
+                    var warnings = new List<string>();
+                    var settingsSession = new RecordingSettingsEditSession
+                    {
+                        SaveException = new InvalidOperationException("settings unavailable")
+                    };
+                    var player = new FakeBmsPlayer();
+                    await viewModel.PlaybackPanel.ReplacePlayerAsync(player);
+                    var notices = new List<Exception>();
+                    int exitCount = 0;
+                    bool noticeOnUi = false;
+                    var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
 
-        owner.CompleteTerminalShutdown();
-        owner.CompleteTerminalShutdown();
+                    ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+                        viewModel,
+                        settingsEditSession: settingsSession,
+                        logShutdownWarning: warnings.Add,
+                        reportSettingsSaveFailure: exception =>
+                        {
+                            noticeOnUi = dispatcher.CheckAccess();
+                            notices.Add(exception);
+                        },
+                        requestApplicationShutdown: () => exitCount++);
 
-        Assert.AreEqual(1, settingsSession.SaveCount);
-        Assert.AreEqual(1, player.CloseProcessCount);
-        StringAssert.Contains(string.Join("\n", warnings), "settings_save_failed");
-        CollectionAssert.AreEqual(new[] { settingsSession.SaveException }, notices);
-        owner.RequestTerminalApplicationShutdown();
-        owner.RequestTerminalApplicationShutdown();
-        Assert.AreEqual(1, exitCount);
+                    await owner.CompleteTerminalShutdownAsync();
+                    await owner.CompleteTerminalShutdownAsync();
+
+                    Assert.AreEqual(1, settingsSession.SaveCount);
+                    Assert.AreEqual(1, player.CloseProcessCount);
+                    StringAssert.Contains(string.Join("\n", warnings), "settings_save_failed");
+                    CollectionAssert.AreEqual(new[] { settingsSession.SaveException }, notices);
+                    owner.RequestTerminalApplicationShutdown();
+                    owner.RequestTerminalApplicationShutdown();
+                    Assert.AreEqual(1, exitCount);
+                    Assert.IsTrue(noticeOnUi);
+                }
+                finally
+                {
+                    viewModel.SettingDialog.Dispose();
+                }
+            }
+        });
     }
 
     [TestMethod]
@@ -193,7 +215,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         ShutdownPreparationResult preparation = await owner.PrepareForStartupUpdateAsync("update");
         Assert.AreEqual("update", preparation.Reason);
 
-        owner.CompleteTerminalShutdown();
+        await owner.CompleteTerminalShutdownAsync();
 
         Assert.AreEqual(1, settingsSession.SaveCount);
     }
@@ -272,7 +294,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
                 Assert.IsTrue(receipt.PreparationSucceeded);
                 Assert.IsTrue(receipt.CloseAllowed);
-                owner.CompleteTerminalShutdown();
+                await owner.CompleteTerminalShutdownAsync();
                 Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
             }
             catch (Exception exception)
@@ -367,7 +389,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void TerminalCleanupStartsCancellationWhenClosePreparationWasBypassed()
+    public async Task TerminalCleanupStartsCancellationWhenClosePreparationWasBypassed()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
@@ -380,7 +402,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
         owner.AttachLibrary(library);
         owner.AttachPlaylist(playlist);
-        owner.CompleteTerminalShutdown();
+        await owner.CompleteTerminalShutdownAsync();
 
         Assert.IsTrue(library.IsShutdownRequested);
         Assert.IsTrue(playlist.IsShutdownRequested);
@@ -519,8 +541,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
         await owner.RequestWindowCloseAsync();
-        owner.CompleteTerminalShutdown();
-        owner.CompleteTerminalShutdown();
+        await owner.CompleteTerminalShutdownAsync();
+        await owner.CompleteTerminalShutdownAsync();
 
         Assert.AreEqual(1, player.CloseProcessCount);
     }

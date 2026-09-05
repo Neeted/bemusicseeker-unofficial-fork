@@ -421,13 +421,20 @@ public sealed class MainWindowProgressStatusBarWpfTests
         {
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
+            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
             bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
             object? previousViewModelResource = hadPreviousViewModelResource
                 ? Application.Current.Resources["vm"]
                 : null;
             try
             {
-                viewModel = MainWindowViewModelTestFactory.Create(new Settings());
+                viewModel = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(new Settings()),
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                    .CreateMainWindowViewModelForTest();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
                 Application.Current.Resources["vm"] = viewModel;
@@ -454,6 +461,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     playbackTerminal: null,
                     playlistWorkspaceTerminals: null,
                     progressStatusBarTerminals: terminals);
+                window.Closed += (_, _) => windowClosed.TrySetResult();
                 TestUiDispatcherHost.Drain();
                 test(viewModel, window);
             }
@@ -461,13 +469,16 @@ public sealed class MainWindowProgressStatusBarWpfTests
             {
                 try
                 {
-                    if (window != null && viewModel != null)
+                    if (window != null && !windowClosed.Task.IsCompleted)
                     {
-                        Task closeRequest = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            closeRequest,
-                            "MainWindowProgressStatusBarWpfTests.window-close");
                         window.Close();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            lifetime.ShutdownRequested.Task,
+                            "MainWindowProgressStatusBarWpfTests.terminal-shutdown");
+                        window.Close();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            windowClosed.Task,
+                            "MainWindowProgressStatusBarWpfTests.window-closed");
                     }
                 }
                 finally

@@ -158,7 +158,7 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private bool updatePreparationFailurePending;
 
-    private bool terminalResourcesClosed;
+    private Task terminalShutdownTask;
 
     private int terminalApplicationShutdownRequested;
 
@@ -276,27 +276,53 @@ internal sealed class ShellShutdownWorkflowOwner
         }
     }
 
-    internal void CompleteTerminalShutdown()
+    /// <summary>
+    /// 終了資源の実完了を共有し、player の drain 後に UI 上で設定を保存する。
+    /// 多重要求も同じ Task を待ち、owner lock 中には処理を開始しない。
+    /// </summary>
+    internal Task CompleteTerminalShutdownAsync()
     {
+        TaskCompletionSource completion;
         lock (syncRoot)
         {
-            if (terminalResourcesClosed)
+            if (terminalShutdownTask != null)
             {
-                return;
+                return terminalShutdownTask;
             }
-            terminalResourcesClosed = true;
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            terminalShutdownTask = completion.Task;
         }
+        _ = CompleteTerminalShutdownAndPublishAsync(completion);
+        return completion.Task;
+    }
+
+    private async Task CompleteTerminalShutdownAndPublishAsync(TaskCompletionSource completion)
+    {
+        try
+        {
+            await dispatchToUi(CompleteTerminalShutdownCoreAsync).ConfigureAwait(false);
+            completion.TrySetResult();
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
+    }
+
+    private async Task CompleteTerminalShutdownCoreAsync()
+    {
+        playbackPanel.BeginShutdown();
         TryShutdownStep("set_ui_unblocked", () => startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false));
         Task regularChartListStop = BeginShutdownRequested("terminal_close");
         try
         {
-            regularChartListStop.GetAwaiter().GetResult();
+            await regularChartListStop.ConfigureAwait(true);
         }
         catch (Exception exception)
         {
             logShutdown("regularChartListStop_final_failed message=" + exception.Message);
         }
-        TryShutdownStep("player_close", playbackPanel.CloseProcess);
+        await Task.Run(() => TryShutdownStep("player_close", playbackPanel.CloseForShutdown)).ConfigureAwait(true);
         try
         {
             settingsEditSession.Save();
@@ -309,7 +335,7 @@ internal sealed class ShellShutdownWorkflowOwner
         TryShutdownStep("audio_native_runtime", Ribbit.Media.Audio.BassAudioRuntime.Shutdown);
         try
         {
-            WaitForLr2DbProcessLocksAsync(new ShutdownWaitTracker()).GetAwaiter().GetResult();
+            await WaitForLr2DbProcessLocksAsync(new ShutdownWaitTracker()).ConfigureAwait(true);
         }
         catch (Exception exception)
         {

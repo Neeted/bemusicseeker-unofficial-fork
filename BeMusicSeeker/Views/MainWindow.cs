@@ -1510,10 +1510,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         await Task.WhenAll(propertyCleanupTask, bulkCleanupTask).ConfigureAwait(true);
 
         CaptureWindowStateForClosing();
-        terminalWindowCloseAuthorized = true;
         if (viewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow)
         {
-            shellShutdownWorkflow.CompleteTerminalShutdown();
+            await shellShutdownWorkflow.CompleteTerminalShutdownAsync().ConfigureAwait(true);
+            terminalWindowCloseAuthorized = true;
             shellShutdownWorkflow.RequestTerminalApplicationShutdown();
         }
         else
@@ -1524,12 +1524,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void MainWindow_Closed(object sender, EventArgs e)
     {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         playlistLampViewerWindowManager.Dispose();
         CaptureWindowStateForClosing();
-        viewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
         UnsubscribeViewModelUiInteractions();
     }
 
@@ -1543,7 +1541,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     {
         MainWindowViewModel closingViewModel = base.DataContext as MainWindowViewModel;
         if (closingViewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow
-            && !shellShutdownWorkflow.IsCloseAllowed
             && !terminalWindowCloseAuthorized)
         {
             e.Cancel = true;
@@ -1575,7 +1572,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         playlistLampViewerWindowManager.CloseAll();
         base.OnClosing(e);
         CaptureWindowStateForClosing();
-        closingViewModel?.ShellShutdownWorkflow?.CompleteTerminalShutdown();
     }
 
     private void CaptureWindowStateForClosing()

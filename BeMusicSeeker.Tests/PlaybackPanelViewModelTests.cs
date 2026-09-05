@@ -1367,6 +1367,145 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    // U3T4a/c: 通常停止は再開可能だが、terminal 受付閉鎖後は直接入口と古い exit も無効。
+    [TestMethod]
+    public async Task PlaybackPanel_ShutdownRejectsPlaybackInputsButOrdinaryStopAllowsRestart()
+    {
+        string firstPath = Path.GetTempFileName();
+        string secondPath = Path.GetTempFileName();
+        var player = new FakeBmsPlayer();
+        var rows = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(firstPath), new TestBmsFile(secondPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(rows), new InMemoryPlaybackSettingsStore(),
+            new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer());
+        try
+        {
+            panel.Start();
+            panel.StopPlayback(closeProcess: true);
+            panel.Start();
+            Assert.AreEqual(2, player.Commands.Count(command => command == "PlayStart:" + firstPath));
+            Action<object, EventArgs> exit = player.ExitHandler!;
+            panel.BeginShutdown();
+            long prepared = panel.BeginPlayback((BMSFile)rows.Rows[0], 0);
+            string[] before = player.Commands.ToArray();
+
+            await Task.Run(() =>
+            {
+                exit(player, EventArgs.Empty);
+                panel.Next();
+                panel.Previous();
+                panel.Start();
+                panel.StartAtIndex(1);
+                panel.ExecuteTableRowActivation(1, rows.Rows[1]);
+                panel.StopPlayback(closeProcess: true);
+                panel.CloseProcess();
+                panel.TogglePause();
+                panel.RestartPlayingBmsFile();
+                panel.FastForwardStart();
+                panel.FastForwardEnd();
+                panel.FastBackwardStart();
+                panel.FastBackwardEnd();
+                panel.ShowInfo();
+                panel.ShowEffect();
+                panel.ChangePlayside();
+                panel.IncreaseHighSpeed();
+                panel.DecreaseHighSpeed();
+                panel.PlayerVolume = 37;
+                panel.CurrentlyPlayingTime = TimeSpan.FromSeconds(17);
+            });
+            Assert.IsFalse(await panel.TryPlayStart(prepared, firstPath, panel.Next));
+            Assert.IsFalse(panel.HandleTableRowActivation(1, rows.Rows[1]));
+            Assert.IsFalse(panel.NextCommand.CanExecute);
+            Assert.IsFalse(panel.StartCommand.CanExecute);
+            CollectionAssert.AreEqual(before, player.Commands.ToArray());
+            Assert.AreEqual(TimeSpan.Zero, player.CurrentTime);
+            panel.CloseForShutdown();
+            Assert.AreEqual(2, player.CloseProcessCount);
+        }
+        finally
+        {
+            File.Delete(firstPath);
+            File.Delete(secondPath);
+        }
+    }
+
+    // U3T4b: queue 解決中の Next は terminal 受付を再開できず、所有 Task は両方回収する。
+    [TestMethod]
+    public async Task PlaybackPanel_ShutdownDrainsEarlierNavigationWithoutStartingAnotherChart()
+    {
+        string firstPath = Path.GetTempFileName();
+        string secondPath = Path.GetTempFileName();
+        using var releaseRow = new ManualResetEventSlim();
+        var enteredRow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var terminalStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new FakeBmsPlayer();
+        var rows = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(firstPath), new TestBmsFile(secondPath) },
+            SelectedIndex = 0
+        };
+        var queue = new GatedPlaybackChartQueue(new MainChartListPlaybackQueue(rows), enteredRow, releaseRow);
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(),
+            queue, new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(),
+            _ => { }, new ChartFileOperationSynchronizer());
+        Task? next = null;
+        Task? terminal = null;
+        try
+        {
+            panel.Start();
+            next = Task.Run(() => panel.Next());
+            await enteredRow.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            panel.BeginShutdown();
+            player.BeforeClose = () => Assert.IsTrue(queue.RowResolved, "曲解決を player close が追い越さない。");
+            terminal = Task.Run(() =>
+            {
+                terminalStarted.SetResult();
+                panel.CloseForShutdown();
+            });
+            await terminalStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            releaseRow.Set();
+            await Task.WhenAll(next, terminal).WaitAsync(TimeSpan.FromSeconds(5));
+            CollectionAssert.AreEqual(new[] { "PlayStart:" + firstPath, "Close" }, player.Commands.ToArray());
+        }
+        finally
+        {
+            releaseRow.Set();
+            try
+            {
+                await Task.WhenAll(next ?? Task.CompletedTask, terminal ?? Task.CompletedTask)
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                File.Delete(firstPath);
+                File.Delete(secondPath);
+            }
+        }
+    }
+
+    private sealed class GatedPlaybackChartQueue(
+        IPlaybackChartQueue inner, TaskCompletionSource entered, ManualResetEventSlim release) : IPlaybackChartQueue
+    {
+        private int rowResolved;
+        internal bool RowResolved => Volatile.Read(ref rowResolved) != 0;
+        public int Count => inner.Count;
+        public int SelectedIndex { get => inner.SelectedIndex; set => inner.SelectedIndex = value; }
+        public object GetRow(int index)
+        {
+            if (index == 1)
+            {
+                entered.TrySetResult();
+                release.Wait();
+                Interlocked.Exchange(ref rowResolved, 1);
+            }
+            return inner.GetRow(index);
+        }
+    }
+
     [TestMethod]
     public void PlaybackPanel_RowActivationDropsRequestWhenQueueSlotChanged()
     {
