@@ -152,6 +152,9 @@ internal sealed class PlaylistBmtOutputOwner
 
     internal Action<PlaylistSyncProgressSnapshot> ExportProgressReporter { get; set; }
 
+    /// <summary>元の操作 session に依存せず、ファイル操作 lock の外で失敗事実を配送します。</summary>
+    internal Action<IReadOnlyList<BmtTableExportService.FileOperationFailure>> FailureReporter { get; set; }
+
     internal bool IsShutdownRequested => isShutdownRequested();
 
     internal bool HasBlockingWork =>
@@ -214,6 +217,7 @@ internal sealed class PlaylistBmtOutputOwner
             .Max()) + 1;
     }
 
+    /// <summary>全出力と旧出力先 cleanup を予約し、確定した失敗を lock 外で通知します。</summary>
     internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null)
     {
         if (TrySkipForShutdown("beatoraja_bmt_export_all", reason))
@@ -228,6 +232,7 @@ internal sealed class PlaylistBmtOutputOwner
         Interlocked.Increment(ref urlSyncGeneration);
         async Task Work()
         {
+            List<BmtTableExportService.FileOperationFailure> failures = [];
             Interlocked.Increment(ref fullExportActiveCount);
             try
             {
@@ -247,14 +252,22 @@ internal sealed class PlaylistBmtOutputOwner
                     && (!enabled || !IsSameTablePath(cleanupTablePath, outputPath))
                     && (enabled || !keepFilesWhenDisabled))
                 {
-                    lock (fileMutationLock)
+                    try
                     {
-                        if (!IsCurrentFullExportGeneration(generation))
+                        lock (fileMutationLock)
                         {
-                            return;
+                            if (!IsCurrentFullExportGeneration(generation))
+                            {
+                                return;
+                            }
+                            BmtTableExportService.ExportResult cleanupResult = BmtTableExportService.CleanupManagedFiles(cleanupTablePath);
+                            failures.AddRange(cleanupResult.Failures);
+                            SyncManagedTableUrls(cleanupTablePath, cleanupResult.PreviousManagedTables, cleanupResult.CurrentManagedTables);
                         }
-                        SyncManagedTableUrls(cleanupTablePath, BmtTableExportService.ReadManagedTableUrls(cleanupTablePath), []);
-                        BmtTableExportService.CleanupManagedFiles(cleanupTablePath);
+                    }
+                    catch (Exception exception)
+                    {
+                        AddFailure(failures, cleanupTablePath, exception);
                     }
                 }
                 if (!enabled)
@@ -340,6 +353,7 @@ internal sealed class PlaylistBmtOutputOwner
                                     Math.Max(exportProgressTotal, 1),
                                     tableName))
                                 : null);
+                        failures.AddRange(exportResult.Failures);
                         var urlSyncStopwatch = Stopwatch.StartNew();
                         SyncManagedTableUrls(outputPath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
                         urlSyncStopwatch.Stop();
@@ -378,9 +392,14 @@ internal sealed class PlaylistBmtOutputOwner
                     }
                 }
             }
+            catch (Exception exception)
+            {
+                AddFailure(failures, outputPath, exception);
+            }
             finally
             {
                 Interlocked.Decrement(ref fullExportActiveCount);
+                ReportFailures(failures);
             }
         }
         if (TrySchedule("beatoraja_bmt_export_all", reason, null, Work, out bool schedulerAvailable))
@@ -433,6 +452,7 @@ internal sealed class PlaylistBmtOutputOwner
         ScheduleBeatorajaBmtExportQueue(reason);
     }
 
+    /// <summary>削除済み playlist の物理 cleanup と URL 同期を予約し、未完了を通知します。</summary>
     internal void QueueBeatorajaBmtRemoveForTable(BMSTable table, string reason)
     {
         if (TrySkipForShutdown("beatoraja_bmt_remove", reason))
@@ -449,6 +469,7 @@ internal sealed class PlaylistBmtOutputOwner
         string playlistIdentity = playlistId.ToString(CultureInfo.InvariantCulture);
         async Task Work()
         {
+            List<BmtTableExportService.FileOperationFailure> failures = [];
             Interlocked.Increment(ref backgroundActiveCount);
             try
             {
@@ -467,29 +488,38 @@ internal sealed class PlaylistBmtOutputOwner
                         return;
                     }
                     BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistIdentity);
+                    failures.AddRange(exportResult.Failures);
                     SyncManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
                     Log("beatoraja_bmt_remove completed reason=" + FormatTextForLog(reason)
                         + " playlistId=" + playlistIdentity
                         + " removed=" + exportResult.RemovedCount);
                 }
             }
+            catch (Exception exception)
+            {
+                AddFailure(failures, tablePath, exception);
+            }
             finally
             {
                 Interlocked.Decrement(ref backgroundActiveCount);
+                ReportFailures(failures);
             }
         }
         Task.Run(Work).Logging("QueueBeatorajaBmtRemove");
     }
 
+    /// <summary>確定した manifest 所有権から URL を同期し、台帳読取り失敗を通知します。</summary>
     internal void QueueBeatorajaBmtUrlSync(string reason)
     {
         if (TrySkipForShutdown("beatoraja_bmt_url_sync", reason) || !IsOutputEnabled(GetOptions()))
         {
             return;
         }
+        string tablePath = GetTablePath();
         long generation = Interlocked.Increment(ref urlSyncGeneration);
         async Task Work()
         {
+            List<BmtTableExportService.FileOperationFailure> failures = [];
             Interlocked.Increment(ref backgroundActiveCount);
             try
             {
@@ -500,16 +530,21 @@ internal sealed class PlaylistBmtOutputOwner
                     {
                         return;
                     }
-                    string tablePath = GetTablePath();
+                    tablePath = GetTablePath();
                     List<BmtTableExportService.ManagedTableUrlEntry> managedTables = BmtTableExportService.ReadManagedTableUrls(tablePath);
                     SyncManagedTableUrls(tablePath, managedTables, managedTables, generation);
                     Log("beatoraja_bmt_url_sync completed reason=" + FormatTextForLog(reason)
                         + " managedCount=" + managedTables.Count);
                 }
             }
+            catch (Exception exception)
+            {
+                AddFailure(failures, tablePath, exception);
+            }
             finally
             {
                 Interlocked.Decrement(ref backgroundActiveCount);
+                ReportFailures(failures);
             }
         }
         Task.Run(Work).Logging("QueueBeatorajaBmtUrlSync");
@@ -654,50 +689,62 @@ internal sealed class PlaylistBmtOutputOwner
                 string tablePath = GetTablePath();
                 BmtTableExportService.PlaylistExportMetadata exportMetadata = BmtTableExportService.CreatePlaylistExportMetadata(table);
                 JObject tableData = BuildTableDataSnapshot(table, reason);
-                lock (fileMutationLock)
+                List<BmtTableExportService.FileOperationFailure> failures = [];
+                try
                 {
-                    bool currentOutputEnabled;
-                    string currentTablePath;
-                    try
+                    lock (fileMutationLock)
                     {
-                        currentOutputEnabled = IsOutputEnabled(GetOptions());
-                        currentTablePath = GetTablePath();
-                    }
-                    catch
-                    {
-                        ClearPendingExportQueue();
-                        throw;
-                    }
-                    if (!currentOutputEnabled || !IsSameTablePath(tablePath, currentTablePath))
-                    {
-                        continue;
-                    }
-                    BMSTable currentTable = FindTableByPlaylistId(playlistId);
-                    BmtTableExportService.PlaylistExportMetadata currentMetadata = BmtTableExportService.CreatePlaylistExportMetadata(currentTable);
-                    bool preparedSnapshotIsCurrent = AreSameExportMetadata(exportMetadata, currentMetadata);
-                    List<BmtTableExportService.ManagedTableUrlEntry> previousManagedTables = BmtTableExportService.ReadManagedTableUrls(tablePath);
-                    if (tableData != null && IsBeatorajaBmtOutputTarget(currentTable) && preparedSnapshotIsCurrent)
-                    {
-                        BmtTableExportService.ExportTableData(tablePath, tableData, currentMetadata);
-                        SyncManagedTableUrls(tablePath, previousManagedTables, BmtTableExportService.ReadManagedTableUrls(tablePath));
-                    }
-                    else if (currentTable == null || !IsBeatorajaBmtOutputTarget(currentTable))
-                    {
-                        BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistId.ToString(CultureInfo.InvariantCulture));
-                        SyncManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
-                    }
-                    else if (tableData == null && preparedSnapshotIsCurrent)
-                    {
-                        BmtTableExportService.ExportResult exportResult = BmtTableExportService.UpdateManagedPlaylistUrlOwnership(tablePath, currentMetadata);
-                        if (exportResult.Changed)
+                        bool currentOutputEnabled;
+                        string currentTablePath;
+                        try
                         {
+                            currentOutputEnabled = IsOutputEnabled(GetOptions());
+                            currentTablePath = GetTablePath();
+                        }
+                        catch
+                        {
+                            ClearPendingExportQueue();
+                            throw;
+                        }
+                        if (!currentOutputEnabled || !IsSameTablePath(tablePath, currentTablePath))
+                        {
+                            continue;
+                        }
+                        BMSTable currentTable = FindTableByPlaylistId(playlistId);
+                        BmtTableExportService.PlaylistExportMetadata currentMetadata = BmtTableExportService.CreatePlaylistExportMetadata(currentTable);
+                        bool preparedSnapshotIsCurrent = AreSameExportMetadata(exportMetadata, currentMetadata);
+                        if (tableData != null && IsBeatorajaBmtOutputTarget(currentTable) && preparedSnapshotIsCurrent)
+                        {
+                            BmtTableExportService.ExportTableData(tablePath, tableData, currentMetadata, out BmtTableExportService.ExportResult exportResult);
+                            failures.AddRange(exportResult.Failures);
                             SyncManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
                         }
+                        else if (currentTable == null || !IsBeatorajaBmtOutputTarget(currentTable))
+                        {
+                            BmtTableExportService.ExportResult exportResult = BmtTableExportService.RemoveManagedPlaylist(tablePath, playlistId.ToString(CultureInfo.InvariantCulture));
+                            failures.AddRange(exportResult.Failures);
+                            SyncManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+                        }
+                        else if (tableData == null && preparedSnapshotIsCurrent)
+                        {
+                            BmtTableExportService.ExportResult exportResult = BmtTableExportService.UpdateManagedPlaylistUrlOwnership(tablePath, currentMetadata);
+                            failures.AddRange(exportResult.Failures);
+                            SyncManagedTableUrls(tablePath, exportResult.PreviousManagedTables, exportResult.CurrentManagedTables);
+                        }
+                        else
+                        {
+                            QueueBeatorajaBmtExport(currentTable, reason ?? "stale_snapshot_retry");
+                        }
                     }
-                    else
-                    {
-                        QueueBeatorajaBmtExport(currentTable, reason ?? "stale_snapshot_retry");
-                    }
+                }
+                catch (Exception exception)
+                {
+                    AddFailure(failures, tablePath, exception);
+                    return;
+                }
+                finally
+                {
+                    ReportFailures(failures);
                 }
             }
         }
@@ -1049,6 +1096,21 @@ internal sealed class PlaylistBmtOutputOwner
     private void Log(string message)
     {
         logPerformance?.Invoke(message);
+    }
+
+    private static void AddFailure(List<BmtTableExportService.FileOperationFailure> failures, string path, Exception exception)
+    {
+        failures.Add(new BmtTableExportService.FileOperationFailure(path,
+            exception.Message + (exception.InnerException == null ? string.Empty : Environment.NewLine + exception.GetBaseException().Message)));
+    }
+
+    private void ReportFailures(List<BmtTableExportService.FileOperationFailure> failures)
+    {
+        if (failures.Count == 0)
+            return;
+        foreach (BmtTableExportService.FileOperationFailure failure in failures)
+            logWarning?.Invoke(new System.IO.IOException(failure.Cause), "beatoraja_bmt_failed path=" + FormatTextForLog(failure.Path));
+        FailureReporter?.Invoke(Array.AsReadOnly(failures.ToArray()));
     }
 
     private sealed class BeatorajaBmtSongHashResolver(Func<BmtSongHashResolveRequest, Tuple<string, string>> resolve)

@@ -3305,4 +3305,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
 原因: {0}</value></data>
   <data name="SettingsSaveFailedDuringShutdown" xml:space="preserve"><value>{0}
 終了処理を続行します。</value></data>
+  <data name="Beatoraja_bmt_output_failure_format" xml:space="preserve"><value>BMT の出力または削除が完了しませんでした。
+対象: {0}
+原因: {1}</value></data>
 </root>

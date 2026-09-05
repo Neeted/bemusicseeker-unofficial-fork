@@ -2353,4 +2353,6 @@ public class Resources
     /// <summary>Localized settings persistence failure notification.</summary>
     public static string SettingsSaveFailedDuringShutdown => ResourceManager.GetString("SettingsSaveFailedDuringShutdown", resourceCulture);
 
+    /// <summary>BMT の対象と失敗原因を示す通知書式です。</summary>
+    public static string Beatoraja_bmt_output_failure_format => ResourceManager.GetString("Beatoraja_bmt_output_failure_format", resourceCulture);
 }

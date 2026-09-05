@@ -15,6 +15,18 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LocalizationResourceParityTests
 {
+    // BMT-L: 翻訳全文ではなく対象・原因の placeholder と key parity を固定する。
+    [TestMethod]
+    public void BmtFailureNotification_PreservesTargetAndCauseArguments()
+    {
+        string root = FindRepositoryRoot();
+        string key = nameof(Resources.Beatoraja_bmt_output_failure_format);
+        var resx = ReadResxStringValues(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+        AssertLocalizedFormat("Resources.resx", key, resx.GetValueOrDefault(key)!, 2);
+        foreach (string path in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+            AssertLocalizedFormat(Path.GetFileName(path), key, ReadLanguageJsonObject(path)[key]?.Value<string>()!, 2);
+    }
+
     private static readonly HashSet<string> JsonOnlyKeys = new(StringComparer.Ordinal)
     {
         "_language_name"

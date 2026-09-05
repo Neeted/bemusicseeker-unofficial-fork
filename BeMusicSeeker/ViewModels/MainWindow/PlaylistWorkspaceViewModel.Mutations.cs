@@ -7,6 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -492,6 +493,20 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             PublishPlaylistOperationNotificationReceipt(session, routeName);
         }
+    }
+
+    /// <summary>バックグラウンド BMT 処理の確定した失敗を、元の操作 session と独立して提示します。</summary>
+    internal void ReportBmtOutputFailures(IReadOnlyList<BmtTableExportService.FileOperationFailure> failures)
+    {
+        var receipt = PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create(
+            failures.Select(failure => new PlaylistOperationNotificationOwner.OperationNotification(
+                string.Format(Resources.Beatoraja_bmt_output_failure_format, failure.Path, failure.Cause),
+                Resources.MessageBoxTitle_Warning,
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning)));
+        RaiseRequiredEvent(
+            PlaylistOperationNotificationPresentationRequested,
+            new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, "beatoraja BMT output failure"),
+            nameof(PlaylistOperationNotificationPresentationRequested));
     }
 
     private void PublishPlaylistOperationNotificationReceipt(

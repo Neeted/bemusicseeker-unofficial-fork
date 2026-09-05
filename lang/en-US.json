@@ -941,5 +941,6 @@
   "SettingsSaveFailed": "Settings could not be saved.\nFile: {0}\nCause: {1}",
   "SettingsPartiallySaved": "Application settings were saved, but LR2 configuration could not be saved.\nFile: {0}\nCause: {1}",
   "SettingsApplyIncomplete": "Saving or applying settings did not complete.\nCause: {0}",
-  "SettingsSaveFailedDuringShutdown": "{0}\nShutdown will continue."
+  "SettingsSaveFailedDuringShutdown": "{0}\nShutdown will continue.",
+  "Beatoraja_bmt_output_failure_format": "BMT output or cleanup did not complete.\nTarget: {0}\nCause: {1}"
 }

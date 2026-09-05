@@ -20,6 +20,165 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmtTableExportServiceTests
 {
+    // BMT-MANIFEST-FAILURE-1 / BMT-O: OS の delete 共有拒否で実際の cleanup 失敗を作る。
+    [TestMethod]
+    [DataRow("cleanup")]
+    [DataRow("remove")]
+    [DataRow("url-only")]
+    [DataRow("full")]
+    [DataRow("rename")]
+    public void ManagedCleanupFailure_RetainsPhysicalOwnership(string route)
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            string lockedPath = Path.Combine(directory, "locked.bmt");
+            File.WriteAllText(lockedPath, "owned");
+            File.WriteAllText(Path.Combine(directory, "removable.bmt"), "owned");
+            string manifestPath = Path.Combine(directory, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifestPath, """
+                {"files":["locked.bmt","removable.bmt","missing.bmt"],"playlists":{"1":{"file":"locked.bmt","url":"https://example.com/old"}}}
+                """);
+            using (var held = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                BmtTableExportService.ExportResult result = null;
+                switch (route)
+                {
+                    case "cleanup": result = BmtTableExportService.CleanupManagedFiles(directory); break;
+                    case "remove": result = BmtTableExportService.RemoveManagedPlaylist(directory, "1"); break;
+                    case "url-only": result = BmtTableExportService.UpdateManagedPlaylistUrlOwnership(directory, CreateExportMetadata("1", "https://example.com/new", "New")); break;
+                    case "full": result = BmtTableExportService.ExportTableDataSet(directory, Array.Empty<JObject>(), true); break;
+                    case "rename": BmtTableExportService.ExportTableData(directory, CreateSimpleTableData("https://example.com/new", "New"), CreateExportMetadata("1", "https://example.com/new", "New"), out result); break;
+                }
+                Assert.IsTrue(File.Exists(manifestPath), "未削除ファイルの台帳を残す。");
+                JObject manifest = JObject.Parse(File.ReadAllText(manifestPath));
+                CollectionAssert.Contains(manifest["files"]!.Values<string>().ToArray(), "locked.bmt");
+                Assert.AreNotEqual("locked.bmt", manifest["playlists"]?["1"]?["file"]?.Value<string>());
+                Assert.AreEqual(route is "cleanup" or "full" ? 2 : 0, result.RemovedCount);
+                Assert.AreEqual(lockedPath, result.Failures.Single().Path);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(result.Failures.Single().Cause));
+                if (route is "cleanup" or "full" or "remove")
+                    Assert.IsTrue(manifest["playlists"] == null || !manifest["playlists"]!.HasValues);
+                else
+                    Assert.AreEqual("https://example.com/new", manifest["playlists"]!["1"]!["url"]!.Value<string>());
+            }
+            BmtTableExportService.CleanupManagedFiles(directory);
+            Assert.IsFalse(File.Exists(lockedPath), "後続の通常 cleanup で残留を回収する。");
+            Assert.IsFalse(File.Exists(manifestPath));
+        });
+    }
+
+    [TestMethod]
+    public void ExportWithoutCleanup_PreservesPreviousPhysicalOwnership()
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            File.WriteAllText(Path.Combine(directory, "old.bmt"), "old");
+            string manifestPath = Path.Combine(directory, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifestPath, "{\"files\":[\"old.bmt\"]}");
+            BmtTableExportService.ExportTableDataSet(directory, Array.Empty<JObject>(), false);
+            CollectionAssert.Contains(JObject.Parse(File.ReadAllText(manifestPath))["files"]!.Values<string>().ToArray(), "old.bmt");
+        });
+    }
+
+    // BMT-V: 正常項目との混在も部分 salvage せず、原本と BMT を出力前に保全する。
+    [TestMethod]
+    [DataRow("{")]
+    [DataRow("[]")]
+    [DataRow("{}")]
+    [DataRow("{\"files\":null}")]
+    [DataRow("{\"files\":[],\"schemaVersion\":3}")]
+    [DataRow("{\"files\":[],\"schemaVersion\":\"2\"}")]
+    [DataRow("{\"files\":[],\"files\":[]}")]
+    [DataRow("{\"files\":[\"old.bmt\",\"../escape.bmt\"]}")]
+    [DataRow("{\"files\":[42]}")]
+    [DataRow("{\"files\":[],\"playlists\":null}")]
+    [DataRow("{\"files\":[],\"playlists\":{\"1\":{\"url\":\"u\",\"contentHash\":1}}}")]
+    [DataRow("{\"files\":[],\"playlists\":{\"1\":{\"url\":\"u\",\"url\":\"v\"}}}")]
+    [DataRow("{\"files\":[],\"schemaVersion\":null}")]
+    [DataRow("{\"files\":[],\"exporterVersion\":\"1\"}")]
+    [DataRow("{\"files\":[]}{}")]
+    [DataRow("{\"files\":[],\"playlists\":{\"1\":{\"url\":\"https://example.com\",\"file\":\"x/y.bmt\"}}}")]
+    [DataRow("{\"files\":[],\"playlists\":{\"1\":{\"url\":\"https://example.com\",\"bmtLength\":\"2\"}}}")]
+    public void InvalidManifest_RejectsIndividualAndFullExportBeforeWriting(string contents)
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            string manifestPath = Path.Combine(directory, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifestPath, contents);
+            byte[] original = File.ReadAllBytes(manifestPath);
+            File.WriteAllText(Path.Combine(directory, "old.bmt"), "original");
+            JObject data = CreateSimpleTableData("https://example.com/new", "New");
+            AssertBmtFailure(() => BmtTableExportService.ExportTableData(directory, data, "1"));
+            AssertBmtFailure(() => BmtTableExportService.ExportTableDataSet(directory, new[] { data }, true));
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(manifestPath));
+            Assert.AreEqual("original", File.ReadAllText(Path.Combine(directory, "old.bmt")));
+            Assert.AreEqual(1, Directory.GetFiles(directory, "*.bmt").Length);
+        });
+    }
+
+    [TestMethod]
+    public void UnreadableManifest_RejectsExportBeforeWriting()
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            string manifestPath = Path.Combine(directory, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifestPath, "{\"files\":[]}");
+            byte[] original = File.ReadAllBytes(manifestPath);
+            using (var held = new FileStream(manifestPath, FileMode.Open, FileAccess.Read, FileShare.None))
+                AssertBmtFailure(() => BmtTableExportService.ExportTableData(directory, CreateSimpleTableData("https://example.com/new", "New"), "1"));
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(manifestPath));
+            Assert.AreEqual(0, Directory.GetFiles(directory, "*.bmt").Length);
+        });
+    }
+
+    // BMT-P: read/write は許し、同一 directory 置換に必要な delete 共有だけを拒否する。
+    [TestMethod]
+    public void ManifestPublishFailure_PreservesOriginalBytesAndRemovesOwnedTemp()
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            string manifestPath = Path.Combine(directory, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifestPath, "{\"files\":[],\"metadata\":\"original\"}");
+            byte[] original = File.ReadAllBytes(manifestPath);
+            Exception failure = null;
+            using (var held = new FileStream(manifestPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                try { BmtTableExportService.UpdateManagedPlaylistUrlOwnership(directory, CreateExportMetadata("1", "https://example.com/new", "New")); }
+                catch (Exception exception) { failure = exception; }
+            }
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(manifestPath));
+            Assert.IsInstanceOfType<IOException>(failure);
+            Assert.AreEqual(0, Directory.GetFiles(directory, "*.tmp").Length);
+        });
+    }
+
+    // BMT-C: 既知 schema / URL-only / 旧 cache metadata の受理範囲。
+    [TestMethod]
+    [DataRow(-1)]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void KnownManifestSchemas_AcceptOptionalDefaultsAndPlaylistFileOwnership(int schema)
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            var manifest = JObject.Parse("""
+                {"files":["old.bmt","OLD.bmt"],"extra":{"value":true},"exporterVersion":99,
+                 "playlists":{"1":{"url":"https://example.com/one","file":"referenced.bmt","name":"2026-09-06T12:00:00Z","contentHash":"old","headerSha256":null},
+                              "2":{"url":"https://example.com/two","file":null},"3":{"url":"https://example.com/three","file":""}}}
+                """);
+            // JObject の Date 自動変換を避け、文字列型の cache / name を入力として保証する。
+            manifest["playlists"]!["1"]!["name"] = "2026-09-06T12:00:00Z";
+            if (schema >= 0) manifest["schemaVersion"] = schema;
+            File.WriteAllText(Path.Combine(directory, BmtTableExportService.ManifestFileName), manifest.ToString());
+            var plan = BmtTableExportService.CreateExportPlan(directory, new[] { CreateExportMetadata("1", "https://example.com/one", "Name") }, false);
+            Assert.AreEqual(3, BmtTableExportService.ReadManagedTableUrls(directory).Count);
+            Assert.IsTrue(plan.RequiresProjection(CreateExportMetadata("1", "https://example.com/one", "Name")));
+            var cleanup = BmtTableExportService.CleanupManagedFiles(directory);
+            Assert.AreEqual(2, cleanup.RemovedCount, "大文字小文字の重複をまとめ、playlist 参照も物理台帳へ取り込む。");
+        });
+    }
+
     [TestMethod]
     public void OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder()
     {
@@ -80,6 +239,15 @@ public sealed class BmtTableExportServiceTests
 
         CollectionAssert.AreEqual(new[] { 1, 2 }, observed);
         Assert.AreEqual(1, maximumCallbackConcurrency);
+    }
+
+    private static void AssertBmtFailure(Action operation)
+    {
+        Exception failure = null;
+        try { operation(); }
+        catch (Exception exception) { failure = exception; }
+        Assert.IsNotNull(failure, "失敗を隠さず呼出し元へ返す。");
+        Assert.IsTrue(failure is IOException or InvalidDataException, failure.ToString());
     }
 
     private const string Sha256A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

@@ -942,5 +942,6 @@
   "SettingsSaveFailed": "无法保存设置。\n文件：{0}\n原因：{1}",
   "SettingsPartiallySaved": "应用程序设置已保存，但无法保存 LR2 配置。\n文件：{0}\n原因：{1}",
   "SettingsApplyIncomplete": "未能完成设置的保存或应用。\n原因：{0}",
-  "SettingsSaveFailedDuringShutdown": "{0}\n将继续退出。"
+  "SettingsSaveFailedDuringShutdown": "{0}\n将继续退出。",
+  "Beatoraja_bmt_output_failure_format": "BMT 导出或删除未完成。\n目标：{0}\n原因：{1}"
 }

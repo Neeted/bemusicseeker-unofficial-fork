@@ -942,5 +942,6 @@
   "SettingsSaveFailed": "설정을 저장하지 못했습니다.\n파일: {0}\n원인: {1}",
   "SettingsPartiallySaved": "애플리케이션 설정은 저장되었지만 LR2 설정은 저장하지 못했습니다.\n파일: {0}\n원인: {1}",
   "SettingsApplyIncomplete": "설정 저장 또는 적용을 완료하지 못했습니다.\n원인: {0}",
-  "SettingsSaveFailedDuringShutdown": "{0}\n종료를 계속합니다."
+  "SettingsSaveFailedDuringShutdown": "{0}\n종료를 계속합니다.",
+  "Beatoraja_bmt_output_failure_format": "BMT 출력 또는 삭제가 완료되지 않았습니다.\n대상: {0}\n원인: {1}"
 }

@@ -942,5 +942,6 @@
   "SettingsSaveFailed": "Les paramètres n’ont pas pu être enregistrés.\nFichier : {0}\nCause : {1}",
   "SettingsPartiallySaved": "Les paramètres de l’application ont été enregistrés, mais pas la configuration LR2.\nFichier : {0}\nCause : {1}",
   "SettingsApplyIncomplete": "L’enregistrement ou l’application des paramètres n’a pas abouti.\nCause : {0}",
-  "SettingsSaveFailedDuringShutdown": "{0}\nLa fermeture va se poursuivre."
+  "SettingsSaveFailedDuringShutdown": "{0}\nLa fermeture va se poursuivre.",
+  "Beatoraja_bmt_output_failure_format": "Exportation ou suppression BMT incomplète.\nCible : {0}\nCause : {1}"
 }

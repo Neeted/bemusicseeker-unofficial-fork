@@ -4066,6 +4066,7 @@ public partial class MainWindowViewModel : ViewModel,
         files.StartupBackgroundWorkSnapshotProvider = startupBackgroundTaskScheduler.CaptureWorkSnapshot;
         tables.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
         tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
+        tables.BmtOutput.FailureReporter = PlaylistWorkspace.ReportBmtOutputFailures;
         tables.CustomFolderOutputRepairProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
         ShellShutdownWorkflow.AttachPlaylist(tables);
         PlaylistWorkspace.RefreshPlaylistTreeTables(tables, files);

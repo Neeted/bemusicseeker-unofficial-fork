@@ -221,10 +221,17 @@ internal static class BmtTableExportService
 
         public int SkippedWriteCount { get; internal set; }
 
+        /// <summary>不存在を含む物理ファイルの cleanup 完了数です。失敗・共有参照・manifest は含みません。</summary>
         public int RemovedCount { get; internal set; }
 
         public bool Changed => WrittenCount > 0 || RemovedCount > 0;
+
+        /// <summary>所有台帳に残した削除失敗を、lock 外の通知へ渡します。</summary>
+        internal List<FileOperationFailure> Failures { get; } = [];
     }
+
+    /// <summary>ファイル操作の対象と原因を変更不能な通知事実として保持します。</summary>
+    internal sealed record FileOperationFailure(string Path, string Cause);
 
     internal sealed class SongHashResolution(string md5, string sha256)
     {
@@ -238,6 +245,7 @@ internal static class BmtTableExportService
         SongHashResolution Resolve(BmtSongHashResolveRequest request);
     }
 
+    /// <summary>所有台帳を検証して出力し、旧ファイルの cleanup 結果を返します。</summary>
     internal static ExportResult ExportTables(string tablePath, IEnumerable<BMSTable> tables, bool cleanupStaleManagedFiles)
     {
         if (string.IsNullOrWhiteSpace(tablePath))
@@ -245,6 +253,10 @@ internal static class BmtTableExportService
             return new ExportResult();
         }
         LongPathFileSystem.CreateDirectory(tablePath);
+        lock (ManifestLock)
+        {
+            ReadManifest(tablePath);
+        }
         var exportedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSTable table in tables ?? [])
         {
@@ -330,6 +342,7 @@ internal static class BmtTableExportService
         return plan;
     }
 
+    /// <summary>検証済みの出力計画を適用し、未削除ファイルの所有情報と失敗を保持します。</summary>
     internal static ExportResult ExportTableDataSet(string tablePath, IEnumerable<Tuple<string, JObject>> tableDataSet, ExportPlan exportPlan, Action<int, int, string> progressReporter)
     {
         if (string.IsNullOrWhiteSpace(tablePath))
@@ -372,6 +385,7 @@ internal static class BmtTableExportService
         result.CurrentManagedTables.Clear();
         result.CurrentManagedTables.AddRange(manifestResult.CurrentManagedTables);
         result.RemovedCount = manifestResult.RemovedCount;
+        result.Failures.AddRange(manifestResult.Failures);
         return result;
     }
 
@@ -555,8 +569,16 @@ internal static class BmtTableExportService
         return ExportTableData(tablePath, tableData, metadata);
     }
 
+    /// <summary>台帳を検証してから個別出力し、ファイル名を返します。</summary>
     internal static string ExportTableData(string tablePath, JObject tableData, PlaylistExportMetadata metadata)
     {
+        return ExportTableData(tablePath, tableData, metadata, out _);
+    }
+
+    /// <summary>個別出力の物理操作結果を返し、削除失敗の通知を呼出し元へ委ねます。</summary>
+    internal static string ExportTableData(string tablePath, JObject tableData, PlaylistExportMetadata metadata, out ExportResult result)
+    {
+        result = new ExportResult();
         if (string.IsNullOrWhiteSpace(tablePath) || tableData == null)
         {
             return null;
@@ -567,27 +589,48 @@ internal static class BmtTableExportService
             return null;
         }
         LongPathFileSystem.CreateDirectory(tablePath);
-        BmtFileState fileState = WriteTableDataFile(tablePath, tableData, fileName);
-        AddManagedFile(tablePath, fileName, ResolveExportMetadata(metadata, tableData), fileState);
+        lock (ManifestLock)
+        {
+            ManifestState manifest = ReadManifest(tablePath);
+            result.PreviousManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
+            BmtFileState fileState = WriteTableDataFile(tablePath, tableData, fileName);
+            AddManagedFile(tablePath, fileName, ResolveExportMetadata(metadata, tableData), fileState, manifest, result);
+            result.WrittenCount = 1;
+            result.CurrentManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
+        }
         return fileName;
     }
 
-    internal static void CleanupManagedFiles(string tablePath)
+    /// <summary>削除できなかった物理所有情報を残し、完了件数と失敗を返します。</summary>
+    internal static ExportResult CleanupManagedFiles(string tablePath)
     {
-        if (string.IsNullOrWhiteSpace(tablePath) || !LongPathFileSystem.DirectoryExists(tablePath))
+        var result = new ExportResult();
+        if (string.IsNullOrWhiteSpace(tablePath))
         {
-            return;
+            return result;
         }
         lock (ManifestLock)
         {
-            foreach (string fileName in ReadManifest(tablePath).Files)
+            ManifestState manifest = ReadManifest(tablePath);
+            result.PreviousManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
+            bool hadOwnership = manifest.Files.Count > 0 || manifest.Playlists.Count > 0;
+            foreach (string fileName in manifest.Files.ToArray())
             {
-                TryDeleteFile(Path.Combine(tablePath, fileName));
+                CleanupManagedFile(tablePath, fileName, manifest.Files, result);
             }
-            TryDeleteFile(Path.Combine(tablePath, ManifestFileName));
+            if (hadOwnership)
+            {
+                WriteManifest(tablePath, manifest.Files, null, result);
+            }
+            if (manifest.Files.Count == 0)
+            {
+                DeleteFileOrRecordFailure(Path.Combine(tablePath, ManifestFileName), result);
+            }
         }
+        return result;
     }
 
+    /// <summary>現行 URL 所有権を外し、共有参照と削除失敗の物理台帳を保持します。</summary>
     internal static ExportResult RemoveManagedPlaylist(string tablePath, string playlistIdentity)
     {
         var result = new ExportResult();
@@ -604,17 +647,16 @@ internal static class BmtTableExportService
                 manifest.Playlists.Remove(playlistIdentity);
                 if (!string.IsNullOrWhiteSpace(oldEntry.FileName) && !IsManagedFileReferenced(manifest.Playlists, oldEntry.FileName))
                 {
-                    manifest.Files.Remove(oldEntry.FileName);
-                    TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
-                    result.RemovedCount++;
+                    CleanupManagedFile(tablePath, oldEntry.FileName, manifest.Files, result);
                 }
-                WriteManifest(tablePath, manifest.Files, manifest.Playlists);
+                WriteManifest(tablePath, manifest.Files, manifest.Playlists, result);
             }
             result.CurrentManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
         }
         return result;
     }
 
+    /// <summary>URL-only 所有権へ更新し、未削除ファイルは次の cleanup のために保持します。</summary>
     internal static ExportResult UpdateManagedPlaylistUrlOwnership(string tablePath, PlaylistExportMetadata metadata)
     {
         var result = new ExportResult();
@@ -641,23 +683,22 @@ internal static class BmtTableExportService
                 && !string.IsNullOrWhiteSpace(oldEntry.FileName)
                 && !IsManagedFileReferencedExcept(manifest.Playlists, oldEntry.FileName, metadata.PlaylistIdentity))
             {
-                manifest.Files.Remove(oldEntry.FileName);
-                TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
-                result.RemovedCount++;
+                CleanupManagedFile(tablePath, oldEntry.FileName, manifest.Files, result);
             }
             if (changed)
             {
                 manifest.Playlists[metadata.PlaylistIdentity] = newEntry;
-                WriteManifest(tablePath, manifest.Files, manifest.Playlists);
+                WriteManifest(tablePath, manifest.Files, manifest.Playlists, result);
             }
             result.CurrentManagedTables.AddRange(manifest.Playlists.Values.Select(CloneManagedTableUrlEntry));
         }
         return result;
     }
 
+    /// <summary>現行 URL 所有権を読みます。欠落以外の読取り・形式不正は呼出し元へ返します。</summary>
     internal static List<ManagedTableUrlEntry> ReadManagedTableUrls(string tablePath)
     {
-        if (string.IsNullOrWhiteSpace(tablePath) || !LongPathFileSystem.DirectoryExists(tablePath))
+        if (string.IsNullOrWhiteSpace(tablePath))
         {
             return [];
         }
@@ -1239,16 +1280,19 @@ internal static class BmtTableExportService
             ManifestState previous = ReadManifest(tablePath);
             result.PreviousManagedTables.AddRange(previous.Playlists.Values.Select(CloneManagedTableUrlEntry));
             currentFiles ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (cleanupStaleManagedFiles)
+            foreach (string fileName in previous.Files.Where(fileName => !currentFiles.Contains(fileName)).ToArray())
             {
-                foreach (string fileName in previous.Files.Where(fileName => !currentFiles.Contains(fileName)))
+                if (cleanupStaleManagedFiles && DeleteFileOrRecordFailure(Path.Combine(tablePath, fileName), result))
                 {
-                    TryDeleteFile(Path.Combine(tablePath, fileName));
                     result.RemovedCount++;
+                }
+                else
+                {
+                    currentFiles.Add(fileName);
                 }
             }
             result.CurrentManagedTables.AddRange((playlists ?? new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal)).Values.Select(CloneManagedTableUrlEntry));
-            WriteManifest(tablePath, currentFiles, playlists);
+            WriteManifest(tablePath, currentFiles, playlists, result);
         }
         return result;
     }
@@ -1348,29 +1392,24 @@ internal static class BmtTableExportService
             && string.Equals(left.ProjectionInputSha256, right.ProjectionInputSha256, StringComparison.Ordinal);
     }
 
-    private static void AddManagedFile(string tablePath, string fileName, PlaylistExportMetadata metadata, BmtFileState fileState)
+    private static void AddManagedFile(string tablePath, string fileName, PlaylistExportMetadata metadata, BmtFileState fileState, ManifestState manifest, ExportResult result)
     {
-        lock (ManifestLock)
+        if (!string.IsNullOrWhiteSpace(metadata?.PlaylistIdentity)
+            && manifest.Playlists.TryGetValue(metadata.PlaylistIdentity, out ManifestPlaylistEntry oldEntry)
+            && !string.IsNullOrWhiteSpace(oldEntry.FileName)
+            && !string.Equals(oldEntry.FileName, fileName, StringComparison.OrdinalIgnoreCase))
         {
-            ManifestState manifest = ReadManifest(tablePath);
-            if (!string.IsNullOrWhiteSpace(metadata?.PlaylistIdentity)
-                && manifest.Playlists.TryGetValue(metadata.PlaylistIdentity, out ManifestPlaylistEntry oldEntry)
-                && !string.IsNullOrWhiteSpace(oldEntry.FileName)
-                && !string.Equals(oldEntry.FileName, fileName, StringComparison.OrdinalIgnoreCase))
+            if (!IsManagedFileReferencedExcept(manifest.Playlists, oldEntry.FileName, metadata.PlaylistIdentity))
             {
-                if (!IsManagedFileReferencedExcept(manifest.Playlists, oldEntry.FileName, metadata.PlaylistIdentity))
-                {
-                    manifest.Files.Remove(oldEntry.FileName);
-                    TryDeleteFile(Path.Combine(tablePath, oldEntry.FileName));
-                }
+                CleanupManagedFile(tablePath, oldEntry.FileName, manifest.Files, result);
             }
-            manifest.Files.Add(fileName);
-            if (!string.IsNullOrWhiteSpace(metadata?.PlaylistIdentity))
-            {
-                manifest.Playlists[metadata.PlaylistIdentity] = CreateManifestPlaylistEntry(metadata, fileName, fileState);
-            }
-            WriteManifest(tablePath, manifest.Files, manifest.Playlists);
         }
+        manifest.Files.Add(fileName);
+        if (!string.IsNullOrWhiteSpace(metadata?.PlaylistIdentity))
+        {
+            manifest.Playlists[metadata.PlaylistIdentity] = CreateManifestPlaylistEntry(metadata, fileName, fileState);
+        }
+        WriteManifest(tablePath, manifest.Files, manifest.Playlists, result);
     }
 
     private static bool IsManagedFileReferenced(IDictionary<string, ManifestPlaylistEntry> playlists, string fileName)
@@ -1404,69 +1443,116 @@ internal static class BmtTableExportService
 
     private static ManifestState ReadManifest(string tablePath)
     {
-        var state = new ManifestState();
         string manifestPath = Path.Combine(tablePath, ManifestFileName);
-        if (!LongPathFileSystem.FileExists(manifestPath))
+        string contents;
+        try
         {
-            return state;
+            // Exists はアクセス拒否も false にするため、欠落と読取り失敗を区別できない。
+            contents = ReadAllText(manifestPath, Encoding.UTF8);
+        }
+        catch (FileNotFoundException) { return new ManifestState(); }
+        catch (DirectoryNotFoundException) { return new ManifestState(); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new IOException($"BMT manifest read failed: {manifestPath}", exception);
         }
         try
         {
-            var manifest = JObject.Parse(ReadAllText(manifestPath, Encoding.UTF8));
-            state.SchemaVersion = manifest.Value<int?>("schemaVersion") ?? 0;
-            state.ExporterVersion = manifest.Value<int?>("exporterVersion") ?? 0;
-            foreach (JToken item in manifest["files"] as JArray ?? [])
+            using var reader = new JsonTextReader(new StringReader(contents)) { DateParseHandling = DateParseHandling.None };
+            var manifest = JObject.Load(reader, new JsonLoadSettings
             {
-                string fileName = Path.GetFileName(item.ToString());
-                if (!string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase))
-                {
-                    state.Files.Add(fileName);
-                }
-            }
-            if (manifest["playlists"] is JObject playlists)
+                DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error
+            });
+            while (reader.Read())
+                if (reader.TokenType != JsonToken.Comment)
+                    throw new InvalidDataException("Unexpected content after manifest object.");
+            var state = new ManifestState
             {
+                SchemaVersion = checked((int)ReadOptionalInteger(manifest, "schemaVersion")),
+                ExporterVersion = checked((int)ReadOptionalInteger(manifest, "exporterVersion"))
+            };
+            if (manifest["schemaVersion"]?.Type == JTokenType.Null || state.SchemaVersion is < 0 or > ManifestSchemaVersion)
+                throw new InvalidDataException("Unsupported manifest schemaVersion.");
+            if (manifest["files"] is not JArray files)
+                throw new InvalidDataException("Manifest files must be an array.");
+            foreach (JToken item in files)
+                state.Files.Add(ReadManagedFileName(item, allowEmpty: false));
+            if (manifest["playlists"] is JToken playlistToken)
+            {
+                if (playlistToken is not JObject playlists)
+                    throw new InvalidDataException("Manifest playlists must be an object.");
                 foreach (JProperty property in playlists.Properties())
                 {
-                    var value = property.Value as JObject;
-                    string fileName = Path.GetFileName(value?.Value<string>("file"));
-                    string url = value?.Value<string>("url");
-                    if (!string.IsNullOrWhiteSpace(property.Name) && !string.IsNullOrWhiteSpace(url))
+                    if (string.IsNullOrWhiteSpace(property.Name) || property.Value is not JObject value)
+                        throw new InvalidDataException("Invalid manifest playlist entry.");
+                    string url = ReadOptionalString(value, "url");
+                    if (string.IsNullOrWhiteSpace(url))
+                        throw new InvalidDataException("Manifest playlist URL is required.");
+                    string fileName = ReadManagedFileName(value["file"], allowEmpty: true);
+                    ReadOptionalString(value, "contentHash"); // 旧 cache field は型だけ検証し、no-op 根拠にはしない。
+                    state.Playlists.Add(property.Name, new ManifestPlaylistEntry
                     {
-                        state.Playlists[property.Name] = new ManifestPlaylistEntry
-                        {
-                            PlaylistIdentity = property.Name,
-                            FileName = !string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase)
-                                ? fileName
-                                : string.Empty,
-                            Url = url,
-                            Name = value.Value<string>("name") ?? string.Empty,
-                            HeaderSha256 = value.Value<string>("headerSha256") ?? string.Empty,
-                            DataSha256 = value.Value<string>("dataSha256") ?? string.Empty,
-                            LastUpdateTicks = value.Value<long?>("lastUpdateTicks") ?? 0L,
-                            ProjectionInputSha256 = value.Value<string>("projectionInputSha256") ?? string.Empty,
-                            BmtLastWriteTimeUtcTicks = value.Value<long?>("bmtLastWriteTimeUtcTicks") ?? 0L,
-                            BmtLength = value.Value<long?>("bmtLength") ?? 0L
-                        };
-                        if (!string.IsNullOrWhiteSpace(fileName) && fileName.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase))
-                        {
-                            state.Files.Add(fileName);
-                        }
-                    }
+                        PlaylistIdentity = property.Name,
+                        FileName = fileName,
+                        Url = url,
+                        Name = ReadOptionalString(value, "name"),
+                        HeaderSha256 = ReadOptionalString(value, "headerSha256"),
+                        DataSha256 = ReadOptionalString(value, "dataSha256"),
+                        LastUpdateTicks = ReadOptionalInteger(value, "lastUpdateTicks"),
+                        ProjectionInputSha256 = ReadOptionalString(value, "projectionInputSha256"),
+                        BmtLastWriteTimeUtcTicks = ReadOptionalInteger(value, "bmtLastWriteTimeUtcTicks"),
+                        BmtLength = ReadOptionalInteger(value, "bmtLength")
+                    });
+                    // 旧形式の playlist 参照も物理所有台帳の一部である。
+                    if (fileName.Length > 0)
+                        state.Files.Add(fileName);
                 }
             }
+            return state;
         }
-        catch
+        catch (Exception exception) when (exception is JsonException or InvalidDataException or OverflowException or FormatException)
         {
+            throw new InvalidDataException($"Invalid BMT manifest: {manifestPath}", exception);
         }
-        return state;
     }
 
-    private static void WriteManifest(string tablePath, IEnumerable<string> fileNames)
+    private static string ReadOptionalString(JObject value, string name)
     {
-        WriteManifest(tablePath, fileNames, null);
+        JToken token = value[name];
+        if (token == null || token.Type == JTokenType.Null)
+            return string.Empty;
+        if (token.Type != JTokenType.String)
+            throw new InvalidDataException($"Manifest {name} must be a string.");
+        return token.Value<string>();
     }
 
-    private static void WriteManifest(string tablePath, IEnumerable<string> fileNames, IDictionary<string, ManifestPlaylistEntry> playlists)
+    private static long ReadOptionalInteger(JObject value, string name)
+    {
+        JToken token = value[name];
+        if (token == null || token.Type == JTokenType.Null)
+            return 0L;
+        if (token.Type != JTokenType.Integer)
+            throw new InvalidDataException($"Manifest {name} must be an integer.");
+        return token.Value<long>();
+    }
+
+    private static string ReadManagedFileName(JToken token, bool allowEmpty)
+    {
+        if (allowEmpty && (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.String && token.Value<string>() == string.Empty))
+            return string.Empty;
+        if (token?.Type != JTokenType.String)
+            throw new InvalidDataException("Manifest file must be a BMT basename.");
+        string name = token.Value<string>();
+        if (string.IsNullOrWhiteSpace(name)
+            || !name.EndsWith(".bmt", StringComparison.OrdinalIgnoreCase)
+            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+            || name.Contains(Path.DirectorySeparatorChar) || name.Contains(Path.AltDirectorySeparatorChar)
+            || Path.IsPathRooted(name)
+            || !string.Equals(name, Path.GetFileName(name), StringComparison.Ordinal))
+            throw new InvalidDataException("Manifest file must be a safe BMT basename.");
+        return name;
+    }
+    private static void WriteManifest(string tablePath, IEnumerable<string> fileNames, IDictionary<string, ManifestPlaylistEntry> playlists, ExportResult result)
     {
         var manifest = new JObject
         {
@@ -1501,7 +1587,22 @@ internal static class BmtTableExportService
             }
             manifest["playlists"] = playlistJson;
         }
-        WriteAllText(Path.Combine(tablePath, ManifestFileName), manifest.ToString(Formatting.Indented), new UTF8Encoding(false));
+        string manifestPath = Path.Combine(tablePath, ManifestFileName);
+        string tempPath = manifestPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            WriteAllText(tempPath, manifest.ToString(Formatting.Indented), new UTF8Encoding(false));
+            ReplaceFile(tempPath, manifestPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new IOException($"BMT manifest publish failed: {manifestPath}"
+                + string.Concat(result.Failures.Select(failure => Environment.NewLine + failure.Path + ": " + failure.Cause)), exception);
+        }
+        finally
+        {
+            TryDeleteFile(tempPath);
+        }
     }
 
     private static ManifestPlaylistEntry CreateManifestPlaylistEntry(PlaylistExportMetadata metadata, string fileName, BmtFileState fileState)
@@ -1551,6 +1652,34 @@ internal static class BmtTableExportService
         }
     }
 
+    private static void CleanupManagedFile(string tablePath, string fileName, HashSet<string> files, ExportResult result)
+    {
+        if (DeleteFileOrRecordFailure(Path.Combine(tablePath, fileName), result))
+        {
+            files.Remove(fileName);
+            result.RemovedCount++;
+        }
+    }
+
+    private static bool DeleteFileOrRecordFailure(string path, ExportResult result)
+    {
+        try
+        {
+            // DeleteFile 自身が不存在を成功として扱う。Exists の false を成功に読み替えない。
+            LongPathFileSystem.DeleteFile(path);
+            return true;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            result.Failures.Add(new FileOperationFailure(path, exception.Message));
+            return false;
+        }
+    }
+
     private static string ReadAllText(string path, Encoding encoding)
     {
         using FileStream stream = LongPathFileSystem.OpenRead(path);
@@ -1560,7 +1689,7 @@ internal static class BmtTableExportService
 
     private static void WriteAllText(string path, string contents, Encoding encoding)
     {
-        using FileStream stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        using FileStream stream = LongPathFileSystem.Open(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
         using var writer = new StreamWriter(stream, encoding);
         writer.Write(contents);
     }

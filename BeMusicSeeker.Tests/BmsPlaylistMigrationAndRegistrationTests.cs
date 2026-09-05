@@ -2090,6 +2090,98 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    // BMT-N: 実 queue が捕捉した work を元の通知 session 終了後に実行する。
+    [TestMethod]
+    [DataRow("delete")]
+    [DataRow("read")]
+    [DataRow("publish")]
+    [DataRow("delete-and-publish")]
+    public async Task BeatorajaBmtFailure_ReportsTargetAndCauseAfterOriginalSessionEnds(string failureKind)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistMigrationAndRegistrationTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string output = Path.Combine(directory, "table");
+            Directory.CreateDirectory(output);
+            string stalePath = Path.Combine(output, "stale.bmt");
+            File.WriteAllText(stalePath, "owned");
+            string manifestPath = Path.Combine(output, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifestPath, "{\"files\":[\"stale.bmt\"],\"playlists\":{\"1\":{\"file\":\"stale.bmt\",\"url\":\"https://example.com/old\"}}}");
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output },
+                () => new CustomFolderOutputSettingsSnapshot(),
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            { BMSTables = new ObservableCollection<BMSTable>() };
+            Func<Task> scheduled = null;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { scheduled = work; return true; };
+            IReadOnlyList<BmtTableExportService.FileOperationFailure> reported = null;
+            playlist.BmtOutput.FailureReporter = failures => reported = failures;
+            using (playlist.OperationNotificationOwner.BeginSession())
+                playlist.BmtOutput.QueueBeatorajaBmtExportAll("failure_contract");
+            using (var held = new FileStream(failureKind == "delete" ? stalePath : manifestPath,
+                FileMode.Open, FileAccess.Read, failureKind == "read" ? FileShare.None : FileShare.ReadWrite))
+            using (var heldStale = failureKind == "delete-and-publish"
+                ? new FileStream(stalePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
+            {
+                Assert.IsNotNull(scheduled);
+                await scheduled();
+            }
+            Assert.IsNotNull(reported);
+            Assert.AreEqual(1, reported.Count);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(reported[0].Cause));
+            if (failureKind == "delete")
+                Assert.AreEqual(stalePath, reported[0].Path);
+            else
+                StringAssert.Contains(reported[0].Cause, manifestPath);
+            if (failureKind == "delete-and-publish")
+                StringAssert.Contains(reported[0].Cause, stalePath);
+            Assert.IsFalse(playlist.BmtOutput.HasBlockingWork);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    [TestMethod]
+    public async Task BeatorajaBmtUrlOnlyQueue_SynchronizesUrlsWithZeroPhysicalChanges()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistMigrationAndRegistrationTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            string root = Path.Combine(directory, "beatoraja");
+            Directory.CreateDirectory(Path.Combine(root, "table"));
+            Directory.CreateDirectory(Path.Combine(root, "player"));
+            File.WriteAllText(Path.Combine(root, "beatoraja.jar"), string.Empty);
+            string configPath = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(configPath, "{\"tablepath\":\"table\",\"playerpath\":\"player\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
+            BMSTable table = new() { playlist_id = 8123, name = "Empty", Page_url = new Uri("https://example.com/empty"), entries = [] };
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true },
+                () => new CustomFolderOutputSettingsSnapshot(),
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            { BMSTables = new ObservableCollection<BMSTable>([table]) };
+            Func<Task> scheduled = null;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { scheduled = work; return true; };
+            var failures = new List<BmtTableExportService.FileOperationFailure>();
+            playlist.BmtOutput.FailureReporter = items => failures.AddRange(items);
+            playlist.BmtOutput.QueueBeatorajaBmtExportForTable(table, "url_only_contract");
+            Assert.IsNotNull(scheduled);
+            await scheduled();
+            CollectionAssert.AreEquivalent(new[] { "https://example.com/unmanaged", "https://example.com/empty" },
+                JObject.Parse(File.ReadAllText(configPath))["tableURL"]!.Values<string>().ToArray());
+            Assert.AreEqual(0, Directory.GetFiles(Path.Combine(root, "table"), "*.bmt").Length);
+            Assert.AreEqual(0, failures.Count);
+            Assert.IsFalse(playlist.BmtOutput.HasBlockingWork);
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
     private sealed class TestableBmsFile : BMSFile
     {
         public void SetHash(string value)

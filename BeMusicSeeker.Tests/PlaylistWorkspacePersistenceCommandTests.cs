@@ -29,6 +29,24 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspacePersistenceCommandTests
 {
+    // BMT-N: production callback の受信境界から既存 presentation event へ配送する。
+    [TestMethod]
+    public void BmtOutputFailure_PublishesIndependentNotificationReceipt()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        PlaylistOperationNotificationPresentationRequestedEventArgs observed = null;
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => observed = request;
+        workspace.ReportBmtOutputFailures(Array.AsReadOnly(new[]
+        {
+            new BmtTableExportService.FileOperationFailure("owned-output/locked.bmt", "sharing-denied")
+        }));
+        Assert.IsNotNull(observed);
+        var notification = observed.Receipt.Notifications.Single();
+        Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
+        StringAssert.Contains(notification.Message, "owned-output/locked.bmt");
+        StringAssert.Contains(notification.Message, "sharing-denied");
+    }
+
     [TestInitialize]
     public void TestInitialize()
     {

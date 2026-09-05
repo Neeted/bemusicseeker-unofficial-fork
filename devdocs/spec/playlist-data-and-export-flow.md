@@ -287,11 +287,23 @@ manifest schema v2 では、出力対象 playlist の URL / file name / playlist
 
 旧 manifest に含まれる `contentHash` は no-op 判定には使わない。旧 manifest の `files` と playlist URL は cleanup / `tableURL` 差し替えの所有情報としてだけ読み、新形式での出力後に schema v2 manifest へ自然に置き換える。
 
-同じ playlist ID の `.bmt` URL が変わり、ファイル名が変わった場合は、manifest に残る旧ファイルを削除してから新ファイルを管理対象にする。
+同じ playlist ID の `.bmt` URL が変わり、ファイル名が変わった場合は、新ファイルを管理対象にし、他の playlist が参照しない旧ファイルを cleanup する。
+
+`files` は現在出力したファイルと未削除の旧ファイルを保持し、`playlists` は現行の出力対象へ更新する。削除失敗で物理所有情報を忘れない。この規則は全 cleanup、個別削除、URL-only への移行、全体出力、個別出力による名前変更に共通であり、cleanup を行わない全体出力でも旧 `files` を保持する。全 cleanup で一部が失敗した場合は、URL 所有権を空にした manifest に未削除ファイルを残す。後の通常 cleanup で回収できるが、出力先変更後の旧フォルダは自動回収せず、残留を通知する。
+
+`RemovedCount` はファイルの cleanup 完了件数で、不存在も完了に含む。削除失敗、共有参照による非削除、manifest 自体の削除は含まない。存在確認の false を I/O 成功とみなさず、削除操作の結果で判定する。
+
+manifest は同じディレクトリの一時ファイルへ保存してから atomic に置換する。置換失敗時は既存 manifest の bytes を保持し、直接上書きへ fallback しない。所有する一時ファイルは後始末する。manifest が欠落している場合だけ空台帳として扱い、読取り不能・構文破損・不正構造・未対応 schema は原本と既存 BMT を保全して対象出力先の処理を停止する。manifest の検証は新しい BMT の出力に先行し、部分 salvage は行わない。
+
+受理する manifest は top-level object、必須の `files` array、省略可能な `playlists` object からなる。schemaVersion は省略時 0、明示値は整数 0 / 1 / 2 に限る。`files` の要素は非空 string の安全な出力先直下 `.bmt` basename とし、path component の切り捨ては行わない。ファイル名の重複は大文字小文字を無視してまとめる。playlist の key と URL は非空、value は object とし、`file` の省略・null・空 string は URL-only とする。playlist の file 参照も物理台帳に取り込む。JSON property の重複を拒否し、未知の追加 metadata は許容する。既知の任意 cache field は省略・null の default を許容するが、値がある場合は宣言された string / 整数型を要求する。exporterVersion の差異は cache miss とし、未知 schema と混同しない。
+
+削除の部分失敗、読取り・保存失敗は対象と原因を含む変更不能な事実へまとめ、BMT owner の fileMutationLock とサービスの ManifestLock を抜けてから既存の playlist 通知 presentation event へ配送する。元の AsyncLocal 操作 session の寿命には依存しない。保存失敗前に変更した BMT 本体の rollback、BMT と manifest の複数ファイル transaction、永続的な retry queue は持たない。
 
 同名 `.bmt` が既に存在する場合は上書きする。管理外ファイルであっても、出力対象 URL の SHA-256 と同名なら BeMusicSeeker 出力が優先され、以後 manifest 管理対象になる。
 
 ### config_sys.json tableURL 同期
+
+URL 同期は確定した現行 URL 所有権から行い、BMT の書込み・削除件数が 0 でも省略しない。manifest の読取り・保存が失敗した操作は、未確定の URL 所有権を同期しない。
 
 beatoraja 選曲画面の難易度表表示順は `config_sys.json` の `tableURL` 配列順が優先される。配列にない `.bmt` は beatoraja の `tablepath` ディレクトリ列挙順に依存するため、BeMusicSeeker 管理 `.bmt` の順序安定化には `tableURL` 同期を使う。
 
@@ -310,6 +322,15 @@ Page composition follows the shared unboxed Settings section grammar. `General` 
 Availability remains part of the edit contract: external synchronization disables its dependent URL and folder-editing controls; Custom Folder is available only when `OperationModeLR2DB` is enabled; automatic folder sorting disables manual ordering; and `LevelFolder` is available for File entry type but not Folder entry type. The save, reset, validation-failure, retry, owner-shutdown, and cleanup lifecycle is independent of navigation and remains unchanged. A single native title-bar close request starts the reset lifecycle; once reset reaches `Completed`, the same request's modal window closes with the cancelled/false result without requiring a second user close request. Pending, validation-failed, or faulted reset keeps the window and edit session active. The footer displays the update timestamp exactly as `Update: yyyy/MM/dd`.
 
 ## Verification map
+
+BMT manifest の失敗契約 (`BMT-MANIFEST-FAILURE-1`) は次の既存 fixture で検証する。ファイル試験は GUID temporary directory と自身の共有拒否 handle を所有し、同期 return / throw で完了を確認する。owner 試験は実 scheduler の work を元 session 終了後に await し、新しい lane・固定待ち・reflection seam は追加しない。
+
+| 契約 | fixture | lane / resource |
+| --- | --- | --- |
+| BMT-O / P / V / C: 未削除の所有台帳、件数、atomic 保存、既知形式と不正形式の拒否 | `BmtTableExportServiceTests` | Functional、独立 temporary directory / file handle |
+| BMT-N: session 終了後の失敗報告と物理件数 0 の URL 同期 | `BmsPlaylistMigrationAndRegistrationTests` | Functional `serial-state-a`、既存 class-wide DNP / GUID DB と config |
+| BMT-N: 対象・原因を既存 presentation event へ配送 | `PlaylistWorkspacePersistenceCommandTests` | Functional、既存 workspace fixture |
+| BMT-L: resource key と対象・原因 placeholder | `LocalizationResourceParityTests` | Functional、resource artifact の読取り |
 
 ### Playlist property native-close verification
 
