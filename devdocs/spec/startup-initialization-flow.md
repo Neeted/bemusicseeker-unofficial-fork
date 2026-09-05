@@ -98,7 +98,7 @@ profile / schema
        └─ deferred presentation flush → startup_presentation_flush
 ```
 
-`Startup` の app schema repair は設定確認後に完了させ、LR2 backup が有効な場合はその承認後に `Backup.SaveBackupsWithResult` と必要な `Backup.RebuildDatabase` を await してから `InitializeStartup` に入る。backup の公開・失敗・世代保持契約は [lr2-backup.md](lr2-backup.md) を参照する。`InitializeStartup` 内では file/resource scan が metadata import と並行して先行開始でき、file diff は catalog load と scan surface の両方が揃ってから適用する。`chart_info` hydration/backfill は app schema repair の代替ではない。
+`Startup` の app schema repair は設定確認後に完了させ、LR2 backup が有効な場合はその承認後に設定フラグと元パスを `Backup.SaveSelectedBackupsWithResult` へ渡し、必要な `Backup.RebuildDatabase` とともに await してから `InitializeStartup` に入る。対象選択入口は存在確認で保存対象を事前除外せず、保存結果の `Saved` が最適化の実行条件となる。backup の公開・失敗・世代保持契約は [lr2-backup.md](lr2-backup.md) を参照する。`InitializeStartup` 内では file/resource scan が metadata import と並行して先行開始でき、file diff は catalog load と scan surface の両方が揃ってから適用する。`chart_info` hydration/backfill は app schema repair の代替ではない。
 
 library folder tree は versioned post-initialization refresh として独立する。folder tree の worker、model reader、または UI apply が遅延しても、`startup_ready_operable`、required scheduler、`startup_initialization_complete` を止めない。
 

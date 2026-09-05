@@ -274,6 +274,194 @@ public sealed class BackupTests
         });
     }
 
+    // B5-LR2-SELECTION-1 / S1: 選択済み Score の欠落は保存失敗として旧世代を保持する。
+    [TestMethod]
+    public void SaveSelectedBackupsWithResult_ConfigAndMissingScoreFailsAndPreservesOldGenerations()
+    {
+        WithSelectedBackupTree((root, configPath, songDbPath, scoreDirectoryPath) =>
+        {
+            string[] old = CreateOldGenerationsWithScore(root);
+            LongPathFileSystem.DeleteDirectory(scoreDirectoryPath, recursive: true);
+
+            Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
+                root,
+                TimeSpan.Zero,
+                1,
+                Backup.Target.Config | Backup.Target.ScoreDB,
+                configPath,
+                songDbPath,
+                scoreDirectoryPath);
+
+            Assert.IsFalse(result.Saved);
+            Assert.IsNotNull(result.FailureException);
+            Assert.IsFalse(Directory.Exists(TodayPath(root)));
+            AssertOldGenerations(old);
+            AssertOldScoreGenerations(old);
+            CollectionAssert.AreEquivalent(old, Directory.GetDirectories(root));
+        });
+    }
+
+    // B5-LR2-SELECTION-1 / S2: Score だけを選択して欠落した場合も no-op にしない。
+    [TestMethod]
+    public void SaveSelectedBackupsWithResult_MissingScoreOnlyFailsAndPreservesOldGenerations()
+    {
+        WithSelectedBackupTree((root, configPath, songDbPath, scoreDirectoryPath) =>
+        {
+            string[] old = CreateOldGenerationsWithScore(root);
+            LongPathFileSystem.DeleteDirectory(scoreDirectoryPath, recursive: true);
+
+            Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
+                root,
+                TimeSpan.Zero,
+                1,
+                Backup.Target.ScoreDB,
+                configPath,
+                songDbPath,
+                scoreDirectoryPath);
+
+            Assert.IsFalse(result.Saved);
+            Assert.IsNotNull(result.FailureException);
+            Assert.IsFalse(Directory.Exists(TodayPath(root)));
+            AssertOldGenerations(old);
+            AssertOldScoreGenerations(old);
+            CollectionAssert.AreEquivalent(old, Directory.GetDirectories(root));
+        });
+    }
+
+    // B5-LR2-SELECTION-1 / S3: 選択フラグごとの対象集合と内容を実保存で確認する。
+    [TestMethod]
+    [DataRow((int)Backup.Target.Config, "config.xml")]
+    [DataRow((int)Backup.Target.SongDB, "song.db")]
+    [DataRow((int)Backup.Target.ScoreDB, "Score")]
+    [DataRow((int)Backup.Target.All, "config.xml|song.db|Score")]
+    public void SaveSelectedBackupsWithResult_FlagsSelectOnlyConfiguredSources(int rawTargets, string expectedRootEntries)
+    {
+        WithSelectedBackupTree((root, configPath, songDbPath, scoreDirectoryPath) =>
+        {
+            Backup.Target targets = (Backup.Target)rawTargets;
+            Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
+                root,
+                TimeSpan.Zero,
+                1,
+                targets,
+                configPath,
+                songDbPath,
+                scoreDirectoryPath);
+
+            Assert.IsTrue(result.Saved);
+            Assert.IsNull(result.FailureException);
+            string today = TodayPath(root);
+            string[] expectedEntries = expectedRootEntries.Split('|', StringSplitOptions.RemoveEmptyEntries);
+            if (expectedEntries.Contains("config.xml", StringComparer.Ordinal))
+            {
+                Assert.AreEqual("config-content", ReadAllText(Path.Combine(today, Path.GetFileName(configPath))));
+            }
+            if (expectedEntries.Contains("song.db", StringComparer.Ordinal))
+            {
+                Assert.AreEqual("song-content", ReadAllText(Path.Combine(today, Path.GetFileName(songDbPath))));
+            }
+            if (expectedEntries.Contains("Score", StringComparer.Ordinal))
+            {
+                Assert.AreEqual("score-content", ReadAllText(Path.Combine(today, "Score", "score.db")));
+            }
+
+            CollectionAssert.AreEquivalent(expectedEntries, Directory.GetFileSystemEntries(today).Select(Path.GetFileName).ToArray());
+        });
+    }
+
+    // B5-LR2-SELECTION-1 / S3: 未選択の欠落は選択対象の保存を妨げない。
+    [TestMethod]
+    public void SaveSelectedBackupsWithResult_UnselectedMissingScoreDoesNotBlockConfigAndSongDB()
+    {
+        WithSelectedBackupTree((root, configPath, songDbPath, scoreDirectoryPath) =>
+        {
+            LongPathFileSystem.DeleteDirectory(scoreDirectoryPath, recursive: true);
+
+            Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
+                root,
+                TimeSpan.Zero,
+                1,
+                Backup.Target.Config | Backup.Target.SongDB,
+                configPath,
+                songDbPath,
+                scoreDirectoryPath);
+
+            Assert.IsTrue(result.Saved);
+            Assert.IsNull(result.FailureException);
+            string today = TodayPath(root);
+            CollectionAssert.AreEquivalent(
+                new[] { Path.GetFileName(configPath), Path.GetFileName(songDbPath) },
+                Directory.GetFileSystemEntries(today).Select(Path.GetFileName).ToArray());
+            Assert.AreEqual("config-content", ReadAllText(Path.Combine(today, Path.GetFileName(configPath))));
+            Assert.AreEqual("song-content", ReadAllText(Path.Combine(today, Path.GetFileName(songDbPath))));
+            Assert.IsFalse(Directory.Exists(Path.Combine(today, Path.GetFileName(scoreDirectoryPath))));
+        });
+    }
+
+    // B5-LR2-SELECTION-1 / S4: 新世代を含む保持数と全対象の内容を確認する。
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(3)]
+    public void SaveSelectedBackupsWithResult_AllTargetsRetainNewGeneration(int generationCount)
+    {
+        WithSelectedBackupTree((root, configPath, songDbPath, scoreDirectoryPath) =>
+        {
+            string[] old = CreateOldGenerations(root);
+
+            Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
+                root,
+                TimeSpan.Zero,
+                generationCount,
+                Backup.Target.All,
+                configPath,
+                songDbPath,
+                scoreDirectoryPath);
+
+            Assert.IsTrue(result.Saved);
+            Assert.IsNull(result.FailureException);
+            Assert.AreEqual(generationCount, Directory.GetDirectories(root).Length);
+            string today = TodayPath(root);
+            Assert.AreEqual("config-content", ReadAllText(Path.Combine(today, "config.xml")));
+            Assert.AreEqual("song-content", ReadAllText(Path.Combine(today, "song.db")));
+            Assert.AreEqual("score-content", ReadAllText(Path.Combine(today, "Score", "score.db")));
+            for (int index = 0; index < old.Length; index++)
+            {
+                Assert.AreEqual(index < generationCount - 1, Directory.Exists(old[index]));
+                if (index < generationCount - 1)
+                {
+                    Assert.AreEqual("old-content", ReadAllText(Path.Combine(old[index], "sentinel.db")));
+                }
+            }
+        });
+    }
+
+    // B5-LR2-SELECTION-1 / S5: None は対象パスの状態にかかわらず保存しない。
+    [TestMethod]
+    public void SaveSelectedBackupsWithResult_NoneDoesNotSave()
+    {
+        WithSelectedBackupTree((root, configPath, songDbPath, scoreDirectoryPath) =>
+        {
+            string[] old = CreateOldGenerationsWithScore(root);
+
+            Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
+                root,
+                TimeSpan.Zero,
+                1,
+                Backup.Target.None,
+                configPath,
+                songDbPath,
+                scoreDirectoryPath);
+
+            Assert.IsFalse(result.Saved);
+            Assert.IsNull(result.FailureException);
+            Assert.AreEqual(0, result.Warnings.Count);
+            Assert.IsFalse(Directory.Exists(TodayPath(root)));
+            AssertOldGenerations(old);
+            AssertOldScoreGenerations(old);
+            CollectionAssert.AreEquivalent(old, Directory.GetDirectories(root));
+        });
+    }
+
     private static void WithBackupTree(Action<string, string> test)
     {
         string tree = Path.Combine(Path.GetTempPath(), "BackupTests", Guid.NewGuid().ToString("N"));
@@ -295,6 +483,21 @@ public sealed class BackupTests
         }
     }
 
+    private static void WithSelectedBackupTree(Action<string, string, string, string> test)
+    {
+        WithBackupTree((root, songDbPath) =>
+        {
+            string tree = Path.GetDirectoryName(songDbPath);
+            string configPath = Path.Combine(tree, "config.xml");
+            string scoreDirectoryPath = Path.Combine(tree, "Score");
+            Directory.CreateDirectory(scoreDirectoryPath);
+            WriteAllText(configPath, "config-content");
+            WriteAllText(songDbPath, "song-content");
+            WriteAllText(Path.Combine(scoreDirectoryPath, "score.db"), "score-content");
+            test(root, configPath, songDbPath, scoreDirectoryPath);
+        });
+    }
+
     private static string[] CreateOldGenerations(string root)
     {
         string[] generations = new string[4];
@@ -308,12 +511,32 @@ public sealed class BackupTests
         return generations;
     }
 
+    private static string[] CreateOldGenerationsWithScore(string root)
+    {
+        string[] generations = CreateOldGenerations(root);
+        foreach (string generation in generations)
+        {
+            string scoreDirectory = Path.Combine(generation, "Score");
+            Directory.CreateDirectory(scoreDirectory);
+            WriteAllText(Path.Combine(scoreDirectory, "old-score.db"), "old-score-content");
+        }
+        return generations;
+    }
+
     private static void AssertOldGenerations(string[] generations)
     {
         foreach (string generation in generations)
         {
             Assert.IsTrue(Directory.Exists(generation), generation);
             Assert.AreEqual("old-content", ReadAllText(Path.Combine(generation, "sentinel.db")));
+        }
+    }
+
+    private static void AssertOldScoreGenerations(string[] generations)
+    {
+        foreach (string generation in generations)
+        {
+            Assert.AreEqual("old-score-content", ReadAllText(Path.Combine(generation, "Score", "old-score.db")));
         }
     }
 

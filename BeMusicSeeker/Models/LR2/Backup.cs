@@ -77,6 +77,49 @@ public class Backup : ObservableObject
     }
 
     /// <summary>
+    /// 設定された対象フラグからバックアップ対象を組み立て、既存の保存処理へ渡します。
+    /// 選択済みパスの存在確認と保存結果の扱いは <see cref="SaveBackupsWithResult" /> に委譲します。
+    /// </summary>
+    /// <param name="dstDir">バックアップ出力先ディレクトリ。</param>
+    /// <param name="span">前回バックアップから必要な経過時間。</param>
+    /// <param name="genNum">新しいバックアップを含む保持世代数。</param>
+    /// <param name="targets">保存する対象のフラグ。</param>
+    /// <param name="configPath">LR2 の設定ファイルパス。</param>
+    /// <param name="songDbPath">LR2 の曲データベースパス。</param>
+    /// <param name="scoreDirectoryPath">LR2 のスコアデータベースディレクトリパス。</param>
+    /// <returns>既存の保存処理による公開結果、削除警告、および公開前の主失敗例外。</returns>
+    internal static BackupSaveResult SaveSelectedBackupsWithResult(
+        string dstDir,
+        TimeSpan span,
+        int genNum,
+        Target targets,
+        string configPath,
+        string songDbPath,
+        string scoreDirectoryPath)
+    {
+        if (targets == Target.None)
+        {
+            return new BackupSaveResult(saved: false, warnings: []);
+        }
+
+        List<string> selectedPaths = [];
+        if (targets.HasFlag(Target.Config))
+        {
+            selectedPaths.Add(configPath);
+        }
+        if (targets.HasFlag(Target.SongDB))
+        {
+            selectedPaths.Add(songDbPath);
+        }
+        if (targets.HasFlag(Target.ScoreDB))
+        {
+            selectedPaths.Add(scoreDirectoryPath);
+        }
+
+        return SaveBackupsWithResult(dstDir, span, genNum, selectedPaths);
+    }
+
+    /// <summary>
     /// 選択対象を一時ディレクトリへ全てコピーしてから日付世代として公開し、古い世代を削除します。
     /// 公開前の失敗では既存世代を保持し、公開後の削除失敗は保存成功と警告を返します。
     /// </summary>

@@ -4360,22 +4360,15 @@ public partial class MainWindowViewModel : ViewModel,
         if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)
         {
             Backup.Target lR2BackupTarget = startupSettings.LR2BackupTarget;
-            List<string> bkPaths = [];
             string songDBPath = null;
             List<string> scoreDBPaths = [];
-            if (lR2BackupTarget.HasFlag(Backup.Target.Config) && LongPathFileSystem.FileExists(startupSettings.LR2ConfigXmlPath))
-            {
-                bkPaths.Add(startupSettings.LR2ConfigXmlPath);
-            }
             if (lR2BackupTarget.HasFlag(Backup.Target.SongDB) && LongPathFileSystem.FileExists(startupSettings.LR2SongDBPath))
             {
                 songDBPath = startupSettings.LR2SongDBPath;
-                bkPaths.Add(startupSettings.LR2SongDBPath);
             }
             string scoreDirectoryPath = Path.Combine(startupSettings.LR2RootPath, "LR2files", "Database", "Score");
             if (lR2BackupTarget.HasFlag(Backup.Target.ScoreDB) && LongPathFileSystem.DirectoryExists(scoreDirectoryPath))
             {
-                bkPaths.Add(scoreDirectoryPath);
                 try
                 {
                     scoreDBPaths = [.. LongPathFileSystem.EnumerateFiles(scoreDirectoryPath, "*.db", System.IO.SearchOption.AllDirectories)];
@@ -4385,41 +4378,45 @@ public partial class MainWindowViewModel : ViewModel,
                     scoreDBPaths = [];
                 }
             }
-            if (bkPaths.Count > 0)
+            Backup.BackupSaveResult backupSaveResult = null;
+            backupSaveResult = await Task.Run(delegate
             {
-                Backup.BackupSaveResult backupSaveResult = null;
-                backupSaveResult = await Task.Run(delegate
+                try
                 {
-                    try
+                    Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
+                        startupSettings.LR2BackupPath,
+                        new TimeSpan(startupSettings.LR2BackupSpan, 0, 0, 0),
+                        startupSettings.LR2BackupNum,
+                        lR2BackupTarget,
+                        startupSettings.LR2ConfigXmlPath,
+                        startupSettings.LR2SongDBPath,
+                        scoreDirectoryPath);
+                    if (result.Saved)
                     {
-                        Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(startupSettings.LR2BackupPath, new TimeSpan(startupSettings.LR2BackupSpan, 0, 0, 0), startupSettings.LR2BackupNum, bkPaths);
-                        if (result.Saved)
+                        try
                         {
-                            try
-                            {
-                                Backup.RebuildDatabase(songDBPath, scoreDBPaths);
-                            }
-                            catch
-                            {
-                            }
+                            Backup.RebuildDatabase(songDBPath, scoreDBPaths);
                         }
-                        return result;
+                        catch
+                        {
+                        }
                     }
-                    catch (Exception ex)
-                    {
-                        return Backup.BackupSaveResult.Failure(ex);
-                    }
-                }).LoggingAndPropagate("Initialize");
-                if (backupSaveResult != null)
+                    return result;
+                }
+                catch (Exception ex)
                 {
-                    foreach (string warning in backupSaveResult.Warnings)
-                    {
-                        ShowUiMessage(warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "LR2 backup warning notification");
-                    }
-                    if (backupSaveResult.FailureException != null)
-                    {
-                        ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_backups + Environment.NewLine + backupSaveResult.FailureException.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "LR2 backup failure notification");
-                    }
+                    return Backup.BackupSaveResult.Failure(ex);
+                }
+            }).LoggingAndPropagate("Initialize");
+            if (backupSaveResult != null)
+            {
+                foreach (string warning in backupSaveResult.Warnings)
+                {
+                    ShowUiMessage(warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "LR2 backup warning notification");
+                }
+                if (backupSaveResult.FailureException != null)
+                {
+                    ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_backups + Environment.NewLine + backupSaveResult.FailureException.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "LR2 backup failure notification");
                 }
             }
         }

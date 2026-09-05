@@ -2,7 +2,14 @@
 
 ## 処理の責任と呼び出し経路
 
-LR2 連携が有効な起動処理は、`config.xml`、`song.db`、Score ディレクトリを選択し、`Backup.SaveBackupsWithResult` を呼ぶ `Task.Run` の完了を待つ。戻り値の `Saved` がデータベース最適化の実行条件となり、起動処理が警告と `FailureException` を表示する。起動順序とスレッドの責任分担は、引き続き [startup-initialization-flow.md](startup-initialization-flow.md) に従う。
+LR2 連携が有効な起動処理は、設定フラグと `config.xml`、`song.db`、Score ディレクトリの元パスを `Backup.SaveSelectedBackupsWithResult` へ渡し、その `Task.Run` の完了を待つ。入口はフラグから対象パスを組み立てて既存の `Backup.SaveBackupsWithResult` へ委譲する。戻り値の `Saved` がデータベース最適化の実行条件となり、起動処理が警告と `FailureException` を表示する。起動順序とスレッドの責任分担は、引き続き [startup-initialization-flow.md](startup-initialization-flow.md) に従う。
+
+## 設定対象の選択契約
+
+- `SaveSelectedBackupsWithResult` は `Target.Config`、`Target.SongDB`、`Target.ScoreDB` のフラグだけで対象を選び、選択された元パスを存在確認で事前除外しない。
+- 選択済みの非空パスが欠落している場合は、既存の保存処理が保存全体を失敗として返す。保存先の既存世代とその内容は保持し、新しい日付世代を公開しない。
+- 未選択の対象が欠落していても、選択された対象だけを保存する。`Target.None` は対象を持たず、既存の保存しない結果を維持する。
+- 起動側の `song.db` / Score DB の存在確認と列挙はデータベース最適化用であり、バックアップ対象の事前除外には使わない。保存失敗時は `Saved` 判定により最適化へ進まない。
 
 ## 保存契約
 
@@ -25,6 +32,16 @@ LR2 連携が有効な起動処理は、`config.xml`、`song.db`、Score ディ�
 | C4, C9 | 読み取り専用の staging コピーとロックされた対象による主失敗・パス警告の保持、後続保存で残留 staging を無視すること |
 | C5 | 実ファイルシステム境界でのディレクトリ衝突時に双方の内容を保持すること、保存処理での最終パスのファイル衝突 |
 | C6, C7, C9 | 新世代を含む 1 世代・複数世代の保持、読み取り専用の旧世代を削除できなくても保存成功とパス警告を返すこと |
+
+設定選択の回帰は承認済みテスト契約 `B5-LR2-SELECTION-1` に従い、`BeMusicSeeker.Tests/BackupTests.cs` の `SaveSelectedBackupsWithResult_*` が実ファイル保存まで確認する。
+
+| 契約 | 検証内容 |
+| --- | --- |
+| S1, S2 | Config／ScoreDB の選択済み欠落を `Saved=false`・`FailureException` 非 null とし、新日付世代なし、旧世代と Score 配下の内容保持を確認 |
+| S3 | 単独選択・`All` の出力対象と合成内容、未選択 Score の欠落を無視して Config／SongDB を保存できることを確認 |
+| S4 | `All` の実保存で新世代を含む保持数と全対象内容を確認 |
+| S5 | `None` が保存せず、既存世代を変更しないことを確認 |
+| S6 | 起動側がフラグと設定元パスを新入口へ渡し、`Saved` をデータベース最適化の gate とし、`FailureException` を既存通知へ渡すことを静的追跡で補完。全 Startup 実行テストは行わない |
 
 動作テストは静的レビューで補完する。保存処理の明示的な `overwrite: false` が、同じ親・同じファイルシステム上の移動経路を通って `Directory.Move` に渡ることを追跡する。競合先をマージ・削除する経路がないこと、選択済み対象の消失を黙ってスキップしないこと、保存確定前の失敗時に削除を一度だけ試みることも確認する。テストでは、競合ディレクトリの出現やコピー途中の消失を厳密なタイミングで発生させたり、削除呼び出し回数を計測したりしない。これらのタイミングを制御するテスト専用の仕組みやファイルシステム抽象化は追加しない。
 
