@@ -26,6 +26,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 {
     /// <summary>Shares optional FS/DB terminal reporting across feature and view consumers.</summary>
     internal IUiDialogService FileDbMutationDialogs { get; }
+
+    /// <summary>Gets the App-owned terminal save warning callback, usable after ordinary dialog shutdown.</summary>
+    internal Action<Exception> ReportTerminalSettingsSaveFailure { get; }
     private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
 
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
@@ -88,6 +91,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <param name="scoreViewerRegistrationGateway">Score Viewer 登録の network boundary。未指定時は production gateway を使います。</param>
     /// <param name="keywordSearchFavoritesSettingsStore">Keyword search Favorites persistence boundary。</param>
     /// <param name="fileDbMutationDialogService">Shared optional mutation-report presentation boundary.</param>
+    /// <param name="reportTerminalSettingsSaveFailure">App-owned terminal settings warning; omitted by compositions without a terminal UI.</param>
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -114,7 +118,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IScoreViewerRegistrationGateway scoreViewerRegistrationGateway = null,
         IExternalProgramLaunchGateway externalProgramLaunchGateway = null,
         IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null,
-        IUiDialogService fileDbMutationDialogService = null)
+        IUiDialogService fileDbMutationDialogService = null,
+        Action<Exception> reportTerminalSettingsSaveFailure = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -137,6 +142,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         this.uiScheduler = uiScheduler
             ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
+        ReportTerminalSettingsSaveFailure = reportTerminalSettingsSaveFailure;
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
         FileDbMutationDialogs = fileDbMutationDialogService ?? new UiDialogCoordinator();
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider

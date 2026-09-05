@@ -304,7 +304,10 @@ public sealed class ExternalPlayerProcessGatewayTests
 
             gateway.Session.KeepRunning = false;
             player.CloseProcess();
-            Assert.IsTrue(settingsGateway.SaveCalled);
+            Assert.IsTrue(settingsGateway.PlacementUpdated);
+            Assert.AreSame(windowHost.CapturedPlacement, settingsGateway.Placement);
+            Assert.IsTrue(gateway.Session.HasExited);
+            player.CloseProcess();
         });
     }
 
@@ -637,13 +640,16 @@ public sealed class ExternalPlayerProcessGatewayTests
             true,
             new WindowPlacement(0, 1, 0, 0, 0, 0, 0, 0, 800, 600));
 
-        internal bool SaveCalled { get; private set; }
+        internal bool PlacementUpdated { get; private set; }
+
+        internal WindowPlacement? Placement { get; private set; }
 
         public PlayerSettingsSnapshot CaptureSnapshot() => snapshot;
 
-        public void SaveWindowPlacement(WindowPlacement windowPlacement)
+        public void UpdateWindowPlacement(WindowPlacement windowPlacement)
         {
-            SaveCalled = true;
+            PlacementUpdated = true;
+            Placement = windowPlacement;
         }
     }
 

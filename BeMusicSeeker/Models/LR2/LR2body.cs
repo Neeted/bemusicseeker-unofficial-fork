@@ -511,7 +511,7 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     {
         if (!LR2bodyHandleShowing.IsEmpty)
         {
-            playerSettingsGateway.SaveWindowPlacement(RequireWindowHost().CaptureWindowPlacement(LR2bodyHandleShowing));
+            playerSettingsGateway.UpdateWindowPlacement(RequireWindowHost().CaptureWindowPlacement(LR2bodyHandleShowing));
         }
     }
 

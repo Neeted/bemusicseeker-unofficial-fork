@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.Utils;
@@ -42,7 +43,7 @@ public partial class App : System.Windows.Application
 
     private readonly IApplicationRestartGateway applicationRestartGateway;
 
-    private readonly ApplicationSettingsLifecycle applicationSettingsLifecycle = new();
+    private readonly ApplicationSettingsLifecycle applicationSettingsLifecycle;
 
     private readonly object restartSyncRoot = new();
 
@@ -75,6 +76,8 @@ public partial class App : System.Windows.Application
 
     internal App(IApplicationRestartGateway applicationRestartGateway)
     {
+        applicationSettingsLifecycle = new ApplicationSettingsLifecycle(
+            normalizeSettings: PreparePortableSettings, warnSaveFailure: ShowSettingsSaveWarning);
         this.applicationRestartGateway = applicationRestartGateway
             ?? throw new ArgumentNullException(nameof(applicationRestartGateway));
         try
@@ -104,11 +107,6 @@ public partial class App : System.Windows.Application
             NLogWrapper.FileLogger?.Warn("Invalid --log-level value '" + CommandLineSwitches.InvalidLogLevelValue + "'. Fallback to Warn.");
         }
         InitializeAvailableCultures();
-        applicationSettingsLifecycle.MigrateLegacy(AvailableCultures.Values, CultureInfo.CurrentCulture.Name);
-        applicationSettingsLifecycle.Initialize(
-            AvailableCultures.Values,
-            () => new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version),
-            value => firstStartup = value);
     }
 
     private static LogLevel ConvertToNLogLevel(NormalLogLevel level)
@@ -123,33 +121,6 @@ public partial class App : System.Windows.Application
 
     private async void Application_Startup(object sender, StartupEventArgs e)
     {
-        while (_mutex == null)
-        {
-            try
-            {
-                _mutex = new Mutex(initiallyOwned: false, MutexName);
-            }
-            catch
-            {
-            }
-        }
-        if (!_mutex.WaitOne(5000, exitContext: false))
-        {
-            _mutex.Close();
-            _mutex = null;
-            EmergencyDialog.Show((CultureInfo.CurrentCulture.Name == "ja-JP") ? "既に起動しています。" : "BeMusicSeeker is already started.", "Error", MessageBoxButton.OK, MessageBoxImage.Hand);
-            Shutdown();
-            return;
-        }
-        _mutexOwned = true;
-        DispatcherHelper.UIDispatcher = base.Dispatcher;
-        AppThemeService.ApplyTheme(applicationSettingsLifecycle.GetCurrentAppearanceTheme());
-        AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
-        base.DispatcherUnhandledException += Application_DispatcherUnhandledException;
-        TempDirectoryPublisher.StartCleanupStaleDirectoriesAsync(
-            message => NLogWrapper.FileLogger?.Info(message),
-            (path, ex) => NLogWrapper.FileLogger?.Warn(ex, "temp_startup_cleanup_failed path=" + path));
-
         await new ApplicationStartupCompositionOwner(
             createViewModel: () =>
             {
@@ -157,16 +128,76 @@ public partial class App : System.Windows.Application
                     uiScheduler: new WpfUiScheduler(() => base.Dispatcher),
                     applicationLifetime: new AppApplicationLifetime(this),
                     cultureCatalog: new AppCultureCatalog(this),
-                    applicationPathSnapshot: applicationPathSnapshot);
+                    applicationPathSnapshot: applicationPathSnapshot,
+                    reportTerminalSettingsSaveFailure: exception => EmergencyDialog.Show(
+                        string.Format(BeMusicSeeker.Properties.Resources.SettingsSaveFailedDuringShutdown, SettingsFailureMessage.Format(exception)),
+                        BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Warning));
                 return composition.CreateMainWindowViewModel();
             },
             assignViewModelResource: viewModel => Resources["vm"] = viewModel,
             createMainWindow: viewModel => new MainWindow(viewModel),
             assignApplicationMainWindow: mainWindow => MainWindow = mainWindow,
             showMainWindow: mainWindow => mainWindow.Show(),
-            handleFailure: HandleStartupFailureAsync)
+            handleFailure: HandleStartupFailureAsync,
+            acquireOwnership: AcquireSingleInstanceOwnership,
+            prepareSettings: InitializeOwnedSettings)
             .StartAsync()
             .ConfigureAwait(true);
+    }
+
+    private bool AcquireSingleInstanceOwnership()
+    {
+        _mutex = new Mutex(initiallyOwned: false, MutexName);
+        try
+        {
+            _mutexOwned = _mutex.WaitOne(5000, exitContext: false);
+        }
+        catch (AbandonedMutexException)
+        {
+            _mutexOwned = true;
+        }
+        if (_mutexOwned)
+        {
+            return true;
+        }
+        ReleaseSingleInstanceMutex();
+        EmergencyDialog.Show(BeMusicSeeker.Properties.Resources.ApplicationAlreadyStarted,
+            BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
+        Shutdown();
+        return false;
+    }
+
+    private void PreparePortableSettings()
+    {
+        new PortableSettingsStartupFile(PortableSettingsPath.UserConfigPath).Prepare(
+            () => applicationSettingsLifecycle.MigrateLegacy(AvailableCultures.Values, CultureInfo.CurrentCulture.Name),
+            backup => EmergencyDialog.Show(
+                string.Format(BeMusicSeeker.Properties.Resources.PortableSettingsRecovered, backup),
+                BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Warning));
+    }
+
+    private static void ShowSettingsSaveWarning(Exception exception)
+    {
+        NLogWrapper.FileLogger?.Warn(exception, "startup_settings_save_failed");
+        string path = exception is PortableSettingsException failure ? failure.FilePath : PortableSettingsPath.UserConfigPath;
+        EmergencyDialog.Show(string.Format(BeMusicSeeker.Properties.Resources.PortableSettingsStartupSaveFailed,
+            path, exception.GetBaseException().Message), BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    private void InitializeOwnedSettings()
+    {
+        applicationSettingsLifecycle.Initialize(
+            AvailableCultures.Values,
+            () => new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version),
+            value => firstStartup = value);
+        DispatcherHelper.UIDispatcher = base.Dispatcher;
+        AppThemeService.ApplyTheme(applicationSettingsLifecycle.GetCurrentAppearanceTheme());
+        AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+        base.DispatcherUnhandledException += Application_DispatcherUnhandledException;
+        TempDirectoryPublisher.StartCleanupStaleDirectoriesAsync(
+            message => NLogWrapper.FileLogger?.Info(message),
+            (path, ex) => NLogWrapper.FileLogger?.Warn(ex, "temp_startup_cleanup_failed path=" + path));
     }
 
     private async Task HandleStartupFailureAsync(Exception exception)
@@ -176,7 +207,17 @@ public partial class App : System.Windows.Application
         {
             try
             {
-                ExceptionLogger(exception);
+                if (exception is PortableSettingsException settingsFailure)
+                {
+                    NLogWrapper.FileLogger?.Error(exception, "startup_settings_failed");
+                    EmergencyDialog.Show(string.Format(BeMusicSeeker.Properties.Resources.PortableSettingsStartupFailed,
+                        settingsFailure.FilePath, settingsFailure.GetBaseException().Message),
+                        BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                else
+                {
+                    ExceptionLogger(exception);
+                }
             }
             catch
             {

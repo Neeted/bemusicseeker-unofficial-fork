@@ -1319,6 +1319,14 @@ public sealed class SettingsForegroundInteractionTests
 
     private sealed class ManualResyncSettingsEditSession : ISettingsEditSession
     {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
+        }
+
         internal ManualResyncSettingsEditSession(Settings values)
         {
             Values = values;
@@ -1418,6 +1426,14 @@ public sealed class SettingsForegroundInteractionTests
 
     private sealed class CountingSettingsEditSession : ISettingsEditSession
     {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
+        }
+
         internal CountingSettingsEditSession(Settings values)
         {
             Values = values;

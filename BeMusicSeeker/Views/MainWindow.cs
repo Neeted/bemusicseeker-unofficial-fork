@@ -241,8 +241,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         ThrowIfPickerFailed(result.Status, result.Error, "Main window add root folder picker");
         if (result.Status == UiDialogStatus.Accepted)
         {
-            await settingDialogViewModel.AddBmsSearchRootPathFromMainWindowPicker(result.FolderPath)
-                .LoggingAndPropagate("addRootFolderMenuItemClick");
+            try
+            {
+                await settingDialogViewModel.AddBmsSearchRootPathFromMainWindowPicker(result.FolderPath)
+                    .LoggingAndPropagate("addRootFolderMenuItemClick");
+            }
+            catch (Exception exception)
+            {
+                UiDialogResult notification = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
+                    SettingsFailureMessage.Format(exception), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand,
+                    MessageBoxResult.OK, owner: this));
+                UiDialogRoute.ThrowIfNotShown(notification, "Settings persistence failure notification");
+            }
         }
     }
 
@@ -5049,8 +5059,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        await rootFolderUnregisterTerminal.UnregisterAsync(path)
-            .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
+        try
+        {
+            await rootFolderUnregisterTerminal.UnregisterAsync(path)
+                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
+        }
+        catch (Exception exception)
+        {
+            UiDialogResult notification = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
+                SettingsFailureMessage.Format(exception), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand,
+                MessageBoxResult.OK, owner: this));
+            UiDialogRoute.ThrowIfNotShown(notification, "Settings persistence failure notification");
+        }
     }
 
     private async void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick(object sender, RoutedEventArgs e)

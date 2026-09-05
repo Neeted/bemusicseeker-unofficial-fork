@@ -22,6 +22,223 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingsDialogBehaviorTests
 {
+    // P07/P08d-S: real user-config failure, separate user Cancel and user retry paths.
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task FailedNormalSaveRetainsDraftUntilUserCancelsOrRetries(bool cancel)
+    {
+        using var directory = new TemporaryDirectory("failed-normal-save");
+        string path = Path.Combine(directory.Path, "user.config");
+        var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+        settings.OperationModeLR2DB = false;
+        settings.BMSRootPath = directory.Path;
+        settings.StandaloneBmsRootPaths = directory.Path;
+        settings.BMSInstallDir = directory.Path;
+        settings.ScanBmsFilesOnStartup = false;
+        settings.Save();
+        byte[] original = File.ReadAllBytes(path);
+        var session = new RecordingSettingsEditSession(settings, persistence: new SettingsEditSession(settings));
+        var failures = new List<Exception>();
+        var audio = new TestAudioSettingsGateway();
+        AudioOutputSelection originalAudio = audio.OutputSelection;
+        using var harness = SettingsDialogHarness.Create(settings, activeLibraryProfile: true, session: session,
+            reportApplyFailure: failures.Add, audioSettings: audio);
+        var presentation = new RecordingSettingsDialogPresentationPort();
+        harness.Dialog.AttachPresentationPort(presentation);
+        session.ClearCalls();
+        harness.Dialog.ScanBmsFilesOnStartup = true;
+        var capture = new WindowPlacement(0, 1, 0, 0, 0, 0, 77, 88, 877, 688);
+        new SettingsPlayerSettingsGateway(() => settings).UpdateWindowPlacement(capture);
+        if (cancel)
+        {
+            harness.Dialog.PlayerDriverIndex = AudioDriverPolicy.IndexOf(
+                AudioDriverPolicy.SelectableDrivers.First(driver => driver != originalAudio.Backend));
+        }
+        using (var blockReplacement = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        {
+            await harness.Dialog.ApplySettingsAsync();
+        }
+        Assert.AreEqual(1, session.SaveCount);
+        Assert.AreEqual(0, session.ReloadCount);
+        Assert.AreEqual(1, failures.Count);
+        Assert.IsInstanceOfType<PortableSettingsException>(failures[0]);
+        CollectionAssert.AreEqual(original, File.ReadAllBytes(path));
+        Assert.IsTrue(harness.Dialog.ScanBmsFilesOnStartup);
+        Assert.IsTrue(harness.Dialog.HasPendingSettingChanges());
+        Assert.AreEqual(originalAudio, audio.OutputSelection);
+        Assert.AreEqual(0, harness.SearchRoots.ApplyCount);
+        Assert.AreEqual(0, harness.State.FileDiffReloadCount);
+        CollectionAssert.DoesNotContain(presentation.Requests, "close");
+        if (cancel)
+        {
+            harness.Dialog.CancelCommand.Execute();
+            Assert.IsFalse(harness.Dialog.ScanBmsFilesOnStartup);
+            Assert.AreEqual(1, session.SaveCount);
+            Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(capture), settings.LR2bodyWindowPlacement);
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(path));
+        }
+        else
+        {
+            await harness.Dialog.ApplySettingsAsync();
+            Assert.AreEqual(2, session.SaveCount);
+            Assert.AreEqual(1, failures.Count);
+            var loaded = PortableSettingsPersistenceTests.OpenSettings(path);
+            Assert.IsTrue(loaded.ScanBmsFilesOnStartup);
+            Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(capture), loaded.LR2bodyWindowPlacement);
+        }
+        CollectionAssert.Contains(presentation.Requests, "close");
+    }
+
+    // P08c: same provider core atomically saves the subset; failed publication retains drafts.
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void ModeOnlyPersistencePreservesUnrelatedDraftOnFailureAndRuntimePlacementOnSuccess(bool fail)
+    {
+        using var directory = new TemporaryDirectory("mode-subset");
+        string path = Path.Combine(directory.Path, "user.config");
+        var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+        settings.OperationModeLR2DB = false;
+        settings.ScanBmsFilesOnStartup = false;
+        settings.Save();
+        byte[] original = File.ReadAllBytes(path);
+        settings.ScanBmsFilesOnStartup = true;
+        var capture = new WindowPlacement(0, 1, 0, 0, 0, 0, 42, 53, 842, 653);
+        new SettingsPlayerSettingsGateway(() => settings).UpdateWindowPlacement(capture);
+        var session = new SettingsEditSession(settings);
+        if (fail)
+        {
+            using var blocker = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            Assert.ThrowsException<PortableSettingsException>(() => session.SaveOperationModeForRestart(true, "history-selection"));
+            Assert.IsTrue(settings.ScanBmsFilesOnStartup);
+            Assert.IsFalse(settings.OperationModeLR2DB);
+            CollectionAssert.AreEqual(original, File.ReadAllBytes(path));
+        }
+        else
+        {
+            session.SaveOperationModeForRestart(true, "history-selection");
+            var loaded = PortableSettingsPersistenceTests.OpenSettings(path);
+            Assert.IsTrue(loaded.OperationModeLR2DB);
+            Assert.AreEqual("history-selection", loaded.PlayHistorySelectedDisplayTargetIdentity);
+            Assert.IsFalse(loaded.ScanBmsFilesOnStartup);
+            Assert.IsFalse(settings.ScanBmsFilesOnStartup);
+            Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(capture), loaded.LR2bodyWindowPlacement);
+        }
+        Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(capture), settings.LR2bodyWindowPlacement);
+    }
+
+    [TestMethod]
+    public async Task Lr2SaveFailureReportsAlreadySavedUserConfigurationWithoutRollback()
+    {
+        using var directory = new TemporaryDirectory("partial-settings-save");
+        var (songDb, configPath, bmsRoot) = CreateValidLr2Layout(directory.Path);
+        string path = Path.Combine(directory.Path, "user.config");
+        var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+        settings.OperationModeLR2DB = true;
+        settings.LR2RootPath = directory.Path;
+        settings.LR2SongDBPath = songDb;
+        settings.LR2ConfigXmlPath = configPath;
+        settings.LR2CustomFolderOutputBaseDir = Path.Combine(directory.Path, "custom-output");
+        settings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(directory.Path, "custom-root-output");
+        settings.BMSRootPath = bmsRoot;
+        settings.BMSInstallDir = bmsRoot;
+        settings.ScanBmsFilesOnStartup = false;
+        settings.Save();
+        var session = new RecordingSettingsEditSession(settings, persistence: new SettingsEditSession(settings));
+        var failures = new List<Exception>();
+        using var harness = SettingsDialogHarness.Create(settings, activeLibraryProfile: true, session: session, reportApplyFailure: failures.Add);
+        var presentation = new RecordingSettingsDialogPresentationPort();
+        harness.Dialog.AttachPresentationPort(presentation);
+        session.ClearCalls();
+        harness.Dialog.ScanBmsFilesOnStartup = true;
+        string addedRoot = Path.Combine(directory.Path, "added");
+        Directory.CreateDirectory(addedRoot);
+        harness.Dialog.AddBmsSearchRootPaths([addedRoot]);
+        Assert.IsTrue(harness.Dialog.CheckValidationBeforeSave(out string validationError), validationError);
+        harness.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        using (var blocker = new FileStream(configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            await harness.Dialog.ApplySettingsAsync();
+        }
+        Assert.AreEqual(1, session.SaveCount);
+        Assert.AreEqual(1, failures.Count);
+        Assert.IsInstanceOfType<PartialSettingsSaveException>(failures[0]);
+        var partial = (PartialSettingsSaveException)failures[0];
+        Assert.AreEqual(configPath, partial.FilePath);
+        Assert.IsNotNull(partial.InnerException);
+        StringAssert.Contains(SettingsFailureMessage.Format(partial), configPath);
+        Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).ScanBmsFilesOnStartup);
+        Assert.IsTrue(harness.Dialog.HasPendingSettingChanges());
+        CollectionAssert.DoesNotContain(presentation.Requests, "close");
+        Assert.AreEqual(0, harness.SearchRoots.ApplyCount);
+        harness.Dialog.CancelCommand.Execute();
+        Assert.IsFalse(harness.Dialog.ScanBmsFilesOnStartup);
+        Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).ScanBmsFilesOnStartup);
+    }
+
+    // P08c: a persistence failure must not enter the actual restart-failure shutdown route.
+    [TestMethod]
+    public void OperationModeSaveFailureKeepsActiveModeAndOtherDraftsWithoutShutdown()
+    {
+        var persisted = CreateStandaloneSettings(@"C:\mode-persisted", @"C:\mode-persisted");
+        var draft = CreateStandaloneSettings(@"C:\mode-draft", @"C:\mode-draft");
+        var session = new RecordingSettingsEditSession(persisted, draft);
+        var failures = new List<Exception>();
+        using var harness = SettingsDialogHarness.Create(persisted, activeLibraryProfile: true, session: session, reportApplyFailure: failures.Add);
+        session.SetDraft(draft);
+        session.ClearCalls();
+        bool draftScan = !harness.Dialog.ScanBmsFilesOnStartup;
+        harness.Dialog.ScanBmsFilesOnStartup = draftScan;
+        harness.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        harness.Dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        session.SaveFailure = new IOException("mode save unavailable");
+        var presentation = new RecordingSettingsDialogPresentationPort();
+        harness.Dialog.AttachPresentationPort(presentation);
+
+        harness.Dialog.OperationModeLR2DB = true;
+
+        Assert.AreEqual(0, harness.Lifetime.RestartCount);
+        Assert.AreEqual(0, harness.Lifetime.ShutdownCount);
+        Assert.AreEqual(0, session.ReloadCount);
+        Assert.AreSame(draft, session.Values);
+        Assert.IsFalse(session.Values.OperationModeLR2DB);
+        Assert.IsFalse(harness.Dialog.OperationModeLR2DB);
+        Assert.IsTrue(harness.Dialog.IsStandaloneOperationMode);
+        Assert.AreEqual(draftScan, harness.Dialog.ScanBmsFilesOnStartup);
+        CollectionAssert.DoesNotContain(presentation.Requests, "close");
+        Assert.AreEqual(1, failures.Count);
+    }
+
+    // P08d-S: normal Save must flush captured placement even when there are no dialog edits.
+    [TestMethod]
+    public async Task NormalSaveWithoutDialogEditsPersistsCapturedPlacement()
+    {
+        using var directory = new TemporaryDirectory("placement-normal-save");
+        string path = Path.Combine(directory.Path, "user.config");
+        var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+        settings.OperationModeLR2DB = false;
+        settings.BMSRootPath = directory.Path;
+        settings.StandaloneBmsRootPaths = directory.Path;
+        settings.BMSInstallDir = directory.Path;
+        var initial = new WindowPlacement(0, 1, 0, 0, 0, 0, 10, 20, 810, 620);
+        var captured = new WindowPlacement(0, 1, 0, 0, 0, 0, 30, 40, 830, 640);
+        settings.LR2bodyWindowPlacement = Win32WindowPlacementAdapter.ToNative(initial);
+        settings.Save();
+        var session = new RecordingSettingsEditSession(settings, persistence: new SettingsEditSession(settings));
+        using var harness = SettingsDialogHarness.Create(settings, activeLibraryProfile: true, session: session);
+        var presentation = new RecordingSettingsDialogPresentationPort();
+        harness.Dialog.AttachPresentationPort(presentation);
+        new SettingsPlayerSettingsGateway(() => settings).UpdateWindowPlacement(captured);
+        session.ClearCalls();
+
+        await harness.Dialog.ApplySettingsAsync();
+
+        Assert.AreEqual(1, session.SaveCount);
+        CollectionAssert.Contains(presentation.Requests, "close");
+        Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(captured), PortableSettingsPersistenceTests.OpenSettings(path).LR2bodyWindowPlacement);
+    }
+
     [TestMethod]
     public void TableListUrlGetterUsesCurrentDefaultWithoutMutatingInvalidDraft()
     {
@@ -110,7 +327,7 @@ public sealed class SettingsDialogBehaviorTests
 
             acceptedHarness.Dialog.OperationModeLR2DB = true;
 
-            CollectionAssert.AreEqual(new[] { "confirm", "reload", "save", "restart" }, sequence);
+            CollectionAssert.AreEqual(new[] { "confirm", "save", "reload", "restart" }, sequence);
             Assert.AreEqual(Resources.Confirm_RestartForOperationModeChange, acceptedHarness.Dialogs.LastConfirmationRequest?.MessageBoxText);
             Assert.AreEqual(1, acceptedHarness.Dialogs.ConfirmationCount);
             Assert.AreEqual(1, acceptedHarness.Session.SaveCount);
@@ -154,7 +371,7 @@ public sealed class SettingsDialogBehaviorTests
             failedRestartHarness.Dialog.OperationModeLR2DB = true;
 
             CollectionAssert.AreEqual(
-                new[] { "confirm", "reload", "save", "restart", "notify" },
+                new[] { "confirm", "save", "reload", "restart", "notify" },
                 sequence);
             Assert.AreEqual(0, failedRestartHarness.Lifetime.ShutdownCount);
             Assert.AreEqual(1, failedRestartHarness.Dialogs.MessageCount);
@@ -165,7 +382,7 @@ public sealed class SettingsDialogBehaviorTests
             await failedRestartHarness.Lifetime.ShutdownObserved.Task;
 
             CollectionAssert.AreEqual(
-                new[] { "confirm", "reload", "save", "restart", "notify", "shutdown" },
+                new[] { "confirm", "save", "reload", "restart", "notify", "shutdown" },
                 sequence);
             Assert.AreEqual(1, failedRestartHarness.Lifetime.ShutdownCount);
             Assert.AreEqual(1, failedRestartHarness.Session.SaveCount);
@@ -191,7 +408,7 @@ public sealed class SettingsDialogBehaviorTests
             await failedNotificationHarness.Lifetime.ShutdownObserved.Task;
 
             CollectionAssert.AreEqual(
-                new[] { "confirm", "reload", "save", "restart", "notify", "shutdown" },
+                new[] { "confirm", "save", "reload", "restart", "notify", "shutdown" },
                 sequence);
             Assert.AreEqual(1, failedNotificationHarness.Lifetime.ShutdownCount);
             Assert.AreEqual(1, failedNotificationHarnessReportedFailures.Count);
@@ -693,7 +910,7 @@ public sealed class SettingsDialogBehaviorTests
 
         harness.Dialog.SaveOperationModeForRestart(operationMode: true);
 
-        CollectionAssert.AreEqual(new[] { "reload", "save" }, harness.Session.Calls);
+        CollectionAssert.AreEqual(new[] { "save", "reload" }, harness.Session.Calls);
         Assert.AreEqual(0, harness.RuntimeCalls.Calls.Count);
         Assert.AreEqual(1, harness.Session.SaveCount);
         Assert.AreEqual(1, harness.Session.ReloadCount);
@@ -1337,7 +1554,8 @@ public sealed class SettingsDialogBehaviorTests
             RecordingSettingsEditSession? session = null,
             Action<Exception>? reportApplyFailure = null,
             bool libraryAttached = false,
-            Func<Task>? reloadFileDiff = null)
+            Func<Task>? reloadFileDiff = null,
+            TestAudioSettingsGateway? audioSettings = null)
         {
             session ??= new RecordingSettingsEditSession(values);
             var runtimeCalls = new SettingsDialogRuntimeCallLedger();
@@ -1379,7 +1597,7 @@ public sealed class SettingsDialogBehaviorTests
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
                 applicationPathSnapshot: ApplicationPathPolicy.Current,
                 audioDeviceCatalog: new TestAudioDeviceCatalog(),
-                audioSettingsGateway: new TestAudioSettingsGateway(),
+                audioSettingsGateway: audioSettings ?? new TestAudioSettingsGateway(),
                 audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             return new SettingsDialogHarness(
                 dialog,
@@ -1411,6 +1629,14 @@ public sealed class SettingsDialogBehaviorTests
 
     private sealed class DirectSettingsEditSession : ISettingsEditSession
     {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
+        }
+
         internal DirectSettingsEditSession(Settings values)
         {
             Values = values ?? throw new ArgumentNullException(nameof(values));
@@ -1429,11 +1655,34 @@ public sealed class SettingsDialogBehaviorTests
 
     private sealed class RecordingSettingsEditSession : ISettingsEditSession
     {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            SaveCount++;
+            Calls.Add("save");
+            Sequence?.Add("save");
+            if (SaveFailure != null)
+            {
+                throw SaveFailure;
+            }
+            if (persistence != null)
+            {
+                persistence.SaveOperationModeForRestart(operationMode, historyIdentity);
+            }
+            else
+            {
+                persistedValues.OperationModeLR2DB = operationMode;
+                persistedValues.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            }
+            SaveSnapshot = SettingsSemanticSnapshot.Capture(persistedValues);
+            Reload();
+        }
+        private readonly ISettingsEditSession? persistence;
         private readonly Settings persistedValues;
         private readonly bool replaceValuesOnReload;
 
-        internal RecordingSettingsEditSession(Settings values)
+        internal RecordingSettingsEditSession(Settings values, ISettingsEditSession? persistence = null)
         {
+            this.persistence = persistence;
             persistedValues = values ?? throw new ArgumentNullException(nameof(values));
             Values = values;
         }
@@ -1477,6 +1726,7 @@ public sealed class SettingsDialogBehaviorTests
             ReloadCount++;
             Calls.Add("reload");
             Sequence?.Add("reload");
+            persistence?.Reload();
             if (replaceValuesOnReload)
             {
                 Values = persistedValues;
@@ -1492,6 +1742,14 @@ public sealed class SettingsDialogBehaviorTests
             if (SaveFailure != null)
             {
                 throw SaveFailure;
+            }
+            persistence?.Save();
+            if (persistence == null)
+            {
+                foreach (SettingsPropertyValue value in Values.PropertyValues)
+                {
+                    value.IsDirty = false;
+                }
             }
         }
     }

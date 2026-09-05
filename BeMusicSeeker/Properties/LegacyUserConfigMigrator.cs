@@ -13,16 +13,31 @@ internal static class LegacyUserConfigMigrator
 {
     private static readonly SerializableVersion LegacyCultureMigrationVersion = new(0, 1, 6654, 30787);
 
+    /// <summary>Imports the newest usable legacy document only when portable settings are absent; import failures abort startup.</summary>
     public static void MigrateIfNeeded(ISet<string> availableCultures = null, string currentCultureName = null)
+        => MigrateIfNeeded(PortableSettingsPath.UserConfigPath,
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BeMusicSeeker"),
+            availableCultures, currentCultureName);
+
+    /// <summary>Imports legacy settings into an explicit portable path, unless an existing target or preserved corruption backup is authoritative.</summary>
+    internal static void MigrateIfNeeded(string configPath, string legacyRoot,
+        ISet<string> availableCultures = null, string currentCultureName = null)
     {
         try
         {
-            if (File.Exists(PortableSettingsPath.UserConfigPath))
+            if (File.Exists(configPath))
             {
-                PortableSettingsProvider.NormalizeCurrentPortableConfig();
                 return;
             }
-            string legacyRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BeMusicSeeker");
+            // A prior quarantine remains authoritative even if creation failed in another process.
+            // Use the preserved user file itself; no recovery marker or in-memory flag is needed.
+            try
+            {
+                if (Directory.EnumerateFiles(Path.GetDirectoryName(configPath), Path.GetFileName(configPath) + ".broken-*").Any())
+                    return;
+            }
+            catch (DirectoryNotFoundException) { }
+
             if (!Directory.Exists(legacyRoot))
             {
                 NLogWrapper.TraceLogger?.Info("portable_settings_migration skip reason=no_legacy_root");
@@ -53,15 +68,16 @@ internal static class LegacyUserConfigMigrator
                 NLogWrapper.TraceLogger?.Info("portable_settings_migration skip reason=no_valid_legacy_file");
                 return;
             }
-            Directory.CreateDirectory(PortableSettingsPath.ConfigDirectoryPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath));
             var migratedConfig = XDocument.Load(fileInfo.FullName, LoadOptions.None);
             int normalizedSettings = NormalizeMigratedConfig(migratedConfig, availableCultures, currentCultureName);
-            migratedConfig.Save(PortableSettingsPath.UserConfigPath);
-            NLogWrapper.TraceLogger?.Info("portable_settings_migration success source=" + fileInfo.FullName + " target=" + PortableSettingsPath.UserConfigPath + " sourceWriteUtc=" + fileInfo.LastWriteTimeUtc.ToString("o") + " normalizedSettings=" + normalizedSettings);
+            PortableSettingsProvider.SaveDocument(migratedConfig, configPath, "Migrate");
+            NLogWrapper.TraceLogger?.Info("portable_settings_migration success source=" + fileInfo.FullName + " target=" + configPath + " sourceWriteUtc=" + fileInfo.LastWriteTimeUtc.ToString("o") + " normalizedSettings=" + normalizedSettings);
         }
         catch (Exception ex)
         {
-            NLogWrapper.TraceLogger?.Warn(ex, "portable_settings_migration failed");
+            if (ex is PortableSettingsException) throw;
+            throw new PortableSettingsException(configPath, "Migrate", ex);
         }
     }
 

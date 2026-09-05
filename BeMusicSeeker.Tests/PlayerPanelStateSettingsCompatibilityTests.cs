@@ -83,7 +83,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
                 {
                     PortableSettingsProvider.NormalizeCurrentPortableConfig();
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                catch (Exception ex) when (ex is PortableSettingsException)
                 {
                     saveFailure = ex;
                 }

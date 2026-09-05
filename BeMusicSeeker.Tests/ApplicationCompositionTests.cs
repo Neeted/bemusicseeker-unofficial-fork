@@ -1486,7 +1486,7 @@ public sealed class ApplicationCompositionTests
 
         Assert.AreEqual(2, session.SaveCount);
         CollectionAssert.AreEqual(
-            new[] { "reload", "reload", "save", "reload", "save" },
+            new[] { "reload", "save", "reload", "reload", "save" },
             session.Calls);
     }
 
@@ -1824,6 +1824,14 @@ public sealed class ApplicationCompositionTests
 
     private sealed class FakeSettingsEditSession : ISettingsEditSession
     {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
+        }
+
         public BeMusicSeeker.Properties.Settings Values { get; set; } = new();
 
         public List<string> Calls { get; } = [];

@@ -383,6 +383,14 @@ public sealed class MainWindowViewHostTests
 
     private sealed class RecordingSettingsEditSession : ISettingsEditSession
     {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
+        }
+
         private readonly Action? beforeSave;
 
         internal RecordingSettingsEditSession(Settings values, Action? beforeSave = null)

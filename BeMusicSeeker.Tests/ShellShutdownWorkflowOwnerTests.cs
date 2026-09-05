@@ -86,28 +86,46 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
     }
 
+    // P09 amendment: production attachment, then latest runtime capture must precede the single durable save.
     [TestMethod]
-    public void TerminalSettingsAreSavedBeforePlayerCleanupAndOnlyOnce()
+    public async Task TerminalSettingsPersistLatestPlayerCaptureOnlyOnce()
     {
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        var events = new List<string>();
-        var settingsSession = new RecordingSettingsEditSession(() => events.Add("settings_save"));
-        var player = new FakeBmsPlayer(() => events.Add("player_close"));
-        FieldInfo playerField = typeof(PlaybackPanelViewModel)
-            .GetField("bmsPlayer", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(playerField);
-        playerField.SetValue(viewModel.PlaybackPanel, player);
+        string directory = Path.Combine(Path.GetTempPath(), "BmsTerminalPlacement-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "user.config");
+        MainWindowViewModel? viewModel = null;
+        try
+        {
+            var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            var diskPlacement = new BeMusicSeeker.Models.Utils.WindowPlacement(0, 1, 0, 0, 0, 0, 10, 20, 810, 620);
+            var memoryPlacement = new BeMusicSeeker.Models.Utils.WindowPlacement(0, 1, 0, 0, 0, 0, 30, 40, 830, 640);
+            var finalPlacement = new BeMusicSeeker.Models.Utils.WindowPlacement(0, 1, 0, 0, 0, 0, 50, 60, 850, 660);
+            settings.LR2bodyWindowPlacement = BeMusicSeeker.Models.Utils.Win32WindowPlacementAdapter.ToNative(diskPlacement);
+            settings.Save();
+            settings.LR2bodyWindowPlacement = BeMusicSeeker.Models.Utils.Win32WindowPlacementAdapter.ToNative(memoryPlacement);
+            int saveRequests = 0;
+            settings.SettingsSaving += (_, _) => saveRequests++;
+            viewModel = MainWindowViewModelTestFactory.Create(settings);
+            var gateway = new SettingsPlayerSettingsGateway(() => settings);
+            var player = new FakeBmsPlayer(() => gateway.UpdateWindowPlacement(finalPlacement));
+            await viewModel.PlaybackPanel.ReplacePlayerAsync(player);
+            var session = new RecordingSettingsEditSession(settings.Save, settings);
+            var owner = CreateDirectOwner(viewModel, settingsEditSession: session);
 
-        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
-            viewModel,
-            settingsEditSession: settingsSession);
+            owner.CompleteTerminalShutdown();
+            owner.CompleteTerminalShutdown();
 
-        owner.CompleteTerminalShutdown();
-        owner.CompleteTerminalShutdown();
-
-        Assert.AreEqual(1, settingsSession.SaveCount);
-        Assert.AreEqual(1, player.CloseProcessCount);
-        Assert.IsTrue(events.IndexOf("settings_save") < events.IndexOf("player_close"));
+            Assert.AreEqual(1, session.SaveCount);
+            Assert.AreEqual(1, saveRequests);
+            Assert.AreEqual(1, player.CloseProcessCount);
+            Assert.AreEqual(BeMusicSeeker.Models.Utils.Win32WindowPlacementAdapter.ToNative(finalPlacement),
+                PortableSettingsPersistenceTests.OpenSettings(path).LR2bodyWindowPlacement);
+        }
+        finally
+        {
+            viewModel?.SettingDialog.Dispose();
+            Directory.Delete(directory, true);
+        }
     }
 
     [TestMethod]
@@ -131,7 +149,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void TerminalSettingsSaveFailureIsWarnedAndCleanupContinues()
+    public async Task TerminalSettingsSaveFailureIsWarnedAndCleanupContinues()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         var warnings = new List<string>();
@@ -140,15 +158,16 @@ public sealed class ShellShutdownWorkflowOwnerTests
             SaveException = new InvalidOperationException("settings unavailable")
         };
         var player = new FakeBmsPlayer();
-        FieldInfo playerField = typeof(PlaybackPanelViewModel)
-            .GetField("bmsPlayer", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(playerField);
-        playerField.SetValue(viewModel.PlaybackPanel, player);
+        await viewModel.PlaybackPanel.ReplacePlayerAsync(player);
+        var notices = new List<Exception>();
+        int exitCount = 0;
 
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(
             viewModel,
             settingsEditSession: settingsSession,
-            logShutdownWarning: warnings.Add);
+            logShutdownWarning: warnings.Add,
+            reportSettingsSaveFailure: notices.Add,
+            requestApplicationShutdown: () => exitCount++);
 
         owner.CompleteTerminalShutdown();
         owner.CompleteTerminalShutdown();
@@ -156,6 +175,10 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(1, settingsSession.SaveCount);
         Assert.AreEqual(1, player.CloseProcessCount);
         StringAssert.Contains(string.Join("\n", warnings), "settings_save_failed");
+        CollectionAssert.AreEqual(new[] { settingsSession.SaveException }, notices);
+        owner.RequestTerminalApplicationShutdown();
+        owner.RequestTerminalApplicationShutdown();
+        Assert.AreEqual(1, exitCount);
     }
 
     [TestMethod]
@@ -821,7 +844,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
         PlaylistWorkspaceViewModel? playlistWorkspace = null,
         PackageInstallWorkflowOwner? packageInstallWorkflow = null,
         MaintenanceRescanWorkflowOwner? maintenanceRescanWorkflow = null,
-        FolderAutoRenameWorkflowOwner? folderAutoRenameWorkflow = null)
+        FolderAutoRenameWorkflowOwner? folderAutoRenameWorkflow = null,
+        Action<Exception>? reportSettingsSaveFailure = null)
     {
         StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
             viewModel,
@@ -855,7 +879,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
             dispatch ?? (action => action()),
             logShutdown ?? (_ => { }),
             logShutdownWarning ?? (_ => { }),
-            value => value ?? string.Empty);
+            value => value ?? string.Empty,
+            reportSettingsSaveFailure);
     }
 
     private static T GetPrivateField<T>(MainWindowViewModel viewModel, string name)
@@ -1026,14 +1051,23 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
     private sealed class RecordingSettingsEditSession : ISettingsEditSession
     {
-        private readonly Action? onSave;
-
-        internal RecordingSettingsEditSession(Action? onSave = null)
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
         {
-            this.onSave = onSave;
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
         }
 
-        public BeMusicSeeker.Properties.Settings Values { get; } = BeMusicSeeker.Properties.Settings.Default;
+        private readonly Action? onSave;
+
+        internal RecordingSettingsEditSession(Action? onSave = null, BeMusicSeeker.Properties.Settings? values = null)
+        {
+            this.onSave = onSave;
+            Values = values ?? BeMusicSeeker.Properties.Settings.Default;
+        }
+
+        public BeMusicSeeker.Properties.Settings Values { get; }
 
         public int SaveCount { get; private set; }
 

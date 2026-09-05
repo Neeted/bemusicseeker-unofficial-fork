@@ -60,6 +60,14 @@ internal static class MainWindowViewModelTestFactory
 
 internal sealed class NoOpSettingsEditSession : ISettingsEditSession
 {
+    public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+    {
+        Values.OperationModeLR2DB = operationMode;
+        Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+        Save();
+        Reload();
+    }
+
     internal NoOpSettingsEditSession(Settings values)
     {
         Values = values ?? throw new ArgumentNullException(nameof(values));

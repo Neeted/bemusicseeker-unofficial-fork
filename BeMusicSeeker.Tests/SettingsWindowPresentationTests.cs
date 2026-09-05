@@ -4049,6 +4049,14 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class DangerSettingsEditSession : ISettingsEditSession
     {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
+        }
+
         private readonly List<string> events;
 
         internal DangerSettingsEditSession(Settings values, List<string> events)

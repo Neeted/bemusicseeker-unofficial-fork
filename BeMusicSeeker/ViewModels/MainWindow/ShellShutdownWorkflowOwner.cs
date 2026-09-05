@@ -128,6 +128,8 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private readonly Func<string, string> formatTextForLog;
 
+    private readonly Action<Exception> reportSettingsSaveFailure;
+
     private BMSLibrary files;
 
     private BMSPlaylist tables;
@@ -185,6 +187,7 @@ internal sealed class ShellShutdownWorkflowOwner
     /// <param name="logShutdown">Writes normal shutdown diagnostics.</param>
     /// <param name="logShutdownWarning">Writes shutdown warning diagnostics.</param>
     /// <param name="formatTextForLog">Formats untrusted values for shutdown diagnostics.</param>
+    /// <param name="reportSettingsSaveFailure">Presents a save warning outside owner locks; cleanup continues even if notification fails.</param>
     internal ShellShutdownWorkflowOwner(
         StartupUpdateWorkflowOwner startupUpdateWorkflow,
         ElevatedProcessWarningWorkflowOwner elevatedProcessWarningWorkflow,
@@ -205,7 +208,8 @@ internal sealed class ShellShutdownWorkflowOwner
         Func<Func<Task>, Task> dispatchToUi,
         Action<string> logShutdown,
         Action<string> logShutdownWarning,
-        Func<string, string> formatTextForLog)
+        Func<string, string> formatTextForLog,
+        Action<Exception> reportSettingsSaveFailure = null)
     {
         this.startupUpdateWorkflow = startupUpdateWorkflow ?? throw new ArgumentNullException(nameof(startupUpdateWorkflow));
         this.elevatedProcessWarningWorkflow = elevatedProcessWarningWorkflow ?? throw new ArgumentNullException(nameof(elevatedProcessWarningWorkflow));
@@ -228,6 +232,7 @@ internal sealed class ShellShutdownWorkflowOwner
         this.logShutdown = logShutdown ?? throw new ArgumentNullException(nameof(logShutdown));
         this.logShutdownWarning = logShutdownWarning ?? throw new ArgumentNullException(nameof(logShutdownWarning));
         this.formatTextForLog = formatTextForLog ?? throw new ArgumentNullException(nameof(formatTextForLog));
+        this.reportSettingsSaveFailure = reportSettingsSaveFailure;
         startupUpdateWorkflow.BindShutdownPreparation(PrepareForStartupUpdateAsync);
     }
 
@@ -282,14 +287,6 @@ internal sealed class ShellShutdownWorkflowOwner
             terminalResourcesClosed = true;
         }
         TryShutdownStep("set_ui_unblocked", () => startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false));
-        try
-        {
-            settingsEditSession.Save();
-        }
-        catch (Exception exception)
-        {
-            LogWarningSafely(exception, "settings_save_failed");
-        }
         Task regularChartListStop = BeginShutdownRequested("terminal_close");
         try
         {
@@ -300,6 +297,15 @@ internal sealed class ShellShutdownWorkflowOwner
             logShutdown("regularChartListStop_final_failed message=" + exception.Message);
         }
         TryShutdownStep("player_close", playbackPanel.CloseProcess);
+        try
+        {
+            settingsEditSession.Save();
+        }
+        catch (Exception exception)
+        {
+            LogWarningSafely(exception, "settings_save_failed");
+            TryShutdownStep("settings_save_notification", () => reportSettingsSaveFailure?.Invoke(exception));
+        }
         TryShutdownStep("audio_native_runtime", Ribbit.Media.Audio.BassAudioRuntime.Shutdown);
         try
         {

@@ -1,4 +1,5 @@
 using System;
+using System.Configuration;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models;
@@ -19,6 +20,9 @@ internal interface ISettingsEditSession
     void Reload();
 
     void Save();
+
+    /// <summary>Persists only the confirmed mode and runtime identity/placement, then reloads after success.</summary>
+    void SaveOperationModeForRestart(bool operationMode, string historyIdentity);
 }
 
 /// <summary>
@@ -47,8 +51,32 @@ internal sealed class SettingsEditSession : ISettingsEditSession
         values.Reload();
     }
 
+    /// <summary>Publishes the restart selection without saving unrelated dialog drafts.</summary>
+    public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+    {
+        var selectedValues = new SettingsPropertyValueCollection();
+        void Add(string name, object value)
+        {
+            selectedValues.Add(new SettingsPropertyValue(values.Properties[name]) { PropertyValue = value });
+        }
+        Add(nameof(Settings.OperationModeLR2DB), operationMode);
+        Add(nameof(Settings.PlayHistorySelectedDisplayTargetIdentity), historyIdentity);
+        // Placement belongs to runtime, so reloading must not discard a completed player capture.
+        Add(nameof(Settings.LR2bodyWindowPlacement), values.LR2bodyWindowPlacement);
+        values.Properties[nameof(Settings.OperationModeLR2DB)].Provider.SetPropertyValues(values.Context, selectedValues);
+        values.Reload();
+    }
+
     public void Save()
     {
         values.Save();
     }
+}
+
+/// <summary>Reports the second file failure after user.config was already saved successfully.</summary>
+internal sealed class PartialSettingsSaveException(string filePath, Exception cause)
+    : Exception("Application settings were saved, but LR2 configuration could not be saved: " + filePath, cause)
+{
+    /// <summary>Gets the LR2 configuration path that remains unsaved.</summary>
+    internal string FilePath { get; } = filePath;
 }

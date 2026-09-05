@@ -40,6 +40,8 @@ internal sealed class ApplicationSettingsLifecycle
 
     private readonly Action normalizeSettings;
 
+    private readonly Action<Exception> warnSaveFailure;
+
     /// <summary>
     /// Creates the startup settings lifecycle, including the pre-materialization normalization seam.
     /// </summary>
@@ -47,18 +49,21 @@ internal sealed class ApplicationSettingsLifecycle
     /// <param name="upgradeSettings">Upgrades the settings store to the current version.</param>
     /// <param name="saveSettings">Persists settings after a version upgrade.</param>
     /// <param name="settingsStore">Store used for startup version, language, and theme values.</param>
+    /// <param name="warnSaveFailure">Reports failure to persist otherwise readable settings.</param>
     /// <param name="normalizeSettings">Normalizes persisted settings before the first store read.</param>
     internal ApplicationSettingsLifecycle(
         Action<ISet<string>, string> legacyMigration = null,
         Action upgradeSettings = null,
         Action saveSettings = null,
         IApplicationSettingsStore settingsStore = null,
-        Action normalizeSettings = null)
+        Action normalizeSettings = null,
+        Action<Exception> warnSaveFailure = null)
     {
         this.legacyMigration = legacyMigration ?? LegacyUserConfigMigrator.MigrateIfNeeded;
         this.settingsStore = settingsStore ?? new SettingsApplicationSettingsStore();
         this.upgradeSettings = upgradeSettings ?? this.settingsStore.Upgrade;
         this.saveSettings = saveSettings ?? this.settingsStore.Save;
+        this.warnSaveFailure = warnSaveFailure ?? (exception => NLogWrapper.TraceLogger?.Warn(exception, "Settings save failed"));
         this.normalizeSettings = normalizeSettings ?? (() => PortableSettingsProvider.NormalizeCurrentPortableConfig());
     }
 
@@ -83,27 +88,50 @@ internal sealed class ApplicationSettingsLifecycle
         }
 
         HashSet<string> availableCultures = new(availableCultureNames.Where(value => value != null));
-        bool firstStartup = false;
+        // Only publication of an already valid document may fail non-fatally.
         try
         {
             normalizeSettings();
-            SerializableVersion serializableVersion = serializableVersionFactory();
+        }
+        catch (PortableSettingsException exception) when (exception.Operation == "Save")
+        {
+            warnSaveFailure(exception);
+        }
+        bool firstStartup = false;
+        SerializableVersion serializableVersion = null;
+        try
+        {
+            serializableVersion = serializableVersionFactory();
             if (serializableVersion == null)
             {
                 throw new InvalidOperationException("Serializable version factory returned null.");
             }
-            firstStartup = settingsStore.AssemblyVersion == null;
-            firstStartupObserver?.Invoke(firstStartup);
-            if (settingsStore.AssemblyVersion == null || settingsStore.AssemblyVersion != serializableVersion)
-            {
-                upgradeSettings();
-                settingsStore.AssemblyVersion = serializableVersion;
-                saveSettings();
-            }
         }
         catch (Exception ex)
         {
-            NLogWrapper.TraceLogger?.Warn(ex, "Settings upgrade/migration failed");
+            // Version discovery is independent of reading the user-owned document.
+            NLogWrapper.TraceLogger?.Warn(ex, "Settings version discovery failed");
+        }
+        if (serializableVersion != null)
+        {
+            SerializableVersion savedVersion = settingsStore.AssemblyVersion;
+            firstStartup = savedVersion == null;
+            firstStartupObserver?.Invoke(firstStartup);
+            if (savedVersion == null || savedVersion != serializableVersion)
+            {
+                upgradeSettings();
+                settingsStore.AssemblyVersion = serializableVersion;
+                try
+                {
+                    saveSettings();
+                }
+                catch (Exception exception) when (exception is not PortableSettingsException portableFailure
+                    || portableFailure.Operation == "Save")
+                {
+                    // Save rereads the file: losing readable input is fatal even after initial materialization.
+                    warnSaveFailure(exception);
+                }
+            }
         }
 
         if (!availableCultures.Contains(settingsStore.Language))
@@ -117,6 +145,7 @@ internal sealed class ApplicationSettingsLifecycle
         return new ApplicationSettingsInitializationResult(firstStartup, appearanceTheme, culture);
     }
 
+    /// <summary>Invokes legacy import when the startup file owner has established that portable input is missing.</summary>
     internal void MigrateLegacy(IEnumerable<string> availableCultureNames, string currentCultureName)
     {
         if (availableCultureNames == null)
@@ -127,6 +156,7 @@ internal sealed class ApplicationSettingsLifecycle
         legacyMigration(availableCultures, currentCultureName);
     }
 
+    /// <summary>Returns the initialized theme for presentation after successful settings preparation.</summary>
     internal string GetCurrentAppearanceTheme()
     {
         return settingsStore.AppearanceTheme;

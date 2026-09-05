@@ -2329,4 +2329,28 @@ public class Resources
     public static string FileDbMutationReport_Move => ResourceManager.GetString("FileDbMutationReport_Move", resourceCulture);
 
     public static string FileDbMutationReport_Merge => ResourceManager.GetString("FileDbMutationReport_Merge", resourceCulture);
+    /// <summary>Localized portable settings startup notification.</summary>
+    public static string PortableSettingsRecovered => ResourceManager.GetString("PortableSettingsRecovered", resourceCulture);
+
+    /// <summary>Localized portable settings startup notification.</summary>
+    public static string PortableSettingsStartupSaveFailed => ResourceManager.GetString("PortableSettingsStartupSaveFailed", resourceCulture);
+
+    /// <summary>Localized portable settings startup notification.</summary>
+    public static string PortableSettingsStartupFailed => ResourceManager.GetString("PortableSettingsStartupFailed", resourceCulture);
+
+    /// <summary>Localized portable settings startup notification.</summary>
+    public static string ApplicationAlreadyStarted => ResourceManager.GetString("ApplicationAlreadyStarted", resourceCulture);
+
+    /// <summary>Localized settings persistence failure notification.</summary>
+    public static string SettingsSaveFailed => ResourceManager.GetString("SettingsSaveFailed", resourceCulture);
+
+    /// <summary>Localized settings persistence failure notification.</summary>
+    public static string SettingsPartiallySaved => ResourceManager.GetString("SettingsPartiallySaved", resourceCulture);
+
+    /// <summary>Localized settings persistence failure notification.</summary>
+    public static string SettingsApplyIncomplete => ResourceManager.GetString("SettingsApplyIncomplete", resourceCulture);
+
+    /// <summary>Localized settings persistence failure notification.</summary>
+    public static string SettingsSaveFailedDuringShutdown => ResourceManager.GetString("SettingsSaveFailedDuringShutdown", resourceCulture);
+
 }

@@ -3192,7 +3192,8 @@ public partial class MainWindowViewModel : ViewModel,
             DispatchShellShutdownActionAsync,
             LogShutdown,
             LogShutdownWarning,
-            FormatTextForLog);
+            FormatTextForLog,
+            applicationComposition.ReportTerminalSettingsSaveFailure);
         ProgressHub.AttachPlaylistProgressSources(
             PlaylistWorkspace,
             DispatchMainChartListAction,

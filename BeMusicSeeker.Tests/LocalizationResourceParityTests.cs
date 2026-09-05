@@ -20,6 +20,33 @@ public sealed class LocalizationResourceParityTests
         "_language_name"
     };
 
+    // PORTABLE-SETTINGS-FAILURE-20260905 P10: exactness is limited to required keys and placeholders.
+    [TestMethod]
+    public void PortableSettingsStartupNotificationsPreservePathCauseAndBackupArguments()
+    {
+        string root = FindRepositoryRoot();
+        var required = new Dictionary<string, int>
+        {
+            [nameof(Resources.PortableSettingsRecovered)] = 1,
+            [nameof(Resources.PortableSettingsStartupSaveFailed)] = 2,
+            [nameof(Resources.PortableSettingsStartupFailed)] = 2,
+            [nameof(Resources.SettingsSaveFailed)] = 2,
+            [nameof(Resources.SettingsPartiallySaved)] = 2,
+            [nameof(Resources.SettingsApplyIncomplete)] = 1,
+            [nameof(Resources.SettingsSaveFailedDuringShutdown)] = 1,
+            [nameof(Resources.ApplicationAlreadyStarted)] = 0
+        };
+        var resx = ReadResxStringValues(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+        foreach (var pair in required)
+            AssertLocalizedFormat("Resources.resx", pair.Key, resx.GetValueOrDefault(pair.Key)!, pair.Value);
+        foreach (string path in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+        {
+            JObject language = ReadLanguageJsonObject(path);
+            foreach (var pair in required)
+                AssertLocalizedFormat(Path.GetFileName(path), pair.Key, language[pair.Key]?.Value<string>()!, pair.Value);
+        }
+    }
+
     [TestMethod]
     public void ResourcesGeneratedAccessors_MatchResxStringKeys()
     {

@@ -3279,4 +3279,30 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="LibraryChartRemovalReport_FinalizationFailed" xml:space="preserve"><value>カタログは保存済みですが、必須の後処理に失敗しました。</value></data>
   <data name="LibraryChartRemovalReport_Targets" xml:space="preserve"><value>確認対象（現在の実在は未確認、最大3件）:</value></data>
   <data name="LibraryChartRemovalReport_Guidance" xml:space="preserve"><value>確認済みの削除は取り消されません。対象ファイルとライブラリの状態を手動で確認してください。省略された対象・エラーの詳細はログを参照してください。</value></data>
+  <data name="PortableSettingsRecovered" xml:space="preserve">
+    <value>設定ファイルの XML が破損していたため、元のファイルを {0} に退避しました。既定の設定を新規作成し、初回設定を開始します。</value>
+  </data>
+  <data name="PortableSettingsStartupSaveFailed" xml:space="preserve">
+    <value>設定を保存できませんでした。読み込んだ設定で起動を続けます。
+ファイル: {0}
+原因: {1}</value>
+  </data>
+  <data name="PortableSettingsStartupFailed" xml:space="preserve">
+    <value>設定ファイルを準備できないため、起動を中止します。
+ファイル: {0}
+原因: {1}</value>
+  </data>
+  <data name="ApplicationAlreadyStarted" xml:space="preserve">
+    <value>BeMusicSeeker は既に起動しています。</value>
+  </data>
+  <data name="SettingsSaveFailed" xml:space="preserve"><value>設定を保存できませんでした。
+ファイル: {0}
+原因: {1}</value></data>
+  <data name="SettingsPartiallySaved" xml:space="preserve"><value>アプリケーション設定は保存されましたが、LR2 設定を保存できませんでした。
+ファイル: {0}
+原因: {1}</value></data>
+  <data name="SettingsApplyIncomplete" xml:space="preserve"><value>設定の保存または適用を完了できませんでした。
+原因: {0}</value></data>
+  <data name="SettingsSaveFailedDuringShutdown" xml:space="preserve"><value>{0}
+終了処理を続行します。</value></data>
 </root>

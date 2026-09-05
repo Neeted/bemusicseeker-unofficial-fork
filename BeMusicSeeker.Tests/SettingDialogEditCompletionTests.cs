@@ -3469,6 +3469,14 @@ public sealed class SettingDialogEditCompletionTests
 
     private sealed class CountingSettingsEditSession : ISettingsEditSession
     {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
+        }
+
         internal CountingSettingsEditSession(Settings values)
         {
             Values = values;

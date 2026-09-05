@@ -298,6 +298,14 @@ public sealed class SettingDialogOpenCommandTests
 
     private sealed class TestSettingsEditSession : ISettingsEditSession
     {
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            Values.OperationModeLR2DB = operationMode;
+            Values.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
+            Save();
+            Reload();
+        }
+
         internal TestSettingsEditSession(BeMusicSeeker.Properties.Settings values)
         {
             Values = values;

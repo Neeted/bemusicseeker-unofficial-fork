@@ -302,7 +302,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 return;
             }
 
-            if (statePort.HasActiveLibraryProfile && !HasPendingSettingChanges())
+            if (statePort.HasActiveLibraryProfile && !HasPendingSettingChanges() && !HasPendingRuntimePlacement())
             {
                 outcome = "no_changes";
                 ClosePresentation();
@@ -866,7 +866,9 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            ObserveRestartFailure(ex);
+            ApplicationSettings.OperationModeLR2DB = operationModeLR2DB;
+            SetOperationModeSelection(operationModeLR2DB);
+            reportApplyFailure(ex);
         }
     }
 
@@ -880,14 +882,6 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             await HandleRestartFailureAsync(exception).ConfigureAwait(true);
         }
-    }
-
-    private void ObserveRestartFailure(Exception exception)
-    {
-        // This route is entered by a synchronous WPF property setter. The task
-        // owns and observes every failure so notification faults cannot become
-        // an unobserved exception while shutdown is still requested.
-        _ = HandleRestartFailureAsync(exception);
     }
 
     private async Task HandleRestartFailureAsync(Exception exception)
@@ -4203,7 +4197,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
         this.reportApplyFailure = reportApplyFailure
             ?? (ex => ShowUiMessage(
-                BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
+                SettingsFailureMessage.Format(ex),
                 BeMusicSeeker.Properties.Resources.Error,
                 MessageBoxImage.Hand,
                 "Settings apply failure notification"));
@@ -7582,7 +7576,8 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 ApplicationSettings.OperationModeLR2DB = operationModeLR2DB;
             }
-            bool userConfigNeedsSave = settingValueChanges
+            bool userConfigNeedsSave = HasPendingRuntimePlacement()
+                || settingValueChanges
                 || rightClickSettingsChanged
                 || operationModeChanged
                 || standaloneSearchRootsChanged
@@ -7638,7 +7633,14 @@ public partial class SettingsDialogViewModel : ViewModel
             if ((lr2SearchRootsChanged || lr2ConfigNeedsSave) && lr2config != null)
             {
                 var lr2ConfigStopwatch = Stopwatch.StartNew();
-                lr2config.Save();
+                try
+                {
+                    lr2config.Save();
+                }
+                catch (Exception exception) when (userConfigSaved)
+                {
+                    throw new PartialSettingsSaveException(ApplicationSettings.LR2ConfigXmlPath, exception);
+                }
                 lr2ConfigSaveMs = lr2ConfigStopwatch.ElapsedMilliseconds;
                 lr2ConfigSaved = true;
             }
@@ -7686,13 +7688,16 @@ public partial class SettingsDialogViewModel : ViewModel
             || !string.Equals(tempBeatorajaPlayerId, ApplicationSettings.BeatorajaPlayerId, StringComparison.OrdinalIgnoreCase);
     }
 
+    private bool HasPendingRuntimePlacement()
+    {
+        return ApplicationSettings.PropertyValues[nameof(Settings.LR2bodyWindowPlacement)]?.IsDirty == true;
+    }
+
+    /// <summary>Persists the confirmed restart choice without committing other dialog edits.</summary>
     public void SaveOperationModeForRestart(bool operationMode)
     {
         string playHistorySelectedDisplayTargetIdentity = playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity;
-        settingsEditSession.Reload();
-        ApplicationSettings.OperationModeLR2DB = operationMode;
-        playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;
-        settingsEditSession.Save();
+        settingsEditSession.SaveOperationModeForRestart(operationMode, playHistorySelectedDisplayTargetIdentity);
     }
 
     public void ResetSettings()

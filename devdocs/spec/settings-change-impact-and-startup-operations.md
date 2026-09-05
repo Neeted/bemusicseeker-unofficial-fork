@@ -285,6 +285,20 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 
 通常起動時は、旧版の `AssemblyVersion` 閾値だけを根拠に LR2 カスタムフォルダを強制再生成しない。LR2 カスタムフォルダの再生成条件は、テーブル更新、出力先欠落、または `.lr2folder` 不在とする。
 
+## Portable settings failure boundary
+
+`ApplicationStartupCompositionOwner` は App の single-instance mutex 取得、設定準備、main-window composition の順に実行する。所有権が取れない起動は設定の read / legacy migration / recovery / write を行わない。App の constructor は path と logging の準備だけを行い、設定 getter は呼ばない。
+
+`PortableSettingsProvider` の正常な Save return は永続化成功を意味する。読み取り専用、アクセス・共有違反、serialization、構造不正、書込み失敗は対象 path と元の cause を保持した `PortableSettingsException` で伝播する。provider は UI を表示しない。同じ directory の一時ファイルを atomic replace / move で公開し、失敗時は既存バイトを保持する。一時ファイル cleanup の失敗は元の保存失敗を置き換えない。
+
+欠落ファイルは provider の通常 read では既定値を意味する。既存ファイルの unreadable / XML syntax error は空設定ではない。`configuration/userSettings/BeMusicSeeker.Properties.Settings` の必須構造欠落も明示的な失敗とし、個別 setting key の欠落だけは既定値にする。
+
+startup file owner は最初の getter より前に入力を検証する。XML syntax corruption の場合だけ元ファイルを同 directory の一意な `user.config.broken-*` へ上書きせず移動し、backup path と既定値への reset を警告してから最小の正常 XML を新規作成する。first-run 判定は新しい設定の AssemblyVersion 欠落から行う。部分 salvage と同一起動での legacy fallback は行わない。警告前に新規作成したり、破損設定から言語を読んだりしない。usable settings がない段階の通知は OS / default resource culture を使う。
+
+退避成功後の新規作成が失敗した場合も fatal とする。次回起動で target がなく、同 directory に `user.config.broken-*` の実ファイルが残っていれば legacy 自動移行を抑止して新規作成する。既存の正常な target がある場合はその設定を優先する。追加の marker、journal、メモリ上の復旧 flag は持たない。
+
+read、構造、退避、新規作成、legacy import の失敗は error を表示して起動を中止する。以後の getter、theme、main-window composition は行わず、terminal cleanup が mutex を解放する。一方、正常に読み込めた設定の正規化または version 更新の保存失敗は warning を表示し、読込済みの互換値を使って起動を続ける。通常 Save 時の XML 破損は保存失敗であり、startup recovery を実行しない。 version 更新の Save が内部でファイルを再読込する際の Read failure も fatal とし、初回 materialization が成功していても warning 継続へ変換しない。
+
 ## Operation Serialization
 
 `InitializeAsync()`, `ReloadFileDiffAsync()`, `ReloadScoresOnlyAsync()`, `ReloadTables()`, `ReinitializeLibraryAsync()` は `_semaphore` で直列化される。`MainWindow.ContentRendered` はこの awaitable operation を起動して初期選択を適用する presentation boundary である。
@@ -321,3 +335,27 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 | process-local settings/application state | existing exact 14 classes | `serial-state-a`, 1 worker / `ClassLevel` |
 
 runner は上記 route の実際の class selector、worker、scope、remaining exclusion、foreground allowlistを起動前に検証する。反復時の対象は `FullyQualifiedName~VerificationRunnerContractTests` の filtered Quick とする。
+
+Portable settings failure packet `PORTABLE-SETTINGS-FAILURE-20260905` revision 5 の検証対応:
+
+| IDs | Behavior / fixture | Lane / ownership |
+| --- | --- | --- |
+| P01-P04 | strict read/save、atomic bytes、syntax quarantine / `PortableSettingsPersistenceTests`（新設: filesystem persistence の fault matrix を既存 global fixture から分離） | remaining Functional、instance-owned provider path / unique temp directory、同期 return・throw・readback |
+| P03/P04b/P06 | fatal read、valid save warning、generated canonical read、create failure後の新 owner 起動と実 legacy移行抑止 / `ApplicationSettingsLifecycleTests` | existing serial-state-a、Resources.Culture 復元、追加 physical cases は unique temp path |
+| P05 | ownership denial / preparation fatal / successful composition gate / `ApplicationStartupCompositionOwnerTests` | existing serial-state-b、owner task completion、既存 WPF host |
+| P03/P06 | migration compatibility / `PortableSettingsMigrationTests`、`PlayerPanelStateSettingsCompatibilityTests` | existing routes、旧 normalizer byte preservation assertion を維持 |
+| P10 | resx/accessor/six-language parity、backup/path/cause placeholder / `LocalizationResourceParityTests` | read-only resources、exact translated copy assertion なし |
+
+## Runtime settings save failures
+
+設定ダイアログの保存失敗はエラーを表示し、画面、下書き、保存前snapshotを保持する。後処理・reload・closeへ進まず、保存のため一時適用したaudio出力選択を復元する。Cancelは以前の設定編集snapshotへ戻し、再保存はユーザーの次のSave操作で行う。user.config成功後にLR2 config.xml保存が失敗した場合は部分保存を明示し、既に保存したuser.configを巻き戻さない。
+
+動作モード変更では、確認したmode、現在の履歴表示identity、runtimeのLR2位置だけを同じproviderのatomic保存境界で保存する。他の設定下書きは保存しない。成功後だけReloadと再起動へ進む。保存失敗時はactive modeのraw値と表示を復元し、他の下書きを保持して再起動・終了しない。実際の再起動要求が失敗した場合の終了処理は維持する。
+
+MainWindowの検索ルート追加・削除は下位ownerの保存失敗伝播を保持し、View terminalでエラーを表示する。
+
+LR2停止時のwindow placement取得は既存Settingsのメモリ値だけを更新する。停止・次曲・player切替では設定Saveを呼ばない。通常の設定SaveはUI編集がなくても未保存のruntime位置を保存する。既存PropertyValuesのdirty状態で判断し、別の永続flagは持たない。Cancelはruntime位置を戻さない。強制終了では最後の未保存位置が失われる場合がある。
+
+terminal終了はplayer closeによる最後の位置取得後に一度だけ設定をSaveする。失敗はUI警告とログへ通知し、audio・一時fileなどのcleanupと終了要求を続ける。再入で保存・終了要求を重複させない。 terminal警告のnative dialog呼出しはApp最上位に閉じ、ApplicationCompositionの専用callbackを既存終了ownerへ渡す。
+
+P07/P08c/P08d-SはSettingsDialogBehaviorTestsのcommand/sessionとisolated provider readback、P08dはPlayerSettingsGatewayTestsとExternalPlayerProcessGatewayTestsのcapture経路、P09はShellShutdownWorkflowOwnerTestsのpublic player attachment・final save・通知/終了callbackで検証する。P10のkey/placeholder契約は全6言語に適用する。物理fault matrixはP01/P02のfixtureに集約する。

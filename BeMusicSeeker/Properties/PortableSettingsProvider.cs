@@ -10,8 +10,20 @@ using Ribbit.Logging;
 
 namespace BeMusicSeeker.Properties;
 
+/// <summary>Reads and atomically persists the portable user settings document without presenting UI.</summary>
 public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSettingsProvider
 {
+    private readonly string settingsPath;
+
+    /// <summary>Uses the application-owned portable configuration path.</summary>
+    public PortableSettingsProvider() : this(PortableSettingsPath.UserConfigPath) { }
+
+    /// <summary>Uses an explicit configuration path with the same persistence contract as application settings.</summary>
+    internal PortableSettingsProvider(string settingsPath)
+    {
+        this.settingsPath = Path.GetFullPath(settingsPath ?? throw new ArgumentNullException(nameof(settingsPath)));
+    }
+
     internal const string SettingsSectionName = "BeMusicSeeker.Properties.Settings";
     private const int LegacyMoviePlayerBit = 4;
     private const int BmsPlayerBit = 2;
@@ -39,6 +51,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         "UseExternalWebBrowser"
     };
 
+    /// <inheritdoc/>
     public override void Initialize(string name, NameValueCollection config)
     {
         if (string.IsNullOrWhiteSpace(name))
@@ -49,6 +62,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         base.Initialize(name, config);
     }
 
+    /// <inheritdoc/>
     public override string ApplicationName
     {
         get
@@ -60,108 +74,99 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         }
     }
 
+    /// <inheritdoc/>
     public override SettingsPropertyValueCollection GetPropertyValues(SettingsContext context, SettingsPropertyCollection collection)
     {
-        SettingsPropertyValueCollection settingsPropertyValueCollection = [];
-        Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)> dictionary = LoadSettingMap();
+        SettingsPropertyValueCollection values = [];
+        Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)> settingsMap = LoadSettingMap();
         foreach (SettingsProperty item in collection)
         {
-            var settingsPropertyValue = new SettingsPropertyValue(item);
-            if (dictionary.TryGetValue(item.Name, out (SettingsSerializeAs serializeAs, string serializedValue) value))
+            var propertyValue = new SettingsPropertyValue(item);
+            if (settingsMap.TryGetValue(item.Name, out (SettingsSerializeAs serializeAs, string serializedValue) value))
             {
-                settingsPropertyValue.SerializedValue = value.serializedValue;
+                propertyValue.SerializedValue = value.serializedValue;
             }
             else
             {
-                settingsPropertyValue.SerializedValue = item.DefaultValue;
+                propertyValue.SerializedValue = item.DefaultValue;
             }
-            settingsPropertyValue.IsDirty = false;
-            settingsPropertyValueCollection.Add(settingsPropertyValue);
+            propertyValue.IsDirty = false;
+            values.Add(propertyValue);
         }
-        return settingsPropertyValueCollection;
+        return values;
     }
 
+    /// <summary>Persists all supplied values or throws with the path and original cause; failed publication preserves the target.</summary>
     public override void SetPropertyValues(SettingsContext context, SettingsPropertyValueCollection collection)
     {
         try
         {
-            Directory.CreateDirectory(PortableSettingsPath.ConfigDirectoryPath);
-            if (File.Exists(PortableSettingsPath.UserConfigPath))
-            {
-                var fileInfo = new FileInfo(PortableSettingsPath.UserConfigPath);
-                if (fileInfo.IsReadOnly)
-                {
-                    var ex = new UnauthorizedAccessException("Portable settings file is read-only.");
-                    NLogWrapper.TraceLogger?.Error(ex, "portable_settings_save blocked_readonly path=" + PortableSettingsPath.UserConfigPath);
-                    return;
-                }
-            }
-            XDocument xDocument = LoadDocumentForUpdate();
-            XElement xElement = xDocument.Root?.Element("userSettings")?.Element(SettingsSectionName);
-            if (xElement == null)
-            {
-                return;
-            }
-            NormalizeSettingsSection(xElement);
+            XDocument document = ReadDocument(settingsPath) ?? CreateEmptyDocument();
+            XElement settingsSection = GetRequiredSettingsSection(document);
+            NormalizeSettingsSection(settingsSection);
             foreach (SettingsPropertyValue item in collection)
             {
                 string serialized = GetSerializedValue(item);
                 string value = item.Property.SerializeAs.ToString();
-                XElement xElement2 = xElement.Elements("setting").FirstOrDefault(e => string.Equals((string)e.Attribute("name"), item.Name, StringComparison.Ordinal));
-                if (xElement2 == null)
+                XElement settingElement = settingsSection.Elements("setting").FirstOrDefault(e => string.Equals((string)e.Attribute("name"), item.Name, StringComparison.Ordinal));
+                if (settingElement == null)
                 {
-                    xElement2 = new XElement("setting");
-                    xElement2.SetAttributeValue("name", item.Name);
-                    xElement.Add(xElement2);
+                    settingElement = new XElement("setting");
+                    settingElement.SetAttributeValue("name", item.Name);
+                    settingsSection.Add(settingElement);
                 }
-                xElement2.SetAttributeValue("serializeAs", value);
-                XElement xElement3 = xElement2.Element("value");
-                if (xElement3 == null)
+                settingElement.SetAttributeValue("serializeAs", value);
+                XElement valueElement = settingElement.Element("value");
+                if (valueElement == null)
                 {
-                    xElement3 = new XElement("value");
-                    xElement2.Add(xElement3);
+                    valueElement = new XElement("value");
+                    settingElement.Add(valueElement);
                 }
-                xElement3.RemoveNodes();
+                valueElement.RemoveNodes();
                 if (item.Property.SerializeAs == SettingsSerializeAs.Xml)
                 {
-                    if (!TrySetXmlValue(xElement3, serialized))
+                    if (!TrySetXmlValue(valueElement, serialized))
                     {
-                        xElement3.Value = serialized;
+                        valueElement.Value = serialized;
                     }
                 }
                 else
                 {
-                    xElement3.Value = serialized;
+                    valueElement.Value = serialized;
                 }
             }
-            SaveDocumentAtomically(xDocument, PortableSettingsPath.UserConfigPath);
+            SaveDocument(document, settingsPath);
         }
         catch (Exception ex)
         {
-            NLogWrapper.TraceLogger?.Error(ex, "portable_settings_save failed path=" + PortableSettingsPath.UserConfigPath);
+            if (ex is PortableSettingsException) throw;
+            throw new PortableSettingsException(settingsPath, "Save", ex);
         }
     }
 
+    /// <inheritdoc/>
     public SettingsPropertyValue GetPreviousVersion(SettingsContext context, SettingsProperty property)
     {
         return new SettingsPropertyValue(property);
     }
 
+    /// <inheritdoc/>
     public void Reset(SettingsContext context)
     {
         try
         {
-            if (File.Exists(PortableSettingsPath.UserConfigPath))
+            if (File.Exists(settingsPath))
             {
-                File.Delete(PortableSettingsPath.UserConfigPath);
+                File.Delete(settingsPath);
             }
         }
         catch (Exception ex)
         {
-            NLogWrapper.TraceLogger?.Warn(ex, "portable_settings_reset failed path=" + PortableSettingsPath.UserConfigPath);
+            NLogWrapper.TraceLogger?.Warn(ex, "portable_settings_reset failed path=" + settingsPath);
         }
     }
 
+    /// <inheritdoc/>
     public void Upgrade(SettingsContext context, SettingsPropertyCollection properties)
     {
     }
@@ -199,68 +204,71 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         }
     }
 
-    private static Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)> LoadSettingMap()
+    private Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)> LoadSettingMap()
     {
-        var dictionary = new Dictionary<string, (SettingsSerializeAs serializeAs, string serializedValue)>(StringComparer.Ordinal);
-        if (!File.Exists(PortableSettingsPath.UserConfigPath))
+        var map = new Dictionary<string, (SettingsSerializeAs, string)>(StringComparer.Ordinal);
+        XDocument document = ReadDocument(settingsPath);
+        if (document == null) return map;
+        XElement section = GetRequiredSettingsSection(document);
+        // Read-only files still materialize compatible values even when normalization cannot be saved.
+        NormalizeSettingsSection(section);
+        foreach (XElement setting in section.Elements("setting"))
         {
-            return dictionary;
+            string name = (string)setting.Attribute("name");
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            if (!Enum.TryParse((string)setting.Attribute("serializeAs"), out SettingsSerializeAs format))
+                format = SettingsSerializeAs.String;
+            XElement value = setting.Element("value");
+            map[name] = (format, value == null ? string.Empty :
+                format == SettingsSerializeAs.Xml ? string.Concat(value.Nodes()) : value.Value);
         }
+        return map;
+    }
+
+    /// <summary>Returns null only for a missing file; unreadable, malformed and structurally invalid documents fail explicitly.</summary>
+    internal static XDocument ReadDocument(string path)
+    {
         try
         {
-            var xDocument = XDocument.Load(PortableSettingsPath.UserConfigPath);
-            XElement xElement = xDocument.Root?.Element("userSettings")?.Element(SettingsSectionName);
-            if (xElement == null)
-            {
-                return dictionary;
-            }
-            // The startup normalizer persists this migration when possible, but a read-only
-            // config must still expose canonical values to the generated Settings wrapper.
-            NormalizeSettingsSection(xElement);
-            foreach (XElement item in xElement.Elements("setting"))
-            {
-                string attributeValue = (string)item.Attribute("name");
-                if (string.IsNullOrWhiteSpace(attributeValue))
-                {
-                    continue;
-                }
-                string text = (string)item.Attribute("serializeAs");
-                if (!Enum.TryParse<SettingsSerializeAs>(text, out SettingsSerializeAs result))
-                {
-                    result = SettingsSerializeAs.String;
-                }
-                XElement xElement2 = item.Element("value");
-                string item2 = string.Empty;
-                if (xElement2 != null)
-                {
-                    item2 = ((result == SettingsSerializeAs.Xml) ? string.Concat(xElement2.Nodes()) : xElement2.Value);
-                }
-                dictionary[attributeValue] = (result, item2);
-            }
+            XDocument document;
+            try { document = XDocument.Load(path); }
+            catch (FileNotFoundException) { return null; }
+            catch (DirectoryNotFoundException) { return null; }
+            GetRequiredSettingsSection(document);
+            return document;
         }
-        catch
+        catch (Exception exception)
         {
+            throw new PortableSettingsException(path, "Read", exception);
         }
-        return dictionary;
     }
 
-    private static XDocument LoadDocumentForUpdate()
+    /// <summary>Creates the required structure with no user values, allowing first-run defaults.</summary>
+    internal static XDocument CreateEmptyDocument() => new(new XElement("configuration",
+        new XElement("userSettings", new XElement(SettingsSectionName))));
+
+    private static XElement GetRequiredSettingsSection(XDocument document)
     {
-        if (File.Exists(PortableSettingsPath.UserConfigPath))
-        {
-            try
-            {
-                return XDocument.Load(PortableSettingsPath.UserConfigPath);
-            }
-            catch
-            {
-            }
-        }
-        var xDocument = new XDocument(new XElement("configuration", new XElement("userSettings", new XElement(SettingsSectionName))));
-        return xDocument;
+        XElement section = document.Root?.Name == "configuration"
+            ? document.Root.Element("userSettings")?.Element(SettingsSectionName) : null;
+        return section ?? throw new ConfigurationErrorsException("Portable settings document is missing its required configuration/userSettings/application section.");
     }
 
-    private static void SaveDocumentAtomically(XDocument document, string targetPath)
+    /// <summary>Publishes a document atomically and identifies persistence failures separately from reads.</summary>
+    internal static void SaveDocument(XDocument document, string path, string operation = "Save")
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            SaveDocumentAtomically(document, path, replaceExisting: operation is not ("Create" or "Migrate"));
+        }
+        catch (Exception exception)
+        {
+            throw new PortableSettingsException(path, operation, exception);
+        }
+    }
+
+    private static void SaveDocumentAtomically(XDocument document, string targetPath, bool replaceExisting)
     {
         string directoryPath = Path.GetDirectoryName(targetPath)
             ?? throw new ArgumentException("The settings target must have a directory.", nameof(targetPath));
@@ -271,7 +279,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         try
         {
             document.Save(tempPath);
-            if (File.Exists(targetPath))
+            if (replaceExisting && File.Exists(targetPath))
             {
                 File.Replace(tempPath, targetPath, null);
             }
@@ -347,22 +355,16 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
     /// <summary>
     /// Normalizes an existing portable configuration before any generated Settings getter reads it.
     /// </summary>
-    internal static int NormalizeCurrentPortableConfig()
+    internal static int NormalizeCurrentPortableConfig() => NormalizePortableConfig(PortableSettingsPath.UserConfigPath);
+
+    /// <summary>Validates and normalizes an explicitly owned settings file before materialization.</summary>
+    internal static int NormalizePortableConfig(string path)
     {
-        if (!File.Exists(PortableSettingsPath.UserConfigPath))
-        {
-            return 0;
-        }
-
-        XDocument document = XDocument.Load(PortableSettingsPath.UserConfigPath);
-        XElement settingsSection = document.Root?.Element("userSettings")?.Element(SettingsSectionName);
-        int normalizedSettings = NormalizeSettingsSection(settingsSection);
-        if (normalizedSettings > 0)
-        {
-            SaveDocumentAtomically(document, PortableSettingsPath.UserConfigPath);
-        }
-
-        return normalizedSettings;
+        XDocument document = ReadDocument(path);
+        if (document == null) return 0;
+        int changed = NormalizeSettingsSection(GetRequiredSettingsSection(document));
+        if (changed > 0) SaveDocument(document, path);
+        return changed;
     }
 
     private static string NormalizePlayerPanelStateValue(string value)

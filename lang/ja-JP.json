@@ -934,5 +934,13 @@
   "LibraryChartRemovalReport_CatalogUnconfirmed": "カタログ反映を試みましたが、保存完了は確認できません。",
   "LibraryChartRemovalReport_FinalizationFailed": "カタログは保存済みですが、必須の後処理に失敗しました。",
   "LibraryChartRemovalReport_Targets": "確認対象（現在の実在は未確認、最大3件）:",
-  "LibraryChartRemovalReport_Guidance": "確認済みの削除は取り消されません。対象ファイルとライブラリの状態を手動で確認してください。省略された対象・エラーの詳細はログを参照してください。"
+  "LibraryChartRemovalReport_Guidance": "確認済みの削除は取り消されません。対象ファイルとライブラリの状態を手動で確認してください。省略された対象・エラーの詳細はログを参照してください。",
+  "PortableSettingsRecovered": "設定ファイルの XML が破損していたため、元のファイルを {0} に退避しました。既定の設定を新規作成し、初回設定を開始します。",
+  "PortableSettingsStartupSaveFailed": "設定を保存できませんでした。読み込んだ設定で起動を続けます。\nファイル: {0}\n原因: {1}",
+  "PortableSettingsStartupFailed": "設定ファイルを準備できないため、起動を中止します。\nファイル: {0}\n原因: {1}",
+  "ApplicationAlreadyStarted": "BeMusicSeeker は既に起動しています。",
+  "SettingsSaveFailed": "設定を保存できませんでした。\nファイル: {0}\n原因: {1}",
+  "SettingsPartiallySaved": "アプリケーション設定は保存されましたが、LR2 設定を保存できませんでした。\nファイル: {0}\n原因: {1}",
+  "SettingsApplyIncomplete": "設定の保存または適用を完了できませんでした。\n原因: {0}",
+  "SettingsSaveFailedDuringShutdown": "{0}\n終了処理を続行します。"
 }

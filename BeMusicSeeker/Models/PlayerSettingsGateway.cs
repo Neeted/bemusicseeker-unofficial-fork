@@ -108,13 +108,14 @@ internal sealed class PlayerSettingsSnapshot
 }
 
 /// <summary>
-/// Owns the persisted settings boundary used by playback player implementations.
+/// Owns the settings snapshot and runtime window-placement boundary used by players.
 /// </summary>
 internal interface IPlayerSettingsGateway
 {
     PlayerSettingsSnapshot CaptureSnapshot();
 
-    void SaveWindowPlacement(WindowPlacement windowPlacement);
+    /// <summary>Captures placement in memory for the next normal or terminal settings save.</summary>
+    void UpdateWindowPlacement(WindowPlacement windowPlacement);
 }
 
 /// <summary>
@@ -153,9 +154,9 @@ internal sealed class SettingsPlayerSettingsGateway : IPlayerSettingsGateway
             Win32WindowPlacementAdapter.FromNative(values.LR2bodyWindowPlacement));
     }
 
-    public void SaveWindowPlacement(WindowPlacement windowPlacement)
+    /// <summary>Updates runtime placement without requesting persistence during player cleanup.</summary>
+    public void UpdateWindowPlacement(WindowPlacement windowPlacement)
     {
         Values.LR2bodyWindowPlacement = Win32WindowPlacementAdapter.ToNative(windowPlacement);
-        Values.Save();
     }
 }

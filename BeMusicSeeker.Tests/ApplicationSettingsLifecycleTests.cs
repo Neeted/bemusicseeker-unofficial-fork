@@ -1,4 +1,7 @@
 using System;
+using System.IO;
+using System.Linq;
+using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -10,6 +13,23 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class ApplicationSettingsLifecycleTests
 {
+    // PORTABLE-SETTINGS-FAILURE-20260905 P03/P06: failed initial reads are fatal before materialization.
+    [TestMethod]
+    public void InitializeReadFailureDoesNotReadStoreOrContinue()
+    {
+        var store = new FakeApplicationSettingsStore();
+        var expected = new System.IO.IOException("input unavailable");
+        var lifecycle = new ApplicationSettingsLifecycle(
+            settingsStore: store,
+            normalizeSettings: () => throw expected);
+
+        Exception actual = Assert.ThrowsException<System.IO.IOException>(() => lifecycle.Initialize(
+            ["ja-JP", "en-US"], () => new SerializableVersion(1, 2, 3, 4)));
+
+        Assert.AreSame(expected, actual);
+        Assert.AreEqual(0, store.Events.Count);
+    }
+
     [TestMethod]
     public void InitializeMigratesAndNormalizesLanguageAndThemeWithoutChangingVersionTiming()
     {
@@ -166,6 +186,208 @@ public sealed class ApplicationSettingsLifecycleTests
         int firstReadIndex = store.Events.FindIndex(value => value.StartsWith("read:", StringComparison.Ordinal));
         Assert.IsTrue(normalizeIndex >= 0);
         Assert.IsTrue(firstReadIndex > normalizeIndex);
+    }
+
+    // P06: read and save failures use the real provider and generated materialization.
+    [TestMethod]
+    public void ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BmsLifecycle-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "user.config");
+        var previousCulture = Resources.Culture;
+        try
+        {
+            WriteConfig(path, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"), ("PlayerPanelState", "12"));
+            byte[] before = File.ReadAllBytes(path);
+            var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            var notices = new System.Collections.Generic.List<Exception>();
+            var lifecycle = new ApplicationSettingsLifecycle(settingsStore: new FileSettingsStore(settings),
+                normalizeSettings: () => PortableSettingsProvider.NormalizePortableConfig(path),
+                warnSaveFailure: notices.Add);
+            File.SetAttributes(path, FileAttributes.ReadOnly);
+            ApplicationSettingsInitializationResult result = lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6));
+            Assert.IsFalse(result.FirstStartup);
+            Assert.AreEqual("en-US", result.Culture.Name);
+            Assert.AreEqual((BeMusicSeeker.ViewModels.PlayerPanelState)10, settings.PlayerPanelState);
+            Assert.AreEqual(1, notices.Count);
+            Assert.AreEqual("Save", ((PortableSettingsException)notices[0]).Operation);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+            File.SetAttributes(path, FileAttributes.Normal);
+
+            var store = new FakeApplicationSettingsStore();
+            lifecycle = new ApplicationSettingsLifecycle(settingsStore: store,
+                normalizeSettings: () => PortableSettingsProvider.NormalizePortableConfig(path), warnSaveFailure: _ => Assert.Fail("Read is fatal."));
+            using (var blocker = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+                Assert.ThrowsException<PortableSettingsException>(() => lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
+            Assert.AreEqual(0, store.Events.Count);
+        }
+        finally
+        {
+            Resources.Culture = previousCulture;
+            File.SetAttributes(path, FileAttributes.Normal);
+            Directory.Delete(directory, true);
+        }
+    }
+
+    // P06: external sharing changes after materialization still distinguish READ from publication failure.
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void VersionUpdateDistinguishesReadFailureFromPublicationFailure(bool blockRead)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BmsVersionSave-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "user.config");
+        var previousCulture = Resources.Culture;
+        try
+        {
+            WriteConfig(path, ("AssemblyVersion", "1.0.0.0"), ("Lang", "en-US"));
+            byte[] before = File.ReadAllBytes(path);
+            var settings = PortableSettingsPersistenceTests.OpenSettings(path);
+            var notices = new System.Collections.Generic.List<Exception>();
+            var lifecycle = new ApplicationSettingsLifecycle(
+                settingsStore: new FileSettingsStore(settings),
+                normalizeSettings: () => PortableSettingsProvider.NormalizePortableConfig(path),
+                saveSettings: () =>
+                {
+                    // The initial getter has succeeded. Model another process opening the file before version Save.
+                    using var blocker = new FileStream(path, FileMode.Open, FileAccess.Read,
+                        blockRead ? FileShare.None : FileShare.ReadWrite);
+                    settings.Save();
+                },
+                warnSaveFailure: notices.Add);
+
+            if (blockRead)
+            {
+                var failure = Assert.ThrowsException<PortableSettingsException>(() => lifecycle.Initialize(
+                    ["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0)));
+                Assert.AreEqual("Read", failure.Operation);
+                Assert.AreEqual(path, failure.FilePath);
+                Assert.AreEqual(0, notices.Count);
+                Assert.AreSame(previousCulture, Resources.Culture);
+            }
+            else
+            {
+                var result = lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0));
+                Assert.IsFalse(result.FirstStartup);
+                Assert.AreEqual("en-US", result.Culture.Name);
+                Assert.AreEqual(1, notices.Count);
+                Assert.AreEqual("Save", ((PortableSettingsException)notices[0]).Operation);
+            }
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
+        }
+        finally
+        {
+            Resources.Culture = previousCulture;
+            Directory.Delete(directory, true);
+        }
+    }
+
+    [TestMethod]
+    public void VersionSaveFailureWarnsAndContinuesWithLoadedSettings()
+    {
+        var previousCulture = Resources.Culture;
+        try
+        {
+            var store = new FakeApplicationSettingsStore { AssemblyVersion = new SerializableVersion(1, 0, 0, 0), Language = "en-US", AppearanceTheme = AppThemeService.Light };
+            var expected = new IOException("save unavailable");
+            Exception? warning = null;
+            var lifecycle = new ApplicationSettingsLifecycle(settingsStore: store, normalizeSettings: () => { },
+                saveSettings: () => throw expected, warnSaveFailure: exception => warning = exception);
+            var result = lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0));
+            Assert.AreSame(expected, warning);
+            Assert.IsFalse(result.FirstStartup);
+            Assert.AreEqual("en-US", result.Culture.Name);
+            Assert.AreEqual(1, store.UpgradeCount);
+        }
+        finally { Resources.Culture = previousCulture; }
+    }
+
+    // P04b rev2: a new lifecycle after failed creation must use the preserved file, not process memory, to suppress import.
+    [TestMethod]
+    public void RestartAfterQuarantineAndCreateFailureDoesNotImportEligibleLegacySettings()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "BmsRestart-" + Guid.NewGuid().ToString("N"));
+        string legacyRoot = Path.Combine(directory, "legacy");
+        string legacyPath = Path.Combine(legacyRoot, "BeMusicSeeker.exe_Url_example", "1.0", "user.config");
+        string path = Path.Combine(directory, "user.config");
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+        var previousCulture = Resources.Culture;
+        try
+        {
+            WriteConfig(legacyPath, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"),
+                ("TableListURL", "https://example.invalid/legacy"), ("BMSInstallDir", "legacy-install"),
+                ("OperationModeLR2DB", "False"), ("BMSRootPath", "legacy-root"));
+            // First prove that this exact physical legacy candidate is eligible through the real owner.
+            var normal = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail());
+            Assert.IsFalse(normal.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
+            Assert.AreEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+
+            File.WriteAllText(path, "<configuration>");
+            byte[] corrupt = File.ReadAllBytes(path);
+            string? backup = null;
+            var failed = CreateFileLifecycle(path, legacyRoot, preserved =>
+            {
+                backup = preserved;
+                Directory.CreateDirectory(path);
+            });
+            var failure = Assert.ThrowsException<PortableSettingsException>(() =>
+                failed.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
+            Assert.AreEqual("Create", failure.Operation);
+            Assert.IsNotNull(backup);
+            Directory.Delete(path);
+
+            var restarted = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail("Already quarantined."));
+            Assert.IsTrue(restarted.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
+            Assert.AreNotEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+            CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(backup));
+
+            WriteConfig(path, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"), ("BMSInstallDir", "current-install"));
+            var current = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail());
+            Assert.IsFalse(current.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
+            Assert.AreEqual("current-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+            CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(backup));
+        }
+        finally { Resources.Culture = previousCulture; Directory.Delete(directory, true); }
+    }
+
+    private static ApplicationSettingsLifecycle CreateFileLifecycle(string path, string legacyRoot, Action<string> warnRecovery)
+    {
+        ApplicationSettingsLifecycle lifecycle = null!;
+        lifecycle = new ApplicationSettingsLifecycle(
+            legacyMigration: (cultures, culture) => LegacyUserConfigMigrator.MigrateIfNeeded(path, legacyRoot, cultures, culture),
+            settingsStore: new FileSettingsStore(PortableSettingsPersistenceTests.OpenSettings(path)),
+            normalizeSettings: () => new PortableSettingsStartupFile(path).Prepare(
+                () => lifecycle.MigrateLegacy(["ja-JP", "en-US"], "en-US"), warnRecovery),
+            warnSaveFailure: _ => Assert.Fail("No save fault is expected."));
+        return lifecycle;
+    }
+
+    private static void WriteConfig(string path, params (string Key, string Value)[] values)
+    {
+        var section = new XElement(PortableSettingsProvider.SettingsSectionName);
+        foreach (var value in values)
+        {
+            if (value.Key == "AssemblyVersion")
+            {
+                using var serialized = new StringWriter();
+                new System.Xml.Serialization.XmlSerializer(typeof(SerializableVersion)).Serialize(serialized, new SerializableVersion(value.Value));
+                section.Add(new XElement("setting", new XAttribute("name", value.Key), new XAttribute("serializeAs", "Xml"),
+                    new XElement("value", XElement.Parse(serialized.ToString()))));
+            }
+            else section.Add(new XElement("setting", new XAttribute("name", value.Key), new XAttribute("serializeAs", "String"), new XElement("value", value.Value)));
+        }
+        new XDocument(new XElement("configuration", new XElement("userSettings", section))).Save(path);
+    }
+
+    private sealed class FileSettingsStore(Settings settings) : IApplicationSettingsStore
+    {
+        public SerializableVersion AssemblyVersion { get => settings.AssemblyVersion; set => settings.AssemblyVersion = value; }
+        public string Language { get => settings.Lang; set => settings.Lang = value; }
+        public string AppearanceTheme { get => settings.AppearanceTheme; set => settings.AppearanceTheme = value; }
+        public void Save() => settings.Save();
+        public void Upgrade() => settings.Upgrade();
     }
 
     private sealed class FakeApplicationSettingsStore : IApplicationSettingsStore

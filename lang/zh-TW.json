@@ -934,5 +934,13 @@
   "LibraryChartRemovalReport_CatalogUnconfirmed": "已嘗試更新目錄資料，但無法確認提交完成。",
   "LibraryChartRemovalReport_FinalizationFailed": "目錄資料已提交，但必要的後續處理失敗。",
   "LibraryChartRemovalReport_Targets": "待檢查目標（目前是否存在未經確認，最多3項）：",
-  "LibraryChartRemovalReport_Guidance": "已確認的刪除不會撤銷。請手動檢查檔案和曲庫狀態。省略的目標及完整錯誤詳情請參閱記錄。"
+  "LibraryChartRemovalReport_Guidance": "已確認的刪除不會撤銷。請手動檢查檔案和曲庫狀態。省略的目標及完整錯誤詳情請參閱記錄。",
+  "PortableSettingsRecovered": "設定 XML 已損壞，原始檔案已保存在 {0}。將建立預設設定並開始首次設定。",
+  "PortableSettingsStartupSaveFailed": "無法儲存設定。將使用已讀取的設定繼續啟動。\n檔案：{0}\n原因：{1}",
+  "PortableSettingsStartupFailed": "無法準備設定檔案，啟動已中止。\n檔案：{0}\n原因：{1}",
+  "ApplicationAlreadyStarted": "BeMusicSeeker 已在執行。",
+  "SettingsSaveFailed": "無法儲存設定。\n檔案：{0}\n原因：{1}",
+  "SettingsPartiallySaved": "應用程式設定已儲存，但無法儲存 LR2 設定。\n檔案：{0}\n原因：{1}",
+  "SettingsApplyIncomplete": "未能完成設定的儲存或套用。\n原因：{0}",
+  "SettingsSaveFailedDuringShutdown": "{0}\n將繼續結束程式。"
 }

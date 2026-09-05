@@ -11,6 +11,41 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class ApplicationStartupCompositionOwnerTests
 {
+    // PORTABLE-SETTINGS-FAILURE-20260905 P05: actual owner task is the completion signal.
+    [TestMethod]
+    public async Task OwnershipDenialSkipsEverySettingsAndCompositionStep()
+    {
+        int preparations = 0, compositions = 0, failures = 0;
+        var owner = new ApplicationStartupCompositionOwner(
+            () => { compositions++; return null!; }, _ => Assert.Fail(), _ => throw new AssertFailedException(),
+            _ => Assert.Fail(), _ => Assert.Fail(),
+            _ => { failures++; return Task.CompletedTask; },
+            acquireOwnership: () => false, prepareSettings: () => preparations++);
+
+        await owner.StartAsync();
+
+        Assert.AreEqual(0, preparations);
+        Assert.AreEqual(0, compositions);
+        Assert.AreEqual(0, failures);
+    }
+
+    [TestMethod]
+    public async Task PreparationFailureUsesTerminalRouteOnceWithoutComposition()
+    {
+        var expected = new System.IO.IOException("settings inaccessible");
+        var events = new List<string>();
+        var owner = new ApplicationStartupCompositionOwner(
+            () => { events.Add("compose"); return null!; }, _ => Assert.Fail(), _ => throw new AssertFailedException(),
+            _ => Assert.Fail(), _ => Assert.Fail(),
+            exception => { Assert.AreSame(expected, exception); events.Add("terminal"); return Task.CompletedTask; },
+            acquireOwnership: () => { events.Add("ownership"); return true; },
+            prepareSettings: () => { events.Add("prepare"); throw expected; });
+
+        await owner.StartAsync();
+
+        CollectionAssert.AreEqual(new[] { "ownership", "prepare", "terminal" }, events);
+    }
+
     [TestMethod]
     public void StartupCompositionUsesOneViewModelAndPreservesIdentityAndOrder()
     {
@@ -60,13 +95,15 @@ public sealed class ApplicationStartupCompositionOwnerTests
                         failure = exception;
                         events.Add("failure");
                         return Task.CompletedTask;
-                    });
+                    },
+                    acquireOwnership: () => { events.Add("ownership"); return true; },
+                    prepareSettings: () => events.Add("prepare"));
 
                 owner.StartAsync().GetAwaiter().GetResult();
 
                 Assert.AreEqual(1, factoryCalls);
                 CollectionAssert.AreEqual(
-                    new[] { "create", "resource", "window-create", "main-window", "show" },
+                    new[] { "ownership", "prepare", "create", "resource", "window-create", "main-window", "show" },
                     events);
                 Assert.AreSame(viewModel, resourceViewModel);
                 Assert.AreSame(window, assignedWindow);

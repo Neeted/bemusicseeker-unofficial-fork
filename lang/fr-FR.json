@@ -934,5 +934,13 @@
   "LibraryChartRemovalReport_CatalogUnconfirmed": "La mise à jour du catalogue a été tentée, mais son enregistrement n’est pas confirmé.",
   "LibraryChartRemovalReport_FinalizationFailed": "Le catalogue a été enregistré, mais la finalisation requise a échoué.",
   "LibraryChartRemovalReport_Targets": "Cibles à vérifier (existence actuelle non vérifiée, 3 maximum) :",
-  "LibraryChartRemovalReport_Guidance": "Les suppressions confirmées ne sont pas annulées. Vérifiez manuellement les fichiers et la bibliothèque. Consultez le journal pour les cibles omises et les erreurs complètes."
+  "LibraryChartRemovalReport_Guidance": "Les suppressions confirmées ne sont pas annulées. Vérifiez manuellement les fichiers et la bibliothèque. Consultez le journal pour les cibles omises et les erreurs complètes.",
+  "PortableSettingsRecovered": "Le XML des paramètres était corrompu. Le fichier original a été conservé dans {0}. Une configuration par défaut sera créée et la configuration initiale démarrera.",
+  "PortableSettingsStartupSaveFailed": "Impossible d’enregistrer les paramètres. Le démarrage continue avec les paramètres chargés.\nFichier : {0}\nCause : {1}",
+  "PortableSettingsStartupFailed": "Le démarrage est interrompu car le fichier de paramètres n’a pas pu être préparé.\nFichier : {0}\nCause : {1}",
+  "ApplicationAlreadyStarted": "BeMusicSeeker est déjà en cours d’exécution.",
+  "SettingsSaveFailed": "Les paramètres n’ont pas pu être enregistrés.\nFichier : {0}\nCause : {1}",
+  "SettingsPartiallySaved": "Les paramètres de l’application ont été enregistrés, mais pas la configuration LR2.\nFichier : {0}\nCause : {1}",
+  "SettingsApplyIncomplete": "L’enregistrement ou l’application des paramètres n’a pas abouti.\nCause : {0}",
+  "SettingsSaveFailedDuringShutdown": "{0}\nLa fermeture va se poursuivre."
 }
