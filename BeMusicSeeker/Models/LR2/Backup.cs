@@ -24,7 +24,7 @@ public class Backup : ObservableObject
         }
 
         /// <summary>
-        /// 新しいバックアップを保存した場合は true です。
+        /// 新しいバックアップの公開が完了した場合は true です。公開後の世代削除失敗では false に戻りません。
         /// </summary>
         public bool Saved { get; }
 
@@ -58,6 +58,14 @@ public class Backup : ObservableObject
 
     private static readonly string dateFormat = "yyyy-MM-dd";
 
+    /// <summary>
+    /// LR2 バックアップを公開します。保存失敗は例外として呼出元へ伝える互換 API です。
+    /// </summary>
+    /// <param name="dstDir">バックアップ出力先ディレクトリ。</param>
+    /// <param name="span">前回バックアップから必要な経過時間。</param>
+    /// <param name="genNum">新しいバックアップを含む保持世代数。1 未満は 1 とします。</param>
+    /// <param name="_paths">選択済みのバックアップ対象パス。</param>
+    /// <returns>新しい世代の公開が完了した場合は true。</returns>
     public static bool SaveBackups(string dstDir, TimeSpan span, int genNum, IEnumerable<string> _paths)
     {
         BackupSaveResult result = SaveBackupsWithResult(dstDir, span, genNum, _paths);
@@ -69,16 +77,19 @@ public class Backup : ObservableObject
     }
 
     /// <summary>
-    /// LR2 関連ファイルをバックアップし、UI 側で表示する警告を結果として返します。
+    /// 選択対象を一時ディレクトリへ全てコピーしてから日付世代として公開し、古い世代を削除します。
+    /// 公開前の失敗では既存世代を保持し、公開後の削除失敗は保存成功と警告を返します。
     /// </summary>
     /// <param name="dstDir">バックアップ出力先ディレクトリ。</param>
-    /// <param name="span">前回バックアップから必要な経過時間。</param>
-    /// <param name="genNum">保持する世代数。</param>
-    /// <param name="_paths">バックアップ対象パス。</param>
-    /// <returns>バックアップ保存結果。</returns>
+    /// <param name="span">前回バックアップから必要な経過時間。日単位で最低 1 日とします。</param>
+    /// <param name="genNum">新しいバックアップを含む保持世代数。1 未満は 1 とします。</param>
+    /// <param name="_paths">選択済みの対象パス。非空パスの欠落は保存失敗とします。</param>
+    /// <returns>公開結果、削除警告、および公開前の主失敗例外。</returns>
     public static BackupSaveResult SaveBackupsWithResult(string dstDir, TimeSpan span, int genNum, IEnumerable<string> _paths)
     {
         var warnings = new List<string>();
+        string stagingDirectory = null;
+        List<DateTime> generations;
         try
         {
             if (_paths == null)
@@ -93,68 +104,82 @@ public class Backup : ObservableObject
             {
                 throw new DirectoryNotFoundException("出力先ディレクトリが存在しません" + Environment.NewLine + dstDir);
             }
-            if (genNum <= 0)
-            {
-                genNum = 1;
-            }
-            List<string> list = [.. _paths.Where(f => !string.IsNullOrWhiteSpace(f) && LongPathFileSystem.EntryExists(f))];
-            if (list.Count == 0)
+            genNum = Math.Max(1, genNum);
+            List<string> sources = [.. _paths.Where(path => !string.IsNullOrWhiteSpace(path))];
+            if (sources.Count == 0)
             {
                 return new BackupSaveResult(saved: false, warnings: []);
             }
-            var timeSpan = new TimeSpan(Math.Max(1, span.Days), 0, 0, 0);
-            List<DateTime> list2 = [.. (from dp in LongPathFileSystem.EnumerateDirectories(dstDir, "*", System.IO.SearchOption.TopDirectoryOnly)
-                                    select Path.GetFileName(dp) into d
-                                    where backupFolderRegex.Match(d).Success
-                                    select DateTime.ParseExact(d, dateFormat, DateTimeFormatInfo.InvariantInfo, DateTimeStyles.None) into d
-                                    orderby d descending
-                                    select d)];
+            foreach (string source in sources)
+            {
+                if (!LongPathFileSystem.EntryExists(source))
+                {
+                    throw new FileNotFoundException(Properties.Resources.Error_FileNotFound + Environment.NewLine + source, source);
+                }
+            }
+            var minimumInterval = TimeSpan.FromDays(Math.Max(1, span.Days));
+            generations = [.. (from directory in LongPathFileSystem.EnumerateDirectories(dstDir, "*", SearchOption.TopDirectoryOnly)
+                               select Path.GetFileName(directory) into name
+                               where backupFolderRegex.Match(name).Success
+                               select DateTime.ParseExact(name, dateFormat, DateTimeFormatInfo.InvariantInfo, DateTimeStyles.None) into date
+                               orderby date descending
+                               select date)];
             DateTime today = DateTime.Today;
-            if (list2.Count > 0)
+            if (generations.Count > 0 && today - generations[0] < minimumInterval)
             {
-                DateTime dateTime = list2.First();
-                if (today - dateTime < timeSpan)
+                return new BackupSaveResult(saved: false, warnings: []);
+            }
+
+            string publishedDirectory = Path.Combine(dstDir, today.ToString(dateFormat, DateTimeFormatInfo.InvariantInfo));
+            // A sibling stays on the destination filesystem, so publication is one non-overwriting rename.
+            stagingDirectory = LongPathFileSystem.CreateMutationSiblingPath(publishedDirectory, "backup");
+            LongPathFileSystem.CreateDirectory(stagingDirectory);
+            foreach (string source in sources)
+            {
+                string destination = Path.Combine(stagingDirectory, Path.GetFileName(source));
+                if (LongPathFileSystem.FileExists(source))
                 {
-                    return new BackupSaveResult(saved: false, warnings: []);
+                    LongPathFileSystem.CopyFile(source, destination, overwrite: true);
                 }
-                if (list2.Count > genNum)
+                else if (LongPathFileSystem.DirectoryExists(source))
                 {
-                    foreach (DateTime item in list2.Skip(genNum))
-                    {
-                        try
-                        {
-                            LongPathFileSystem.DeleteDirectory(Path.Combine(dstDir, item.ToString(dateFormat)), recursive: true);
-                        }
-                        catch
-                        {
-                            warnings.Add("ディレクトリの削除に失敗しました。" + Environment.NewLine + "読み取り専用属性がついていないか、" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + Path.Combine(dstDir, item.ToString(dateFormat)));
-                        }
-                    }
+                    LongPathFileSystem.CopyDirectory(source, destination, overwrite: true);
+                }
+                else
+                {
+                    // A selected source disappearing after validation must not publish an incomplete backup.
+                    throw new FileNotFoundException(Properties.Resources.Error_FileNotFound + Environment.NewLine + source, source);
                 }
             }
-            string text = Path.Combine(dstDir, today.ToString(dateFormat));
-            if (LongPathFileSystem.EntryExists(text))
-            {
-                throw new IOException("バックアップ先ディレクトリが既に存在しています" + Environment.NewLine + text);
-            }
-            LongPathFileSystem.CreateDirectory(text);
-            foreach (string item2 in list)
-            {
-                string fileName = Path.GetFileName(item2);
-                if (LongPathFileSystem.FileExists(item2))
-                {
-                    LongPathFileSystem.CopyFile(item2, Path.Combine(text, fileName), overwrite: true);
-                }
-                else if (LongPathFileSystem.DirectoryExists(item2))
-                {
-                    LongPathFileSystem.CopyDirectory(item2, Path.Combine(text, fileName), overwrite: true);
-                }
-            }
-            return new BackupSaveResult(saved: true, warnings: warnings);
+            LongPathFileSystem.MoveDirectory(stagingDirectory, publishedDirectory, overwrite: false);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            return BackupSaveResult.Failure(ex, warnings);
+            if (stagingDirectory != null && LongPathFileSystem.DirectoryExists(stagingDirectory))
+            {
+                TryDeleteBackupDirectory(stagingDirectory, warnings);
+            }
+            return BackupSaveResult.Failure(exception, warnings);
+        }
+
+        // The new generation owns one retention slot. Pruning cannot turn a published backup into failure.
+        foreach (DateTime generation in generations.Skip(genNum - 1).Reverse())
+        {
+            string directory = Path.Combine(dstDir, generation.ToString(dateFormat, DateTimeFormatInfo.InvariantInfo));
+            TryDeleteBackupDirectory(directory, warnings);
+        }
+        return new BackupSaveResult(saved: true, warnings: warnings);
+    }
+
+    private static void TryDeleteBackupDirectory(string directory, List<string> warnings)
+    {
+        try
+        {
+            LongPathFileSystem.DeleteDirectory(directory, recursive: true);
+        }
+        catch
+        {
+            warnings.Add(string.Format(Properties.Resources.Warn_FileOrDirDeleteFailed, directory));
         }
     }
 
