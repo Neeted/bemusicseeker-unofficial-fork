@@ -191,21 +191,25 @@ internal sealed class SelectedChartMutationResult
 
     internal static SelectedChartMutationResult Completed { get; } = new(true, null);
 
+    /// <summary>Preserves every item outcome; a non-durable item prevents an all-success batch result.</summary>
     internal static SelectedChartMutationResult FromReceipt(FileDbMutationBatchReceipt mutationReceipt)
     {
         return new SelectedChartMutationResult(
-            mutationReceipt?.ManualRecoveryRequired != true
+            mutationReceipt?.Receipts.All(receipt => receipt.DurableCommit) != false
+                && mutationReceipt?.ManualRecoveryRequired != true
                 && mutationReceipt?.HasDurableFinalizationFailure != true,
-            mutationReceipt?.Receipts?.FirstOrDefault(receipt =>
-                receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)?.Failure,
+            mutationReceipt?.Receipts.FirstOrDefault(receipt => !receipt.DurableCommit
+                || receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)?.Failure
+                ?? mutationReceipt?.FinalizationFailure,
             mutationReceipt);
     }
 
-    internal static SelectedChartMutationResult Failed(Exception failure)
+    /// <summary>Retains receipts when an additional workflow failure occurs after mutation.</summary>
+    internal static SelectedChartMutationResult Failed(Exception failure, FileDbMutationBatchReceipt mutationReceipt = null)
     {
         return new SelectedChartMutationResult(
             false,
-            failure ?? throw new ArgumentNullException(nameof(failure)));
+            failure ?? throw new ArgumentNullException(nameof(failure)), mutationReceipt);
     }
 }
 
@@ -557,7 +561,11 @@ internal sealed class SelectedChartMutationWorkflowOwner
                         acquiredOperationGate: operationGate));
                 }
                 operationGateTransferred = true;
-                return await task.ConfigureAwait(false);
+                SelectedChartMutationResult result = await task.ConfigureAwait(false);
+                if (store is ISelectedChartMutationTerminalStore)
+                    await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Move,
+                        result.MutationReceipt, result.Failure).ConfigureAwait(false);
+                return result;
             }
             finally
             {
@@ -682,22 +690,20 @@ internal sealed class SelectedChartMutationWorkflowOwner
             }
             if (failures.Count == 0 && publishMutationAppliedAfterRelease)
             {
-                CaptureCleanupFailure(() => PublishMutationApplied(libraryPathChanged: true), failures);
+                CaptureNotification(() => PublishMutationApplied(libraryPathChanged: true));
             }
             if (suppressionStarted)
             {
-                CaptureCleanupFailure(
-                    () => PublishRefreshSuppressionChanged(isSuppressed: false, scope: null),
-                    failures);
+                CaptureNotification(() => PublishRefreshSuppressionChanged(isSuppressed: false, scope: null));
             }
             if (activityLease != null)
             {
-                CaptureCleanupFailure(activityLease.Dispose, failures);
+                CaptureNotification(activityLease.Dispose);
             }
             if (dialogScope != null)
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
-                CaptureCleanupFailure(dialogScope.Flush, failures);
+                CaptureNotification(dialogScope.Flush);
             }
         }
         return failures.Count switch
@@ -705,10 +711,24 @@ internal sealed class SelectedChartMutationWorkflowOwner
             0 => mutationReceipt == null
                 ? SelectedChartMutationResult.Completed
                 : SelectedChartMutationResult.FromReceipt(mutationReceipt),
-            1 => SelectedChartMutationResult.Failed(failures[0].SourceException),
+            1 => SelectedChartMutationResult.Failed(CombineReceiptFailure(failures[0].SourceException), mutationReceipt),
             _ => SelectedChartMutationResult.Failed(
-                new AggregateException(failures.Select(failure => failure.SourceException))),
+                CombineReceiptFailure(new AggregateException(failures.Select(failure => failure.SourceException))), mutationReceipt),
         };
+
+        void CaptureNotification(Action notification)
+        {
+            if (mutationWithReceipt != null)
+                FileDbMutationReport.NotifyBestEffort(notification);
+            else
+                CaptureCleanupFailure(notification, failures);
+        }
+
+        Exception CombineReceiptFailure(Exception failure)
+        {
+            Exception primary = mutationReceipt == null ? null : SelectedChartMutationResult.FromReceipt(mutationReceipt).Failure;
+            return primary == null ? failure : new AggregateException(primary, failure);
+        }
     }
 
     private void PublishRefreshSuppressionChanged(
@@ -858,9 +878,10 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
 
     public void MoveLibraryCharts(BMSLibrary library, ChartLibraryMoveRequest request)
     {
-        _ = MoveLibraryChartsWithReceipt(library, request);
+        library.MoveLibraryRootFolder(request.Charts, request.NewParentDirectory, false);
     }
 
+    /// <summary>The canonical selected move terminal owns aggregate receipt notification.</summary>
     public FileDbMutationBatchReceipt MoveLibraryChartsWithReceipt(
         BMSLibrary library,
         ChartLibraryMoveRequest request)
@@ -868,7 +889,8 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
         return library.MoveLibraryRootFolderWithReceipt(
             request.Charts,
             request.NewParentDirectory,
-            false);
+            false,
+            reportAtTerminal: true);
     }
 
     public void SetBMSFilesEncoding(

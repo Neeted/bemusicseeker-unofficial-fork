@@ -19,7 +19,9 @@ namespace BeMusicSeeker.Models;
 
 internal sealed partial class LibraryFileOperationOwner
 {
-    internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string sourceDirectory, string destinationDirectory, long operationId)
+    /// <summary>Returns merge facts and optionally leaves receipt-backed failure reporting to the operation terminal.</summary>
+    internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string sourceDirectory, string destinationDirectory,
+        long operationId, bool reportAtTerminal = false)
     {
         if (sourceDirectory == null)
         {
@@ -182,8 +184,9 @@ internal sealed partial class LibraryFileOperationOwner
                     return () =>
                     {
                         this.invalidateInstalledDirectoryIndex();
-                        postLeaseNotifications.Add(
-                            () => ShowFolderMergeFailed(sourceDirectory, destinationDirectory));
+                        if (!reportAtTerminal)
+                            postLeaseNotifications.Add(
+                                () => ShowFolderMergeFailed(sourceDirectory, destinationDirectory));
                         InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
                         return CreateMergeMaintenanceReceipt(maintenanceResult, mutationReceipt);
                     };

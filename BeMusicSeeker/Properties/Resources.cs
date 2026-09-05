@@ -2286,4 +2286,23 @@ public class Resources
     internal Resources()
     {
     }
+    public static string FileDbMutationReport_Title => ResourceManager.GetString("FileDbMutationReport_Title", resourceCulture);
+
+    public static string FileDbMutationReport_Operation => ResourceManager.GetString("FileDbMutationReport_Operation", resourceCulture);
+
+    public static string FileDbMutationReport_Counts => ResourceManager.GetString("FileDbMutationReport_Counts", resourceCulture);
+
+    public static string FileDbMutationReport_TerminalFailure => ResourceManager.GetString("FileDbMutationReport_TerminalFailure", resourceCulture);
+
+    public static string FileDbMutationReport_CandidatePaths => ResourceManager.GetString("FileDbMutationReport_CandidatePaths", resourceCulture);
+
+    public static string FileDbMutationReport_Error => ResourceManager.GetString("FileDbMutationReport_Error", resourceCulture);
+
+    public static string FileDbMutationReport_Guidance => ResourceManager.GetString("FileDbMutationReport_Guidance", resourceCulture);
+
+    public static string FileDbMutationReport_Rename => ResourceManager.GetString("FileDbMutationReport_Rename", resourceCulture);
+
+    public static string FileDbMutationReport_Move => ResourceManager.GetString("FileDbMutationReport_Move", resourceCulture);
+
+    public static string FileDbMutationReport_Merge => ResourceManager.GetString("FileDbMutationReport_Merge", resourceCulture);
 }

@@ -12572,10 +12572,12 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="src">Source directory.</param>
     /// <param name="dst">Destination directory.</param>
     /// <param name="operationId">Operation identifier used by the merge lock boundary.</param>
+    /// <param name="reportAtTerminal">Whether the caller owns receipt-backed failure notification.</param>
     /// <returns>Merge and intermediate resource-health dispatch facts.</returns>
-    internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string src, string dst, long operationId)
+    internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string src, string dst, long operationId,
+        bool reportAtTerminal = false)
     {
-        return libraryFileOperationOwner.MergeChartDirectory(src, dst, operationId);
+        return libraryFileOperationOwner.MergeChartDirectory(src, dst, operationId, reportAtTerminal);
     }
 
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)
@@ -13043,11 +13045,16 @@ public partial class BMSLibrary : ObservableObject
         RenameChartFolderWithReceipt(srcDir, newName, unregister, renameRootFolder);
     }
 
+    /// <summary>
+    /// Returns folder mutation facts. An explicit terminal reporter owns receipt-backed
+    /// failures only; preflight and compatibility callers retain model notifications.
+    /// </summary>
     internal FileDbMutationReceipt RenameChartFolderWithReceipt(
         string srcDir,
         string newName,
         bool? unregister = false,
-        bool renameRootFolder = false)
+        bool renameRootFolder = false,
+        bool reportAtTerminal = false)
     {
         if (srcDir == null)
         {
@@ -13066,7 +13073,8 @@ public partial class BMSLibrary : ObservableObject
             srcDir,
             newName,
             unregister,
-            renameRootFolder);
+            renameRootFolder,
+            reportAtTerminal);
     }
 
     internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
@@ -13074,10 +13082,12 @@ public partial class BMSLibrary : ObservableObject
         MoveLibraryRootFolderWithReceipt(charts, dstDir, unregister);
     }
 
+    /// <summary>Returns all folder receipts, optionally transferring their notifications to the terminal caller.</summary>
     internal FileDbMutationBatchReceipt MoveLibraryRootFolderWithReceipt(
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
-        bool? unregister = false)
+        bool? unregister = false,
+        bool reportAtTerminal = false)
     {
         if (charts == null)
         {
@@ -13095,7 +13105,8 @@ public partial class BMSLibrary : ObservableObject
             libraryFileOperationOwner,
             charts,
             dstDir,
-            unregister);
+            unregister,
+            reportAtTerminal);
     }
 
     /// <summary>

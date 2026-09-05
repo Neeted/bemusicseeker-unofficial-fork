@@ -165,6 +165,12 @@ merge 後 refresh では、`OwnedDuplicateChartRowSnapshot` が duplicate MD5 bu
 | `playlist_library_index_prewarm deferred_for_duplicate_refresh` | duplicate refresh 優先による playlist prewarm defer |
 | `duplicate_group_autoselect ...` | merge 後 group auto-select |
 
+## Verification map
+
+folder merge の terminal reporting は [library-mutation-boundary.md](library-mutation-boundary.md#folder-terminal-reporting) を正本とする。`DuplicateMaintenanceWorkflowOwner.RunFolderMergeAsync` が receipt-backed 個別通知を引き取り、gate・activity・priority・dialog scope の終了後に一度だけ集約表示する。cleanup-only の成功、durable finalization failure と non-durable failure の結果を保持し、任意通知 failure は log-only とする。receipt のない互換経路は従来の終了挙動を保持する。
+
+`FSDB-A-20260905` A01–A06 は `DuplicateMaintenanceWorkflowOwnerTests` を extend して検証する。terminal observer cleanup を一般失敗にする旧 case は、成功 receipt を保持する optional log-only case に置換する。local gate／ports と returned Task を使い、既存 remaining lane で実行する。severity・表示上限・全言語 format は `FileDbMutationReportTests` と `LocalizationResourceParityTests` を共有する。
+
 ## References
 
 - User manual: `docs/manual.ja.md`

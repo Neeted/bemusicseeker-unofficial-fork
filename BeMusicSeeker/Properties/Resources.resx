@@ -3259,4 +3259,16 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_as_of" xml:space="preserve"><value>基準日</value></data>
   <data name="PlaylistLampViewer_latest" xml:space="preserve"><value>最新</value></data>
   <data name="PlaylistLampViewer_historical_unavailable" xml:space="preserve"><value>履歴スコア利用不可</value></data>
+  <data name="FileDbMutationReport_Title" xml:space="preserve"><value>ファイルとデータベースの操作結果</value></data>
+  <data name="FileDbMutationReport_Operation" xml:space="preserve"><value>操作: {0}</value></data>
+  <data name="FileDbMutationReport_Counts" xml:space="preserve"><value>結果を確認した操作: {0} 件
+ファイル・DB の確定済み: {1} 件／未確定: {2} 件
+必須反映の失敗: {3} 件／後片付けの失敗: {4} 件／手動確認が必要: {5} 件</value></data>
+  <data name="FileDbMutationReport_TerminalFailure" xml:space="preserve"><value>操作全体の終了処理で未完了の処理があります。</value></data>
+  <data name="FileDbMutationReport_CandidatePaths" xml:space="preserve"><value>確認対象の候補（存在は未確認、最大 3 件）:</value></data>
+  <data name="FileDbMutationReport_Error" xml:space="preserve"><value>エラー: {0}</value></data>
+  <data name="FileDbMutationReport_Guidance" xml:space="preserve"><value>確定済みの変更は保持されています。対象のファイルと DB の状態を手動で確認してください。詳細・省略された対象やエラーはログを確認してください。</value></data>
+  <data name="FileDbMutationReport_Rename" xml:space="preserve"><value>フォルダ名の変更</value></data>
+  <data name="FileDbMutationReport_Move" xml:space="preserve"><value>フォルダの移動</value></data>
+  <data name="FileDbMutationReport_Merge" xml:space="preserve"><value>重複フォルダの統合</value></data>
 </root>

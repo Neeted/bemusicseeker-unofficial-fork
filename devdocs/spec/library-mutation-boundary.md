@@ -79,6 +79,16 @@ P0 として次の操作は共通境界を通す。
 
 ## Verification map
 
+FS+DB folder terminal reporting (`FSDB-A-20260905`, A01–A07) は以下で検証する。新しい lane、共有 logger 設定、visible window は使わない。
+
+| Behavior | Fixture | Lane / completion |
+| --- | --- | --- |
+| R の実 LR2 finalizer failure、durable DB 保持、成功 refresh 抑止、解放後の集約表示 | `RegularChartFolderRenameTests` | remaining / rename Task と StopAsync、固有 DB・FS |
+| M の部分 receipt 保持、解放後表示、optional notification failure | `SelectedChartMutationWorkflowOwnerTests` | remaining / MoveAsync Task、local ports |
+| model の receipt-backed 表示抑止と互換・事前拒否、manual recovery の停止条件 | `BmsLibraryFolderRenameRefreshTests` | remaining-bms-library / 固有 DB・FS、model return |
+| severity、独立 failure 次元、操作件数、表示上限、通知 failure | `FileDbMutationReportTests` | remaining / local facts と presenter Task |
+| accessor・resx・全言語の key、nonempty、placeholder schema | `LocalizationResourceParityTests` | 既存 lane / read-only resource return |
+
 `BmsLibraryStateApplierTests` の26 caseは、owner境界と `remaining-bms-library` の `ClassLevel` 実行単位を一致させるため、次の3 fixtureへ分けて維持する。
 
 - `BmsLibraryStateApplierTests`: library initialization progress と `ApplyLibraryMutationDelta(...)` の13 case。
@@ -122,6 +132,14 @@ executor の receipt は commit 前後を区別する terminal state を持つ�
 - `COMP-SUCCESS`: destination と DB が authoritative で、必要な内部 apply と post-commit cleanup が完了する。post-lease notification は下記の best-effort 契約に従い、通知失敗で durable result を変更しない。
 
 receipt と recovery paths は package / folder command の public result と UI workflow completion まで保持する。legacy の void / failure-list だけで terminal outcome を表現してはならない。
+
+### Folder terminal reporting
+
+手動 folder rename、選択 folder move、duplicate folder merge の canonical terminal は、receipt の異常結果を操作終了後に一度だけ `FileDbMutationReport` で集約表示する。model lease、外側 gate、activity、dialog scope の終了処理を済ませてから既存 `IUiDialogService` を await する。全正常は無通知、cleanup-only は durable success を保持した Warning、未 commit・manual recovery・必須反映失敗は Error とし、混在時も全 failure 次元と先行 durable item を保持する。任意 subscriber／reporter の failure は診断だけに記録し、primary failure と receipt を変更せず再通知・再実行しない。
+
+表示は操作名、receipt により確認した操作件数・確定済み／未確定・finalization／cleanup／manual の各件数、確認候補、手動確認とログ参照の案内を含む。件数はファイル数ではない。候補は実在確認を行わず最大 3 件・各 240 文字、代表 error は最大 3 件・各 400 文字、本文は 4096 文字以内とし、全対象・例外は既存 logger へ best effort で記録する。自動 retry・復旧保証は案内しない。
+
+canonical caller は `reportAtTerminal: true` を明示して receipt-backed 個別表示だけを抑止する。互換 caller と receipt のない preflight／destination-exists 拒否は従来の通知を保持する。これに伴う executor、補償、batch 停止・継続条件の変更はない。
 
 ### Exclusive lease and deferred effects
 

@@ -916,5 +916,15 @@
   , "Open_lamp_viewer": "ランプビューアを開く", "PlaylistLampViewer_title_format": "{0} - ランプビューア", "PlaylistLampViewer_total": "全譜面", "PlaylistLampViewer_owned": "所持", "PlaylistLampViewer_missing": "未所持", "PlaylistLampViewer_ownership_rate": "所持率", "PlaylistLampViewer_played": "プレイ済み", "PlaylistLampViewer_no_play": "未プレイ", "PlaylistLampViewer_play_rate": "プレイ率", "PlaylistLampViewer_score_source": "スコアソース", "PlaylistLampViewer_playlist_last_update": "プレイリスト最終更新", "PlaylistLampViewer_average_ex_rate": "平均EXスコア率", "PlaylistLampViewer_clear_rate": "クリア率", "PlaylistLampViewer_clear_lamp": "クリアランプ", "PlaylistLampViewer_rank_lamp": "DJランク", "PlaylistLampViewer_unavailable": "利用不可", "PlaylistLampViewer_selected": "選択中", "PlaylistLampViewer_not_selected": "未選択", "PlaylistLampViewer_as_of": "基準日", "PlaylistLampViewer_latest": "最新", "PlaylistLampViewer_historical_unavailable": "履歴スコア利用不可",
   "PlaylistLampViewer_segment_detail_format": "{0}: {1} ({2})", "PlaylistLampViewer_segment_unavailable_detail_format": "{0}: {1}（{2}）", "PlaylistLampViewer_percentage_format": "{0:N2}%", "PlaylistLampViewer_source_lr2": "LR2", "PlaylistLampViewer_source_beatoraja": "beatoraja", "PlaylistLampViewer_source_none": "なし", "PlaylistLampViewer_source_status_format": "{0}（{1}）", "PlaylistLampViewer_source_failed": "スコアデータの読み込みに失敗", "PlaylistLampViewer_initial_failure": "ランプビューアの初回集計に失敗しました。", "PlaylistLampViewer_initial_deleted": "対象のプレイリストが見つからないため、ランプビューアを開けません。", "PlaylistLampViewer_live_failure": "ランプビューアの更新に失敗したため、ビューアを閉じます。", "PlaylistLampViewer_failure_title": "ランプビューア",
   "PlaylistLampViewer_clear_max": "MAX", "PlaylistLampViewer_clear_perfect": "PERFECT", "PlaylistLampViewer_clear_fc": "FC", "PlaylistLampViewer_clear_exhard": "EXHARD", "PlaylistLampViewer_clear_hard": "HARD", "PlaylistLampViewer_clear_normal": "NORMAL", "PlaylistLampViewer_clear_easy": "EASY", "PlaylistLampViewer_clear_assist": "ASSIST", "PlaylistLampViewer_clear_failed": "FAILED", "PlaylistLampViewer_clear_np": "NP", "PlaylistLampViewer_rank_aaa": "AAA", "PlaylistLampViewer_rank_aa": "AA", "PlaylistLampViewer_rank_a": "A", "PlaylistLampViewer_rank_b": "B", "PlaylistLampViewer_rank_c": "C", "PlaylistLampViewer_rank_d": "D", "PlaylistLampViewer_rank_e": "E", "PlaylistLampViewer_rank_f": "F", "PlaylistLampViewer_rank_np": "NP"
-  , "PlaylistLampViewer_segment_detail_adaptive_format": "{0}: {1} ({2})", "PlaylistLampViewer_percentage_less_than_format": "{0}未満"
+  , "PlaylistLampViewer_segment_detail_adaptive_format": "{0}: {1} ({2})", "PlaylistLampViewer_percentage_less_than_format": "{0}未満",
+  "FileDbMutationReport_Title": "ファイルとデータベースの操作結果",
+  "FileDbMutationReport_Operation": "操作: {0}",
+  "FileDbMutationReport_Counts": "結果を確認した操作: {0} 件\nファイル・DB の確定済み: {1} 件／未確定: {2} 件\n必須反映の失敗: {3} 件／後片付けの失敗: {4} 件／手動確認が必要: {5} 件",
+  "FileDbMutationReport_TerminalFailure": "操作全体の終了処理で未完了の処理があります。",
+  "FileDbMutationReport_CandidatePaths": "確認対象の候補（存在は未確認、最大 3 件）:",
+  "FileDbMutationReport_Error": "エラー: {0}",
+  "FileDbMutationReport_Guidance": "確定済みの変更は保持されています。対象のファイルと DB の状態を手動で確認してください。詳細・省略された対象やエラーはログを確認してください。",
+  "FileDbMutationReport_Rename": "フォルダ名の変更",
+  "FileDbMutationReport_Move": "フォルダの移動",
+  "FileDbMutationReport_Merge": "重複フォルダの統合"
 }

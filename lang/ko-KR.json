@@ -916,5 +916,15 @@
   , "Open_lamp_viewer": "램프 뷰어 열기", "PlaylistLampViewer_title_format": "{0} - 램프 뷰어", "PlaylistLampViewer_total": "전체 차트", "PlaylistLampViewer_owned": "보유", "PlaylistLampViewer_missing": "미보유", "PlaylistLampViewer_ownership_rate": "보유율", "PlaylistLampViewer_played": "플레이함", "PlaylistLampViewer_no_play": "미플레이", "PlaylistLampViewer_play_rate": "플레이율", "PlaylistLampViewer_score_source": "스코어 소스", "PlaylistLampViewer_playlist_last_update": "플레이리스트 마지막 업데이트", "PlaylistLampViewer_average_ex_rate": "평균 EX 스코어율", "PlaylistLampViewer_clear_rate": "클리어율", "PlaylistLampViewer_clear_lamp": "클리어 램프", "PlaylistLampViewer_rank_lamp": "DJ 랭크", "PlaylistLampViewer_unavailable": "사용 불가", "PlaylistLampViewer_selected": "선택됨", "PlaylistLampViewer_not_selected": "선택 안 됨", "PlaylistLampViewer_as_of": "기준일", "PlaylistLampViewer_latest": "최신", "PlaylistLampViewer_historical_unavailable": "기록 스코어 사용 불가",
   "PlaylistLampViewer_segment_detail_format": "{0}: {1} ({2})", "PlaylistLampViewer_segment_unavailable_detail_format": "{0}: {1} ({2})", "PlaylistLampViewer_percentage_format": "{0:N2}%", "PlaylistLampViewer_source_lr2": "LR2", "PlaylistLampViewer_source_beatoraja": "beatoraja", "PlaylistLampViewer_source_none": "없음", "PlaylistLampViewer_source_status_format": "{0} ({1})", "PlaylistLampViewer_source_failed": "스코어 데이터를 불러오지 못했습니다", "PlaylistLampViewer_initial_failure": "램프 뷰어의 초기 집계에 실패했습니다.", "PlaylistLampViewer_initial_deleted": "플레이리스트를 더 이상 사용할 수 없어 램프 뷰어를 열 수 없습니다.", "PlaylistLampViewer_live_failure": "램프 뷰어를 갱신하지 못해 닫습니다.", "PlaylistLampViewer_failure_title": "램프 뷰어",
   "PlaylistLampViewer_clear_max": "MAX", "PlaylistLampViewer_clear_perfect": "PERFECT", "PlaylistLampViewer_clear_fc": "FC", "PlaylistLampViewer_clear_exhard": "EXHARD", "PlaylistLampViewer_clear_hard": "HARD", "PlaylistLampViewer_clear_normal": "NORMAL", "PlaylistLampViewer_clear_easy": "EASY", "PlaylistLampViewer_clear_assist": "ASSIST", "PlaylistLampViewer_clear_failed": "FAILED", "PlaylistLampViewer_clear_np": "NP", "PlaylistLampViewer_rank_aaa": "AAA", "PlaylistLampViewer_rank_aa": "AA", "PlaylistLampViewer_rank_a": "A", "PlaylistLampViewer_rank_b": "B", "PlaylistLampViewer_rank_c": "C", "PlaylistLampViewer_rank_d": "D", "PlaylistLampViewer_rank_e": "E", "PlaylistLampViewer_rank_f": "F", "PlaylistLampViewer_rank_np": "NP"
-  , "PlaylistLampViewer_segment_detail_adaptive_format": "{0}: {1} ({2})", "PlaylistLampViewer_percentage_less_than_format": "{0} 미만"
+  , "PlaylistLampViewer_segment_detail_adaptive_format": "{0}: {1} ({2})", "PlaylistLampViewer_percentage_less_than_format": "{0} 미만",
+  "FileDbMutationReport_Title": "파일 및 데이터베이스 작업 결과",
+  "FileDbMutationReport_Operation": "작업: {0}",
+  "FileDbMutationReport_Counts": "결과가 기록된 작업: {0}개\n파일·DB 변경 확정: {1}개 / 미확정: {2}개\n필수 반영 실패: {3}개 / 정리 실패: {4}개 / 수동 확인 필요: {5}개",
+  "FileDbMutationReport_TerminalFailure": "작업 전체의 마무리 처리 중 완료되지 않은 항목이 있습니다.",
+  "FileDbMutationReport_CandidatePaths": "확인할 경로 후보(존재 여부 미확인, 최대 3개):",
+  "FileDbMutationReport_Error": "오류: {0}",
+  "FileDbMutationReport_Guidance": "확정된 변경은 유지됩니다. 해당 파일과 DB 상태를 수동으로 확인하세요. 전체 내용과 생략된 경로 또는 오류는 로그를 확인하세요.",
+  "FileDbMutationReport_Rename": "폴더 이름 변경",
+  "FileDbMutationReport_Move": "폴더 이동",
+  "FileDbMutationReport_Merge": "중복 폴더 병합"
 }

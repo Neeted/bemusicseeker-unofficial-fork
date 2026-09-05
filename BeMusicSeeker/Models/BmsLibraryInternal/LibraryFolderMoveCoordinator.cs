@@ -18,12 +18,14 @@ internal static class LibraryFolderMoveCoordinator
         RenameChartFolderWithReceipt(host, srcDir, newName, unregister, renameRootFolder);
     }
 
+    /// <summary>Runs the same mutation while allowing a receipt-aware terminal to own failure reporting.</summary>
     internal static FileDbMutationReceipt RenameChartFolderWithReceipt(
         LibraryFileOperationOwner host,
         string srcDir,
         string newName,
         bool? unregister,
-        bool renameRootFolder)
+        bool renameRootFolder,
+        bool reportAtTerminal = false)
     {
         if (srcDir == null)
         {
@@ -67,7 +69,8 @@ internal static class LibraryFolderMoveCoordinator
                     unregister,
                     notifyStorageRowPathChanges: false,
                     mutationCapability: mutationCapability,
-                    postLeaseNotifications: postLeaseNotifications);
+                    postLeaseNotifications: postLeaseNotifications,
+                    reportAtTerminal: reportAtTerminal);
             });
         }
         finally
@@ -77,6 +80,7 @@ internal static class LibraryFolderMoveCoordinator
         return receipt;
     }
 
+    /// <summary>Executes a folder move under the existing capability; only receipt-backed notifications may be suppressed.</summary>
     internal static FileDbMutationReceipt MoveLibraryChartFolder(
         LibraryFileOperationOwner host,
         string srcDir,
@@ -84,7 +88,8 @@ internal static class LibraryFolderMoveCoordinator
         bool? unregister,
         bool notifyStorageRowPathChanges,
         LibraryFileMutationCapability mutationCapability,
-        ICollection<Action> postLeaseNotifications)
+        ICollection<Action> postLeaseNotifications,
+        bool reportAtTerminal = false)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
@@ -95,7 +100,8 @@ internal static class LibraryFolderMoveCoordinator
             unregister,
             notifyStorageRowPathChanges,
             mutationCapability,
-            postLeaseNotifications);
+            postLeaseNotifications,
+            reportAtTerminal);
     }
 
     internal static void MoveLibraryRootFolder(
@@ -107,11 +113,13 @@ internal static class LibraryFolderMoveCoordinator
         MoveLibraryRootFolderWithReceipt(host, charts, dstDir, unregister);
     }
 
+    /// <summary>Preserves batch mutation and stopping rules while transferring receipt notification ownership when requested.</summary>
     internal static FileDbMutationBatchReceipt MoveLibraryRootFolderWithReceipt(
         LibraryFileOperationOwner host,
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
-        bool? unregister)
+        bool? unregister,
+        bool reportAtTerminal = false)
     {
         if (charts == null)
         {
@@ -152,7 +160,8 @@ internal static class LibraryFolderMoveCoordinator
                         unregister,
                         notifyStorageRowPathChanges: true,
                         mutationCapability: mutationCapability,
-                        postLeaseNotifications: postLeaseNotifications);
+                        postLeaseNotifications: postLeaseNotifications,
+                        reportAtTerminal: reportAtTerminal);
                     if (receipt != null)
                     {
                         receipts.Add(receipt);
@@ -190,7 +199,8 @@ internal static class LibraryFolderMoveCoordinator
         bool? unregister,
         bool notifyStorageRowPathChanges,
         LibraryFileMutationCapability mutationCapability,
-        ICollection<Action> postLeaseNotifications)
+        ICollection<Action> postLeaseNotifications,
+        bool reportAtTerminal)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
@@ -268,7 +278,8 @@ internal static class LibraryFolderMoveCoordinator
                     srcDir,
                     dstDir,
                     receipt.Failure ?? new IOException("Folder move failed."));
-                postLeaseNotifications.Add(showFailure);
+                if (!reportAtTerminal)
+                    postLeaseNotifications.Add(showFailure);
                 return receipt;
             }
             return receipt;

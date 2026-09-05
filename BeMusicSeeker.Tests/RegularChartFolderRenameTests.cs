@@ -56,10 +56,12 @@ public sealed class RegularChartFolderRenameTests
             Assert.IsTrue(RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request));
 
             int appliedCount = 0;
+            var dialogs = new FileDbReportRecordingDialogs();
             using RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
-                action => action());
+                action => action(),
+                mutationDialogs: dialogs);
             owner.AttachNormalLibraryRefreshSource(library);
             owner.NormalLibraryRefreshApplied += (_, args) =>
             {
@@ -96,6 +98,7 @@ public sealed class RegularChartFolderRenameTests
             Assert.IsFalse(Directory.Exists(sourceDirectory));
             Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "rename-destination")));
             Assert.AreEqual(1, Volatile.Read(ref appliedCount), "The mutation notification must apply once after the gate is released.");
+            Assert.AreEqual(0, dialogs.Messages.Count);
         });
     }
 
@@ -272,7 +275,9 @@ public sealed class RegularChartFolderRenameTests
     }
 
     [TestMethod]
-    public void FolderRename_Lr2FinalizationFailureDoesNotApplySuccessRefresh()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FolderRename_Lr2FinalizationFailureDoesNotApplySuccessRefresh(bool reporterThrows)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -283,6 +288,12 @@ public sealed class RegularChartFolderRenameTests
             string chartPath = Path.Combine(sourceDirectory, "chart.bms");
             string destinationChartPath = Path.Combine(destinationDirectory, "chart.bms");
             string lr2RootPath = Path.Combine(libraryRoot, "LR2beta3");
+            var dialogs = new FileDbReportRecordingDialogs();
+            if (reporterThrows) dialogs.MessageFailure = new IOException("terminal report failed");
+            var gate = new ChartFileOperationSynchronizer();
+            var activity = new ChartMutationActivityOwner();
+            bool reportAfterRelease = false;
+            bool modelLeaseReleased = false;
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE workflow finalization failure\r\n");
             try
@@ -294,7 +305,7 @@ public sealed class RegularChartFolderRenameTests
                     () => lr2Config,
                     null,
                     null,
-                    null,
+                    dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     () => new BmsLibraryOptionsSnapshot
                     {
@@ -303,6 +314,14 @@ public sealed class RegularChartFolderRenameTests
                     })
                 {
                     BMSFiles = [file]
+                };
+                dialogs.OnMessage = () =>
+                {
+                    bool gateReleased = gate.TryEnter(out IDisposable releasedGate);
+                    reportAfterRelease = !activity.IsActive && gateReleased;
+                    if (gateReleased) releasedGate.Dispose();
+                    using LibraryFileMutationLease lease = library.TryBeginLibraryFileMutation("rename_report_probe");
+                    modelLeaseReleased = lease != null;
                 };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
@@ -318,7 +337,10 @@ public sealed class RegularChartFolderRenameTests
                 using RegularChartListOwner owner = CreateOwner(
                     table,
                     CreateWorkspaceForOwner(),
-                    action => action());
+                    action => action(),
+                    chartFileOperations: gate,
+                    mutationDialogs: dialogs,
+                    chartMutationActivity: activity);
                 owner.AttachNormalLibraryRefreshSource(library);
                 owner.NormalLibraryRefreshApplied += (_, args) =>
                 {
@@ -336,6 +358,12 @@ public sealed class RegularChartFolderRenameTests
                 Assert.IsTrue(File.Exists(destinationChartPath));
                 Assert.AreEqual(destinationChartPath, file.path);
                 Assert.AreEqual(0, Volatile.Read(ref normalRefreshApplyCount));
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                Assert.AreEqual(0, dialogs.ModelMessages, "Canonical reporting suppresses the lower receipt-backed dialog.");
+                Assert.AreEqual(MessageBoxImage.Error, dialogs.Messages[0].Icon);
+                Assert.IsTrue(reportAfterRelease);
+                Assert.IsTrue(modelLeaseReleased);
+                StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "forced durable finalization failure");
                 using var verifySongDb = new LR2SongDBExtended(songDbPath);
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(chartPath));

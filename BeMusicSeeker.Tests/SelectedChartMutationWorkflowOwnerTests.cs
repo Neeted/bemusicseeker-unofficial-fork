@@ -321,6 +321,88 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task MoveAsync_FailedReceiptSurvivesOptionalObserverFailure(bool observerThrows)
+    {
+        var primary = new IOException("move failed before commit");
+        var receipt = new FileDbMutationBatchReceipt([
+            new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.Completed,
+                true, 0, 0, [@"C:\Songs\First"], [@"D:\Moved\First"], [], [], []),
+            new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.Failed,
+                false, 0, 0, [@"C:\Songs\Second"], [@"D:\Moved\Second"], [], [], [], primary)
+        ]);
+        var store = new TerminalRecordingStore(receipt);
+        var presentation = new RecordingPresentation();
+        var dialogs = AcceptedMessageDialogs();
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        bool reportAfterRelease = false;
+        dialogs.OnMessage = () =>
+        {
+            bool gateReleased = gate.TryEnter(out IDisposable lease);
+            reportAfterRelease = gateReleased && !activity.IsActive && presentation.Events.Contains("library-refresh-end");
+            lease?.Dispose();
+        };
+        var owner = CreateOwner(presentation, dialogs, store, gate, activity);
+        if (observerThrows)
+        {
+            owner.WorkflowChanged += (_, change) =>
+            {
+                if (change is SelectedChartMutationRefreshSuppressionChangedEventArgs { IsSuppressed: false })
+                    throw new IOException("optional observer failed");
+            };
+        }
+
+        SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
+            [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)],
+            @"D:\Moved"));
+
+        Assert.AreSame(receipt, result.MutationReceipt, "Terminal facts must survive optional notification failure.");
+        Assert.IsFalse(result.Succeeded, "A batch with a non-durable operation is not all-success.");
+        Assert.AreSame(primary, result.Failure);
+        Assert.IsTrue(result.HasDurableCommit);
+        Assert.AreEqual(1, store.Calls);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(MessageBoxImage.Error, dialogs.Messages[0].Icon);
+        Assert.IsTrue(reportAfterRelease);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task MoveAsync_CleanupWarningAndReporterFailureKeepDurableSuccess(bool reporterThrows)
+    {
+        var receipt = new FileDbMutationBatchReceipt([
+            FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.CompletedWithCleanupFailure)]);
+        var store = new TerminalRecordingStore(receipt);
+        var dialogs = AcceptedMessageDialogs();
+        if (reporterThrows) dialogs.OnMessage = () => throw new IOException("report failed");
+        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
+            [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.AreSame(receipt, result.MutationReceipt);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(MessageBoxImage.Warning, dialogs.Messages[0].Icon);
+        Assert.AreEqual(1, store.Calls);
+    }
+
+    [TestMethod]
+    public async Task MoveAsync_NormalTerminalReceiptIsSilent()
+    {
+        var dialogs = AcceptedMessageDialogs();
+        var store = new TerminalRecordingStore(new FileDbMutationBatchReceipt([
+            FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.Completed)]));
+        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
+            [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(0, dialogs.Messages.Count);
+    }
+
+    [TestMethod]
     public async Task MoveAsync_RejectedConfirmationDoesNotMutate()
     {
         var store = new RecordingStore();
@@ -482,12 +564,14 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     private static SelectedChartMutationWorkflowOwner CreateOwner(
         RecordingPresentation presentation,
         FakeUiDialogService dialogs,
-        RecordingStore store)
+        RecordingStore store,
+        ChartFileOperationSynchronizer? gate = null,
+        ChartMutationActivityOwner? activity = null)
     {
-        ChartMutationActivityOwner activity = new();
+        activity ??= new();
         var owner = new SelectedChartMutationWorkflowOwner(
             () => (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary)),
-            new ChartFileOperationSynchronizer(),
+            gate ?? new ChartFileOperationSynchronizer(),
             activity,
             presentation,
             dialogs,
@@ -620,7 +704,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         }
     }
 
-    private sealed class RecordingStore : ISelectedChartMutationStore
+    private class RecordingStore : ISelectedChartMutationStore
     {
         private readonly List<string>? events;
 
@@ -718,13 +802,33 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         }
     }
 
+    private sealed class TerminalRecordingStore(FileDbMutationBatchReceipt receipt)
+        : RecordingStore, ISelectedChartMutationTerminalStore
+    {
+        internal int Calls { get; private set; }
+
+        public FileDbMutationBatchReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
+        {
+            Calls++;
+            return receipt;
+        }
+    }
+
     private sealed class FakeUiDialogService : IUiDialogService, IPendingDeleteConfirmationDialogPort
     {
         internal Queue<UiDialogResult> ConfirmationResults { get; set; } = new();
 
         internal UiInteractionResult<bool> PendingDeleteResult { get; set; } = null!;
 
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        internal List<UiMessageRequest> Messages { get; } = [];
+        internal Action? OnMessage { get; set; }
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            Messages.Add(request);
+            OnMessage?.Invoke();
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {

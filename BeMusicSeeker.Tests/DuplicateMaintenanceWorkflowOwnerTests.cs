@@ -147,6 +147,41 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RunFolderMergeAsync_ReportsAfterReleaseAndPreservesFactsWhenReporterFails(bool reporterThrows)
+    {
+        var events = new List<string>();
+        var mutation = FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.CompletedWithCleanupFailure);
+        var receipt = new DuplicateMergeMaintenanceReceipt(true, ResourceHealthIndexUpdateMode.DeferOnUpdates,
+            MaintenanceWorkflowResultFacts.From(null), false, false, false, false, false, mutation);
+        var store = new TerminalRecordingStore(events, receipt);
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        bool reportAfterRelease = false;
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            OnMessage = () =>
+            {
+                bool released = gate.TryEnter(out IDisposable lease);
+                reportAfterRelease = released && !activity.IsActive && events.Contains("priority-release:merge_folder");
+                lease?.Dispose();
+            },
+            MessageFailure = reporterThrows ? new IOException("report failed") : null
+        };
+        var owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
+        DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(@"C:\Source", @"D:\Destination",
+            new DuplicateGroup([], [@"C:\Source", @"D:\Destination"]));
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.AreSame(receipt, result.MutationReceipt);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(MessageBoxImage.Warning, dialogs.Messages[0].Icon);
+        Assert.IsTrue(reportAfterRelease);
+        Assert.AreEqual(1, store.MergeWithReceiptCallCount);
+    }
+
+    [TestMethod]
     public void RunFolderMergeAsync_RejectsFolderOutsideGroup()
     {
         string source = @"C:\Songs\Source";
@@ -247,10 +282,14 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task RunFolderMergeAsync_ObserverCleanupFailureIsAggregatedAfterPriorityRelease()
+    public async Task RunFolderMergeAsync_TerminalObserverCleanupFailureIsOptionalAfterPriorityRelease()
     {
         var events = new List<string>();
-        var store = new RecordingStore(events);
+        var receipt = new DuplicateMergeMaintenanceReceipt(true, ResourceHealthIndexUpdateMode.DeferOnUpdates,
+            MaintenanceWorkflowResultFacts.From(null), false, false, false, false, false,
+            FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.Completed));
+        var store = new TerminalRecordingStore(events, receipt);
+        var dialogs = new FileDbReportRecordingDialogs();
         var presentation = new RecordingPresentation(events)
         {
             EndActivityFailure = new InvalidOperationException("activity cleanup failed")
@@ -258,7 +297,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         var owner = CreateOwner(
             events,
             presentation,
-            AcceptedDialogs(),
+            dialogs,
             store,
             duplicateGroupNextHeaderProvider: _ => "Next group");
         string source = @"C:\Songs\Source";
@@ -269,8 +308,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             destination,
             new DuplicateGroup([], [source, destination]));
 
-        Assert.IsFalse(result.Succeeded);
-        StringAssert.Contains(result.Failure.Message, "activity cleanup failed");
+        Assert.IsTrue(result.Succeeded);
+        Assert.IsNull(result.Failure);
+        Assert.AreSame(receipt, result.MutationReceipt);
+        Assert.AreEqual(0, dialogs.Messages.Count);
         CollectionAssert.AreEqual(
             new[]
             {
@@ -278,7 +319,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 "stop-merge",
                 "suppression-start",
                 "priority-start:merge_folder",
-                "store-merge",
+                "store-merge-with-receipt",
                 "suppression-end",
                 "priority-release:merge_folder",
                 "activity-end"
@@ -344,12 +385,14 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Func<string, bool>? directoryExists = null,
         Func<string, ExplorerOpenResult>? explorerOpen = null,
         Func<DuplicateGroup, string>? duplicateGroupNextHeaderProvider = null,
-        bool showConfirmation = true)
+        bool showConfirmation = true,
+        ChartFileOperationSynchronizer? gate = null,
+        ChartMutationActivityOwner? activity = null)
     {
-        ChartMutationActivityOwner activity = new();
+        activity ??= new();
         var owner = new DuplicateMaintenanceWorkflowOwner(
             CreateLibrary,
-            new ChartFileOperationSynchronizer(),
+            gate ?? new ChartFileOperationSynchronizer(),
             activity,
             presentation,
             dialogs,

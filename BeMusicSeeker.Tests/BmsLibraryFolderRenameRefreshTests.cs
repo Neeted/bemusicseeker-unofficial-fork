@@ -27,7 +27,9 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
     [TestMethod]
-    public void RenameChartFolder_FailureDialogRunsAfterFilesystemAndOnlyOnce()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RenameChartFolder_FailureDialogRunsAfterFilesystemAndOnlyOnce(bool reportAtTerminal)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -55,14 +57,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
                     sourceDirectoryPath,
-                    "Renamed");
+                    "Renamed",
+                    reportAtTerminal: reportAtTerminal);
 
                 Assert.IsNotNull(receipt);
                 Assert.IsFalse(receipt.DurableCommit);
                 Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
                 Assert.AreEqual(baselineOwnedCollectionVersion, library.OwnedChartCollectionVersion);
-                Assert.AreEqual(1, dialogService.CallCount);
-                Assert.AreEqual("filesystem|dialog", string.Join("|", phases));
+                Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogService.CallCount);
+                Assert.AreEqual(reportAtTerminal ? "filesystem" : "filesystem|dialog", string.Join("|", phases));
             }
             finally
             {
@@ -71,6 +74,35 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Directory.Delete(tempRootPath, recursive: true);
                 }
             }
+        });
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RenameChartFolder_DestinationExistsRetainsPreflightDialog(bool reportAtTerminal)
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.Combine(Path.GetDirectoryName(songDbPath)!, "preflight-" + Guid.NewGuid().ToString("N"));
+            string source = Path.Combine(root, "source");
+            string destination = Path.Combine(root, "destination");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            var dialogs = new RecordingDialogService();
+            var mutations = new List<string>();
+            try
+            {
+                var library = new TestBmsLibrary(songDbPath, null, null,
+                    new TestFileMutationService { OperationObserver = mutations.Add }, dialogs);
+                FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(source, "destination", reportAtTerminal: reportAtTerminal);
+                Assert.IsNull(receipt);
+                Assert.AreEqual(1, dialogs.CallCount);
+                Assert.AreEqual(0, mutations.Count);
+                Assert.IsTrue(Directory.Exists(source));
+                Assert.IsTrue(Directory.Exists(destination));
+            }
+            finally { Directory.Delete(root, recursive: true); }
         });
     }
 
@@ -1075,7 +1107,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     /// folder move の DB precommit failure に対する compensation failure は、recovery tree を残して後続 folder を開始しないことを検証します。
     /// </summary>
     [TestMethod]
-    public void MoveLibraryRootFolder_StopsAfterManualRecoveryRequired()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MoveLibraryRootFolder_StopsAfterManualRecoveryRequired(bool reportAtTerminal)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1098,12 +1132,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     DeleteDirectoryFailurePath = Path.Combine(destinationRootPath, "First")
                 };
+                var dialogs = new RecordingDialogService();
                 var library = new TestBmsLibrary(
                     songDbPath,
                     null,
                     null,
                     fileMutationService,
-                    new RecordingDialogService());
+                    dialogs);
                 var firstFile = new TestableBmsFile { path = firstChartPath };
                 firstFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
                 var secondFile = new TestableBmsFile { path = secondChartPath };
@@ -1122,12 +1157,17 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         + "' BEGIN SELECT RAISE(ABORT, 'forced folder move failure'); END;");
                 }
 
-                library.MoveLibraryRootFolder(
+                FileDbMutationBatchReceipt receipt = library.MoveLibraryRootFolderWithReceipt(
                     [
                         LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(firstFile)),
                         LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(secondFile))
                     ],
-                    destinationRootPath);
+                    destinationRootPath,
+                    reportAtTerminal: reportAtTerminal);
+
+                Assert.IsTrue(receipt.ManualRecoveryRequired);
+                Assert.AreEqual(1, receipt.Receipts.Count, "The unprocessed second folder has no successful receipt.");
+                Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.CallCount);
 
                 string firstDestinationDirectoryPath = Path.Combine(destinationRootPath, "First");
                 Assert.IsTrue(Directory.Exists(firstSourceDirectoryPath));

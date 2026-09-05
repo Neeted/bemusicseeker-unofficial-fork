@@ -40,7 +40,9 @@ internal static class RegularChartListOwnerTestSupport
         IUiScheduler? normalLibraryRefreshUiScheduler = null,
         Action<string>? log = null,
         PendingPackageWorkflowOwner? pendingPackageWorkflow = null,
-        ChartFileOperationSynchronizer? chartFileOperations = null)
+        ChartFileOperationSynchronizer? chartFileOperations = null,
+        IUiDialogService? mutationDialogs = null,
+        ChartMutationActivityOwner? chartMutationActivity = null)
     {
         return new RegularChartListOwner(
             table,
@@ -50,9 +52,10 @@ internal static class RegularChartListOwnerTestSupport
             _ => { },
             pendingPackageWorkflow ?? CreatePendingPackageWorkflowOwner(),
             chartFileOperations ?? new ChartFileOperationSynchronizer(),
-            new ChartMutationActivityOwner(),
+            chartMutationActivity ?? new ChartMutationActivityOwner(),
             new NoOpFolderAutoRenamePlaybackPort(),
-            normalLibraryRefreshUiScheduler ?? new TestUiScheduler(() => null!));
+            normalLibraryRefreshUiScheduler ?? new TestUiScheduler(() => null!),
+            mutationDialogs);
     }
 
     internal static ReaderWriterLockSlimWrapper GetCatalogStorageRowsWriteGate(BMSLibrary library)

@@ -117,6 +117,34 @@ public sealed class LocalizationResourceParityTests
     }
 
     [TestMethod]
+    public void FileDbMutationReportResources_PreserveRequiredFormattingArguments()
+    {
+        string root = FindRepositoryRoot();
+        var required = new Dictionary<string, int>
+        {
+            [nameof(Resources.FileDbMutationReport_Title)] = 0,
+            [nameof(Resources.FileDbMutationReport_Operation)] = 1,
+            [nameof(Resources.FileDbMutationReport_Counts)] = 6,
+            [nameof(Resources.FileDbMutationReport_TerminalFailure)] = 0,
+            [nameof(Resources.FileDbMutationReport_CandidatePaths)] = 0,
+            [nameof(Resources.FileDbMutationReport_Error)] = 1,
+            [nameof(Resources.FileDbMutationReport_Guidance)] = 0,
+            [nameof(Resources.FileDbMutationReport_Rename)] = 0,
+            [nameof(Resources.FileDbMutationReport_Move)] = 0,
+            [nameof(Resources.FileDbMutationReport_Merge)] = 0
+        };
+        var resx = ReadResxStringValues(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+        foreach (var pair in required)
+            AssertLocalizedFormat("Resources.resx", pair.Key, resx.GetValueOrDefault(pair.Key)!, pair.Value);
+        foreach (string languagePath in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+        {
+            JObject language = ReadLanguageJsonObject(languagePath);
+            foreach (var pair in required)
+                AssertLocalizedFormat(Path.GetFileName(languagePath), pair.Key, language[pair.Key]?.Value<string>()!, pair.Value);
+        }
+    }
+
+    [TestMethod]
     public void SettingsWindowNavigationAndActions_ArePresentInAllLanguages()
     {
         string root = FindRepositoryRoot();

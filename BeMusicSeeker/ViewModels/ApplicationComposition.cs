@@ -717,7 +717,8 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             ChartMutationActivity,
             (IFolderAutoRenamePlaybackPort)PlaybackPanel,
-            uiScheduler);
+            uiScheduler,
+            installDestinationDialogService);
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
             chartFileOperations,
             ChartMutationActivity,

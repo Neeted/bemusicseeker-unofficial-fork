@@ -161,11 +161,13 @@ internal sealed class DuplicateMaintenanceMutationResult
             mutationReceipt);
     }
 
+    /// <summary>Keeps unsuccessful and durable partial merge facts available to the terminal.</summary>
     internal static DuplicateMaintenanceMutationResult FromMergeReceipt(
         string selectionHeader,
         DuplicateMergeMaintenanceReceipt mutationReceipt)
     {
-        if (mutationReceipt?.ManualRecoveryRequired == true
+        if (mutationReceipt?.MutationReceipt?.DurableCommit == false
+            || mutationReceipt?.ManualRecoveryRequired == true
             || mutationReceipt?.HasDurableFinalizationFailure == true)
         {
             return new DuplicateMaintenanceMutationResult(
@@ -177,7 +179,7 @@ internal sealed class DuplicateMaintenanceMutationResult
         }
         if (mutationReceipt?.MergeApplied != true)
         {
-            return NoWork(selectionHeader);
+            return new DuplicateMaintenanceMutationResult(false, selectionHeader, 0, null, mutationReceipt);
         }
         return Completed(selectionHeader, mutationReceipt: mutationReceipt);
     }
@@ -488,7 +490,11 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                         Stopwatch.GetTimestamp()),
                     acquiredOperationGate: operationGate));
                 operationGateTransferred = true;
-                return await mutationTask;
+                DuplicateMaintenanceMutationResult result = await mutationTask;
+                await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Merge,
+                    result.MutationReceipt?.MutationReceipt is { } receipt ? new FileDbMutationBatchReceipt([receipt]) : null,
+                    result.Failure);
+                return result;
             }
             Task<DuplicateMaintenanceMutationResult> regularMutationTask = Task.Run(() => ExecuteMutation(
                 request.SelectionHeader,
@@ -649,15 +655,11 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         {
             if (suppressionStarted)
             {
-                CaptureCleanupFailure(
-                    () => PublishRefreshSuppressionChanged(isSuppressed: false),
-                    failures);
+                CaptureNotification(() => PublishRefreshSuppressionChanged(isSuppressed: false));
             }
             if (refreshPriorityStarted)
             {
-                CaptureCleanupFailure(
-                    () => PublishRefreshPriorityWindowChanged(isActive: false, reason: refreshPriorityReason),
-                    failures);
+                CaptureNotification(() => PublishRefreshPriorityWindowChanged(isActive: false, reason: refreshPriorityReason));
             }
             if (operationGate != null)
             {
@@ -665,12 +667,12 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             }
             if (activityLease != null)
             {
-                CaptureCleanupFailure(activityLease.Dispose, failures);
+                CaptureNotification(activityLease.Dispose);
             }
             if (dialogScope != null)
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
-                CaptureCleanupFailure(dialogScope.Flush, failures);
+                CaptureNotification(dialogScope.Flush);
             }
         }
         if (failures.Count == 0)
@@ -679,13 +681,23 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 ? DuplicateMaintenanceMutationResult.Completed(selectionHeader, removedChartCount)
                 : DuplicateMaintenanceMutationResult.FromMergeReceipt(selectionHeader, mutationReceipt);
         }
+        Exception additionalFailure = failures.Count == 1
+            ? failures[0].SourceException
+            : new AggregateException(failures.Select(failure => failure.SourceException));
+        Exception primary = mutationReceipt?.MutationReceipt?.Failure;
         return DuplicateMaintenanceMutationResult.Failed(
             selectionHeader,
-            failures.Count == 1
-                ? failures[0].SourceException
-                : new AggregateException(failures.Select(failure => failure.SourceException)),
+            primary == null ? additionalFailure : new AggregateException(primary, additionalFailure),
             removedChartCount,
             mutationReceipt);
+
+        void CaptureNotification(Action notification)
+        {
+            if (mutationWithReceipt != null)
+                FileDbMutationReport.NotifyBestEffort(notification);
+            else
+                CaptureCleanupFailure(notification, failures);
+        }
     }
 
     private void PublishRefreshSuppressionChanged(bool isSuppressed)
@@ -802,6 +814,7 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
         library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId);
     }
 
+    /// <summary>The canonical merge terminal owns the aggregate receipt notification.</summary>
     public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
         BMSLibrary library,
         string sourceDirectory,
@@ -811,7 +824,8 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
         return library.MergeChartDirectory(
             sourceDirectory,
             destinationDirectory,
-            operationId);
+            operationId,
+            reportAtTerminal: true);
     }
 
     public void RemoveCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts)

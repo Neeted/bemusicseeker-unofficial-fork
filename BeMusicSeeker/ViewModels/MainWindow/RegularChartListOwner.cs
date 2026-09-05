@@ -1,4 +1,5 @@
 using System;
+using BeMusicSeeker.Views.Dialogs;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -120,6 +121,9 @@ internal sealed class RegularChartListOwner : IDisposable
     private int virtualOrderPrewarmRunId;
     private bool disposed;
 
+    private readonly IUiDialogService mutationDialogs;
+
+    /// <summary>Composes list behavior with the terminal dialog dependency for manual folder mutations.</summary>
     internal RegularChartListOwner(
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
@@ -130,7 +134,8 @@ internal sealed class RegularChartListOwner : IDisposable
         ChartFileOperationSynchronizer chartFileOperations,
         ChartMutationActivityOwner chartMutationActivity,
         IFolderAutoRenamePlaybackPort playback,
-        IUiScheduler normalLibraryRefreshUiScheduler)
+        IUiScheduler normalLibraryRefreshUiScheduler,
+        IUiDialogService mutationDialogs = null)
     {
         this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -141,6 +146,7 @@ internal sealed class RegularChartListOwner : IDisposable
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
+        this.mutationDialogs = mutationDialogs;
         this.normalLibraryRefreshUiScheduler = normalLibraryRefreshUiScheduler
             ?? throw new ArgumentNullException(nameof(normalLibraryRefreshUiScheduler));
         this.mainChartList.AppliedColumnModeCommitted += MainChartListAppliedColumnModeCommitted;
@@ -987,12 +993,12 @@ internal sealed class RegularChartListOwner : IDisposable
             }
             Task previousRename = folderRenameTail;
             var completion = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-            renameTask = Task.Run(() =>
+            renameTask = Task.Run(async () =>
             {
                 previousRename.GetAwaiter().GetResult();
                 try
                 {
-                    ExecuteFolderRename(library, request, newFolder);
+                    await ExecuteFolderRenameAsync(library, request, newFolder).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -1017,7 +1023,7 @@ internal sealed class RegularChartListOwner : IDisposable
         return renameTask;
     }
 
-    private void ExecuteFolderRename(BMSLibrary library, RenameChartFolderRequest request, string newFolder)
+    private async Task ExecuteFolderRenameAsync(BMSLibrary library, RenameChartFolderRequest request, string newFolder)
     {
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
@@ -1025,6 +1031,7 @@ internal sealed class RegularChartListOwner : IDisposable
         bool suppressionStarted = false;
         bool normalRefreshApplySuppressed = false;
         bool operationAdmitted = false;
+        FileDbMutationReceipt mutationReceipt = null;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
@@ -1049,7 +1056,8 @@ internal sealed class RegularChartListOwner : IDisposable
                         normalLibraryRefreshApplySuppressed = true;
                         normalRefreshApplySuppressed = true;
                     }
-                    FileDbMutationReceipt mutationReceipt = library.RenameChartFolderWithReceipt(directoryName, newFolder, false);
+                    mutationReceipt = library.RenameChartFolderWithReceipt(directoryName, newFolder, false,
+                        reportAtTerminal: mutationDialogs != null);
                     lock (syncRoot)
                     {
                         normalLibraryRefreshApplySuppressed = false;
@@ -1063,14 +1071,16 @@ internal sealed class RegularChartListOwner : IDisposable
                             + mutationReceipt?.TerminalState
                             + " recoveryPaths="
                             + string.Join("|", mutationReceipt?.RecoveryPaths ?? []));
-                        return;
                     }
-                    CaptureCleanupFailure(operationGate.Dispose, failures);
-                    operationGate = null;
-                    QueueLatestNormalLibraryRefreshNotification(
-                        "library_charts_changed",
-                        expectedLibrary: library);
-                    InvalidatePathMutationCaches(library);
+                    else
+                    {
+                        CaptureCleanupFailure(operationGate.Dispose, failures);
+                        operationGate = null;
+                        QueueLatestNormalLibraryRefreshNotification(
+                            "library_charts_changed",
+                            expectedLibrary: library);
+                        InvalidatePathMutationCaches(library);
+                    }
                 }
             }
         }
@@ -1101,22 +1111,27 @@ internal sealed class RegularChartListOwner : IDisposable
             }
             if (suppressionStarted)
             {
-                CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
+                CaptureNotification(() => PublishRefreshSuppressionChanged(isSuppressed: false));
             }
             if (activityLease != null)
             {
-                CaptureCleanupFailure(activityLease.Dispose, failures);
+                CaptureNotification(activityLease.Dispose);
             }
             if (dialogScope != null)
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
-                CaptureCleanupFailure(dialogScope.Flush, failures);
+                CaptureNotification(dialogScope.Flush);
             }
             if (operationAdmitted)
             {
-                CaptureCleanupFailure(mainChartList.RequestDisplayRefresh, failures);
+                CaptureNotification(mainChartList.RequestDisplayRefresh);
             }
         }
+        if (mutationDialogs != null && mutationReceipt != null)
+            await FileDbMutationReport.ShowAsync(mutationDialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename,
+                new FileDbMutationBatchReceipt([mutationReceipt]),
+                failures.Count == 0 ? null : new AggregateException(failures.Select(failure => failure.SourceException)))
+                .ConfigureAwait(false);
         switch (failures.Count)
         {
             case 0:
@@ -1126,6 +1141,14 @@ internal sealed class RegularChartListOwner : IDisposable
                 return;
             default:
                 throw new AggregateException(failures.Select(failure => failure.SourceException));
+        }
+
+        void CaptureNotification(Action notification)
+        {
+            if (mutationDialogs != null)
+                FileDbMutationReport.NotifyBestEffort(notification);
+            else
+                CaptureCleanupFailure(notification, failures);
         }
     }
 

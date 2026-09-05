@@ -916,5 +916,15 @@
   , "Open_lamp_viewer": "開啟燈位檢視器", "PlaylistLampViewer_title_format": "{0} - 燈位檢視器", "PlaylistLampViewer_total": "譜面總數", "PlaylistLampViewer_owned": "已擁有", "PlaylistLampViewer_missing": "未擁有", "PlaylistLampViewer_ownership_rate": "擁有率", "PlaylistLampViewer_played": "已遊玩", "PlaylistLampViewer_no_play": "未遊玩", "PlaylistLampViewer_play_rate": "遊玩率", "PlaylistLampViewer_score_source": "分數來源", "PlaylistLampViewer_playlist_last_update": "播放清單最後更新", "PlaylistLampViewer_average_ex_rate": "平均 EX 分數率", "PlaylistLampViewer_clear_rate": "通關率", "PlaylistLampViewer_clear_lamp": "通關燈位", "PlaylistLampViewer_rank_lamp": "DJ 等級", "PlaylistLampViewer_unavailable": "無法使用", "PlaylistLampViewer_selected": "已選取", "PlaylistLampViewer_not_selected": "未選取", "PlaylistLampViewer_as_of": "截至日期", "PlaylistLampViewer_latest": "最新", "PlaylistLampViewer_historical_unavailable": "歷史分數無法使用",
   "PlaylistLampViewer_segment_detail_format": "{0}：{1}（{2}）", "PlaylistLampViewer_segment_unavailable_detail_format": "{0}：{1}（{2}）", "PlaylistLampViewer_percentage_format": "{0:N2}%", "PlaylistLampViewer_source_lr2": "LR2", "PlaylistLampViewer_source_beatoraja": "beatoraja", "PlaylistLampViewer_source_none": "無", "PlaylistLampViewer_source_status_format": "{0}（{1}）", "PlaylistLampViewer_source_failed": "分數資料載入失敗", "PlaylistLampViewer_initial_failure": "燈譜檢視器的初次彙總失敗。", "PlaylistLampViewer_initial_deleted": "播放清單已無法使用，因此無法開啟燈位檢視器。", "PlaylistLampViewer_live_failure": "燈譜檢視器更新失敗，將關閉檢視器。", "PlaylistLampViewer_failure_title": "燈譜檢視器",
   "PlaylistLampViewer_clear_max": "MAX", "PlaylistLampViewer_clear_perfect": "PERFECT", "PlaylistLampViewer_clear_fc": "FC", "PlaylistLampViewer_clear_exhard": "EXHARD", "PlaylistLampViewer_clear_hard": "HARD", "PlaylistLampViewer_clear_normal": "NORMAL", "PlaylistLampViewer_clear_easy": "EASY", "PlaylistLampViewer_clear_assist": "ASSIST", "PlaylistLampViewer_clear_failed": "FAILED", "PlaylistLampViewer_clear_np": "NP", "PlaylistLampViewer_rank_aaa": "AAA", "PlaylistLampViewer_rank_aa": "AA", "PlaylistLampViewer_rank_a": "A", "PlaylistLampViewer_rank_b": "B", "PlaylistLampViewer_rank_c": "C", "PlaylistLampViewer_rank_d": "D", "PlaylistLampViewer_rank_e": "E", "PlaylistLampViewer_rank_f": "F", "PlaylistLampViewer_rank_np": "NP"
-  , "PlaylistLampViewer_segment_detail_adaptive_format": "{0}：{1}（{2}）", "PlaylistLampViewer_percentage_less_than_format": "小於{0}"
+  , "PlaylistLampViewer_segment_detail_adaptive_format": "{0}：{1}（{2}）", "PlaylistLampViewer_percentage_less_than_format": "小於{0}",
+  "FileDbMutationReport_Title": "檔案與資料庫操作結果",
+  "FileDbMutationReport_Operation": "操作：{0}",
+  "FileDbMutationReport_Counts": "已記錄結果的操作：{0} 項\n檔案和資料庫變更已提交：{1} 項／未提交：{2} 項\n必要更新失敗：{3} 項／清理失敗：{4} 項／需手動檢查：{5} 項",
+  "FileDbMutationReport_TerminalFailure": "操作結束時仍有部分處理未完成。",
+  "FileDbMutationReport_CandidatePaths": "待檢查的候選路徑（是否存在尚未確認，最多 3 項）：",
+  "FileDbMutationReport_Error": "錯誤：{0}",
+  "FileDbMutationReport_Guidance": "已提交的變更會保留。請手動檢查相關檔案和資料庫狀態。完整資訊及省略的路徑或錯誤請查看記錄。",
+  "FileDbMutationReport_Rename": "重新命名資料夾",
+  "FileDbMutationReport_Move": "移動資料夾",
+  "FileDbMutationReport_Merge": "合併重複資料夾"
 }
