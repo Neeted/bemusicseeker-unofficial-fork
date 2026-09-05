@@ -72,7 +72,7 @@ internal sealed class BmsLibraryPackageInstallMutationPort :
         return library?.InstallChartPackagesAutoWithProgress(
             installPaths,
             token,
-            NullPackageInstallProgressWriter.Instance)
+            NullPackageInstallProgressWriter.Instance, reportAtTerminal: true)
             ?? new PackageInstallCommandResult([], null);
     }
 
@@ -85,7 +85,7 @@ internal sealed class BmsLibraryPackageInstallMutationPort :
         return library?.InstallChartPackagesAutoWithProgress(
             installPaths,
             token,
-            progressWriter)
+            progressWriter, reportAtTerminal: true)
             ?? new PackageInstallCommandResult([], null);
     }
 }
@@ -134,11 +134,14 @@ internal sealed class PackageInstallCompletionReceipt : EventArgs
 
 internal sealed class PackageInstallFailure : EventArgs
 {
-    internal PackageInstallFailure(long generation, IEnumerable<string> paths, Exception exception)
+    /// <summary>Retains a completed mutation's facts when outer workflow cleanup fails.</summary>
+    internal PackageInstallFailure(long generation, IEnumerable<string> paths, Exception exception,
+        PackageInstallCommandResult commandResult = null)
     {
         Generation = generation;
         Paths = [.. (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
         Exception = exception ?? throw new ArgumentNullException(nameof(exception));
+        CommandResult = commandResult;
     }
 
     internal long Generation { get; }
@@ -146,6 +149,9 @@ internal sealed class PackageInstallFailure : EventArgs
     internal IReadOnlyList<string> Paths { get; }
 
     internal Exception Exception { get; }
+
+    /// <summary>Gets mutation facts produced before the lifecycle failure.</summary>
+    internal PackageInstallCommandResult CommandResult { get; }
 }
 
 /// <summary>
@@ -446,14 +452,27 @@ internal sealed class PackageInstallWorkflowOwner
             (path, index, total) => context.Processor.ReportActiveBatchCurrentWork(
                 index,
                 total,
-                GetInstallPathDisplayName(path)));
+                GetInstallPathDisplayName(path)),
+            out Exception terminalFailure);
         commandResult ??= new PackageInstallCommandResult([], null);
         IReadOnlyList<ChartPackage> packages = commandResult.RegisteredPackages;
         if (!IsCurrentGeneration(currentGeneration, currentLibrary))
         {
             return;
         }
+        if (terminalFailure != null)
+        {
+            var failure = new PackageInstallFailure(currentGeneration, request.OriginalPaths,
+                terminalFailure, commandResult);
+            DispatchNotification(() =>
+            {
+                if (IsCurrentGeneration(currentGeneration, currentLibrary))
+                    FailurePublished?.Invoke(failure);
+            }, terminalFailure);
+            return;
+        }
         if (packages.Count == 0
+            && commandResult.MutationReceipt?.Receipts.Any(receipt => !receipt.DurableCommit) != true
             && !commandResult.ManualRecoveryRequired
             && !commandResult.HasDurableFinalizationFailure
             && !commandResult.CompletedWithCleanupFailure)
@@ -477,8 +496,10 @@ internal sealed class PackageInstallWorkflowOwner
         CancellationToken token,
         IPackageInstallProgressWriter progressWriter,
         Action onEachPathProcessed,
-        Action<string, int, int> onEachArchiveExtractStarted)
+        Action<string, int, int> onEachArchiveExtractStarted,
+        out Exception terminalFailure)
     {
+        terminalFailure = null;
         string[] normalizedInstallPaths = [.. (request?.Paths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))];
         if (normalizedInstallPaths.Length == 0 || token.IsCancellationRequested)
@@ -577,6 +598,12 @@ internal sealed class PackageInstallWorkflowOwner
             }
         }
 
+        if (failures.Count > 0 && commandResult?.MutationReceipt != null)
+        {
+            terminalFailure = failures.Count == 1 ? failures[0].SourceException
+                : new AggregateException(failures.Select(failure => failure.SourceException));
+            return commandResult;
+        }
         switch (failures.Count)
         {
             case 0:

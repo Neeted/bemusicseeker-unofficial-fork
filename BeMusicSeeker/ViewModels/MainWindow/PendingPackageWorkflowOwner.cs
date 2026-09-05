@@ -1762,14 +1762,15 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore, IPen
         return library.ForceInstallPendingPackagesWithReceipt(
             packages,
             approveNormalInstallOverride: false,
-            approvedNormalInstallOverridePackages: approvedNormalInstallOverridePackages);
+            approvedNormalInstallOverridePackages: approvedNormalInstallOverridePackages,
+            reportAtTerminal: true);
     }
 
     public PendingInstallBatchResult ManualInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages)
     {
-        return library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
+        return library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, reportAtTerminal: true);
     }
 
     public bool IsPendingSectionEmpty(BMSLibrary library)

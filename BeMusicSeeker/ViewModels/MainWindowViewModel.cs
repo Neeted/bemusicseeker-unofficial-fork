@@ -248,6 +248,9 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly ApplicationComposition applicationComposition;
 
+    /// <summary>Provides the shared optional mutation-report dialog boundary to view terminals.</summary>
+    internal IUiDialogService FileDbMutationDialogs => applicationComposition.FileDbMutationDialogs;
+
     private readonly PlayHistoryRuntimeEventReporter playHistoryRuntimeEventReporter;
 
     private readonly StartupLibraryConstructionOwner startupLibraryConstructionOwner;
@@ -2951,7 +2954,7 @@ public partial class MainWindowViewModel : ViewModel,
             message => NLogWrapper.FileLogger?.Info(message),
             ReportFolderAutoRenameWorkflowNotificationFailure,
             ReportFolderAutoRenameWorkflowFailure,
-            new UiDialogCoordinator(),
+            FileDbMutationDialogs,
             zeroNoteLibraryProvider: () => files,
             packageCatalogLibraryProvider: () => files,
             duplicateMaintenanceDialogService: new UiDialogCoordinator(),
@@ -3005,6 +3008,7 @@ public partial class MainWindowViewModel : ViewModel,
         MaintenanceRescanWorkflow.CompletionPublished += MaintenanceRescanWorkflowCompletionPublished;
         FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
+        FolderAutoRenameWorkflow.FailurePublished += FolderAutoRenameWorkflowFailurePublished;
         FolderAutoRenameWorkflow.RefreshSuppressionChanged += FolderAutoRenameWorkflowRefreshSuppressionChanged;
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
@@ -5270,14 +5274,25 @@ public partial class MainWindowViewModel : ViewModel,
         NLogWrapper.FileLogger?.Error(exception, "maintenance_rescan failed scope=all_owned");
     }
 
-    private void FolderAutoRenameWorkflowCompletionPublished(FolderAutoRenameCompletionReceipt receipt)
+    private async void FolderAutoRenameWorkflowCompletionPublished(FolderAutoRenameCompletionReceipt receipt)
     {
-        if (receipt?.RefreshRequired != true)
+        if (receipt?.RefreshRequired == true)
         {
-            return;
+            FileDbMutationReport.NotifyBestEffort(() =>
+            {
+                regularChartListOwner.QueueLatestNormalLibraryRefreshNotification("library_charts_changed");
+                InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+            });
         }
-        regularChartListOwner.QueueLatestNormalLibraryRefreshNotification("library_charts_changed");
-        InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+        await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
+            BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename, receipt?.MutationReceipt);
+    }
+
+    private async void FolderAutoRenameWorkflowFailurePublished(FolderAutoRenameFailure failure)
+    {
+        await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
+            BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename,
+            failure?.MutationResult?.MutationReceipt, failure?.Exception);
     }
 
     private static void ReportFolderAutoRenameWorkflowNotificationFailure(Exception exception)
@@ -5446,18 +5461,28 @@ public partial class MainWindowViewModel : ViewModel,
         return true;
     }
 
-    private void PackageInstallWorkflowCompletionPublished(PackageInstallCompletionReceipt receipt)
+    private async void PackageInstallWorkflowCompletionPublished(PackageInstallCompletionReceipt receipt)
     {
         if (receipt?.Packages.Count > 0)
         {
-            PlaylistWorkspace.AttachInstalledPackageReferences(receipt.Packages);
+            FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(receipt.Packages));
         }
+        await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
+            BeMusicSeeker.Properties.Resources.Install, receipt?.MutationReceipt);
     }
 
-    private void PackageInstallWorkflowFailurePublished(PackageInstallFailure failure)
+    private async void PackageInstallWorkflowFailurePublished(PackageInstallFailure failure)
     {
         if (failure?.Exception == null)
         {
+            return;
+        }
+        if (failure.CommandResult?.MutationReceipt != null)
+        {
+            if (failure.CommandResult.RegisteredPackages.Count > 0)
+                FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(failure.CommandResult.RegisteredPackages));
+            await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
+                BeMusicSeeker.Properties.Resources.Install, failure.CommandResult.MutationReceipt, failure.Exception);
             return;
         }
         ShowUiMessage(

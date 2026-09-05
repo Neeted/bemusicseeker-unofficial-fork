@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using System.Windows;
@@ -467,6 +468,7 @@ internal sealed class MainWindowPendingPackageMutationAppliedViewState
 /// </summary>
 internal sealed class MainWindowPendingPackageMutationViewTerminal
 {
+    private readonly IUiDialogService dialogs;
     private readonly Func<bool> isSectionRootSelected;
     private readonly Func<int> getSectionRootItemCount;
     private readonly Func<MainViewUpdateMode, Task<bool>> navigateInstallAsync;
@@ -477,11 +479,14 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
     /// <param name="isSectionRootSelected">Reads the current UI selection state of the pending-package section root.</param>
     /// <param name="getSectionRootItemCount">Reads the current UI item count of the pending-package section root.</param>
     /// <param name="navigateInstallAsync">Navigates to the requested install view when the applied state is empty.</param>
+    /// <param name="dialogs">Optional terminal-report dialog boundary.</param>
     internal MainWindowPendingPackageMutationViewTerminal(
         Func<bool> isSectionRootSelected,
         Func<int> getSectionRootItemCount,
-        Func<MainViewUpdateMode, Task<bool>> navigateInstallAsync)
+        Func<MainViewUpdateMode, Task<bool>> navigateInstallAsync,
+        IUiDialogService dialogs = null)
     {
+        this.dialogs = dialogs;
         this.isSectionRootSelected = isSectionRootSelected
             ?? throw new ArgumentNullException(nameof(isSectionRootSelected));
         this.getSectionRootItemCount = getSectionRootItemCount
@@ -546,10 +551,17 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
             }
         }
 
+        await FileDbMutationReport.ShowAsync(dialogs,
+            BeMusicSeeker.Properties.Resources.Install, result.MutationReceipt, result.Failure);
+
         Exception mutationFailure = null;
         try
         {
-            if (result.Failure != null)
+            if (result.Failure != null
+                && !ReferenceEquals(result.Failure, result.MutationReceipt?.FinalizationFailure)
+                && result.MutationReceipt?.Receipts.Any(receipt =>
+                    ReferenceEquals(receipt.Failure, result.Failure)
+                    || ReferenceEquals(receipt.FinalizationFailure, result.Failure)) != true)
             {
                 await Task.FromException(result.Failure).LoggingAndPropagate(routeName);
             }

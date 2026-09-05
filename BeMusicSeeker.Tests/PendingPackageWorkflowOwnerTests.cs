@@ -1397,6 +1397,38 @@ public sealed class PendingPackageWorkflowOwnerTests
         }
     }
 
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InstallRetainsReceiptWhenOuterSuppressionCleanupFails(bool manual)
+    {
+        var events = new List<string>();
+        var primary = new IOException("pending-primary-marker");
+        var receipt = new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.DurableFinalizationFailed,
+            true, 0, 1, [@"C:\source"], [@"D:\destination"], [], [], [], primary, primary,
+            new IOException("pending-cleanup-marker"));
+        var batch = new FileDbMutationBatchReceipt([receipt]);
+        var store = new RecordingStore(events) { TerminalReceipt = batch };
+        var gate = new ChartFileOperationSynchronizer();
+        var owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), chartFileOperations: gate);
+        var scopeFailure = new IOException("pending-scope-marker");
+        owner.WorkflowChanged += (_, args) =>
+        {
+            if (args is PendingPackageRefreshSuppressionChangedEventArgs suppression && !suppression.IsSuppressed)
+                throw scopeFailure;
+        };
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
+        PendingPackageMutationResult result = manual
+            ? await owner.ManualInstallPackagesAsync([package]) : await owner.ForceInstallPackagesAsync([package]);
+        Assert.AreSame(batch, result.MutationReceipt);
+        Assert.AreSame(scopeFailure, result.Failure);
+        Assert.IsTrue(result.HasDurableCommit);
+        Assert.IsTrue(result.HasDurableFinalizationFailure);
+        Assert.IsTrue(gate.TryEnter(out IDisposable released));
+        released.Dispose();
+        Assert.AreEqual(1, events.Count(value => value == (manual ? "store-manual-install" : "store-force-install")));
+    }
+
     private static PendingPackageWorkflowOwner CreateOwner(
         Func<BMSLibrary> libraryProvider,
         List<string> events,
@@ -1610,7 +1642,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         }
     }
 
-    internal sealed class RecordingStore : IPendingPackageStore
+    internal sealed class RecordingStore : IPendingPackageStore, IPendingPackageTerminalMutationStore
     {
         private readonly List<string> events;
 
@@ -1759,6 +1791,22 @@ public sealed class PendingPackageWorkflowOwnerTests
             events.Add("store-manual-install");
             LastPackages = packages;
             ThrowIfConfigured();
+        }
+
+        internal FileDbMutationBatchReceipt? TerminalReceipt { get; set; }
+
+        public FileDbMutationBatchReceipt ForceInstallPackagesWithReceipt(BMSLibrary library,
+            IReadOnlyList<ChartPackage> packages, ISet<ChartPackage> approvedNormalInstallOverridePackages)
+        {
+            ForceInstallPackages(library, packages, approvedNormalInstallOverridePackages);
+            return TerminalReceipt!;
+        }
+
+        public PendingInstallBatchResult ManualInstallPackagesWithReceipt(BMSLibrary library,
+            IReadOnlyList<ChartPackage> packages)
+        {
+            ManualInstallPackages(library, packages);
+            return new PendingInstallBatchResult { MutationReceipt = TerminalReceipt };
         }
 
         public bool IsPendingSectionEmpty(BMSLibrary library)

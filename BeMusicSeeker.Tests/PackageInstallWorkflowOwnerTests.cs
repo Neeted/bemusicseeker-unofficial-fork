@@ -1703,8 +1703,10 @@ public sealed class PackageInstallWorkflowOwnerTests
         }
     }
 
-    [TestMethod]
-    public async Task DurableFinalizationFailure_PublishesTypedCompletionWithoutRegisteredPackages()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DurableFinalizationFailure_PublishesTypedCompletionWithoutRegisteredPackages(bool failSuppressionCleanup)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = Path.Combine(
@@ -1753,11 +1755,32 @@ public sealed class PackageInstallWorkflowOwnerTests
                     action();
                     return true;
                 });
+            var cleanupFailure = new IOException("drop-scope-cleanup-marker");
+            var failed = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
+            owner.RefreshSuppressionChanged += (_, args) =>
+            {
+                if (failSuppressionCleanup && !args.IsSuppressed) throw cleanupFailure;
+            };
+            owner.FailurePublished += failure => failed.TrySetResult(failure);
             owner.CompletionPublished += published => completion.TrySetResult(published);
             owner.AttachLibrary(new TestBmsLibrary(songDbPath, null, null, string.Empty));
             owner.Enqueue([Path.Combine(root, "source.zip")]);
 
-            PackageInstallCompletionReceipt publishedReceipt = await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            PackageInstallCompletionReceipt publishedReceipt;
+            if (failSuppressionCleanup)
+            {
+                PackageInstallFailure failure = await failed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.AreSame(cleanupFailure, failure.Exception);
+                Assert.IsNotNull(failure.CommandResult);
+                Assert.AreSame(mutationReceipt, failure.CommandResult.MutationReceipt);
+                Assert.IsFalse(completion.Task.IsCompleted);
+                publishedReceipt = new PackageInstallCompletionReceipt(failure.Generation,
+                    failure.CommandResult.RegisteredPackages, failure.CommandResult);
+            }
+            else
+            {
+                publishedReceipt = await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
             await AssertOwnerIdleAsync(owner);
 
             Assert.AreEqual(1, installCalls);

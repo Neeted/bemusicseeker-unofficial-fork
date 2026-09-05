@@ -2,7 +2,7 @@
 
 最終更新: 2026-09-05
 
-Status: Active（A 実装・関連検証済み、静的レビュー待ち。B/C のテスト契約承認済み）
+Status: Active（A 完了・274a5d83、B 実装・関連検証済み、静的レビュー待ち。C のテスト契約承認済み）
 
 ## 目的と範囲
 
@@ -69,16 +69,17 @@ model の receipt-backed 個別表示を抑止するのは、この unit で ter
 
 Worker B の許可 path（必要なものだけ、先行 A の変更を維持）:
 
-- `BeMusicSeeker/ViewModels/MainWindow/FolderAutoRenameWorkflowOwner.cs`
-- `BeMusicSeeker/ViewModels/MainWindow/PackageInstallWorkflowOwner.cs`
+- `BeMusicSeeker/ViewModels/FolderAutoRenameWorkflowOwner.cs`
+- `BeMusicSeeker/ViewModels/PackageInstallWorkflowOwner.cs`
 - `BeMusicSeeker/ViewModels/MainWindow/PendingPackageWorkflowOwner.cs`
 - `BeMusicSeeker/ViewModels/ApplicationComposition.cs`、`BeMusicSeeker/ViewModels/MainWindowViewModel.cs`（上記 composition／terminal wiring のみ）
 - `BeMusicSeeker/Views/MainWindowFeatureTerminals.cs`（pending package mutation terminal の結果提示のみ）
+- `BeMusicSeeker/Views/MainWindow.cs`（既存 pending terminal constructor へ shared dialog dependency を渡す wiring のみ。実装前に追加承認）
 - `BeMusicSeeker/Models/BMSLibrary.cs`、`BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs`、`BeMusicSeeker/Models/BMSLibrary.LibraryFileOperationOwner.cs`（上記の receipt 表示 ownership の伝播のみ）
 - `BeMusicSeeker/Models/BmsLibraryInternal/AutoRenameBatchCoordinator.cs`、`BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryPackageInstallService.cs`（上記の旧 receipt-backed 通知のみ）
 - A の `FileDbMutationReport*.cs`（B の既存 receipt facts に必要な overload／operation label のみ。A の契約を変更しない）
 - `BeMusicSeeker.Tests/FolderAutoRenameWorkflowOwnerTests.cs`、`BeMusicSeeker.Tests/PackageInstallWorkflowOwnerTests.cs`、`BeMusicSeeker.Tests/PendingPackageWorkflowOwnerTests.cs`、`BeMusicSeeker.Tests/MainWindowPendingPackageMutationViewTerminalTests.cs`、`BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs`
-- `BeMusicSeeker.Tests/MainWindowFileDbMutationConsumerTests.cs`（既存 fixture で composition の公開 completion 経路を閉じられない場合だけ新設）、`BeMusicSeeker.Tests/MainWindowViewModelTestFactory.cs`（上記に必要な recording dialog wiring のみ）
+- `BeMusicSeeker.Tests/MainWindowViewModelTestFactory.cs`（既存 composition に必要な recording dialog wiring のみ）。consumer tests は既存 MainWindowPackageMaintenanceWpfTests に配置し、新 fixture は退役。
 - `BeMusicSeeker.Tests/BmsLibraryFolderRenameRefreshTests.cs`（B のモデル companion）、`BeMusicSeeker.Tests/MainWindowPackageMaintenanceWpfTests.cs`（保留導入四経路の既存 harness を使った wiring 確認）
 - A と同じ UI resource 8 files および `LocalizationResourceParityTests.cs`（新しい label が必要な場合だけ同じ prefix）
 - `devdocs/spec/library-mutation-boundary.md`、`devdocs/spec/install-estimation-current-logic.md`（対応済み behavior／Verification map）
@@ -114,8 +115,18 @@ C は FS 結果、catalog durable/finalization fact、repair bridge の unwind �
 
 ## 確認済みの後続 unit
 
+### Unit B の検証証跡
+
+- Packet `FSDB-B-20260905` B1–B5 と同 packet の root 補足を実装。最終 Quick: 310 pass / 2 既存 cross-volume skip / 0 fail、build + test 54 秒、test execution 24.51 秒。artifact: `artifacts/verification/tests-quick-20260905-183221/functional/results.trx`。
+- Base red `175636`: 自動 rename cleanup による durable facts 消失。mutant `181903`: failure 購読欠落 / package 0 guard / 旧通知復活で 5 intended failures / 10 cases。mixed 案内 red `183048`: 異常 canonical の旧案内残存で 1 intended failure / 4 cases。すべて復元し head pass。
+- `182106` と同条件 retry `182250` で新 consumer fixture の close が 2 timeout。全 application close の process-global SQLite drain と別 fixture の接続が競合するため、既存 application-lifetime fixture へ収容。`182853` は 198 pass / 2 既存 skip、最終 Quick も成功。新 DNP / runner / timeout 変更なし。
+- nested / root 直下の専用 resolver 起動は thread limit により拒否され、close tool も利用不可だったため、root が read-only 限定調査と修正方針決定を順番に代替し、worker が実装・検証した。未実施 evidence は独立 resolver による調査のみ。
+- 最終 Quick 後は spec 重複本文の参照化と root の計画・契約補足のみ。統合 Functional は C 完了後。
+
+
 ### Unit A の検証証跡
 
+- 凍結 snapshot の独立静的レビューは blocking findings なし。commit: `274a5d83`。
 - Packet `FSDB-A-20260905` A01–A07。最終 filtered Quick は 116/116 成功、build + test 37.6 秒、test execution 12.47 秒。artifact: `artifacts/verification/tests-quick-20260905-174630/functional/results.trx`。
 - Base red は non-durable batch の成功扱い、任意 observer failure による receipt 消失の 2 failures。同 run の fingerprint mismatch は root の計画編集との干渉であり assertion red と分離する。artifact: `tests-quick-20260905-172547/functional/results.trx`。
 - cleanup severity、表示上限、rename の旧個別通知抑止を崩す代表 mutant は 4 intended failures / 7 cases。すべて復元し、最終 Quick の fingerprint は不変。artifact: `tests-quick-20260905-174512/functional/results.trx`。

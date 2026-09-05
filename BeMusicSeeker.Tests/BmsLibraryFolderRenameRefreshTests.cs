@@ -761,8 +761,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
-    [TestMethod]
-    public void ApplyAutoRenamePlans_BatchesSuccessfulMovesWhenOnePlanFails()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ApplyAutoRenamePlans_BatchesSuccessfulMovesWhenOnePlanFails(bool reportAtTerminal)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -786,7 +788,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     MoveDirectoryFailureSourcePath = firstDirectoryPath
                 };
-                var library = new TestBmsLibrary(songDbPath, null, null, fileMutationService, new RecordingDialogService())
+                var dialogs = new FileDbReportRecordingDialogs();
+                var library = new TestBmsLibrary(songDbPath, null, null, fileMutationService, dialogs)
                 {
                     SearchTargets = [libraryRootPath]
                 };
@@ -815,10 +818,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
-                library.AutoRenameChartFolders([
+                AutoRenameBatchResult receiptResult = library.AutoRenameChartFoldersWithResult([
                     ChartFileProjection.FromBmsFile(firstFile),
                     ChartFileProjection.FromBmsFile(secondFile)
-                ]);
+                ], reportAtTerminal: reportAtTerminal);
+                Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.ModelMessages);
+                Assert.IsTrue(receiptResult.MutationReceipt.Receipts.Any(receipt => !receipt.DurableCommit));
+                Assert.IsTrue(receiptResult.HasDurableCommit);
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(1, Volatile.Read(ref refreshCount));

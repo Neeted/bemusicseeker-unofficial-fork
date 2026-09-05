@@ -12,14 +12,15 @@ namespace BeMusicSeeker.Tests;
 
 internal static class MainWindowViewModelTestFactory
 {
-    internal static MainWindowViewModel Create(Settings settings = null)
+    internal static MainWindowViewModel Create(Settings settings = null, BeMusicSeeker.Views.Dialogs.IUiDialogService fileDbMutationDialogs = null)
     {
         settings ??= new Settings();
         return new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            fileDbMutationDialogService: fileDbMutationDialogs)
             .CreateMainWindowViewModelForTest();
     }
 

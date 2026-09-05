@@ -410,3 +410,11 @@ metadata frontier が発生した場合は `estimate_install metadata_frontier` 
 - durable receipt 後の内部 finalizer exception は `DurableFinalizationFailed` とし、`DurableCommit=true` のまま compensation / retry を行わない。destination と DB を authoritative に保持し、失敗 item を成功登録・maintenance・score・state apply・after-apply から除外して batch の後続 mutation を停止する。cleanup-only failure は従来どおり `CompletedWithCleanupFailure` とし、non-throwing LR2 incomplete や post-lease callback failure はこの terminal state に分類しない。
 
 package batch、folder move、merge、auto-rename の command result は durable receipt、terminal state、recovery paths を direct caller / UI workflow まで伝播する。receipt 前の collection projection、notification、task start は行わず、durable success 後の projection と notification は post-commit phase に限定する。persistent journal、crash replay、cross-volume atomicity は保証しない。
+
+### Pending install terminal reporting
+
+保留 package／chart の強制・手動導入四 UI route は、owner の終了後に同じ view terminal へ receipt を渡し、異常結果を一度だけ集約する。view 更新／空 section navigation は既存条件を維持し、その有無で報告を省略しない。durable cleanup-only は Warning、未 commit・manual recovery・必須反映失敗は Error、正常時に新しい report は追加しない。報告済みの receipt-backed mutation failure を一般エラーへ二重送出せず、view／navigation や無関係な lifecycle failure は既存どおり伝播する。任意 report の失敗は診断のみで、導入を再実行しない。
+
+Verification map: `FSDB-B3/B4/B5` は `PendingPackageWorkflowOwnerTests`（receipt と outer cleanup）、`MainWindowPendingPackageMutationViewTerminalTests`（報告と failure 伝播）、`MainWindowPackageMaintenanceWpfTests`（四 UI route）で検証する。通常 Functional lane、既存 dispatcher／awaited task／local recording ports を使用し、翻訳全文を固定しない。共通 report と model 通知 ownership の対応は [library-mutation-boundary.md](library-mutation-boundary.md) の Verification map を参照する。
+
+既存 cleanup-only 案内と異常混在時の通知 ownership は、[library-mutation-boundary.md](library-mutation-boundary.md) の remaining receipt consumer 契約を正本とする。正常／異常と canonical／legacy の対照は `BmsLibraryPackageInstallServiceTests.EstimatedCleanupKeepsNormalAdviceButDefersMixedAbnormalAdviceToTerminal` で検証する。

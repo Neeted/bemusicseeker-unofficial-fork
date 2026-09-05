@@ -173,3 +173,24 @@ LR2 preparation の中間 stage / table / batch progress は `BMSLibrary` の既
 
 
 batch で compensation を所有するのは一つの owner だけであり、per-item owner や rollback-of-rollback は追加しない。crash replay、persistent journal、cross-volume atomicity、TOCTOU の解消はこの境界の主張に含めない。destination-exists の folder move は従来どおり reject とし、merge / overwrite は新設しない。
+
+### Remaining receipt consumers
+
+自動 folder rename（選択／全件）、drop install、保留の強制／手動導入四経路は、既存 `FileDbMutationReport` に操作終了後の receipt を一度だけ渡す。自動 rename の refresh 判定、drop の登録 package 件数、保留 view 更新／navigation は既存条件を維持し、異常報告の条件には使わない。自動 rename は completion と failure の両方を consumer が購読する。正常は silent、cleanup-only は durable success を保持した Warning、未 commit／manual recovery／必須反映失敗は Error とする。
+
+外側 gate、activity、dialog scope cleanup の failure が receipt 取得後に起きても、receipt、durable prefix、primary、cleanup、recovery paths を terminal まで保持する。任意 report failure は診断のみとし、mutation／通知の再試行をしない。receipt のない事前拒否と legacy caller の通知、および無関係な lifecycle failure の伝播を維持する。`reportAtTerminal: true` による個別通知抑止は接続済み canonical route に限る。
+
+#### Verification map — FSDB-B-20260905
+
+| IDs / behavior | Fixture | Completion / resource |
+| --- | --- | --- |
+| B1/B2/B4/B5: 実 mutation→production UI consumer、refresh=false Error、空 package Error、非空 Warning、正常 silent、report failure | `MainWindowPackageMaintenanceWpfTests` | dispatcher task／owner idle、固有 FS・SQLite、既存 application-lifetime fixture |
+| B1/B4: rename cleanup 後の receipt 保持 | `FolderAutoRenameWorkflowOwnerTests` | failure event／idle、local gate/activity |
+| B2/B4: drop cleanup 後の receipt 保持 | `PackageInstallWorkflowOwnerTests` | completion/failure event／queue idle |
+| B3/B4: pending cleanup 後の receipt 保持と terminal severity | `PendingPackageWorkflowOwnerTests`、`MainWindowPendingPackageMutationViewTerminalTests` | awaited owner/terminal task、local ports |
+| B3: 強制／手動の package/chart 四経路 | `MainWindowPackageMaintenanceWpfTests` | 既存 constructor-only harness、routed event completion |
+| B5: auto rename canonical/legacy の個別通知対照 | `BmsLibraryFolderRenameRefreshTests` | real FS/model result、固有 DB |
+
+既存 Functional lane を使い、新しい DNP／固定待ち／process／共有 logger 設定は追加しない。drop の cleanup-only が空 package となる直積は要求しない。
+
+既存の estimated cleanup-only 正常完了案内は保持する。同じ batch に異常 receipt が含まれる canonical route の場合だけ、この案内を一回の異常 report へ統合し、正常部分は durable 操作件数に残す。legacy と receipt のない案内は抑止しない。`BmsLibraryPackageInstallServiceTests.EstimatedCleanupKeepsNormalAdviceButDefersMixedAbnormalAdviceToTerminal` が実 cleanup の正常／異常と canonical／legacy の対照を検証する。

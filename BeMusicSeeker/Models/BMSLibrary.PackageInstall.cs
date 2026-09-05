@@ -31,11 +31,13 @@ public partial class BMSLibrary
     /// <param name="chartFiles">Charts whose containing folders may be renamed.</param>
     /// <param name="renameRootFolder">Whether the library root folder is eligible.</param>
     /// <param name="progressWriter">Best-effort immutable progress sink.</param>
+    /// <param name="reportAtTerminal">Suppresses only receipt-backed item dialogs when a terminal owns reporting.</param>
     /// <returns>The durable batch result.</returns>
     internal AutoRenameBatchResult AutoRenameChartFoldersWithProgress(
         IEnumerable<ChartFile> chartFiles,
         bool renameRootFolder,
-        IFolderAutoRenameProgressWriter progressWriter)
+        IFolderAutoRenameProgressWriter progressWriter,
+        bool reportAtTerminal = false)
     {
         if (chartFiles == null)
         {
@@ -77,7 +79,7 @@ public partial class BMSLibrary
                 result = result.WithDurableFinalizationFailure(primaryFailure);
             }
         }
-        FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications);
+        FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
         return result ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
     }
 
@@ -88,10 +90,12 @@ public partial class BMSLibrary
     /// </summary>
     /// <param name="parentDir">Optional source-folder scope.</param>
     /// <param name="progressWriter">Best-effort immutable progress sink.</param>
+    /// <param name="reportAtTerminal">Suppresses only receipt-backed item dialogs when a terminal owns reporting.</param>
     /// <returns>The durable batch result.</returns>
     internal AutoRenameBatchResult AutoRenameAllChartFoldersWithProgress(
         string parentDir,
-        IFolderAutoRenameProgressWriter progressWriter)
+        IFolderAutoRenameProgressWriter progressWriter,
+        bool reportAtTerminal = false)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
         if (TryBlockLr2SongDbSyncMutation(nameof(AutoRenameAllChartFolders)))
@@ -129,7 +133,7 @@ public partial class BMSLibrary
                 result = result.WithDurableFinalizationFailure(primaryFailure);
             }
         }
-        FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications);
+        FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
         return result ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
     }
 
@@ -153,11 +157,13 @@ public partial class BMSLibrary
     /// Executes package installation with the feature-local bounded progress
     /// writer used by the workflow owner.  The writer is a producer boundary;
     /// durable mutation and terminal results never depend on its delivery.
+    /// Terminal-owned callers suppress receipt-backed individual failure dialogs.
     /// </summary>
     internal PackageInstallCommandResult InstallChartPackagesAutoWithProgress(
         IEnumerable<string> installPaths,
         CancellationToken token,
-        IPackageInstallProgressWriter progressWriter)
+        IPackageInstallProgressWriter progressWriter,
+        bool reportAtTerminal = false)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
@@ -281,7 +287,8 @@ public partial class BMSLibrary
                             mutationReceiptObserver: null,
                             mutationBatchReceiptObserver: receipt => autoInstallMutationReceipt = receipt,
                             diagnosticEffectObserver: diagnosticEffects.Add,
-                            postLeaseEffectObserver: postLeaseEffects.Add);
+                            postLeaseEffectObserver: postLeaseEffects.Add,
+                            reportAtTerminal: reportAtTerminal);
                         if (autoInstallMutationReceipt?.ManualRecoveryRequired == true
                             || autoInstallMutationReceipt?.HasDurableFinalizationFailure == true)
                         {
@@ -560,7 +567,7 @@ public partial class BMSLibrary
         return receipt;
     }
 
-    private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null, EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null, Action<FileDbMutationReceipt> mutationReceiptObserver = null, Action<FileDbMutationBatchReceipt> mutationBatchReceiptObserver = null, Action<Action> diagnosticEffectObserver = null, Action<Action> postLeaseEffectObserver = null)
+    private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null, EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null, Action<FileDbMutationReceipt> mutationReceiptObserver = null, Action<FileDbMutationBatchReceipt> mutationBatchReceiptObserver = null, Action<Action> diagnosticEffectObserver = null, Action<Action> postLeaseEffectObserver = null, bool reportAtTerminal = false)
     {
         ArgumentNullException.ThrowIfNull(applyDurableStorageRows);
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
@@ -645,7 +652,7 @@ public partial class BMSLibrary
                     recursiveDirectoryTreeFileMutationOptions,
                     installPerformanceLogger,
                     applyDurableCommit,
-                    showMessageBoxOnInstallFail: true,
+                    showMessageBoxOnInstallFail: !reportAtTerminal,
                     deleteAllContents: deleteAllContents,
                     existingHashes: hashSnapshot,
                     excludedComponentPaths: excludedComponentPaths,
@@ -1606,10 +1613,12 @@ public partial class BMSLibrary
             approvedNormalInstallOverridePackages);
     }
 
+    /// <summary>Returns force-install facts, optionally assigning receipt-backed dialogs to the caller terminal.</summary>
     internal FileDbMutationBatchReceipt ForceInstallPendingPackagesWithReceipt(
         IEnumerable<ChartPackage> packages,
         bool? approveNormalInstallOverride,
-        ISet<ChartPackage> approvedNormalInstallOverridePackages)
+        ISet<ChartPackage> approvedNormalInstallOverridePackages,
+        bool reportAtTerminal = false)
     {
         if (packages == null)
         {
@@ -1727,7 +1736,8 @@ public partial class BMSLibrary
                             },
                             mutationBatchReceiptObserver: batchReceipt => mutationBatchReceipt = batchReceipt,
                             diagnosticEffectObserver: diagnosticEffects.Add,
-                            postLeaseEffectObserver: postLeaseEffects.Add);
+                            postLeaseEffectObserver: postLeaseEffects.Add,
+                            reportAtTerminal: reportAtTerminal);
                         return new ForceInstallPackageApplyResult(
                             failedPackages,
                             manualRecoveryRequired,
@@ -2015,7 +2025,8 @@ public partial class BMSLibrary
         IEnumerable<ChartPackage> packages,
         PendingEstimatedInstallExecutionContext executionContext,
         IReadOnlyDictionary<string, IReadOnlyList<string>> componentFilesByPackage,
-        Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows)
+        Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows,
+        bool reportAtTerminal = false)
     {
         if (packages == null)
         {
@@ -2135,7 +2146,8 @@ public partial class BMSLibrary
                     deleteSourceContentsAfterSuccessfulInstall,
                     batchApplyContext,
                     deferredFeedback,
-                    mutationReceiptObserver: receipt => mutationReceipts.Add(receipt)),
+                    mutationReceiptObserver: receipt => mutationReceipts.Add(receipt),
+                    reportAtTerminal: reportAtTerminal),
             CreateInstalledDisplayPackageForResourceOnlyMerge,
             cleanupPendingPackageSource: null,
             logInfo: deferredFeedback.LogInstallPerformance,
@@ -2331,7 +2343,9 @@ public partial class BMSLibrary
             "estimated_install_collection_publication_failed");
     }
 
-    private void PublishPendingEstimatedInstallFeedback(EstimatedInstallDeferredFeedback deferredFeedback)
+    private void PublishPendingEstimatedInstallFeedback(
+        EstimatedInstallDeferredFeedback deferredFeedback,
+        bool suppressCleanupOnlyWarning = false)
     {
         while (true)
         {
@@ -2356,6 +2370,12 @@ public partial class BMSLibrary
                                 notification.DefaultResult);
                             break;
                         case EstimatedInstallFeedbackKind.CleanupOnlyWarning:
+                            // A mixed abnormal batch is summarized once by its canonical
+                            // terminal; normal-only and legacy cleanup advice is retained.
+                            if (suppressCleanupOnlyWarning)
+                            {
+                                break;
+                            }
                             ShowOperationDialog(
                                 string.Format(
                                     Resources.Warn_estimated_install_cleanup_only_completed,
@@ -2398,7 +2418,8 @@ public partial class BMSLibrary
         InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
     }
 
-    internal PendingInstallBatchResult InstallPendingPackagesToEstimatedDestinationsWithReceipt(IEnumerable<ChartPackage> packages)
+    /// <summary>Returns estimated-install facts, optionally assigning receipt-backed dialogs to the caller terminal.</summary>
+    internal PendingInstallBatchResult InstallPendingPackagesToEstimatedDestinationsWithReceipt(IEnumerable<ChartPackage> packages, bool reportAtTerminal = false)
     {
         if (packages == null)
         {
@@ -2434,7 +2455,7 @@ public partial class BMSLibrary
                 result = ExecutePendingPackagesToEstimatedDestinations(
                     packages,
                     applyDurableStorageRows,
-                    postLeaseNotifications);
+                    postLeaseNotifications, reportAtTerminal);
             }
         }
         catch (Exception exception)
@@ -2458,7 +2479,8 @@ public partial class BMSLibrary
     private PendingInstallBatchResult ExecutePendingPackagesToEstimatedDestinations(
         IEnumerable<ChartPackage> packages,
         Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows,
-        ICollection<Action> postLeaseNotifications)
+        ICollection<Action> postLeaseNotifications,
+        bool reportAtTerminal = false)
     {
         if (packages == null)
         {
@@ -2480,7 +2502,7 @@ public partial class BMSLibrary
                 requestedPackages,
                 executionContext,
                 componentFilesByPackage,
-                applyDurableStorageRows);
+                applyDurableStorageRows, reportAtTerminal);
             CompletePendingEstimatedInstallUnderGuard(
                 receipt,
                 executionContext.DeferredFeedback);
@@ -2495,7 +2517,12 @@ public partial class BMSLibrary
             PublishPendingEstimatedInstallPostGuardEffects(receipt, executionContext);
             try
             {
-                PublishPendingEstimatedInstallFeedback(executionContext?.DeferredFeedback);
+                PublishPendingEstimatedInstallFeedback(executionContext?.DeferredFeedback,
+                    suppressCleanupOnlyWarning: reportAtTerminal
+                        && (result.CompletedWithCleanupFailure
+                            || result.HasDurableFinalizationFailure
+                            || result.ManualRecoveryRequired
+                            || result.MutationReceipt?.Receipts.Any(item => !item.DurableCommit) == true));
             }
             catch (Exception exception)
             {

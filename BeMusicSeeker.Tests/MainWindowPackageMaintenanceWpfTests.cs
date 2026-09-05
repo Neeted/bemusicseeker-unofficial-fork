@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,6 +12,7 @@ using System.Windows.Interop;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -19,9 +21,188 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+// This existing owner closes the whole application, whose shutdown drains process-global SQLite connections.
 [DoNotParallelize]
 public sealed class MainWindowPackageMaintenanceWpfTests
 {
+    [DataTestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(true, false, false)]
+    [DataRow(false, true, false)]
+    [DataRow(false, false, true)]
+    [DataRow(true, false, true)]
+    public void AutoRenameReportsRealReceiptWithoutLosingFacts(bool allFolders, bool reporterThrows, bool cleanupOnly)
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            string root = Path.Combine(Path.GetTempPath(), "FSDB-B-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            var dialogs = new FileDbReportRecordingDialogs();
+            MainWindowViewModel? viewModel = null;
+            try
+            {
+                string source = Path.Combine(root, "source");
+                Directory.CreateDirectory(source);
+                string sourceChart = Path.Combine(source, "chart.bms");
+                File.WriteAllText(sourceChart, "#PLAYER 1\r\n#TITLE ReceiptTarget\r\n#ARTIST Artist\r\n");
+                var chart = BMSFile.CreateBMSFileFromFile(sourceChart);
+                string dbPath = Path.Combine(root, "song.db");
+                string lr2Root = Path.Combine(root, "LR2");
+                var config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, root);
+                using (var db = new LR2SongDBExtended(dbPath))
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDB.folder>();
+                    db.CreateTable<LR2SongDBExtended.maintenance>();
+                    db.InsertOrReplace(chart.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    if (!cleanupOnly) db.Execute("CREATE TRIGGER fail_report_finalizer BEFORE INSERT ON folder WHEN NEW.path LIKE '%ReceiptTarget%' BEGIN SELECT RAISE(ABORT, 'consumer-finalizer-marker'); END;");
+                }
+                var library = new TestBmsLibrary(dbPath, () => config, null,
+                    cleanupOnly ? new BmsLibraryPackageInstallServiceTests.FailingDestinationDeleteFileMutationService(source)
+                        : new ResilientFileMutationService(), dialogs,
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = !cleanupOnly, LR2RootPath = lr2Root,
+                        FolderNameFormat = "[%ARTIST%] %TITLE%" })
+                { BMSFiles = [chart], SearchTargets = [root] };
+                viewModel = MainWindowViewModelTestFactory.Create(new Settings(), dialogs);
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+                bool activityInactive = false;
+                bool leaseReleased = false;
+                dialogs.OnMessage = () =>
+                {
+                    activityInactive = !viewModel.ChartMutationActivity.IsActive;
+                    using var gate = library.TryBeginLibraryFileMutation("report-probe", showMessage: false);
+                    leaseReleased = gate != null;
+                };
+                if (reporterThrows) dialogs.MessageFailure = new IOException("reporter-marker");
+                FolderAutoRenameCompletionReceipt? completion = null;
+                viewModel.FolderAutoRenameWorkflow.CompletionPublished += receipt => completion = receipt;
+                FolderAutoRenameFailure? outcome = null;
+                viewModel.FolderAutoRenameWorkflow.FailurePublished += failure => outcome = failure;
+                if (allFolders)
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.FolderAutoRenameWorkflow.RequestStartAllAsync(root), "B1 all admission");
+                else
+                    Assert.IsTrue(viewModel.FolderAutoRenameWorkflow.RequestStartSelected([
+                        new ChartOperationTarget(ChartFileProjection.FromBmsFile(chart), null,
+                            ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.MoveInLibrary)]));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.FolderAutoRenameWorkflow.WaitForIdleAsync(), "B1 terminal");
+                Assert.IsTrue(activityInactive);
+                Assert.IsTrue(leaseReleased);
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                Assert.AreEqual(0, dialogs.ModelMessages);
+                Assert.AreEqual(cleanupOnly ? MessageBoxImage.Warning : MessageBoxImage.Error, dialogs.Messages[0].Icon);
+                if (cleanupOnly)
+                {
+                    Assert.IsNotNull(completion);
+                    Assert.IsTrue(completion.RefreshRequired);
+                    Assert.IsTrue(completion.MutationReceipt.CompletedWithCleanupFailure);
+                    Assert.IsNull(outcome);
+                }
+                else
+                {
+                    StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "consumer-finalizer-marker");
+                    Assert.IsNotNull(outcome);
+                    Assert.IsTrue(outcome.HasDurableCommit);
+                    Assert.IsFalse(outcome.ExecutionResult.RefreshRequired);
+                }
+                Assert.AreEqual(cleanupOnly, File.Exists(sourceChart));
+                Assert.IsTrue(File.Exists(chart.path));
+                using var verifyDb = new LR2SongDBExtended(dbPath);
+                Assert.IsNotNull(verifyDb.Find<LR2SongDB.song>(chart.path));
+            }
+            finally
+            {
+                if (viewModel != null)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "B1 close");
+                    viewModel.SettingDialog.Dispose();
+                }
+                Directory.Delete(root, true);
+            }
+        });
+    }
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void DropInstallReportsRealReceiptIndependentlyOfPackageCount(int failureKind)
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            string root = Path.Combine(Path.GetTempPath(), "FSDB-B-drop-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            MainWindowViewModel? viewModel = null;
+            try
+            {
+                string source = Path.Combine(root, "DropSource");
+                Directory.CreateDirectory(source);
+                string sourceChart = Path.Combine(source, "chart.bms");
+                File.WriteAllText(sourceChart, "#PLAYER 1\r\n#TITLE DropTarget\r\n#ARTIST Artist\r\n");
+                string installRoot = Path.Combine(root, "Installed");
+                string destination = Path.Combine(installRoot, "DropTarget");
+                string dbPath = Path.Combine(root, "song.db");
+                using (var db = new LR2SongDBExtended(dbPath))
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDB.folder>();
+                    db.CreateTable<LR2SongDBExtended.maintenance>();
+                    if (failureKind == 2)
+                        db.Execute("CREATE TRIGGER fail_drop BEFORE INSERT ON song WHEN NEW.path LIKE '%DropTarget%' BEGIN SELECT RAISE(ABORT, 'drop-primary-marker'); END;");
+                }
+                var dialogs = new FileDbReportRecordingDialogs();
+                IFileMutationService files = failureKind == 0 ? new ResilientFileMutationService()
+                    : new BmsLibraryPackageInstallServiceTests.FailingDestinationDeleteFileMutationService(
+                        failureKind == 1 ? source : destination);
+                var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false,
+                        FolderNameFormat = "%TITLE%", BMSInstallDir = installRoot, KeepInstallablePackagesPending = false })
+                { BMSFiles = [], SearchTargets = [root] };
+                viewModel = MainWindowViewModelTestFactory.Create(new Settings(), dialogs);
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+                PackageInstallCompletionReceipt? outcome = null;
+                var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                viewModel.PackageInstallWorkflow.CompletionPublished += receipt => { outcome = receipt; completed.TrySetResult(true); };
+                viewModel.PackageInstallWorkflow.FailurePublished += failure => completed.TrySetException(failure.Exception);
+                bool inactiveAtReport = false;
+                dialogs.OnMessage = () => inactiveAtReport = !viewModel.ChartMutationActivity.IsActive;
+                viewModel.PackageInstallWorkflow.Enqueue([source]);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PackageInstallWorkflow.WaitForIdleAsync(), "B2 idle");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(completed.Task, "B2 completion");
+                Assert.IsNotNull(outcome);
+                Assert.AreEqual(failureKind == 2 ? 0 : 1, outcome.Packages.Count);
+                Assert.AreEqual(failureKind == 0 ? 0 : 1, dialogs.Messages.Count);
+                Assert.AreEqual(0, dialogs.ModelMessages);
+                if (failureKind != 0)
+                {
+                    Assert.IsTrue(inactiveAtReport);
+                    Assert.AreEqual(failureKind == 1 ? MessageBoxImage.Warning : MessageBoxImage.Error, dialogs.Messages[0].Icon);
+                    Assert.AreEqual(failureKind == 1, outcome.HasDurableCommit);
+                    Assert.AreEqual(failureKind == 2, outcome.ManualRecoveryRequired);
+                    // The report is bounded; detailed primary and compensation causes remain
+                    // in the immutable receipt and full diagnostics, not every UI error line.
+                    StringAssert.Contains(outcome.MutationReceipt.Receipts.Single().Failure.ToString(),
+                        failureKind == 1 ? "injected-destination-delete-failure" : "drop-primary-marker");
+                    StringAssert.Contains(dialogs.Messages[0].MessageBoxText, source);
+                }
+                using var verifyDb = new LR2SongDBExtended(dbPath);
+                Assert.AreEqual(failureKind != 2, verifyDb.Find<LR2SongDB.song>(Path.Combine(destination, "chart.bms")) != null);
+                Assert.AreEqual(failureKind != 0, Directory.Exists(source));
+            }
+            finally
+            {
+                if (viewModel != null)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "B2 close");
+                    viewModel.SettingDialog.Dispose();
+                }
+                Directory.Delete(root, true);
+            }
+        });
+    }
+
     [TestMethod]
     public void CompiledTreeMenusPreservePackageSectionsAndPendingOperations()
     {
@@ -153,51 +334,54 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             pendingInstallationTerminal: pendingInstallationTerminal);
     }
 
-    [TestMethod]
-    public void CompiledPendingPackageMenuUsesInjectedMutationViewTerminal()
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void CompiledPendingInstallRoutesReportReceipt(bool chartRoute, bool manual)
     {
-        int selectionReads = 0;
-        int itemCountReads = 0;
-        int navigationCount = 0;
+        var failure = new System.IO.IOException("four-route-cleanup-marker");
+        var receipt = new FileDbMutationReceipt(Guid.NewGuid(),
+            FileDbMutationTerminalState.CompletedWithCleanupFailure, true, 0, 1,
+            [@"C:\pending-source"], [@"D:\installed"], [], [], [], failure, cleanupFailure: failure);
+        var result = PendingPackageMutationResult.FromTerminal(new FileDbMutationBatchReceipt([receipt]));
+        var dialogs = new FileDbReportRecordingDialogs();
         var pendingMutationViewTerminal = new MainWindowPendingPackageMutationViewTerminal(
-            () =>
-            {
-                selectionReads++;
-                return false;
-            },
-            () =>
-            {
-                itemCountReads++;
-                return 1;
-            },
-            _ =>
-            {
-                navigationCount++;
-                return Task.FromResult(true);
-            });
+            () => false, () => 1, _ => Task.FromResult(true), dialogs);
+        int calls = 0;
+        Task<PendingPackageMutationResult> Complete() { calls++; return Task.FromResult(result); }
         var pendingInstallationTerminal = new MainWindowPendingInstallationTerminal(
-            _ => Task.FromResult(PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Pending)),
-            _ => Task.FromResult(PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Pending)),
-            _ => Task.FromResult(PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Pending)));
-
+            _ => Complete(), _ => Complete(), _ => Complete());
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             new Settings(),
-            (_, window) =>
+            (viewModel, window) =>
             {
-                ChartPackage pendingPackage = new() { path = @"C:\wave6f-pending-package" };
-                TreeViewItem pendingTarget = new() { DataContext = pendingPackage };
-                ContextMenu packageMenu = (ContextMenu)window.FindResource("treeViewInstallPackageContextMenu");
-                packageMenu.PlacementTarget = pendingTarget;
-                MenuItem installMenu = packageMenu.Items
-                    .OfType<MenuItem>()
-                    .Single(item => item.Items.Count == 5);
-                MenuItem forceInstall = installMenu.Items.OfType<MenuItem>().ElementAt(3);
-
-                RaiseMenuClick(forceInstall);
-
-                Assert.AreEqual(2, selectionReads);
-                Assert.AreEqual(1, itemCountReads);
-                Assert.AreEqual(0, navigationCount);
+                ContextMenu menu;
+                if (chartRoute)
+                {
+                    var chart = new BMSFile { path = @"C:\pending-source\chart.bms", hash = new string('a', 32) };
+                    var entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(chart));
+                    var row = LibraryChartRow.FromPackageChartEntry(entry);
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.ItemsSource = new List<object> { row };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                    menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                }
+                else
+                {
+                    menu = (ContextMenu)window.FindResource("treeViewInstallPackageContextMenu");
+                    menu.PlacementTarget = new TreeViewItem { DataContext = new ChartPackage { path = @"C:\pending-source" } };
+                }
+                MenuItem group = menu.Items.OfType<MenuItem>()
+                    .Single(item => item.Items.OfType<MenuItem>().Count() == 5);
+                RaiseMenuClick(group.Items.OfType<MenuItem>().ElementAt(manual ? 2 : 3));
+                Assert.AreEqual(1, calls);
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Warning, dialogs.Messages[0].Icon);
+                StringAssert.Contains(dialogs.Messages[0].MessageBoxText, failure.Message);
             },
             pendingInstallationTerminal: pendingInstallationTerminal,
             pendingPackageMutationViewTerminal: pendingMutationViewTerminal);

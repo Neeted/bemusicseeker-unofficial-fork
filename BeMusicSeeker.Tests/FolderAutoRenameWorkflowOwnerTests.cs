@@ -399,8 +399,10 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         }
     }
 
-    [TestMethod]
-    public async Task AllRequest_DurableFinalizationFailurePublishesFailureWithoutSuccessCompletion()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task AllRequest_DurableFinalizationFailurePublishesFailureWithoutSuccessCompletion(bool failSuppressionCleanup)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string root = CreateRoot();
@@ -431,20 +433,34 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 mutationReceipt,
                 primaryFailure: ExceptionDispatchInfo.Capture(finalizationFailure));
             var mutationPort = new TerminalFolderAutoRenameMutationPort(mutationResult);
+            var gate = new ChartFileOperationSynchronizer();
+            var activity = new ChartMutationActivityOwner();
             var owner = new FolderAutoRenameWorkflowOwner(
-                new ChartFileOperationSynchronizer(),
-                new ChartMutationActivityOwner(),
+                gate,
+                activity,
                 mutationPort,
                 new NoopFolderAutoRenamePlaybackPort(),
                 action => Task.Run(action),
                 action => action(),
                 new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
+            var scopeFailure = new IOException("suppression cleanup failed");
+            owner.RefreshSuppressionChanged += (_, args) =>
+            {
+                if (failSuppressionCleanup && !args.IsSuppressed) throw scopeFailure;
+            };
             var failurePublished = new TaskCompletionSource<FolderAutoRenameFailure>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             int completionCount = 0;
             int terminalCount = 0;
-            owner.FailurePublished += failure => failurePublished.TrySetResult(failure);
+            bool releasedAtPublication = false;
+            owner.FailurePublished += failure =>
+            {
+                bool acquired = gate.TryEnter(out IDisposable probe);
+                releasedAtPublication = !activity.IsActive && acquired;
+                if (acquired) probe.Dispose();
+                failurePublished.TrySetResult(failure);
+            };
             owner.CompletionPublished += _ => Interlocked.Increment(ref completionCount);
             owner.TerminalPublished += () => Interlocked.Increment(ref terminalCount);
 
@@ -452,7 +468,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             FolderAutoRenameFailure failure = await failurePublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await owner.WaitForIdleAsync();
 
-            Assert.AreSame(finalizationFailure, failure.Exception);
+            Assert.IsTrue(releasedAtPublication);
+            Assert.AreSame(failSuppressionCleanup ? scopeFailure : finalizationFailure, failure.Exception);
             Assert.IsTrue(failure.HasDurableCommit);
             Assert.IsTrue(failure.HasDurableFinalizationFailure);
             Assert.IsFalse(failure.CompletedWithCleanupFailure);

@@ -12638,10 +12638,12 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    /// <summary>Returns batch facts; terminal-owned callers suppress receipt-backed item dialogs.</summary>
     internal AutoRenameBatchResult AutoRenameChartFoldersWithResult(
         IEnumerable<ChartFile> chartFiles,
         bool renameRootFolder = false,
-        Action<int, int, string> progressReporter = null)
+        Action<int, int, string> progressReporter = null,
+        bool reportAtTerminal = false)
     {
         if (chartFiles == null)
         {
@@ -12687,7 +12689,7 @@ public partial class BMSLibrary : ObservableObject
                     result = result.WithDurableFinalizationFailure(primaryFailure);
                 }
             }
-            FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications);
+            FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
         }
         finally
         {
@@ -12710,9 +12712,11 @@ public partial class BMSLibrary : ObservableObject
         return result.HasActionablePlan && !result.HasDurableFinalizationFailure;
     }
 
+    /// <summary>Returns batch facts; terminal-owned callers suppress receipt-backed item dialogs.</summary>
     internal AutoRenameBatchResult AutoRenameAllChartFoldersWithResult(
         string parentDir = null,
-        Action<int, int, string> progressReporter = null)
+        Action<int, int, string> progressReporter = null,
+        bool reportAtTerminal = false)
     {
         if (TryBlockLr2SongDbSyncMutation(nameof(AutoRenameAllChartFolders)))
         {
@@ -12752,7 +12756,7 @@ public partial class BMSLibrary : ObservableObject
                     result = result.WithDurableFinalizationFailure(primaryFailure);
                 }
             }
-            FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications);
+            FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
             return result ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
         }
         finally
@@ -12786,7 +12790,8 @@ public partial class BMSLibrary : ObservableObject
     private void FlushAutoRenamePostCommitEffects(
         AutoRenameBatchResult result,
         ExceptionDispatchInfo primaryFailure,
-        IEnumerable<Action> postLeaseNotifications)
+        IEnumerable<Action> postLeaseNotifications,
+        bool reportAtTerminal = false)
     {
         ExceptionDispatchInfo firstFailure = primaryFailure ?? result?.PrimaryFailure;
         if (firstFailure != null
@@ -12818,20 +12823,21 @@ public partial class BMSLibrary : ObservableObject
         {
             InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
         }
-        FlushAutoRenameDiagnostics(result);
+        FlushAutoRenameDiagnostics(result, reportAtTerminal);
         if (firstFailure == null && result?.AppliedPlanCount > 0)
         {
             TryInvokePostLeaseNotification(
                 PublishAutoRenameBatchRefreshNotification,
                 "auto_rename_batch_refresh_notification_failed");
         }
-        if (firstFailure != null && result?.HasDurableFinalizationFailure != true)
+        if (firstFailure != null && result?.HasDurableFinalizationFailure != true
+            && !(reportAtTerminal && result?.MutationReceipt != null))
         {
             firstFailure.Throw();
         }
     }
 
-    private void FlushAutoRenameDiagnostics(AutoRenameBatchResult result)
+    private void FlushAutoRenameDiagnostics(AutoRenameBatchResult result, bool reportAtTerminal)
     {
         foreach (AutoRenameBatchDiagnostic diagnostic in result?.Diagnostics ?? [])
         {
@@ -12841,7 +12847,7 @@ public partial class BMSLibrary : ObservableObject
             }
             try
             {
-                PublishAutoRenameDiagnostic(diagnostic);
+                PublishAutoRenameDiagnostic(diagnostic, reportAtTerminal);
             }
             catch (Exception exception)
             {
@@ -12865,7 +12871,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void PublishAutoRenameDiagnostic(AutoRenameBatchDiagnostic diagnostic)
+    private void PublishAutoRenameDiagnostic(AutoRenameBatchDiagnostic diagnostic, bool reportAtTerminal)
     {
         switch (diagnostic.Kind)
         {
@@ -12905,7 +12911,7 @@ public partial class BMSLibrary : ObservableObject
                 }
                 break;
             case AutoRenameBatchDiagnosticKind.MoveFailed:
-                if (!string.IsNullOrWhiteSpace(diagnostic.SourceDirectory)
+                if (!reportAtTerminal && !string.IsNullOrWhiteSpace(diagnostic.SourceDirectory)
                     && !string.IsNullOrWhiteSpace(diagnostic.DestinationDirectory))
                 {
                     libraryFileOperationOwner.ShowFolderMoveFailed(

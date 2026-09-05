@@ -78,7 +78,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort :
     {
         AutoRenameBatchResult result = library?.AutoRenameChartFoldersWithResult(
             request?.Charts ?? [],
-            progressReporter: progressReporter);
+            progressReporter: progressReporter, reportAtTerminal: true);
         return FolderAutoRenameExecutionResult.From(result);
     }
 
@@ -95,7 +95,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort :
         string parentDirectory,
         Action<int, int, string> progressReporter)
     {
-        return library?.AutoRenameAllChartFoldersWithResult(parentDirectory, progressReporter)
+        return library?.AutoRenameAllChartFoldersWithResult(parentDirectory, progressReporter, reportAtTerminal: true)
             ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
     }
 
@@ -108,7 +108,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort :
         AutoRenameBatchResult result = library?.AutoRenameChartFoldersWithProgress(
             request?.Charts ?? [],
             renameRootFolder: false,
-            progressWriter)
+            progressWriter, reportAtTerminal: true)
             ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
         return FolderAutoRenameExecutionResult.From(result);
     }
@@ -132,7 +132,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort :
         ArgumentNullException.ThrowIfNull(progressWriter);
         return library?.AutoRenameAllChartFoldersWithProgress(
             parentDirectory,
-            progressWriter)
+            progressWriter, reportAtTerminal: true)
             ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
     }
 }
@@ -198,6 +198,7 @@ internal sealed class FolderAutoRenameExecutionResult
 
 internal sealed class FolderAutoRenameCompletionReceipt
 {
+    /// <summary>Captures completed mutation facts separately from the existing refresh decision.</summary>
     internal FolderAutoRenameCompletionReceipt(long generation, bool allFolders, FolderAutoRenameExecutionResult result)
     {
         Generation = generation;
@@ -208,9 +209,13 @@ internal sealed class FolderAutoRenameCompletionReceipt
         ManualRecoveryRequired = result?.ManualRecoveryRequired == true;
         CompletedWithCleanupFailure = result?.CompletedWithCleanupFailure == true;
         RecoveryPaths = result?.RecoveryPaths ?? [];
+        MutationReceipt = result?.MutationResult?.MutationReceipt;
     }
 
     internal long Generation { get; }
+
+    /// <summary>Retains all operation facts for the terminal report, independently of refresh.</summary>
+    internal FileDbMutationBatchReceipt MutationReceipt { get; }
 
     internal bool AllFolders { get; }
 
@@ -576,6 +581,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
 
     private void Execute(RunContext run)
     {
+        FolderAutoRenameExecutionResult result = null;
         try
         {
             if (!IsCurrentGeneration(run))
@@ -620,7 +626,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 ProcessedCount = processed,
                 CurrentPath = currentPath ?? string.Empty
             });
-            FolderAutoRenameExecutionResult result = null;
             if (run.AllFolders)
             {
                 if (!ExecuteMutation(
@@ -688,7 +693,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 throw new InvalidOperationException("Folder auto-rename executor returned no result.");
             }
             LogInfoSafely("folder_auto_rename done scope=" + (run.AllFolders ? "all" : "selected") + " refreshRequired=" + result.RefreshRequired);
-            if (result.HasDurableFinalizationFailure)
+            if (result.HasDurableFinalizationFailure || result.MutationResult?.PrimaryFailure != null)
             {
                 CompleteFailure(
                     run,
@@ -702,7 +707,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
         catch (Exception exception)
         {
             LogInfoSafely("folder_auto_rename failed scope=" + (run.AllFolders ? "all" : "selected") + " message=" + FormatExceptionMessage(exception));
-            CompleteFailure(run, exception);
+            CompleteFailure(run, exception, result);
         }
     }
 

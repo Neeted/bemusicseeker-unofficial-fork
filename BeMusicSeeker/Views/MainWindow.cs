@@ -467,7 +467,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             ?? new MainWindowPendingPackageMutationViewTerminal(
                 () => treeViewItemInstallPending?.IsSelected == true,
                 () => treeViewItemInstallPending?.Items.Count ?? 0,
-                mode => viewModel.RegularChartList.NavigateInstallAsync(mode));
+                mode => viewModel.RegularChartList.NavigateInstallAsync(mode),
+                viewModel.FileDbMutationDialogs);
         this.installedLocationRepairTerminal = installedLocationRepairTerminal ?? MainWindowInstalledLocationRepairTerminal.Create(viewModel);
         this.pendingBulkMaintenanceTerminal = pendingBulkMaintenanceTerminal ?? MainWindowPendingBulkMaintenanceTerminal.Create(viewModel);
         this.mainChartCellEditTerminal = mainChartCellEditTerminal ?? MainWindowMainChartCellEditTerminal.Create(viewModel);

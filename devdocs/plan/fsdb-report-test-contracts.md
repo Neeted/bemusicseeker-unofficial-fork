@@ -61,18 +61,25 @@ Worker は fixture／recording／assertion mechanics を調整できる。severi
 | Contract ID | Production ingress / required outcome | Allowed variation / wrong implementation / evidence |
 | --- | --- | --- |
 | FSDB-B1 | 選択／全自動 rename request → FolderAutoRenameWorkflowOwner → completion/failure → production UI consumer。外側 gate/activity 解放後、一回通知。cleanup-only は durable を保持した Warning、non-durable/manual/required-finalization は Error。primary、cleanup、durable prefix を保持し、refresh の有無で通知を落とさない。 | 翻訳、内部 result、独立項目順序、正常 refresh は自由。completion だけ購読、RefreshRequired の早期 return が反例。selected/all ingress と実 consumer で cleanup/finalization を観測する。cleanup-only と refresh=false の到達不能な直積は要求しない。 |
-| FSDB-B2 | dropped paths enqueue → ProcessBatch → BmsLibraryPackageInstallMutationPort → completion → UI。新規 Packages が 0 件でも異常 receipt を報告。cleanup-only は Warning、error dimension は保持する。 | 正常空 no-op は silent、queue continuation 維持。Packages.Count の中だけで報告する実装を落とす。実 cleanup-only candidate モデル companion と enqueue→completion→dialog を使う。 |
+| FSDB-B2 | dropped paths enqueue → ProcessBatch → BmsLibraryPackageInstallMutationPort → completion → UI。新規 Packages が 0 件でも異常 receipt を報告。cleanup-only は Warning、error dimension は保持する。 | 正常空 no-op は silent、queue continuation 維持。Packages.Count の中だけで報告する実装を落とす。実到達する非空 cleanup Warning と、先頭 package の manual/finalization/非 durable failure による空 Error を enqueue→completion→dialog で観測する。 |
 | FSDB-B3 | 保留の強制／手動導入の四 UI route → ExecuteInstallAsync → MainWindowPendingPackageMutationViewTerminal.ApplyAsync。同じ receipt facts を一回報告し、ShouldApplyView/navigation で異常を省略しない。正常は silent。 | 既存の正常 selection/navigation、copy、private 構造は自由。package route だけ接続し chart route を漏らす反例。四つの軽量 wiring と代表 owner/terminal warning/error、formatter 全 matrix は複製しない。 |
 | FSDB-B4 | B1–B3 の実 mutation →既存 cleanup → report。durable/primary/finalization/cleanup/recovery facts を保持。report failure は診断のみ、outcome を変更せず再通知／再実行しない。無関係な lifecycle failure は既存伝播。 | exception 容器、診断文言は自由。finally で receipt を捨てる、presenter failure を install failure として再報告する反例。既存 suppression/dialog-scope cleanup の限定 failure、reporter failure を注入し、facts と mutation/notification 試行数を観測。 |
 | FSDB-B5 | receipt-aware model ingress → owner terminal、対照は legacy / receipt-less refusal。同じ receipt の model 個別表示と report を重複させず、confirmation と receipt なし事前拒否は保持。正常は silent。 | 既存確認選択肢、翻訳、診断順序は自由。全 model dialog 抑止、旧 item dialog 残留を落とす。model dialog と IUiDialogService の両方を観測し、confirmation と結果件数を区別。 |
 
 ### B coverage / verification
 
+実装中の root 補足（各対応修正前に承認）:
+
+- B2 の到達性を訂正。CleanupOnlyCandidates は pending estimated 専用で drop からは到達しない。drop の cleanup-only 成功は package に登録されるため、空 package と cleanup-only の直積は要求しない。空でも異常通知を省略しない authority は維持し、上表の実到達ケースへ限定した。
+- primary failure の保持は receipt の exception chain と全件診断で検証する。ダイアログは代表 error の要約であり、全 inner exception の文言を表示する契約ではない。独立 fault marker を UI 本文へ要求する過剰 assertion は chain 保持へ修正し、A formatter は変更しない。
+- 既存の正常 cleanup-only 完了案内は維持する。同じ canonical batch に異常 receipt が混在して集約 report を出す場合だけ、その正常案内を抑止し、正常分は report の durable 件数に残す。legacy / receipt-less 案内は維持する。
+- 新 consumer fixture の全 app close が並行する別 fixture の SQLite 接続まで待つ timeout を二回再現したため、既存 application-lifetime fixture へ配置を変更した。新 DNP / runner / timeout は追加・変更しない。assertion semantics は維持する。
+
 | IDs | Candidate fixture / placement | Resource / completion / retirement |
 | --- | --- | --- |
 | B1 | FolderAutoRenameWorkflowOwnerTests を extend、モデル companion は BmsLibraryFolderRenameRefreshTests | GUID temp FS/DB、既存 port、completion/failure event と WaitForIdleAsync。receipt 消失経路を置換。 |
 | B2 | PackageInstallWorkflowOwnerTests、BmsLibraryPackageInstallServiceTests を extend | GUID temp ingress/DB、既存 port、completion/idle signal。package 件数による通知省略を退役。 |
-| B1/B2 wiring | 必要なら MainWindowFileDbMutationConsumerTests を new、MainWindowViewModelTestFactory/ApplicationComposition の既存 composition を使用 | TestUiDispatcherHost、recording dialog、実 production request terminal/dispatcher completion。window 表示なし。test 側で production handler を再実装しない。 |
+| B1/B2 wiring | MainWindowPackageMaintenanceWpfTests を extend、MainWindowViewModelTestFactory/ApplicationComposition の既存 composition を使用 | TestUiDispatcherHost、recording dialog、実 production request terminal/dispatcher completion。window 表示なし。全 application close の process-global SQLite drain を既存 lifetime fixture が所有する。新 MainWindowFileDbMutationConsumerTests は退役。test 側で production handler を再実装しない。 |
 | B3 | PendingPackageWorkflowOwnerTests、MainWindowPendingPackageMutationViewTerminalTests、四 route は MainWindowPackageMaintenanceWpfTests を extend | 既存 constructor-only WPF harness、recording store/dialog、awaited owner→terminal task/event。receipt-backed 個別通知を置換。 |
 | B4/B5 | 上記 fixture の近傍を extend / 必要時 replace | 同じ resource、report callback で gate 再取得・activity inactive を観測。旧 dialog 件数だけの assertion を aggregate behavior へ置換。 |
 

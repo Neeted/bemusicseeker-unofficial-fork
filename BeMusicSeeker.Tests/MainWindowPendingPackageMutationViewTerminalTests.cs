@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
@@ -258,6 +260,62 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.IsFalse(state.ShouldNavigateToEmptySection(
             PackageCatalogSection.Installed,
             PackageCatalogSection.Pending));
+    }
+
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task ReceiptReportIsOnceAndDoesNotDependOnNavigation(bool finalizationFailed, bool reporterThrows)
+    {
+        var cleanup = new IOException("pending-cleanup-marker");
+        var primary = finalizationFailed ? new IOException("pending-finalizer-marker") : null;
+        var receipt = new FileDbMutationReceipt(Guid.NewGuid(),
+            finalizationFailed ? FileDbMutationTerminalState.DurableFinalizationFailed
+                : FileDbMutationTerminalState.CompletedWithCleanupFailure,
+            true, 0, 1, [@"C:\pending-source"], [@"D:\installed"], [], [], [@"C:\pending-candidate"],
+            primary ?? cleanup, primary, cleanup);
+        var batch = new FileDbMutationBatchReceipt([receipt]);
+        var result = PendingPackageMutationResult.FromTerminal(batch);
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            MessageFailure = reporterThrows ? new IOException("optional reporter failed") : null
+        };
+        int applied = 0;
+        var terminal = new MainWindowPendingPackageMutationViewTerminal(
+            () => false, () => 1, _ => throw new AssertFailedException("navigation not requested"), dialogs);
+
+        await terminal.ApplyAsync(result, PackageCatalogSection.Pending,
+            MainViewUpdateMode.PendingInstallFolderSelected, nameof(ReceiptReportIsOnceAndDoesNotDependOnNavigation),
+            () => applied++);
+
+        Assert.AreEqual(1, applied);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(finalizationFailed ? System.Windows.MessageBoxImage.Error : System.Windows.MessageBoxImage.Warning, dialogs.Messages[0].Icon);
+        StringAssert.Contains(dialogs.Messages[0].MessageBoxText, cleanup.Message);
+        if (primary != null) StringAssert.Contains(dialogs.Messages[0].MessageBoxText, primary.Message);
+        Assert.AreSame(batch, result.MutationReceipt);
+        Assert.IsTrue(result.HasDurableCommit);
+    }
+
+    [TestMethod]
+    public async Task ReceiptDoesNotHideUnrelatedLifecycleFailure()
+    {
+        var receipt = new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.Completed,
+            true, 0, 0, [@"C:\source"], [@"D:\destination"], [], [], [], null);
+        var failure = new IOException("unrelated-lifecycle-marker");
+        var dialogs = new FileDbReportRecordingDialogs();
+        var terminal = new MainWindowPendingPackageMutationViewTerminal(
+            () => false, () => 1, _ => Task.FromResult(true), dialogs);
+        var result = PendingPackageMutationResult.FailedAfterMutation(failure,
+            mutationReceipt: new FileDbMutationBatchReceipt([receipt]));
+        Exception observed = await Assert.ThrowsExceptionAsync<IOException>(() => terminal.ApplyAsync(
+            result, PackageCatalogSection.Pending, MainViewUpdateMode.PendingInstallFolderSelected,
+            nameof(ReceiptDoesNotHideUnrelatedLifecycleFailure)));
+        Assert.AreSame(failure, observed);
+        Assert.IsTrue(result.HasDurableCommit);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages[0].Icon);
     }
 
     private static void ThrowFailure(Exception failure)

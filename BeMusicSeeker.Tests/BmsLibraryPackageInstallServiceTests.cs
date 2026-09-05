@@ -353,6 +353,51 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void EstimatedCleanupKeepsNormalAdviceButDefersMixedAbnormalAdviceToTerminal(bool reportAtTerminal, bool cleanupFails)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb((dbPath, root) =>
+        {
+            string installedDirectory = Path.Combine(root, "installed");
+            string firstSource = Path.Combine(root, "pending-first");
+            string secondSource = Path.Combine(root, "pending-second");
+            BMSFile installed = BMSFile.CreateBMSFileFromFile(CreateBmsFile(installedDirectory, "chart.bms", "#TITLE AlreadyInstalled"));
+            BMSFile firstChart = BMSFile.CreateBMSFileFromFile(CreateBmsFile(firstSource, "chart.bms", "#TITLE AlreadyInstalled"));
+            BMSFile secondChart = BMSFile.CreateBMSFileFromFile(CreateBmsFile(secondSource, "chart.bms", "#TITLE AlreadyInstalled"));
+            var first = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(firstChart, installedDirectory));
+            var second = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(secondChart, installedDirectory));
+            first.path = firstSource;
+            second.path = secondSource;
+            first.delete_parent = second.delete_parent = false;
+            var dialogs = new FileDbReportRecordingDialogs();
+            IFileMutationService files = cleanupFails ? new FailingDestinationDeleteFileMutationService(secondSource)
+                : new RealFileMutationService();
+            var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false,
+                    BMSInstallDir = installedDirectory, FolderNameFormat = "%TITLE%", DeletePendingPackageSourceAfterInstall = true })
+            { BMSFiles = [installed], ChartPackagesPending = CreatePackageCollection([first, second]),
+                ChartPackagesInstalled = CreatePackageCollection([]) };
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
+                [first, second], reportAtTerminal: reportAtTerminal);
+            Assert.AreEqual(2, result.CleanupOnlySucceeded);
+            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
+            Assert.IsTrue(result.MutationReceipt.Receipts.All(receipt => receipt.DurableCommit));
+            Assert.AreEqual(cleanupFails, result.CompletedWithCleanupFailure);
+            Assert.AreEqual(reportAtTerminal && cleanupFails ? 0 : 1, dialogs.ModelMessages);
+            Assert.IsFalse(Directory.Exists(firstSource));
+            Assert.AreEqual(cleanupFails, Directory.Exists(secondSource));
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+        });
+    }
+
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_ResourceOnlyBmsonWorksWithoutBmsFiles()
     {
@@ -3219,8 +3264,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
     /// A manual-recovery receipt stops the batch, while the successful prefix
     /// is still applied to the pending and installed collections.
     /// </summary>
-    [TestMethod]
-    public void ForceInstallPendingPackages_AppliesDurablePrefixBeforeManualRecoveryStopsBatch()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ForceInstallPendingPackages_AppliesDurablePrefixBeforeManualRecoveryStopsBatch(bool reportAtTerminal)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
@@ -3256,12 +3303,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     + "' BEGIN SELECT RAISE(ABORT, 'forced second force-install target failure'); END;");
             }
 
+            var dialogs = new FileDbReportRecordingDialogs();
             var library = new TestBmsLibrary(
                 songDbPath,
                 null,
                 null,
                 new FailingDestinationDeleteFileMutationService(secondDestinationDirectoryPath),
-                new RecordingDialogService(),
+                dialogs,
                 new TestUiScheduler(() => null),
                 () => new BmsLibraryOptionsSnapshot
                 {
@@ -3276,7 +3324,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [firstPackage, secondPackage, thirdPackage],
                 approveNormalInstallOverride: true,
-                approvedNormalInstallOverridePackages: null);
+                approvedNormalInstallOverridePackages: null, reportAtTerminal: reportAtTerminal);
+            Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.ModelMessages);
 
             Assert.IsTrue(receipt.HasDurableCommit);
             Assert.IsTrue(receipt.ManualRecoveryRequired);
@@ -5743,7 +5792,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }
     }
 
-    private sealed class FailingDestinationDeleteFileMutationService(string failurePath) : IFileMutationService
+    /// <summary>Injects one path-specific deletion failure while retaining real mutation behavior.</summary>
+    internal sealed class FailingDestinationDeleteFileMutationService(string failurePath) : IFileMutationService
     {
         private readonly RealFileMutationService inner = new();
 

@@ -24,6 +24,8 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort, IStartupLibraryFactory
 {
+    /// <summary>Shares optional FS/DB terminal reporting across feature and view consumers.</summary>
+    internal IUiDialogService FileDbMutationDialogs { get; }
     private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
 
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
@@ -85,6 +87,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <summary>Creates the application composition with replaceable process and audio catalog boundaries.</summary>
     /// <param name="scoreViewerRegistrationGateway">Score Viewer 登録の network boundary。未指定時は production gateway を使います。</param>
     /// <param name="keywordSearchFavoritesSettingsStore">Keyword search Favorites persistence boundary。</param>
+    /// <param name="fileDbMutationDialogService">Shared optional mutation-report presentation boundary.</param>
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -110,7 +113,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IAudioDeviceCatalog audioDeviceCatalog = null,
         IScoreViewerRegistrationGateway scoreViewerRegistrationGateway = null,
         IExternalProgramLaunchGateway externalProgramLaunchGateway = null,
-        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null)
+        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null,
+        IUiDialogService fileDbMutationDialogService = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -134,6 +138,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
+        FileDbMutationDialogs = fileDbMutationDialogService ?? new UiDialogCoordinator();
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
             ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.startupSettingsProvider = startupSettingsProvider
