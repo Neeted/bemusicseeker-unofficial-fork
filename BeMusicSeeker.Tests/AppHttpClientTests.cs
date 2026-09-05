@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Net;
@@ -66,9 +67,9 @@ public sealed class AppHttpClientTests
 
     [TestMethod]
     [TestCategory("Http")]
-    public void PostString_StripsUtf8BomFromResponse()
+    public async Task PostString_StripsUtf8BomFromResponse()
     {
-        using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"ok\":true}"));
+        await using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"ok\":true}"));
 
         string response = AppHttpClient.Shared.PostString(server.Address, "body", "application/json;charset=UTF-8", Encoding.UTF8);
 
@@ -78,12 +79,12 @@ public sealed class AppHttpClientTests
 
     [TestMethod]
     [TestCategory("Http")]
-    public void PostFile_StripsUtf8BomFromResponse()
+    public async Task PostFile_StripsUtf8BomFromResponse()
     {
         string uploadFilePath = CreateTempFileWithBytes(Encoding.UTF8.GetBytes("upload"));
         try
         {
-            using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"uploaded\":true}"));
+            await using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"uploaded\":true}"));
 
             string response = AppHttpClient.Shared.PostFile(server.Address, uploadFilePath, responseEncoding: Encoding.UTF8);
 
@@ -94,6 +95,54 @@ public sealed class AppHttpClientTests
         {
             File.Delete(uploadFilePath);
         }
+    }
+
+    [TestMethod]
+    [TestCategory("Http")]
+    public async Task GetStringAsync_HeadersAndBodyShareOneDeadline()
+    {
+        await using var server = new SingleRequestHttpServer([65], holdBody: true, headerDelayMs: 1200);
+        Task<string> request = AppHttpClient.Create(2000).GetStringAsync(server.Address);
+        try
+        {
+            await server.HeadersSent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await AssertRequestCancelledAsync(request.WaitAsync(TimeSpan.FromMilliseconds(1600)));
+        }
+        finally
+        {
+            server.ReleaseBody.TrySetResult();
+            try { await request.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (OperationCanceledException) { }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Http")]
+    // header/body 共通経路への外部 token 接続を補助検証する。本文開始の独立証明ではない。
+    public async Task GetStringAsync_ExternalCancellationTerminatesPendingResponse()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await using var server = new SingleRequestHttpServer([65], holdBody: true);
+        Task<string> request = AppHttpClient.Create(30000).GetStringAsync(server.Address, cancellationToken: cancellation.Token);
+        try
+        {
+            await server.HeadersSent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            cancellation.Cancel();
+            await AssertRequestCancelledAsync(request.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            server.ReleaseBody.TrySetResult();
+            try { await request.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (OperationCanceledException) { }
+        }
+    }
+
+    private static async Task AssertRequestCancelledAsync(Task request)
+    {
+        try { await request; }
+        catch (OperationCanceledException) { return; }
+        Assert.Fail("未受信本文を成功として返さず、期限またはキャンセルで中止する。");
     }
 
     private static byte[] CreateUtf8BomBytes(string text)
@@ -108,50 +157,71 @@ public sealed class AppHttpClientTests
         return filePath;
     }
 
-    private sealed class SingleRequestHttpServer : IDisposable
+    private sealed class SingleRequestHttpServer : IAsyncDisposable
     {
         private readonly TcpListener listener;
 
         private readonly Task serverTask;
 
         private readonly byte[] responseBody;
+        private readonly bool holdBody;
+        private readonly int headerDelayMs;
+        private TcpClient acceptedClient;
+        public TaskCompletionSource HeadersSent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseBody { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Uri Address { get; }
 
         public string RequestMethod { get; private set; } = string.Empty;
 
-        public SingleRequestHttpServer(byte[] responseBody)
+        public SingleRequestHttpServer(byte[] responseBody, bool holdBody = false, int headerDelayMs = 0)
         {
             this.responseBody = responseBody ?? [];
+            this.holdBody = holdBody;
+            this.headerDelayMs = headerDelayMs;
             listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
             int port = ((IPEndPoint)listener.LocalEndpoint).Port;
             Address = new Uri("http://127.0.0.1:" + port + "/");
-            serverTask = Task.Run((Action)ServeSingleRequest);
+            serverTask = Task.Run(ServeSingleRequest);
         }
 
-        public void Dispose()
+        public async ValueTask DisposeAsync()
         {
             listener.Stop();
-            serverTask.GetAwaiter().GetResult();
+            ReleaseBody.TrySetResult();
+            acceptedClient?.Dispose();
+            await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
-        private void ServeSingleRequest()
+        private async Task ServeSingleRequest()
         {
             try
             {
-                using TcpClient client = listener.AcceptTcpClient();
+                using TcpClient client = await listener.AcceptTcpClientAsync();
+                acceptedClient = client;
                 using NetworkStream stream = client.GetStream();
                 ReadRequest(stream);
                 byte[] responseBytes = BuildHttpResponse(responseBody);
-                stream.Write(responseBytes, 0, responseBytes.Length);
-                stream.Flush();
+                // HTTP の単一期限契約を検証するためだけに、ヘッダー応答で予算を消費する。
+                if (headerDelayMs > 0) await Task.Delay(headerDelayMs);
+                int headerLength = responseBytes.Length - responseBody.Length;
+                await stream.WriteAsync(responseBytes.AsMemory(0, headerLength));
+                await stream.FlushAsync();
+                HeadersSent.TrySetResult();
+                if (holdBody) await ReleaseBody.Task;
+                await stream.WriteAsync(responseBody);
+                await stream.FlushAsync();
             }
             catch (SocketException)
             {
             }
             catch (ObjectDisposedException)
             {
+            }
+            catch (IOException) when (holdBody)
+            {
+                // 本文待機を中止したクライアントの切断は、この fixture の正常な終端。
             }
         }
 

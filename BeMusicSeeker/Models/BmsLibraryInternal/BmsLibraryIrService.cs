@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Util.Extensions;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -376,7 +377,8 @@ internal sealed class BmsLibraryIrService
         return UpdateIrScoreTableWithMetrics(lr2Id, dbGateway, irClient, lr2IrScoreRegex).ScoreTable;
     }
 
-    public IrScorePrefetchResult PrefetchIrScoreTableWithMetrics(int lr2Id, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex)
+    /// <summary>終了キャンセルと通信期限を保ったまま、一度だけ取得・解析して後続へ渡します。</summary>
+    public IrScorePrefetchResult PrefetchIrScoreTableWithMetrics(int lr2Id, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex, CancellationToken cancellationToken = default)
     {
         var result = new IrScorePrefetchResult
         {
@@ -384,6 +386,7 @@ internal sealed class BmsLibraryIrService
         };
         if (irClient == null || lr2IrScoreRegex == null || lr2Id == 0)
         {
+            result.Failure = IrScoreFailure.Unavailable;
             result.FailureReason = "unavailable";
             return result;
         }
@@ -391,12 +394,23 @@ internal sealed class BmsLibraryIrService
         try
         {
             var fetchStopwatch = Stopwatch.StartNew();
-            playerXml = irClient.GetPlayerScoresXml(lr2Id);
+            cancellationToken.ThrowIfCancellationRequested();
+            playerXml = irClient.GetPlayerScoresXml(lr2Id, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             fetchStopwatch.Stop();
             result.XmlFetchMs = fetchStopwatch.ElapsedMilliseconds;
         }
-        catch
+        catch (OperationCanceledException ex)
         {
+            result.Failure = cancellationToken.IsCancellationRequested ? IrScoreFailure.Cancelled : IrScoreFailure.TimedOut;
+            result.FailureReason = result.Failure == IrScoreFailure.Cancelled ? "cancelled" : "timed_out";
+            NLogWrapper.FileLogger?.Warn(ex, "IR score fetch ended lr2Id=" + lr2Id + " status=" + result.FailureReason);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            result.Failure = IrScoreFailure.Unavailable;
+            NLogWrapper.FileLogger?.Warn(ex, "IR score fetch failed lr2Id=" + lr2Id);
             result.FailureReason = "fetch_failed";
             return result;
         }
@@ -408,9 +422,11 @@ internal sealed class BmsLibraryIrService
             result.XmlParseMs = parseStopwatch.ElapsedMilliseconds;
             result.ParsedRows = result.ScoreTable.Count;
         }
-        catch
+        catch (Exception ex)
         {
+            result.Failure = IrScoreFailure.Unavailable;
             result.FailureReason = "parse_failed";
+            NLogWrapper.FileLogger?.Warn(ex, "IR score parse failed lr2Id=" + lr2Id);
             return result;
         }
         try
@@ -420,14 +436,17 @@ internal sealed class BmsLibraryIrService
             digestStopwatch.Stop();
             result.DigestMs = digestStopwatch.ElapsedMilliseconds;
         }
-        catch
+        catch (Exception ex)
         {
+            result.Failure = IrScoreFailure.Unavailable;
             result.FailureReason = "digest_failed";
+            NLogWrapper.FileLogger?.Warn(ex, "IR score digest failed lr2Id=" + lr2Id);
         }
         return result;
     }
 
-    public IrScoreTableUpdateResult UpdateIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex, IrScorePrefetchResult prefetchedScore = null)
+    /// <summary>同じ要求の prefetch は失敗も消費し、取得失敗・終了キャンセルでは DB を変更しません。</summary>
+    public IrScoreTableUpdateResult UpdateIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex, IrScorePrefetchResult prefetchedScore = null, CancellationToken cancellationToken = default)
     {
         var result = new IrScoreTableUpdateResult();
         if (dbGateway == null || irClient == null || lr2IrScoreRegex == null || lr2Id == 0 || string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
@@ -435,7 +454,32 @@ internal sealed class BmsLibraryIrService
             result.SkipReason = "unavailable";
             return result;
         }
-        string playerXml;
+        IrScorePrefetchResult fetched = prefetchedScore?.Lr2Id == lr2Id
+            ? prefetchedScore
+            : PrefetchIrScoreTableWithMetrics(lr2Id, irClient, lr2IrScoreRegex, cancellationToken);
+        result.PrefetchUsed = ReferenceEquals(fetched, prefetchedScore);
+        if (result.PrefetchUsed)
+        {
+            result.PrefetchXmlFetchMs = fetched.XmlFetchMs;
+            result.PrefetchXmlParseMs = fetched.XmlParseMs;
+            result.PrefetchDigestMs = fetched.DigestMs;
+        }
+        else
+        {
+            result.XmlFetchMs = fetched.XmlFetchMs;
+            result.XmlParseMs = fetched.XmlParseMs;
+            result.DigestMs = fetched.DigestMs;
+        }
+        if (cancellationToken.IsCancellationRequested || !fetched.Succeeded)
+        {
+            result.Failure = cancellationToken.IsCancellationRequested ? IrScoreFailure.Cancelled
+                : fetched.Failure == IrScoreFailure.None ? IrScoreFailure.Unavailable : fetched.Failure;
+            result.SkipReason = cancellationToken.IsCancellationRequested ? "cancelled" : fetched.FailureReason;
+            return result;
+        }
+        List<LR2IRScore> scoreTable = [.. fetched.ScoreTable];
+        string scoreDigest = fetched.ScoreDigestSha256;
+        result.ParsedRows = scoreTable.Count;
         LR2SongDBExtended.ir_score_refresh_metadata metadata = null;
         try
         {
@@ -444,58 +488,6 @@ internal sealed class BmsLibraryIrService
         }
         catch
         {
-        }
-        List<LR2IRScore> scoreTable;
-        string scoreDigest;
-        if (prefetchedScore != null && prefetchedScore.Succeeded && prefetchedScore.Lr2Id == lr2Id)
-        {
-            scoreTable = [.. prefetchedScore.ScoreTable];
-            scoreDigest = prefetchedScore.ScoreDigestSha256;
-            result.PrefetchUsed = true;
-            result.PrefetchXmlFetchMs = prefetchedScore.XmlFetchMs;
-            result.PrefetchXmlParseMs = prefetchedScore.XmlParseMs;
-            result.PrefetchDigestMs = prefetchedScore.DigestMs;
-            result.ParsedRows = scoreTable.Count;
-        }
-        else
-        {
-            try
-            {
-                var fetchStopwatch = Stopwatch.StartNew();
-                playerXml = irClient.GetPlayerScoresXml(lr2Id);
-                fetchStopwatch.Stop();
-                result.XmlFetchMs = fetchStopwatch.ElapsedMilliseconds;
-            }
-            catch
-            {
-                result.SkipReason = "unavailable";
-                return result;
-            }
-            try
-            {
-                var parseStopwatch = Stopwatch.StartNew();
-                scoreTable = ParsePlayerScoreXml(playerXml, lr2IrScoreRegex);
-                parseStopwatch.Stop();
-                result.XmlParseMs = parseStopwatch.ElapsedMilliseconds;
-                result.ParsedRows = scoreTable.Count;
-            }
-            catch
-            {
-                result.SkipReason = "unavailable";
-                return result;
-            }
-            try
-            {
-                var digestStopwatch = Stopwatch.StartNew();
-                scoreDigest = ComputeScoreDigest(scoreTable);
-                digestStopwatch.Stop();
-                result.DigestMs = digestStopwatch.ElapsedMilliseconds;
-            }
-            catch
-            {
-                result.SkipReason = "unavailable";
-                return result;
-            }
         }
         if (metadata != null && string.Equals(metadata.score_digest_sha256, scoreDigest, StringComparison.OrdinalIgnoreCase))
         {

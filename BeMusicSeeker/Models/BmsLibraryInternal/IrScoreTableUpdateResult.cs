@@ -5,6 +5,8 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class IrScoreTableUpdateResult
 {
+    /// <summary>DB と live score を保持した取得失敗の分類。</summary>
+    public IrScoreFailure Failure { get; set; }
     public List<LR2IRScore> ScoreTable { get; set; }
 
     public long XmlFetchMs { get; set; }

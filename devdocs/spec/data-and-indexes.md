@@ -96,6 +96,9 @@ health / install estimation / maintenance は category 別 chart-relative key �
 - playlist header は startup early phase で読む。
 - playlist entries は startup background task `playlist_entries_hydration` で読む。
 - score DB load は startup early phase で行い、LR2ID 確定後に LR2IR player score XML prefetch を開始する。
+- player score XML は要求開始から本文受信完了まで単一の30秒予算とし、ヘッダー受信後に期限を再開始しない。終了要求は本文待機にも伝播する。
+- 同じ player / score DB の prefetch は失敗結果も後続の ranking refresh へ渡し、失敗後の即時再取得はしない。通信失敗・期限超過・終了キャンセルでは既存 `ir_score`、digest metadata、live score を保持する。正常に取得した空スコアと取得失敗を区別する。
+- 期限超過・キャンセル・取得不能は IR 結果の型と通常ログで区別し、startup ranking refresh の background status に取得失敗を反映する。新しい modal dialog や自動 retry は追加しない。
 - ranking refresh / score hydration は install readiness blocker ではない。
 
 LR2 ranking 系は 2 table に分かれる。
@@ -114,6 +117,10 @@ LR2 ranking 系は 2 table に分かれる。
   - `EstimateOfflineScoreRanking=true` の場合、offline score ranking estimation は必要時だけ同じ parser の compact rank calculator を on-demand load する。startup refresh で reload 済みの hash はその lookup を再利用する。
   - 初回構築では対象 LR2ID の既存 row が DB 上も 0 件であることを transaction 内で確認し、dedupe 済み rows を bulk insert する。incremental 更新は従来通り `(hash, lr2id)` 単位の delete + insert upsert を使う。
   - schema 互換のため unique 制約は持たない。index は既存 `ir_data_idx(lr2id)` に加え、非 unique `ir_data_idx_lr2id_hash(lr2id, hash)` を持つ。
+
+### Verification map: IR 取得
+
+`AppHttpClientTests` は固有 loopback socket のヘッダー・本文 phase を制御し、本文までの単一期限と応答待機中の外部キャンセルを検証する。`BmsLibraryIrServiceTests` は固有 DB で失敗 prefetch の再取得禁止、既存データ保持、成功 prefetch と digest 互換を検証する。`BmsLibraryIrStartupTests` は captured options と IR client、存在しない Everything bridge の composition から `InitializeStartup` / `RequestShutdown` を通し、live score 保持、失敗 status、通信と ranking の drain を検証する。いずれも Functional（IR fixture は BmsLibrary shard）に属し、正常完了は request Task / client signal / ranking state transition、timeout は HTTP 契約または cleanup watchdog に限定する。
 
 ## DB Access
 

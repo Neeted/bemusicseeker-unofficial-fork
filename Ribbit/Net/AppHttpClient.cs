@@ -215,7 +215,7 @@ internal sealed class AppHttpClient
     }
 
     /// <summary>
-    /// 指定 URI の内容を非同期に文字列として取得します。
+    /// 指定 URI の内容を、要求開始から本文完了まで一つの期限で非同期に取得します。
     /// </summary>
     /// <param name="uri">取得元 URI。</param>
     /// <param name="encoding">レスポンスを文字列化する文字コード。省略時は UTF-8。</param>
@@ -233,13 +233,13 @@ internal sealed class AppHttpClient
             byte[] bytes = await Task.Run(() => LongPathFileSystem.ReadAllBytes(uri.LocalPath), cancellationToken).ConfigureAwait(false);
             return DecodeStringAndTrimBom(bytes, encoding);
         }
-        using (HttpResponseMessage httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, cancellationToken).ConfigureAwait(false))
+        using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (httpClient.Timeout != Timeout.InfiniteTimeSpan)
         {
-            using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            if (httpClient.Timeout != Timeout.InfiniteTimeSpan)
-            {
-                readCancellation.CancelAfter(httpClient.Timeout);
-            }
+            readCancellation.CancelAfter(httpClient.Timeout);
+        }
+        using (HttpResponseMessage httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, readCancellation.Token).ConfigureAwait(false))
+        {
             byte[] bytes = await ReadResponseBytesAsync(httpResponseMessage, readCancellation.Token).ConfigureAwait(false);
             return DecodeStringAndTrimBom(bytes, encoding);
         }

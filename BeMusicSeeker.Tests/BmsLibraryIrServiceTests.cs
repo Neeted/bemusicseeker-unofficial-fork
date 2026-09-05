@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -1243,6 +1244,46 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(hash, result.ScoreTable[0].hash);
     }
 
+    [TestMethod]
+    public void UpdateIrScoreTableWithMetrics_FailedPrefetchPreservesNonemptyDatabaseWithoutRetry()
+    {
+        using var env = TempIrEnvironment.Create();
+        var service = new BmsLibraryIrService();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        const string hash = "12345678901234567890123456789012";
+        gateway.ReplaceIrScoreTable([new LR2IRScore { hash = hash, pg = 321, gr = 45 }]);
+        gateway.UpsertIrScoreRefreshMetadata(123, "retained-digest");
+        var beforeMetadata = gateway.LoadIrScoreRefreshMetadata(123);
+        var client = new FakeIrClient(BuildPlayerScoreXml(hash, pg: 999, gr: 1));
+        var prefetch = new IrScorePrefetchResult { Lr2Id = 123, FailureReason = "fetch_failed" };
+
+        IrScoreTableUpdateResult result = service.UpdateIrScoreTableWithMetrics(123, gateway, client, PlayerScoreRegex, prefetch);
+
+        Assert.AreEqual(0, client.PlayerScoreXmlRequestCount, "失敗済みの同じ要求を再取得しない。");
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(IrScoreFailure.Unavailable, result.Failure);
+        var retained = gateway.LoadIrScoreRows().Single();
+        Assert.AreEqual(hash, retained.hash);
+        Assert.AreEqual(321, retained.pg);
+        Assert.AreEqual(45, retained.gr);
+        Assert.AreEqual(beforeMetadata.score_digest_sha256, gateway.LoadIrScoreRefreshMetadata(123).score_digest_sha256);
+        Assert.AreEqual(beforeMetadata.updated_at, gateway.LoadIrScoreRefreshMetadata(123).updated_at);
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PrefetchIrScoreTable_ClassifiesDeadlineAndShutdownSeparately(bool shutdown)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var client = new FakeIrClient("") { FetchFailure = new OperationCanceledException() };
+        if (shutdown) cancellation.Cancel();
+        var service = new BmsLibraryIrService();
+        IrScorePrefetchResult result = service.PrefetchIrScoreTableWithMetrics(123, client, PlayerScoreRegex, cancellation.Token);
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(shutdown ? IrScoreFailure.Cancelled : IrScoreFailure.TimedOut, result.Failure);
+    }
+
     private static TestableBmsFile CreateFile(string hash)
     {
         var file = new TestableBmsFile();
@@ -1420,9 +1461,12 @@ public sealed class BmsLibraryIrServiceTests
 
         public int PlayerScoreXmlRequestCount { get; private set; }
 
-        public string GetPlayerScoresXml(int lr2Id)
+        public Exception FetchFailure { get; set; }
+
+        public string GetPlayerScoresXml(int lr2Id, CancellationToken cancellationToken = default)
         {
             PlayerScoreXmlRequestCount++;
+            if (FetchFailure != null) throw FetchFailure;
             return PlayerScoreXml;
         }
 

@@ -33,6 +33,8 @@ shutdown preparation は不可逆な終了準備として扱う。updater proces
 
 通常のアプリ内終了では、終了準備が tracked idle になるまで待つ。アプリ自身は idle を待たずに終了へ進む timeout fallback を持たず、強制終了が必要な場合は OS や外部プロセス kill の責務とする。
 
+IR player score の prefetch は ranking worker の開始前から走るため、prefetch Task 自体も終了待ち対象に含める。`BMSLibrary.RequestShutdown` は新規 prefetch の受付を止め、HTTP 本文受信へ cancellation を伝播する。受信中に終了要求を受けた結果は DB / score に適用せず、通信と ranking の実完了まで drain する。consumer の待機だけを解除して未完了 HTTP を切り離すことはしない。
+
 ただし待機が長引いた場合に原因を追えるよう、主処理系は 60 秒、queue/prewarm 系は 20 秒を warning threshold として扱う。threshold を超えても idle にならない場合は `shutdown wait_slow ...` を warn ログへ 1 回記録し、その後も idle になるまで待機を続ける。
 
 ## DB と SQLite statement

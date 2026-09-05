@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using BeMusicSeeker.Models.LR2;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -11,10 +12,12 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryIrClient : IBmsLibraryIrClient
 {
-    public string GetPlayerScoresXml(int lr2Id)
+    /// <summary>既存のバックグラウンド呼出元へ、本文まで30秒の期限を持つ取得結果を返します。</summary>
+    public string GetPlayerScoresXml(int lr2Id, CancellationToken cancellationToken = default)
     {
         var uri = new Uri("http://www.dream-pro.info/~lavalse/LR2IR/2/getplayerxml.cgi?id=" + lr2Id);
-        return AppHttpClient.Shared.GetString(uri, Encoding.GetEncoding("shift_jis"));
+        return AppHttpClient.Shared.GetStringAsync(uri, Encoding.GetEncoding("shift_jis"), cancellationToken)
+            .ConfigureAwait(false).GetAwaiter().GetResult();
     }
 
     public List<BMSLibrary.IRDataCacheInfo> GetRankingInfo(Uri rankingInfoUrl, IEnumerable<string> md5s)

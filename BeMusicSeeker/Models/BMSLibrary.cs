@@ -491,10 +491,12 @@ public partial class BMSLibrary : ObservableObject
 
     internal bool IsShutdownRequested => GetLr2SynchronizationRuntimeState().IsShutdownRequested;
 
+    /// <summary>新規処理の受付を止め、IR 本文受信を含む終了対象へキャンセルを通知します。</summary>
     internal void RequestShutdown(string reason)
     {
         Interlocked.Exchange(ref shutdownRequested, 1);
         GetLr2SynchronizationRuntimeState().RequestShutdown();
+        irScoreShutdownCancellation.Cancel();
         lr2SynchronizationOwner.DiscardLr2SongDbSyncCommittedPathReceipt("shutdown_requested");
         string shutdownReason = "shutdown:" + (reason ?? "unknown");
         try
@@ -515,6 +517,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    /// <summary>prefetch 通信と既存 worker の実完了前には終了を許可しません。</summary>
     internal bool HasShutdownBlockingWork =>
         Lr2SongDbSyncRunning
         || ChartInfoHydrationRunning
@@ -524,6 +527,7 @@ public partial class BMSLibrary : ObservableObject
         || InstallableMaintenanceDeferredRunning
         || ScoreHydrationRunning
         || RankingRefreshRunning
+        || IrScorePrefetchRunning
         || (packageLifecycleOwner != null && !packageLifecycleOwner.IsPendingEstimateQueueIdle);
 
     internal string GetShutdownBlockingWorkLogFields()
@@ -536,6 +540,7 @@ public partial class BMSLibrary : ObservableObject
             + " installableMaintenanceDeferredRunning=" + FormatBool(InstallableMaintenanceDeferredRunning)
             + " scoreHydrationRunning=" + FormatBool(ScoreHydrationRunning)
             + " rankingRefreshRunning=" + FormatBool(RankingRefreshRunning)
+            + " irScorePrefetchRunning=" + FormatBool(IrScorePrefetchRunning)
             + " pendingInstallEstimateQueueIdle=" + FormatBool(packageLifecycleOwner == null || packageLifecycleOwner.IsPendingEstimateQueueIdle);
     }
 
@@ -863,6 +868,19 @@ public partial class BMSLibrary : ObservableObject
     private int deferredRankingRefreshLastCompletedVersion;
 
     private readonly object lockIrScorePrefetch = new();
+
+    private readonly CancellationTokenSource irScoreShutdownCancellation = new();
+
+    private bool IrScorePrefetchRunning
+    {
+        get
+        {
+            lock (lockIrScorePrefetch)
+            {
+                return irScorePrefetchTask is { IsCompleted: false };
+            }
+        }
+    }
 
     private int irScorePrefetchGeneration;
 
@@ -2520,7 +2538,7 @@ public partial class BMSLibrary : ObservableObject
 
     private ChartInfoBuildService chartInfoBuildService => catalogChartInfoOwner.BuildService;
 
-    private readonly IBmsLibraryIrClient irClient = new BmsLibraryIrClient();
+    private readonly IBmsLibraryIrClient irClient;
 
     private readonly BmsLibraryMaintenanceService maintenanceService = new();
 
@@ -2671,6 +2689,7 @@ public partial class BMSLibrary : ObservableObject
     /// </summary>
     /// <param name="chartFileScanner">Optional captured chart scanner for deterministic internal fixtures; production callers leave it null.</param>
     /// <param name="rootFileEnumerator">Optional captured grouped enumerator for deterministic internal fixtures; production callers leave it null.</param>
+    /// <param name="irClient">IR 通信境界。省略時は本文まで期限を適用する通常クライアント。</param>
     internal BMSLibrary(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
@@ -2680,8 +2699,9 @@ public partial class BMSLibrary : ObservableObject
         IUiScheduler uiScheduler,
         ApplicationPathSnapshot applicationPathSnapshot,
         IChartFileScanner chartFileScanner = null,
-        IRootFileEnumerator rootFileEnumerator = null)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot, null, chartFileScanner, rootFileEnumerator)
+        IRootFileEnumerator rootFileEnumerator = null,
+        IBmsLibraryIrClient irClient = null)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot, null, chartFileScanner, rootFileEnumerator, irClient)
     {
     }
 
@@ -2692,6 +2712,7 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="installEstimationExecutionObserver">Optional diagnostic observer; production callers leave it null.</param>
     /// <param name="chartFileScanner">Optional captured chart scanner for deterministic internal fixtures; production callers leave it null.</param>
     /// <param name="rootFileEnumerator">Optional captured grouped enumerator for deterministic internal fixtures; production callers leave it null.</param>
+    /// <param name="irClient">IR 通信境界。省略時は本文まで期限を適用する通常クライアント。</param>
     internal BMSLibrary(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
@@ -2704,7 +2725,8 @@ public partial class BMSLibrary : ObservableObject
         ApplicationPathSnapshot applicationPathSnapshot,
         IInstallEstimationExecutionObserver installEstimationExecutionObserver = null,
         IChartFileScanner chartFileScanner = null,
-        IRootFileEnumerator rootFileEnumerator = null)
+        IRootFileEnumerator rootFileEnumerator = null,
+        IBmsLibraryIrClient irClient = null)
     {
         if (_lr2SongDB == null)
         {
@@ -2730,6 +2752,7 @@ public partial class BMSLibrary : ObservableObject
         this.applicationPathSnapshot = applicationPathSnapshot
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
         this.installEstimationExecutionObserver = installEstimationExecutionObserver;
+        this.irClient = irClient ?? new BmsLibraryIrClient();
         everythingNative = new EverythingNative(this.applicationPathSnapshot);
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
@@ -6919,6 +6942,7 @@ public partial class BMSLibrary : ObservableObject
         string scoreDbPathSnapshot = lr2ScoreDBPath;
         lock (lockIrScorePrefetch)
         {
+            if (IsShutdownRequested) return;
             if (irScorePrefetchTask != null
                 && !irScorePrefetchTask.IsCompleted
                 && irScorePrefetchLr2Id == lr2Id
@@ -6937,7 +6961,7 @@ public partial class BMSLibrary : ObservableObject
                 var stopwatch = Stopwatch.StartNew();
                 try
                 {
-                    IrScorePrefetchResult result = irService.PrefetchIrScoreTableWithMetrics(lr2Id, irClient, lr2IRScoreRegex);
+                    IrScorePrefetchResult result = irService.PrefetchIrScoreTableWithMetrics(lr2Id, irClient, lr2IRScoreRegex, irScoreShutdownCancellation.Token);
                     stopwatch.Stop();
                     LogInstallPerformance("ir_score_prefetch done generation=" + generation
                         + " lr2Id=" + lr2Id
@@ -6957,6 +6981,7 @@ public partial class BMSLibrary : ObservableObject
                     return new IrScorePrefetchResult
                     {
                         Lr2Id = lr2Id,
+                        Failure = IrScoreFailure.Unavailable,
                         FailureReason = "exception"
                     };
                 }
@@ -6997,7 +7022,7 @@ public partial class BMSLibrary : ObservableObject
         var waitStopwatch = Stopwatch.StartNew();
         try
         {
-            task.Wait();
+            task.GetAwaiter().GetResult();
         }
         catch
         {
@@ -7005,7 +7030,7 @@ public partial class BMSLibrary : ObservableObject
             waitMs = waitStopwatch.ElapsedMilliseconds;
             status = "failed";
             LogInstallPerformance("ir_score_prefetch consume generation=" + generation + " status=failed requestVersion=" + requestVersion + " waitMs=" + waitMs);
-            return null;
+            return new IrScorePrefetchResult { Lr2Id = lr2IdSnapshot, Failure = IrScoreFailure.Unavailable, FailureReason = "exception" };
         }
         waitStopwatch.Stop();
         waitMs = waitStopwatch.ElapsedMilliseconds;
@@ -7019,7 +7044,7 @@ public partial class BMSLibrary : ObservableObject
                 + " reason=" + (result?.FailureReason ?? "null")
                 + " prefetchedLr2Id=" + (result?.Lr2Id ?? 0)
                 + " currentLr2Id=" + LR2ID);
-            return null;
+            return result ?? new IrScorePrefetchResult { Lr2Id = lr2IdSnapshot, Failure = IrScoreFailure.Unavailable, FailureReason = "unavailable" };
         }
         status = "used";
         LogInstallPerformance("ir_score_prefetch consume generation=" + generation
@@ -7226,7 +7251,7 @@ public partial class BMSLibrary : ObservableObject
                     + " irScoreMetadataUpdated=" + result.IrScoreMetadataUpdated
                     + " cacheMs=" + result.CacheMs
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                ReportStartupBackgroundTask("ranking_refresh_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false);
+                ReportStartupBackgroundTask("ranking_refresh_deferred", result.IrScoreFailed ? "unavailable" : "done", stopwatch.ElapsedMilliseconds, failed: result.IrScoreFailed, detail: result.IrScoreFailed ? result.IrScoreSkipReason : null);
             }
             catch (OperationCanceledException)
             {
@@ -7355,6 +7380,8 @@ public partial class BMSLibrary : ObservableObject
 
         public bool IrScoreSkipped { get; set; }
 
+        public bool IrScoreFailed { get; set; }
+
         public string IrScoreSkipReason { get; set; } = "unavailable";
 
         public bool IrScoreMetadataUpdated { get; set; }
@@ -7376,6 +7403,7 @@ public partial class BMSLibrary : ObservableObject
         if (workPlan.RefreshIrScore)
         {
             IrScorePrefetchResult prefetchedScore = TryConsumeIrScorePrefetch(requestVersion, optionsSnapshot, out long prefetchWaitMs, out string prefetchStatus);
+            irScoreShutdownCancellation.Token.ThrowIfCancellationRequested();
             IrScoreTableUpdateResult irScoreUpdateResult =
                 updateLR2IRScoreTableWithMetrics(
                     prefetchedScore,
@@ -7398,6 +7426,8 @@ public partial class BMSLibrary : ObservableObject
             result.IrScoreSkipped = irScoreUpdateResult.Skipped;
             result.IrScoreSkipReason = irScoreUpdateResult.SkipReason ?? "unavailable";
             result.IrScoreMetadataUpdated = irScoreUpdateResult.MetadataUpdated;
+            result.IrScoreFailed = !irScoreUpdateResult.Succeeded;
+            irScoreShutdownCancellation.Token.ThrowIfCancellationRequested();
             if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
             {
                 throw new OperationCanceledException();
@@ -10482,7 +10512,8 @@ public partial class BMSLibrary : ObservableObject
             dbGateway,
             irClient,
             lr2IRScoreRegex,
-            prefetchedScore);
+            prefetchedScore,
+            irScoreShutdownCancellation.Token);
     }
 
     private void updateBMSScores(List<LR2IRScore> scoreTable)
