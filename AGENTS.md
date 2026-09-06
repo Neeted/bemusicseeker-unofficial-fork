@@ -15,7 +15,7 @@
 
 - ルートはユーザー要件を Goal、Context、Constraints、Done when、対象外、互換性条件、decision list、unit ごとの ownership と verification へ整理し、設計・最終計画・統合に責任を持つ。生の会話や未決 semantics を worker へ委ねない。
 - runtime state、failure、invariant を対象にする前に、workflow の reachability / impact gate に従い、canonical production ingress から production owner までの route、入口 assumption、user-observable または durable / external-data impact を立証する。private API、reflection、fake、code representability だけを根拠にしない。
-- 実装委譲前に `plan-clarifier` を原則一度だけ使い、repo で解けた事実、必要な質問、test-design gate、並列境界、replan trigger を計画へ反映する。workflow section 3 の test-design gate に該当する unit は `test-contract-designer` を使い、独立 authority に基づく `Test Contract Packet` と Contract ID をルートが承認して実装前に凍結する。名前変更・移動・format・生成物更新だけで assertion semantics が変わらなければ packet は不要とする。
+- 実装委譲前に `plan-clarifier` を原則一度だけ使い、repo で解けた事実、必要な質問、test-design gate、並列境界、replan trigger を計画へ反映する。先に `devdocs/spec/test-authoring-contract.md` に従って変更分類と恒久テストの必要性を判断し、workflow section 3 の適用対象だけで `test-contract-designer` と承認済み `Test Contract Packet` を使う。テスト不要・代替不要の削除のみ・assertion semantics 不変の機械的変更には packet を要求しない。
 - bounded implementation は `implementation-worker` へ任せる。書込み worker の既定は1つ、writable path、生成物、schema / migration、shared fixture、依存順が重ならない独立した unit に限り同時実行は最大2つとし、同じ unit の比較、shadow 評価、二重実装を行わない。
 - worker は指定 path と unit だけを変更し、UI、persisted data、file / protocol compatibility、threading、shutdown、failure invariant と packet semantics を維持する。worker が起動できる nested agent は `issue-resolver` だけで、対象 blocker に限り一度、編集を止めて呼び、resolver から再帰しない。commit 等は禁止する。
 - worker の開始確認、packet 不足時の `NEEDS_ROOT_INPUT`、red / negative-control、filtered Quick、verification failure の分類、完了時の `IMPLEMENTED` / `FILES` / `TEST CONTRACT` / `TEST COVERAGE` / `TEST SAFETY` / `VERIFICATION` / `HANDOFF` は workflow の共通契約に従う。root は handoff、path / Contract ID ownership、旧 route の退役を統合時に確認する。
@@ -31,7 +31,7 @@
   - `devdocs\decisions\`: ADR、採用理由、検討した代替案、判断履歴。
   - `devdocs\plan\`: 実行中の移行・作業計画と、固有の検証証跡を残す完了記録。完了後の恒久契約は現行仕様へ統合し、重複する本文は削除または履歴として整理する。
 - 設計判断が現行の実装契約になった場合、正本を `devdocs\spec\` に統合し、旧配置には移動案内だけを残す。内容を複数箇所で重複管理しない。
-- 仕様を変えるコード変更では、対応する `devdocs\spec\` とテストを同じ変更で更新する。
+- 仕様を変えるコード変更では、対応する `devdocs\spec\` を更新する。テストは目的と影響から恒久的な保証の必要性を判断し、`変更なし`、必要な既存テストの更新、追加、削除を選ぶ。
 
 ## アーキテクチャ上の注意
 
@@ -39,7 +39,7 @@
 - code-behind には focus、selection、scroll、hit-test、drag、WPF routed event など View 固有の terminal behavior を置いてよい。View 固有処理を隠すだけの forwarding class は作らない。
 - owner 間は明示的な依存と immutable request / result / event で接続する。mutable collection、lock、private state を列挙する broad host、service locator、巨大 callback interface を追加しない。
 - model lock、DB transaction、operation gate を保持したまま UI、dialog、event subscriber、別 owner の完了を同期的に待たない。UI スレッドで sync-over-async を行わず、非 event handler の `async void` を追加しない。
-- 既存の owner / gateway / scheduler 境界を迂回して global state や platform API へ直接依存しない。境界を変える場合は挙動、失敗、shutdown、thread affinity をテストする。
+- 既存の owner / gateway / scheduler 境界を迂回して global state や platform API へ直接依存しない。境界を変える場合は、必要な既存テストの更新・追加または適切な実行確認で挙動、失敗、shutdown、thread affinity を確認する。
 
 ### 非同期ワークフローと並行性
 
@@ -67,7 +67,7 @@
 - 新規または変更する public / protected / internal API には、契約と存在理由が分かる XML documentation を追加・更新する。
 - 触れた範囲のデコンパイル由来名は、挙動を変えずに domain 用語へ改善する。ただし命名だけの広範な差分を混ぜない。
 - 互換性維持、性能最適化、外部仕様、回避策など、コードだけでは理由が分からない箇所には「何をしているか」ではなく「なぜ必要か」をコメントする。
-- test を追加・変更するときは、`BeMusicSeeker.Tests\AGENTS.md` と `devdocs\spec\test-authoring-contract.md` を正本として、承認済み `Test Contract Packet`、近傍の既存 coverage、共通 infrastructure を先に確認する。expected value を current implementation、current output、翻訳文言、既存 snapshot、repository prose からコピーしない。source / exact copy 自体が明示された contract でない限り、observable behavior、永続データ、threading、failure contract、placeholder / schema parity を検証する。
+- test を追加・変更・削除するときは、目的と影響から恒久テストの必要性を先に判断し、必要な assertion semantics の追加・変更・置換だけを `BeMusicSeeker.Tests\AGENTS.md` と `devdocs\spec\test-authoring-contract.md` に従って行う。必要と判断した場合は承認済み `Test Contract Packet`、近傍の既存 coverage、共通 infrastructure を確認する。expected value を current implementation、current output、翻訳文言、既存 snapshot、repository prose からコピーしない。source / exact copy 自体が明示された contract でない限り、observable behavior、永続データ、threading、failure contract、placeholder / schema parity を検証する。テスト不要の判断は検証不要を意味しない。
 
 ## 標準検証
 

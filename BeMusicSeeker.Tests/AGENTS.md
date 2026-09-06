@@ -6,7 +6,7 @@
 
 ## Test Contract Packet gate
 
-- durable test の assertion、expected value、snapshot、golden、source / reflection contract を追加・変更・削除する場合は、編集前にルートが承認した `Test Contract Packet` と対象 Contract ID を受け取る。名前変更、移動、format、生成物更新だけで assertion semantics が変わらない場合は例外とする。
+- 変更を目的と影響で分類し、恒久テストの必要性を先に判断する。テストの追加・assertion semantics の変更・置換が必要な部分だけ、編集前にルートが承認した `Test Contract Packet` と対象 Contract ID を受け取る。削除のみで代替不要と判断済みの場合は理由付きで packet 不要とする。名前変更、移動、format、生成物更新などの mechanical change で assertion semantics が変わらない場合も packet 不要である。
 - packet は user requirement、approved issue、feature spec、public API / protocol / schema、明示的な characterization decision など、実装から独立した authority を示す。current implementation、current runtime output、既存 test の expected value、翻訳ファイルの現在値、repository prose は単独では authority にしない。
 - runtime Contract ID の packet は `production ingress -> target state -> observable impact` と入口 assumption を示す。public / private callability、reflection、fake、code 上の representability だけでは不足とし、欠ける場合は test や production seam を追加せず `NEEDS_ROOT_INPUT` を返す。
 - worker は packet の expected outcome、allowed variation、wrong implementation を変更しない。fixture、helper、data setup、assertion API などの mechanics は適合させてよい。技術的な seam / ownership 不足は workflow の resolver trigger に従い、authority や expected semantics の変更が必要な場合は、green にするため assertion を弱めず `NEEDS_ROOT_INPUT` を返す。
@@ -15,11 +15,11 @@
 
 ## Before editing
 
-- 対象 Contract ID ごとに、production owner / symbol、candidate existing fixture、`extend / replace / new`、shared resource / lane、completion signal、退役 test を表にする。
+- 恒久テストの追加・assertion semantics の変更・置換を必要と判断した場合だけ、対象 Contract ID ごとに production owner / symbol、candidate existing fixture、必要な追加・置換の配置、shared resource / lane、completion signal、退役 test を表にする。
 - feature spec、production symbol の test 参照、feature 用語、failure 文言の順で候補を絞り、canonical fixture と共通 helper を先に確認する。既存 test は coverage placement の evidence であり、packet の oracle を上書きする authority ではない。
-- final plan に承認済み packet / Contract ID、coverage ledger、shared resource / completion signal がない場合は、編集前に `NEEDS_ROOT_INPUT` を返す。repository で確認できる candidate fixture と helper は自分で調べる。
+- 必要性判断でテストを追加・意味変更・置換するとした final plan に承認済み packet / Contract ID、coverage ledger、shared resource / completion signal がない場合は、編集前に `NEEDS_ROOT_INPUT` を返す。テスト不要、または削除のみの判断では新しい ledger や packet を要求しない。repository で確認できる candidate fixture と helper は自分で調べる。
 - canonical fixture を新設、移動、分割する場合は、対象 feature spec の `Verification map` を同じ unit で更新する。
-- bugfix で承認済みの production ingress から再現できる場合は production 修正前に regression test を書き、意図した理由で失敗する red evidence を残す。base 実行が構造上不可能、または behavior-preserving replacement の場合は packet の targeted mutant / negative control を使う。
+- 必要性判断で回帰テストを追加・更新するとした bugfix が承認済み production ingress から再現できる場合、red は原則有用である。base 実行が構造上不可能なことだけでは targeted mutant / negative control を要求しない。bugfix の red の代替、またはテストの識別力に具体的なリスクがあり計画で必要と判断した場合だけ、packet の targeted mutant / negative control を使う。通常の不正入力・failure test と、テストの識別力を確かめる mutant 実行を混同しない。
 
 ## Local safety boundaries
 
@@ -33,15 +33,15 @@
 ## Verification and handoff
 
 - 反復中は変更 behavior に対応する filtered `Quick` を使う。Functional / Full と timeout 時の扱いは `testing-strategy.md` に従い、統合 owner へ引き渡す。
-- 完了時は通常の worker handoff に加えて、`TEST CONTRACT`、`TEST COVERAGE`、`TEST SAFETY` を返す。実装した Contract ID、red / negative-control evidence、packet からの deviation または `none`、検索した candidate fixture、`extend / replace / new`、退役 test、shared resource、lane / shard、completion signal、例外 seam、実行 filter を含める。
+- 必要性判断でテストを追加・意味変更・置換した場合は、完了時に通常の worker handoff に加えて、`TEST CONTRACT`、`TEST COVERAGE`、`TEST SAFETY` を返す。実装した Contract ID、必要に応じた red / negative-control evidence、packet からの deviation または `none`、検索した candidate fixture、必要な追加・置換の配置、退役 test、shared resource、lane / shard、completion signal、例外 seam、実行 filter を含める。テスト不要または削除のみなら `not applicable` とし、判断と適切な検証を記録する。
 
 ## Code Review Rules
 
 ### Test authority and independence
 
-- assertion semantics が変わる diff に承認済み `Test Contract Packet` / Contract ID がない、または test が packet の authority・allowed variation と一致しない場合は指摘する。
+- 必要性判断で test semantics を変更した diff に承認済み `Test Contract Packet` / Contract ID がない、または test が packet の authority・allowed variation と一致しない場合は指摘する。
 - expected value が production implementation、current output、既存 expected、翻訳文言、snapshot、repository prose から写経され、独立 authority がない場合は指摘する。
 - exact string / snapshot / source / reflection / characterization の例外に authority、owner、退役条件がない場合は指摘する。
-- packet が列挙した plausible wrong implementation を通してしまう assertion、または red / negative-control evidence の欠落を指摘する。
+- 適用された packet が列挙した plausible wrong implementation を通してしまう assertion を指摘する。red / negative-control は、変更分類と必要性判断で実施が必要とされた場合だけ evidence の欠落を指摘し、未実施だけを理由に finding にしない。
 - harmless refactor、翻訳改善、文言変更、内部配置変更で壊れる一方、observable contract を追加で守らない test を指摘する。
 - private direct call / reflection / fake-only route が entrance invariant を迂回している、または production reachability / observable impact が示されない test は、root workflow の evidence / scope 分類に従って指摘する。到達不能な状態のために現在の unit へ recovery behavior や test seam を追加させない。

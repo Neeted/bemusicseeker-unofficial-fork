@@ -4,7 +4,7 @@
 
 ## Executable contract first
 
-- script の自己申告 metadata だけをテストしない。実際に実行側が消費する plan、helper、manifest、process lifecycle seam をテストする。
+- 恒久テストを必要と判断した場合は、script の自己申告 metadata だけをテストせず、実際に実行側が消費する plan、helper、manifest、process lifecycle seam を検証する。
 - contract metadata を残す場合、実行側が同じ object を正本として消費するか、actual execution から生成する。metadata と metadata test だけを同時に更新して green にできる構造を作らない。
 - Full / Functional の phase 順、budget、artifact identity、failure precedence を変える場合は、plan へ observable execution delta を示す。
 
@@ -29,6 +29,6 @@ redirected process は次を一つの bounded lifecycle として扱う。
 
 ## Verification
 
-- runner、lane、parallelization、fixture placement、shared infrastructure を変えた場合は focused contract を実行し、最終 acceptance lane は `testing-strategy.md` に従って統合 owner が実行する。
+- runner、lane、parallelization、fixture placement、shared infrastructure を変え、恒久テストを追加・更新・置換すると判断した場合は、必要なテストの品質条件として実行側と同じ seam を確認する。focused contract は既存の関連 test を実行するか、適切な実行確認を選び、最終 acceptance lane は `testing-strategy.md` に従って統合 owner が実行する。
 - 各 run で portable testhost 開始直前から全 Functional testhost の実際の process `ExitTime` までの test-execution elapsed、diagnostics root、tracked fingerprint、runner-owned residual process を記録する。restore、build、preflight、postflight、artifact 回収、fingerprint、環境復元、whitespace確認等の時間は test-execution elapsed と混同しない。180 秒 target を超えた成功 run は、出力された actual elapsed を user-facing report へ転記する。
 - timeout / failure の分類と retry は `testing-strategy.md` を正本とし、runner は判断に必要な process / artifact evidence を保持する。timeout 延長、worker 低下、unbounded retry で flake を隠さない。

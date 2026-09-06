@@ -13,9 +13,9 @@
 | ルート | 現在の主セッション | ユーザー対話、要件と decision の整理、設計、最終計画、test contract の承認、割当、統合、統合検証、review 対応 | 統合時だけ |
 | 計画点検 | `plan-clarifier` | draft plan の未決事項、危険な仮定、test-design gate、並列境界を短く点検 | なし |
 | テスト契約設計 | `test-contract-designer` | 実装から独立した oracle、allowed variation、wrong implementation、coverage placement を設計 | なし |
-| 実装 | `implementation-worker` | 完成済みの bounded unit と承認済み Test Contract Packet を実装し、focused Quick と handoff を返す | 指定 path 内 |
+| 実装 | `implementation-worker` | 完成済みの bounded unit と、必要性判断で適用される承認済み Test Contract Packet を実装し、focused Quick と handoff を返す | 指定 path 内 |
 | blocker 解決 | `issue-resolver` | worker が発見した重大問題を調査・修正。observable semantics は変更しない | 指定 path 内 |
-| 静的 review | `repo-static-review` | 凍結 snapshot と Test Contract Packet を fresh / read-only で review | なし |
+| 静的 review | `repo-static-review` | 凍結 snapshot と、適用される Test Contract Packet を fresh / read-only で review | なし |
 
 委譲の深さは `root -> implementation-worker -> issue-resolver` までとする。`plan-clarifier`、`test-contract-designer`、`repo-static-review` は root 直下の leaf とし、追加サブエージェントを起動しない。worker は `issue-resolver` 以外を起動せず、`issue-resolver` から先へ再帰しない。この契約は runtime の depth enforcement にかかわらず守る。
 
@@ -26,7 +26,8 @@
 - **Goal**: 何を変え、どの observable outcome を得るか。
 - **Context**: 関連する file、symbol、spec、現行 route、既知の failure evidence。
 - **Constraints**: 対象外、互換性、ownership、threading、永続化、安全性、作業中差分。
-- **Done when**: behavior、削除する旧 route、必要な test lane、review、artifact。test を触る場合は independent authority、既存 coverage、shared resource、completion signal も含める。
+- **変更分類と恒久テストの必要性**: [test-authoring-contract.md](test-authoring-contract.md) section 1 に従い、テストの設計前に扱いと検証方法を数行で決める。
+- **Done when**: behavior、削除する旧 route、必要な test lane、review、artifact。テストの追加・意味変更・置換を必要と判断した場合は independent authority、既存 coverage、shared resource、completion signal も含める。不要または削除のみの場合は判断理由と適切な検証を含める。
 - **Decision list**: 選択で observable behavior が変わる事項と、既に決まっている回答。
 - **Production reachability / observable impact**: 実 UI / event / startup / scheduler / owner / supported public ingress から対象 state へ至る route、入口 precondition と system assumption、利用者または persisted / external data に現れる差分。
 
@@ -58,38 +59,41 @@ Draft units:
 - writable paths / read-only references
 - dependencies and proposed order
 - verification and review scope
-Test-design gate when tests change:
+Change classification and root necessity decision (`変更なし` / `既存更新` / `追加` / `削除`):
+Verification method:
+Test-design gate when a durable test addition, semantic change, or replacement is needed:
 - assertion / expected-value semantics change: yes / no
 - proposed packet ID and change class
 - independent authority sources
 - inputs that must not become oracle authority
-Test delta:
-- candidate existing fixture and `extend / replace / new`
+Test delta when the necessity decision requires a test change:
+- candidate existing fixture and required placement (`extend / replace / new`)
 - shared resource / lane / completion signal
 - retired test / helper / route
 Known open questions:
 ```
 
-clarifier は計画や oracle を代作せず、repo で解けた事実、ユーザーへ必要な質問、`test-contract-designer` が必要か、authority / reachability packet の不足、安全な並列候補、衝突、replan trigger だけを返す。private call や fake-only route を production reachability の代用にしない。test を触る計画では、feature spec と production symbol から候補 fixture を絞る targeted search があり、既存 coverage、shared resource、completion signal が test delta へ反映されているかも点検する。既存 implementation や test expected から新しい期待値を提案しない。
+clarifier は計画や oracle を代作せず、repo で解けた事実、ユーザーへ必要な質問、変更分類と root の恒久テスト必要性判断が妥当か、必要とした場合の `test-contract-designer`、authority / reachability packet の不足、安全な並列候補、衝突、replan trigger だけを返す。private call や fake-only route を production reachability の代用にしない。恒久テストを必要とした計画では、feature spec と production symbol から候補 fixture を絞る targeted search があり、既存 coverage、shared resource、completion signal が test delta へ反映されているかも点検する。テスト不要または削除のみの判断に packet や代替 test を要求しない。既存 implementation や test expected から新しい期待値を提案しない。
 
 ルートは clarifier の結果を decision list と draft units へ反映する。回答で ownership や unit 境界が大きく変わった場合だけ、差分を限定して再点検する。repo で解ける事項のために planner loop を繰り返さない。完了した clarifier thread は閉じてから test design または implementation へ進む。
 
 ## 3. 独立した Test Contract Packet の設計
 
-次のいずれかに該当する unit では、decision list を閉じた後、実装前に `test-contract-designer` を一度呼ぶ。
+変更を目的と影響で分類し、root が恒久テストの追加・意味変更・置換を必要と判断した unit では、decision list を閉じた後、実装前に `test-contract-designer` を一度呼ぶ。
 
-- durable test の assertion、expected value、snapshot、golden、source / reflection contract を追加・変更・削除する
-- observable behavior の変更に regression test が必要
+- durable test の assertion、expected value、snapshot、golden、source / reflection contract を追加・変更する
+- observable behavior の変更に regression test が必要であると判断した
 - brittle source / localized copy / docs prose / broad snapshot test を semantic test へ置換する
 - behavior-preserving migration のため characterization test を新設する
 
-名前変更、移動、format、生成物更新だけで assertion semantics が変わらない作業では省略してよい。runner、lane、shared infrastructure だけの変更でも、新しい behavior assertion を伴うなら designer を使う。
+削除のみで代替不要と root が判断した場合は理由付きで designer を省略する。名前変更、移動、format、生成物更新などの mechanical change で assertion semantics が変わらない場合も省略する。runner、lane、shared infrastructure だけの変更では、恒久テストを必要と判断して behavior assertion を追加・意味変更・置換する場合だけ designer を使う。
 
 ルートは designer へ生の会話や実装案を丸投げせず、次の authority packet を渡す。
 
 ```text
 Packet ID / unit:
-Change class: bugfix | feature | behavior-preserving refactor | characterization | test replacement
+Change class: test-authoring-contract.md section 1 に従う分類
+Test purpose: 必要な場合の characterization / test replacement 等
 Goal / Done when / Constraints:
 Resolved decision list:
 Independent authority:
@@ -114,7 +118,7 @@ Inputs that must not become oracle authority:
 
 - Packet ID、change class、authority、authority gap
 - Contract ID ごとの production ingress / reachability evidence、entrance assumptions / invariant、observable behavior / failure、required invariant / outcome、allowed variation
-- plausible wrong implementation、base-fail / head-pass または targeted negative control
+- plausible wrong implementation と検証方法。red / targeted negative control は正本の適用判断で必要とした場合だけ記載し、非適用も認める
 - candidate fixture、`extend / replace / new`、shared resource / lane、completion signal、退役 test
 - exact string / snapshot / source / reflection / characterization の例外理由、owner、退役条件
 - worker が変更してよい mechanics と、変更してはいけない expected semantics
@@ -130,13 +134,13 @@ Inputs that must not become oracle authority:
 1. observable outcome と完了条件
 2. 書込み所有 path と、必要な read-only 参照範囲
 3. 先行 unit、他 worker、生成物との依存関係
-4. 変更する production / test route と、同時に退役する旧 route
+4. 変更する production route と、必要性判断で変更する test route、および同時に退役する旧 route
 5. 維持する UI、persisted data、file / protocol compatibility、threading、shutdown、failure invariant
-6. 承認済み Test Contract Packet / Contract ID。test semantics が変わらない場合は `not required` と理由
-7. 追加・更新する behavior test、具体的な Quick filter、統合時の Functional / opt-in lane
-8. coverage ledger: candidate fixture、`extend / replace / new`、shared resource / lane、completion signal、退役 test / helper / route
-9. base-fail / head-pass または targeted negative control の実行方法
-10. worker が返す旧 test / route と replacement の対応表
+6. 必要性判断で test semantics を変更する場合の承認済み Test Contract Packet / Contract ID。不要または削除のみなら `not required` と理由
+7. 必要と判断した場合の追加・更新する behavior test、具体的な Quick filter、統合時の Functional / opt-in lane。不要なら適切な実行確認・静的検査
+8. 必要と判断した場合の coverage ledger: candidate fixture、必要な追加・置換の配置、shared resource / lane、completion signal、退役 test / helper / route
+9. 必要性判断で実施するとした場合の base-fail / head-pass または targeted negative control の実行方法
+10. 必要性判断で test を追加・意味変更・置換した場合に worker が返す旧 test / route と replacement の対応表
 11. static review の intent、base / head、review scope、packet conformance scope
 12. 実装を止めて再計画・ユーザー判断へ戻す具体的な evidence
 13. 統合 conflict を避ける path ownership と handoff 順
@@ -170,22 +174,22 @@ worker は編集前に次を確認する。
 1. repository path、root `AGENTS.md`、書込み path 配下の nested `AGENTS.md`、`devdocs/spec/codex-agent-workflow.md`
 2. `git status --short`、tracked / staged / untracked diff
 3. unit の Goal、observable outcome、canonical production ingress からの route、入口 assumption、書込み所有 path、read-only 参照範囲、依存関係、受入条件、維持する invariant、対象 Quick filter、replan trigger
-4. test semantics を変更する場合は、root が承認した `Test Contract Packet`、対象 Contract ID、authority、expected outcome、allowed variation、plausible wrong implementation、base-fail / negative-control strategy、`devdocs/spec/test-authoring-contract.md`
+4. 必要性判断で test semantics を変更する場合は、root が承認した `Test Contract Packet`、対象 Contract ID、authority、expected outcome、allowed variation、plausible wrong implementation、base-fail / negative-control strategy、`devdocs/spec/test-authoring-contract.md`。不要または削除のみの場合は packet を要求しない
 5. 他 worker の所有 path / Contract ID と、統合時に root へ返す handoff 形式
 
 開始確認で読んだ対象と plan の ownership を越えて探索・編集しない。repository で確認できる candidate fixture、helper、public seam は worker 自身が調査し、root へ同じ調査を戻さない。
 
 ### 共通実装規則と入力不足
 
-assertion、expected value、snapshot、golden、source / reflection contract の semantics を変更するのに承認済み packet がない、packet と final plan の expected semantics が矛盾する、authority が不足する、または runtime state に canonical production ingress からの reachability / user-observable / durable impact がない場合は、編集せず `## NEEDS_ROOT_INPUT` と不足項目だけを root へ返す。repository の actual route と矛盾する、または private / reflection / fake-only seam が product contract の前提になる場合も同じ扱いとする。名前変更、移動、format、生成物更新だけで assertion semantics が変わらない場合は packet 不要である。
+必要性判断で test の assertion、expected value、snapshot、golden、source / reflection contract の semantics を変更するのに承認済み packet がない、packet と final plan の expected semantics が矛盾する、authority が不足する、または runtime state に canonical production ingress からの reachability / user-observable / durable impact がない場合は、編集せず `## NEEDS_ROOT_INPUT` と不足項目だけを root へ返す。repository の actual route と矛盾する、または private / reflection / fake-only seam が product contract の前提になる場合も同じ扱いとする。削除のみで代替不要と root が判断した場合は理由付きで packet 不要とする。名前変更、移動、format、生成物更新などの mechanical change で assertion semantics が変わらない場合も packet 不要である。
 
 指定 unit と所有 path だけを変更し、無関係な既存差分を変更、破棄、整形しない。旧 route、重複処理、脆い test seam の退役まで同じ unit で閉じる。テスト都合だけの public API、service locator、broad callback host、将来用 abstraction を追加しない。reachable な invalid state は approved semantics と compatibility を変えずに可能なら earliest shared owned ingress で生成不能または explicit reject にし、不要な downstream revalidation / recovery を退役する。fake-only state、code representability、non-blocking suggestion を根拠に persistent state、retry、replay、rollback、recovery lifecycle、compatibility route、abstraction を追加しない。
 
-observable behavior、persisted data、failure、threading、shutdown、compatibility を維持し、対応する Contract ID を実装する。fixture、helper、data setup、assertion API の mechanics は repository に適合させてよいが、packet の authority、expected outcome、allowed variation、wrong implementation を current implementation / runtime output / existing expected / translation copy に合わせて変更しない。authority、required outcome、allowed variation、observable semantics の変更が必要なら、green にするため assertion を弱めたり production behavior を勝手に変えたりせず `NEEDS_ROOT_INPUT` を返す。
+observable behavior、persisted data、failure、threading、shutdown、compatibility を維持する。必要性判断で test を変更する場合だけ、対応する Contract ID を実装する。fixture、helper、data setup、assertion API の mechanics は repository に適合させてよいが、packet の authority、expected outcome、allowed variation、wrong implementation を current implementation / runtime output / existing expected / translation copy に合わせて変更しない。authority、required outcome、allowed variation、observable semantics の変更が必要なら、green にするため assertion を弱めたり production behavior を勝手に変えたりせず `NEEDS_ROOT_INPUT` を返す。
 
 ### test、verification、変更禁止事項
 
-test 変更では feature spec と production symbol から candidate fixture を絞り、`extend / replace / new` を決め、既存の共通 helper を優先する。production logic、expected-value derivation、runner orchestration を test 側へコピーしない。bugfix で承認済み production ingress から再現できる場合は production 修正前に focused regression test を作り、対象 Contract ID の observable mismatch で失敗する red evidence を残す。compile error、fixture setup failure、unrelated exception は red evidence ではない。base で test を構造上実行できない場合、behavior-preserving replacement、characterization では packet の targeted mutant / wrong variant / negative control を使い、test が誤実装を落とす evidence を残す。targeted mutation は確認後に必ず戻し、最終 diffへ混ぜない。
+必要性判断で test を追加・意味変更・置換する場合、feature spec と production symbol から candidate fixture を絞り、必要な追加・置換の配置（`extend / replace / new`）を決め、既存の共通 helper を優先する。production logic、expected-value derivation、runner orchestration を test 側へコピーしない。bugfix で承認済み production ingress から再現できる場合の red は原則有用だが、実施要否は計画の必要性と識別力リスクに従う。compile error、fixture setup failure、unrelated exception は red evidence ではない。base で test を構造上実行できないことだけでは targeted mutant / wrong variant / negative control を要求しない。bugfix の red の代替、または識別力に具体的なリスクがあり計画で必要と判断した場合だけ、behavior-preserving replacement、characterization など packet の targeted mutant / wrong variant / negative control を使い、test が誤実装を落とす evidence を残す。通常の不正入力・failure test と mutant 実行を混同しない。targeted mutation は確認後に必ず戻し、最終 diffへ混ぜない。
 
 stage、commit、push、tag、version 更新は行わない。反復中は指定された filtered Quick を優先し、統合 Functional、Full、最終 review は root に任せる。verification failure の分類、timeout retry、必要な evidence は `devdocs/spec/testing-strategy.md` に従う。root の依頼がない限り、runner、release、process、アプリ起動、統合検証へ scope を広げない。
 
@@ -217,22 +221,22 @@ resolver は上記 trigger に該当する場合だけ使う。worker は編集�
 - 変更 path と役割
 
 ## TEST CONTRACT
-- packet ID と実装した Contract ID。該当しなければ `not applicable`
-- red / head-pass または targeted negative-control evidence
+- packet ID と実装した Contract ID。必要性判断で test を追加・意味変更・置換しなければ `not applicable`
+- 必要性判断で実施するとした red / head-pass または targeted negative-control evidence。該当しなければ `not applicable`
 - packet からの deviation または `none`
 
 ## TEST COVERAGE
-- test を触った場合: searched symbols / candidate fixtures、`extend / replace / new`、退役 test と replacement。該当しなければ `not applicable`
+- 必要性判断で test を追加・意味変更・置換した場合: searched symbols / candidate fixtures、必要な追加・置換の配置、退役 test と replacement。該当しなければ `not applicable`
 
 ## TEST SAFETY
-- test を触った場合: shared resource、lane / shard、completion signal / watchdog、例外的 exact string / snapshot / source / reflection / WPF / process seam。該当しなければ `not applicable`
+- 必要性判断で test を追加・意味変更・置換した場合: shared resource、lane / shard、completion signal / watchdog、例外的 exact string / snapshot / source / reflection / WPF / process seam。該当しなければ `not applicable`
 
 ## VERIFICATION
 - 実行 command / filter、結果、未実施項目
 - timeout があった場合は初回 evidence と同一条件再実行の結果
 
 ## HANDOFF
-- 削除した旧 test / route と replacement の対応
+- 必要性判断で test を追加・意味変更・置換した場合の、削除した旧 test / route と replacement の対応。該当しなければ `not applicable`
 - root が統合時に確認すべき dependency / conflict / Contract ID ownership
 - residual risk または `none`
 ```
@@ -241,15 +245,15 @@ resolver は上記 trigger に該当する場合だけ使う。worker は編集�
 
 標準検証の時間予算、timeout retry、failure classification、必要な diagnostics は `devdocs/spec/testing-strategy.md` を正本とする。worker は exact command / filter / snapshot と artifact を handoff し、ルートが同じ方針で再実行または原因調査を判断する。deterministic failure、規定 retry の failure、同じ症状の再発は、resolver trigger または root の再計画条件として扱う。
 
-red evidence は compile error、fixture setup failure、unrelated exception ではなく、対象 Contract ID の observable mismatch であることを確認する。negative control は packet の plausible wrong implementation と対応し、test が現在の実装に通るという事実だけを品質証拠にしない。
+必要性判断で test を実施するとした場合、red evidence は compile error、fixture setup failure、unrelated exception ではなく、対象 Contract ID の observable mismatch であることを確認する。negative control は packet の plausible wrong implementation と対応し、test が現在の実装に通るという事実だけを品質証拠にしない。非 bugfix の red / mutant 未実施だけを理由に不足としない。
 
 ## 8. 統合、検証、review
 
 worker 完了後、ルートは handoff と diff を確認して並列結果を統合し、`testing-strategy.md` に従って統合 snapshot の filtered Quick / Functional / 必要な opt-in lane を実行する。worker が閉じた範囲の再実装ではなく、path / Contract ID ownership、conflict、packet conformance、acceptance evidence の統合に集中する。
 
-実装と標準検証が完了したら、implementation thread を閉じ、worktree を凍結して `repo-static-review` を一度呼ぶ。reviewer には intent、acceptance criteria、承認済み Test Contract Packet / Contract ID、base / head、worktree diff、red / negative-control を含む verification evidence、初回 timeout と再実行結果があればその両方を渡す。reviewer 実行中、ルートは repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、重複チェックをしない。
+実装と標準検証が完了したら、implementation thread を閉じ、worktree を凍結して `repo-static-review` を一度呼ぶ。reviewer には intent、acceptance criteria、変更分類とテスト必要性判断、base / head、worktree diff、verification evidence を渡す。Packet / Contract ID と red / negative-control は適用時だけ、timeout の初回と再実行結果は存在する場合だけ添える。reviewer 実行中、ルートは repository の読み取り、検索、編集、build、test、format、stage、commit を行わず、重複チェックをしない。
 
-reviewer は assertion が packet の authority、required invariant、allowed variation と一致するか、expected が implementation / current output / existing expected / translation copy / snapshot の写経になっていないか、plausible wrong implementation を区別できるかを確認する。assertion semantics が変わるのに packet がない、または packet と diff が矛盾する場合は受入条件上の test-design gap として扱う。
+reviewer は assertion が packet の authority、required invariant、allowed variation と一致するか、expected が implementation / current output / existing expected / translation copy / snapshot の写経になっていないか、plausible wrong implementation を区別できるかを確認する。必要性判断で test semantics を変更したのに packet がない、または packet と diff が矛盾する場合は受入条件上の test-design gap として扱う。red / negative-control の未実施だけを理由に finding を作らない。
 
 behavior / design finding を blocking とするには、次を一組で示す。
 

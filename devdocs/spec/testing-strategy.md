@@ -235,16 +235,11 @@ skip や unknown FQN の skip は許可しない。release gate は結果 cardin
 optional reason を synthetic TRX/JSON receipt でも確認し、source text snapshot や広域
 snapshot を oracle にしない。
 
-## 新しいテストを追加するとき
+## テスト変更の判断
 
-詳細は [test-authoring-contract.md](test-authoring-contract.md) と `BeMusicSeeker.Tests/AGENTS.md` を正本とする。
+変更分類、恒久テストの必要性、独立した oracle、既存 coverage、fixture の配置、red / negative control は [test-authoring-contract.md](test-authoring-contract.md) と `BeMusicSeeker.Tests/AGENTS.md` を正本とする。テスト不要または削除のみの判断に、Packet や代替 test を追加で要求しない。
 
-- 先に observable behavior / failure contract、production owner、candidate existing fixture、`extend / replace / new`、shared resource / lane、completion signal、退役 test を coverage ledger へ示す。
-- feature spec、production symbol、feature 用語、failure 文言で候補を絞り、最初から test project 全体を通読しない。canonical fixture を新設・移動・分割する場合は feature spec の `Verification map` を更新する。
-- Functional に入れるなら、少数の合成データと deterministic fake で再現できないかを確認する。実データでしか再現しない場合も、最小 fixture に切り出せるなら全件 fixture へ依存しない。
-- 外部 process、実 app、publish artifact が必要なら対応する lane を付け、Functional へ混ぜない。性能を測る場合は機能 assertion から分離し、`Performance` と opt-in 条件を付ける。
-- fixture へ新しい直接 `Dispatcher.PushFrame`、`HwndSourceParameters`、unbounded process / stream wait を追加せず、既存の owner helper を使う。source text / private reflection は artifact 自体が contractである理由と退役条件を残す。
-- `DoNotParallelize`、固定待ち、大容量 output copy を追加する場合は、必要性、resource owner、通常検証の時間予算への影響を review 対象にする。
+変更の検証には、既存の関連 test、適切な実行確認、静的検査から変更に合う手段を選ぶ。Functional / Full の lane、時間予算、並列性、fixture の安全性、completion signal、外部 process / WPF の境界はこの文書の既存契約に従い、テスト不要の判断でも必要な検証は省略しない。
 
 ## 現状の改善 backlog
 

@@ -523,7 +523,7 @@ ownership、writer、全表置換、source of truthを変更した場合、旧te
 
 ### 13.4 Red evidence／negative control
 
-ordering／token の test evidence は `test-authoring-contract.md` と承認済み Test Contract Packet に従う。production ingress から再現可能な bugfix は base-fail／head-pass を原則とし、base で構造上実行できない場合または packet が指定した場合だけ targeted negative control を用いる。
+ordering／token の test evidence は `test-authoring-contract.md` と、必要性判断で適用される承認済み Test Contract Packet に従う。恒久テストを必要とした production ingress から再現可能な bugfix では red が原則有用だが、実施要否は必要性と test の識別力に対する具体的なリスクで決める。base で構造上実行できないことだけでは targeted negative control を要求しない。bugfix の red の代替、または識別力に具体的なリスクがあり計画で必要と判断した場合だけ targeted negative control を用いる。非 bugfix に red / mutant を一律要求せず、未実施だけを finding の根拠にしない。通常の不正入力／failure test と test 識別力のための mutant 実行は区別する。
 
 ## 14. 複雑性予算
 
@@ -570,7 +570,7 @@ owner間callback edge数
 - [ ] tokenを追加する場合、kind／owner／source／increment／consumerを記録した。
 - [ ] required publicationとbest-effort notificationを分けた。
 - [ ] `Completed` invariantを明示した。
-- [ ] Test Contract Packet が要求する production ingress test を追加または更新した。
+- [ ] 必要性判断で追加・更新が必要とした production ingress test について、適用される Test Contract Packet の要求を満たした。
 - [ ] 旧test契約が現在も正しいか再評価した。
 - [ ] 増えたstate／token／callbackと、退役したものを記録した。
 
@@ -585,8 +585,8 @@ owner間callback edge数
 - [ ] command開始後に対象の意味を各phaseで再解釈していない。
 - [ ] 同じsurfaceのwriterが増えていない。
 - [ ] successが例外なしだけで決まっていない。
-- [ ] Test Contract Packet が要求する production ingress の時系列 test がある。
-- [ ] base-fail／head-pass、または packet が指定した targeted negative control が plausible wrong implementation を区別する。
+- [ ] 適用される Test Contract Packet が要求する production ingress の時系列 test がある。
+- [ ] 適用される場合、base-fail／head-pass、または必要性判断で選んだ targeted negative control が plausible wrong implementation を区別する。red / negative-control の未実施だけを finding の根拠にしない。
 
 ## 16. AI／Codexを利用する場合の境界
 
