@@ -1,7 +1,7 @@
 function Get-VerificationRunnerContract {
     # Keep only values consumed by an executable runner.  The lifecycle owns deadline
     # behavior; this file supplies phase budgets, diagnostics folders, and receipt inputs.
-    $fullPhaseDescriptors = @(
+    $phaseDescriptors = @(
         [ordered]@{ Name = 'tool-restore'; BudgetSeconds = 120; DiagnosticsSegment = 'tool-restore' }
         [ordered]@{ Name = 'tool-smoke'; BudgetSeconds = 60; DiagnosticsSegment = 'tool-smoke' }
         [ordered]@{ Name = 'current-distribution-publish'; BudgetSeconds = 180; DiagnosticsSegment = 'current-distribution-publish' }
@@ -30,14 +30,12 @@ function Get-VerificationRunnerContract {
     }
 
     return [pscustomobject][ordered]@{
-        Full = [pscustomobject][ordered]@{
-            PhaseDescriptors = $fullPhaseDescriptors
-            RepositoryFormat = [pscustomobject][ordered]@{
-                WorkspaceKind = 'folder'
-                ProjectEvaluation = 'none'
-                VerifiesAllGenuineWorkspaceFiles = $true
-                GeneratedRootExclusions = @('artifacts/verification', 'bin', 'obj', '.tmp')
-            }
+        PhaseDescriptors = $phaseDescriptors
+        RepositoryFormat = [pscustomobject][ordered]@{
+            WorkspaceKind = 'folder'
+            ProjectEvaluation = 'none'
+            VerifiesAllGenuineWorkspaceFiles = $true
+            GeneratedRootExclusions = @('artifacts/verification', 'bin', 'obj', '.tmp')
         }
         V216FirstHop = [pscustomobject][ordered]@{
             AcceptanceReceipt = [pscustomobject]$v216AcceptanceReceipt

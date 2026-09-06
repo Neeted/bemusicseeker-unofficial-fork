@@ -1,6 +1,6 @@
 # テスト運用方針
 
-最終更新: 2026-08-25
+最終更新: 2026-09-06
 
 この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。個々の test の設計、既存 coverage 調査、共通 infrastructure、Codex handoff は [test-authoring-contract.md](test-authoring-contract.md) を正本とする。
 
@@ -16,6 +16,8 @@
 - Functional の最終 acceptance は変更種別にかかわらず、同一の最終 snapshot で一回を原則とする。timeout 時の retry は前項に従い、timeout 以外の deterministic failure は初回から調査する。
 
 ## 標準コマンド
+
+Functional / Full は locked restore の後、tool restore → `dotnet format` → Roslynator analyzer の順に事前検査し、合格してから build / 実テストへ進む。長いテストを終えた後に静的診断で不合格となるのを避けるためである。指摘があればログを確認して修正し、同じ入口を再実行する。runner は自動修正しない。Quick は filter の有無にかかわらず事前検査を省略し、通常のコード変更の最終確認には Functional 以上を使う。事前検査は Functional test execution の300秒予算に含めない。
 
 ### Functional: 通常の機能検証
 
@@ -70,13 +72,13 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter '<MS
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 ```
 
-Full は Functional に加えて、tool / analyzer、`ProcessIntegration`、self-contained publish、既存データ起動受入、update package 受入を実行する。Full は `Invoke-CanonicalFunctionalVerification` を `FunctionalTimeoutSeconds` と Full run root 配下の diagnostics root で一度だけ呼び出し、locked restore、build、built-output validation、Functional test execution を別 route で再構築しない。canonical Functional の test execution 完了後に current distribution publish / baseline / acceptance へ進み、update acceptance 完了後に v2.1.6.0 cache preparation を一度だけ実行してから `ProcessIntegration` へ進む。Functional の 300 秒 hard budget と 180 秒 reporting target は test execution phase だけに適用し、Full の準備・post-Functional release 検証とは別である。Performance、LargeFixture、parser full / slow は Full にも自動では含めず、変更対象に応じて明示実行する。
+Full は Functional に加えて、tool smoke、`ProcessIntegration`、self-contained publish、既存データ起動受入、update package 受入を実行する。Full は `Invoke-CanonicalFunctionalVerification` を `FunctionalTimeoutSeconds` と Full run root 配下の diagnostics root で一度だけ呼び出し、locked restore、build、built-output validation、Functional test execution を別 route で再構築しない。canonical Functional の test execution 完了後に current distribution publish / baseline / acceptance へ進み、update acceptance 完了後に v2.1.6.0 cache preparation を一度だけ実行してから `ProcessIntegration` へ進む。Functional の 300 秒 hard budget と 180 秒 reporting target は test execution phase だけに適用し、Full の準備・post-Functional release 検証とは別である。Performance、LargeFixture、parser full / slow は Full にも自動では含めず、変更対象に応じて明示実行する。
 
-Full 内でも canonical Functional phase は tool restore の後、tool smoke / publish や update acceptance より前に実行する。release artifact workload の CPU / I/O の影響を test execution の 300 秒予算へ持ち込まず、portable 起動から全 testhost 完了までを同じ条件で評価するためである。
+Full 内でも共通の事前検査と canonical Functional test execution を tool smoke / publish や update acceptance より前に実行する。release artifact workload の CPU / I/O の影響を test execution の 300 秒予算へ持ち込まず、portable 起動から全 testhost 完了までを同じ条件で評価するためである。
 
-Full の post-Functional phase budget は内部 `verification-runner-contract.ps1` の descriptor を正本とし、次の値を変更しない。各 phase は descriptor の diagnostics segment と bounded monitored execution を一度だけ使い、process tree を停止してから cleanup する。primary failure は cleanup failure で置き換えず、cleanup failure は phase diagnostics に記録する。primary が無い場合の cleanup failure は失敗として扱い、成功時の cleanup failure も成功に隠さない。Full の finally は開始前の process environment と working directory を復元し、復元 failure も同じ優先順位で記録する。
+共通の事前検査と Full の post-Functional phase budget は内部 `verification-runner-contract.ps1` の descriptor を正本とし、次の値を変更しない。各 phase は descriptor の diagnostics segment と bounded monitored execution を一度だけ使い、process tree を停止してから cleanup する。primary failure は cleanup failure で置き換えず、cleanup failure は phase diagnostics に記録する。primary が無い場合の cleanup failure は失敗として扱い、成功時の cleanup failure も成功に隠さない。Full の finally は開始前の process environment と working directory を復元し、復元 failure も同じ優先順位で記録する。
 
-各 Full phase は phase 開始時に `ExecutionDeadlineUtc` を一度だけ作成し、そこから正確に 10 秒後の `CleanupDeadlineUtc` と組にする。この pair は phase 内の全 monitored command、test lane、acceptance script へそのまま渡し、各 stage / subscenario が `TimeoutSeconds` から新しい期限を作らない。execution 中の wait、process exit、stream drain、artifact 検証は execution deadline の残り時間だけを使う。primary failure / timeout 後だけ owned-process stop、stream drain、dispose、diagnostic、sandbox cleanup が cleanup grace を使える。grace 中に遅れて終了した process は成功に戻さず、primary failure を維持する。
+共通の事前検査と各 Full phase は phase 開始時に `ExecutionDeadlineUtc` を一度だけ作成し、そこから正確に 10 秒後の `CleanupDeadlineUtc` と組にする。この pair は phase 内の全 monitored command、test lane、acceptance script へそのまま渡し、各 stage / subscenario が `TimeoutSeconds` から新しい期限を作らない。execution 中の wait、process exit、stream drain、artifact 検証は execution deadline の残り時間だけを使う。primary failure / timeout 後だけ owned-process stop、stream drain、dispose、diagnostic、sandbox cleanup が cleanup grace を使える。grace 中に遅れて終了した process は成功に戻さず、primary failure を維持する。
 
 Full は `tests-full-<run>` の下に一つだけ `distribution` root を作る。current app / updater / exact-version `SkipDocHtml` package と、固定 baseline commit をその root に準備し、`distribution-manifest.json` と SHA-256 seal を作成する。manifest は schema、run / artifact ID、absolute canonical paths、exact version / commit、relative path を `/` に正規化して ordinal-sort した tree hash、package SHA-256 を持つ。runner は baseline preparation 完了時の run ID、artifact ID、manifest JSON の SHA-256、seal の値を expected identity として保持し、`existing-data`、`update`、`ProcessIntegration`、`ReleaseAcceptance` の各 consumer の前後と Full 最終確認で全値の exact match を要求する。したがって consumer が manifest を自己整合的に置換・再 seal しても受け入れない。timestamp / latest scan、global fixed-path fallback、Full consumer の再 publish は行わない。acceptance script の manifest mode は明示指定時に必須であり、manifest が無い場合や path、ID、version、seal、artifact が一致しない場合は明示 failure にする。bare invocation は従来どおり self-preparation を許容する互換 mode である。v2.1.6.0 first-hop artifact はこの manifest とは別の checked-in metadata と canonical cache を持ち、`v216-cache-preparation` phase が `ProcessIntegration` より前にその cache を確定する。
 
@@ -86,7 +88,9 @@ Full の non-UI updater launch / recovery と updater package-sync fixture proce
 
 | phase | budget |
 | --- | ---: |
-| tool restore | 120 秒 |
+| tool restore（共通事前検査） | 120 秒 |
+| format（共通事前検査） | 120 秒 |
+| analyzer（共通事前検査） | 180 秒 |
 | tool smoke | 60 秒 |
 | current distribution publish | 180 秒 |
 | baseline preparation | 300 秒 |
@@ -95,10 +99,8 @@ Full の non-UI updater launch / recovery と updater package-sync fixture proce
 | v2.1.6.0 cache preparation | 180 秒 |
 | `ProcessIntegration` | 180 秒 |
 | `ReleaseAcceptance` | 180 秒 |
-| format | 120 秒 |
-| analyzer | 180 秒 |
 
-Full の `format` phase は solution / project を評価する route を使わず、repository root を `dotnet format whitespace --folder` で検査する。`artifacts/verification`、`bin`、`obj`、`.tmp` は runner が生成する diagnostics / build output / temporary workspace のため format scope から除外するが、repository 内のそれ以外の genuine workspace files は全件検査し、workspace の format failure を隠さない。baseline preparation の source checkout と build output は OS の temporary root（repository 外）へ展開し、検証用 distribution package と manifest だけを Full run root へコピーする。これにより baseline source が SDK の広域 item glob や後続 project evaluation に混入しない。temporary root の cleanup は primary phase failure を置き換えず、成功時の cleanup failure は phase failure として扱う。
+Functional / Full の `format` phase は solution / project を評価する route を使わず、repository root を `dotnet format whitespace --folder` で検査する。`artifacts/verification`、`bin`、`obj`、`.tmp` は runner が生成する diagnostics / build output / temporary workspace のため format scope から除外するが、repository 内のそれ以外の genuine workspace files は全件検査し、workspace の format failure を隠さない。baseline preparation の source checkout と build output は OS の temporary root（repository 外）へ展開し、検証用 distribution package と manifest だけを Full run root へコピーする。これにより baseline source が SDK の広域 item glob や後続 project evaluation に混入しない。temporary root の cleanup は primary phase failure を置き換えず、成功時の cleanup failure は phase failure として扱う。
 
 ## テスト lane
 

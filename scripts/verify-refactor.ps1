@@ -40,7 +40,7 @@ function Get-RepositoryFormatArguments {
         [string]$WorkspaceRoot
     )
 
-    $formatContract = $verificationRunnerContract.Full.RepositoryFormat
+    $formatContract = $verificationRunnerContract.RepositoryFormat
     if ($formatContract.WorkspaceKind -cne 'folder' -or
         $formatContract.ProjectEvaluation -cne 'none' -or
         -not [bool]$formatContract.VerifiesAllGenuineWorkspaceFiles) {
@@ -587,21 +587,21 @@ function Invoke-MonitoredCommand {
         -PostStartFaultGuard $PostStartFaultGuard
     Write-Host "$Label elapsed: $([Math]::Round($result.ElapsedMilliseconds / 1000, 1))s; diagnostics: $DiagnosticsDirectory"
 }
-function Get-FullPhaseDescriptor {
+function Get-VerificationPhaseDescriptor {
     param(
         [Parameter(Mandatory)]
         [string]$Name
     )
 
-    $descriptor = @($verificationRunnerContract.Full.PhaseDescriptors |
+    $descriptor = @($verificationRunnerContract.PhaseDescriptors |
         Where-Object { $_.Name -ceq $Name })
     if ($descriptor.Count -ne 1) {
-        throw "Full runner phase descriptor is missing or duplicated: $Name"
+        throw "Verification runner phase descriptor is missing or duplicated: $Name"
     }
     return $descriptor[0]
 }
 
-function Invoke-FullPhaseCommand {
+function Invoke-VerificationPhaseCommand {
     param(
         [Parameter(Mandatory)]
         [string]$Label,
@@ -633,7 +633,7 @@ function Invoke-FullPhaseCommand {
         -DeadlinePolicy $DeadlinePolicy
 }
 
-function Write-FullPhaseResult {
+function Write-VerificationPhaseResult {
     param(
         [Parameter(Mandatory)]
         [string]$DiagnosticsDirectory,
@@ -649,11 +649,11 @@ function Write-FullPhaseResult {
         ($Result | ConvertTo-Json -Depth 12),
         [Text.UTF8Encoding]::new($false))
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        throw "Full phase result was not written: $path"
+        throw "Verification phase result was not written: $path"
     }
 }
 
-function Invoke-MonitoredFullPhase {
+function Invoke-MonitoredVerificationPhase {
     param(
         [Parameter(Mandatory)]
         [string]$Name,
@@ -667,7 +667,7 @@ function Invoke-MonitoredFullPhase {
         [scriptblock]$Cleanup
     )
 
-    $descriptor = Get-FullPhaseDescriptor -Name $Name
+    $descriptor = Get-VerificationPhaseDescriptor -Name $Name
     $phaseDeadlinePolicy = Resolve-VerificationDeadlinePair `
         -TimeoutSeconds ([int]$descriptor.BudgetSeconds)
     $phaseStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -682,7 +682,7 @@ function Invoke-MonitoredFullPhase {
             if ([DateTime]::UtcNow -ge $phaseDeadlinePolicy.ExecutionDeadlineUtc -or
                 $phaseStopwatch.Elapsed.TotalSeconds -gt [int]$descriptor.BudgetSeconds) {
                 $primaryFailure = [TimeoutException]::new(
-                    "Full phase '$Name' exceeded the $($descriptor.BudgetSeconds)-second budget.")
+                    "Verification phase '$Name' exceeded the $($descriptor.BudgetSeconds)-second budget.")
             }
         }
         catch {
@@ -705,7 +705,7 @@ function Invoke-MonitoredFullPhase {
             ([DateTime]::UtcNow -ge $phaseDeadlinePolicy.ExecutionDeadlineUtc -or
             $phaseStopwatch.Elapsed.TotalSeconds -gt [int]$descriptor.BudgetSeconds)) {
             $primaryFailure = [TimeoutException]::new(
-                "Full phase '$Name' exceeded the $($descriptor.BudgetSeconds)-second budget.")
+                "Verification phase '$Name' exceeded the $($descriptor.BudgetSeconds)-second budget.")
         }
         $result = [ordered]@{
             schemaVersion = 1
@@ -719,7 +719,7 @@ function Invoke-MonitoredFullPhase {
             cleanupFailure = if ($null -ne $cleanupFailure) { $cleanupFailure.ToString() } else { $null }
         }
         try {
-            Write-FullPhaseResult -DiagnosticsDirectory $phaseDirectory -Result $result
+            Write-VerificationPhaseResult -DiagnosticsDirectory $phaseDirectory -Result $result
         }
         catch {
             # A phase-result write is part of the phase's durable outcome. Preserve an
@@ -731,14 +731,14 @@ function Invoke-MonitoredFullPhase {
                 $cleanupFailure = $_.Exception
             }
             else {
-                Write-Warning "Full phase '$Name' result persistence also failed: $($_.Exception.Message)"
+                Write-Warning "Verification phase '$Name' result persistence also failed: $($_.Exception.Message)"
             }
         }
     }
 
     if ($null -ne $primaryFailure) {
         if ($null -ne $cleanupFailure) {
-            Write-Warning "Full phase '$Name' cleanup also failed after the primary failure: $($cleanupFailure.Message)"
+            Write-Warning "Verification phase '$Name' cleanup also failed after the primary failure: $($cleanupFailure.Message)"
         }
         throw $primaryFailure
     }
@@ -1481,7 +1481,7 @@ function Invoke-CurrentDistributionPublish {
         throw "Distribution publish script is missing: $publishScript"
     }
     [void](New-Item -ItemType Directory -Path $ArtifactRoot -Force)
-    Invoke-FullPhaseCommand `
+    Invoke-VerificationPhaseCommand `
         -Label 'Current distribution publish' `
         -CommandPath 'pwsh' `
         -Arguments @('-NoProfile', '-File', $publishScript, '-PackageOnly', '-SkipDocHtml', '-ArtifactRoot', $ArtifactRoot) `
@@ -1546,7 +1546,7 @@ function Invoke-BaselinePreparation {
     $primaryError = $null
     try {
         [void](New-Item -ItemType Directory -Path $sourceRoot -Force)
-        Invoke-FullPhaseCommand `
+        Invoke-VerificationPhaseCommand `
         -Label 'Baseline source archive' `
         -CommandPath 'git' `
         -Arguments @('-C', $repoRoot, 'archive', '--format=zip', "--output=$archivePath", $BaselineCommit) `
@@ -1558,7 +1558,7 @@ function Invoke-BaselinePreparation {
     if (-not (Test-Path -LiteralPath $baselinePublishScript -PathType Leaf)) {
         throw "Baseline publish script is missing from checkout: $baselinePublishScript"
     }
-    Invoke-FullPhaseCommand `
+    Invoke-VerificationPhaseCommand `
         -Label 'Baseline distribution publish' `
         -CommandPath 'pwsh' `
         -Arguments @('-NoProfile', '-File', $baselinePublishScript, '-PackageOnly', '-SkipDocHtml') `
@@ -1649,7 +1649,7 @@ function Invoke-V216ArtifactCachePreparation {
     $primaryError = $null
     try {
         Write-Host "v2.1.6.0 artifact cache miss; downloading the pinned artifact to a temporary file."
-        [void](Invoke-FullPhaseCommand `
+        [void](Invoke-VerificationPhaseCommand `
                 -Label 'v2.1.6.0 artifact cache download' `
                 -CommandPath 'curl.exe' `
                 -Arguments @(
@@ -1731,7 +1731,7 @@ function Invoke-ExistingDataAcceptance {
         throw "Existing-data acceptance runner is missing: $existingDataAcceptanceScript"
     }
     $outputDirectory = Join-Path $PhaseDirectory 'acceptance'
-    Invoke-FullPhaseCommand `
+    Invoke-VerificationPhaseCommand `
         -Label 'Existing-data acceptance' `
         -CommandPath 'pwsh' `
         -Arguments @(
@@ -1766,7 +1766,7 @@ function Invoke-UpdateAcceptance {
         throw "Update acceptance runner is missing: $updateAcceptanceScript"
     }
     $outputDirectory = Join-Path $PhaseDirectory 'acceptance'
-    Invoke-FullPhaseCommand `
+    Invoke-VerificationPhaseCommand `
         -Label 'Update acceptance' `
         -CommandPath 'pwsh' `
         -Arguments @(
@@ -1811,7 +1811,7 @@ function Invoke-V216FirstHopAcceptance {
         throw 'Current distribution manifest does not identify a release package for v2.1.6.0 first-hop acceptance.'
     }
     $outputDirectory = Join-Path $PhaseDirectory 'v216-first-hop'
-    Invoke-FullPhaseCommand `
+    Invoke-VerificationPhaseCommand `
         -Label 'v2.1.6.0 first-hop acceptance' `
         -CommandPath 'pwsh' `
         -Arguments @(
@@ -1878,6 +1878,62 @@ function Assert-BuiltOutputs {
     Assert-ReleaseOutputLayout -ExecutablePath (Resolve-Path -LiteralPath $uiExecutable).Path
 }
 
+# 長いテストの前に静的診断を解消する。Quick の反復にはこの検査を追加しない。
+function Invoke-StaticVerification {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsRoot
+    )
+
+    [void](Invoke-MonitoredVerificationPhase -Name 'tool-restore' -DiagnosticsRoot $DiagnosticsRoot -Action {
+        param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
+        Invoke-VerificationPhaseCommand `
+            -Label 'Tool restore' `
+            -CommandPath 'dotnet' `
+            -Arguments @('tool', 'restore') `
+            -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
+            -DeadlinePolicy $deadlinePolicy
+    })
+
+    [void](Invoke-MonitoredVerificationPhase -Name 'format' -DiagnosticsRoot $DiagnosticsRoot -Action {
+        param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
+        Invoke-VerificationPhaseCommand `
+            -Label 'dotnet format' `
+            -CommandPath 'dotnet' `
+            -Arguments (Get-RepositoryFormatArguments -WorkspaceRoot $repoRoot) `
+            -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
+            -DeadlinePolicy $deadlinePolicy
+    })
+
+    [void](Invoke-MonitoredVerificationPhase -Name 'analyzer' -DiagnosticsRoot $DiagnosticsRoot -Action {
+        param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
+        $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+        $vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
+        if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
+            throw "vswhere.exe was not found: $vswhere"
+        }
+        $vswhereResult = Invoke-VerificationPhaseCommand `
+            -Label 'Visual Studio MSBuild discovery' `
+            -CommandPath $vswhere `
+            -Arguments @('-version', '[17.0,18.0)', '-products', '*', '-requires', 'Microsoft.Component.MSBuild', '-find', 'MSBuild\Current\Bin') `
+            -DiagnosticsDirectory (Join-Path $phaseDirectory 'vswhere') `
+            -DeadlinePolicy $deadlinePolicy
+        $msbuildPath = @(([string]$vswhereResult.StandardOutput -split "\r?\n") |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Select-Object -First 1)[0]
+        $msbuildPath = ([string]$msbuildPath).Trim()
+        if ([string]::IsNullOrWhiteSpace($msbuildPath)) {
+            throw 'Visual Studio 2022 MSBuild 17 was not found.'
+        }
+        Invoke-VerificationPhaseCommand `
+            -Label 'roslynator analyzer' `
+            -CommandPath 'dotnet' `
+            -Arguments @('roslynator', 'analyze', $solution, '--msbuild-path', $msbuildPath, '--properties', 'Configuration=Release', '--severity-level', 'warning', '--ignore-compiler-diagnostics', '--verbosity', 'normal') `
+            -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
+            -DeadlinePolicy $deadlinePolicy
+    })
+}
+
 function Invoke-CanonicalFunctionalVerification {
     param(
         [Parameter(Mandatory)]
@@ -1901,6 +1957,10 @@ function Invoke-CanonicalFunctionalVerification {
             -Arguments @('restore', $solution, '-r', 'win-x64', '--locked-mode', '-p:PublishReadyToRun=true') `
             -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
         $restoreStopwatch.Stop()
+
+        if ($Mode -in @('Functional', 'Full')) {
+            Invoke-StaticVerification -DiagnosticsRoot $DiagnosticsRoot
+        }
 
         $buildStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         Invoke-BudgetedCommand `
@@ -2001,18 +2061,6 @@ $previousUpdaterPublishRoot = [Environment]::GetEnvironmentVariable('BMS_SCD_UPD
 
 Push-Location $repoRoot
 try {
-    if ($Mode -eq 'Full') {
-        [void](Invoke-MonitoredFullPhase -Name 'tool-restore' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            Invoke-FullPhaseCommand `
-                -Label 'Tool restore' `
-                -CommandPath 'dotnet' `
-                -Arguments @('tool', 'restore') `
-                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
-                -DeadlinePolicy $deadlinePolicy
-        })
-    }
-
     if ($canonicalFunctionalRequested) {
         Invoke-CanonicalFunctionalVerification `
             -DiagnosticsRoot $testDiagnosticsDirectory `
@@ -2020,14 +2068,14 @@ try {
     }
 
     if ($Mode -eq 'Full') {
-        [void](Invoke-MonitoredFullPhase -Name 'tool-smoke' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        [void](Invoke-MonitoredVerificationPhase -Name 'tool-smoke' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             foreach ($toolExecutable in $toolExecutables) {
                 if (-not (Test-Path -LiteralPath $toolExecutable -PathType Leaf)) {
                     throw "Release tool executable was not produced: $toolExecutable"
                 }
                 $toolName = [IO.Path]::GetFileNameWithoutExtension($toolExecutable)
-                Invoke-FullPhaseCommand `
+                Invoke-VerificationPhaseCommand `
                     -Label "Tool smoke $toolName" `
                     -CommandPath $toolExecutable `
                     -Arguments @('--help') `
@@ -2040,7 +2088,7 @@ try {
         $currentDistributionRoot = Join-Path $fullDistributionRoot 'current'
         $fullRunId = Split-Path -Leaf $testDiagnosticsDirectory
         $fullArtifactId = $fullRunId + '-distribution'
-        $current = @(Invoke-MonitoredFullPhase -Name 'current-distribution-publish' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        $current = @(Invoke-MonitoredVerificationPhase -Name 'current-distribution-publish' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Invoke-CurrentDistributionPublish `
                 -PhaseDirectory $phaseDirectory `
@@ -2048,7 +2096,7 @@ try {
                 -DeadlinePolicy $deadlinePolicy
         })[-1]
 
-        $artifactManifest = @(Invoke-MonitoredFullPhase -Name 'baseline-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        $artifactManifest = @(Invoke-MonitoredVerificationPhase -Name 'baseline-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Invoke-BaselinePreparation `
                 -PhaseDirectory $phaseDirectory `
@@ -2073,7 +2121,7 @@ try {
         [Environment]::SetEnvironmentVariable('BMS_SCD_APP_PUBLISH_ROOT', [string]$artifactManifest.Current.appRoot, 'Process')
         [Environment]::SetEnvironmentVariable('BMS_SCD_UPDATER_PUBLISH_ROOT', [string]$artifactManifest.Current.updaterRoot, 'Process')
 
-        [void](Invoke-MonitoredFullPhase -Name 'existing-data' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        [void](Invoke-MonitoredVerificationPhase -Name 'existing-data' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
@@ -2092,7 +2140,7 @@ try {
                 -ExpectedManifestSha256 $expectedFullManifestSha256 `
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
         })
-        [void](Invoke-MonitoredFullPhase -Name 'update' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        [void](Invoke-MonitoredVerificationPhase -Name 'update' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
@@ -2112,7 +2160,7 @@ try {
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
         })
 
-        [void](Invoke-MonitoredFullPhase -Name 'v216-cache-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        [void](Invoke-MonitoredVerificationPhase -Name 'v216-cache-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Invoke-V216ArtifactCachePreparation `
                 -PhaseDirectory $phaseDirectory `
@@ -2128,7 +2176,7 @@ try {
         }
         $expectedV216FirstHopAcceptanceReceiptPath = [IO.Path]::GetFullPath(
             (Join-Path $testDiagnosticsDirectory ([string]$v216ReceiptInputs[0].RelativePath).Replace('/', '\')))
-        $processIntegrationResultsPath = @(Invoke-MonitoredFullPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        $processIntegrationResultsPath = @(Invoke-MonitoredVerificationPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
@@ -2152,7 +2200,7 @@ try {
                 -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             return $processIntegrationResultsPath
         })[-1]
-        $releaseAcceptancePaths = @(Invoke-MonitoredFullPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+        $releaseAcceptancePaths = @(Invoke-MonitoredVerificationPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Assert-DistributionArtifactIdentity `
                 -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
@@ -2214,43 +2262,6 @@ try {
         $v216FirstHopAcceptanceReceiptPath = [string]$releaseAcceptancePaths.AcceptanceReceiptPath
         $releaseAcceptanceResultsPath = [string]$releaseAcceptancePaths.ResultsPath
 
-        [void](Invoke-MonitoredFullPhase -Name 'format' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            Invoke-FullPhaseCommand `
-                -Label 'dotnet format' `
-                -CommandPath 'dotnet' `
-                -Arguments (Get-RepositoryFormatArguments -WorkspaceRoot $repoRoot) `
-                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
-                -DeadlinePolicy $deadlinePolicy
-        })
-
-        [void](Invoke-MonitoredFullPhase -Name 'analyzer' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
-            $vswhere = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer\vswhere.exe'
-            if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {
-                throw "vswhere.exe was not found: $vswhere"
-            }
-            $vswhereResult = Invoke-FullPhaseCommand `
-                -Label 'Visual Studio MSBuild discovery' `
-                -CommandPath $vswhere `
-                -Arguments @('-version', '[17.0,18.0)', '-products', '*', '-requires', 'Microsoft.Component.MSBuild', '-find', 'MSBuild\Current\Bin') `
-                -DiagnosticsDirectory (Join-Path $phaseDirectory 'vswhere') `
-                -DeadlinePolicy $deadlinePolicy
-            $msbuildPath = @(([string]$vswhereResult.StandardOutput -split "\r?\n") |
-                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-                Select-Object -First 1)[0]
-            $msbuildPath = ([string]$msbuildPath).Trim()
-            if ([string]::IsNullOrWhiteSpace($msbuildPath)) {
-                throw 'Visual Studio 2022 MSBuild 17 was not found.'
-            }
-            Invoke-FullPhaseCommand `
-                -Label 'roslynator analyzer' `
-                -CommandPath 'dotnet' `
-                -Arguments @('roslynator', 'analyze', $solution, '--msbuild-path', $msbuildPath, '--properties', 'Configuration=Release', '--severity-level', 'warning', '--ignore-compiler-diagnostics', '--verbosity', 'minimal') `
-                -DiagnosticsDirectory (Join-Path $phaseDirectory 'command') `
-                -DeadlinePolicy $deadlinePolicy
-        })
         Assert-DistributionArtifactIdentity `
             -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
             -ExpectedRunId $expectedFullRunId `
