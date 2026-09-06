@@ -138,9 +138,20 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         pkg2.path = "C:\\Pending\\Pkg2";
         pkg2.delete_parent = false;
 
+        TestableBmsFile singleA = CreateFile("C:\\Pending\\Singles\\a.bms");
+        TestableBmsFile singleB = CreateFile("C:\\Pending\\Singles\\b.bms");
+        var singlePackageA = ChartPackageTestExtensions.CreatePackage([singleA]);
+        singlePackageA.path = singleA.path;
+        var singlePackageB = ChartPackageTestExtensions.CreatePackage([singleB]);
+        singlePackageB.path = singleB.path;
+        singlePackageB.delete_parent = true;
+
         List<ChartPackage> result = service.GetPendingPackagesFullyCoveredBySelection(
-            [pkg1, pkg2],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { selectedA.path, selectedB.path, partial.path });
+            [pkg1, pkg2, singlePackageA, singlePackageB],
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                selectedA.path, selectedB.path, partial.path, singleA.path, singleB.path
+            });
 
         CollectionAssert.AreEqual(new[] { pkg1 }, result);
     }

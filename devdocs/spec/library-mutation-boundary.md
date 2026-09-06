@@ -73,11 +73,33 @@ P0 として次の操作は共通境界を通す。
 
 ### Pending chart legacy mutations
 
-保留譜面の削除、無効拡張子の修正、導入行の差分更新は、確認時に対象 K 件だけの immutable projection を一度作る。projection は対象の file identity、package / entry membership、authorized path を保持し、無関係な pending package の chart entries を読み直さない。lease 内で live owner、package collection、entry、path、file existence、directory / reparse safety を再検証し、失敗した対象は明示的な non-success として扱う。確認後の process-exclusive owner と transaction が authoritative であり、外部 DB の全件再読込や全 catalog 比較は行わない。
+保留譜面の削除、無効拡張子の修正、導入行の差分更新は、確認時に対象 K 件だけの immutable projection を一度作る。projection は対象の file identity、package / entry membership、authorized path を保持し、無関係な pending package の chart entries を読み直さない。lease 内で live owner、package collection、entry、path と、選択された操作単位の source existence / type、directory / reparse safety を再検証し、失敗した対象は明示的な non-success として扱う。確認後の process-exclusive owner と transaction が authoritative であり、外部 DB の全件再読込や全 catalog 比較は行わない。
 
-保留譜面の child が stale / missing または削除失敗になった場合、失敗・未処理 sibling を保持し、package root / ancestor の recursive delete へ拡大しない。全 child が同一 projection により承認され、成功した後だけ、空になった authorized package directory を non-recursive に best-effort cleanup できる。無効拡張子修正は canonical durable apply / publication が成功するまで live path / global index を変更せず、dialog / notification は release 後の best-effort effect とする。nested pending/install-row apply は現在の live owner が発行した非 null・未 dispose capability を必須とし、nullable / foreign / disposed capability を no-op fallback に変換しない。
+無効拡張子修正は canonical durable apply / publication が成功するまで live path / global index を変更せず、dialog / notification は release 後の best-effort effect とする。nested pending/install-row apply は現在の live owner が発行した非 null・未 dispose capability を必須とし、nullable / foreign / disposed capability を no-op fallback に変換しない。
+
+#### 保留譜面削除の操作単位
+
+利用者向け契約は [manual.ja.md の「保留」](../../docs/manual.ja.md#保留) の動作とする。「フォルダごと削除」は、譜面削除後に空ディレクトリだけを掃除する機能ではなく、同一パッケージの譜面が残らなくなる選択で、そのパッケージ全体を削除する機能である。
+
+- **同一パッケージと判定されたディレクトリ**: discovery / pending owner が保持する `ChartPackage.path` がパッケージのディレクトリを指す。フォルダ削除 option が ON で、そのパッケージの remaining `ChartEntries`（子ディレクトリの譜面と BMSON を含む）がすべて選択されていれば、ディレクトリ全体を一つの削除対象とする。WAV、BGA、画像、説明書、子ディレクトリなども含む。リソースが残ることは削除を拒否する理由ではない。
+- **単体譜面と判定されたパッケージ**: `ChartPackage.path` が譜面ファイル自身を指す。同じ親フォルダにある単体譜面をすべて選択しても、親フォルダは削除対象にならない。親パスをまとめ直してディレクトリパッケージ扱いにせず、`delete_parent` をこの削除の認可に使わない。元譜面パスが実行時にディレクトリへ置き換わっても、パッケージ区分を変更しない。
+- **部分選択または option が OFF**: 選択された譜面ファイルだけを削除する。入れ子を含む未選択譜面やリソース、フォルダは残す。個別ファイルの失敗を理由に ancestor の削除へ fallback しない。部分削除後、残った最後の譜面を選択した次の操作では、ON ならパッケージ全体、OFF なら譜面だけを削除する。
+
+全体削除は譜面の個別削除より先に、`IFileMutationService.DeleteDirectoryShell` へ渡す。`sendToRecycleBin` に従って `SendToRecycleBin` / `DeletePermanently` を選び、既存の `RecursiveDirectoryTree` correction options を渡す。パッケージ root の type / reparse 検証は維持するが、フォルダ全体の承認を個別 child の削除承認へ縮小しない。
+
+全体削除が成功した package の譜面パスだけを `ChartPathsToRemove` に入れ、既存の owner / capability 境界で pending entries と `install` rows を反映する。全体削除が失敗した package は対象譜面件数を failed として数え、directory failure を一件報告し、その package のパスを成功扱いで除去しない。失敗・取消し後に個別ファイル削除を試みない。別 package の成功は独立して反映する。OS shell 自体が部分削除してから失敗した場合の自動 rollback / atomicity は主張せず、残存ファイルと保留行を保持して失敗を通知する。
 
 ## Verification map
+
+保留削除 (`B2-01`–`B2-06`) は利用者のパッケージ単位の契約を検証する。recycle policy は既存 fake の呼出し記録で確認し、テストマシンの実ごみ箱は変更しない。
+
+| Behavior | Fixture | Lane / completion |
+| --- | --- | --- |
+| 全体削除の resource / subtree、recycle policy、失敗時の非 fallback と pending / install row 保持、別 package の成功 | `BmsLibraryPendingLegacyMutationTests.RemovePendingCharts_WholePackagesHonorRecyclePolicyAndKeepFailedPackage` | remaining-bms-library / 固有 DB・FS、model return |
+| discovery の入れ子譜面、部分選択から最後の選択、option OFF の保持 | `BmsLibraryPendingLegacyMutationTests.RemovePendingCharts_PartialThenLastSelectionHonorsWholePackageOption` | 同上 |
+| discovery が単体と判定した同一フォルダの全譜面、`delete_parent` に関係なく親を保持 | `BmsLibraryPendingLegacyMutationTests.RemovePendingCharts_SingleFilePackagesKeepParentEvenWhenAllSelected` | 同上 |
+| リソースを含む BMS / BMSON 全体削除、BMSON 非 materialization とフォルダ失敗結果 | `BmsLibraryPackageInstallServiceTests` の `DeletePendingCharts_*` | remaining-bms-library / 固有 FS、service return |
+| 全選択候補の区分と単体 source の除外 | `BmsLibraryLibraryFileOperationsServiceTests.GetPendingPackagesFullyCoveredBySelection_ReturnsOnlyFullySelectedPackages` | remaining-bms-library / local values、service return |
 
 FS+DB folder terminal reporting (`FSDB-A-20260905`, A01–A07) は以下で検証する。新しい lane、共有 logger 設定、visible window は使わない。
 

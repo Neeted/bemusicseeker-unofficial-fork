@@ -1833,9 +1833,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     }
 
     /// <summary>
-    /// Returns pending packages whose complete chart set is represented by the
-    /// selected source paths.  The caller supplies the authoritative pending
-    /// package collection captured for the operation.
+    /// Returns directory packages whose complete chart set is selected.
+    /// A package whose source is the chart itself is a single-file package, not
+    /// permission to delete that file's parent, even if all siblings are selected.
+    /// The caller supplies the authoritative pending package collection and
+    /// validates that each selected package root is still a directory.
     /// </summary>
     public List<ChartPackage> GetPendingPackagesFullyCoveredBySelection(
         IEnumerable<ChartPackage> pendingPackages,
@@ -1848,6 +1850,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             if (packageEntries.Count > 0 && packageEntries.All(entry =>
                 entry?.Chart != null
                 && !string.IsNullOrWhiteSpace(entry.Chart.Path)
+                && !string.Equals(package.path, entry.Chart.Path, StringComparison.OrdinalIgnoreCase)
                 && selectedPaths != null
                 && selectedPaths.Contains(entry.Chart.Path)))
             {

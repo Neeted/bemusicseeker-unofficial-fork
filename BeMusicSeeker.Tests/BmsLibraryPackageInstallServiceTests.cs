@@ -4233,6 +4233,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(packageDirectoryPath);
             string chartPath = Path.Combine(packageDirectoryPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
+            string resourceDirectoryPath = Path.Combine(packageDirectoryPath, "images");
+            Directory.CreateDirectory(resourceDirectoryPath);
+            File.WriteAllText(Path.Combine(resourceDirectoryPath, "stage.png"), "image");
             TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             var package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = packageDirectoryPath;
@@ -4268,6 +4272,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(packageDirectoryPath);
             string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
             LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
             PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
             ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
@@ -4304,6 +4309,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(packageDirectoryPath);
             string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
             LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
             PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
             ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
@@ -4340,6 +4346,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(packageDirectoryPath);
             string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
             LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
             PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
             ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
@@ -4376,6 +4383,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(packageDirectoryPath);
             string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
             File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
             LR2SongDBExtended.bmson_song bmsonSong = BmsonSongParser.Parse(bmsonPath);
             PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong));
             ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
@@ -4392,12 +4400,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             Assert.AreEqual(1, result.Requested);
             Assert.AreEqual(1, result.Processed);
-            Assert.AreEqual(1, result.Removed);
+            Assert.AreEqual(0, result.Removed);
             Assert.AreEqual(1, result.Failed);
+            Assert.AreEqual(1, result.Failures.Count);
+            Assert.IsTrue(result.Failures[0].IsDirectory);
+            Assert.AreEqual(packageDirectoryPath, result.Failures[0].Path);
             Assert.AreEqual(0, result.Skipped);
-            CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
+            Assert.AreEqual(0, result.ChartPathsToRemove.Count);
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
-            Assert.IsFalse(File.Exists(bmsonPath));
+            Assert.IsTrue(File.Exists(bmsonPath));
+            Assert.IsTrue(File.Exists(Path.Combine(packageDirectoryPath, "sound.wav")));
             Assert.IsTrue(Directory.Exists(packageDirectoryPath));
         });
     }

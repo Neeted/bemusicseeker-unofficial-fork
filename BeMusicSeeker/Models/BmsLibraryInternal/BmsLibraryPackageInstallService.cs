@@ -3343,6 +3343,13 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
+    /// <summary>
+    /// Deletes selected pending charts.  With whole-package deletion enabled,
+    /// fully selected directory packages (including resources) are deleted in
+    /// one shell operation using the requested recycle policy.  Failed package
+    /// operations retain their pending rows and do not fall back to file deletion.
+    /// Single-file packages and partial selections delete only selected files.
+    /// </summary>
     public PendingFileDeletionResult DeletePendingCharts(
         IEnumerable<ChartFile> charts,
         IEnumerable<ChartPackage> pendingPackages,
@@ -3384,11 +3391,65 @@ internal sealed class BmsLibraryPackageInstallService
             StringComparer.OrdinalIgnoreCase);
         RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
 
-        var successfulPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var handledByPackageDeletionPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (deleteContainingPackageFoldersWhenNoBms)
+        {
+            foreach (ChartPackage package in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(
+                pendingPackages,
+                selectedPaths))
+            {
+                // Directory packages are identified during discovery.  A single-file
+                // package never authorizes deleting its containing directory.
+                if (string.IsNullOrWhiteSpace(package.path)
+                    || !LongPathFileSystem.DirectoryExists(package.path))
+                {
+                    continue;
+                }
+                List<string> packageChartPaths = [.. package.ChartEntries
+                    .Select(entry => entry.Chart.Path)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)];
+                handledByPackageDeletionPaths.UnionWith(packageChartPaths);
+                result.Processed += packageChartPaths.Count;
+                try
+                {
+                    if (!TryValidatePendingDirectoryPath(package.path, out Exception directoryValidationFailure))
+                    {
+                        throw directoryValidationFailure;
+                    }
+
+                    // Selecting every remaining chart with this option authorizes
+                    // the package, including resources, as one deletion target.  Do
+                    // not delete charts first: a failed folder operation must not
+                    // fall back to destroying individual files or removing rows.
+                    fileMutationService.DeleteDirectoryShell(
+                        package.path,
+                        UIOption.OnlyErrorDialogs,
+                        recycleOption,
+                        recursiveDirectoryTreeFileMutationOptions);
+                    result.ChartPathsToRemove.AddRange(packageChartPaths);
+                    result.Removed += packageChartPaths.Count;
+                }
+                catch (Exception failure)
+                {
+                    result.Failed += packageChartPaths.Count;
+                    result.Failures.Add(new PendingFileDeletionFailure
+                    {
+                        Path = package.path,
+                        Exception = failure,
+                        IsDirectory = true
+                    });
+                }
+            }
+        }
 
         foreach (PendingChartDeletionTarget pendingChart in selectedTargets)
         {
             string pendingChartPath = pendingChart.Path;
+            if (handledByPackageDeletionPaths.Contains(pendingChartPath))
+            {
+                continue;
+            }
             result.Processed++;
             if (!TryValidatePendingFilePath(pendingChartPath, out Exception validationFailure))
             {
@@ -3406,7 +3467,6 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 fileMutationService.DeleteFileShell(pendingChartPath, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
                 result.ChartPathsToRemove.Add(pendingChartPath);
-                successfulPaths.Add(pendingChartPath);
                 result.Removed++;
             }
             catch (Exception failure)
@@ -3418,67 +3478,6 @@ internal sealed class BmsLibraryPackageInstallService
                     Exception = failure,
                     IsDirectory = false
                 });
-            }
-        }
-
-        if (deleteContainingPackageFoldersWhenNoBms)
-        {
-            foreach (ChartPackage package in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(
-                pendingPackages,
-                selectedPaths))
-            {
-                if (package == null || string.IsNullOrWhiteSpace(package.path))
-                {
-                    continue;
-                }
-                List<string> packageChartPaths = [.. (package.ChartEntries ?? [])
-                    .Select(entry => entry?.Chart?.Path)
-                    .Where(path => !string.IsNullOrWhiteSpace(path))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)];
-                if (packageChartPaths.Count == 0
-                    || packageChartPaths.Any(path => !selectedPaths.Contains(path))
-                    || packageChartPaths.Any(path => !successfulPaths.Contains(path)))
-                {
-                    // A failed or unprocessed child prevents any ancestor
-                    // cleanup.  This keeps failed siblings and their source
-                    // directory intact.
-                    continue;
-                }
-                if (!LongPathFileSystem.DirectoryExists(package.path))
-                {
-                    continue;
-                }
-                if (!TryValidatePendingDirectoryPath(package.path, out Exception directoryValidationFailure))
-                {
-                    result.Failed++;
-                    result.Failures.Add(new PendingFileDeletionFailure
-                    {
-                        Path = package.path,
-                        Exception = directoryValidationFailure,
-                        IsDirectory = true
-                    });
-                    continue;
-                }
-                try
-                {
-                    // Child files have already been deleted successfully.
-                    // A non-recursive delete can therefore remove only the
-                    // now-empty, already-authorized package directory.
-                    fileMutationService.DeleteDirectoryDirect(
-                        package.path,
-                        recursive: false,
-                        targetOnlyFileMutationOptions);
-                }
-                catch (Exception failure)
-                {
-                    result.Failed++;
-                    result.Failures.Add(new PendingFileDeletionFailure
-                    {
-                        Path = package.path,
-                        Exception = failure,
-                        IsDirectory = true
-                    });
-                }
             }
         }
 
