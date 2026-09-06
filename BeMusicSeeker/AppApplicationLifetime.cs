@@ -21,6 +21,9 @@ internal sealed class AppApplicationLifetime : IApplicationLifetimePort
 
     public void RequestShutdown() => application.Shutdown();
 
+    /// <summary>
+    /// 終端 cleanup 後に後継 process の起動だけを要求します。
+    /// </summary>
     public System.Threading.Tasks.Task RestartApplicationAsync()
         => application.RestartApplicationAsync();
 }

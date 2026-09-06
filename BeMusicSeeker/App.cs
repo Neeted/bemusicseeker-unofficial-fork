@@ -252,6 +252,10 @@ public partial class App : System.Windows.Application
         ReleaseSingleInstanceMutex();
     }
 
+    /// <summary>
+    /// 終端 cleanup 後に後継 process の起動だけを要求します。
+    /// WPF application の shutdown は MainWindow の認可済み terminal が行います。
+    /// </summary>
     public Task RestartApplicationAsync()
     {
         if (applicationPathSnapshot == null)
@@ -261,23 +265,21 @@ public partial class App : System.Windows.Application
 
         lock (restartSyncRoot)
         {
-            return restartTask ??= RestartApplicationAfterDiagnosticsAsync();
+            return restartTask ??= StartReplacementApplicationAsync();
         }
     }
 
-    private async Task RestartApplicationAfterDiagnosticsAsync()
+    private Task StartReplacementApplicationAsync()
     {
         try
         {
-            await StopPerformanceDiagnosticsBeforeTerminalActionAsync(
-                "operation_mode_restart").ConfigureAwait(true);
             new ApplicationRestartCoordinator(
                 applicationPathSnapshot,
                 applicationRestartGateway,
                 () => ApplicationRestartArgumentsPolicy.BuildCommandLineArguments(
                     Environment.GetCommandLineArgs()),
-                ReleaseSingleInstanceMutex,
-                Shutdown).Restart();
+                ReleaseSingleInstanceMutex).Restart();
+            return Task.CompletedTask;
         }
         catch (Exception exception)
         {
@@ -291,7 +293,7 @@ public partial class App : System.Windows.Application
             {
             }
             ReleaseSingleInstanceMutex();
-            throw;
+            return Task.FromException(exception);
         }
     }
 

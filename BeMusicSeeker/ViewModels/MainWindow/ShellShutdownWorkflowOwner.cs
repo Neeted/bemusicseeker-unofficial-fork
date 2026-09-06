@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -118,6 +119,12 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private readonly Action requestApplicationShutdown;
 
+    private readonly Func<Task> startApplicationRestart;
+
+    private readonly IUiDialogService restartFailureDialogs;
+
+    private readonly Action<Exception> reportRestartFailure;
+
     private readonly Func<Task> stopPerformanceDiagnostics;
 
     private readonly Func<Func<Task>, Task> dispatchToUi;
@@ -164,6 +171,10 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private Task failureDrainTask;
 
+    private bool operationModeRestartRequestPending;
+
+    private bool operationModeRestartAccepted;
+
     /// <summary>
     /// Creates the owner that coordinates shell shutdown preparation, terminal cleanup, and the final application-lifetime request.
     /// </summary>
@@ -182,6 +193,9 @@ internal sealed class ShellShutdownWorkflowOwner
     /// <param name="startupProgressWorkflowOwner">Startup progress owner used to block and unblock interaction.</param>
     /// <param name="markCoordinatedShutdownStarted">Marks the process lifetime as coordinated before preparation.</param>
     /// <param name="requestApplicationShutdown">Requests final application termination after terminal cleanup.</param>
+    /// <param name="startApplicationRestart">終端の後処理後に後継プロセスを起動する処理。</param>
+    /// <param name="restartFailureDialogs">shell が利用可能な間に再起動失敗を通知するサービス。</param>
+    /// <param name="reportRestartFailure">再起動失敗を通知できなかった場合の報告処理。</param>
     /// <param name="stopPerformanceDiagnostics">Stops performance diagnostics during preparation.</param>
     /// <param name="dispatchToUi">Dispatches terminal UI work to the shell thread.</param>
     /// <param name="logShutdown">Writes normal shutdown diagnostics.</param>
@@ -209,7 +223,10 @@ internal sealed class ShellShutdownWorkflowOwner
         Action<string> logShutdown,
         Action<string> logShutdownWarning,
         Func<string, string> formatTextForLog,
-        Action<Exception> reportSettingsSaveFailure = null)
+        Action<Exception> reportSettingsSaveFailure = null,
+        Func<Task> startApplicationRestart = null,
+        IUiDialogService restartFailureDialogs = null,
+        Action<Exception> reportRestartFailure = null)
     {
         this.startupUpdateWorkflow = startupUpdateWorkflow ?? throw new ArgumentNullException(nameof(startupUpdateWorkflow));
         this.elevatedProcessWarningWorkflow = elevatedProcessWarningWorkflow ?? throw new ArgumentNullException(nameof(elevatedProcessWarningWorkflow));
@@ -227,6 +244,9 @@ internal sealed class ShellShutdownWorkflowOwner
         this.startupProgressWorkflowOwner = startupProgressWorkflowOwner ?? throw new ArgumentNullException(nameof(startupProgressWorkflowOwner));
         this.markCoordinatedShutdownStarted = markCoordinatedShutdownStarted ?? throw new ArgumentNullException(nameof(markCoordinatedShutdownStarted));
         this.requestApplicationShutdown = requestApplicationShutdown ?? throw new ArgumentNullException(nameof(requestApplicationShutdown));
+        this.startApplicationRestart = startApplicationRestart;
+        this.restartFailureDialogs = restartFailureDialogs ?? new UiDialogCoordinator();
+        this.reportRestartFailure = reportRestartFailure;
         this.stopPerformanceDiagnostics = stopPerformanceDiagnostics ?? throw new ArgumentNullException(nameof(stopPerformanceDiagnostics));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logShutdown = logShutdown ?? throw new ArgumentNullException(nameof(logShutdown));
@@ -235,6 +255,11 @@ internal sealed class ShellShutdownWorkflowOwner
         this.reportSettingsSaveFailure = reportSettingsSaveFailure;
         startupUpdateWorkflow.BindShutdownPreparation(PrepareForStartupUpdateAsync);
     }
+
+    /// <summary>
+    /// 保存済み動作モードで後継 process を起動するため、MainWindow に通常 Close を要求します。
+    /// </summary>
+    internal event Action OperationModeRestartRequested;
 
     internal bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
 
@@ -350,6 +375,70 @@ internal sealed class ShellShutdownWorkflowOwner
         {
             logShutdown("temp_remove_failed message=" + exception.Message);
         }
+        await CompleteOperationModeRestartAsync().ConfigureAwait(true);
+    }
+
+    private async Task CompleteOperationModeRestartAsync()
+    {
+        bool restartRequested;
+        lock (syncRoot)
+        {
+            restartRequested = operationModeRestartAccepted;
+        }
+        if (!restartRequested)
+        {
+            return;
+        }
+
+        try
+        {
+            if (startApplicationRestart == null)
+            {
+                throw new InvalidOperationException("Application restart start boundary is not configured.");
+            }
+            await startApplicationRestart().ConfigureAwait(true);
+            logShutdown("application_restart_started");
+        }
+        catch (Exception exception)
+        {
+            LogWarningSafely(exception, "application_restart_failed");
+            await PresentOperationModeRestartFailureAsync(exception).ConfigureAwait(true);
+        }
+    }
+
+    private async Task PresentOperationModeRestartFailureAsync(Exception exception)
+    {
+        Exception notificationFailure = null;
+        try
+        {
+            UiDialogResult result = await restartFailureDialogs.ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Error_RestartApplicationFailed
+                    + Environment.NewLine
+                    + Environment.NewLine
+                    + exception.Message,
+                BeMusicSeeker.Properties.Resources.Error,
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Hand,
+                System.Windows.MessageBoxResult.OK)).ConfigureAwait(true);
+            UiDialogRoute.ThrowIfNotShown(result, "Restart failure notification");
+        }
+        catch (Exception failure)
+        {
+            notificationFailure = failure;
+            LogWarningSafely(failure, "application_restart_failure_notification_failed");
+        }
+
+        if (notificationFailure != null)
+        {
+            try
+            {
+                reportRestartFailure?.Invoke(notificationFailure);
+            }
+            catch (Exception reportFailure)
+            {
+                LogWarningSafely(reportFailure, "application_restart_failure_report_failed");
+            }
+        }
     }
 
     /// <summary>
@@ -453,6 +542,79 @@ internal sealed class ShellShutdownWorkflowOwner
     {
         TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> request);
         return request;
+    }
+
+    /// <summary>
+    /// 動作モード変更を Close/update の先着判定と同じ UI dispatcher で受け付けます。
+    /// 保存に失敗した場合は例外を返し、終了準備を開始しません。
+    /// </summary>
+    /// <param name="request">保存対象の動作モードと履歴表示 target identity。</param>
+    /// <returns>mode restart が先着として受理された場合は <see langword="true"/>。</returns>
+    internal Task<bool> RequestOperationModeRestartAsync(OperationModeRestartRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        return DispatchOperationModeRestartAsync(request);
+    }
+
+    private async Task<bool> DispatchOperationModeRestartAsync(OperationModeRestartRequest request)
+    {
+        Task<bool> acceptanceTask = null;
+        await dispatchToUi(
+            () =>
+            {
+                acceptanceTask = AcceptOperationModeRestartAsync(request);
+                return acceptanceTask;
+            }).ConfigureAwait(false);
+        return await acceptanceTask.ConfigureAwait(false);
+    }
+
+    private Task<bool> AcceptOperationModeRestartAsync(OperationModeRestartRequest request)
+    {
+        if (OperationModeRestartRequested == null)
+        {
+            throw new InvalidOperationException("Operation mode restart request has no MainWindow subscriber.");
+        }
+
+        lock (syncRoot)
+        {
+            if (operationModeRestartRequestPending
+                || operationModeRestartAccepted
+                || windowCloseTask != null
+                || closingOrClosed
+                || preparationStarted
+                || terminalShutdownTask != null
+                || startupUpdateWorkflow.IsShutdownPreparationStarted)
+            {
+                return Task.FromResult(false);
+            }
+
+            operationModeRestartRequestPending = true;
+        }
+
+        try
+        {
+            settingsEditSession.SaveOperationModeForRestart(request.OperationMode, request.HistoryIdentity);
+            lock (syncRoot)
+            {
+                operationModeRestartAccepted = true;
+                operationModeRestartRequestPending = false;
+            }
+            startupUpdateWorkflow.NotifyClosing();
+            OperationModeRestartRequested();
+            return Task.FromResult(true);
+        }
+        catch
+        {
+            lock (syncRoot)
+            {
+                operationModeRestartRequestPending = false;
+            }
+            throw;
+        }
     }
 
     internal bool TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> request)

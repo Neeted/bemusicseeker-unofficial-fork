@@ -118,6 +118,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private readonly IApplicationLifetimePort applicationLifetime;
 
+    private readonly Func<OperationModeRestartRequest, Task<bool>> requestOperationModeRestart;
+
     private readonly ICultureCatalog cultureCatalog;
 
     private readonly IExternalShellGateway externalShellGateway;
@@ -773,6 +775,10 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (operationModeLR2DB != value)
             {
+                if (IsEditCompletionInProgress)
+                {
+                    return;
+                }
                 if (!statePort.HasActiveLibraryProfile)
                 {
                     SetOperationModeSelection(value);
@@ -848,6 +854,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private void ConfirmAndRestartForOperationModeChange(bool value)
     {
+        bool previousValue = operationModeLR2DB;
         if (!ShowUiConfirmation(
             BeMusicSeeker.Properties.Resources.Confirm_RestartForOperationModeChange,
             BeMusicSeeker.Properties.Resources.Confirm,
@@ -858,85 +865,46 @@ public partial class SettingsDialogViewModel : ViewModel
             SetOperationModeSelection(operationModeLR2DB);
             return;
         }
-        try
-        {
-            SaveOperationModeForRestart(value);
-            SetOperationModeSelection(value);
-            _ = RestartForOperationModeChangeAsync();
-        }
-        catch (Exception ex)
-        {
-            ApplicationSettings.OperationModeLR2DB = operationModeLR2DB;
-            SetOperationModeSelection(operationModeLR2DB);
-            reportApplyFailure(ex);
-        }
+        SetOperationModeSelection(value);
+        IsEditCompletionInProgress = true;
+        _ = RestartForOperationModeChangeAsync(
+            new OperationModeRestartRequest(
+                value,
+                playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity),
+            previousValue);
     }
 
-    private async Task RestartForOperationModeChangeAsync()
+    private async Task RestartForOperationModeChangeAsync(
+        OperationModeRestartRequest request,
+        bool previousValue)
     {
+        bool accepted = false;
         try
         {
-            await applicationLifetime.RestartApplicationAsync().ConfigureAwait(true);
+            accepted = await requestOperationModeRestart(request).ConfigureAwait(true);
+            if (!accepted)
+            {
+                RestoreOperationModeAfterRestartRejection(previousValue);
+            }
         }
         catch (Exception exception)
         {
-            await HandleRestartFailureAsync(exception).ConfigureAwait(true);
-        }
-    }
-
-    private async Task HandleRestartFailureAsync(Exception exception)
-    {
-        Exception notificationFailure = null;
-        try
-        {
-            UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
-                BeMusicSeeker.Properties.Resources.Error_RestartApplicationFailed + Environment.NewLine + Environment.NewLine + exception.Message,
-                BeMusicSeeker.Properties.Resources.Error,
-                MessageBoxButton.OK,
-                MessageBoxImage.Hand,
-                MessageBoxResult.OK))
-                .ConfigureAwait(true);
-            UiDialogRoute.ThrowIfNotShown(result, "Restart failure notification");
-        }
-        catch (Exception failure)
-        {
-            notificationFailure = failure;
+            RestoreOperationModeAfterRestartRejection(previousValue);
+            reportApplyFailure(exception);
         }
         finally
         {
-            try
+            if (!accepted)
             {
-                applicationLifetime.RequestShutdown();
+                IsEditCompletionInProgress = false;
             }
-            catch (Exception shutdownFailure)
-            {
-                notificationFailure ??= shutdownFailure;
-            }
-        }
-
-        if (notificationFailure != null)
-        {
-            ReportRestartFailure(notificationFailure);
         }
     }
 
-    private void ReportRestartFailure(Exception exception)
+    private void RestoreOperationModeAfterRestartRejection(bool previousValue)
     {
-        try
-        {
-            reportApplyFailure(exception);
-        }
-        catch (Exception reportFailure)
-        {
-            try
-            {
-                NLogWrapper.FileLogger?.Error(reportFailure, "settings_operation_mode_restart_failure_report_failed");
-            }
-            catch
-            {
-                // Failure reporting must not suppress the shutdown request.
-            }
-        }
+        ApplicationSettings.OperationModeLR2DB = previousValue;
+        SetOperationModeSelection(previousValue);
     }
 
     public string LR2bodyPath
@@ -4168,7 +4136,8 @@ public partial class SettingsDialogViewModel : ViewModel
         IExternalShellGateway externalShellGateway = null,
         ApplicationPathSnapshot applicationPathSnapshot = null,
         IAudioDeviceCatalog audioDeviceCatalog = null,
-        IAudioSettingsGateway audioSettingsGateway = null)
+        IAudioSettingsGateway audioSettingsGateway = null,
+        Func<OperationModeRestartRequest, Task<bool>> requestOperationModeRestart = null)
     {
         SettingsDialogViewModel settingDialogViewModel = this;
         this.statePort = statePort ?? throw new ArgumentNullException(nameof(statePort));
@@ -4183,6 +4152,9 @@ public partial class SettingsDialogViewModel : ViewModel
         this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
         this.applicationLifetime = applicationLifetime
             ?? throw new ArgumentNullException(nameof(applicationLifetime));
+        this.requestOperationModeRestart = requestOperationModeRestart
+            ?? (_ => Task.FromException<bool>(
+                new InvalidOperationException("Operation mode restart request is not configured.")));
         this.cultureCatalog = cultureCatalog
             ?? throw new ArgumentNullException(nameof(cultureCatalog));
         this.externalShellGateway = externalShellGateway

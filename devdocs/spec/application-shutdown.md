@@ -10,7 +10,11 @@ BeMusicSeeker は DB 読み書き、譜面/アーカイブ/メタデータのフ
 
 通常終了では `MainWindow.OnClosing` が最初の `Closing` を一度キャンセルし、`ShellShutdownWorkflowOwner` の window-close request を開始する。準備が完了すると `MainWindow.ApplyTerminalShutdown` が window state を capture し、player close の実完了を非同期に待ち、UI 上の settings 保存、audio/一時領域の terminal cleanup を完了してから、composition 済みの `IApplicationLifetimePort.RequestShutdown()` を要求する。production adapter はここで WPF application shutdown を開始する。final lifetime boundary は差し替え可能だが、`MainWindow.OnClosing`、終了準備、terminal cleanupを短絡してはならない。
 
-自動アップデートでは、更新パッケージをダウンロードし、updater の起動情報を先に作成する。この時点で updater exe の作業ディレクトリへのコピーも済ませる。その後、通常終了と同じ `ShellShutdownWorkflowOwner` の準備を通し、既知の DB/IO/background worker が idle になってから updater process を起動し、同じ application-lifetime boundary へ shutdown を要求する。updater は現在の PID 終了を待ってから上書きを開始する。
+自動アップデートでは、更新パッケージをダウンロードし、updater の起動情報と作業ディレクトリを準備して、待機状態の updater process を起動する。その後、UI dispatcher 上で終了準備を受け付け、通常終了と同じ `ShellShutdownWorkflowOwner` の準備を通す。既知の DB/IO/background worker が idle になってから updater に Proceed を送り、同じ application-lifetime boundary へ shutdown を要求する。受付前に Close や mode 再起動が先着した場合は Abort を送る。updater は Proceed と現在の PID 終了の両方を待ってから上書きを開始する。
+
+動作モード変更の再起動要求は、Settings の公開された mode 入口から既存の UI dispatcher を通って `ShellShutdownWorkflowOwner` に渡す。Close と更新準備を含む先着判定を同じ dispatcher 上で行い、mode 要求が先着の場合だけ mode と履歴表示 target identity の最小 subset を atomic に保存し、通常の `MainWindow.Close` へ接続する。保存に失敗した場合は終了準備を開始せず、設定画面へ失敗を返す。他の設定 draft は保存しない。
+
+mode 再起動では terminal cleanup の末尾で `IApplicationLifetimePort.RestartApplicationAsync()` を await する。この boundary は mutex 解放後の後継 process 起動だけを担当し、WPF application の shutdown は行わない。起動失敗時は terminal task 内で失敗通知を await し、通知の fault / 非表示結果も観測してから terminal を完了する。MainWindow は既存の terminal task await 後にだけ shutdown を認可する。
 
 shutdown preparation は不可逆な終了準備として扱う。updater process の起動が終了準備後に失敗した場合、アプリを半終了状態で継続せず、terminal cleanup 後に同じ application-lifetime boundary へ shutdown を要求する。失敗内容はログへ残す。
 
@@ -58,7 +62,7 @@ coordinated shutdown 中に限り、SQLite close の `unable to close due to unf
 
 SQLite connection lifetime は tracking しているが、すべての DB 操作の意味的な整合性境界を証明しているわけではない。将来新しい long-running DB/IO worker を追加する場合は、shutdown request を観測して停止できること、または `PrepareShutdownAsync` の待機対象に登録することを確認する。
 
-`App.RestartApplication()` は現在も新プロセス起動と mutex 解放を先に行う構造が残っている。`Application.Current.Shutdown()` 自体は `MainWindow.OnClosing` に流れるが、新インスタンスの起動タイミングまで厳密には制御していない。再起動専用の外部 launcher、または MainWindow の coordinated shutdown 完了後に再起動する設計へ寄せる余地がある。
+`App.RestartApplicationAsync()` は terminal cleanup の末尾から呼ばれる start-only boundary であり、mutex 解放と後継 process 起動を担当する。`Application.Current.Shutdown()` はこの coordinator から呼ばず、`MainWindow.OnClosing` が terminal task の完了と既存の認可を経て一箇所で実行する。後継 process の起動は current process の最終 shutdown を待たずに行われるため、updater と同じく新旧 process が短時間重なることは許容する。
 
 未処理例外時の `Environment.Exit(1)` は安全終了 coordinator を通らない。致命的例外ではプロセス終了を優先しているため、通常終了/自動アップデートと同等の整合性待ちは保証しない。
 

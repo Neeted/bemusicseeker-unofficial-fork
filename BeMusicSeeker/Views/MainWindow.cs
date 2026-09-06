@@ -638,6 +638,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
         viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         viewModel.StartupUpdateWorkflow.ApplicationShutdownRequested += MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
+        viewModel.ShellShutdownWorkflow.OperationModeRestartRequested += MainWindowViewModel_OperationModeRestartRequested;
         viewModel.ElevatedProcessWarningWorkflow.PresentationRequested += MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
     }
 
@@ -669,6 +670,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.ApplicationShutdownRequested -= MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
+        subscribedViewModel.ShellShutdownWorkflow.OperationModeRestartRequested -= MainWindowViewModel_OperationModeRestartRequested;
         subscribedViewModel.ElevatedProcessWarningWorkflow.PresentationRequested -= MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
         subscribedViewModel = null;
     }
@@ -1069,6 +1071,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         _ = base.Dispatcher.InvokeAsync((Action)ApplyTerminalShutdown).Task;
+    }
+
+    private void MainWindowViewModel_OperationModeRestartRequested()
+    {
+        if (base.Dispatcher.HasShutdownStarted || base.Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+        if (base.Dispatcher.CheckAccess())
+        {
+            Close();
+            return;
+        }
+        _ = base.Dispatcher.InvokeAsync((Action)Close).Task;
     }
 
     void ISettingDialogPresentationPort.OpenSettingsDialog()

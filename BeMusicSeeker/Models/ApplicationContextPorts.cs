@@ -8,6 +8,29 @@ using BeMusicSeeker.Models.Localization;
 namespace BeMusicSeeker.Models;
 
 /// <summary>
+/// 動作モード変更時に shell へ渡す、再起動対象の最小 immutable 要求です。
+/// </summary>
+internal sealed class OperationModeRestartRequest
+{
+    /// <summary>
+    /// 動作モードと、同じ終端保存境界で保持する履歴表示 target identity を指定します。
+    /// </summary>
+    /// <param name="operationMode">再起動後に選択する動作モード。</param>
+    /// <param name="historyIdentity">再起動後に選択する履歴表示 target identity。</param>
+    internal OperationModeRestartRequest(bool operationMode, string historyIdentity)
+    {
+        OperationMode = operationMode;
+        HistoryIdentity = historyIdentity;
+    }
+
+    /// <summary>再起動後に選択する動作モードを取得します。</summary>
+    internal bool OperationMode { get; }
+
+    /// <summary>保存する履歴表示対象の識別子を取得します。</summary>
+    internal string HistoryIdentity { get; }
+}
+
+/// <summary>
 /// Provides the UI scheduler needed by presentation and collection owners.
 /// </summary>
 internal interface IUiScheduler
@@ -299,6 +322,9 @@ internal interface IApplicationLifetimePort
 
     void RequestShutdown();
 
+    /// <summary>
+    /// 終端の後処理後に後継プロセスを起動します。最終的な application shutdown は呼び出し側が担当します。
+    /// </summary>
     Task RestartApplicationAsync();
 }
 

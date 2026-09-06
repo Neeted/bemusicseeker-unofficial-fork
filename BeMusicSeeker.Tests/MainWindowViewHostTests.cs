@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Threading;
 using System.Linq;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -10,9 +11,11 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -497,6 +500,496 @@ public sealed class MainWindowViewHostTests
         });
     }
 
+    [TestMethod]
+    public void MainWindowOperationModeRestartDrainsTrackedWorkerAndPlayerBeforeStartAndShutdown()
+    {
+        RunMainWindowOperationModeRestartScenario(restartFailure: null);
+    }
+
+    [TestMethod]
+    public void MainWindowOperationModeRestartFailureAwaitsNotificationBeforeShutdown()
+    {
+        RunMainWindowOperationModeRestartScenario(
+            new InvalidOperationException("replacement process could not start"));
+    }
+
+    [TestMethod]
+    public void MainWindowOperationModeRestartNotificationFailureStillShutsDown()
+    {
+        RunMainWindowOperationModeRestartScenario(
+            new InvalidOperationException("replacement process could not start"),
+            UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable));
+    }
+
+    [TestMethod]
+    public void MainWindowCloseDuringModeConfirmationPreservesEarlierCloseWithoutModeSave()
+    {
+        RunMainWindowOperationModeRestartScenario(restartFailure: null, closeDuringConfirmation: true);
+    }
+
+    [TestMethod]
+    public void MainWindowOperationModeRestartNotificationExceptionStillShutsDown()
+    {
+        RunMainWindowOperationModeRestartScenario(
+            new InvalidOperationException("restart failed"),
+            notificationFailure: new InvalidOperationException("notification failed"));
+    }
+
+    [TestMethod]
+    public void MainWindowOperationModeRestartSaveFailureRetainsSettingsWithoutShutdown()
+    {
+        RunMainWindowOperationModeRestartScenario(
+            restartFailure: null,
+            operationModeSaveFailure: true);
+    }
+
+    private static void RunMainWindowOperationModeRestartScenario(
+        Exception? restartFailure,
+        UiDialogResult? notificationResult = null,
+        Exception? notificationFailure = null,
+        bool closeDuringConfirmation = false,
+        bool operationModeSaveFailure = false)
+    {
+        using var directory = new TestTemporaryDirectory("main-window-mode-restart");
+        string settingsPath = Path.Combine(directory.Path, "user.config");
+        Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+        settings.OperationModeLR2DB = false;
+        settings.PlayHistorySelectedDisplayTargetIdentity = "history-initial";
+        settings.BMSRootPath = directory.Path;
+        settings.StandaloneBmsRootPaths = directory.Path;
+        settings.BMSInstallDir = directory.Path;
+        settings.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+        settings.EnablePlaylistUrlCompletion = false;
+        settings.ScanBmsFilesOnStartup = false;
+        settings.SkipInitPlaylistLoad = true;
+        settings.UseBeatorajaScoreDb = false;
+        settings.EnableBeatorajaBmtOutput = false;
+        settings.UseExternalPanelImage = false;
+        settings.UsePlayeruBMplay = false;
+        settings.UsePlayerLR2body = false;
+        settings.UsePlayerBMIIDXView = false;
+        settings.IsLR2BackupEnabled = false;
+        settings.ShowScoreViewerRegisterConfirmMsg = false;
+        settings.Save();
+        byte[] originalSettingsBytes = File.ReadAllBytes(settingsPath);
+        string songDbPath = Path.Combine(directory.Path, "song.db");
+        StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+
+        using var packageEntered = new ManualResetEventSlim(false);
+        using var packageRelease = new ManualResetEventSlim(false);
+        using var playerRelease = new ManualResetEventSlim(false);
+        var playerEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var restartEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notificationEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notificationRelease = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settingsSaveFailureReported = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Exception? reportedRestartFailure = null;
+        var reportedSettingsFailures = new List<Exception>();
+        var events = new List<string>();
+        object eventsLock = new();
+        void AddEvent(string value)
+        {
+            lock (eventsLock)
+            {
+                events.Add(value);
+            }
+        }
+
+        var dialogs = new AcceptedModeDialogService(
+            restartFailure == null ? null : notificationEntered,
+            notificationRelease,
+            notificationResult);
+        int packageCallCount = 0;
+        var packageMutation = new DelegatePackageInstallMutationPort((_, _, _, _, _) =>
+        {
+            packageCallCount++;
+            packageEntered.Set();
+            packageRelease.Wait();
+            return Array.Empty<ChartPackage>();
+        });
+        var lifetime = new RecordingApplicationLifetime(
+            onShutdown: () => AddEvent("shutdown"),
+            restartApplication: () =>
+            {
+                AddEvent("restart");
+                restartEntered.TrySetResult(true);
+                return restartFailure == null
+                    ? Task.CompletedTask
+                    : Task.FromException(restartFailure);
+            });
+        var settingsSession = new PersistentSettingsEditSession(
+            settings,
+            beforeSave: () => AddEvent("save"));
+
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel? viewModel = null;
+            MainWindow? window = null;
+            bool windowClosed = false;
+            FileStream? settingsBlocker = null;
+            bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
+            object? previousViewModelResource = hadPreviousViewModelResource
+                ? Application.Current.Resources["vm"]
+                : null;
+            Task? observation = null;
+            bool dispatcherMarkerObserved = false;
+            try
+            {
+                Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
+                ApplicationComposition composition = new(
+                    settingsEditSession: settingsSession,
+                    defaultBmsPlayerFactory: () => new FakeBmsPlayer(),
+                    uiScheduler: new WpfUiScheduler(() => dispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    settingsDialogService: dialogs,
+                    restartFailureDialogs: dialogs,
+                    reportSettingsApplyFailure: exception =>
+                    {
+                        reportedSettingsFailures.Add(exception);
+                        settingsSaveFailureReported.TrySetResult(exception);
+                    },
+                    reportRestartFailure: exception => reportedRestartFailure = exception,
+                    packageInstallMutationPort: packageMutation);
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    getLR2Config: null,
+                    _lr2ScoreDB: null,
+                    startupRequiredFileScanReason: null,
+                    optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+                viewModel = new MainWindowViewModel(
+                    composition,
+                    new FixedStartupLibraryFactory(library, playlist));
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+                Application.Current.Resources["vm"] = viewModel;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.ShellActivationWorkflow.ActivateRenderedShell(
+                        () => { },
+                        action => action(),
+                        () => false),
+                    "MainWindowViewHostTests.mode-restart-initialization");
+                Assert.IsTrue(viewModel.IsInitializationCompleted);
+                Assert.IsTrue(viewModel.HasActiveLibraryProfile);
+
+                settings.ShowScoreViewerRegisterConfirmMsg = true;
+                window = new MainWindow(viewModel);
+                window.Closed += (_, _) => windowClosed = true;
+                if (closeDuringConfirmation)
+                {
+                    dialogs.OnConfirmation = window.Close;
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.PlaybackPanel.ReplacePlayerAsync(new FakeBmsPlayer(() =>
+                    {
+                        playerEntered.TrySetResult(true);
+                        playerRelease.Wait();
+                    })),
+                    "MainWindowViewHostTests.mode-restart-player");
+                viewModel.PackageInstallWorkflow.EnqueueSingle(Path.Combine(directory.Path, "pending.zip"));
+                Assert.IsTrue(packageEntered.Wait(TimeSpan.FromSeconds(5)), "The tracked package worker did not enter.");
+                if (operationModeSaveFailure)
+                {
+                    // provider は user.config を置換して公開するため、削除/名前変更を拒否して
+                    // production の設定 session を実際の保存失敗経路へ通します。
+                    settingsBlocker = new FileStream(
+                        settingsPath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite);
+                }
+
+                observation = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await playerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        DispatcherOperation marker = dispatcher.InvokeAsync(() =>
+                        {
+                            dispatcherMarkerObserved = true;
+                            Assert.AreEqual(0, lifetime.RestartCount);
+                            Assert.AreEqual(0, lifetime.RequestShutdownCount);
+                            Assert.AreEqual(0, settingsSession.SaveCount);
+                        }, DispatcherPriority.ApplicationIdle);
+                        await marker.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    }
+                    finally
+                    {
+                        playerRelease.Set();
+                    }
+                });
+
+                viewModel.SettingDialog.OperationModeLR2DB = true;
+                if (operationModeSaveFailure)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        settingsSaveFailureReported.Task,
+                        "MainWindowViewHostTests.mode-restart-save-failure");
+                }
+                Assert.AreEqual(
+                    !closeDuringConfirmation && !operationModeSaveFailure,
+                    viewModel.SettingDialog.OperationModeLR2DB);
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                Assert.AreEqual(closeDuringConfirmation ? 0 : 1, settingsSession.ModeSaveCount);
+                Assert.AreEqual(0, lifetime.RestartCount);
+                Assert.AreEqual(0, lifetime.RequestShutdownCount);
+                if (operationModeSaveFailure)
+                {
+                    Assert.AreEqual(1, reportedSettingsFailures.Count);
+                    Assert.IsInstanceOfType<PortableSettingsException>(reportedSettingsFailures[0]);
+                    Assert.AreEqual(0, lifetime.CoordinatedShutdownStartCount);
+                    Assert.IsFalse(viewModel.ShellShutdownWorkflow.IsShutdownPreparationStarted);
+                    Assert.IsFalse(viewModel.ShellShutdownWorkflow.IsClosingOrClosed);
+                    Assert.AreEqual(0, lifetime.RestartCount);
+                    Assert.AreEqual(0, lifetime.RequestShutdownCount);
+                    CollectionAssert.AreEqual(originalSettingsBytes, File.ReadAllBytes(settingsPath));
+                    Assert.IsFalse(settings.OperationModeLR2DB);
+                    Assert.IsFalse(viewModel.SettingDialog.OperationModeLR2DB);
+                    Assert.IsTrue(viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg);
+                }
+                // 待機中の Close 再入も同じ terminal を共有します。
+                settingsBlocker?.Dispose();
+                settingsBlocker = null;
+                window.Close();
+
+                packageRelease.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "MainWindowViewHostTests.mode-restart-dispatcher-marker");
+                if (!closeDuringConfirmation && !operationModeSaveFailure)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        restartEntered.Task,
+                        "MainWindowViewHostTests.mode-restart-start");
+                }
+                if (restartFailure != null)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        notificationEntered.Task,
+                        "MainWindowViewHostTests.mode-restart-failure-notification");
+                    // 通知を await しない誤実装にも terminal を進める機会を与えてから確認します。
+                    dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+                    Assert.IsFalse(lifetime.ShutdownRequested.Task.IsCompleted);
+                    Assert.AreEqual(1, settingsSession.SaveCount);
+                    if (notificationFailure != null)
+                    {
+                        notificationRelease.TrySetException(notificationFailure);
+                    }
+                    else
+                    {
+                        notificationRelease.TrySetResult(
+                            notificationResult ?? UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                    }
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    lifetime.ShutdownRequested.Task,
+                    "MainWindowViewHostTests.mode-restart-shutdown");
+
+                Assert.IsTrue(dispatcherMarkerObserved);
+                Assert.AreEqual(1, packageCallCount);
+                Assert.AreEqual(1, settingsSession.SaveCount);
+                Assert.AreEqual(closeDuringConfirmation || operationModeSaveFailure ? 0 : 1, lifetime.RestartCount);
+                Assert.AreEqual(1, lifetime.RequestShutdownCount);
+                if (notificationResult != null || notificationFailure != null)
+                {
+                    Assert.IsNotNull(reportedRestartFailure);
+                }
+                if (!closeDuringConfirmation && !operationModeSaveFailure)
+                {
+                    Assert.IsTrue(IndexOfEvent(events, "restart") < IndexOfEvent(events, "shutdown"));
+                }
+                Settings persisted = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Assert.AreEqual(!closeDuringConfirmation && !operationModeSaveFailure, persisted.OperationModeLR2DB);
+                Assert.AreEqual("history-initial", persisted.PlayHistorySelectedDisplayTargetIdentity);
+                Assert.AreEqual(operationModeSaveFailure || closeDuringConfirmation, persisted.ShowScoreViewerRegisterConfirmMsg);
+                Assert.AreEqual(restartFailure != null && !operationModeSaveFailure, dialogs.MessageShown);
+
+                if (!windowClosed)
+                {
+                    window.Close();
+                    windowClosed = true;
+                }
+            }
+            finally
+            {
+                packageRelease.Set();
+                playerRelease.Set();
+                notificationRelease?.TrySetResult(
+                    UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                settingsBlocker?.Dispose();
+                if (observation != null)
+                {
+                    try
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "MainWindowViewHostTests.mode-restart-observation-cleanup");
+                    }
+                    catch
+                    {
+                    }
+                }
+                CleanupViewHost(
+                    window,
+                    windowClosed,
+                    viewModel,
+                    hadPreviousViewModelResource,
+                    previousViewModelResource);
+            }
+        });
+    }
+
+    private sealed class TestTemporaryDirectory : IDisposable
+    {
+        internal TestTemporaryDirectory(string prefix)
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                prefix + "_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path);
+        }
+
+        internal string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
+    }
+
+    private static int IndexOfEvent(IReadOnlyList<string> events, string value)
+    {
+        for (int index = 0; index < events.Count; index++)
+        {
+            if (string.Equals(events[index], value, StringComparison.Ordinal))
+            {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private sealed class FixedStartupLibraryFactory : IStartupLibraryFactory
+    {
+        private readonly BMSLibrary library;
+        private readonly BMSPlaylist playlist;
+
+        internal FixedStartupLibraryFactory(BMSLibrary library, BMSPlaylist playlist)
+        {
+            this.library = library ?? throw new ArgumentNullException(nameof(library));
+            this.playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
+        }
+
+        public BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile) => library;
+
+        public BMSPlaylist CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library) => playlist;
+    }
+
+    private sealed class PersistentSettingsEditSession : ISettingsEditSession
+    {
+        private readonly SettingsEditSession inner;
+        private readonly Action? beforeSave;
+
+        internal PersistentSettingsEditSession(Settings values, Action? beforeSave = null)
+        {
+            inner = new SettingsEditSession(values ?? throw new ArgumentNullException(nameof(values)));
+            this.beforeSave = beforeSave;
+        }
+
+        internal int SaveCount { get; private set; }
+
+        internal int ModeSaveCount { get; private set; }
+
+        public Settings Values => inner.Values;
+
+        public void Reload()
+        {
+            inner.Reload();
+        }
+
+        public void Save()
+        {
+            SaveCount++;
+            beforeSave?.Invoke();
+            inner.Save();
+        }
+
+        public void SaveOperationModeForRestart(bool operationMode, string historyIdentity)
+        {
+            ModeSaveCount++;
+            inner.SaveOperationModeForRestart(operationMode, historyIdentity);
+        }
+    }
+
+    private sealed class AcceptedModeDialogService : IUiDialogService
+    {
+        private readonly TaskCompletionSource<bool>? messageEntered;
+        private readonly TaskCompletionSource<UiDialogResult>? messageCompletion;
+        private readonly UiDialogResult? messageResult;
+
+        internal AcceptedModeDialogService(
+            TaskCompletionSource<bool>? messageEntered = null,
+            TaskCompletionSource<UiDialogResult>? messageCompletion = null,
+            UiDialogResult? messageResult = null)
+        {
+            this.messageEntered = messageEntered;
+            this.messageCompletion = messageCompletion;
+            this.messageResult = messageResult;
+        }
+
+        internal int ConfirmationCount { get; private set; }
+
+        internal Action? OnConfirmation { get; set; }
+
+        internal bool MessageShown { get; private set; }
+
+        public Task<UiDialogResult> ConfirmAsync(
+            UiConfirmationRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            ConfirmationCount++;
+            OnConfirmation?.Invoke();
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+
+        public Task<UiDialogResult> ShowMessageAsync(
+            UiMessageRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            MessageShown = true;
+            messageEntered?.TrySetResult(true);
+            if (messageCompletion != null)
+            {
+                return messageCompletion.Task;
+            }
+            return Task.FromResult(
+                messageResult ?? UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(
+            UiFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(
+            UiFolderPickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(
+            UiSaveFilePickerRequest request,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
     private static bool CanEnterAudioOperation()
     {
         if (!Ribbit.Media.Audio.BassAudioRuntime.TryEnterAudioOperation(out var lease))
@@ -629,17 +1122,26 @@ public sealed class MainWindowViewHostTests
     {
         private readonly List<string>? events;
         private readonly Action? onShutdown;
+        private readonly Func<Task>? restartApplication;
 
-        internal RecordingApplicationLifetime(List<string>? events = null, Action? onShutdown = null)
+        internal RecordingApplicationLifetime(
+            List<string>? events = null,
+            Action? onShutdown = null,
+            Func<Task>? restartApplication = null)
         {
             this.events = events;
             this.onShutdown = onShutdown;
+            this.restartApplication = restartApplication;
         }
 
         internal TaskCompletionSource<bool> ShutdownRequested { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal int RequestShutdownCount { get; private set; }
+
+        internal int RestartCount { get; private set; }
+
+        internal int CoordinatedShutdownStartCount { get; private set; }
 
         public bool IsFirstStartup => false;
 
@@ -649,6 +1151,7 @@ public sealed class MainWindowViewHostTests
 
         public void MarkCoordinatedShutdownStarted(string reason)
         {
+            CoordinatedShutdownStartCount++;
         }
 
         public void RequestShutdown()
@@ -659,6 +1162,11 @@ public sealed class MainWindowViewHostTests
             ShutdownRequested.TrySetResult(true);
         }
 
-        public Task RestartApplicationAsync() => Task.CompletedTask;
+        public Task RestartApplicationAsync()
+        {
+            RestartCount++;
+            events?.Add("restart");
+            return restartApplication?.Invoke() ?? Task.CompletedTask;
+        }
     }
 }

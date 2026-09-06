@@ -387,7 +387,7 @@ internal sealed class StartupUpdateWorkflowOwner
                 ?? throw new InvalidOperationException("Updater launch preparation returned no launch.");
             launchReceipt = preparedLaunch.Start()
                 ?? throw new UpdaterLaunchFailureException("Updater process did not start.");
-            if (!TryBeginShutdownPreparation(run))
+            if (!await TryBeginShutdownPreparationAsync(run).ConfigureAwait(false))
             {
                 launchReceipt.Abort();
                 Complete(run, StartupUpdateWorkflowOutcome.Closing);
@@ -600,6 +600,50 @@ internal sealed class StartupUpdateWorkflowOwner
             run.ShutdownPreparationStarted = true;
             shutdownPreparationStartedForRun = true;
             return true;
+        }
+    }
+
+    private async Task<bool> TryBeginShutdownPreparationAsync(RunContext run)
+    {
+        bool accepted = false;
+        await DispatchToUiAsync(
+            () =>
+            {
+                accepted = TryBeginShutdownPreparation(run);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+        return accepted;
+    }
+
+    private Task DispatchToUiAsync(Func<Task> action)
+    {
+        if (action == null)
+            throw new ArgumentNullException(nameof(action));
+
+        TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            dispatchToUi(() => _ = CompleteDispatchedActionAsync(action, completion));
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
+        }
+        return completion.Task;
+    }
+
+    private static async Task CompleteDispatchedActionAsync(
+        Func<Task> action,
+        TaskCompletionSource<bool> completion)
+    {
+        try
+        {
+            await action().ConfigureAwait(false);
+            completion.TrySetResult(true);
+        }
+        catch (Exception exception)
+        {
+            completion.TrySetException(exception);
         }
     }
 

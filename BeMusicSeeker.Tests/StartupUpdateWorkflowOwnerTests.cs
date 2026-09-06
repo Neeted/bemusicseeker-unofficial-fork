@@ -216,6 +216,55 @@ public sealed class StartupUpdateWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task AvailableUpdate_WaitsForUiDispatcherBeforeShutdownPreparation()
+    {
+        var dispatched = new TaskCompletionSource<Action>[]
+        {
+            new(TaskCreationOptions.RunContinuationsAsynchronously),
+            new(TaskCreationOptions.RunContinuationsAsynchronously),
+            new(TaskCreationOptions.RunContinuationsAsynchronously),
+            new(TaskCreationOptions.RunContinuationsAsynchronously)
+        };
+        int dispatchIndex = 0;
+        int shutdownPreparationCount = 0;
+        StartupUpdateWorkflowOwner owner = CreateOwner(
+            () => Task.FromResult(CreateAvailableResult()),
+            schedule: action => StartLongRunningAsync(action),
+            dispatch: action =>
+            {
+                int index = Interlocked.Increment(ref dispatchIndex) - 1;
+                if (index >= dispatched.Length)
+                {
+                    throw new InvalidOperationException("Unexpected startup update UI dispatch.");
+                }
+                dispatched[index].TrySetResult(action);
+            });
+        owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
+        owner.BindShutdownPreparation(reason =>
+        {
+            Interlocked.Increment(ref shutdownPreparationCount);
+            return Task.FromResult(new ShutdownPreparationResult(reason, 1L, false, 0));
+        });
+
+        Assert.IsTrue(owner.Start());
+        Action presentationAction = await dispatched[0].Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsFalse(owner.IsIdle);
+        Assert.AreEqual(0, Volatile.Read(ref shutdownPreparationCount));
+
+        presentationAction();
+        Action preparationAction = await dispatched[1].Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(0, Volatile.Read(ref shutdownPreparationCount));
+        preparationAction();
+        Action terminalAction = await dispatched[2].Task.WaitAsync(TimeSpan.FromSeconds(5));
+        terminalAction();
+        Action shutdownAction = await dispatched[3].Task.WaitAsync(TimeSpan.FromSeconds(5));
+        shutdownAction();
+        await WaitForCompletion(owner);
+
+        Assert.AreEqual(1, Volatile.Read(ref shutdownPreparationCount));
+    }
+
+    [TestMethod]
     public async Task ClosingWhileCheckIsPendingSuppressesPresentation()
     {
         var checkCompletion = new TaskCompletionSource<UpdateCheckResult>(TaskCreationOptions.RunContinuationsAsynchronously);

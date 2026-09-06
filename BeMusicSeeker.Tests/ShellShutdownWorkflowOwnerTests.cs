@@ -511,6 +511,150 @@ public sealed class ShellShutdownWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task WindowCloseWinsAgainstDeferredOperationModeRestartRequest()
+    {
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var settingsSession = new RecordingSettingsEditSession();
+        int restartCount = 0;
+        int applicationShutdownCount = 0;
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            settingsEditSession: settingsSession,
+            requestApplicationShutdown: () => applicationShutdownCount++,
+            startApplicationRestart: () =>
+            {
+                restartCount++;
+                return Task.CompletedTask;
+            });
+        owner.OperationModeRestartRequested += () => Assert.Fail("A close that won the race must reject mode restart.");
+
+        var modeRequestRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<bool> modeRequest = Task.Run(async () =>
+        {
+            await modeRequestRelease.Task.ConfigureAwait(false);
+            return await owner.RequestOperationModeRestartAsync(
+                new OperationModeRestartRequest(true, "history-close-wins")).ConfigureAwait(false);
+        });
+
+        Task<ShellShutdownWorkflowCompletionReceipt> close = owner.RequestWindowCloseAsync();
+        modeRequestRelease.SetResult(true);
+
+        Assert.IsFalse(await modeRequest.WaitAsync(TimeSpan.FromSeconds(5)));
+        ShellShutdownWorkflowCompletionReceipt receipt = await close.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.IsTrue(receipt.PreparationSucceeded);
+        Assert.AreEqual(0, settingsSession.SaveCount);
+        Assert.AreEqual(0, restartCount);
+        Assert.AreEqual(0, applicationShutdownCount);
+    }
+
+    [TestMethod]
+    public async Task AcceptedStartupUpdateRejectsLaterOperationModeRestartWithoutSaving()
+    {
+        int proceeded = 0;
+        int aborted = 0;
+        var startupUpdate = new StartupUpdateWorkflowOwner(
+            () => Task.FromResult(CreateAvailableUpdateResult()),
+            _ => Task.FromResult("package.zip"),
+            _ => new PreparedUpdaterLaunch(() => new UpdaterLaunchReceipt(
+                () => aborted++, () => proceeded++)),
+            () => { },
+            _ => { },
+            action => Task.Run(action),
+            action => action());
+        startupUpdate.PresentationRequested += request => request.Complete(CreateAvailableUpdateResult().Assets[0]);
+        var settingsSession = new RecordingSettingsEditSession();
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            MainWindowViewModelTestFactory.Create(),
+            startupUpdate: startupUpdate,
+            settingsEditSession: settingsSession);
+        owner.OperationModeRestartRequested += () => Assert.Fail("先に受理した更新終了を置き換えてはいけません。");
+
+        Assert.IsTrue(startupUpdate.Start());
+        await startupUpdate.WaitForTerminalAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.IsTrue(startupUpdate.IsShutdownPreparationStarted);
+        Assert.IsFalse(await owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(true, "later-mode")));
+        Assert.AreEqual(0, settingsSession.SaveCount);
+        Assert.AreEqual(1, proceeded);
+        Assert.AreEqual(0, aborted);
+    }
+
+    [TestMethod]
+    public async Task AcceptedOperationModeRestartInvalidatesLaterStartupUpdateContinuation()
+    {
+        var launchEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var launchRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int downloadCount = 0;
+        int launchStartCount = 0;
+        int launchProceedCount = 0;
+        int launchAbortCount = 0;
+        var startupUpdate = new StartupUpdateWorkflowOwner(
+            () => Task.FromResult(CreateAvailableUpdateResult()),
+            asset =>
+            {
+                Interlocked.Increment(ref downloadCount);
+                return Task.FromResult("package.zip");
+            },
+            packagePath => new PreparedUpdaterLaunch(() =>
+            {
+                Interlocked.Increment(ref launchStartCount);
+                launchEntered.TrySetResult(true);
+                launchRelease.Task.GetAwaiter().GetResult();
+                return new UpdaterLaunchReceipt(
+                    () => Interlocked.Increment(ref launchAbortCount),
+                    () => Interlocked.Increment(ref launchProceedCount));
+            }),
+            () => { },
+            packagePath => { },
+            action => Task.Run(action),
+            action => action());
+        startupUpdate.PresentationRequested += request => request.Complete(CreateAvailableUpdateResult().Assets[0]);
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        var settingsSession = new RecordingSettingsEditSession();
+        int restartCount = 0;
+        int applicationShutdownCount = 0;
+        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+            viewModel,
+            startupUpdate: startupUpdate,
+            settingsEditSession: settingsSession,
+            requestApplicationShutdown: () => applicationShutdownCount++,
+            startApplicationRestart: () =>
+            {
+                Interlocked.Increment(ref restartCount);
+                return Task.CompletedTask;
+            });
+        Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
+        owner.OperationModeRestartRequested += () => close = owner.RequestWindowCloseAsync();
+
+        try
+        {
+            Assert.IsTrue(startupUpdate.Start());
+            await launchEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsTrue(await owner.RequestOperationModeRestartAsync(
+                new OperationModeRestartRequest(true, "history-mode-wins")));
+            Assert.IsNotNull(close);
+        }
+        finally
+        {
+            launchRelease.TrySetResult(true);
+            await startupUpdate.WaitForTerminalAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        await startupUpdate.WaitForTerminalAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        ShellShutdownWorkflowCompletionReceipt receipt = await close!.WaitAsync(TimeSpan.FromSeconds(5));
+        await owner.CompleteTerminalShutdownAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        owner.RequestTerminalApplicationShutdown();
+
+        Assert.IsTrue(receipt.PreparationSucceeded);
+        Assert.AreEqual(1, downloadCount);
+        Assert.AreEqual(1, launchStartCount);
+        Assert.AreEqual(0, launchProceedCount);
+        Assert.AreEqual(1, launchAbortCount);
+        Assert.AreEqual(2, settingsSession.SaveCount);
+        Assert.AreEqual(1, restartCount);
+        Assert.AreEqual(1, applicationShutdownCount);
+    }
+
+    [TestMethod]
     public async Task CoordinatedShutdownFailureStillStartsCancellationFallback()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
@@ -867,7 +1011,10 @@ public sealed class ShellShutdownWorkflowOwnerTests
         PackageInstallWorkflowOwner? packageInstallWorkflow = null,
         MaintenanceRescanWorkflowOwner? maintenanceRescanWorkflow = null,
         FolderAutoRenameWorkflowOwner? folderAutoRenameWorkflow = null,
-        Action<Exception>? reportSettingsSaveFailure = null)
+        Action<Exception>? reportSettingsSaveFailure = null,
+        Func<Task>? startApplicationRestart = null,
+        IUiDialogService? restartFailureDialogs = null,
+        Action<Exception>? reportRestartFailure = null)
     {
         StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
             viewModel,
@@ -902,7 +1049,10 @@ public sealed class ShellShutdownWorkflowOwnerTests
             logShutdown ?? (_ => { }),
             logShutdownWarning ?? (_ => { }),
             value => value ?? string.Empty,
-            reportSettingsSaveFailure);
+            reportSettingsSaveFailure,
+            startApplicationRestart,
+            restartFailureDialogs,
+            reportRestartFailure);
     }
 
     private static T GetPrivateField<T>(MainWindowViewModel viewModel, string name)
@@ -935,6 +1085,25 @@ public sealed class ShellShutdownWorkflowOwnerTests
         {
         }
         return new TestBmsLibrary(path, null, null, string.Empty);
+    }
+
+    private static UpdateCheckResult CreateAvailableUpdateResult()
+    {
+        return UpdateCheckResult.Available(
+            new Version(2, 0, 0, 0),
+            "1.0.0.0",
+            "2.0.0.0",
+            [new UpdateAssetInfo
+            {
+                Kind = "app",
+                Label = "App",
+                FileName = "app.zip",
+                Url = "https://example.test/app.zip",
+                Sha256 = new string('a', 64),
+                SizeBytes = 1,
+                IncludesChartInfoMetadata = false
+            }],
+            "https://example.test/releases/v2.0.0.0");
     }
 
     private static PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService CreateAcceptedDialogService()

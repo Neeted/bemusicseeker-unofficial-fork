@@ -142,14 +142,14 @@ internal sealed class ApplicationRestartCoordinator
 
     private readonly Action releaseSingleInstanceMutex;
 
-    private readonly Action shutdown;
-
+    /// <summary>
+    /// 終端 cleanup 後に後継 process を起動する boundary を構築します。
+    /// </summary>
     internal ApplicationRestartCoordinator(
         ApplicationPathSnapshot applicationPathSnapshot,
         IApplicationRestartGateway restartGateway,
         Func<string> argumentsProvider,
-        Action releaseSingleInstanceMutex,
-        Action shutdown)
+        Action releaseSingleInstanceMutex)
     {
         this.applicationPathSnapshot = applicationPathSnapshot
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
@@ -159,10 +159,11 @@ internal sealed class ApplicationRestartCoordinator
             ?? throw new ArgumentNullException(nameof(argumentsProvider));
         this.releaseSingleInstanceMutex = releaseSingleInstanceMutex
             ?? throw new ArgumentNullException(nameof(releaseSingleInstanceMutex));
-        this.shutdown = shutdown
-            ?? throw new ArgumentNullException(nameof(shutdown));
     }
 
+    /// <summary>
+    /// mutex を解放して後継 process を起動します。WPF shutdown は呼び出し側の terminal owner が行います。
+    /// </summary>
     internal void Restart()
     {
         string arguments = argumentsProvider() ?? string.Empty;
@@ -172,6 +173,5 @@ internal sealed class ApplicationRestartCoordinator
                 applicationPathSnapshot.ExecutablePath,
                 arguments,
                 applicationPathSnapshot.BaseDirectory));
-        shutdown();
     }
 }

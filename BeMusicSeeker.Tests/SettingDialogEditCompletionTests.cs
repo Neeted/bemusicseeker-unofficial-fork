@@ -190,7 +190,7 @@ public sealed class SettingDialogEditCompletionTests
 
                 Assert.AreEqual(1, dialogs.ConfirmationCount);
                 Assert.AreEqual(1, settingsSession.SaveCount);
-                Assert.AreEqual(1, lifetime.RestartCount);
+                Assert.AreEqual(0, lifetime.RestartCount, "動作モードの受付は shell が担当し、設定画面は process を直接起動しません。");
                 Assert.AreEqual(!initialOperationMode, dialog.OperationModeLR2DB);
                 Assert.AreEqual(!initialOperationMode, settings.OperationModeLR2DB);
                 AssertOperationModePresentation(finalWindow, !initialOperationMode);
@@ -3086,6 +3086,11 @@ public sealed class SettingDialogEditCompletionTests
             new TestSettingsDialogPlaybackRuntimePort(),
             owner.Lr2SongDbSyncWorkflow,
             settingsSession,
+            requestOperationModeRestart: request =>
+            {
+                settingsSession.SaveOperationModeForRestart(request.OperationMode, request.HistoryIdentity);
+                return Task.FromResult(true);
+            },
             applicationLifetime: applicationLifetime,
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             schemaDialogs: dialogs,

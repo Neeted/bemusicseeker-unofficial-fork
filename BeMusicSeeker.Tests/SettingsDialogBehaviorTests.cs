@@ -299,7 +299,7 @@ public sealed class SettingsDialogBehaviorTests
     }
 
     [TestMethod]
-    public async Task SettingDialogOperationModeChange_ConfirmsAndRestartsAfterInitialization()
+    public void SettingDialogOperationModeChange_ConfirmsAndRoutesThroughShellRequest()
     {
         using (SettingsDialogHarness inactiveHarness = SettingsDialogHarness.Create(
             CreateStandaloneSettings(
@@ -313,6 +313,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(0, inactiveHarness.Dialogs.ConfirmationCount);
             Assert.AreEqual(0, inactiveHarness.Session.SaveCount);
             Assert.AreEqual(0, inactiveHarness.Lifetime.RestartCount);
+            Assert.AreEqual(0, inactiveHarness.OperationModeRestart.RequestCount);
         }
 
         using (SettingsDialogHarness acceptedHarness = SettingsDialogHarness.Create(
@@ -321,17 +322,15 @@ public sealed class SettingsDialogBehaviorTests
                 @"C:\settings-behavior\accepted-root"),
             activeLibraryProfile: true))
         {
-            var sequence = new List<string>();
-            acceptedHarness.AttachSequence(sequence);
             acceptedHarness.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
 
             acceptedHarness.Dialog.OperationModeLR2DB = true;
 
-            CollectionAssert.AreEqual(new[] { "confirm", "save", "reload", "restart" }, sequence);
-            Assert.AreEqual(Resources.Confirm_RestartForOperationModeChange, acceptedHarness.Dialogs.LastConfirmationRequest?.MessageBoxText);
             Assert.AreEqual(1, acceptedHarness.Dialogs.ConfirmationCount);
             Assert.AreEqual(1, acceptedHarness.Session.SaveCount);
-            Assert.AreEqual(1, acceptedHarness.Lifetime.RestartCount);
+            Assert.AreEqual(1, acceptedHarness.OperationModeRestart.RequestCount);
+            Assert.IsTrue(acceptedHarness.OperationModeRestart.LastRequest!.OperationMode);
+            Assert.AreEqual(0, acceptedHarness.Lifetime.RestartCount);
             Assert.IsTrue(acceptedHarness.Session.Values.OperationModeLR2DB);
         }
 
@@ -341,17 +340,15 @@ public sealed class SettingsDialogBehaviorTests
                 @"C:\settings-behavior\rejected-root"),
             activeLibraryProfile: true))
         {
-            var sequence = new List<string>();
-            rejectedHarness.AttachSequence(sequence);
             rejectedHarness.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
 
             rejectedHarness.Dialog.OperationModeLR2DB = true;
 
-            CollectionAssert.AreEqual(new[] { "confirm" }, sequence);
             Assert.IsFalse(rejectedHarness.Dialog.OperationModeLR2DB);
             Assert.IsFalse(rejectedHarness.Session.Values.OperationModeLR2DB);
             Assert.AreEqual(0, rejectedHarness.Session.SaveCount);
             Assert.AreEqual(0, rejectedHarness.Lifetime.RestartCount);
+            Assert.AreEqual(0, rejectedHarness.OperationModeRestart.RequestCount);
         }
 
         using (SettingsDialogHarness failedRestartHarness = SettingsDialogHarness.Create(
@@ -360,59 +357,34 @@ public sealed class SettingsDialogBehaviorTests
                 @"C:\settings-behavior\restart-failure-root"),
             activeLibraryProfile: true))
         {
-            var sequence = new List<string>();
-            failedRestartHarness.AttachSequence(sequence);
             failedRestartHarness.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
-            failedRestartHarness.Dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
-            failedRestartHarness.Dialogs.MessageCompletionSource =
-                new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-            failedRestartHarness.Lifetime.RestartFailure = new InvalidOperationException("restart failed");
+            failedRestartHarness.OperationModeRestart.Failure = new InvalidOperationException("restart request failed");
 
             failedRestartHarness.Dialog.OperationModeLR2DB = true;
 
-            CollectionAssert.AreEqual(
-                new[] { "confirm", "save", "reload", "restart", "notify" },
-                sequence);
+            Assert.IsFalse(failedRestartHarness.Dialog.OperationModeLR2DB);
             Assert.AreEqual(0, failedRestartHarness.Lifetime.ShutdownCount);
-            Assert.AreEqual(1, failedRestartHarness.Dialogs.MessageCount);
-            StringAssert.Contains(failedRestartHarness.Dialogs.LastMessageText, Resources.Error_RestartApplicationFailed);
-
-            failedRestartHarness.Dialogs.MessageCompletionSource!.SetResult(
-                UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-            await failedRestartHarness.Lifetime.ShutdownObserved.Task;
-
-            CollectionAssert.AreEqual(
-                new[] { "confirm", "save", "reload", "restart", "notify", "shutdown" },
-                sequence);
-            Assert.AreEqual(1, failedRestartHarness.Lifetime.ShutdownCount);
-            Assert.AreEqual(1, failedRestartHarness.Session.SaveCount);
+            Assert.AreEqual(0, failedRestartHarness.Dialogs.MessageCount);
+            Assert.AreEqual(0, failedRestartHarness.Session.SaveCount);
         }
 
-        var failedNotificationHarnessReportedFailures = new List<Exception>();
-        using (SettingsDialogHarness failedNotificationHarness = SettingsDialogHarness.Create(
+        var failedRequestHarnessReportedFailures = new List<Exception>();
+        using (SettingsDialogHarness failedRequestHarness = SettingsDialogHarness.Create(
             CreateStandaloneSettings(
-                @"C:\settings-behavior\restart-notification-failure-root",
-                @"C:\settings-behavior\restart-notification-failure-root"),
+                @"C:\settings-behavior\restart-request-failure-root",
+                @"C:\settings-behavior\restart-request-failure-root"),
             activeLibraryProfile: true,
-            reportApplyFailure: exception => failedNotificationHarnessReportedFailures.Add(exception)))
+            reportApplyFailure: exception => failedRequestHarnessReportedFailures.Add(exception)))
         {
-            var sequence = new List<string>();
-            failedNotificationHarness.AttachSequence(sequence);
-            failedNotificationHarness.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
-            var dialogFailure = new InvalidOperationException("restart notification failed");
-            failedNotificationHarness.Dialogs.MessageFailure = dialogFailure;
-            failedNotificationHarness.Lifetime.RestartFailure = new InvalidOperationException("restart failed");
+            failedRequestHarness.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+            var requestFailure = new InvalidOperationException("restart request failed");
+            failedRequestHarness.OperationModeRestart.Failure = requestFailure;
 
-            failedNotificationHarness.Dialog.OperationModeLR2DB = true;
+            failedRequestHarness.Dialog.OperationModeLR2DB = true;
 
-            await failedNotificationHarness.Lifetime.ShutdownObserved.Task;
-
-            CollectionAssert.AreEqual(
-                new[] { "confirm", "save", "reload", "restart", "notify", "shutdown" },
-                sequence);
-            Assert.AreEqual(1, failedNotificationHarness.Lifetime.ShutdownCount);
-            Assert.AreEqual(1, failedNotificationHarnessReportedFailures.Count);
-            Assert.AreSame(dialogFailure, failedNotificationHarnessReportedFailures[0]);
+            Assert.AreEqual(0, failedRequestHarness.Lifetime.ShutdownCount);
+            Assert.AreEqual(1, failedRequestHarnessReportedFailures.Count);
+            Assert.AreSame(requestFailure, failedRequestHarnessReportedFailures[0]);
         }
     }
 
@@ -1511,6 +1483,7 @@ public sealed class SettingsDialogBehaviorTests
             RecordingPlaybackRuntimePort playbackRuntime,
             NoOpLr2SongDbSyncRuntime syncRuntime,
             Lr2SongDbSyncWorkflowOwner syncWorkflow,
+            RecordingOperationModeRestartPort operationModeRestart,
             SettingsDialogRuntimeCallLedger runtimeCalls)
         {
             Dialog = dialog;
@@ -1523,6 +1496,7 @@ public sealed class SettingsDialogBehaviorTests
             PlaybackRuntime = playbackRuntime;
             SyncRuntime = syncRuntime;
             SyncWorkflow = syncWorkflow;
+            OperationModeRestart = operationModeRestart;
             RuntimeCalls = runtimeCalls;
         }
 
@@ -1545,6 +1519,8 @@ public sealed class SettingsDialogBehaviorTests
         internal NoOpLr2SongDbSyncRuntime SyncRuntime { get; }
 
         internal Lr2SongDbSyncWorkflowOwner SyncWorkflow { get; }
+
+        internal RecordingOperationModeRestartPort OperationModeRestart { get; }
 
         internal SettingsDialogRuntimeCallLedger RuntimeCalls { get; }
 
@@ -1580,6 +1556,7 @@ public sealed class SettingsDialogBehaviorTests
                     action();
                     return Task.CompletedTask;
                 });
+            var operationModeRestart = new RecordingOperationModeRestartPort(session);
             var dialog = new SettingsDialogViewModel(
                 state,
                 workspace,
@@ -1598,6 +1575,7 @@ public sealed class SettingsDialogBehaviorTests
                 applicationPathSnapshot: ApplicationPathPolicy.Current,
                 audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 audioSettingsGateway: audioSettings ?? new TestAudioSettingsGateway(),
+                requestOperationModeRestart: operationModeRestart.RequestAsync,
                 audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
             return new SettingsDialogHarness(
                 dialog,
@@ -1610,6 +1588,7 @@ public sealed class SettingsDialogBehaviorTests
                 playbackRuntime,
                 syncRuntime,
                 syncWorkflow,
+                operationModeRestart,
                 runtimeCalls);
         }
 
@@ -1619,11 +1598,44 @@ public sealed class SettingsDialogBehaviorTests
             Lifetime.Sequence = sequence;
             Dialogs.Sequence = sequence;
             SearchRoots.Sequence = sequence;
+            OperationModeRestart.Sequence = sequence;
         }
 
         public void Dispose()
         {
             Dialog.Dispose();
+        }
+    }
+
+    private sealed class RecordingOperationModeRestartPort
+    {
+        private readonly RecordingSettingsEditSession session;
+
+        internal RecordingOperationModeRestartPort(RecordingSettingsEditSession session)
+        {
+            this.session = session ?? throw new ArgumentNullException(nameof(session));
+        }
+
+        internal int RequestCount { get; private set; }
+
+        internal OperationModeRestartRequest? LastRequest { get; private set; }
+
+        internal IList<string>? Sequence { get; set; }
+
+        internal Exception? Failure { get; set; }
+
+        internal Task<bool> RequestAsync(OperationModeRestartRequest request)
+        {
+            RequestCount++;
+            LastRequest = request;
+            Sequence?.Add("request");
+            if (Failure != null)
+            {
+                return Task.FromException<bool>(Failure);
+            }
+
+            session.SaveOperationModeForRestart(request.OperationMode, request.HistoryIdentity);
+            return Task.FromResult(true);
         }
     }
 

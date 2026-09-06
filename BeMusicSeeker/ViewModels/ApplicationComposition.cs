@@ -29,6 +29,16 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     /// <summary>Gets the App-owned terminal save warning callback, usable after ordinary dialog shutdown.</summary>
     internal Action<Exception> ReportTerminalSettingsSaveFailure { get; }
+
+    /// <summary>終了時に再起動失敗を通知するダイアログサービスを取得します。</summary>
+    internal IUiDialogService RestartFailureDialogs { get; }
+
+    /// <summary>再起動失敗を通知できなかった場合の既存の失敗報告処理を取得します。</summary>
+    internal Action<Exception> ReportRestartFailure { get; }
+
+    /// <summary>設定画面が確認と通知に使用するダイアログサービスを取得します。</summary>
+    internal IUiDialogService SettingsDialogService { get; }
+
     private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
 
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
@@ -87,11 +97,17 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly IScoreViewerRegistrationGateway scoreViewerRegistrationGateway;
 
+    private readonly IPackageInstallMutationPort packageInstallMutationPort;
+
     /// <summary>Creates the application composition with replaceable process and audio catalog boundaries.</summary>
     /// <param name="scoreViewerRegistrationGateway">Score Viewer 登録の network boundary。未指定時は production gateway を使います。</param>
     /// <param name="keywordSearchFavoritesSettingsStore">Keyword search Favorites persistence boundary。</param>
     /// <param name="fileDbMutationDialogService">Shared optional mutation-report presentation boundary.</param>
     /// <param name="reportTerminalSettingsSaveFailure">App-owned terminal settings warning; omitted by compositions without a terminal UI.</param>
+    /// <param name="restartFailureDialogs">終了時の再起動失敗通知。省略時は既存のダイアログ調停処理を使います。</param>
+    /// <param name="reportRestartFailure">再起動失敗を通知できない場合の報告処理。</param>
+    /// <param name="settingsDialogService">設定画面の確認と通知。省略時は既存のダイアログ調停処理を使います。</param>
+    /// <param name="packageInstallMutationPort">パッケージの変更処理。省略時は既存のライブラリ変更処理を使います。</param>
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -119,7 +135,11 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IExternalProgramLaunchGateway externalProgramLaunchGateway = null,
         IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null,
         IUiDialogService fileDbMutationDialogService = null,
-        Action<Exception> reportTerminalSettingsSaveFailure = null)
+        Action<Exception> reportTerminalSettingsSaveFailure = null,
+        IUiDialogService restartFailureDialogs = null,
+        Action<Exception> reportRestartFailure = null,
+        IUiDialogService settingsDialogService = null,
+        IPackageInstallMutationPort packageInstallMutationPort = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -143,6 +163,10 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
         ReportTerminalSettingsSaveFailure = reportTerminalSettingsSaveFailure;
+        RestartFailureDialogs = restartFailureDialogs ?? new UiDialogCoordinator();
+        ReportRestartFailure = reportRestartFailure ?? reportSettingsApplyFailure;
+        SettingsDialogService = settingsDialogService ?? new UiDialogCoordinator();
+        this.packageInstallMutationPort = packageInstallMutationPort;
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
         FileDbMutationDialogs = fileDbMutationDialogService ?? new UiDialogCoordinator();
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
@@ -325,9 +349,10 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         ISettingsDialogSearchRootRuntimePort searchRootRuntimePort,
         ISettingsDialogPlayerFactoryPort playerFactoryPort,
         ISettingsDialogPlaybackRuntimePort playbackRuntimePort,
-        Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow)
+        Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
+        Func<OperationModeRestartRequest, Task<bool>> requestOperationModeRestart = null)
     {
-        IUiDialogService schemaDialogs = new UiDialogCoordinator();
+        IUiDialogService schemaDialogs = SettingsDialogService;
         ILr2PlayHistorySchemaUninstallDialogPort schemaWindowDialogs = new Lr2PlayHistorySchemaUninstallDialogPort(schemaDialogs);
         return new SettingsDialogViewModel(
             statePort,
@@ -341,6 +366,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             settingsEditSession,
             playHistoryDisplaySettingsStore,
             reportSettingsApplyFailure,
+            requestOperationModeRestart: requestOperationModeRestart,
             applicationLifetime: applicationLifetime,
             cultureCatalog: cultureCatalog,
             externalShellGateway: externalShellGateway,
@@ -403,7 +429,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Func<string, bool> selectedChartExternalActionFileExists = null,
         Action<string> libraryFolderTreeLog = null,
         Action<string> libraryFolderTreeLogWarning = null,
-        IExternalShellGateway externalShellGateway = null)
+        IExternalShellGateway externalShellGateway = null,
+        IPackageInstallMutationPort packageInstallMutationPort = null)
     {
         externalShellGateway ??= this.externalShellGateway;
         return new MainWindowChildComposition(
@@ -468,7 +495,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             this.updaterProcessGateway,
             settingsProvider: () => this.settingsEditSession.Values,
             externalProgramLaunchGateway: this.externalProgramLaunchGateway,
-            keywordSearchFavoritesSettingsStore: this.keywordSearchFavoritesSettingsStore);
+            keywordSearchFavoritesSettingsStore: this.keywordSearchFavoritesSettingsStore,
+            packageInstallMutationPort: packageInstallMutationPort ?? this.packageInstallMutationPort);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -677,7 +705,8 @@ internal sealed class MainWindowChildComposition
         IUpdaterProcessGateway updaterProcessGateway = null,
         Func<BeMusicSeeker.Properties.Settings> settingsProvider = null,
         IExternalProgramLaunchGateway externalProgramLaunchGateway = null,
-        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null)
+        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null,
+        IPackageInstallMutationPort packageInstallMutationPort = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -733,7 +762,7 @@ internal sealed class MainWindowChildComposition
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
             chartFileOperations,
             ChartMutationActivity,
-            new BmsLibraryPackageInstallMutationPort(),
+            packageInstallMutationPort ?? new BmsLibraryPackageInstallMutationPort(),
             dispatchPackageInstallUi,
             reportPackageInstallWorkflowNotificationFailure);
         MaintenanceRescanWorkflow = new MaintenanceRescanWorkflowOwner(

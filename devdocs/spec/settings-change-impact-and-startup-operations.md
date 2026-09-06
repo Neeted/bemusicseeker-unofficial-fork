@@ -40,7 +40,7 @@
 - Apply成功、変更なしApply、manual LR2 resyncなどViewModelからのclose requestは、Cancel rollbackを再実行しない。shell shutdownは設定ウィンドウのcancel guardで妨げない。
 - 設定ウィンドウの表示中は従来どおりplayback surfaceを抑止し、accepted、cancelled、failed、shutdownを含むすべての終了経路で復元する。
 - 表示開始時は保持済みのappearance selectionとLR2 play-history schema statusだけをpresentationへ反映し、表示を理由に新しいschema checkを起動しない。
-- operation mode の radio は ViewModel から表示へだけ同期し、初期binding、group内の自動check/uncheck、再表示、Cancelでは選択要求を発生させない。実際のradio clickだけが選択意図を1回送信し、active library profileでmodeが変わる場合は既存の確認、mode-only保存、restart契約を各1回だけ実行する。
+- operation mode の radio は ViewModel から表示へだけ同期し、初期binding、group内の自動check/uncheck、再表示、Cancelでは選択要求を発生させない。実際のradio clickだけが選択意図を1回送信し、active library profileでmodeが変わる場合は既存の確認と mode restart request を各1回だけ実行する。request は既存の UI dispatcher で Close/update と先着判定を共有し、受理後は通常の Close/terminal 経路へ接続する。
 - audio device test 中は既存の edit completion / cancellation gate を維持し、test workflow 完了前の Save、Cancel、native closeを許可しない。status は progress / result text と icon を併記する。
 - `SettingsStatusBanner` はnull、空、空白だけのstring statusを表示せず、messageがbinding経由で非blankへ戻った場合は自動で再表示する。non-string contentおよびcaller指定のCollapsedは上書きしない。path status の message resource は状態文だけを持ち、glyph は banner の `Icon` が一つだけ描画する。表示中のbannerはmessageをAutomation Name、semantic statusをItemStatusとして公開し、Polite live updateを使用する。decorative iconはAutomation treeへ独立表示しない。GeneralとAdvancedのLR2 schema statusは、local valueではなく同じStyleのdefault setterとrepair可能時triggerで `Information/i` と `Warning/!` を切り替え、repair不可へ戻った時にdefaultへ復帰する。
 - 閉じた設定ウィンドウは presentation を解除して Window lifecycle を完了した後、共有 `SettingsDialogViewModel` への `DataContext` と binding graph を切り離す。
@@ -350,7 +350,7 @@ Portable settings failure packet `PORTABLE-SETTINGS-FAILURE-20260905` revision 5
 
 設定ダイアログの保存失敗はエラーを表示し、画面、下書き、保存前snapshotを保持する。後処理・reload・closeへ進まず、保存のため一時適用したaudio出力選択を復元する。Cancelは以前の設定編集snapshotへ戻し、再保存はユーザーの次のSave操作で行う。user.config成功後にLR2 config.xml保存が失敗した場合は部分保存を明示し、既に保存したuser.configを巻き戻さない。
 
-動作モード変更では、確認したmode、現在の履歴表示identity、runtimeのLR2位置だけを同じproviderのatomic保存境界で保存する。他の設定下書きは保存しない。成功後だけReloadと再起動へ進む。保存失敗時はactive modeのraw値と表示を復元し、他の下書きを保持して再起動・終了しない。実際の再起動要求が失敗した場合の終了処理は維持する。
+動作モード変更では、確認したmode、現在の履歴表示identity、runtimeのLR2位置だけを同じproviderのatomic保存境界で保存する。他の設定下書きは保存しない。保存が成功し、request が first-wins で受理された場合だけ Reload と通常の Close/terminal へ進む。保存失敗またはrequest拒否時はactive modeのraw値と表示を復元し、他の下書きを保持して再起動・終了しない。terminal末尾の後継 process start failure は、MainWindow の既存 shutdown authorization を維持したまま、failure notification の完了を待って観測する。
 
 MainWindowの検索ルート追加・削除は下位ownerの保存失敗伝播を保持し、View terminalでエラーを表示する。
 

@@ -60,7 +60,7 @@ public sealed class ApplicationRestartGatewayTests
     }
 
     [TestMethod]
-    public void RestartCoordinatorPreservesRequestAndShutdownOrdering()
+    public void RestartCoordinatorPreservesRequestAndMutexOrdering()
     {
         var events = new List<string>();
         var gateway = new RecordingApplicationRestartGateway(events);
@@ -68,12 +68,11 @@ public sealed class ApplicationRestartGatewayTests
             ApplicationPathSnapshot.FromExecutablePath(@"C:\BeMusicSeeker\BeMusicSeeker.exe"),
             gateway,
             () => "--log-level info",
-            () => events.Add("release"),
-            () => events.Add("shutdown"));
+            () => events.Add("release"));
 
         coordinator.Restart();
 
-        CollectionAssert.AreEqual(new[] { "release", "restart", "shutdown" }, events);
+        CollectionAssert.AreEqual(new[] { "release", "restart" }, events);
         Assert.AreEqual(@"C:\BeMusicSeeker\BeMusicSeeker.exe", gateway.Request.ExecutablePath);
         Assert.AreEqual("--log-level info", gateway.Request.Arguments);
         Assert.AreEqual(@"C:\BeMusicSeeker", gateway.Request.WorkingDirectory);

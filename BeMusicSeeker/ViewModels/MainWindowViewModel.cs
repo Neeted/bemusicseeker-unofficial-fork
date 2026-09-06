@@ -3193,7 +3193,10 @@ public partial class MainWindowViewModel : ViewModel,
             LogShutdown,
             LogShutdownWarning,
             FormatTextForLog,
-            applicationComposition.ReportTerminalSettingsSaveFailure);
+            applicationComposition.ReportTerminalSettingsSaveFailure,
+            applicationLifetime.RestartApplicationAsync,
+            applicationComposition.RestartFailureDialogs,
+            applicationComposition.ReportRestartFailure);
         ProgressHub.AttachPlaylistProgressSources(
             PlaylistWorkspace,
             DispatchMainChartListAction,
@@ -3212,7 +3215,8 @@ public partial class MainWindowViewModel : ViewModel,
             searchRootRuntimePort: LibraryFolderTree,
             playerFactoryPort: applicationComposition,
             playbackRuntimePort: PlaybackPanel,
-            lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow);
+            lr2SongDbSyncWorkflow: Lr2SongDbSyncWorkflow,
+            requestOperationModeRestart: ShellShutdownWorkflow.RequestOperationModeRestartAsync);
     }
 
     private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs request)
