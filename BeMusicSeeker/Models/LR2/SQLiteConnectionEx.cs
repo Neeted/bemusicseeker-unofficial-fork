@@ -68,12 +68,16 @@ public class SQLiteConnectionEx : SQLiteConnection
         return ret;
     }
 
+    /// <summary>
+    /// 現在のトランザクションを一度だけ commit し、Busy / Locked を含む失敗を呼出し元へ返します。
+    /// </summary>
+    /// <remarks>
+    /// sqlite-net は commit 失敗時に内部の transaction 状態を解除し、rollback を試みます。
+    /// 再呼出しは何もせず正常終了し得るため、DML 用の再試行で commit failure を成功へ変換しません。
+    /// </remarks>
     public new void Commit()
     {
-        RetryIfLockedOrBusy(delegate
-        {
-            base.Commit();
-        }, null, 10u);
+        base.Commit();
     }
 
     public List<string> TryApplyReadOptimizedPragmas(bool enabled, int cacheSizeKb = 262144, long mmapSizeBytes = 2147483648L)

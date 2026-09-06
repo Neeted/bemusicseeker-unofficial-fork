@@ -36,6 +36,16 @@ FS と DB は同じ transaction に参加しない。DB の commit 成功は FS 
 
 FS はファイルの実在・内容の正本だが、DB の全情報を再生成できるとは限らない。利用者が編集した項目、playlist、導入状態等を「FS に合わせる」という理由で一括破棄しない。どの field が再走査・再生成可能かは各機能の契約に従う。
 
+### 3.1 SQLite transaction の失敗伝播
+
+`SQLiteConnectionEx.Commit()` と `BmsLibraryDbGateway.ExecuteSongDbTransaction()` は、次の契約で `FSDB-FACTS` / `FSDB-REPORT` を満たす。LR2 folder 同期の直接 commit と、gateway を経由する catalog / install / metadata 更新の共通境界に適用する。
+
+- **Commit は一度だけ呼ぶ。** `SQLiteConnectionEx.Commit()` は基底の `Commit()` を一度だけ呼び、Busy / Locked を含む例外をそのまま返す。sqlite-net は commit 失敗時に内部の transaction 状態を解除して rollback を試みるため、同じ `Commit()` の再呼出しは SQL を実行せず正常終了し得る。これを保存成功の証拠にせず、transaction 全体の自動 replay も追加しない。
+- **Primary failure を保持する。** `ExecuteSongDbTransaction()` は action または commit の例外に対して、元の savepoint への rollback を一度だけ best-effort で試みる。既に全体が rollback 済みの場合を含め、追加 rollback の例外で元の例外を置き換えず、元の stack trace を保って再送出する。二次例外は利用可能な `NLogWrapper` の通常診断へ送り、診断出力の例外も primary failure を置き換えない。
+- **失敗後の成功処理へ進まない。** 呼出し元は既存の failure / compensation 経路へ進み、この失敗した transaction に対する durable receipt、成功件数、commit 後の canonical 反映を作らない。rollback 成功や全データ不変を推測せず、先行する別 transaction の確定済み結果は保持する。
+
+DML の既存限定 retry、SQLite の `BusyTimeout`、DB schema、process lock、接続 lifetime / shutdown drain は変更しない。生 SQL の COMMIT への置換、独自 transaction state、再帰的 rollback、FS の追加補償は導入しない。接続 close 失敗の既存契約も維持する。
+
 ## 4. 補償と前方回復の範囲
 
 前方回復とは、失敗後の状態と保持されたデータを起点に、原因を除いた後で再走査、関連 DB の反映、再生成または手動対応を選ぶことである。失敗した command を同じ引数で自動再実行することや、元の削除意図を後から無条件に完遂することではない。

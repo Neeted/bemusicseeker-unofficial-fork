@@ -8,6 +8,7 @@ using System.Security;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using Ribbit.Logging;
 using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -147,6 +148,14 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         return new Lr2PlayHistorySchemaService().InstallOrRepair(ScoreDbPath, isLr2LinkedProfile);
     }
 
+    /// <summary>
+    /// 指定処理を専用 song DB 接続のトランザクション内で実行し、commit します。
+    /// </summary>
+    /// <param name="action">同じトランザクションで保存する DB 操作。</param>
+    /// <remarks>
+    /// 処理または commit の失敗後は savepoint への rollback を一度だけ試みます。
+    /// その rollback と診断出力の失敗では元の例外を置き換えず、元の stack trace を維持して再送出します。
+    /// </remarks>
     public void ExecuteSongDbTransaction(Action<LR2SongDBExtended> action)
     {
         if (action == null)
@@ -162,7 +171,24 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         }
         catch (Exception)
         {
-            songDb.RollbackTo(savepoint);
+            try
+            {
+                // Commit や入れ子の InsertAll が既に全体を rollback していると、savepoint は無効になる。
+                songDb.RollbackTo(savepoint);
+            }
+            catch (Exception rollbackException)
+            {
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(
+                        rollbackException,
+                        "song_db_transaction_rollback_failed");
+                }
+                catch
+                {
+                    // 診断先も利用不能な場合に、元の DB failure を診断例外で置き換えない。
+                }
+            }
             throw;
         }
     }

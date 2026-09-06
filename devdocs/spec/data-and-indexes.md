@@ -130,6 +130,8 @@ startup hydration の read phase は read-only connection を使う。
 - write が必要な cleanup / backfill / metadata update / file diff commit は write-capable transaction path に分ける。
 - `app_schema_version(name='app_schema')` は startup app schema repair で収束させる。
 
+DB commit failure を再試行の no-op で成功へ変換せず、失敗後の追加 rollback / 診断で primary failure を置き換えない。共通 transaction 境界の現行契約は [file-db-consistency.md の SQLite transaction 失敗伝播](file-db-consistency.md#31-sqlite-transaction-の失敗伝播) を正本とする。
+
 chart-info storage writeは`CatalogMutationOwner`が所有する。immutableな`CatalogChartInfoStorageWriteRequest`にinline用BMS/BMSON storage rows、full-backfill用narrow song projections、chart-info factsを束ね、同じcatalog transactionで保存する。full backfillは`Lr2SongDbWriter.UpdateChartInfoSongProjections()`でpathとMD5が一致する既存rowの`level`、`difficulty`、`maxbpm`、`minbpm`、`bga`、`exlevel`、`longnote`、`random`、`karinotes`だけを更新し、missing rowをINSERTしない。基本列とuser管理列はUPDATE句へ含めない。commit成功後だけcanonical owner、digest-derived index、session index、warning/digest publicationを進め、失敗時はどれも部分更新しない。storage rowを伴わないparse-failure明示削除にはfacts-only writeを残す。
 
 `song` table は LR2 互換の lookup index を前提にする。LR2 が作成する `song.db` と同様に `hashidx(song.hash)` と `parentidx(song.parent)` を ensure し、アプリ側で使う `song_idx_folder(song.folder)` も維持する。スタンドアローン DB 作成時だけでなく、通常の DB schema ensure でも不足 index を補う。
