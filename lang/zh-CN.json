@@ -943,5 +943,26 @@
   "SettingsPartiallySaved": "应用程序设置已保存，但无法保存 LR2 配置。\n文件：{0}\n原因：{1}",
   "SettingsApplyIncomplete": "未能完成设置的保存或应用。\n原因：{0}",
   "SettingsSaveFailedDuringShutdown": "{0}\n将继续退出。",
-  "Beatoraja_bmt_output_failure_format": "BMT 导出或删除未完成。\n目标：{0}\n原因：{1}"
+  "Beatoraja_bmt_output_failure_format": "BMT 导出或删除未完成。\n目标：{0}\n原因：{1}",
+
+  "LibraryDirectoryPreflightEarlyWarningFormat": "无法开始更新曲库。\n目标：{0}\n路径：{1}\n原因：{2}\n{3}",
+  "LibraryDirectoryPreflightLateWarningFormat": "无法应用曲库更新。\n目标：{0}\n路径：{1}\n原因：{2}\n{3}",
+  "LibraryDirectoryPreflightProgressFailure": "无法确认必需文件夹，已停止更新曲库。",
+  "LibraryDirectoryPreflightBmsRootRole": "BMS 搜索文件夹",
+  "LibraryDirectoryPreflightLr2OutputRole": "LR2 输出文件夹",
+  "LibraryDirectoryPreflightLr2NormalOutputRole": "LR2 普通输出文件夹",
+  "LibraryDirectoryPreflightLr2AdditionalOutputRole": "LR2 追加输出文件夹",
+  "LibraryDirectoryPreflightLr2RootOutputRole": "LR2 根类型输出文件夹",
+  "LibraryDirectoryPreflightCauseNotFound": "找不到该文件夹。",
+  "LibraryDirectoryPreflightCauseAccessDenied": "没有读取该文件夹的权限。",
+  "LibraryDirectoryPreflightCauseNotDirectory": "指定路径不是文件夹。",
+  "LibraryDirectoryPreflightCauseInvalidPath": "路径格式无效。",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "追加输出文件夹配置无效。",
+  "LibraryDirectoryPreflightCauseIo": "无法读取该文件夹。",
+  "LibraryDirectoryPreflightCauseWrite": "无法在输出文件夹中写入临时检查文件。",
+  "LibraryDirectoryPreflightCauseCleanup": "无法删除临时检查文件。",
+  "LibraryDirectoryPreflightCleanupFailure": "清理临时检查文件也失败了。",
+  "LibraryDirectoryPreflightBmsGuidance": "请重新连接文件夹，或在设置的“常规”中修正 BMS 搜索文件夹后重试。",
+  "LibraryDirectoryPreflightLr2Guidance": "请重新连接文件夹，或在设置中修正播放列表输出文件夹后重试。"
+
 }

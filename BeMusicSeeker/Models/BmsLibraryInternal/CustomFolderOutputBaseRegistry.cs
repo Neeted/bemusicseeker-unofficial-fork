@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models.Utils;
 using Newtonsoft.Json;
 using Ribbit.Util.Extensions;
 
@@ -183,6 +184,12 @@ internal static class CustomFolderOutputBaseRegistry
         return NormalizeDirectoryPath(Path.Combine(parent, normalizedName));
     }
 
+    /// <summary>
+    /// 出力 base を LongPath の保存表現へ正規化し、drive root を保持します。
+    /// 不正な非空値は更新入口の typed 検査へ渡せるよう保持します。
+    /// </summary>
+    /// <param name="path">正規化する出力 base。</param>
+    /// <returns>正規化済み path、または trim 済みの不正な非空値。</returns>
     internal static string NormalizeDirectoryPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -192,11 +199,13 @@ internal static class CustomFolderOutputBaseRegistry
 
         try
         {
-            return Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return LongPathFileSystem.TrimTrailingDirectorySeparators(
+                LongPathFileSystem.NormalizePathForStorage(path.Trim()));
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
-            return path.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            // 不正な非空設定は消さず、更新入口で typed failure にできます。
+            return path.Trim();
         }
     }
 }

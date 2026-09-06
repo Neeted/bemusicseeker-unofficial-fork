@@ -943,5 +943,26 @@
   "SettingsPartiallySaved": "應用程式設定已儲存，但無法儲存 LR2 設定。\n檔案：{0}\n原因：{1}",
   "SettingsApplyIncomplete": "未能完成設定的儲存或套用。\n原因：{0}",
   "SettingsSaveFailedDuringShutdown": "{0}\n將繼續結束程式。",
-  "Beatoraja_bmt_output_failure_format": "BMT 匯出或刪除未完成。\n目標：{0}\n原因：{1}"
+  "Beatoraja_bmt_output_failure_format": "BMT 匯出或刪除未完成。\n目標：{0}\n原因：{1}",
+
+  "LibraryDirectoryPreflightEarlyWarningFormat": "無法開始更新曲庫。\n目標：{0}\n路徑：{1}\n原因：{2}\n{3}",
+  "LibraryDirectoryPreflightLateWarningFormat": "無法套用曲庫更新。\n目標：{0}\n路徑：{1}\n原因：{2}\n{3}",
+  "LibraryDirectoryPreflightProgressFailure": "無法確認必要資料夾，已停止更新曲庫。",
+  "LibraryDirectoryPreflightBmsRootRole": "BMS 搜尋資料夾",
+  "LibraryDirectoryPreflightLr2OutputRole": "LR2 輸出資料夾",
+  "LibraryDirectoryPreflightLr2NormalOutputRole": "LR2 一般輸出資料夾",
+  "LibraryDirectoryPreflightLr2AdditionalOutputRole": "LR2 追加輸出資料夾",
+  "LibraryDirectoryPreflightLr2RootOutputRole": "LR2 根類型輸出資料夾",
+  "LibraryDirectoryPreflightCauseNotFound": "找不到資料夾。",
+  "LibraryDirectoryPreflightCauseAccessDenied": "沒有讀取資料夾的權限。",
+  "LibraryDirectoryPreflightCauseNotDirectory": "指定路徑不是資料夾。",
+  "LibraryDirectoryPreflightCauseInvalidPath": "路徑格式無效。",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "追加輸出資料夾設定無效。",
+  "LibraryDirectoryPreflightCauseIo": "無法讀取資料夾。",
+  "LibraryDirectoryPreflightCauseWrite": "無法在輸出資料夾中寫入暫時檢查檔案。",
+  "LibraryDirectoryPreflightCauseCleanup": "無法刪除暫時檢查檔案。",
+  "LibraryDirectoryPreflightCleanupFailure": "清理暫時檢查檔案也失敗了。",
+  "LibraryDirectoryPreflightBmsGuidance": "請重新連接資料夾，或在設定的「一般」中修正 BMS 搜尋資料夾後重試。",
+  "LibraryDirectoryPreflightLr2Guidance": "請重新連接資料夾，或在設定中修正播放清單輸出資料夾後重試。"
+
 }

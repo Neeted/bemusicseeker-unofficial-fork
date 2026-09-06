@@ -1,6 +1,6 @@
 # ファイル操作と DB 操作の整合性・補償契約
 
-最終更新: 2026-09-05
+最終更新: 2026-09-06
 
 ## 1. 目的と適用範囲
 
@@ -84,6 +84,20 @@ UI、shutdown、logger 自身の failure を含めた必達保証は設けない
 - 利用者へ案内する対応は、その機能で実際に利用可能かつ安全なものに限る。安全な再反映経路がない場合は、原因解消と対象確認・手動対応が必要であることを伝え、未実装の修復ボタンや必ず成功する再試行を約束しない。
 
 現行の空走査保護は `BmsLibraryInitializationService.ApplyFileScanDiff`／`ShouldSkipEmptyScanWithExistingDb` にあり、startup と `ReloadFileDiff` の共通経路に作用する。この保護の存在や、保護が収束より優先されること自体は不具合ではない。
+
+### 登録ディレクトリとファイル差分の入力
+
+起動、手動ファイル差分リロード、初期化再実行では、利用不能な登録 BMS ルートを走査入力から除外して続行しない。要求した登録、実際の chart / resource 走査ルート、LR2 カスタム出力ベースを区別する。登録は存在判定より前に捕捉し、親子の別登録も必須検査対象として保持する。設定の読込み・表示・保存で欠落登録を自動解除しない。不正な非空パスや設定読込み失敗を空の成功入力に変換しない。
+
+BMS ルートはディレクトリ属性と直下列挙の開始を確認し、空でも利用可能なら受け入れる。BMS ルートへの書込みは要求しない。LR2 連携時の出力ベースには、自己所有の新規一時ファイルによる作成・書込み・削除の確認も行う。検査で欠落ディレクトリを作成せず、既存ファイルを変更しない。出力ベースと管理下の未生成 playlist 子フォルダを混同しない。用途の詳細は [playlist-data-and-export-flow.md](playlist-data-and-export-flow.md) に従う。
+
+更新入口の検査を通した immutable な要求を、同じ操作の走査と差分反映へ渡す。途中で現在存在するルートだけを取り直さない。外部媒体は走査中にも切断され得るため、prefetch 完了後・差分反映前に同じ要求集合を読取り専用で再確認する。失敗時は型付き失敗を伝え、当該差分と成功後の LR2 同期・playlist 参照更新を開始しない。利用不能を DB 書込み失敗に分類せず、最後の正常 catalog を欠落走査で置き換えない。
+
+この確認は非再帰であり、全ファイルの権限、将来の接続維持、最終確認直後の切断、FS と DB の原子性を保証しない。既存の不完全走査・空走査保護を併用する。既に確定した別操作や、late failure より前の schema / metadata 更新を巻き戻す保証は増やさない。
+
+### Verification map: 登録ディレクトリの保全
+
+`LibraryDirectoryPreflightTests` は configured 入力、path の意味、用途別の読取り・書込み検査と自己所有 probe の failure / cleanup を検証する。`BmsLibraryDirectoryAvailabilityTests` は production の `ReloadFileDiff` / `Reinitialize` を使い、一部ルートの実退避、prefetch 中の切断、DB / catalog 保全、復旧後の再試行を検証する。`LibraryFileScanPipelineOwnerTests` は操作 request を共有した差分適用前の read-only 再検査を補う。いずれも通常 Functional 対象で、明示 options / captured scanner と test 所有の temp DB / filesystem を用い、live Everything や実共有の接続状態には依存しない。
 
 ## 7. レビューと検証の終了基準
 

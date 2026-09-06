@@ -83,6 +83,14 @@ On first launch, an initial setup dialog with language selection is shown.
 
 Choose a language, proceed to the settings dialog, and configure the operating mode and required items. The first scan of BMS files does not start until the required items are filled in and `OK` is pressed.
 
+### When a Registered Folder Is Unavailable
+
+At startup, BeMusicSeeker checks every registered BMS directory regardless of the `Scan BMS files and configuration files on startup` setting. In LR2-linked mode, it also checks the normal, additional, and root folder custom output destinations. If any location cannot be found or accessed, initialization stops and a warning identifies the location. Unavailable registrations are not removed automatically.
+
+If an external or network drive is temporarily disconnected, reconnect it. If a registered location is incorrect, correct BMS directories under `General` and custom folder output destinations under `Playlist` in Settings. If you have not yet created a folder at the intended location, create it; if access is denied, check its permissions. Creating an empty folder does not restore the charts that were previously stored there.
+
+After correcting the problem, press `OK` in Settings to retry initialization. You can also reconnect the drive and restart the application. BMS directories only need to be readable; LR2 custom output destinations must also allow files to be created, written, and deleted.
+
 ### Operating Mode
 
 BeMusicSeeker has two major operating modes.
@@ -378,6 +386,8 @@ Use it in cases such as these:
 - You deleted files from a BMS folder
 - You added or removed BMS root folders
 - You moved or renamed a BMS folder outside the app
+
+If any registered folder is unavailable, reload stops with a warning and does not treat the inaccessible folder as deleted. Correct the connection or settings, then run reload again. If a disconnection is detected during scanning, applying the file differences is also stopped.
 
 ### Re-run Initialization
 

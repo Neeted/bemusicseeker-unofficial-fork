@@ -943,5 +943,26 @@
   "SettingsPartiallySaved": "アプリケーション設定は保存されましたが、LR2 設定を保存できませんでした。\nファイル: {0}\n原因: {1}",
   "SettingsApplyIncomplete": "設定の保存または適用を完了できませんでした。\n原因: {0}",
   "SettingsSaveFailedDuringShutdown": "{0}\n終了処理を続行します。",
-  "Beatoraja_bmt_output_failure_format": "BMT の出力または削除が完了しませんでした。\n対象: {0}\n原因: {1}"
+  "Beatoraja_bmt_output_failure_format": "BMT の出力または削除が完了しませんでした。\n対象: {0}\n原因: {1}",
+
+  "LibraryDirectoryPreflightEarlyWarningFormat": "ライブラリの更新を開始できません。\n対象: {0}\nパス: {1}\n理由: {2}\n{3}",
+  "LibraryDirectoryPreflightLateWarningFormat": "ライブラリの更新を反映できません。\n対象: {0}\nパス: {1}\n理由: {2}\n{3}",
+  "LibraryDirectoryPreflightProgressFailure": "必須フォルダーを確認できないため、ライブラリの更新を中止しました。",
+  "LibraryDirectoryPreflightBmsRootRole": "BMS 検索フォルダー",
+  "LibraryDirectoryPreflightLr2OutputRole": "LR2 出力フォルダー",
+  "LibraryDirectoryPreflightLr2NormalOutputRole": "LR2 通常出力フォルダー",
+  "LibraryDirectoryPreflightLr2AdditionalOutputRole": "LR2 追加出力フォルダー",
+  "LibraryDirectoryPreflightLr2RootOutputRole": "LR2 ルート型出力フォルダー",
+  "LibraryDirectoryPreflightCauseNotFound": "フォルダーが見つかりません。",
+  "LibraryDirectoryPreflightCauseAccessDenied": "フォルダーを読み取る権限がありません。",
+  "LibraryDirectoryPreflightCauseNotDirectory": "指定先がフォルダーではありません。",
+  "LibraryDirectoryPreflightCauseInvalidPath": "パスの形式が不正です。",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "追加出力先の設定形式が不正です。",
+  "LibraryDirectoryPreflightCauseIo": "フォルダーを読み取れません。",
+  "LibraryDirectoryPreflightCauseWrite": "出力先へ一時確認ファイルを書き込めません。",
+  "LibraryDirectoryPreflightCauseCleanup": "一時確認ファイルを削除できません。",
+  "LibraryDirectoryPreflightCleanupFailure": "一時確認ファイルの後片付けにも失敗しました。",
+  "LibraryDirectoryPreflightBmsGuidance": "フォルダーを再接続するか、設定の一般にある BMS 検索フォルダーを修正してから再試行してください。",
+  "LibraryDirectoryPreflightLr2Guidance": "フォルダーを再接続するか、設定のプレイリスト出力先を修正してから再試行してください。"
+
 }

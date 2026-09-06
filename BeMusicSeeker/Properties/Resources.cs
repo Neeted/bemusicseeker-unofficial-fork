@@ -2355,4 +2355,62 @@ public class Resources
 
     /// <summary>BMT の対象と失敗原因を示す通知書式です。</summary>
     public static string Beatoraja_bmt_output_failure_format => ResourceManager.GetString("Beatoraja_bmt_output_failure_format", resourceCulture);
+
+    /// <summary>起動前の必須ディレクトリ検査失敗を示す通知書式です。</summary>
+    public static string LibraryDirectoryPreflightEarlyWarningFormat => ResourceManager.GetString("LibraryDirectoryPreflightEarlyWarningFormat", resourceCulture);
+
+    /// <summary>ライブラリ構築後または更新操作中の必須ディレクトリ再検査失敗を示す通知書式です。</summary>
+    public static string LibraryDirectoryPreflightLateWarningFormat => ResourceManager.GetString("LibraryDirectoryPreflightLateWarningFormat", resourceCulture);
+
+    /// <summary>進捗表示に使う必須ディレクトリ検査失敗の短い案内です。</summary>
+    public static string LibraryDirectoryPreflightProgressFailure => ResourceManager.GetString("LibraryDirectoryPreflightProgressFailure", resourceCulture);
+
+    /// <summary>BMS 検索フォルダーの用途名です。</summary>
+    public static string LibraryDirectoryPreflightBmsRootRole => ResourceManager.GetString("LibraryDirectoryPreflightBmsRootRole", resourceCulture);
+
+    /// <summary>LR2 出力フォルダーの既定用途名です。</summary>
+    public static string LibraryDirectoryPreflightLr2OutputRole => ResourceManager.GetString("LibraryDirectoryPreflightLr2OutputRole", resourceCulture);
+
+    /// <summary>LR2 通常出力フォルダーの用途名です。</summary>
+    public static string LibraryDirectoryPreflightLr2NormalOutputRole => ResourceManager.GetString("LibraryDirectoryPreflightLr2NormalOutputRole", resourceCulture);
+
+    /// <summary>LR2 追加出力フォルダーの用途名です。</summary>
+    public static string LibraryDirectoryPreflightLr2AdditionalOutputRole => ResourceManager.GetString("LibraryDirectoryPreflightLr2AdditionalOutputRole", resourceCulture);
+
+    /// <summary>LR2 ルート型出力フォルダーの用途名です。</summary>
+    public static string LibraryDirectoryPreflightLr2RootOutputRole => ResourceManager.GetString("LibraryDirectoryPreflightLr2RootOutputRole", resourceCulture);
+
+    /// <summary>未存在ディレクトリの原因名です。</summary>
+    public static string LibraryDirectoryPreflightCauseNotFound => ResourceManager.GetString("LibraryDirectoryPreflightCauseNotFound", resourceCulture);
+
+    /// <summary>アクセス拒否の原因名です。</summary>
+    public static string LibraryDirectoryPreflightCauseAccessDenied => ResourceManager.GetString("LibraryDirectoryPreflightCauseAccessDenied", resourceCulture);
+
+    /// <summary>ディレクトリではない場合の原因名です。</summary>
+    public static string LibraryDirectoryPreflightCauseNotDirectory => ResourceManager.GetString("LibraryDirectoryPreflightCauseNotDirectory", resourceCulture);
+
+    /// <summary>不正なパスの原因名です。</summary>
+    public static string LibraryDirectoryPreflightCauseInvalidPath => ResourceManager.GetString("LibraryDirectoryPreflightCauseInvalidPath", resourceCulture);
+
+    /// <summary>不正な設定の原因名です。</summary>
+    public static string LibraryDirectoryPreflightCauseInvalidConfiguration => ResourceManager.GetString("LibraryDirectoryPreflightCauseInvalidConfiguration", resourceCulture);
+
+    /// <summary>読み取り I/O 失敗の原因名です。</summary>
+    public static string LibraryDirectoryPreflightCauseIo => ResourceManager.GetString("LibraryDirectoryPreflightCauseIo", resourceCulture);
+
+    /// <summary>出力先書込み失敗の原因名です。</summary>
+    public static string LibraryDirectoryPreflightCauseWrite => ResourceManager.GetString("LibraryDirectoryPreflightCauseWrite", resourceCulture);
+
+    /// <summary>probe 後片付け失敗の原因名です。</summary>
+    public static string LibraryDirectoryPreflightCauseCleanup => ResourceManager.GetString("LibraryDirectoryPreflightCauseCleanup", resourceCulture);
+
+    /// <summary>probe 後片付けにも失敗した場合の補足です。</summary>
+    public static string LibraryDirectoryPreflightCleanupFailure => ResourceManager.GetString("LibraryDirectoryPreflightCleanupFailure", resourceCulture);
+
+    /// <summary>BMS 検索フォルダーを復旧する案内です。</summary>
+    public static string LibraryDirectoryPreflightBmsGuidance => ResourceManager.GetString("LibraryDirectoryPreflightBmsGuidance", resourceCulture);
+
+    /// <summary>LR2 出力フォルダーを復旧する案内です。</summary>
+    public static string LibraryDirectoryPreflightLr2Guidance => ResourceManager.GetString("LibraryDirectoryPreflightLr2Guidance", resourceCulture);
+
 }

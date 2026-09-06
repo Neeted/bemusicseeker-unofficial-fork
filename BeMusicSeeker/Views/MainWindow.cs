@@ -284,6 +284,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 await settingDialogViewModel.AddBmsSearchRootPathFromMainWindowPicker(result.FolderPath)
                     .LoggingAndPropagate("addRootFolderMenuItemClick");
             }
+            catch (LibraryDirectoryPreflightException)
+            {
+                // MainWindowViewModel が cleanup 後に warning を表示するため、
+                // shell terminal では同じ失敗を再通知しない。
+            }
             catch (Exception exception)
             {
                 UiDialogResult notification = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
@@ -5409,8 +5414,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     {
         if (base.DataContext is MainWindowViewModel && sender is MenuItem)
         {
-            await libraryReloadMenuTerminal.ReloadFileDiffAsync()
-                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReloadClick");
+            try
+            {
+                await libraryReloadMenuTerminal.ReloadFileDiffAsync()
+                    .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReloadClick");
+            }
+            catch (LibraryDirectoryPreflightException)
+            {
+                // owner が cleanup 後に localized warning を表示済み。
+            }
         }
     }
 
@@ -5418,8 +5430,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     {
         if (base.DataContext is MainWindowViewModel && sender is MenuItem)
         {
-            await libraryReloadMenuTerminal.ReinitializeLibraryAsync()
-                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReinitializeClick");
+            try
+            {
+                await libraryReloadMenuTerminal.ReinitializeLibraryAsync()
+                    .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReinitializeClick");
+            }
+            catch (LibraryDirectoryPreflightException)
+            {
+                // owner が cleanup 後に localized warning を表示済み。
+            }
         }
     }
 
@@ -5442,6 +5461,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             await rootFolderUnregisterTerminal.UnregisterAsync(path)
                 .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
+        }
+        catch (LibraryDirectoryPreflightException)
+        {
+            // MainWindowViewModel が cleanup 後に warning を表示するため、
+            // shell terminal では汎用 persistence failure を重ねない。
         }
         catch (Exception exception)
         {

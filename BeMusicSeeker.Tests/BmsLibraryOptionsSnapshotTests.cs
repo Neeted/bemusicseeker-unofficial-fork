@@ -50,4 +50,23 @@ public sealed class BmsLibraryOptionsSnapshotTests
             testSettings.PendingInstallEstimateMaxParallelPackages = original;
         }
     }
+
+    [TestMethod]
+    public void CreateCurrentRetainsRawAdditionalOutputConfiguration()
+    {
+        string previous = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
+        const string raw = "[\"missing-additional-base\"]";
+        try
+        {
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = raw;
+
+            BmsLibraryOptionsSnapshot snapshot = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
+
+            Assert.AreEqual(raw, snapshot.LR2CustomFolderAdditionalOutputBaseDirsSerialized);
+        }
+        finally
+        {
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previous;
+        }
+    }
 }

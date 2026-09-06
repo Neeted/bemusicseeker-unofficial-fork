@@ -72,14 +72,17 @@ internal sealed class Lr2FolderExistingRowsSnapshot
 
 internal sealed class Lr2SearchRootSnapshot
 {
+    /// <summary>走査対象と存在確認前の登録を分けて保持し、更新前検査へ渡します。</summary>
     internal Lr2SearchRootSnapshot(
         IReadOnlyList<string> roots,
         int requestedRootCount,
         int existingRootCount,
         int excludedCustomOutputRootCount,
-        int configuredCustomOutputRootCount)
+        int configuredCustomOutputRootCount,
+        IReadOnlyList<string> requestedRoots = null)
     {
         Roots = roots ?? [];
+        RequestedRoots = requestedRoots ?? Roots;
         RequestedRootCount = requestedRootCount;
         ExistingRootCount = existingRootCount;
         ExcludedCustomOutputRootCount = excludedCustomOutputRootCount;
@@ -87,6 +90,9 @@ internal sealed class Lr2SearchRootSnapshot
     }
 
     internal IReadOnlyList<string> Roots { get; }
+
+    /// <summary>存在確認前に capture した登録 root です。</summary>
+    internal IReadOnlyList<string> RequestedRoots { get; }
 
     internal int RequestedRootCount { get; }
 
@@ -281,6 +287,15 @@ internal sealed class Lr2ConfigSnapshotProvider
             return false;
         }
     }
+
+    /// <summary>
+    /// 更新入口用に設定を取得します。テストや standalone composition の
+    /// 明示 SearchTargets を壊さないため、未接続なら null を返します。
+    /// </summary>
+    internal LR2Config GetConfiguredOrNull()
+    {
+        return provider();
+    }
 }
 
 internal sealed class Lr2SearchRootSnapshotOwner
@@ -338,7 +353,42 @@ internal sealed class Lr2SearchRootSnapshotOwner
             requestedRootCount: requestedRoots.Count(),
             existingRootCount: existingRoots.Count,
             excludedCustomOutputRootCount: existingRoots.Count - roots.Count,
-            configuredCustomOutputRootCount: excludedRoots.Count);
+            configuredCustomOutputRootCount: excludedRoots.Count,
+            requestedRoots: requestedRoots.ToArray());
+    }
+
+    /// <summary>
+    /// 更新操作用に存在確認前の設定 root を capture します。
+    /// <see cref="Lr2SearchRootSnapshot.Roots"/> は scanner の既存の
+    /// managed output 除外を維持し、<see cref="Lr2SearchRootSnapshot.RequestedRoots"/>
+    /// は preflight 用に全登録値を保持します。
+    /// </summary>
+    internal Lr2SearchRootSnapshot CaptureForUpdate(BmsLibraryOptionsSnapshot options)
+    {
+        options ??= optionsProvider()
+            ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
+        if (options.OperationModeLR2DB == true)
+        {
+            LR2Config config = configProvider.GetConfiguredOrNull();
+            if (config != null)
+            {
+                SearchTargets = config.GetBMSSearchDirectoriesForChangeTracking() ?? [];
+            }
+        }
+
+        List<string> requestedRoots = [.. (SearchTargets ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path.Trim())];
+        HashSet<string> excludedRoots = CreateExcludedCustomOutputRoots(options);
+        List<string> scanRoots = [.. requestedRoots
+            .Where(path => !IsExcludedCustomOutputSearchRoot(path, excludedRoots))];
+        return new Lr2SearchRootSnapshot(
+            scanRoots,
+            requestedRootCount: requestedRoots.Count,
+            existingRootCount: requestedRoots.Count,
+            excludedCustomOutputRootCount: requestedRoots.Count - scanRoots.Count,
+            configuredCustomOutputRootCount: excludedRoots.Count,
+            requestedRoots: requestedRoots);
     }
 
     private static HashSet<string> CreateExcludedCustomOutputRoots(BmsLibraryOptionsSnapshot options)

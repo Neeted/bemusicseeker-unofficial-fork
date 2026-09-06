@@ -22,9 +22,21 @@
 
 ## Startup
 
+### 登録ディレクトリの早期検査
+
+`InitializeAsync` は設定 snapshot の取得後、出力検索ルートの自動修復より前に、全登録 BMS ルートの利用可能性を background で確認する。LR2 連携時は通常・追加・ルート型のカスタム出力ベースも対象にする。起動時スキャン OFF でも省略しない。完全未設定の初回は従来の言語選択・初期設定導線を維持する。
+
+検査で利用不能を検出した場合は、config 修復・保存、standalone DB 作成、schema 修復、library 構築・attach、backup・最適化、走査、後続 scheduler の開始より前に停止する。共有初期化 gate と UI block を解放してから shell が警告と設定画面を表示し、`false` を返す。欠落登録を読込み・保存で自動除外せず、設定修正・再接続後の `OK` で新しい入力を確認して再試行できる。
+
+model 初期化入口と差分適用前でも同じ検査契約を使用する。model からの型付き停止は内側 startup helper で警告せず外側へ伝播し、外側 gate を解放した後に一度だけ表示する。early 停止と異なり、model 段階では schema や metadata が既に更新されている可能性があるため、警告は差分反映を中断した事実を示す。成功 marker、初期化完了通知、成功後の scheduler 登録へ進ませない。共通の入力・検査・残存制約は [file-db-consistency.md](file-db-consistency.md) を正本とする。
+
+`SettingDialogEditCompletionTests` は実 `InitializeAsync` の早期停止、構築後の切断、warning と設定画面の順序、再試行を検証する。`FileDiffReloadWorkflowOwnerTests` は shell の手動更新・通知・再試行、`MainWindowViewModelStartupProgressTests` は既存の進捗 owner の failure cleanup を補う。`MainWindowTreePresentationWpfTests` は reload / reinitialize / unregister の実イベントを確認し、直接注入できない add-root picker の先の例外 terminal は静的点検と settings の更新契約で補う。`LibraryDirectoryWarningFormatterTests` と `LocalizationResourceParityTests` は用途・パス・原因・案内先と多言語 resource の整合を検証する。これらは通常 Functional 対象であり、test 所有の DB / filesystem、既存 WPF dispatcher、明示 settings / captured scanner を使用する。
+
 ```mermaid
 flowchart TD
-    A[Process / App startup] --> B[Library profile・settings validation]
+    A[Process / App startup] --> V[登録 BMS ルート・LR2 出力ベースの利用可能性検査]
+    V -->|利用可能| B[Library profile・settings validation]
+    V -->|利用不能| W[初期化停止・gate 解放・警告・設定修正]
     B --> C[App schema preflight / repair]
     C --> X[LR2 backup / database rebuild when enabled]
     X --> S[Start file / resource scan prefetch]
@@ -76,6 +88,8 @@ flowchart TD
 テキスト表現:
 
 ```text
+登録ディレクトリ検査（起動時スキャン OFF でも必須）
+  └─ 利用不能なら副作用前に停止し、gate 解放後に警告・設定画面
 profile / schema
   └─ app schema preflight / repair
        └─ LR2 backup / database rebuild (when enabled)
@@ -463,14 +477,13 @@ ScoreOnly
 
 ## Verification map
 
-Startup library construction coverage is split from the retired `StartupLibraryConstructionOwnerTests` class into three owner fixtures. The canonical Functional plan runs `portable-settings` first (1 worker / `ClassLevel`), then fans out `bass-collectible`, `serial-state-a`, `serial-state-b`, `remaining-bms-library`, and `remaining` without a waiting wave. These three fixture FQNs are outside the exact 45 class selector and do not match the `BeMusicSeeker.Tests.BmsLibrary` logical prefix, so they run once in the `remaining` logical-negative partition (`R & FullyQualifiedName!~BeMusicSeeker.Tests.BmsLibrary`, `ProcessorCount` workers / `ClassLevel`). Each fixture preserves the existing temporary song database, profile construction, typed factory/application ports, exception propagation, method-level completion, and deterministic cleanup; no new process, DNP, fixed wait, timeout, or production seam is introduced.
+起動時の library 構築は、旧 `StartupLibraryConstructionOwnerTests` から分離した以下の2 fixture で確認する。どちらも canonical Functional の `remaining` partition に属し、test 所有の一時 DB、型付き factory / application port、完了通知と cleanup を使う。外側 `InitializeAsync` の動作は、この節の A1 map にある `SettingDialogEditCompletionTests` で確認する。
 
 | Behavior / failure contract | Owner fixture | Retired cases | Route |
 | --- | --- | --- | --- |
 | successful standalone profile construction and LR2 profile search-root behavior | `StartupLibraryProfileTests` | cases 1-2 | `remaining` logical-negative partition, `ProcessorCount` workers / `ClassLevel` |
 | search-root, factory, and application failure propagation | `StartupLibraryFailureContractTests` | cases 3-5 | same `remaining` logical-negative partition |
-| MainWindow typed startup construction route and compiled caller contract | `StartupMainWindowTypedRouteTests` | case 6 | same `remaining` logical-negative partition |
 
-The old `StartupLibraryConstructionOwnerTests` selector and the historical `library-chart-classwide` named route are retired. The three replacement FQNs remain in the shared `remaining` logical-negative partition; the complementary `remaining-bms-library` positive partition stays disjoint, so the startup cases are covered exactly once by the canonical six-host plan.
+旧 `StartupLibraryConstructionOwnerTests` selector と `library-chart-classwide` named route は退役済み。起動メソッドの IL 上の直接呼出位置を固定していた `StartupMainWindowTypedRouteTests`（旧 case 6）は、A1 の outer / core 分割に伴い削除した。構築 owner の責務と失敗伝搬は上記の behavior coverage を維持し、private method の配置を恒久契約にしない。
 
 Acceptance coverage is mapped separately: `S3-EXD-SCOPE`, `S3-EXD-MODAL`, and `S3-EXD-ACTION` use the `ProcessIntegration` negative fixture `ExistingDataAcceptanceDialogContractTests.DialogClassifier_RejectsUnsafeObservationsAndTracksExactResidualIdentity`, while `S3-FH-BLOCKING` uses the same production UIA ownership classifier for an unexpected first-hop modal. `S3-LR2-DURABLE` remains a positive oracle of the actual Full acceptance script after graceful shutdown; localized/catalog dialog copies and the retired free-form queue-log route are not test inputs.

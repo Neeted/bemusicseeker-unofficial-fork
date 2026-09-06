@@ -3308,4 +3308,23 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Beatoraja_bmt_output_failure_format" xml:space="preserve"><value>BMT の出力または削除が完了しませんでした。
 対象: {0}
 原因: {1}</value></data>
+  <data name="LibraryDirectoryPreflightEarlyWarningFormat" xml:space="preserve"><value>ライブラリの更新を開始できません。&#xA;対象: {0}&#xA;パス: {1}&#xA;理由: {2}&#xA;{3}</value></data>
+  <data name="LibraryDirectoryPreflightLateWarningFormat" xml:space="preserve"><value>ライブラリの更新を反映できません。&#xA;対象: {0}&#xA;パス: {1}&#xA;理由: {2}&#xA;{3}</value></data>
+  <data name="LibraryDirectoryPreflightProgressFailure" xml:space="preserve"><value>必須フォルダーを確認できないため、ライブラリの更新を中止しました。</value></data>
+  <data name="LibraryDirectoryPreflightBmsRootRole" xml:space="preserve"><value>BMS 検索フォルダー</value></data>
+  <data name="LibraryDirectoryPreflightLr2OutputRole" xml:space="preserve"><value>LR2 出力フォルダー</value></data>
+  <data name="LibraryDirectoryPreflightLr2NormalOutputRole" xml:space="preserve"><value>LR2 通常出力フォルダー</value></data>
+  <data name="LibraryDirectoryPreflightLr2AdditionalOutputRole" xml:space="preserve"><value>LR2 追加出力フォルダー</value></data>
+  <data name="LibraryDirectoryPreflightLr2RootOutputRole" xml:space="preserve"><value>LR2 ルート型出力フォルダー</value></data>
+  <data name="LibraryDirectoryPreflightCauseNotFound" xml:space="preserve"><value>フォルダーが見つかりません。</value></data>
+  <data name="LibraryDirectoryPreflightCauseAccessDenied" xml:space="preserve"><value>フォルダーを読み取る権限がありません。</value></data>
+  <data name="LibraryDirectoryPreflightCauseNotDirectory" xml:space="preserve"><value>指定先がフォルダーではありません。</value></data>
+  <data name="LibraryDirectoryPreflightCauseInvalidPath" xml:space="preserve"><value>パスの形式が不正です。</value></data>
+  <data name="LibraryDirectoryPreflightCauseInvalidConfiguration" xml:space="preserve"><value>追加出力先の設定形式が不正です。</value></data>
+  <data name="LibraryDirectoryPreflightCauseIo" xml:space="preserve"><value>フォルダーを読み取れません。</value></data>
+  <data name="LibraryDirectoryPreflightCauseWrite" xml:space="preserve"><value>出力先へ一時確認ファイルを書き込めません。</value></data>
+  <data name="LibraryDirectoryPreflightCauseCleanup" xml:space="preserve"><value>一時確認ファイルを削除できません。</value></data>
+  <data name="LibraryDirectoryPreflightCleanupFailure" xml:space="preserve"><value>一時確認ファイルの後片付けにも失敗しました。</value></data>
+  <data name="LibraryDirectoryPreflightBmsGuidance" xml:space="preserve"><value>フォルダーを再接続するか、設定の一般にある BMS 検索フォルダーを修正してから再試行してください。</value></data>
+  <data name="LibraryDirectoryPreflightLr2Guidance" xml:space="preserve"><value>フォルダーを再接続するか、設定のプレイリスト出力先を修正してから再試行してください。</value></data>
 </root>

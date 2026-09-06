@@ -943,5 +943,26 @@
   "SettingsPartiallySaved": "애플리케이션 설정은 저장되었지만 LR2 설정은 저장하지 못했습니다.\n파일: {0}\n원인: {1}",
   "SettingsApplyIncomplete": "설정 저장 또는 적용을 완료하지 못했습니다.\n원인: {0}",
   "SettingsSaveFailedDuringShutdown": "{0}\n종료를 계속합니다.",
-  "Beatoraja_bmt_output_failure_format": "BMT 출력 또는 삭제가 완료되지 않았습니다.\n대상: {0}\n원인: {1}"
+  "Beatoraja_bmt_output_failure_format": "BMT 출력 또는 삭제가 완료되지 않았습니다.\n대상: {0}\n원인: {1}",
+
+  "LibraryDirectoryPreflightEarlyWarningFormat": "라이브러리 업데이트를 시작할 수 없습니다.\n대상: {0}\n경로: {1}\n원인: {2}\n{3}",
+  "LibraryDirectoryPreflightLateWarningFormat": "라이브러리 업데이트를 적용할 수 없습니다.\n대상: {0}\n경로: {1}\n원인: {2}\n{3}",
+  "LibraryDirectoryPreflightProgressFailure": "필수 폴더를 확인할 수 없어 라이브러리 업데이트를 중단했습니다.",
+  "LibraryDirectoryPreflightBmsRootRole": "BMS 검색 폴더",
+  "LibraryDirectoryPreflightLr2OutputRole": "LR2 출력 폴더",
+  "LibraryDirectoryPreflightLr2NormalOutputRole": "LR2 일반 출력 폴더",
+  "LibraryDirectoryPreflightLr2AdditionalOutputRole": "LR2 추가 출력 폴더",
+  "LibraryDirectoryPreflightLr2RootOutputRole": "LR2 루트 유형 출력 폴더",
+  "LibraryDirectoryPreflightCauseNotFound": "폴더를 찾을 수 없습니다.",
+  "LibraryDirectoryPreflightCauseAccessDenied": "액세스가 거부되어 폴더를 읽을 수 없습니다.",
+  "LibraryDirectoryPreflightCauseNotDirectory": "지정한 경로가 폴더가 아닙니다.",
+  "LibraryDirectoryPreflightCauseInvalidPath": "경로가 올바르지 않습니다.",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "추가 출력 폴더 설정이 올바르지 않습니다.",
+  "LibraryDirectoryPreflightCauseIo": "폴더를 읽을 수 없습니다.",
+  "LibraryDirectoryPreflightCauseWrite": "출력 폴더에 임시 쓰기 검사를 수행할 수 없습니다.",
+  "LibraryDirectoryPreflightCauseCleanup": "임시 쓰기 검사 파일을 삭제할 수 없습니다.",
+  "LibraryDirectoryPreflightCleanupFailure": "임시 쓰기 검사 파일의 정리에도 실패했습니다.",
+  "LibraryDirectoryPreflightBmsGuidance": "폴더를 다시 연결하거나 설정의 일반에 있는 BMS 검색 폴더를 수정한 후 다시 시도하세요.",
+  "LibraryDirectoryPreflightLr2Guidance": "폴더를 다시 연결하거나 설정에서 플레이리스트 출력 폴더를 수정한 후 다시 시도하세요."
+
 }

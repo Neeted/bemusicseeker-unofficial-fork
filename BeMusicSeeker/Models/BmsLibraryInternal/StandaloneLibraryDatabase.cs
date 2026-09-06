@@ -1,17 +1,28 @@
 using System;
 using System.IO;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class StandaloneLibraryDatabase
 {
-    public static StandaloneLibraryDatabaseEnsureResult EnsurePortableSongDb()
+    /// <summary>
+    /// composition が捕捉したアプリケーション配置で standalone song DB を準備します。
+    /// </summary>
+    /// <param name="applicationPathSnapshot">この操作で使用するアプリケーション配置。</param>
+    /// <returns>song DB の作成状態と既存データ状態。</returns>
+    public static StandaloneLibraryDatabaseEnsureResult EnsurePortableSongDb(
+        ApplicationPathSnapshot applicationPathSnapshot)
     {
-        Directory.CreateDirectory(PortableSettingsPath.DataDirectoryPath);
-        string songDbPath = PortableSettingsPath.StandaloneSongDbPath;
+        if (applicationPathSnapshot == null)
+        {
+            throw new ArgumentNullException(nameof(applicationPathSnapshot));
+        }
+
+        Directory.CreateDirectory(applicationPathSnapshot.DataDirectoryPath);
+        string songDbPath = applicationPathSnapshot.StandaloneSongDbPath;
         bool created = !File.Exists(songDbPath);
         using (File.Open(songDbPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite))
         {

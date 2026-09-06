@@ -400,6 +400,14 @@ public partial class SettingsDialogViewModel : ViewModel
                 }
             }
         }
+        catch (LibraryDirectoryPreflightException)
+        {
+            // MainWindowViewModel は cleanup 完了後に唯一の warning を表示する。
+            // ここで汎用の apply failure を重ねると、再試行状態を保ったまま
+            // 同じ失敗を二重通知してしまう。
+            outcome = "directory_preflight_failed";
+            totalStopwatch.Stop();
+        }
         catch (Exception ex)
         {
             outcome = "failed";
@@ -4916,7 +4924,8 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         if (ApplicationSettings.OperationModeLR2DB && lr2config != null)
         {
-            searchRootRuntimePort.ApplySearchTargets(lr2config.GetBMSSearchDirectories());
+            searchRootRuntimePort.ApplySearchTargets(
+                lr2config.GetBMSSearchDirectoriesForChangeTracking());
             return;
         }
         searchRootRuntimePort.ApplySearchTargets(GetStandaloneBmsRootPathsForCurrentSession());
@@ -5832,7 +5841,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     internal async Task RequestRemoveBmsSearchRootAsync(string dir)
     {
-        if (string.IsNullOrWhiteSpace(dir) || !LongPathFileSystem.DirectoryExists(dir))
+        if (string.IsNullOrWhiteSpace(dir))
         {
             return;
         }

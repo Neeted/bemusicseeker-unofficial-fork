@@ -336,6 +336,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                 && startupProgressState.OperationToken == operationToken
                 && (startupProgressState.OperationKind == StartupProgressOperationKind.ScoreOnly
                     || startupProgressState.OperationKind == StartupProgressOperationKind.ReloadFileDiff
+                    || startupProgressState.OperationKind == StartupProgressOperationKind.FullReinitialize
                     || startupProgressState.OperationKind == StartupProgressOperationKind.Startup)
                 && startupProgressState.IsFailed)
             {

@@ -368,13 +368,15 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
-    public async Task RequestRemoveBmsSearchRootAsync_BlankOrMissingRoot_DoesNotShowConfirmation()
+    public async Task RequestRemoveBmsSearchRootAsync_BlankRootIsIgnored_MissingRootCanBeUnregistered()
     {
         string root = CreateTemporaryRoot();
         string missing = Path.Combine(root, "missing");
         try
         {
-            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.StandaloneBmsRootPaths = string.Join(Environment.NewLine, root, missing);
+            var settingsSession = new CountingSettingsEditSession(settings);
             var dialogs = new RecordingRootDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
@@ -402,8 +404,9 @@ public sealed class SettingDialogEditCompletionTests
             await dialog.RequestRemoveBmsSearchRootAsync(string.Empty);
             await dialog.RequestRemoveBmsSearchRootAsync(missing);
 
-            Assert.AreEqual(0, dialogs.ConfirmationCount);
-            Assert.AreEqual(0, settingsSession.SaveCount);
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.AreEqual(root, settingsSession.Values.StandaloneBmsRootPaths);
         }
         finally
         {
@@ -1969,6 +1972,62 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public async Task ApplySettingsAsync_DirectoryPreflightFailureKeepsOverlayOpenWithoutGenericDuplicateAndRetries()
+    {
+        string root = CreateTemporaryRoot();
+        string addedRoot = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var failures = new List<Exception>();
+            int reloadCount = 0;
+            var directoryFailure = new LibraryDirectoryPreflightException(
+                LibraryDirectoryPreflightUse.BmsRoot,
+                Path.Combine(root, "missing"),
+                LibraryDirectoryPreflightFailureCause.NotFound,
+                "missing");
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                reloadFileDiff: _ =>
+                {
+                    reloadCount++;
+                    return reloadCount == 1
+                        ? Task.FromException(directoryFailure)
+                        : Task.CompletedTask;
+                },
+                reportSettingsApplyFailure: failures.Add);
+            SetActiveLibraryProfile(viewModel, true);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog.StandaloneBmsRootPathList.Add(addedRoot);
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            dialog.AttachPresentationPort(presentation);
+
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.AreEqual(1, reloadCount);
+            Assert.AreEqual(0, failures.Count);
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            Assert.IsFalse(dialog.IsEditCancellationEnabled);
+            CollectionAssert.DoesNotContain(presentation.Requests, "close");
+
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(2, reloadCount);
+            Assert.AreEqual(0, failures.Count);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+            Assert.IsTrue(dialog.IsEditCancellationEnabled);
+            CollectionAssert.Contains(presentation.Requests, "close");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(addedRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ApplySettingsAsync_InitialRetryAfterFullReloadClearsScoreReloadPending()
     {
         string root = CreateTemporaryRoot();
@@ -2047,6 +2106,451 @@ public sealed class SettingDialogEditCompletionTests
         }
         finally
         {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task InitializeAsync_MissingStandaloneRootStopsBeforePortableDbCreationAndShowsOneWarning(
+        bool scanBmsFilesOnStartup,
+        bool existingSongDb)
+    {
+        string root = CreateTemporaryRoot();
+        string applicationRoot = Path.Combine(root, "application");
+        string existingRoot = Path.Combine(root, "bms-existing");
+        string missingRoot = Path.Combine(root, "bms-missing");
+        Directory.CreateDirectory(applicationRoot);
+        Directory.CreateDirectory(existingRoot);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(existingRoot);
+            settings.ScanBmsFilesOnStartup = scanBmsFilesOnStartup;
+            settings.BMSRootPath = existingRoot;
+            settings.StandaloneBmsRootPaths = string.Join(
+                Environment.NewLine,
+                existingRoot,
+                missingRoot);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            dialogs.MessageObserved = () => sequence.Add("warning");
+            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            byte[] existingSongDbBytes = [0x41, 0x31, 0x2D, 0x44, 0x30, 0x38];
+            if (existingSongDb)
+            {
+                Directory.CreateDirectory(applicationPath.DataDirectoryPath);
+                File.WriteAllBytes(applicationPath.StandaloneSongDbPath, existingSongDbBytes);
+            }
+            MainWindowViewModel viewModel = new ApplicationComposition(
+                settingsEditSession: settingsSession,
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                applicationPathSnapshot: applicationPath,
+                fileDbMutationDialogService: dialogs)
+                .CreateMainWindowViewModel();
+            var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
+            viewModel.SettingDialog.AttachPresentationPort(presentation);
+
+            bool initialized = await viewModel.InitializeAsync();
+
+            Assert.IsFalse(initialized);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            CollectionAssert.AreEqual(new[] { "warning", "open" }, sequence);
+            StringAssert.Contains(dialogs.LastMessageText, missingRoot);
+            StringAssert.Contains(
+                dialogs.LastMessageText,
+                Resources.LibraryDirectoryPreflightBmsRootRole);
+            if (existingSongDb)
+            {
+                CollectionAssert.AreEqual(existingSongDbBytes, File.ReadAllBytes(applicationPath.StandaloneSongDbPath));
+            }
+            else
+            {
+                Assert.IsFalse(File.Exists(applicationPath.StandaloneSongDbPath));
+            }
+            Assert.IsFalse(viewModel.IsInitializationCompleted);
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task InitializeAsync_LinkedMissingRootStopsBeforeOutputRepairAndPreservesConfig()
+    {
+        string root = CreateTemporaryRoot();
+        string applicationRoot = Path.Combine(root, "application");
+        string lr2Root = Path.Combine(root, "lr2");
+        string missingBmsRoot = Path.Combine(root, "bms-missing");
+        string outputBase = Path.Combine(root, "output-base");
+        Directory.CreateDirectory(applicationRoot);
+        Directory.CreateDirectory(lr2Root);
+        try
+        {
+            (string songDb, string configPath) = CreateValidLr2Layout(lr2Root);
+            File.WriteAllText(
+                configPath,
+                "<config><system /><jukebox><path>"
+                    + missingBmsRoot
+                    + "\\</path></jukebox></config>");
+            byte[] configBefore = File.ReadAllBytes(configPath);
+            byte[] songDbBefore = File.ReadAllBytes(songDb);
+            Settings settings = CreateValidStandaloneSettings(lr2Root);
+            settings.OperationModeLR2DB = true;
+            settings.LR2RootPath = lr2Root;
+            settings.LR2ConfigXmlPath = configPath;
+            settings.LR2SongDBPath = songDb;
+            settings.LR2CustomFolderOutputBaseDir = outputBase;
+            settings.LR2CustomFolderAdditionalOutputBaseDirs = string.Empty;
+            settings.ScanBmsFilesOnStartup = false;
+            settings.SkipInitPlaylistLoad = true;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            dialogs.MessageObserved = () => sequence.Add("warning");
+            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            MainWindowViewModel viewModel = new ApplicationComposition(
+                settingsEditSession: settingsSession,
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                applicationPathSnapshot: applicationPath,
+                fileDbMutationDialogService: dialogs)
+                .CreateMainWindowViewModel();
+            var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
+            viewModel.SettingDialog.AttachPresentationPort(presentation);
+
+            bool initialized = await viewModel.InitializeAsync();
+
+            Assert.IsFalse(initialized);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            CollectionAssert.AreEqual(new[] { "warning", "open" }, sequence);
+            StringAssert.Contains(dialogs.LastMessageText, missingBmsRoot);
+            StringAssert.Contains(
+                dialogs.LastMessageText,
+                Resources.LibraryDirectoryPreflightBmsRootRole);
+            Assert.IsFalse(Directory.Exists(outputBase));
+            CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(configPath));
+            CollectionAssert.AreEqual(songDbBefore, File.ReadAllBytes(songDb));
+            Assert.IsFalse(viewModel.IsInitializationCompleted);
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void ReinitializeLibraryAsync_LateDirectoryFailureWarnsAfterCleanupAndRethrows()
+    {
+        string root = CreateTemporaryRoot();
+        string rootA = Path.Combine(root, "BMS-A");
+        string rootB = Path.Combine(root, "BMS-B");
+        string unavailableRootB = Path.Combine(root, "BMS-B-unavailable");
+        string applicationRoot = Path.Combine(root, "application");
+        MainWindowViewModel viewModel = null;
+        Directory.CreateDirectory(rootA);
+        Directory.CreateDirectory(rootB);
+        Directory.CreateDirectory(applicationRoot);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(rootA);
+            settings.BMSRootPath = rootA;
+            settings.StandaloneBmsRootPaths = string.Join(Environment.NewLine, rootA, rootB);
+            settings.ScanBmsFilesOnStartup = false;
+            settings.SkipInitPlaylistLoad = true;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            StandaloneLibraryDatabaseEnsureResult database =
+                StandaloneLibraryDatabase.EnsurePortableSongDb(applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(database.SongDbPath);
+            IChartFileScanner scanner = CapturedChartFileScanner.FromFixture(
+                [],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [rootA] = [],
+                    [rootB] = []
+                },
+                [rootA, rootB]);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            dialogs.MessageObserved = () => sequence.Add("warning");
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var library = new TestBmsLibrary(
+                    database.SongDbPath,
+                    getLR2Config: null,
+                    _lr2ScoreDB: null,
+                    startupRequiredFileScanReason: null,
+                    optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                    applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                    chartFileScanner: scanner);
+                var playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings);
+                var composition = new ApplicationComposition(
+                    settingsEditSession: settingsSession,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    applicationPathSnapshot: applicationPath,
+                    fileDbMutationDialogService: dialogs);
+                viewModel = new MainWindowViewModel(
+                    composition,
+                    new LateFailureStartupLibraryFactory(library, playlist));
+                var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
+                viewModel.SettingDialog.AttachPresentationPort(presentation);
+            });
+
+            bool initialized = false;
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Task<bool> initialization = viewModel.InitializeAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "late-directory-startup-initialization");
+                initialized = initialization.GetAwaiter().GetResult();
+            });
+            Assert.IsTrue(initialized);
+            Directory.Move(rootB, unavailableRootB);
+            try
+            {
+                LibraryDirectoryPreflightException thrown = null;
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    try
+                    {
+                        Task reinitialize = viewModel.ReinitializeLibraryAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(reinitialize, "late-directory-reinitialize");
+                        Assert.Fail("A missing registered root must fail the reinitialize operation.");
+                    }
+                    catch (LibraryDirectoryPreflightException exception)
+                    {
+                        thrown = exception;
+                    }
+                });
+
+                Assert.IsNotNull(thrown);
+                Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, thrown.Use);
+                Assert.AreEqual(1, dialogs.MessageCount);
+                CollectionAssert.AreEqual(new[] { "warning" }, sequence);
+                StringAssert.Contains(dialogs.LastMessageText, rootB);
+                StringAssert.Contains(
+                    dialogs.LastMessageText,
+                    Resources.LibraryDirectoryPreflightBmsRootRole);
+                Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsFailed);
+                Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsRetryableFailure);
+            }
+            finally
+            {
+                Directory.Move(unavailableRootB, rootB);
+            }
+        }
+        finally
+        {
+            if (viewModel != null)
+            {
+                TestUiDispatcherHost.Invoke(() => viewModel.SettingDialog.Dispose());
+            }
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void InitializeAsync_LateDirectoryFailureAfterConstructionWarnsAfterCleanupAndOpensSettings()
+    {
+        string root = CreateTemporaryRoot();
+        string rootA = Path.Combine(root, "BMS-A");
+        string rootB = Path.Combine(root, "BMS-B");
+        string unavailableRootB = Path.Combine(root, "BMS-B-unavailable");
+        string applicationRoot = Path.Combine(root, "application");
+        MainWindowViewModel viewModel = null;
+        Task<bool> retryInitialization = null;
+        Directory.CreateDirectory(rootA);
+        Directory.CreateDirectory(rootB);
+        Directory.CreateDirectory(applicationRoot);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(rootA);
+            settings.BMSRootPath = rootA;
+            settings.StandaloneBmsRootPaths = string.Join(Environment.NewLine, rootA, rootB);
+            settings.ScanBmsFilesOnStartup = false;
+            settings.SkipInitPlaylistLoad = true;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            ApplicationPathSnapshot applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            StandaloneLibraryDatabaseEnsureResult database =
+                StandaloneLibraryDatabase.EnsurePortableSongDb(applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(database.SongDbPath);
+            IChartFileScanner scanner = CapturedChartFileScanner.FromFixture(
+                [],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [rootA] = [],
+                    [rootB] = []
+                },
+                [rootA, rootB]);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            bool lateFailureInjected = false;
+            bool retryRequested = false;
+            bool warningObservedWithOperationReleased = false;
+            bool warningObservedWithProgressUnblocked = false;
+            bool retryCompletedDuringWarning = false;
+            bool retrySucceededDuringWarning = false;
+            bool retryTimedOutDuringWarning = false;
+            Exception retryFailure = null;
+            Exception retryDrainFailure = null;
+            dialogs.MessageObserved = () =>
+            {
+                sequence.Add("warning");
+            };
+            dialogs.MessageObservedAsync = async () =>
+            {
+                warningObservedWithOperationReleased = !viewModel.IsLibraryOperationInProgress;
+                warningObservedWithProgressUnblocked = !viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked;
+                if (!retryRequested)
+                {
+                    retryRequested = true;
+                    Directory.Move(unavailableRootB, rootB);
+                    retryInitialization = viewModel.InitializeAsync();
+                }
+                try
+                {
+                    retrySucceededDuringWarning = await retryInitialization.WaitAsync(TimeSpan.FromSeconds(2));
+                    retryCompletedDuringWarning = retryInitialization.IsCompleted;
+                }
+                catch (TimeoutException)
+                {
+                    retryTimedOutDuringWarning = true;
+                    retryCompletedDuringWarning = retryInitialization.IsCompleted;
+                }
+                catch (Exception exception)
+                {
+                    retryFailure = exception;
+                    retryCompletedDuringWarning = retryInitialization.IsCompleted;
+                }
+            };
+
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var library = new TestBmsLibrary(
+                    database.SongDbPath,
+                    getLR2Config: null,
+                    _lr2ScoreDB: null,
+                    startupRequiredFileScanReason: null,
+                    optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                    applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                    chartFileScanner: scanner);
+                var playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings);
+                var composition = new ApplicationComposition(
+                    settingsEditSession: settingsSession,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    applicationPathSnapshot: applicationPath,
+                    fileDbMutationDialogService: dialogs);
+                viewModel = new MainWindowViewModel(
+                    composition,
+                    new LateFailureStartupLibraryFactory(
+                        library,
+                        playlist,
+                        () =>
+                        {
+                            if (!lateFailureInjected)
+                            {
+                                lateFailureInjected = true;
+                                Directory.Move(rootB, unavailableRootB);
+                            }
+                        }));
+                viewModel.SettingDialog.AttachPresentationPort(
+                    new RecordingSettingsDialogPresentationPort(sequence.Add));
+            });
+
+            bool initialized = true;
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Task<bool> initialization = viewModel.InitializeAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "late-directory-startup-failure");
+                initialized = initialization.GetAwaiter().GetResult();
+            });
+
+            if (retryInitialization is { IsCompleted: false })
+            {
+                try
+                {
+                    TestUiDispatcherHost.Invoke(() =>
+                    {
+                        try
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                                retryInitialization,
+                                "late-directory-startup-retry-drain");
+                        }
+                        catch (Exception exception)
+                        {
+                            retryDrainFailure = exception;
+                        }
+                    });
+                }
+                catch (Exception exception)
+                {
+                    retryDrainFailure = exception;
+                }
+            }
+
+            Assert.IsFalse(initialized);
+            Assert.IsNotNull(retryInitialization);
+            Assert.IsTrue(warningObservedWithOperationReleased);
+            Assert.IsTrue(warningObservedWithProgressUnblocked);
+            Assert.IsTrue(retryCompletedDuringWarning);
+            Assert.IsFalse(retryTimedOutDuringWarning);
+            Assert.IsTrue(retrySucceededDuringWarning);
+            Assert.IsNull(retryFailure);
+            Assert.IsNull(retryDrainFailure);
+            Assert.IsTrue(viewModel.IsInitializationCompleted);
+            Assert.IsTrue(viewModel.HasActiveLibraryProfile);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            CollectionAssert.AreEqual(new[] { "warning", "open" }, sequence);
+            StringAssert.Contains(dialogs.LastMessageText, rootB);
+            StringAssert.Contains(dialogs.LastMessageText, Resources.LibraryDirectoryPreflightBmsRootRole);
+            Assert.IsTrue(Directory.Exists(rootB));
+        }
+        finally
+        {
+            if (viewModel != null)
+            {
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    if (retryInitialization is { IsCompleted: false })
+                    {
+                        try
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                                retryInitialization,
+                                "late-directory-startup-retry-cleanup");
+                        }
+                        catch
+                        {
+                        }
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                        "late-directory-startup-shutdown");
+                    viewModel.SettingDialog.Dispose();
+                });
+            }
+            if (Directory.Exists(unavailableRootB) && !Directory.Exists(rootB))
+            {
+                Directory.Move(unavailableRootB, rootB);
+            }
             Directory.Delete(root, recursive: true);
         }
     }
@@ -3323,6 +3827,31 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
+    private sealed class LateFailureStartupLibraryFactory : IStartupLibraryFactory
+    {
+        private readonly BMSLibrary library;
+        private readonly BMSPlaylist playlist;
+        private readonly Action beforeCreateBmsLibrary;
+
+        internal LateFailureStartupLibraryFactory(
+            BMSLibrary library,
+            BMSPlaylist playlist,
+            Action beforeCreateBmsLibrary = null)
+        {
+            this.library = library ?? throw new ArgumentNullException(nameof(library));
+            this.playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
+            this.beforeCreateBmsLibrary = beforeCreateBmsLibrary;
+        }
+
+        public BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
+        {
+            beforeCreateBmsLibrary?.Invoke();
+            return library;
+        }
+
+        public BMSPlaylist CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library) => playlist;
+    }
+
     private sealed class RecordingRootDialogService : IUiDialogService
     {
         internal UiDialogResult ConfirmationResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel);
@@ -3330,6 +3859,8 @@ public sealed class SettingDialogEditCompletionTests
         internal UiDialogResult MessageResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
 
         internal Action? MessageObserved { get; set; }
+
+        internal Func<Task>? MessageObservedAsync { get; set; }
 
         internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
 
@@ -3344,7 +3875,16 @@ public sealed class SettingDialogEditCompletionTests
             MessageCount++;
             LastMessageText = request.MessageBoxText;
             MessageObserved?.Invoke();
-            return Task.FromResult(MessageResult);
+            return CompleteMessageAsync();
+        }
+
+        private async Task<UiDialogResult> CompleteMessageAsync()
+        {
+            if (MessageObservedAsync != null)
+            {
+                await MessageObservedAsync();
+            }
+            return MessageResult;
         }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)

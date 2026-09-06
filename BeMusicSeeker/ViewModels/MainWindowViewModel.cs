@@ -297,6 +297,91 @@ public partial class MainWindowViewModel : ViewModel,
             ?? throw new InvalidOperationException("Startup settings provider returned null.");
     }
 
+    private static BmsLibraryOptionsSnapshot CreateStartupDirectoryPreflightOptions(
+        StartupSettingsSnapshot startupSettings,
+        CustomFolderOutputSettingsSnapshot customFolderSettings)
+    {
+        if (startupSettings == null)
+        {
+            throw new ArgumentNullException(nameof(startupSettings));
+        }
+
+        return new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = startupSettings.OperationModeLR2DB,
+            LR2RootPath = startupSettings.LR2RootPath,
+            LR2CustomFolderOutputBaseDir = startupSettings.LR2CustomFolderOutputBaseDir,
+            LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry
+                .DeserializeBaseDirectories(startupSettings.LR2CustomFolderAdditionalOutputBaseDirs),
+            LR2CustomFolderAdditionalOutputBaseDirsSerialized = startupSettings.LR2CustomFolderAdditionalOutputBaseDirs,
+            LR2CustomFolderOutputBaseDirRootType = customFolderSettings?.LR2CustomFolderOutputBaseDirRootType
+        };
+    }
+
+    private static LibraryDirectoryPreflightRequest CreateStartupDirectoryPreflightRequest(
+        StartupSettingsSnapshot startupSettings,
+        CustomFolderOutputSettingsSnapshot customFolderSettings)
+    {
+        if (startupSettings == null)
+        {
+            throw new ArgumentNullException(nameof(startupSettings));
+        }
+
+        BmsLibraryOptionsSnapshot options = CreateStartupDirectoryPreflightOptions(
+            startupSettings,
+            customFolderSettings);
+        IReadOnlyList<string> registeredRoots = startupSettings.OperationModeLR2DB
+            ? new LR2Config(startupSettings.LR2ConfigXmlPath)
+                .GetBMSSearchDirectoriesForChangeTracking()
+            : startupSettings.StandaloneBmsRootPaths;
+        return new LibraryDirectoryPreflightService().CreateRequest(
+            registeredRoots,
+            registeredRoots,
+            options);
+    }
+
+    private static Task EnsureStartupDirectoriesAvailableAsync(
+        StartupSettingsSnapshot startupSettings,
+        CustomFolderOutputSettingsSnapshot customFolderSettings)
+    {
+        return Task.Run(() =>
+        {
+            LibraryDirectoryPreflightRequest request = CreateStartupDirectoryPreflightRequest(
+                startupSettings,
+                customFolderSettings);
+            new LibraryDirectoryPreflightService().EnsureAvailable(request, probeOutputBases: true);
+        }).LoggingAndPropagate("StartupDirectoryPreflight");
+    }
+
+    private async Task PresentLibraryDirectoryWarningAsync(
+        LibraryDirectoryPreflightException failure,
+        LibraryDirectoryWarningPhase phase,
+        string routeName)
+    {
+        if (failure == null)
+        {
+            throw new ArgumentNullException(nameof(failure));
+        }
+
+        try
+        {
+            string message = LibraryDirectoryWarningFormatter.Format(failure, phase);
+            UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
+                message,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.OK));
+            UiDialogRoute.ThrowIfNotShown(result, routeName);
+        }
+        catch (Exception presentationException)
+        {
+            NLogWrapper.FileLogger?.Warn(
+                presentationException,
+                routeName + " failed for directory preflight failure: " + failure.Message);
+        }
+    }
+
     private StartupProgressVersionSnapshot CaptureStartupProgressVersionSnapshot()
     {
         return new StartupProgressVersionSnapshot
@@ -3745,6 +3830,7 @@ public partial class MainWindowViewModel : ViewModel,
         LogInitStage("start", "ReloadFileDiff");
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
+        LibraryDirectoryPreflightException directoryFailure = null;
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
@@ -3763,6 +3849,13 @@ public partial class MainWindowViewModel : ViewModel,
                 StartupProgressPhase.PlaylistReferenceApplied,
                 StartupProgressPhase.PlaylistEntriesHydrationDone);
         }
+        catch (LibraryDirectoryPreflightException exception)
+        {
+            directoryFailure = exception;
+            startupProgressWorkflowOwner.FailStartupProgressOperation(
+                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
+            throw;
+        }
         catch (Exception ex)
         {
             startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
@@ -3776,6 +3869,13 @@ public partial class MainWindowViewModel : ViewModel,
             LogInitStage("ui_suppress_end_called", "ReloadFileDiff");
             _semaphore.Release();
             startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
+            if (directoryFailure != null)
+            {
+                await PresentLibraryDirectoryWarningAsync(
+                    directoryFailure,
+                    LibraryDirectoryWarningPhase.Late,
+                    "ReloadFileDiff directory preflight warning");
+            }
         }
     }
 
@@ -3789,6 +3889,7 @@ public partial class MainWindowViewModel : ViewModel,
         bool scheduleDeferredPlaylistRef = false;
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
+        LibraryDirectoryPreflightException directoryFailure = null;
         try
         {
             playHistoryWorkflowOwner.InvalidateReadCache("full_reinitialize");
@@ -3805,6 +3906,13 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
             }
+        }
+        catch (LibraryDirectoryPreflightException exception)
+        {
+            directoryFailure = exception;
+            startupProgressWorkflowOwner.FailStartupProgressOperation(
+                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
+            throw;
         }
         catch (Exception ex)
         {
@@ -3828,6 +3936,14 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 MarkNonStartupBackgroundSchedulingComplete();
                 _semaphore.Release();
+                startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
+                if (directoryFailure != null)
+                {
+                    await PresentLibraryDirectoryWarningAsync(
+                        directoryFailure,
+                        LibraryDirectoryWarningPhase.Late,
+                        "FullReinitialize directory preflight warning");
+                }
             }
         }
         startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
@@ -3961,7 +4077,8 @@ public partial class MainWindowViewModel : ViewModel,
         }
 
         lr2config = null;
-        StandaloneLibraryDatabaseEnsureResult standaloneSongDb = StandaloneLibraryDatabase.EnsurePortableSongDb();
+        StandaloneLibraryDatabaseEnsureResult standaloneSongDb = StandaloneLibraryDatabase.EnsurePortableSongDb(
+            applicationComposition.ApplicationPathSnapshot);
         return new LibraryProfile(
             operationModeLR2DB: false,
             songDbPath: standaloneSongDb.SongDbPath,
@@ -4078,10 +4195,41 @@ public partial class MainWindowViewModel : ViewModel,
             applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
     }
 
+    /// <summary>起動処理を直列化し、ディレクトリ検査の失敗は gate 解放後に通知します。</summary>
     internal async Task<bool> InitializeAsync()
     {
-        using StartupLibraryInitializationGateLease initializationGate =
+        StartupLibraryInitializationGateLease initializationGate =
             await startupLibraryInitializationWorkflowOwner.AcquireGateAsync();
+        LibraryDirectoryPreflightException directoryFailure = null;
+        LibraryDirectoryWarningPhase directoryWarningPhase =
+            LibraryDirectoryWarningPhase.Early;
+        try
+        {
+            return await InitializeCoreAsync(
+                phase => directoryWarningPhase = phase);
+        }
+        catch (LibraryDirectoryPreflightException exception)
+        {
+            directoryFailure = exception;
+            return false;
+        }
+        finally
+        {
+            initializationGate.Dispose();
+            if (directoryFailure != null)
+            {
+                await PresentLibraryDirectoryWarningAsync(
+                    directoryFailure,
+                    directoryWarningPhase,
+                    "Startup directory preflight warning");
+                SettingDialog?.RequestOpen();
+            }
+        }
+    }
+
+    private async Task<bool> InitializeCoreAsync(
+        Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase)
+    {
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
         initializationCompleted = false;
@@ -4097,6 +4245,7 @@ public partial class MainWindowViewModel : ViewModel,
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
         StartupSettingsSnapshot startupSettings;
         CustomFolderOutputSettingsSnapshot startupCustomFolderSettings = null;
+        long operationToken = 0L;
         try
         {
             startupSettings = GetStartupSettingsSnapshot();
@@ -4105,7 +4254,30 @@ public partial class MainWindowViewModel : ViewModel,
                 startupCustomFolderSettings = customFolderOutputSettingsProvider()
                     ?? throw new InvalidOperationException("Custom-folder output settings provider returned null during startup.");
             }
+            bool initialSettingsUnset = applicationLifetime.IsFirstStartup
+                && (startupSettings.OperationModeLR2DB
+                    ? string.IsNullOrWhiteSpace(startupSettings.LR2RootPath)
+                        && string.IsNullOrWhiteSpace(startupSettings.LR2ConfigXmlPath)
+                        && string.IsNullOrWhiteSpace(startupSettings.LR2SongDBPath)
+                    : startupSettings.StandaloneBmsRootPaths.Count == 0);
+            if (!initialSettingsUnset)
+            {
+                await EnsureStartupDirectoriesAvailableAsync(
+                    startupSettings,
+                    startupCustomFolderSettings);
+            }
             RepairCustomFolderOutputSearchRootsBeforeStartupValidation(startupSettings);
+        }
+        catch (LibraryDirectoryPreflightException)
+        {
+            recordDirectoryWarningPhase?.Invoke(LibraryDirectoryWarningPhase.Early);
+            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(
+                StartupProgressOperationKind.Startup);
+            startupProgressWorkflowOwner.FailStartupProgressOperation(
+                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
+            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
+            throw;
         }
         catch (Exception ex)
         {
@@ -4116,6 +4288,7 @@ public partial class MainWindowViewModel : ViewModel,
             SettingDialog?.RequestOpen();
             return false;
         }
+        recordDirectoryWarningPhase?.Invoke(LibraryDirectoryWarningPhase.Late);
         if (!SettingDialog.CheckValidation(out string startupValidationErrorMessage))
         {
             NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + (startupValidationErrorMessage ?? string.Empty).Replace(Environment.NewLine, " | "));
@@ -4151,7 +4324,6 @@ public partial class MainWindowViewModel : ViewModel,
             SettingDialog?.RequestOpen();
             return false;
         }
-        long operationToken;
         try
         {
             playHistoryWorkflowOwner.InvalidateReadCache("initialize");
@@ -4171,7 +4343,18 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 await PlaybackPanel.ReplacePlayerAsync(configuredBmsPlayer);
             }
-            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(
+                StartupProgressOperationKind.Startup);
+        }
+        catch (LibraryDirectoryPreflightException)
+        {
+            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(
+                StartupProgressOperationKind.Startup);
+            startupProgressWorkflowOwner.FailStartupProgressOperation(
+                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
+            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
+            throw;
         }
         catch (Exception ex)
         {
@@ -4516,12 +4699,13 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
     /// <summary>
-    /// Runs the file-backed startup initialization and applies the shell's success or failure policy.
+    /// ファイル初期化とその後処理を所有し、ディレクトリ検査の停止だけを外側の通知 owner へ渡します。
     /// </summary>
-    /// <param name="initializeStartup">The narrow file-backed initialization operation.</param>
-    /// <param name="operationToken">The active startup progress operation token.</param>
-    /// <param name="startupCustomFolderSettings">The startup custom-folder settings used after playlist load.</param>
-    /// <returns><see langword="true"/> after successful file initialization; otherwise <see langword="false"/> after failure cleanup and presentation.</returns>
+    /// <param name="initializeStartup">ファイル初期化を実行する操作。</param>
+    /// <param name="operationToken">この起動処理に対応する進捗トークン。</param>
+    /// <param name="startupCustomFolderSettings">プレイリスト読込み後に適用する設定。</param>
+    /// <returns>初期化成功時は true、通常エラーの後処理と通知後は false。</returns>
+    /// <exception cref="LibraryDirectoryPreflightException">後処理後、外側の gate 解放と通知へ引き継ぐ検査失敗。</exception>
     internal async Task<bool> InitializeStartupLibraryFilesAsync(
         Action initializeStartup,
         long operationToken,
@@ -4546,6 +4730,13 @@ public partial class MainWindowViewModel : ViewModel,
             LogInitStage("files_initialize_done", "Initialize");
             TryLogStartupReadyData();
             return true;
+        }
+        catch (LibraryDirectoryPreflightException)
+        {
+            startupProgressWorkflowOwner.FailStartupProgressOperation(
+                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
+            throw;
         }
         catch (Exception ex)
         {

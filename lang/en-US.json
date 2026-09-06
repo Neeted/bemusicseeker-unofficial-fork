@@ -942,5 +942,26 @@
   "SettingsPartiallySaved": "Application settings were saved, but LR2 configuration could not be saved.\nFile: {0}\nCause: {1}",
   "SettingsApplyIncomplete": "Saving or applying settings did not complete.\nCause: {0}",
   "SettingsSaveFailedDuringShutdown": "{0}\nShutdown will continue.",
-  "Beatoraja_bmt_output_failure_format": "BMT output or cleanup did not complete.\nTarget: {0}\nCause: {1}"
+  "Beatoraja_bmt_output_failure_format": "BMT output or cleanup did not complete.\nTarget: {0}\nCause: {1}",
+
+  "LibraryDirectoryPreflightEarlyWarningFormat": "Library update could not start.\nTarget: {0}\nPath: {1}\nReason: {2}\n{3}",
+  "LibraryDirectoryPreflightLateWarningFormat": "Library update could not be applied.\nTarget: {0}\nPath: {1}\nReason: {2}\n{3}",
+  "LibraryDirectoryPreflightProgressFailure": "Library update stopped because a required folder could not be verified.",
+  "LibraryDirectoryPreflightBmsRootRole": "BMS search folder",
+  "LibraryDirectoryPreflightLr2OutputRole": "LR2 output folder",
+  "LibraryDirectoryPreflightLr2NormalOutputRole": "LR2 normal output folder",
+  "LibraryDirectoryPreflightLr2AdditionalOutputRole": "LR2 additional output folder",
+  "LibraryDirectoryPreflightLr2RootOutputRole": "LR2 root-type output folder",
+  "LibraryDirectoryPreflightCauseNotFound": "The folder was not found.",
+  "LibraryDirectoryPreflightCauseAccessDenied": "The folder could not be read because access was denied.",
+  "LibraryDirectoryPreflightCauseNotDirectory": "The selected path is not a folder.",
+  "LibraryDirectoryPreflightCauseInvalidPath": "The path is invalid.",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "The additional output-folder configuration is invalid.",
+  "LibraryDirectoryPreflightCauseIo": "The folder could not be read.",
+  "LibraryDirectoryPreflightCauseWrite": "A temporary write probe could not be written to the output folder.",
+  "LibraryDirectoryPreflightCauseCleanup": "The temporary write probe could not be removed.",
+  "LibraryDirectoryPreflightCleanupFailure": "Cleanup of the temporary write probe also failed.",
+  "LibraryDirectoryPreflightBmsGuidance": "Reconnect the folder or correct the BMS search folder under Settings > General, then try again.",
+  "LibraryDirectoryPreflightLr2Guidance": "Reconnect the folder or correct the playlist output folder in Settings, then try again."
+
 }

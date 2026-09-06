@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
@@ -337,6 +338,120 @@ public sealed class FileDiffReloadWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task MainWindowConsumer_DirectoryPreflightWarningRunsAfterCleanupAndRetrySucceeds()
+    {
+        var failure = new LibraryDirectoryPreflightException(
+            LibraryDirectoryPreflightUse.BmsRoot,
+            @"C:\\missing-bms-root",
+            LibraryDirectoryPreflightFailureCause.NotFound,
+            "missing");
+        int reloadCount = 0;
+        var warningSequence = new List<string>();
+        Task retryReload = null;
+        bool warningObservedWithOperationReleased = false;
+        bool warningObservedWithProgressUnblocked = false;
+        bool warningObservedWithFailureState = false;
+        bool warningObservedWithRetryableState = false;
+        bool retryCompletedDuringWarning = false;
+        bool retrySucceededDuringWarning = false;
+        bool retryTimedOutDuringWarning = false;
+        Exception retryFailure = null;
+        Exception retryDrainFailure = null;
+        var dialogs = new DirectoryWarningDialogService();
+        var runtime = new RecordingRuntime(new List<string>());
+        var owner = new FileDiffReloadWorkflowOwner(
+            _ =>
+            {
+                reloadCount++;
+                return reloadCount == 1
+                    ? Task.FromException(failure)
+                    : Task.CompletedTask;
+            },
+            CreateSyncOwner(runtime),
+            _ => { });
+        MainWindowViewModel viewModel = CreateMainWindowViewModel(owner, dialogs);
+        dialogs.MessageObserved = () =>
+        {
+            warningSequence.Add("warning");
+        };
+        dialogs.MessageObservedAsync = async () =>
+        {
+            warningObservedWithOperationReleased = !viewModel.IsLibraryOperationInProgress;
+            warningObservedWithProgressUnblocked = !viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked;
+            warningObservedWithFailureState = viewModel.ProgressHub.StartupProgress.IsFailed;
+            warningObservedWithRetryableState = viewModel.ProgressHub.StartupProgress.IsRetryableFailure;
+            retryReload = viewModel.ReloadFileDiffAsync();
+            try
+            {
+                await retryReload.WaitAsync(TimeSpan.FromSeconds(2));
+                retryCompletedDuringWarning = retryReload.IsCompleted;
+                retrySucceededDuringWarning = true;
+            }
+            catch (TimeoutException)
+            {
+                retryTimedOutDuringWarning = true;
+                retryCompletedDuringWarning = retryReload.IsCompleted;
+            }
+            catch (Exception exception)
+            {
+                retryFailure = exception;
+                retryCompletedDuringWarning = retryReload.IsCompleted;
+            }
+        };
+
+        try
+        {
+            LibraryDirectoryPreflightException thrown =
+                await Assert.ThrowsExceptionAsync<LibraryDirectoryPreflightException>(
+                    () => viewModel.ReloadFileDiffAsync());
+
+            if (retryReload is { IsCompleted: false })
+            {
+                try
+                {
+                    await retryReload.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (Exception exception)
+                {
+                    retryDrainFailure = exception;
+                }
+            }
+
+            Assert.AreSame(failure, thrown);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            CollectionAssert.AreEqual(new[] { "warning" }, warningSequence);
+            Assert.IsTrue(warningObservedWithOperationReleased);
+            Assert.IsTrue(warningObservedWithProgressUnblocked);
+            Assert.IsTrue(warningObservedWithFailureState);
+            Assert.IsTrue(warningObservedWithRetryableState);
+            Assert.IsNotNull(retryReload);
+            Assert.IsTrue(retryCompletedDuringWarning);
+            Assert.IsFalse(retryTimedOutDuringWarning);
+            Assert.IsTrue(retrySucceededDuringWarning);
+            Assert.IsNull(retryFailure);
+            Assert.IsNull(retryDrainFailure);
+
+            Assert.AreEqual(2, reloadCount);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+        }
+        finally
+        {
+            if (retryReload is { IsCompleted: false })
+            {
+                try
+                {
+                    await retryReload.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch
+                {
+                }
+            }
+            viewModel.SettingDialog.Dispose();
+        }
+    }
+
+    [TestMethod]
     public async Task MainWindowConsumer_PlaylistFailureUsesRootFailureCleanup()
     {
         var failure = new InvalidOperationException("playlist reference queue failed");
@@ -390,18 +505,74 @@ public sealed class FileDiffReloadWorkflowOwnerTests
     }
 
     private static MainWindowViewModel CreateMainWindowViewModel(
-        FileDiffReloadWorkflowOwner owner)
+        FileDiffReloadWorkflowOwner owner,
+        IUiDialogService dialogs = null)
     {
         var composition = new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(new Settings()),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            fileDbMutationDialogService: dialogs);
         return new MainWindowViewModel(
             composition,
             composition,
             owner,
             new InitializedStatePort());
+    }
+
+    private sealed class DirectoryWarningDialogService : IUiDialogService
+    {
+        internal int MessageCount { get; private set; }
+
+        internal Action MessageObserved { get; set; }
+
+        internal Func<Task> MessageObservedAsync { get; set; }
+
+        public async Task<UiDialogResult> ShowMessageAsync(
+            UiMessageRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            MessageCount++;
+            MessageObserved?.Invoke();
+            if (MessageObservedAsync != null)
+            {
+                await MessageObservedAsync();
+            }
+            return UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        }
+
+        public Task<UiDialogResult> ConfirmAsync(
+            UiConfirmationRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window
+            => throw new NotSupportedException();
+
+        public Task<UiFilePickerResult> PickFileAsync(
+            UiFilePickerRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<UiFolderPickerResult> PickFolderAsync(
+            UiFolderPickerRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(
+            UiSaveFilePickerRequest request,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<UiProgressResult> RunWithProgressAsync(
+            UiProgressRequest request,
+            Func<UiProgressContext, Task> operation,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private static Lr2SongDbSyncWorkflowOwner CreateSyncOwner(

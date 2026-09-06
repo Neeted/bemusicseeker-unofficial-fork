@@ -175,6 +175,21 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupProgress_FullReinitializeFailureBecomesRetryableAfterCleanup()
+    {
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
+        long operationToken = owner.StartStartupProgressOperation(
+            StartupProgressOperationKind.FullReinitialize);
+
+        owner.FailStartupProgressOperation("directory preflight failed");
+        owner.MarkStartupProgressFailureCleanupComplete(operationToken);
+
+        Assert.IsTrue(owner.IsFailed);
+        Assert.IsTrue(owner.IsRetryableFailure);
+        Assert.IsFalse(owner.IsStartupUiInteractionBlocked);
+    }
+
+    [TestMethod]
     public async Task StartupProgress_BackgroundTasksWaitForRequiredSchedulingClosure()
     {
         bool requiredSchedulingClosed = false;

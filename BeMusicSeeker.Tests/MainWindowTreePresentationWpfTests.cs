@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -232,6 +233,60 @@ public sealed class MainWindowTreePresentationWpfTests
                 Assert.AreEqual(@"C:\\wave6e-root", requestedPath);
             },
             rootFolderUnregisterTerminal: terminal);
+    }
+
+    [TestMethod]
+    public void DirectoryPreflightFailureIsConsumedByLibraryShellTerminals()
+    {
+        var failure = new LibraryDirectoryPreflightException(
+            LibraryDirectoryPreflightUse.BmsRoot,
+            @"C:\missing-bms-root",
+            LibraryDirectoryPreflightFailureCause.NotFound,
+            "missing");
+        int reloadCalls = 0;
+        int reinitializeCalls = 0;
+        int unregisterCalls = 0;
+        var reloadTerminal = new MainWindowLibraryReloadMenuTerminal(
+            () =>
+            {
+                reloadCalls++;
+                return Task.FromException(failure);
+            },
+            () =>
+            {
+                reinitializeCalls++;
+                return Task.FromException(failure);
+            });
+        var unregisterTerminal = new MainWindowRootFolderUnregisterTerminal(_ =>
+        {
+            unregisterCalls++;
+            return Task.FromException(failure);
+        });
+
+        MainWindowPresentationTestHarness.RunConstructorOnly(
+            new Settings(),
+            (_, window) =>
+            {
+                ContextMenu menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                MenuItem[] reloadCommands = menu.Items.OfType<MenuItem>().Take(2).ToArray();
+                RaiseMenuClick(reloadCommands[0]);
+                RaiseMenuClick(reloadCommands[1]);
+
+                menu.PlacementTarget = new TreeViewItem { Header = @"C:\missing-bms-root" };
+                MenuItem unregister = menu.Items
+                    .OfType<MenuItem>()
+                    .Single(item => BindingOperations.GetBinding(item, HeaderedItemsControl.HeaderProperty) is Binding binding
+                        && string.Equals(binding.Path?.Path, "Resources.Cancel_root_folder", StringComparison.Ordinal));
+                RaiseMenuClick(unregister);
+                TestUiDispatcherHost.Drain();
+
+                Assert.AreEqual(1, reloadCalls);
+                Assert.AreEqual(1, reinitializeCalls);
+                Assert.AreEqual(1, unregisterCalls);
+            },
+            allowStartupUiInteraction: true,
+            libraryReloadMenuTerminal: reloadTerminal,
+            rootFolderUnregisterTerminal: unregisterTerminal);
     }
 
     [TestMethod]

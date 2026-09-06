@@ -21,6 +21,12 @@ internal sealed class BmsLibraryOptionsSnapshot
         init => lr2CustomFolderAdditionalOutputBaseDirs = Array.AsReadOnly(value?.ToArray() ?? Array.Empty<string>());
     }
 
+    /// <summary>
+    /// 追加出力 base の raw 設定を保持し、更新入口が壊れた設定を空として
+    /// 扱わずに検査できるようにします。
+    /// </summary>
+    internal string LR2CustomFolderAdditionalOutputBaseDirsSerialized { get; init; }
+
     public string LR2CustomFolderOutputBaseDirRootType { get; init; }
 
     public bool EnableSmartComponentOverwrite { get; init; }
@@ -68,6 +74,7 @@ internal sealed class BmsLibraryOptionsSnapshot
             LR2RootPath = settings.LR2RootPath,
             LR2CustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDir,
             LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs),
+            LR2CustomFolderAdditionalOutputBaseDirsSerialized = settings.LR2CustomFolderAdditionalOutputBaseDirs,
             LR2CustomFolderOutputBaseDirRootType = settings.LR2CustomFolderOutputBaseDirRootType,
             EnableSmartComponentOverwrite = settings.EnableSmartComponentOverwrite,
             KeepSmartOverwriteProtectedFilesByRenaming = settings.KeepSmartOverwriteProtectedFilesByRenaming,

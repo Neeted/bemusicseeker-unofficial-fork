@@ -131,12 +131,16 @@ public class LR2Config : XDocument
         return ReadBMSSearchDirectories().list;
     }
 
+    /// <summary>
+    /// 設定 XML の登録 root を存在確認なしで取得します。
+    /// 相対 path は LR2 root 基準へ解決し、drive root の意味を保持します。
+    /// </summary>
     public List<string> GetBMSSearchDirectoriesForChangeTracking()
     {
         using (new ReaderGuard(rwlock))
         {
             IEnumerable<string> source = Element("config").Element("jukebox").Elements("path")
-                .Select(dirs => dirs.Value.TrimEnd('\\'));
+                .Select(dirs => TrimConfiguredDirectorySeparators(dirs.Value));
             if (!string.IsNullOrWhiteSpace(LR2RootPath))
             {
                 source = source.Select(NormalizeBmsSearchDirectoryForChangeTracking);
@@ -145,6 +149,29 @@ public class LR2Config : XDocument
                 .Where(dir => !string.IsNullOrWhiteSpace(dir))
                 .Distinct(StringComparer.OrdinalIgnoreCase)];
         }
+    }
+
+    private static string TrimConfiguredDirectorySeparators(string path)
+    {
+        string trimmed = path?.Trim();
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return string.Empty;
+        }
+
+        string root = Path.GetPathRoot(trimmed);
+        string withoutTrailingSeparators = trimmed.TrimEnd(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar);
+        if (!string.IsNullOrWhiteSpace(root)
+            && string.Equals(
+                withoutTrailingSeparators,
+                root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return root;
+        }
+        return withoutTrailingSeparators;
     }
 
     private string NormalizeBmsSearchDirectoryForChangeTracking(string path)

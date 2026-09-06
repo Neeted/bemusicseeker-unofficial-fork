@@ -30,6 +30,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
         internal List<string> RootDirectories { get; init; }
 
+        internal LibraryDirectoryPreflightRequest DirectoryPreflightRequest { get; init; }
+
         internal string Reason { get; init; }
 
         internal Task<ChartScanPrefetchInfo> ChartScanPrefetchTask { get; set; }
@@ -89,6 +91,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly IChartFileScanner chartFileScanner;
 
+    private readonly LibraryDirectoryPreflightService directoryPreflightService;
+
     private readonly object fileScanGate = new();
 
     private ActiveFileScan activeFileScan;
@@ -102,6 +106,7 @@ internal sealed class LibraryFileScanPipelineOwner
     /// </summary>
     /// <param name="chartFileScanner">Optional captured chart scanner; null selects the normal Everything scanner.</param>
     /// <param name="rootFileEnumerator">Optional captured grouped enumerator; null selects the normal LR2 file enumeration path.</param>
+    /// <param name="directoryPreflightService">更新前検査を共有する service。null の場合は通常構成を作成します。</param>
     internal LibraryFileScanPipelineOwner(
         BmsLibraryDbGateway dbGateway,
         CatalogStorageRowsOwner catalogStorageRowsOwner,
@@ -127,7 +132,8 @@ internal sealed class LibraryFileScanPipelineOwner
         BmsLibraryInitializationService initializationService,
         EverythingNative everythingNative,
         IChartFileScanner chartFileScanner = null,
-        IRootFileEnumerator rootFileEnumerator = null)
+        IRootFileEnumerator rootFileEnumerator = null,
+        LibraryDirectoryPreflightService directoryPreflightService = null)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.catalogStorageRowsOwner = catalogStorageRowsOwner ?? throw new ArgumentNullException(nameof(catalogStorageRowsOwner));
@@ -161,13 +167,19 @@ internal sealed class LibraryFileScanPipelineOwner
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.everythingNative = everythingNative ?? throw new ArgumentNullException(nameof(everythingNative));
         this.chartFileScanner = chartFileScanner;
+        this.directoryPreflightService = directoryPreflightService ?? new LibraryDirectoryPreflightService();
     }
 
+    /// <summary>
+    /// scanner に渡す root と、同じ操作で後段再検査する immutable request を登録します。
+    /// </summary>
+    /// <param name="directoryPreflightRequest">初回検査と後段再検査で共有する request。</param>
     internal long BeginFileScanRequest(
         BmsLibraryOptionsSnapshot options,
         List<string> rootDirectories,
         string reason,
-        Action<string> reportScanner = null)
+        Action<string> reportScanner = null,
+        LibraryDirectoryPreflightRequest directoryPreflightRequest = null)
     {
         ActiveFileScan scan;
         lock (fileScanGate)
@@ -183,7 +195,8 @@ internal sealed class LibraryFileScanPipelineOwner
                 Generation = checked(++fileScanGeneration),
                 Options = options,
                 RootDirectories = [.. rootDirectories ?? []],
-                Reason = reason ?? string.Empty
+                Reason = reason ?? string.Empty,
+                DirectoryPreflightRequest = directoryPreflightRequest
             };
             activeFileScan = scan;
         }
@@ -291,6 +304,12 @@ internal sealed class LibraryFileScanPipelineOwner
         try
         {
             ChartScanPrefetchInfo chartScanPrefetchInfo = ResolveChartScanPrefetch(scan);
+            if (scan.DirectoryPreflightRequest != null)
+            {
+                directoryPreflightService.EnsureAvailable(
+                    scan.DirectoryPreflightRequest,
+                    probeOutputBases: false);
+            }
             Lr2FolderFileDiffPreparationResult result = ApplyFileScanDiff(
                 scan.Options,
                 scan.RootDirectories,

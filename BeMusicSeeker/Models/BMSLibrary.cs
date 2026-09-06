@@ -2534,6 +2534,8 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly LibraryFileScanPipelineOwner libraryFileScanPipelineOwner;
 
+    private readonly LibraryDirectoryPreflightService directoryPreflightService;
+
     private readonly InstallDestinationStateOwner installDestinationStateOwner;
 
     private ChartInfoBuildService chartInfoBuildService => catalogChartInfoOwner.BuildService;
@@ -2809,6 +2811,7 @@ public partial class BMSLibrary : ObservableObject
             LogInstallPerformance,
             GetCurrentResourceHealthIndexVersion);
         installDestinationStateOwner = new(catalogStorageRowsOwner, CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe);
+        directoryPreflightService = new LibraryDirectoryPreflightService();
         catalogMaintenanceOwner = new(
             initializationService,
             maintenanceService,
@@ -2854,7 +2857,8 @@ public partial class BMSLibrary : ObservableObject
             initializationService,
             everythingNative,
             chartFileScanner,
-            rootFileEnumerator);
+            rootFileEnumerator,
+            directoryPreflightService);
         packageLifecycleOwner = new PackageLifecycleOwner(
             dbGateway,
             uiScheduler,
@@ -5312,6 +5316,7 @@ public partial class BMSLibrary : ObservableObject
         bool flag = !isScoreOnly;
         bool fileScanLifecycleStarted = false;
         long fileScanGeneration = 0L;
+        LibraryDirectoryPreflightRequest directoryPreflightRequest = null;
         if (startupFileScanRequired)
         {
             LogInstallPerformance("startup_file_scan_required reason=" + startupRequiredFileScanReason + " scanSetting=" + options.ScanBmsFilesOnStartup.ToString().ToLowerInvariant());
@@ -5322,9 +5327,17 @@ public partial class BMSLibrary : ObservableObject
         List<Action> initializationPostLeaseEffects = [];
         try
         {
+            if (!isScoreOnly)
+            {
+                directoryPreflightRequest = CaptureDirectoryPreflightRequest(options);
+                directoryPreflightService.EnsureAvailable(
+                    directoryPreflightRequest,
+                    probeOutputBases: true);
+            }
             if (songTblFileCheck)
             {
-                List<string> fileCheckPrefetchDirectories = getBMSDirectories();
+                List<string> fileCheckPrefetchDirectories =
+                    [.. directoryPreflightRequest.ScanRootDirectories];
                 fileScanGeneration = libraryFileScanPipelineOwner.BeginFileScanRequest(
                     options,
                     fileCheckPrefetchDirectories,
@@ -5332,7 +5345,8 @@ public partial class BMSLibrary : ObservableObject
                     scannerLabel => ReportLibraryInitializationProgress(
                         LibraryInitializationProgressStage.FileEnumeration,
                         scannerLabel,
-                        force: true));
+                        force: true),
+                    directoryPreflightRequest);
                 fileScanLifecycleStarted = true;
             }
             try
@@ -5355,7 +5369,7 @@ public partial class BMSLibrary : ObservableObject
                         {
                             using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                             {
-                                _initialize(songTblLoad: songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, trackLibraryDatabaseProgress: true, songTableLoadResultObserver: result => initialSongTableLoadResult = result, postLeaseEffectObserver: initializationPostLeaseEffects.Add);
+                                _initialize(songTblLoad: songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, trackLibraryDatabaseProgress: true, songTableLoadResultObserver: result => initialSongTableLoadResult = result, postLeaseEffectObserver: initializationPostLeaseEffects.Add, directoryPreflightRequest: directoryPreflightRequest);
                                 if (songTblLoad)
                                 {
                                     packageLifecycleOwner.StartupReadiness.MarkCatalogLoaded();
@@ -5378,7 +5392,8 @@ public partial class BMSLibrary : ObservableObject
                                 trackLibraryFileCheckProgress: true,
                                 fileScanGeneration: fileScanGeneration,
                                 fileScanReason: isStartup ? "initialize" : "full_reinitialize",
-                                postLeaseEffectObserver: initializationPostLeaseEffects.Add);
+                                postLeaseEffectObserver: initializationPostLeaseEffects.Add,
+                                directoryPreflightRequest: directoryPreflightRequest);
                             if (scanPreparation?.Request != null)
                             {
                                 libraryFileScanPipelineOwner.ApplyPreparedLr2FolderFileDiffForFileMutation(
@@ -5403,7 +5418,8 @@ public partial class BMSLibrary : ObservableObject
                                 setMainteInfo: false,
                                 updateIrScore: false,
                                 installTblCheck: false,
-                                postLeaseEffectObserver: initializationPostLeaseEffects.Add);
+                                postLeaseEffectObserver: initializationPostLeaseEffects.Add,
+                                directoryPreflightRequest: directoryPreflightRequest);
                         });
                     scheduleDeferredInstallableMaintenance = setMaintenanceInfo;
                     TimeSpan timeSpan = DateTime.Now - now;
@@ -5771,7 +5787,8 @@ public partial class BMSLibrary : ObservableObject
         long fileScanGeneration = 0L,
         string fileScanReason = "initialize",
         Action<SongTableLoadResult> songTableLoadResultObserver = null,
-        Action<Action> postLeaseEffectObserver = null)
+        Action<Action> postLeaseEffectObserver = null,
+        LibraryDirectoryPreflightRequest directoryPreflightRequest = null)
     {
         var stopwatchInitialize = Stopwatch.StartNew();
         long songTblLoadMs = 0L;
@@ -5787,7 +5804,19 @@ public partial class BMSLibrary : ObservableObject
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool scoreOnlyLoad = !songTblLoad && scoreTblrLoad && !songTblFileCheck && !setMainteInfo && !installTblCheck;
         bool logRootNormalizationForFileScan = songTblFileCheck;
-        List<string> bMSDirectories = getBMSDirectories(out BmsSearchRootNormalizationSnapshot rootNormalization);
+        List<string> bMSDirectories;
+        BmsSearchRootNormalizationSnapshot rootNormalization;
+        if (directoryPreflightRequest == null)
+        {
+            bMSDirectories = getBMSDirectories(out rootNormalization);
+        }
+        else
+        {
+            bMSDirectories = [.. directoryPreflightRequest.ScanRootDirectories];
+            rootNormalization = CreateUpdateRootNormalizationSnapshot(
+                directoryPreflightRequest,
+                options);
+        }
         if (logRootNormalizationForFileScan)
         {
             LogBmsSearchRootNormalization(fileScanReason, options, rootNormalization, bMSDirectories);
@@ -5997,26 +6026,15 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        List<string> bmsDirectories = getBMSDirectories(out BmsSearchRootNormalizationSnapshot rootNormalization);
+        BmsLibraryOptionsSnapshot options = null;
+        LibraryDirectoryPreflightRequest directoryPreflightRequest = null;
+        List<string> bmsDirectories = null;
+        BmsSearchRootNormalizationSnapshot rootNormalization = null;
         ResetEverythingFallbackWarningQueue();
         long fileScanGeneration = 0L;
         var stopwatch = Stopwatch.StartNew();
         PerformanceInteraction performanceInteraction =
             PerformanceInteraction.Start("managed_file_diff");
-        if (Net10PerformanceLog.IsEnabled)
-        {
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "input_accepted",
-                "directories=" + bmsDirectories.Count);
-            Net10PerformanceLog.Write(
-                performanceInteraction,
-                "owner_started",
-                "directories=" + bmsDirectories.Count);
-        }
-        LogBmsSearchRootNormalization("reload_file_diff", options, rootNormalization, bmsDirectories);
-        LogInstallPerformance("library_file_diff_reload start directories=" + bmsDirectories.Count);
         List<Action> postLeaseEffects = [];
         try
         {
@@ -6024,6 +6042,28 @@ public partial class BMSLibrary : ObservableObject
             using (LibraryFileMutationCapability mutationCapability = mutationReservation.CreateMutationCapability())
             {
                 mutationCapability.Validate(lr2SynchronizationOwner);
+                options = CurrentOptionsSnapshot;
+                directoryPreflightRequest = CaptureDirectoryPreflightRequest(options);
+                directoryPreflightService.EnsureAvailable(
+                    directoryPreflightRequest,
+                    probeOutputBases: true);
+                bmsDirectories = [.. directoryPreflightRequest.ScanRootDirectories];
+                rootNormalization = CreateUpdateRootNormalizationSnapshot(
+                    directoryPreflightRequest,
+                    options);
+                if (Net10PerformanceLog.IsEnabled)
+                {
+                    Net10PerformanceLog.Write(
+                        performanceInteraction,
+                        "input_accepted",
+                        "directories=" + bmsDirectories.Count);
+                    Net10PerformanceLog.Write(
+                        performanceInteraction,
+                        "owner_started",
+                        "directories=" + bmsDirectories.Count);
+                }
+                LogBmsSearchRootNormalization("reload_file_diff", options, rootNormalization, bmsDirectories);
+                LogInstallPerformance("library_file_diff_reload start directories=" + bmsDirectories.Count);
                 using (rwlockBMSFilesInitializedAll.GetWriterGuard())
                 {
                     fileScanGeneration = libraryFileScanPipelineOwner.BeginFileScanRequest(
@@ -6033,7 +6073,8 @@ public partial class BMSLibrary : ObservableObject
                         scannerLabel => ReportLibraryInitializationProgress(
                             LibraryInitializationProgressStage.FileEnumeration,
                             scannerLabel,
-                            force: true));
+                            force: true),
+                        directoryPreflightRequest);
                     libraryFileScanPipelineOwner.StartActiveNormalFolderMtimeSnapshot(fileScanGeneration);
                     Lr2FolderFileDiffPreparationResult scanPreparation = libraryFileScanPipelineOwner.ApplyActiveFileScan(
                         fileScanGeneration,
@@ -7485,6 +7526,51 @@ public partial class BMSLibrary : ObservableObject
     private List<string> getBMSDirectories()
     {
         return getBMSDirectories(out _);
+    }
+
+    private LibraryDirectoryPreflightRequest CaptureDirectoryPreflightRequest(
+        BmsLibraryOptionsSnapshot options)
+    {
+        Lr2SearchRootSnapshot snapshot = lr2SearchRootSnapshotOwner.CaptureForUpdate(options);
+        return directoryPreflightService.CreateRequest(
+            snapshot.RequestedRoots,
+            snapshot.Roots,
+            options);
+    }
+
+    private static BmsSearchRootNormalizationSnapshot CreateUpdateRootNormalizationSnapshot(
+        LibraryDirectoryPreflightRequest request,
+        BmsLibraryOptionsSnapshot options)
+    {
+        HashSet<string> configuredOutputBases = new(StringComparer.OrdinalIgnoreCase);
+        if (options?.OperationModeLR2DB == true)
+        {
+            if (!string.IsNullOrWhiteSpace(options.LR2CustomFolderOutputBaseDir))
+            {
+                configuredOutputBases.Add(options.LR2CustomFolderOutputBaseDir);
+            }
+            foreach (string path in options.LR2CustomFolderAdditionalOutputBaseDirs ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    configuredOutputBases.Add(path);
+                }
+            }
+            if (!string.IsNullOrWhiteSpace(options.LR2CustomFolderOutputBaseDirRootType))
+            {
+                configuredOutputBases.Add(options.LR2CustomFolderOutputBaseDirRootType);
+            }
+        }
+        return new BmsSearchRootNormalizationSnapshot
+        {
+            RequestedRootCount = request?.BmsRootDirectories.Count ?? 0,
+            ExistingRootCount = request?.BmsRootDirectories.Count ?? 0,
+            ExcludedCustomOutputRootCount = Math.Max(
+                0,
+                (request?.BmsRootDirectories.Count ?? 0) - (request?.ScanRootDirectories.Count ?? 0)),
+            RootCount = request?.ScanRootDirectories.Count ?? 0,
+            ConfiguredCustomOutputRootCount = configuredOutputBases.Count
+        };
     }
 
     private List<string> getBMSDirectories(out BmsSearchRootNormalizationSnapshot normalizationSnapshot)

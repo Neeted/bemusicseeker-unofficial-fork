@@ -943,5 +943,26 @@
   "SettingsPartiallySaved": "Les paramètres de l’application ont été enregistrés, mais pas la configuration LR2.\nFichier : {0}\nCause : {1}",
   "SettingsApplyIncomplete": "L’enregistrement ou l’application des paramètres n’a pas abouti.\nCause : {0}",
   "SettingsSaveFailedDuringShutdown": "{0}\nLa fermeture va se poursuivre.",
-  "Beatoraja_bmt_output_failure_format": "Exportation ou suppression BMT incomplète.\nCible : {0}\nCause : {1}"
+  "Beatoraja_bmt_output_failure_format": "Exportation ou suppression BMT incomplète.\nCible : {0}\nCause : {1}",
+
+  "LibraryDirectoryPreflightEarlyWarningFormat": "La mise à jour de la bibliothèque n'a pas pu démarrer.\nCible : {0}\nChemin : {1}\nRaison : {2}\n{3}",
+  "LibraryDirectoryPreflightLateWarningFormat": "La mise à jour de la bibliothèque n'a pas pu être appliquée.\nCible : {0}\nChemin : {1}\nRaison : {2}\n{3}",
+  "LibraryDirectoryPreflightProgressFailure": "La mise à jour de la bibliothèque est interrompue car un dossier requis n'a pas pu être vérifié.",
+  "LibraryDirectoryPreflightBmsRootRole": "Dossier de recherche BMS",
+  "LibraryDirectoryPreflightLr2OutputRole": "Dossier de sortie LR2",
+  "LibraryDirectoryPreflightLr2NormalOutputRole": "Dossier de sortie LR2 normal",
+  "LibraryDirectoryPreflightLr2AdditionalOutputRole": "Dossier de sortie LR2 supplémentaire",
+  "LibraryDirectoryPreflightLr2RootOutputRole": "Dossier de sortie LR2 de type racine",
+  "LibraryDirectoryPreflightCauseNotFound": "Le dossier est introuvable.",
+  "LibraryDirectoryPreflightCauseAccessDenied": "Le dossier ne peut pas être lu : accès refusé.",
+  "LibraryDirectoryPreflightCauseNotDirectory": "Le chemin indiqué n'est pas un dossier.",
+  "LibraryDirectoryPreflightCauseInvalidPath": "Le chemin est invalide.",
+  "LibraryDirectoryPreflightCauseInvalidConfiguration": "La configuration du dossier de sortie supplémentaire est invalide.",
+  "LibraryDirectoryPreflightCauseIo": "Le dossier ne peut pas être lu.",
+  "LibraryDirectoryPreflightCauseWrite": "Le test d'écriture temporaire dans le dossier de sortie a échoué.",
+  "LibraryDirectoryPreflightCauseCleanup": "Le test d'écriture temporaire n'a pas pu être supprimé.",
+  "LibraryDirectoryPreflightCleanupFailure": "Le nettoyage du test d'écriture temporaire a également échoué.",
+  "LibraryDirectoryPreflightBmsGuidance": "Reconnectez le dossier ou corrigez le dossier de recherche BMS dans la section Général des paramètres, puis réessayez.",
+  "LibraryDirectoryPreflightLr2Guidance": "Reconnectez le dossier ou corrigez le dossier de sortie des playlists dans les paramètres, puis réessayez."
+
 }
