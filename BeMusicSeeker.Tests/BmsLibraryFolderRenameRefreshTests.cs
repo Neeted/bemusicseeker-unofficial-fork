@@ -1330,55 +1330,120 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
-    [TestMethod]
-    public void FixInstallationDirectoryCharts_BmsChartClearsInstallDestinationOverlayAfterApply()
+    /// <summary>
+    /// R1: repair must recompute missing-resource health at the new location,
+    /// persist it, and publish only after releasing its existing reservation.
+    /// A maintenance DB failure remains an error after the path move succeeds.
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public void FixInstallationDirectoryCharts_RechecksResourcesUnderExistingReservation(bool bmson, bool failMaintenance)
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
+        WithTemporarySongDb(songDbPath =>
         {
-            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsRepair_" + Guid.NewGuid().ToString("N"));
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Broken");
-            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed");
-            string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
-            string destinationChartPath = Path.Combine(destinationDirectoryPath, "chart.bms");
-            Directory.CreateDirectory(sourceDirectoryPath);
-            Directory.CreateDirectory(destinationDirectoryPath);
-            File.WriteAllText(sourceChartPath, "#PLAYER 1");
-            try
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string source = Path.Combine(root, "Broken");
+            string destination = Path.Combine(root, "Installed");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            string sourcePath = Path.Combine(source, bmson ? "chart.bmson" : "chart.bms");
+            string destinationPath = Path.Combine(destination, Path.GetFileName(sourcePath));
+            File.WriteAllText(sourcePath, bmson
+                ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Repair\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},"
+                    + "\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}"
+                : "#PLAYER 1\r\n#TITLE Repair\r\n#WAV01 sound.wav\r\n#00111:01\r\n");
+            File.WriteAllText(Path.Combine(destination, "sound.wav"), "present only at the correct destination");
+            BMSFile? bmsFile = bmson ? null : BMSFile.CreateBMSFileFromFile(sourcePath);
+            LR2SongDBExtended.bmson_song? bmsonSong = bmson ? BmsonSongParser.Parse(sourcePath) : null;
+            ChartFile chart = bmson ? ChartFileProjection.FromBmsonSong(bmsonSong!) : ChartFileProjection.FromBmsFile(bmsFile!);
+            BMSFileMaintenanceInfo initialInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(chart);
+            Assert.AreEqual(1, initialInfo.wav_files_defined);
+            Assert.AreEqual(0, initialInfo.wav_files_existing);
+            if (bmson)
+                bmsonSong!.MaintenanceInfo = initialInfo;
+            else
+                bmsFile!.SetMaintenanceInfo(initialInfo, suppressPropertyChanged: true);
+            chart = bmson ? ChartFileProjection.FromBmsonSong(bmsonSong!) : ChartFileProjection.FromBmsFile(bmsFile!);
+            Assert.IsTrue(new BmsLibraryMaintenanceService().BuildResourceHealthWarnings(chart)
+                .Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            using (var db = new LR2SongDBExtended(songDbPath))
             {
-                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-                var file = new TestableBmsFile
+                BmsLibraryDbGateway.EnsureBmsonSchema(db);
+                if (bmson)
+                    db.InsertOrReplace(bmsonSong!, typeof(LR2SongDBExtended.bmson_song));
+                else
+                    db.InsertOrReplace(bmsFile!.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                db.InsertOrReplace(initialInfo, typeof(LR2SongDBExtended.maintenance));
+                if (failMaintenance)
                 {
-                    path = sourceChartPath
-                };
-                file.SetHash("cccccccccccccccccccccccccccccccc");
-                library.BMSFiles = [file];
-                ChartFile repairTarget = ChartFileProjection.WithPackageState(
-                    ChartFileProjection.FromBmsFile(file),
-                    destinationDirectoryPath,
-                    string.Empty,
-                    string.Empty,
-                    []);
-
-                library.FixInstallationDirectoryCharts([repairTarget]);
-
-                Assert.AreEqual(destinationChartPath, file.path);
-                ChartFile changedChart = library.GetNormalLibraryRefreshNotificationsAfter(0).InstallDestinationChangedCharts.Single();
-                Assert.AreEqual(destinationChartPath, changedChart.Path);
-                Assert.AreEqual(string.Empty, changedChart.InstallDestination);
-                ChartFile installedChart = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(library).Single();
-                Assert.AreEqual(destinationChartPath, installedChart.Path);
-                Assert.AreEqual(string.Empty, installedChart.InstallDestination);
-                Assert.IsFalse(File.Exists(sourceChartPath));
-                Assert.IsTrue(File.Exists(destinationChartPath));
-            }
-            finally
-            {
-                if (Directory.Exists(tempRootPath))
-                {
-                    Directory.Delete(tempRootPath, recursive: true);
+                    // Path relocation retains the old health (zero), so only
+                    // the later resource recheck's durable write is rejected.
+                    db.Execute("CREATE TRIGGER repair_health_insert BEFORE INSERT ON maintenance WHEN NEW.wav_files_existing = 1 BEGIN SELECT RAISE(ABORT, 'repair-health-write-fault'); END;");
+                    db.Execute("CREATE TRIGGER repair_health_update BEFORE UPDATE ON maintenance WHEN NEW.wav_files_existing = 1 BEGIN SELECT RAISE(ABORT, 'repair-health-write-fault'); END;");
                 }
             }
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles = bmsFile == null ? [] : [bmsFile],
+                BmsonSongs = bmsonSong == null ? [] : [bmsonSong]
+            };
+            ChartFile repairTarget = ChartFileProjection.WithPackageState(chart, destination, string.Empty, string.Empty, []);
+            int refreshCount = 0;
+            bool notifiedWithLeaseHeld = false;
+            bool notifiedWithCurrentHealth = false;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                    return;
+                refreshCount++;
+                using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("repair_health_notification_probe");
+                notifiedWithLeaseHeld |= probe == null;
+                notifiedWithCurrentHealth |= (bmsonSong?.MaintenanceInfo ?? bmsFile?.TryGetMaintenanceInfoWithoutCreating())?.wav_files_existing == 1;
+            };
+
+            Exception? failure = null;
+            try
+            {
+                library.FixInstallationDirectoryCharts([repairTarget]);
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+
+            Assert.AreEqual(destinationPath, bmsonSong?.path ?? bmsFile!.path);
+            Assert.IsFalse(File.Exists(sourcePath));
+            Assert.IsTrue(File.Exists(destinationPath));
+            Assert.IsTrue(refreshCount > 0);
+            Assert.IsFalse(notifiedWithLeaseHeld);
+            using LibraryFileMutationLease afterRepair = library.TryBeginLibraryFileMutation("repair_health_completion_probe");
+            Assert.IsNotNull(afterRepair);
+            if (failMaintenance)
+            {
+                Assert.IsNotNull(failure);
+                StringAssert.Contains(failure.ToString(), "repair-health-write-fault");
+            }
+            else
+            {
+                Assert.IsNull(failure);
+                Assert.IsTrue(notifiedWithCurrentHealth);
+                BMSFileMaintenanceInfo updatedInfo = bmsonSong?.MaintenanceInfo ?? bmsFile!.maintenanceInfo;
+                Assert.AreEqual(1, updatedInfo.wav_files_defined);
+                Assert.AreEqual(1, updatedInfo.wav_files_existing);
+                Assert.AreEqual(destinationPath, updatedInfo.path);
+                ChartFile installed = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(library).Single();
+                Assert.AreEqual(string.Empty, installed.InstallDestination);
+                Assert.IsFalse(new BmsLibraryMaintenanceService().BuildResourceHealthWarnings(installed)
+                    .Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            }
+            using var readback = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.maintenance persisted = readback.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == destinationPath);
+            Assert.AreEqual(failMaintenance ? 0 : 1, persisted.wav_files_existing);
+            Assert.AreEqual(0, readback.Table<LR2SongDBExtended.maintenance>().Count(row => row.path == sourcePath));
         });
     }
 

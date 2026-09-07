@@ -2891,12 +2891,12 @@ public partial class BMSLibrary : ObservableObject
             CreateInstalledChartKeySnapshotExcludingChartsUnsafe,
             CreateChartFolderPathFromCharts,
             GetDuplicateInstallRepairPaths,
-            (charts, forceUpdate, resourceHealthIndexUpdateMode, resourceHealthMutationReason)
-                => ApplyCatalogMaintenance(
-                    charts,
-                    forceUpdate,
-                    resourceHealthIndexUpdateMode: resourceHealthIndexUpdateMode,
-                    resourceHealthMutationReason: resourceHealthMutationReason),
+            ApplyCatalogMaintenanceUnderExistingReservation,
+            charts => ApplyCatalogMaintenance(
+                charts,
+                forceUpdate: true,
+                resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
+                resourceHealthMutationReason: "merge_folder"),
             () =>
             {
                 InvalidateDuplicateChartGroupsCache();
@@ -11250,7 +11250,7 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// Applies package maintenance while the caller owns the file-mutation
+    /// Applies install/repair maintenance while the caller owns the file-mutation
     /// lease.  Database work remains inside that lease, but projection,
     /// failure-fact publication, and collection dispatch are deferred until
     /// release so no external callback observes the lease as active.

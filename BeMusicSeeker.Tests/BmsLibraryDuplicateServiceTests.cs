@@ -407,6 +407,105 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// Merge maintenance runs after the file-mutation reservation is released.
+    /// Both chart formats must recheck resources at the destination, persist
+    /// their health, and publish with the merge's deferred-index policy intact.
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation(bool bmson)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string sourceDirectory = Path.Combine(root, "Source");
+            string destinationDirectory = Path.Combine(root, "Destination");
+            Directory.CreateDirectory(sourceDirectory);
+            Directory.CreateDirectory(destinationDirectory);
+            string sourcePath = Path.Combine(sourceDirectory, bmson ? "chart.bmson" : "chart.bms");
+            string destinationPath = Path.Combine(destinationDirectory, Path.GetFileName(sourcePath));
+            File.WriteAllText(sourcePath, bmson
+                ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Merge\",\"mode_hint\":\"beat-7k\"},"
+                    + "\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}"
+                : "#PLAYER 1\r\n#TITLE Merge\r\n#WAV01 sound.wav\r\n#00111:01\r\n");
+            string resourcePath = Path.Combine(destinationDirectory, "sound.wav");
+            File.WriteAllText(resourcePath, "destination resource");
+            BMSFile? bmsFile = bmson ? null : BMSFile.CreateBMSFileFromFile(sourcePath);
+            LR2SongDBExtended.bmson_song? bmsonSong = bmson ? BmsonSongParser.Parse(sourcePath) : null;
+            ChartFile chart = bmson ? ChartFileProjection.FromBmsonSong(bmsonSong!) : ChartFileProjection.FromBmsFile(bmsFile!);
+            BMSFileMaintenanceInfo initialInfo = BmsLibraryMaintenanceService.BuildResourceHealthMaintenanceInfo(chart);
+            Assert.AreEqual(1, initialInfo.wav_files_defined);
+            Assert.AreEqual(0, initialInfo.wav_files_existing);
+            if (bmson)
+            {
+                bmsonSong!.MaintenanceInfo = initialInfo;
+            }
+            else
+            {
+                bmsFile!.SetMaintenanceInfo(initialInfo, suppressPropertyChanged: true);
+            }
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                if (bmson)
+                {
+                    db.InsertOrReplace(bmsonSong!, typeof(LR2SongDBExtended.bmson_song));
+                }
+                else
+                {
+                    db.InsertOrReplace(bmsFile!.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+                db.InsertOrReplace(initialInfo, typeof(LR2SongDBExtended.maintenance));
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles = bmsFile == null ? [] : [bmsFile],
+                BmsonSongs = bmsonSong == null ? [] : [bmsonSong]
+            };
+            Assert.AreEqual(1, library.GetResourceHealthIndexSnapshotForView("merge_health_before").TargetCount);
+            bool notifiedWithCurrentHealth = false;
+            bool notifiedWhileReserved = false;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    return;
+                }
+                using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("merge_health_notification_probe");
+                notifiedWhileReserved |= probe == null;
+                notifiedWithCurrentHealth |= (bmsonSong?.MaintenanceInfo ?? bmsFile?.TryGetMaintenanceInfoWithoutCreating())?.wav_files_existing == 1;
+            };
+
+            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId: 1);
+
+            Assert.IsTrue(receipt.MergeApplied);
+            Assert.IsTrue(receipt.MaintenanceHadUpdates);
+            Assert.IsTrue(receipt.MaintenanceResult.CheckedFileCount > 0);
+            Assert.AreEqual(ResourceHealthIndexUpdateMode.DeferOnUpdates, receipt.IntermediateMode);
+            Assert.IsTrue(receipt.ResourceHealthIndexDeferred);
+            Assert.IsFalse(receipt.ResourceHealthIndexDeltaApplied);
+            Assert.IsFalse(receipt.ResourceHealthIndexFullRebuilt);
+            Assert.IsTrue(notifiedWithCurrentHealth);
+            Assert.IsFalse(notifiedWhileReserved);
+            Assert.AreEqual(destinationPath, bmsonSong?.path ?? bmsFile!.path);
+            Assert.IsFalse(Directory.Exists(sourceDirectory));
+            Assert.IsTrue(File.Exists(destinationPath));
+            Assert.AreEqual("destination resource", File.ReadAllText(resourcePath));
+            ChartFile installed = bmson ? ChartFileProjection.FromBmsonSong(bmsonSong!) : ChartFileProjection.FromBmsFile(bmsFile!);
+            Assert.IsFalse(new BmsLibraryMaintenanceService().BuildResourceHealthWarnings(installed)
+                .Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            using var readback = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.maintenance persisted = readback.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == destinationPath);
+            Assert.AreEqual(1, persisted.wav_files_defined);
+            Assert.AreEqual(1, persisted.wav_files_existing);
+            Assert.AreEqual(0, readback.Table<LR2SongDBExtended.maintenance>().Count(row => row.path == sourcePath));
+            using LibraryFileMutationLease afterMerge = library.TryBeginLibraryFileMutation("merge_health_completion_probe");
+            Assert.IsNotNull(afterMerge);
+        });
+    }
+
     [TestMethod]
     public void MergeChartDirectory_BmsonOnly_ReRegistersSongAtDestination()
     {

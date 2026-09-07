@@ -58,7 +58,9 @@ internal sealed partial class LibraryFileOperationOwner
 
     private readonly Func<LibraryMutationDelta, string, bool, Action<Action>, FileDbMutationCommitResult> applyLibraryMutationDeltaWithoutLr2NormalFolderSync;
 
-    private readonly Func<IEnumerable<ChartFile>, bool, ResourceHealthIndexUpdateMode, string, MaintenanceWorkflowResult> applyCatalogMaintenance;
+    private readonly Func<IEnumerable<ChartFile>, bool, string, Action<Action>, MaintenanceWorkflowResult> applyCatalogMaintenanceUnderExistingReservation;
+
+    private readonly Func<IEnumerable<ChartFile>, MaintenanceWorkflowResult> applyMergeFolderMaintenanceAfterRelease;
 
     private readonly Action invalidateDuplicateChartGroupsCache;
 
@@ -228,6 +230,10 @@ internal sealed partial class LibraryFileOperationOwner
     /// Creates the file-operation owner with the canonical catalog mutation
     /// delegates.  Ordinary catalog apply stays capability-free; only callers
     /// that own the final LR2 bridge provide a live mutation capability.
+    /// Repair maintenance reuses that reservation and returns its notifications
+    /// to the command for publication after the lease is released.
+    /// Merge maintenance instead starts after release and acquires a fresh
+    /// reservation through its separate normal-maintenance delegate.
     /// </summary>
     internal LibraryFileOperationOwner(
         LibraryFileOperationSynchronization synchronization,
@@ -244,7 +250,8 @@ internal sealed partial class LibraryFileOperationOwner
         Func<IEnumerable<ChartFile>, string, long, IPrimaryHashLookup> createInstalledChartKeySnapshotExcludingChartsUnsafe,
         Func<IEnumerable<ChartFile>, string, string> createChartFolderPathFromCharts,
         Func<ChartFile, IEnumerable<string>> getDuplicateInstallRepairPaths,
-        Func<IEnumerable<ChartFile>, bool, ResourceHealthIndexUpdateMode, string, MaintenanceWorkflowResult> applyCatalogMaintenance,
+        Func<IEnumerable<ChartFile>, bool, string, Action<Action>, MaintenanceWorkflowResult> applyCatalogMaintenanceUnderExistingReservation,
+        Func<IEnumerable<ChartFile>, MaintenanceWorkflowResult> applyMergeFolderMaintenanceAfterRelease,
         Action invalidateDuplicateChartGroupsCache,
         Action invalidateInstalledDirectoryIndex,
         Action<string, DirectoryResourceLookupCache.ReverseLookupMutationResult> logReverseLookupMutationAndQueueWarmupIfNeeded,
@@ -275,7 +282,9 @@ internal sealed partial class LibraryFileOperationOwner
             ?? throw new ArgumentNullException(nameof(applyLibraryMutationDeltaWithCapability));
         this.applyLibraryMutationDeltaWithoutLr2NormalFolderSync = applyLibraryMutationDeltaWithoutLr2NormalFolderSync
             ?? throw new ArgumentNullException(nameof(applyLibraryMutationDeltaWithoutLr2NormalFolderSync));
-        this.applyCatalogMaintenance = applyCatalogMaintenance ?? throw new ArgumentNullException(nameof(applyCatalogMaintenance));
+        this.applyCatalogMaintenanceUnderExistingReservation = applyCatalogMaintenanceUnderExistingReservation ?? throw new ArgumentNullException(nameof(applyCatalogMaintenanceUnderExistingReservation));
+        this.applyMergeFolderMaintenanceAfterRelease = applyMergeFolderMaintenanceAfterRelease
+            ?? throw new ArgumentNullException(nameof(applyMergeFolderMaintenanceAfterRelease));
         this.invalidateDuplicateChartGroupsCache = invalidateDuplicateChartGroupsCache ?? throw new ArgumentNullException(nameof(invalidateDuplicateChartGroupsCache));
         this.invalidateInstalledDirectoryIndex = invalidateInstalledDirectoryIndex ?? throw new ArgumentNullException(nameof(invalidateInstalledDirectoryIndex));
         this.logReverseLookupMutationAndQueueWarmupIfNeeded = logReverseLookupMutationAndQueueWarmupIfNeeded ?? throw new ArgumentNullException(nameof(logReverseLookupMutationAndQueueWarmupIfNeeded));
@@ -1416,15 +1425,6 @@ internal sealed partial class LibraryFileOperationOwner
         return sourceResult.ReferenceMutationDelta;
     }
 
-    private MaintenanceWorkflowResult ApplyCatalogMaintenance(
-        IEnumerable<ChartFile> charts,
-        bool forceUpdate,
-        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.DeltaOnUpdates,
-        string resourceHealthMutationReason = null)
-    {
-        return applyCatalogMaintenance(charts, forceUpdate, resourceHealthIndexUpdateMode, resourceHealthMutationReason);
-    }
-
     private bool MoveChartPackageFiles(
         ChartPackage package,
         string destinationDirectory,
@@ -2083,10 +2083,18 @@ internal sealed partial class LibraryFileOperationOwner
                 List<ChartFile> maintenanceTargets = NormalizeResourceMaintenanceTargetCharts(maintenanceCharts);
                 if (maintenanceTargets.Count > 0)
                 {
-                    ApplyCatalogMaintenance(
+                    // The repair already owns the file-mutation reservation.
+                    // Re-entering the public maintenance ingress would reject
+                    // our own lease after the file and path changes succeeded.
+                    MaintenanceWorkflowResult maintenanceResult = applyCatalogMaintenanceUnderExistingReservation(
                         maintenanceTargets,
-                        forceUpdate: true,
-                        resourceHealthMutationReason: "fix_installation_directory");
+                        true,
+                        "fix_installation_directory",
+                        postLeaseNotifications.Add);
+                    if (maintenanceResult.Canceled)
+                    {
+                        throw new OperationCanceledException();
+                    }
                 }
             }
         }

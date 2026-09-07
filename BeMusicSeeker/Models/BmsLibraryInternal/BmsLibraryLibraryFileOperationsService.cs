@@ -316,7 +316,7 @@ internal sealed class LegacyInvalidExtensionRenameExecutionItem
 }
 
 /// <summary>
-/// Immutable legacy library-removal plan.  The executor consumes path/kind
+/// Immutable library-removal plan.  The executor consumes path/kind
 /// facts only; the owner binds successful indexes back to current storage
 /// owners after the filesystem phase.
 /// </summary>
@@ -349,6 +349,12 @@ internal sealed class LibraryChartRemovalPlanFolder
     internal bool DeleteWholeFolder { get; init; }
 
     internal IReadOnlyList<int> TargetIndexes { get; init; } = [];
+
+    /// <summary>
+    /// Earlier descendant targets whose successful deletion is required before
+    /// this approved folder may be deleted recursively. Selection is not success.
+    /// </summary>
+    internal IReadOnlyList<int> RequiredRemovedTargetIndexes { get; init; } = [];
 }
 
 internal sealed class LibraryChartRemovalInstallDestinationTarget
@@ -426,7 +432,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     }
 
     /// <summary>
-    /// Builds the path-only portion of a legacy library removal.  Canonical
+    /// Builds the path-only portion of a library removal.  Canonical
     /// owner binding is intentionally left to the command owner so this plan
     /// can be executed after every model snapshot guard has been released.
     /// </summary>
@@ -480,7 +486,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             {
                 Path = folderGroup.Key,
                 DeleteWholeFolder = deleteWholeFolder,
-                TargetIndexes = targetIndexes
+                TargetIndexes = targetIndexes,
+                RequiredRemovedTargetIndexes = Array.AsReadOnly(folderPlans
+                    .Where(child => child.Path.StartsWith(
+                        folderGroup.Key + Path.DirectorySeparatorChar,
+                        StringComparison.OrdinalIgnoreCase))
+                    .SelectMany(child => child.TargetIndexes)
+                    .ToArray())
             });
             foreach (LibraryChartRef chart in folderGroup)
             {
@@ -523,8 +535,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     }
 
     /// <summary>
-    /// Executes a legacy library-removal plan using path facts only.  Catalog
+    /// Executes a library-removal plan using path facts only.  Catalog
     /// and package deltas are built by the owner after this method returns.
+    /// A failed or unexecuted child blocks recursive ancestor deletion, not
+    /// deletion of the ancestor group's own selected chart files.
     /// </summary>
     internal LibraryChartRemovalExecutionResult ExecuteLibraryChartRemovalPlan(
         LibraryChartRemovalPlan plan,
@@ -542,13 +556,15 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         RecycleOption recycleOption = sendToRecycleBin
             ? RecycleOption.SendToRecycleBin
             : RecycleOption.DeletePermanently;
+        var removedTargetIndexes = new HashSet<int>();
         foreach (LibraryChartRemovalPlanFolder folder in plan.Folders ?? [])
         {
             if (folder == null)
             {
                 continue;
             }
-            if (folder.DeleteWholeFolder)
+            if (folder.DeleteWholeFolder
+                && folder.RequiredRemovedTargetIndexes.All(removedTargetIndexes.Contains))
             {
                 if (!LongPathFileSystem.DirectoryExists(folder.Path))
                 {
@@ -565,6 +581,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     result.FolderDeleteCount++;
                     result.DeletedFolderPaths.Add(folder.Path);
                     result.RemovedTargetIndexes.AddRange(folder.TargetIndexes ?? []);
+                    removedTargetIndexes.UnionWith(folder.TargetIndexes ?? []);
                     RecordFolderTargets(folder, LibraryChartRemovalState.Confirmed);
                 }
                 catch (Exception exception)
@@ -600,6 +617,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                             targetOnlyFileMutationOptions);
                         result.FileDeleteCount++;
                         result.RemovedTargetIndexes.Add(target.Index);
+                        removedTargetIndexes.Add(target.Index);
                         result.Targets.Add(new(target.Path, LibraryChartRemovalState.Confirmed));
                     }
                     else
@@ -701,108 +719,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return result;
     }
 
-    public LibraryRemovalResult DeleteLibraryCharts(
-        IEnumerable<LibraryChartRef> charts,
-        ILibraryChartCanonicalLookup libraryChartLookup,
-        InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts,
-        IEnumerable<ChartPackage> pendingPackages,
-        bool sendToRecycleBin,
-        Func<string, bool> confirmDeleteWholeFolder,
-        IFileMutationService fileMutationService,
-        FileMutationOptions targetOnlyFileMutationOptions,
-        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
-    {
-        var result = new LibraryRemovalResult();
-        List<LibraryChartRef> inputCharts = [.. (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
-        libraryChartLookup ??= LibraryChartRefIndexSnapshot.Empty;
-        CanonicalChartResolveResult resolveResult = libraryChartLookup.ResolveCanonicalCharts(inputCharts);
-        result.InputChartCount = resolveResult.InputCount;
-        List<LibraryChartRef> canonicalChartsWithPath = [.. resolveResult.CanonicalCharts.Where(HasPath)];
-        List<LibraryChartRef> canonicalChartsWithoutPath = [.. resolveResult.CanonicalCharts.Where(chart => !HasPath(chart))];
-        result.CanonicalChartCount = canonicalChartsWithPath.Count;
-        result.UnresolvedChartCount = resolveResult.UnresolvedCharts.Count + canonicalChartsWithoutPath.Count;
-        result.PathOnlyInputCount = resolveResult.PathOnlyInputCount;
-        foreach (LibraryChartRef unresolvedChart in resolveResult.UnresolvedCharts)
-        {
-            result.Failures.Add(new LibraryDeleteFailure
-            {
-                Path = unresolvedChart.Path,
-                Exception = new InvalidOperationException("Library chart could not be resolved from the current catalog."),
-                IsDirectory = false,
-                Reason = "resolve_failed"
-            });
-        }
-        foreach (LibraryChartRef pathlessChart in canonicalChartsWithoutPath)
-        {
-            result.Failures.Add(new LibraryDeleteFailure
-            {
-                Path = FindInputPathForCanonicalChart(inputCharts, pathlessChart),
-                Exception = new InvalidOperationException("Library chart no longer has a current path in the catalog."),
-                IsDirectory = false,
-                Reason = "resolve_failed"
-            });
-        }
-        RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
-        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in canonicalChartsWithPath.GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
-                                                                   orderby groupedFiles.Key.Length descending
-                                                                   select groupedFiles)
-        {
-            var removedChartPaths = new HashSet<string>(result.RemovedCharts.Select(chart => chart.Path), StringComparer.OrdinalIgnoreCase);
-            bool shouldDeleteWholeFolder = libraryChartLookup.CountChartRefsUnderRealPath(folderGroup.Key, removedChartPaths) == folderGroup.Count()
-                && (confirmDeleteWholeFolder?.Invoke(folderGroup.Key) ?? false);
-            if (shouldDeleteWholeFolder)
-            {
-                if (!LongPathFileSystem.DirectoryExists(folderGroup.Key))
-                {
-                    continue;
-                }
-                try
-                {
-                    fileMutationService.DeleteDirectoryShell(folderGroup.Key, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
-                    result.FolderDeleteCount++;
-                    result.DeletedFolderPaths.Add(folderGroup.Key);
-                    AddRemovedCharts(result, folderGroup);
-                }
-                catch (Exception ex)
-                {
-                    result.Failures.Add(new LibraryDeleteFailure
-                    {
-                        Path = folderGroup.Key,
-                        Exception = ex,
-                        IsDirectory = true
-                    });
-                }
-                if (!result.Failures.Any(failure => failure.IsDirectory && string.Equals(failure.Path, folderGroup.Key, StringComparison.OrdinalIgnoreCase)))
-                {
-                    CollectInstallDestinationClearsUnderDeletedFolder(result, folderGroup.Key, pendingPackages, installDestinationOverlayCharts);
-                }
-                continue;
-            }
-            foreach (LibraryChartRef selectedChart in folderGroup)
-            {
-                try
-                {
-                    if (LongPathFileSystem.FileExists(selectedChart.Path))
-                    {
-                        fileMutationService.DeleteFileShell(selectedChart.Path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
-                        result.FileDeleteCount++;
-                        AddRemovedChart(result, selectedChart);
-                    }
-                }
-                catch (Exception ex2)
-                {
-                    result.Failures.Add(new LibraryDeleteFailure
-                    {
-                        Path = selectedChart.Path,
-                        Exception = ex2,
-                        IsDirectory = false
-                    });
-                }
-            }
-        }
-        return result;
-    }
-
     public List<string> GetWholeFolderDeleteCandidatePaths(
         IEnumerable<LibraryChartRef> charts,
         ILibraryChartCanonicalLookup libraryChartLookup)
@@ -839,104 +755,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     private static bool HasPath(LibraryChartRef chart)
     {
         return !string.IsNullOrWhiteSpace(chart?.Path);
-    }
-
-    private static string FindInputPathForCanonicalChart(IEnumerable<LibraryChartRef> inputCharts, LibraryChartRef canonicalChart)
-    {
-        if (canonicalChart == null)
-        {
-            return null;
-        }
-
-        foreach (LibraryChartRef inputChart in inputCharts ?? [])
-        {
-            if (inputChart == null)
-            {
-                continue;
-            }
-
-            BMSFile bmsFile = canonicalChart.GetBmsStorageOwner();
-            if (bmsFile != null && ReferenceEquals(inputChart.GetBmsStorageOwner(), bmsFile))
-            {
-                return inputChart.Path;
-            }
-
-            LR2SongDBExtended.bmson_song bmsonSong = canonicalChart.GetBmsonStorageOwner();
-            if (bmsonSong != null && ReferenceEquals(inputChart.GetBmsonStorageOwner(), bmsonSong))
-            {
-                return inputChart.Path;
-            }
-        }
-        return canonicalChart.Path;
-    }
-
-    private static void CollectInstallDestinationClearsUnderDeletedFolder(
-        LibraryRemovalResult result,
-        string folderPath,
-        IEnumerable<ChartPackage> pendingPackages,
-        InstallDestinationOverlayChartRefSnapshot currentLibraryCharts)
-    {
-        if (result == null || string.IsNullOrWhiteSpace(folderPath))
-        {
-            return;
-        }
-        try
-        {
-            int installDestinationChangeCountBefore = result.MutationDelta.UpdatedInstallDestinations.Count;
-            foreach (LibraryInstallDestinationChange target in EnumerateInstallDestinationTargetsUnderFolder(pendingPackages, currentLibraryCharts, folderPath))
-            {
-                if (target.Entry != null)
-                {
-                    target.Entry.ClearInstallDestination();
-                }
-                else
-                {
-                    result.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-                    {
-                        Chart = target.Chart,
-                        NewInstallDestination = null,
-                        ClearInstallDestinationState = true
-                    });
-                }
-            }
-            if (result.MutationDelta.UpdatedInstallDestinations.Count > installDestinationChangeCountBefore)
-            {
-                result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
-                result.MutationDelta.ClearDuplicatedCache = true;
-            }
-        }
-        catch
-        {
-        }
-    }
-
-    private static void AddRemovedCharts(LibraryRemovalResult result, IEnumerable<LibraryChartRef> charts)
-    {
-        foreach (LibraryChartRef chart in charts ?? [])
-        {
-            AddRemovedChart(result, chart);
-        }
-    }
-
-    private static void AddRemovedChart(LibraryRemovalResult result, LibraryChartRef chart)
-    {
-        if (chart == null)
-        {
-            return;
-        }
-        result.RemovedCharts.Add(chart);
-        ChartFile removedChart = ToChartFile(chart);
-        if (removedChart != null)
-        {
-            OwnedChartRemoveRequest removeRequest = OwnedChartRemoveRequest.FromOwnerReferenceChart(removedChart);
-            if (removeRequest != null)
-            {
-                result.MutationDelta.ChartRemoveRequests.Add(removeRequest);
-            }
-            result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
-            result.MutationDelta.InvalidateParentFolderCache = true;
-            result.MutationDelta.ClearDuplicatedCache = true;
-        }
     }
 
     public LibraryMutationDelta BuildFolderMoveDelta(

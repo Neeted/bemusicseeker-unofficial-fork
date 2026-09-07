@@ -217,6 +217,22 @@ batch で compensation を所有するのは一つの owner だけであり、pe
 
 既存の estimated cleanup-only 正常完了案内は保持する。同じ batch に異常 receipt が含まれる canonical route の場合だけ、この案内を一回の異常 report へ統合し、正常部分は durable 操作件数に残す。legacy と receipt のない案内は抑止しない。`BmsLibraryPackageInstallServiceTests.EstimatedCleanupKeepsNormalAdviceButDefersMixedAbnormalAdviceToTerminal` が実 cleanup の正常／異常と canonical／legacy の対照を検証する。
 
+### 導入先修正後の保守再検査
+
+`FixInstallationDirectoryCharts` は、成功した移動と catalog path 更新に続いて、移動後の BMS / BMSON を `forceUpdate: true` で保守再検査する。新しい場所にリソースが存在するかを DB と表示へ反映し、移動前の不足情報をそのまま成功結果にしない。
+
+この後処理は、導入先修正が取得済みの file-mutation lease を使う `ApplyCatalogMaintenanceUnderExistingReservation` へ接続する。通常の外部受付を再呼出しして自分自身の予約と競合させない。外部操作からの再入拒否は維持し、lane や再入許可は追加しない。保守の DB 反映が終わるまで外側の lease を保持し、通知は command-owned の post-lease list へ渡す。
+
+保守 DB の失敗は呼出し側へ伝え、取消し結果を捨てて正常終了しない。先に成功したファイル移動・パス保存を失敗隠しのために取り消す処理や、自動再試行は追加しない。解放済みの lease と、既に確定した変更の通知を維持する。
+
+`BmsLibraryFolderRenameRefreshTests.FixInstallationDirectoryCharts_RechecksResourcesUnderExistingReservation` が BMS / BMSON の移動前不足→移動後充足、DB の保守値、警告、解放後通知を検証する。後半の保守 write だけを SQLite trigger で失敗させる対照も含む。既存の overlay のみを見る BMS 修正テストを置換し、固有 FS / DB と同期 model return を使用する。Functional の `remaining-bms-library` route は変更しない。
+
+#### フォルダ統合後の保守との区別
+
+`MergeChartDirectory` は file-mutation lease の解放後に統合先を再検査するため、導入先修正とは別の `applyMergeFolderMaintenanceAfterRelease` へ接続する。通常の `ApplyCatalogMaintenance` が新しい予約を取得し、既存の `forceUpdate: true` / `DeferOnUpdates` / `merge_folder` の契約を維持する。取得済み予約用の処理を無予約で流用せず、導入先修正を通常受付へ戻すこともしない。
+
+`BmsLibraryDuplicateServiceTests.MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation` が、実際の BMS / BMSON、統合先だけに存在する WAV、保守 DB の更新、警告解除、DeferOnUpdates と解放後通知を検証する。既存の統合失敗・衝突・receipt のテストも維持し、新しい lane / fixture / 待機処理は追加しない。
+
 ### Library deletion terminal facts
 
 `LibraryChartRemovalOutcome` は削除 executor が既存 API 呼出し時に観測した chart target と、既存 catalog owner の apply attempted／durable／failure を保持する callback-free immutable result とする。削除 API が正常 return した対象だけを確認済み件数に含める。exists=false は削除未実行・実在未確認、directory 削除例外は配下の削除結果未確認として保持し、新しい probe／rescan／DB purge は行わない。catalog 失敗で確認済み FS 結果を捨てず、durable 後の必須反映失敗を未 commit や cleanup warning に読み替えない。
@@ -238,3 +254,30 @@ catalog／必須反映失敗後は success-only selection／maintenance を進�
 | C6: unknownはError、正常silent、bounds／任意reportfailure | `LibraryChartRemovalReportTests`、`LocalizationResourceParityTests` | renderer return／dialog Task、read-only resources |
 
 既存 Functional lane を使う。新 DNP、固定待ち、共有 logger 設定、アプリ lifetime fixture は追加しない。削除個別 failure dialog、結果を失う catalog throw、計画件数を実績とする旧 route は上記 terminal と confirmed outcome へ置換する。
+
+### 通常ライブラリの親子フォルダ削除
+
+これは保留パッケージの「フォルダごと削除」とは別の、通常ライブラリの選択削除の契約である。利用者のフォルダ削除承認を preflight で取得することと、子が実際に削除できたかという execution fact を区別する。
+
+`BuildLibraryChartRemovalPlan` は path / kind / 承認済み操作とともに、各親フォルダの全体削除が成功を前提とする子の target indexes を記録する。`ExecuteLibraryChartRemovalPlan` は、該当する全 child の削除 API が正常終了した場合だけ、承認済み親フォルダを再帰削除する。child の失敗・未実行時はその親を再帰削除せず、親グループ自身の選択譜面だけを個別削除する。失敗した子への再試行・親からの巻取り削除は行わない。
+
+一方、全 child が成功した場合のフォルダ全体削除は、リソースや説明書を含め従来どおり行う。無関係な枝や、名前の prefix が似ているだけのフォルダの失敗で他の成功可能な処理を止めない。未選択の譜面が残る場合、または全体削除を承認しない場合は、選択譜面だけを削除する。
+
+DB / owned catalog から除去するのは、現在の executor が確認済みとした target indexes だけとする。失敗した子の譜面・リソース・行を保持し、成功した親自身の譜面や独立したフォルダは反映する。shell 自体の部分失敗を atomic / rollback 可能とは主張せず、既存の Unconfirmed / NotExecuted を維持する。新しい FS probe、purge、永続状態は追加しない。
+
+未使用だった `BmsLibraryLibraryFileOperationsService.DeleteLibraryCharts` と `LibraryRemovalResult`、その専用の結果集計・参照解除 helper は退役する。通常の削除は `BMSLibrary.RemoveLibraryCharts` → canonical/preflight → path-only plan/executor → capability 下の catalog apply → post-lease report だけを使う。
+
+#### Verification map — R2
+
+旧サービス単体の `DeleteLibraryCharts_*` 8件は退役し、`OwnedChartCollectionLibraryMutationTests` の実 owner / DB テストへ置換する。
+
+| Contract | Fixture method | 元の coverage / 追加条件 |
+| --- | --- | --- |
+| R2-01/02 | `RemoveLibraryCharts_ParentDeletionDependsOnObservedChildResult` | 子が BMSON だけのフォルダ成功、子 directory 失敗・未存在・file 失敗、承認親自身の続行、独立した似た名前の枝、ごみ箱 / 完全削除 |
+| R2-03 | `RemoveLibraryCharts_UnselectedDescendantKeepsResourcesAndRows` | 入れ子の未選択譜面・resource・DB 行を保持 |
+| R2-04 | `RemoveLibraryCharts_ResolvesSelectionThroughProductionOwner` | path-only、同一pathの別インスタンスを canonical owner へ解決 |
+| R2-04 | `RemoveLibraryCharts_UnresolvedSelectionKeepsFilesystemAndDatabase` | 非catalog、同一hash別path、pathを持たなくなったownerの旧選択を削除しない |
+| R2-03/04 | `RemoveLibraryCharts_LastChartHonorsWholeFolderConfirmation` | 最後の譜面の確認、Yes / No の実挙動、DB と FS の一致 |
+| R2-05 | `RemoveLibraryCharts_WholeFolderClearsInstallDestinationsForBothFormats` | BMS/BMSON 削除、pending/library の導入先・提案・警告解除、adapterless BMSON 保持 |
+
+共有 helper は既存 `OwnedChartCollectionTestSupport` に限定し、FS failure 注入と呼出し時の recycle policy 記録だけを追加する。成功の確認は同期 model return、FS / SQLite readback、owned collection、immutable outcome。通常の Functional `remaining` route、固有の一時 FS / DB を使い、新しい process / lane / DNP / 固定待ちは追加しない。

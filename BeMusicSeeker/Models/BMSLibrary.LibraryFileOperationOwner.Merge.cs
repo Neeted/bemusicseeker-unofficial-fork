@@ -154,7 +154,10 @@ internal sealed partial class LibraryFileOperationOwner
                                 {
                                     LogInstallPerformanceWarning("duplicate_merge_model dst_scan_skipped op=" + operationId + " reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown"));
                                 }
-                                maintenanceResult = ApplyMergeFolderMaintenance(destinationMaintenanceChartSnapshots);
+                                // This callback runs after the merge lease is released.
+                                // Unlike repair's in-lease recheck, merge maintenance
+                                // must acquire its own reservation and defer index updates.
+                                maintenanceResult = applyMergeFolderMaintenanceAfterRelease(destinationMaintenanceChartSnapshots);
                                 LogInstallPerformance("duplicate_merge_model done op=" + operationId
                                     + " movedBms=" + (movedTargets?.BmsFiles.Count ?? 0)
                                     + " movedBmson=" + (movedTargets?.BmsonSongs.Count ?? 0)
@@ -377,15 +380,6 @@ internal sealed partial class LibraryFileOperationOwner
             }
         }
         return receiptFactory();
-    }
-
-    private MaintenanceWorkflowResult ApplyMergeFolderMaintenance(IEnumerable<ChartFile> charts)
-    {
-        return ApplyCatalogMaintenance(
-            charts,
-            forceUpdate: true,
-            resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
-            resourceHealthMutationReason: "merge_folder");
     }
 
     private static DuplicateMergeMaintenanceReceipt CreateMergeMaintenanceReceipt(
