@@ -3,6 +3,7 @@ param(
     [Parameter(Mandatory)]
     [ValidateSet(
         'normal',
+        'utf8-output',
         'nonzero',
         'late-success',
         'descendant-root',
@@ -170,6 +171,49 @@ public static class VerificationLifecycleProbeTasks
     }
 }
 '@
+}
+
+if ($Scenario -ceq 'utf8-output') {
+    $parentEncoding = [Console]::OutputEncoding.CodePage
+    $parentUtf8Setting = [Environment]::GetEnvironmentVariable('DOTNET_CLI_FORCE_UTF8_ENCODING')
+    $policy = Resolve-VerificationDeadlinePair -TimeoutSeconds 10
+    $owned = [System.Collections.Generic.List[object]]::new()
+    try {
+        $started = Start-VerificationRedirectedProcess `
+            -FileName 'pwsh' `
+            -Arguments @('-NoProfile', '-File', $childScript, '-Scenario', 'utf8-output') `
+            -WorkingDirectory $repositoryRoot `
+            -DeadlinePolicy $policy `
+            -DiagnosticsDirectory $DiagnosticsDirectory `
+            -OwnedProcessRecords $owned
+        Write-LifecycleLedgerEntry -Process $started.Process
+        $result = Complete-VerificationRedirectedProcess `
+            -Started $started `
+            -DiagnosticsDirectory $DiagnosticsDirectory `
+            -DeadlinePolicy $policy
+        [System.IO.File]::WriteAllText(
+            $ResultPath,
+            ([ordered]@{
+                    scenario = $Scenario
+                    exitCode = $result.ExitCode
+                    processTimedOut = $result.ProcessTimedOut
+                    stdout = $result.StandardOutput
+                    stderr = $result.StandardError
+                    stdoutArtifact = [System.IO.File]::ReadAllText((Join-Path $DiagnosticsDirectory 'stdout.log'))
+                    stderrArtifact = [System.IO.File]::ReadAllText((Join-Path $DiagnosticsDirectory 'stderr.log'))
+                    remainingOwnedProcessIds = @($result.RemainingOwnedProcessIds)
+                    secondaryDiagnostics = @($result.SecondaryDiagnostics)
+                    parentEncodingUnchanged = [Console]::OutputEncoding.CodePage -eq $parentEncoding
+                    parentEnvironmentUnchanged = [Environment]::GetEnvironmentVariable('DOTNET_CLI_FORCE_UTF8_ENCODING') -ceq $parentUtf8Setting
+                } | ConvertTo-Json -Depth 8),
+            [System.Text.UTF8Encoding]::new($false))
+    }
+    finally {
+        if ($owned.Count -gt 0) {
+            Stop-VerificationOwnedProcessRecords -StartedProcesses $owned -CleanupDeadlineUtc $policy.CleanupDeadlineUtc
+        }
+    }
+    return
 }
 
 if ($Scenario -ceq 'fanout-order') {

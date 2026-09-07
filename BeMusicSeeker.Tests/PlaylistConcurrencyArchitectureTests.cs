@@ -263,7 +263,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         {
             Assert.IsFalse(playlistSource.Contains(legacyMember), "BMSPlaylist must not retain recommended-table member: " + legacyMember);
         }
-        StringAssert.Contains(ownerSource, "internal BMSTable LoadWalkureTable");
+        StringAssert.Contains(ownerSource, "internal async Task<BMSTable> LoadWalkureTableAsync");
         StringAssert.Contains(ownerSource, "UpdatedClearedSongs");
         StringAssert.Contains(ownerSource, "BuildEstimationEntries");
     }

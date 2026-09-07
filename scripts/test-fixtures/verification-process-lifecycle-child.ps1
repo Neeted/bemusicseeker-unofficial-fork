@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet('normal', 'nonzero', 'descendant-root', 'descendant-child', 'late-success')]
+    [ValidateSet('normal', 'utf8-output', 'nonzero', 'descendant-root', 'descendant-child', 'late-success')]
     [string]$Scenario,
 
     [string]$LedgerPath,
@@ -30,6 +30,14 @@ function Write-LifecycleLedgerEntry {
 }
 
 switch ($Scenario) {
+    'utf8-output' {
+        # Only this disposable child changes its console writer. Emit non-ASCII on both
+        # pipes, including characters that cannot round-trip through the Japanese ANSI page.
+        [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        [Console]::Out.Write('stdout-日本語-✓-😀')
+        [Console]::Error.Write('stderr-失敗-✓-😀')
+        exit 0
+    }
     'normal' {
         [Console]::Out.Write('stdout-complete')
         [Console]::Error.Write('stderr-complete')

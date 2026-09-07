@@ -52,6 +52,8 @@ foreground input、keyboard focus、hit testing、nested modal activation が保
 
 正常完了は対象の `Task`、signal、event、state transitionを plain `await` で待つ。coordinator は `.Wait`、`.Result`、`GetAwaiter().GetResult()`、`WaitOne`、`SpinUntil` などの同期 block を行わない。local bound は cleanup、external process、UI presentation、negative lock、timeout contract の failure watchdog に限り、固定 sleep、成功推定用の正の delay、既定 timeout helper は追加しない。
 
+既知の UTF-8 出力元である `dotnet` / `pwsh` の redirected stdout / stderr は、process 起動前に UTF-8 decoder を明示する。通常の monitored command と Functional shard は同じ `Set-VerificationRedirectedProcessEncoding` を使い、`dotnet` の UTF-8 指定はその子プロセスの environment にだけ設定する。親の console encoding、culture、environment と、その他 native command の既定 decoder は変更しない。UTF-8 として artifact に書き直すだけでは、pipe 読取り時点の文字化けを修復できない。`VerificationProcessLifecycleTests.RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent` は既存 ProcessIntegration probe から本番の起動・drain・保存 owner を通し、両 stream と artifact の非 ASCII payload、親設定の不変、残留 process なしを検証する。Functional の host 数・worker 数・deadline・結果判定はこの encoding 対応で変更しない。
+
 Functional plan の変更受入は上記の最終 acceptance 方針に従う。focused Quick では実際の runner entry point と `VerificationProcessLifecycleTests` を使い、locked restore / build、deadline、process ownership、Quick route の実行結果を検証する。release outcome の executable gates は `VerificationRunnerContractTests` が実際の `verification-test-outcomes.ps1` に接続して検証する。
 
 ## Verification map: process lifecycle

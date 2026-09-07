@@ -39,6 +39,22 @@ public sealed class VerificationProcessLifecycleTests
     }
 
     [TestMethod]
+    public void RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent()
+    {
+        using JsonDocument result = RunProbe("utf8-output");
+        Assert.AreEqual(0, result.RootElement.GetProperty("exitCode").GetInt32());
+        Assert.IsFalse(result.RootElement.GetProperty("processTimedOut").GetBoolean());
+        Assert.AreEqual("stdout-日本語-✓-😀", result.RootElement.GetProperty("stdout").GetString());
+        Assert.AreEqual("stderr-失敗-✓-😀", result.RootElement.GetProperty("stderr").GetString());
+        Assert.AreEqual("stdout-日本語-✓-😀", result.RootElement.GetProperty("stdoutArtifact").GetString());
+        Assert.AreEqual("stderr-失敗-✓-😀", result.RootElement.GetProperty("stderrArtifact").GetString());
+        Assert.IsTrue(result.RootElement.GetProperty("parentEncodingUnchanged").GetBoolean());
+        Assert.IsTrue(result.RootElement.GetProperty("parentEnvironmentUnchanged").GetBoolean());
+        CollectionAssert.AreEqual(Array.Empty<string>(), ReadStringArray(result.RootElement.GetProperty("secondaryDiagnostics")));
+        CollectionAssert.AreEqual(Array.Empty<int>(), ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
+    }
+
+    [TestMethod]
     public void RootExitWithOwnedDescendantReturnsBoundedCleanupDiagnostic()
     {
         using JsonDocument result = RunProbe("descendant-root");

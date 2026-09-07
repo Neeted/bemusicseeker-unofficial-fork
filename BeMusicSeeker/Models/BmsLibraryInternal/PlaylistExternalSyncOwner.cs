@@ -148,6 +148,13 @@ internal sealed class PlaylistExternalSyncOwner
         return LoadExternalTableAsync(pageUri, baseTable).GetAwaiter().GetResult();
     }
 
+    /// <summary>
+    /// 外部表を非同期に取得し、HTTP 本文・参照元表・取得待機へ取消しを伝播します。
+    /// </summary>
+    /// <param name="pageUri">外部表の取得元。</param>
+    /// <param name="baseTable">ローカル設定を引き継ぐ既存表。</param>
+    /// <param name="cancellationToken">取得と取得待機を取り消すトークン。</param>
+    /// <returns>取得が完了した表。取得失敗・取消しは呼出し元へ伝播します。</returns>
     internal async Task<BMSTable> LoadExternalTableAsync(
         Uri pageUri,
         BMSTable baseTable = null,
@@ -160,9 +167,7 @@ internal sealed class PlaylistExternalSyncOwner
         }
         if (pageUri.Scheme == "bmseeker")
         {
-            BMSTable recommendedTable = recommendedTableOwner.LoadWalkureTable(pageUri, baseTable);
-            cancellationToken.ThrowIfCancellationRequested();
-            return recommendedTable;
+            return await recommendedTableOwner.LoadWalkureTableAsync(pageUri, baseTable, cancellationToken).ConfigureAwait(false);
         }
 
         Uri originalPageUri = pageUri;

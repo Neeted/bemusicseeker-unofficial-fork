@@ -615,7 +615,7 @@ public partial class BMSPlaylist : ObservableObject
         recommendedTableOwner = new PlaylistRecommendedTableOwner(
             _lr2ScoreDB,
             getBMSScores ?? (() => null),
-            uri => externalSyncOwnerLocal.LoadExternalTable(uri),
+            (uri, cancellationToken) => externalSyncOwnerLocal.LoadExternalTableAsync(uri, cancellationToken: cancellationToken),
             new AppPlaylistRecommendedTableHttpClient(playlistHttpClient),
             operationNotificationOwner,
             this.customFolderOutputSettingsProvider);

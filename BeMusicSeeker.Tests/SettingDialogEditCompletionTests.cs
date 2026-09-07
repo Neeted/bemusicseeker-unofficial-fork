@@ -35,6 +35,8 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class SettingDialogEditCompletionTests
 {
+    public TestContext TestContext { get; set; } = null!;
+
     [TestMethod]
     public void DisposedSettingsDialogStopsListeningToResourceServiceCultureChanges()
     {
@@ -2259,6 +2261,7 @@ public sealed class SettingDialogEditCompletionTests
         string unavailableRootB = Path.Combine(root, "BMS-B-unavailable");
         string applicationRoot = Path.Combine(root, "application");
         MainWindowViewModel viewModel = null;
+        Exception primaryFailure = null;
         Directory.CreateDirectory(rootA);
         Directory.CreateDirectory(rootB);
         Directory.CreateDirectory(applicationRoot);
@@ -2353,13 +2356,39 @@ public sealed class SettingDialogEditCompletionTests
                 Directory.Move(unavailableRootB, rootB);
             }
         }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
         finally
         {
-            if (viewModel != null)
+            try
             {
-                TestUiDispatcherHost.Invoke(() => viewModel.SettingDialog.Dispose());
+                if (viewModel != null)
+                {
+                    TestUiDispatcherHost.Invoke(() =>
+                    {
+                        try
+                        {
+                            // InitializeAsync leaves owned deferred work alive. Completing
+                            // reinitialize's failure cleanup is not the shell shutdown signal.
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                                viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                                "late-directory-reinitialize-shutdown");
+                        }
+                        finally
+                        {
+                            viewModel.SettingDialog.Dispose();
+                        }
+                    });
+                }
+                Directory.Delete(root, recursive: true);
             }
-            Directory.Delete(root, recursive: true);
+            catch (Exception cleanupFailure) when (primaryFailure != null)
+            {
+                TestContext.WriteLine("Late-directory fixture cleanup: " + cleanupFailure);
+            }
         }
     }
 

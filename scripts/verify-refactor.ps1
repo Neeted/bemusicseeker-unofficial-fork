@@ -926,6 +926,7 @@ function Start-FunctionalShardProcess {
     foreach ($argument in $arguments) {
         [void]$startInfo.ArgumentList.Add($argument)
     }
+    Set-VerificationRedirectedProcessEncoding -StartInfo $startInfo
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     $started = $false

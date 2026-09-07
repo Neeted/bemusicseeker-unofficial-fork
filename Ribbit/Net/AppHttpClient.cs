@@ -155,6 +155,8 @@ internal sealed class AppHttpClient
     /// </summary>
     private readonly HttpClient httpClient;
 
+    private readonly TimeProvider timeProvider = TimeProvider.System;
+
     /// <summary>
     /// 指定タイムアウトで HTTP クライアントを初期化します。
     /// </summary>
@@ -173,6 +175,18 @@ internal sealed class AppHttpClient
     }
 
     /// <summary>
+    /// 呼出し側が所有する transport と時計で、同じ送信・本文読取り経路を構成します。
+    /// 並列テストでも共有クライアントや実時間を変更せず、要求期限を検証できます。
+    /// </summary>
+    /// <param name="httpClient">Timeout が要求全体の期限となるクライアント。破棄は呼出し側が所有します。</param>
+    /// <param name="timeProvider">要求開始から本文完了までの期限を計測する時計。</param>
+    internal AppHttpClient(HttpClient httpClient, TimeProvider timeProvider)
+    {
+        this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        this.timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
+    }
+
+    /// <summary>
     /// 指定タイムアウトを持つクライアントを生成します。
     /// </summary>
     /// <param name="requestTimeoutMs">リクエスト全体のタイムアウト時間（ミリ秒）。</param>
@@ -183,7 +197,7 @@ internal sealed class AppHttpClient
     }
 
     /// <summary>
-    /// 指定 URI のバイト列を取得します。
+    /// 指定 URI のバイト列を取得します。HTTP は送信開始から本文完了まで一つの期限で読み取ります。
     /// </summary>
     /// <param name="uri">取得元 URI。</param>
     /// <returns>取得したバイト列。</returns>
@@ -198,8 +212,7 @@ internal sealed class AppHttpClient
         {
             return LongPathFileSystem.ReadAllBytes(uri.LocalPath);
         }
-        using HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri);
-        return httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+        return SendAndReadResponseBytesAsync(HttpMethod.Get, uri).ConfigureAwait(false).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -233,20 +246,12 @@ internal sealed class AppHttpClient
             byte[] bytes = await Task.Run(() => LongPathFileSystem.ReadAllBytes(uri.LocalPath), cancellationToken).ConfigureAwait(false);
             return DecodeStringAndTrimBom(bytes, encoding);
         }
-        using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        if (httpClient.Timeout != Timeout.InfiniteTimeSpan)
-        {
-            readCancellation.CancelAfter(httpClient.Timeout);
-        }
-        using (HttpResponseMessage httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, readCancellation.Token).ConfigureAwait(false))
-        {
-            byte[] bytes = await ReadResponseBytesAsync(httpResponseMessage, readCancellation.Token).ConfigureAwait(false);
-            return DecodeStringAndTrimBom(bytes, encoding);
-        }
+        byte[] responseBytes = await SendAndReadResponseBytesAsync(HttpMethod.Get, uri, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return DecodeStringAndTrimBom(responseBytes, encoding);
     }
 
     /// <summary>
-    /// 指定 URI へフォームエンコードされた POST を送信します。
+    /// 指定 URI へフォームエンコードされた POST を送信し、本文完了まで一つの期限で読み取ります。
     /// </summary>
     /// <param name="uri">送信先 URI。</param>
     /// <param name="formData">送信するフォーム値。</param>
@@ -254,6 +259,20 @@ internal sealed class AppHttpClient
     /// <returns>レスポンス本文。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="uri"/> または <paramref name="formData"/> が <see langword="null"/> の場合。</exception>
     internal string PostForm(Uri uri, NameValueCollection formData, Encoding responseEncoding = null)
+    {
+        return PostFormAsync(uri, formData, responseEncoding).ConfigureAwait(false).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// フォーム POST を、送信開始から本文完了まで一つの期限で非同期に実行します。
+    /// </summary>
+    /// <param name="uri">送信先 URI。</param>
+    /// <param name="formData">送信するフォーム値。</param>
+    /// <param name="responseEncoding">レスポンスを文字列化する文字コード。省略時は UTF-8。</param>
+    /// <param name="cancellationToken">送信と本文読み取りを中断するためのトークン。</param>
+    /// <returns>レスポンス本文。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="uri"/> または <paramref name="formData"/> が <see langword="null"/> の場合。</exception>
+    internal async Task<string> PostFormAsync(Uri uri, NameValueCollection formData, Encoding responseEncoding = null, CancellationToken cancellationToken = default)
     {
         if (uri == null)
         {
@@ -278,11 +297,12 @@ internal sealed class AppHttpClient
             }
         }
         using var formUrlEncodedContent = new FormUrlEncodedContent(list);
-        return ReadResponseString(Send(HttpMethod.Post, uri, formUrlEncodedContent), responseEncoding);
+        byte[] responseBytes = await SendAndReadResponseBytesAsync(HttpMethod.Post, uri, formUrlEncodedContent, cancellationToken: cancellationToken).ConfigureAwait(false);
+        return DecodeStringAndTrimBom(responseBytes, responseEncoding);
     }
 
     /// <summary>
-    /// 指定 URI へ文字列本文を POST します。
+    /// 指定 URI へ文字列本文を POST し、本文完了まで一つの期限で読み取ります。
     /// </summary>
     /// <param name="uri">送信先 URI。</param>
     /// <param name="body">送信する本文。</param>
@@ -305,7 +325,8 @@ internal sealed class AppHttpClient
         byte[] bytes = requestEncoding.GetBytes(body ?? string.Empty);
         using var byteArrayContent = new ByteArrayContent(bytes);
         byteArrayContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
-        return ReadResponseString(Send(HttpMethod.Post, uri, byteArrayContent, headers), responseEncoding);
+        byte[] responseBytes = SendAndReadResponseBytesAsync(HttpMethod.Post, uri, byteArrayContent, headers).ConfigureAwait(false).GetAwaiter().GetResult();
+        return DecodeStringAndTrimBom(responseBytes, responseEncoding);
     }
 
     /// <summary>
@@ -544,22 +565,21 @@ internal sealed class AppHttpClient
     }
 
     /// <summary>
-    /// レスポンス本文を文字列として読み取ります。
+    /// バッファリングする HTTP 要求の期限と応答の寿命を、本文読み取りの実完了まで所有します。
     /// </summary>
-    /// <param name="httpResponseMessage">読み取り対象のレスポンス。</param>
-    /// <param name="responseEncoding">レスポンスを文字列化する文字コード。省略時は UTF-8。</param>
-    /// <returns>レスポンス本文。</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="httpResponseMessage"/> が <see langword="null"/> の場合。</exception>
-    private static string ReadResponseString(HttpResponseMessage httpResponseMessage, Encoding responseEncoding)
+    private async Task<byte[]> SendAndReadResponseBytesAsync(
+        HttpMethod method,
+        Uri uri,
+        HttpContent content = null,
+        IDictionary<string, string> headers = null,
+        CancellationToken cancellationToken = default)
     {
-        if (httpResponseMessage == null)
-        {
-            throw new ArgumentNullException(nameof(httpResponseMessage));
-        }
-        using (httpResponseMessage)
-        {
-            return DecodeStringAndTrimBom(ReadResponseBytes(httpResponseMessage), responseEncoding);
-        }
+        // ResponseHeadersRead の HttpClient.Timeout はヘッダーまでしか有効でない。
+        // 時計も期限も要求単位で所有し、同じ取消しを本文の実 I/O まで維持する。
+        using var deadline = new CancellationTokenSource(httpClient.Timeout, timeProvider);
+        using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+        using HttpResponseMessage response = await SendAsync(method, uri, content, headers, readCancellation.Token).ConfigureAwait(false);
+        return await ReadResponseBytesAsync(response, readCancellation.Token).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -599,7 +619,7 @@ internal sealed class AppHttpClient
         {
             return [];
         }
-        using Stream responseStream = await httpResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        using Stream responseStream = await httpResponseMessage.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var memoryStream = new MemoryStream();
         byte[] buffer = new byte[81920];
         int count;

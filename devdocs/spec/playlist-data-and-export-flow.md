@@ -89,6 +89,12 @@ UI 一覧適用後に開始した required playlist readiness は、root 出力�
 
 外部同期では、再取得した header/data JSON から `BMSTable` と `BMSTableEntry` を作り、既存 DB と比較して既存ローカル状態を引き継ぐ。
 
+推定難度表・リコメンド表 (`bmseeker:`) の HTTP GET / form POST は、送信開始から本文の読取り完了まで、同一の要求期限と呼出し元の `CancellationToken` を適用する。`ResponseHeadersRead` のヘッダー受信で期限を終了・更新せず、本文の実 I/O を取消してから response / stream を破棄する。待ち手だけを timeout で切り離したり、途中までの本文を成功として返したりしない。既存の同期 buffered GET / form POST / text POST も同じ本文読取り境界を使う。大容量 download / multipart upload と stream を返す API の期限はこの契約の対象外とする。
+
+Walkure の取得と参照元の難易度表取得は非同期で接続し、共有取得の gate 待機にも取消しを渡す。cache の single-flight は維持し、取消された待機者は他の取得を取消さず、gate を取得した処理だけが `finally` で解放する。ネットワーク待機をまたいで Monitor / model lock を保持しない。
+
+リコメンド表の score POST の通常失敗は、初回と最大5回の再試行、100ms の間隔、最終失敗の warning 後の GET 継続という既存方針を維持する。HTTP 要求自身の期限切れはこの通常失敗に含めるが、呼出し元の取消しは再試行や後続 GET へ進めず伝播する。期限は1要求単位であり、参照表取得や再試行を含む workflow 全体の上限ではない。取得失敗・取消しが反映前に発生した reload は既存 table / DB を保持し、失敗結果を報告し、更新中状態を `finally` で解除する。終了 coordinator に強制打切りや detached wait は追加しない。
+
 外部表の新規登録は、取得・永続化・UI 反映を分けて扱う。header/data の取得と parse は UI thread 外で行う。playlist collection の writer lock は重複確認、`bmt_sort` 採番、出力先算出のような短い in-memory mutation に限定する。DB への playlist / entry 永続化は writer lock 外で行い、commit 後の UI binding collection への `BMSTables.Add` は所有者の UI scheduler / collection applier 境界を通して UI dispatcher 上で短く実行する。model writer lock を保持した background thread から `ObservableCollection` を直接変更してはいけない。これは Play History など UI 側の playlist read と競合した時に、background thread が UI dispatcher を待ち、UI thread が playlist reader lock を待つ deadlock を避けるためである。
 
 既存 playlist の外部 reload replacement も同じ所有境界を使う。永続化と reload reservation を先に確定し、active collection の replacement は UI scheduler が受理した operation の `Completion` を実際に await してから成功とする。`oldTable.ReaderWriterLock`、active collection lock、UI lock を dispatcher operation の完了待ちをまたいで保持しない。scheduler の rejection、operation の abort / cancellation / fault、collection replacement 自体の失敗は reload failure として報告し、完了を推定するローカル timeout、operation の暗黙 Abort、旧 table を残したままの成功扱いへ fallback しない。reload reservation は replacement の成功・失敗にかかわらず owner の `finally` で解放する。
@@ -338,6 +344,19 @@ Page composition follows the shared unboxed Settings section grammar. `General` 
 Availability remains part of the edit contract: external synchronization disables its dependent URL and folder-editing controls; Custom Folder is available only when `OperationModeLR2DB` is enabled; automatic folder sorting disables manual ordering; and `LevelFolder` is available for File entry type but not Folder entry type. The save, reset, validation-failure, retry, owner-shutdown, and cleanup lifecycle is independent of navigation and remains unchanged. A single native title-bar close request starts the reset lifecycle; once reset reaches `Completed`, the same request's modal window closes with the cancelled/false result without requiring a second user close request. Pending, validation-failed, or faulted reset keeps the window and edit session active. The footer displays the update timestamp exactly as `Update: yyyy/MM/dd`.
 
 ## Verification map
+
+A2 の HTTP 本文期限・取消し契約は既存 fixture に置く。loopback HTTP は test ごとの動的 port、DB は GUID temporary directory を使用し、新しい lane や `DoNotParallelize` は追加しない。正常完了は Task / signal で観測し、実時間の制限は失敗 watchdog と実 HTTP 要求の安全期限に限る。共有 `Settings.Default` は変更・参照せず fixture 所有の immutable settings snapshot を渡し、取消しと gate 解放後に発行済み task の完了を確認してから資源を削除する。成功した本体の cleanup failure は失敗にし、既に本体が失敗している場合も cleanup 診断を残す。
+
+単一期限の test は per-instance `HttpClient` / `TimeProvider` で通常と同じ送信・本文読取り境界を通す。client の要求開始と本文 read 到達を観測し、仮想 20 秒 + 10 秒で 30 秒の要求期限を進め、実際の read token の取消し、要求の中止、response stream の解放を検証する。実時間 2 秒と意図的なヘッダー遅延の競争に依存する旧 test は置き換える。時計の seam は並列実行下で deadline reset / 欠落を実時間競争なしに識別するために限定し、同等の標準 fixture が導入された場合に統合する。通常の生成経路は `TimeProvider.System`、共有 client / global clock は変更しない。同期 wrapper を検証する worker は test 所有の専用 thread / task とし、非同期 server と無関係な fixture の thread pool を占有しない。
+
+`AppHttpClientTests` の loopback server は request 全体を非同期で受信し、response の最初の write より前に peer 切断監視を開始する。ヘッダー送信直後・本文 prefix 送信前の取消しは明示 gate、本文途中の取消しは prefix signal で同期する。クライアント切断の検証は gate 解放 / fixture cleanup より前に行い、local close / observer cancellation を成功として数えない。server の異常終了は phase 待機へ伝播し、経過時刻付きの到達点と元例外を TRX 診断へ残す。
+
+| 契約 | fixture | 観測する結果 |
+| --- | --- | --- |
+| A2-HTTP: 単一の本文期限・外部取消し | `AppHttpClientTests` | 送信・ヘッダー・本文 read を仮想時間で段階化した GET / form POST / text POST と同期 wrapper の単一期限。ヘッダー直後・本文途中の取消しと cleanup 前のクライアント切断。正常な GET / form POST、BOM、フォーム値の互換性 |
+| A2-CANCEL: 取得・参照元表・POST の取消し伝播 | `PlaylistRecommendedTableOwnerTests` | 取消し後の再取得、後続通信の抑止、要求自身の timeout と caller cancellation の再試行上の区別 |
+| A2-CACHE: single-flight と取消しの分離 | `PlaylistRecommendedTableOwnerTests` | 並行 variant の取得共有、待機者の取消し後も leader が成功し cache を再利用 |
+| A2-RELOAD: 反映前失敗の保全と解放 | `PlaylistRecommendedTableOwnerTests` | canonical reload 経路の失敗結果、旧 live / DB データ保持、更新中状態の解放 |
 
 BMT manifest の失敗契約 (`BMT-MANIFEST-FAILURE-1`) は次の既存 fixture で検証する。ファイル試験は GUID temporary directory と自身の共有拒否 handle を所有し、同期 return / throw で完了を確認する。owner 試験は実 scheduler の work を元 session 終了後に await し、新しい lane・固定待ち・reflection seam は追加しない。
 

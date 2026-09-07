@@ -2649,6 +2649,26 @@ function New-VerificationOwnedProcessRecord {
     }
 }
 
+# dotnet (.NET 10) and pwsh emit UTF-8. Select their pipe decoder before Start;
+# writing the resulting strings as UTF-8 later cannot undo an ANSI misdecode.
+# Other native programs retain their own default encoding contract.
+function Set-VerificationRedirectedProcessEncoding {
+    param(
+        [Parameter(Mandatory)]
+        [System.Diagnostics.ProcessStartInfo]$StartInfo
+    )
+
+    $name = [System.IO.Path]::GetFileNameWithoutExtension($StartInfo.FileName)
+    if ($name -ieq 'dotnet' -or $name -ieq 'pwsh') {
+        $StartInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        $StartInfo.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false)
+        if ($name -ieq 'dotnet') {
+            # Child-local only: do not change the runner's console, culture or environment.
+            $StartInfo.Environment['DOTNET_CLI_FORCE_UTF8_ENCODING'] = '1'
+        }
+    }
+}
+
 function Start-VerificationRedirectedProcess {
     param(
         [Parameter(Mandatory)]
@@ -2690,6 +2710,7 @@ function Start-VerificationRedirectedProcess {
         }
     }
 
+    Set-VerificationRedirectedProcessEncoding -StartInfo $startInfo
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
     $started = $false

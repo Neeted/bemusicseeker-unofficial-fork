@@ -4,33 +4,32 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Ribbit.Net;
-using Ribbit.Util;
 using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Walkure recommended / estimation workflow の同期 HTTP 境界です。
+/// Walkure recommended / estimation workflow のキャンセル可能な非同期 HTTP 境界です。
 /// </summary>
 internal interface IPlaylistRecommendedTableHttpClient
 {
     /// <summary>
-    /// 指定 URI のレスポンス本文を取得します。
+    /// 指定 URI のレスポンス本文を、本文完了までの期限と取消し付きで取得します。
     /// </summary>
-    string GetString(Uri uri);
+    Task<string> GetStringAsync(Uri uri, CancellationToken cancellationToken);
 
     /// <summary>
-    /// 指定 URI へフォームを POST し、レスポンス本文を取得します。
+    /// 指定 URI へフォームを POST し、本文完了までの期限と取消し付きで応答を取得します。
     /// </summary>
-    string PostForm(Uri uri, NameValueCollection formData);
+    Task<string> PostFormAsync(Uri uri, NameValueCollection formData, CancellationToken cancellationToken);
 }
 
 /// <summary>
@@ -49,15 +48,15 @@ internal sealed class AppPlaylistRecommendedTableHttpClient : IPlaylistRecommend
     }
 
     /// <inheritdoc />
-    public string GetString(Uri uri)
+    public Task<string> GetStringAsync(Uri uri, CancellationToken cancellationToken)
     {
-        return httpClient.GetString(uri);
+        return httpClient.GetStringAsync(uri, cancellationToken: cancellationToken);
     }
 
     /// <inheritdoc />
-    public string PostForm(Uri uri, NameValueCollection formData)
+    public Task<string> PostFormAsync(Uri uri, NameValueCollection formData, CancellationToken cancellationToken)
     {
-        return httpClient.PostForm(uri, formData);
+        return httpClient.PostFormAsync(uri, formData, cancellationToken: cancellationToken);
     }
 }
 
@@ -156,7 +155,7 @@ internal sealed class PlaylistRecommendedTableOwner
 
     private readonly Func<List<BMSScore>> bmsScoresProvider;
 
-    private readonly Func<Uri, BMSTable> externalTableLoader;
+    private readonly Func<Uri, CancellationToken, Task<BMSTable>> externalTableLoader;
 
     private readonly PlaylistOperationNotificationOwner notificationOwner;
 
@@ -170,7 +169,7 @@ internal sealed class PlaylistRecommendedTableOwner
     private readonly object overjoyTableLock = new();
     private readonly SemaphoreSlim overjoyTableLoadGate = new(1, 1);
 
-    private readonly object estimationTableLock = new();
+    private readonly SemaphoreSlim estimationTableLoadGate = new(1, 1);
 
     private BMSTable insaneTableValue;
 
@@ -184,10 +183,13 @@ internal sealed class PlaylistRecommendedTableOwner
 
     private List<BMSTableEntry> fullComboEntries;
 
+    /// <summary>
+    /// 外部表と Walkure HTTP の非同期取得、および結果通知に必要な依存を構成します。
+    /// </summary>
     internal PlaylistRecommendedTableOwner(
         string lr2ScoreDbPath,
         Func<List<BMSScore>> bmsScoresProvider,
-        Func<Uri, BMSTable> externalTableLoader,
+        Func<Uri, CancellationToken, Task<BMSTable>> externalTableLoader,
         IPlaylistRecommendedTableHttpClient httpClient,
         PlaylistOperationNotificationOwner notificationOwner,
         Func<CustomFolderOutputSettingsSnapshot> playlistSettingsProvider)
@@ -200,8 +202,16 @@ internal sealed class PlaylistRecommendedTableOwner
         this.playlistSettingsProvider = playlistSettingsProvider ?? throw new ArgumentNullException(nameof(playlistSettingsProvider));
     }
 
-    internal BMSTable LoadWalkureTable(Uri pageUri, BMSTable baseTable = null)
+    /// <summary>
+    /// 推定難度表またはリコメンド表を取得します。取消しは HTTP 本文、参照表取得、取得待機へ伝播します。
+    /// </summary>
+    /// <param name="pageUri">取得内容を指定する bmseeker URI。</param>
+    /// <param name="baseTable">ローカル設定を引き継ぐ既存表。</param>
+    /// <param name="cancellationToken">取得と取得待機を取り消すトークン。</param>
+    /// <returns>取得が完了した表。失敗や取消しで部分的な表を返しません。</returns>
+    internal async Task<BMSTable> LoadWalkureTableAsync(Uri pageUri, BMSTable baseTable = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!pageUri.IsAbsoluteUri || pageUri.Scheme != "bmseeker")
         {
             throw new ArgumentException(Resources.Error_SchemeMustBeBemusic, "pageUri");
@@ -219,23 +229,25 @@ internal sealed class PlaylistRecommendedTableOwner
         {
             string input = Uri.UnescapeDataString(pageUri.Query);
             int lr2Id = ParseQueryInt(input, "id");
-            LoadRecommendedTable(
+            await LoadRecommendedTableAsync(
                 table,
                 baseTable,
                 ParseQueryValue(input, "mode"),
                 ParseQueryValue(input, "filter"),
                 ParseQueryValue(input, "name"),
                 lr2Id,
-                ParseQueryValue(input, "base"));
+                ParseQueryValue(input, "base"),
+                cancellationToken).ConfigureAwait(false);
         }
         else if (pageUri.AbsolutePath == "table.estimation")
         {
-            LoadEstimationTable(table, pageUri.Query.TrimStart('?'));
+            await LoadEstimationTableAsync(table, pageUri.Query.TrimStart('?'), cancellationToken).ConfigureAwait(false);
         }
         else
         {
             throw new ArgumentException(Resources.Error_UnsupportedURI, pageUri.ToString());
         }
+        cancellationToken.ThrowIfCancellationRequested();
         if (baseTable != null)
         {
             table.symbol = baseTable.symbol;
@@ -264,8 +276,9 @@ internal sealed class PlaylistRecommendedTableOwner
         return match.Success ? match.Groups[1].Value : null;
     }
 
-    private BMSTable GetInsaneTable()
+    private async Task<BMSTable> GetInsaneTableAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (insaneTableLock)
         {
             if (insaneTableValue != null)
@@ -273,7 +286,7 @@ internal sealed class PlaylistRecommendedTableOwner
                 return insaneTableValue;
             }
         }
-        insaneTableLoadGate.Wait();
+        await insaneTableLoadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             lock (insaneTableLock)
@@ -286,7 +299,11 @@ internal sealed class PlaylistRecommendedTableOwner
             BMSTable loaded;
             try
             {
-                loaded = externalTableLoader(insaneUri);
+                loaded = await externalTableLoader(insaneUri, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch
             {
@@ -304,8 +321,9 @@ internal sealed class PlaylistRecommendedTableOwner
         }
     }
 
-    private BMSTable GetOverjoyTable()
+    private async Task<BMSTable> GetOverjoyTableAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         lock (overjoyTableLock)
         {
             if (overjoyTableValue != null)
@@ -313,7 +331,7 @@ internal sealed class PlaylistRecommendedTableOwner
                 return overjoyTableValue;
             }
         }
-        overjoyTableLoadGate.Wait();
+        await overjoyTableLoadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             lock (overjoyTableLock)
@@ -326,7 +344,11 @@ internal sealed class PlaylistRecommendedTableOwner
             BMSTable loaded;
             try
             {
-                loaded = externalTableLoader(overjoyUri);
+                loaded = await externalTableLoader(overjoyUri, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch
             {
@@ -344,9 +366,11 @@ internal sealed class PlaylistRecommendedTableOwner
         }
     }
 
-    private List<BMSTableEntry> GetEstimationEntries(EstimationTableType type)
+    private async Task<List<BMSTableEntry>> GetEstimationEntriesAsync(EstimationTableType type, CancellationToken cancellationToken)
     {
-        lock (estimationTableLock)
+        // variant 間の single-flight は維持するが、HTTP を Monitor 内で待たない。
+        await estimationTableLoadGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             List<BMSTableEntry> entries = type switch
             {
@@ -358,7 +382,7 @@ internal sealed class PlaylistRecommendedTableOwner
             };
             if (entries == null)
             {
-                BuildEstimationEntries();
+                await BuildEstimationEntriesAsync(cancellationToken).ConfigureAwait(false);
             }
             return type switch
             {
@@ -369,15 +393,19 @@ internal sealed class PlaylistRecommendedTableOwner
                 _ => throw new ArgumentOutOfRangeException(nameof(type))
             };
         }
+        finally
+        {
+            estimationTableLoadGate.Release();
+        }
     }
 
-    private void BuildEstimationEntries()
+    private async Task BuildEstimationEntriesAsync(CancellationToken cancellationToken)
     {
-        string input = httpClient.GetString(estimationJsonUri);
+        string input = await httpClient.GetStringAsync(estimationJsonUri, cancellationToken).ConfigureAwait(false);
         input = workAroundRegex.Replace(input, "\"key${id}\":{");
         JObject dataJson = ParseJsonObject(input);
-        BMSTable insane = GetInsaneTable() ?? throw new InvalidOperationException("Load insane table failed");
-        BMSTable overjoy = GetOverjoyTable() ?? throw new InvalidOperationException("Load overjoy table failed");
+        BMSTable insane = await GetInsaneTableAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Load insane table failed");
+        BMSTable overjoy = await GetOverjoyTableAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Load overjoy table failed");
         var inner = dataJson.Properties()
             .Select(property =>
             {
@@ -450,7 +478,7 @@ internal sealed class PlaylistRecommendedTableOwner
             })];
     }
 
-    private void LoadEstimationTable(BMSTable table, string query)
+    private async Task LoadEstimationTableAsync(BMSTable table, string query, CancellationToken cancellationToken)
     {
         EstimationTableType type = query switch
         {
@@ -473,7 +501,7 @@ internal sealed class PlaylistRecommendedTableOwner
             | LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder
             | LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder
             | LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
-        table.entries = GetEstimationEntries(type);
+        table.entries = await GetEstimationEntriesAsync(type, cancellationToken).ConfigureAwait(false);
         string name;
         switch (type)
         {
@@ -498,14 +526,15 @@ internal sealed class PlaylistRecommendedTableOwner
         table.symbol = table.org_symbol;
     }
 
-    private void LoadRecommendedTable(
+    private async Task LoadRecommendedTableAsync(
         BMSTable table,
         BMSTable baseTable,
         string mode,
         string filter,
         string displayName,
         int lr2Id,
-        string baseline)
+        string baseline,
+        CancellationToken cancellationToken)
     {
         string name = string.Empty;
         if (lr2Id == 0)
@@ -538,11 +567,24 @@ internal sealed class PlaylistRecommendedTableOwner
         {
             try
             {
-                RetryHelper.RetryIfError(
-                    () => UpdatedClearedSongs(mode, lr2Id, name, filter, baseline),
-                    source => ExceptionDispatchInfo.Capture(source).Throw(),
-                    () => Thread.Sleep(100),
-                    5u);
+                // 通常の通信失敗は従来どおり初回 + 最大5回。呼出し元の取消しは再試行しない。
+                for (int retry = 0; ; retry++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        await UpdatedClearedSongsAsync(mode, lr2Id, name, filter, baseline, cancellationToken).ConfigureAwait(false);
+                        break;
+                    }
+                    catch (Exception) when (retry < 5 && !cancellationToken.IsCancellationRequested)
+                    {
+                        await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception exception)
             {
@@ -550,7 +592,8 @@ internal sealed class PlaylistRecommendedTableOwner
             }
         }
         Uri address = new(recommendJsonUriStr + lr2Id, UriKind.Absolute);
-        JObject value = ParseJsonObject(httpClient.GetString(address));
+        string response = await httpClient.GetStringAsync(address, cancellationToken).ConfigureAwait(false);
+        JObject value = ParseJsonObject(response);
         if (ParseRequiredNullableString(value, "status") != "success")
         {
             notificationOwner.QueueWarning(string.Format(Resources.Warn_RecommendFetchFailed, ParseRequiredNullableString(value, "message")), null);
@@ -561,8 +604,8 @@ internal sealed class PlaylistRecommendedTableOwner
             .AddSeconds(ParseRequiredInt(value, "last_modified"))
             .ToLocalTime();
         name = ParseRequiredNullableString(value, "name").Replace('〜', '～');
-        BMSTable insane = GetInsaneTable() ?? throw new InvalidOperationException("Load insane table failed");
-        BMSTable overjoy = GetOverjoyTable() ?? throw new InvalidOperationException("Load overjoy table failed");
+        BMSTable insane = await GetInsaneTableAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Load insane table failed");
+        BMSTable overjoy = await GetOverjoyTableAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Load overjoy table failed");
         IEnumerable<BMSTableEntry> sourceEntries = insane.entries.Concat(overjoy.entries)
             .Where(entry => !string.IsNullOrWhiteSpace(entry.md5) && !string.IsNullOrWhiteSpace(entry.lr2_bmsid))
             .GroupBy(entry => entry.md5)
@@ -742,14 +785,14 @@ internal sealed class PlaylistRecommendedTableOwner
         return token as JObject ?? throw new FormatException("JSON document must be an object.");
     }
 
-    private void UpdatedClearedSongs(string mode, int lr2Id, string name, string filter, string baseline)
+    private async Task UpdatedClearedSongsAsync(string mode, int lr2Id, string name, string filter, string baseline, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(mode) || mode == "readonly")
         {
             return;
         }
-        BMSTable insane = GetInsaneTable() ?? throw new InvalidOperationException("Load insane table failed");
-        BMSTable overjoy = GetOverjoyTable() ?? throw new InvalidOperationException("Load overjoy table failed");
+        BMSTable insane = await GetInsaneTableAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Load insane table failed");
+        BMSTable overjoy = await GetOverjoyTableAsync(cancellationToken).ConfigureAwait(false) ?? throw new InvalidOperationException("Load overjoy table failed");
         var entries = from entry in insane.entries.Concat(overjoy.entries)
                       where !string.IsNullOrWhiteSpace(entry.md5) && !string.IsNullOrWhiteSpace(entry.lr2_bmsid)
                       group entry by entry.md5 into grouped
@@ -810,11 +853,11 @@ internal sealed class PlaylistRecommendedTableOwner
             })];
         }
         IEnumerable<string> values = lampsBms.Concat(lampsGrade).Select(score => score.bmsid + "-" + score.lamp);
-        _ = httpClient.PostForm(walkureUpdateUri, new NameValueCollection
+        _ = await httpClient.PostFormAsync(walkureUpdateUri, new NameValueCollection
         {
             { "name", name },
             { "id", lr2Id.ToString() },
             { "data", string.Join(",", values) }
-        });
+        }, cancellationToken).ConfigureAwait(false);
     }
 }
