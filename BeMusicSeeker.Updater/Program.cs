@@ -164,7 +164,7 @@ namespace BeMusicSeeker.Updater
                     return 0;
                 }
                 PrepareFullTransactionJournal(request);
-                ApplyUpdate(request);
+                ApplyUpdate(request, Process.Start);
                 return 0;
             }
             catch (TransactionRecoveryDeferredException exception)
@@ -300,7 +300,9 @@ namespace BeMusicSeeker.Updater
             }
         }
 
-        private static void ApplyUpdate(UpdateRequest request)
+        // Keep process creation at the edge of the transaction so restart-failure
+        // tests can exercise rollback without asking Windows to run an invalid EXE.
+        private static void ApplyUpdate(UpdateRequest request, Func<ProcessStartInfo, Process> startApplication)
         {
             try
             {
@@ -314,7 +316,7 @@ namespace BeMusicSeeker.Updater
 
             try
             {
-                ApplyUpdateAfterApplicationExit(request);
+                ApplyUpdateAfterApplicationExit(request, startApplication);
             }
             catch (RollbackFailureException exception)
             {
@@ -406,7 +408,7 @@ namespace BeMusicSeeker.Updater
             }
         }
 
-        private static void ApplyUpdateAfterApplicationExit(UpdateRequest request)
+        private static void ApplyUpdateAfterApplicationExit(UpdateRequest request, Func<ProcessStartInfo, Process> startApplication)
         {
             string appDirectory = NormalizeExistingDirectory(request.AppDirectory);
             string preparedJournalPath = Path.Combine(appDirectory, "update_work", TransactionJournalFileName);
@@ -512,7 +514,7 @@ namespace BeMusicSeeker.Updater
                 journal.Phase = TransactionPhase.Restarting;
                 journal.RestartProcessId = -1;
                 WriteTransactionJournal(journal);
-                Process restartProcess = Process.Start(new ProcessStartInfo(restartExePath)
+                Process restartProcess = startApplication(new ProcessStartInfo(restartExePath)
                 {
                     UseShellExecute = true,
                     WorkingDirectory = Path.GetDirectoryName(restartExePath) ?? appDirectory

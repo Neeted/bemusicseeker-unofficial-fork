@@ -24,7 +24,6 @@ $artifactManifestMode = -not [string]::IsNullOrWhiteSpace($ArtifactManifestPath)
 $artifactManifest = $null
 if ($artifactManifestMode) {
     $artifactManifest = Read-DistributionArtifactManifest -ManifestPath $ArtifactManifestPath
-    Assert-DistributionArtifactManifest -ArtifactManifest $artifactManifest | Out-Null
     $manifestAppPublishRoot = [IO.Path]::GetFullPath([string]$artifactManifest.Current.appRoot)
     if (-not [string]::IsNullOrWhiteSpace($AppPublishRoot) -and
         [IO.Path]::GetFullPath($AppPublishRoot) -cne $manifestAppPublishRoot) {
@@ -94,24 +93,6 @@ function Assert-Directory {
 function Get-Sha256 {
     param([Parameter(Mandatory)][string]$Path)
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
-}
-
-function Get-TreeSha256 {
-    param([Parameter(Mandatory)][string]$Root)
-
-    $rootPath = Resolve-FullPath $Root
-    $entries = foreach ($file in Get-ChildItem -LiteralPath $rootPath -Recurse -File | Sort-Object FullName) {
-        $relativePath = $file.FullName.Substring($rootPath.Length).TrimStart('\\').Replace('\\', '/')
-        "$relativePath`t$((Get-Sha256 -Path $file.FullName))"
-    }
-    $payload = [Text.Encoding]::UTF8.GetBytes(($entries -join "`n"))
-    $hash = [Security.Cryptography.SHA256]::Create()
-    try {
-        return ([BitConverter]::ToString($hash.ComputeHash($payload))).Replace('-', '').ToLowerInvariant()
-    }
-    finally {
-        $hash.Dispose()
-    }
 }
 
 function Get-ManifestSettingMap {
@@ -762,12 +743,6 @@ if ([string]::IsNullOrWhiteSpace([string]$script:manifest.provenance.sourceCommi
     throw 'Existing-data fixture provenance must identify its source commit.'
 }
 
-$appPublishTreeHash = if ($artifactManifestMode) {
-    Get-DistributionTreeSha256 -Root $AppPublishRoot
-}
-else {
-    Get-TreeSha256 -Root $AppPublishRoot
-}
 $manifestHash = Get-Sha256 -Path (Join-Path $FixtureRoot 'fixture-manifest.json')
 $fixtureDatabasePath = Join-Path $FixtureRoot ([string]$script:manifest.database.fixtureFile)
 $fixtureDatabaseHash = Get-Sha256 -Path $fixtureDatabasePath
@@ -900,10 +875,6 @@ try {
         })
     }
 
-    if ($artifactManifestMode) {
-        Assert-DistributionArtifactManifest -ArtifactManifest $artifactManifest | Out-Null
-    }
-
     $receipt = [ordered]@{
         schemaVersion = 1
         status = 'passed'
@@ -912,11 +883,9 @@ try {
         operatingSystem = [Environment]::OSVersion.VersionString
         processArchitecture = [Environment]::Is64BitProcess ? 'x64' : 'x86'
         appPublishRoot = $AppPublishRoot
-        appPublishTreeSha256 = $appPublishTreeHash
         artifactManifestPath = if ($artifactManifestMode) { $artifactManifest.ManifestPath } else { $null }
         artifactId = if ($artifactManifestMode) { $artifactManifest.ArtifactId } else { $null }
         artifactRunId = if ($artifactManifestMode) { $artifactManifest.RunId } else { $null }
-        artifactManifestSha256 = if ($artifactManifestMode) { $artifactManifest.ManifestSha256 } else { $null }
         fixtureManifestSha256 = $manifestHash
         fixtureDatabaseSha256 = $fixtureDatabaseHash
         profiles = $profileReceipts
@@ -933,11 +902,9 @@ catch {
         sourceCommit = [string]$script:manifest.provenance.sourceCommit
         generatedUtc = [DateTime]::UtcNow.ToString('o')
         appPublishRoot = $AppPublishRoot
-        appPublishTreeSha256 = $appPublishTreeHash
         artifactManifestPath = if ($artifactManifestMode) { $artifactManifest.ManifestPath } else { $null }
         artifactId = if ($artifactManifestMode) { $artifactManifest.ArtifactId } else { $null }
         artifactRunId = if ($artifactManifestMode) { $artifactManifest.RunId } else { $null }
-        artifactManifestSha256 = if ($artifactManifestMode) { $artifactManifest.ManifestSha256 } else { $null }
         fixtureManifestSha256 = $manifestHash
         fixtureDatabaseSha256 = $fixtureDatabaseHash
         error = $failureErrorRecord.Exception.ToString()

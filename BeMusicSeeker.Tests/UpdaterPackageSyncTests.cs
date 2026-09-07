@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -893,7 +895,6 @@ public sealed class UpdaterPackageSyncTests
             WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
             WriteTextFile(packageSourceDirectoryPath, "restart.cmd", "@exit /b 0");
             CopyRestartExecutable(packageSourceDirectoryPath);
-            WriteTextFile(packageSourceDirectoryPath, "restart.exe", "not-an-executable");
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "BeMusicSeeker.exe",
@@ -902,7 +903,7 @@ public sealed class UpdaterPackageSyncTests
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
 
-            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+            ApplyUpdateExpectRestartFailure(appDirectoryPath, packagePath, backupDirectoryPath);
 
             Assert.AreEqual(canonicalBefore, ComputeCanonicalTreeHash(appDirectoryPath));
             Assert.AreEqual(preservedBefore, ComputePreservedTreeHash(appDirectoryPath));
@@ -1109,7 +1110,6 @@ public sealed class UpdaterPackageSyncTests
             }));
             WriteTextFile(packageSourceDirectoryPath, "a/b/c.dll", "new-child");
             CopyRestartExecutable(packageSourceDirectoryPath);
-            WriteTextFile(packageSourceDirectoryPath, "restart.exe", "not-an-executable");
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "a/b/c.dll",
@@ -1117,7 +1117,7 @@ public sealed class UpdaterPackageSyncTests
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
 
-            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+            ApplyUpdateExpectRestartFailure(appDirectoryPath, packagePath, backupDirectoryPath);
 
             Assert.AreEqual("old-file", File.ReadAllText(Path.Combine(appDirectoryPath, "a")));
             Assert.IsTrue(File.Exists(Path.Combine(appDirectoryPath, "z")));
@@ -1303,7 +1303,6 @@ public sealed class UpdaterPackageSyncTests
             }));
             WriteTextFile(packageSourceDirectoryPath, "docs/a.txt", "new-managed");
             CopyRestartExecutable(packageSourceDirectoryPath);
-            WriteTextFile(packageSourceDirectoryPath, "restart.exe", "not-an-executable");
             WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", string.Join(Environment.NewLine, new[]
             {
                 "docs/a.txt",
@@ -1311,7 +1310,7 @@ public sealed class UpdaterPackageSyncTests
             }));
             ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
 
-            RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath);
+            ApplyUpdateExpectRestartFailure(appDirectoryPath, packagePath, backupDirectoryPath);
 
             Assert.AreEqual("old-managed", File.ReadAllText(Path.Combine(appDirectoryPath, "docs", "a.txt")));
             Assert.AreEqual("user-file", File.ReadAllText(Path.Combine(appDirectoryPath, "docs", "user.txt")));
@@ -1364,6 +1363,48 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.IsTrue(File.Exists(packagePath));
         });
+    }
+
+    private static void ApplyUpdateExpectRestartFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath)
+    {
+        // The published updater is NativeAOT. Use its managed build for this
+        // in-process failure boundary; the remaining process tests use the
+        // selected published executable. No CLI flag or global hook is added.
+        Assembly assembly = Assembly.LoadFrom(FindBuiltUpdaterFile("BeMusicSeeker.Updater.dll"));
+        Type program = assembly.GetType("BeMusicSeeker.Updater.Program", throwOnError: true)!;
+        Type requestType = program.GetNestedType("UpdateRequest", BindingFlags.NonPublic)!;
+        string restartPath = Path.Combine(appDirectoryPath, "restart.exe");
+        string[] arguments =
+        [
+            "--app-dir", appDirectoryPath,
+            "--package", packagePath,
+            "--backup-dir", backupDirectoryPath,
+            "--restart-exe", restartPath,
+            "--pid", GetExitedProcessId().ToString(),
+            "--ready-file", Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt"),
+            "--decision-file", Path.Combine(appDirectoryPath, "update_work", "current", "updater-decision.txt")
+        ];
+        object request = requestType.GetMethod("Parse")!.Invoke(null, [arguments])!;
+        // Reuse the actual preparation code rather than reproducing journal
+        // serialization. Each invocation owns a fresh application directory.
+        program.GetMethod("WritePreparedTransactionJournal", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [request]);
+        program.GetMethod("PrepareFullTransactionJournal", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, [request]);
+
+        bool restartAttempted = false;
+        var startFailure = new Win32Exception(5, "Injected restart launch failure.");
+        Func<ProcessStartInfo, Process> startApplication = startInfo =>
+        {
+            Assert.AreEqual(restartPath, startInfo.FileName);
+            restartAttempted = true;
+            throw startFailure;
+        };
+        TargetInvocationException failure = Assert.ThrowsException<TargetInvocationException>(() =>
+            program.GetMethod("ApplyUpdate", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, [request, startApplication]));
+        Assert.IsTrue(restartAttempted, "The test must reach restart after applying the package, not fail during preflight.");
+        Assert.AreSame(startFailure, failure.InnerException, "Successful rollback must preserve the original launch failure.");
     }
 
     private static void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string restartExecutablePath = null, string processId = null)
@@ -1656,7 +1697,6 @@ public sealed class UpdaterPackageSyncTests
 
     private static string FindUpdaterExecutable()
     {
-        string repositoryRoot = FindRepositoryRoot();
         string? publishedRoot = Environment.GetEnvironmentVariable("BMS_SCD_UPDATER_PUBLISH_ROOT");
         if (!string.IsNullOrWhiteSpace(publishedRoot))
         {
@@ -1672,6 +1712,12 @@ public sealed class UpdaterPackageSyncTests
             return publishedExecutable;
         }
 
+        return FindBuiltUpdaterFile("BeMusicSeeker.Updater.exe");
+    }
+
+    private static string FindBuiltUpdaterFile(string fileName)
+    {
+        string repositoryRoot = FindRepositoryRoot();
         var frameworkDirectory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
         string targetFramework = frameworkDirectory.Name;
         string configuration = frameworkDirectory.Parent?.Name ?? "Debug";
@@ -1679,8 +1725,8 @@ public sealed class UpdaterPackageSyncTests
 
         string[] candidates =
         [
-            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", platform, configuration, targetFramework, "BeMusicSeeker.Updater.exe"),
-            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", configuration, targetFramework, "BeMusicSeeker.Updater.exe")
+            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", platform, configuration, targetFramework, fileName),
+            Path.Combine(repositoryRoot, "BeMusicSeeker.Updater", "bin", configuration, targetFramework, fileName)
         ];
         foreach (string candidate in candidates)
         {
@@ -1690,7 +1736,7 @@ public sealed class UpdaterPackageSyncTests
             }
         }
 
-        throw new FileNotFoundException("Updater executable was not found.", candidates[0]);
+        throw new FileNotFoundException("Updater build output was not found.", candidates[0]);
     }
 
     private static IReadOnlyList<string> GetRecoveryRunOnceValues(string appDirectoryPath)

@@ -1,13 +1,13 @@
 # テスト運用方針
 
-最終更新: 2026-09-06
+最終更新: 2026-09-07
 
 この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。個々の test の設計、既存 coverage 調査、共通 infrastructure、Codex handoff は [test-authoring-contract.md](test-authoring-contract.md) を正本とする。
 
 ## 運用目標
 
-- 通常の機能検証では、portable settings の `dotnet test` 開始直前から、portable と fanout する全 Functional testhost の実際のプロセス `ExitTime` までの test execution を 300 秒以内で完了させる。個々の testhost や shard ごとの 300 秒ではない。script startup、preflight、restore、build、output 準備、artifact 回収、fingerprint、環境復元、whitespace確認、postflight はこの test budget の対象外である。180 秒は運用上の reporting target とし、300 秒以内の遅い成功を timeout として扱わない。
-- Functional の canonical runner は portable settings の `dotnet test` 開始直前に一つの execution deadline（開始時刻 + `FunctionalTimeoutSeconds`）と、その deadline + 10 秒の failure-cleanup cutoff を作る。同じ deadline を portable、fanout launch、全 testhost 完了まで共有し、host / phase ごとに reset しない。+10 秒は timeout / failure 時の owned-process cleanup と stream drain 専用であり、成功判定を testhost 完了後の cleanup、fingerprint、環境復元、whitespace 確認まで延長しない。
+- 通常の機能検証では、portable settings の `dotnet test` 開始直前から、portable と fanout する全 Functional testhost の実際のプロセス `ExitTime` までの test execution を 300 秒以内で完了させる。個々の testhost や shard ごとの 300 秒ではない。script startup、preflight、restore、build、output 準備、artifact 回収、環境復元、whitespace確認、postflight はこの test budget の対象外である。180 秒は運用上の reporting target とし、300 秒以内の遅い成功を timeout として扱わない。
+- Functional の canonical runner は portable settings の `dotnet test` 開始直前に一つの execution deadline（開始時刻 + `FunctionalTimeoutSeconds`）と、その deadline + 10 秒の failure-cleanup cutoff を作る。同じ deadline を portable、fanout launch、全 testhost 完了まで共有し、host / phase ごとに reset しない。+10 秒は timeout / failure 時の owned-process cleanup と stream drain 専用であり、成功判定を testhost 完了後の cleanup、環境復元、whitespace 確認まで延長しない。
 - retained process `ExitTime` から求めた elapsed が 180 秒ちょうど以下なら通常成功として出力する。180 秒を超えて 300 秒以下で完了した成功 run も通常成功のままとし、通常の elapsed 出力に加えて 180 秒 target 超過、actual retained-`ExitTime` elapsed、およびその実時間を user-facing report に必ず含める指示を warning / diagnostic へ出力する。300 秒を超えた場合だけ timeout とし、timeout retry はこの真の timeout に限る。
 - Functional は、追跡対象ファイルを変更せず、実行順序や並列度によらず決定的に成功する。
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
@@ -25,9 +25,9 @@ Functional / Full は locked restore の後、tool restore → `dotnet format` �
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
 ```
 
-この呼び出しでは、script startup、tracked-file fingerprint、solution の locked restore / build / output validation、環境復元、最終 fingerprint は test execution の 300 秒予算外である。`Invoke-CanonicalFunctionalVerification` はこれらの準備後、portable settings の `dotnet test` 開始直前から全 testhost の実際の `ExitTime` までを論理的に一つの通常 test phase として所有し、`dotnet test` は restore 済みの dependency graph を使う。内部 sharding の有無にかかわらず、test execution の時間予算は一度だけ適用する。Functional からは `Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance` を除外する。
+この呼び出しでは、script startup、solution の locked restore / build / output validation、環境復元 は test execution の 300 秒予算外である。`Invoke-CanonicalFunctionalVerification` はこれらの準備後、portable settings の `dotnet test` 開始直前から全 testhost の実際の `ExitTime` までを論理的に一つの通常 test phase として所有し、`dotnet test` は restore 済みの dependency graph を使う。内部 sharding の有無にかかわらず、test execution の時間予算は一度だけ適用する。Functional からは `Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance` を除外する。
 
-Quick の filter なし呼び出しもこの canonical owner を一度だけ使う。filter 付き Quick だけは明示 filter の専用 route を使い、canonical Functional の shard topology は起動しない。owner は呼び出し元が渡す diagnostics root と `FunctionalTimeoutSeconds` を受け取り、caller-owned root 配下へ restore / build / shard artifact を保存する。tracked-file fingerprint の取得と不変確認、環境復元は mode の外側で一度ずつ行い、test execution の deadline へ接続しない。
+Quick の filter なし呼び出しもこの canonical owner を一度だけ使う。filter 付き Quick だけは明示 filter の専用 route を使い、canonical Functional の shard topology は起動しない。owner は呼び出し元が渡す diagnostics root と `FunctionalTimeoutSeconds` を受け取り、caller-owned root 配下へ restore / build / shard artifact を保存する。環境復元は mode の外側で行う。作業中の外部変更を監視する tracked-file fingerprint は取得・比較しない。
 
 `BassCollectibleLoadContextTests` は単一クラス専用 host で実行する。この testhost は WPF host / resource を解決せず、collectible ALC の unload と BASS static initialization の非 native-load 契約を他 fixture の process state から分離する。
 
@@ -46,7 +46,7 @@ Functional は category exclusion を適用した論理 test set を一度だけ
 
 `serial-state-a` と `serial-state-b` の exact class membership は `scripts/verify-refactor.ps1` の executable plan array を正本とする。この文書は owner の分類、logical exact-once partition、worker shape を定める。残りの論理 test set `R` は `BmsLibrary` prefix の positive / negative predicate に分けて一度だけ実行し、portable 完了後の最大同時 worker 数は `3 + 2 * ProcessorCount` である。
 
-起動順は portable host の `dotnet test` 開始直前に test execution の deadline を作り、portable host を単独で完了させ、その成功後に Bass、serial A、serial B、`remaining-bms-library`、remaining を同じ validated plan array から即時 start する。二つのremaining partitionは同じ `R` base filter、共通selectorのpositive / negative predicate、`ClassLevel` / `ProcessorCount`を持ち、互いに重ならず合計で `R` 全体を覆う。全 test process はこの一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。各 testhost の成功判定は retained process handle の実際の `ExitTime` が deadline 内であることを基準とし、execution deadline 内に全 testhost が完了した場合だけを成功扱いにする。成功時の elapsed は portable-boundary `StartUtc` から全 host の最大 retained `ExitTime` まで、timeout 時の elapsed は `StartUtc` から execution deadline までを記録し、poll / cleanup 時間を含めない。成功後の出力収集、fingerprint、環境復元は test budget 外で行う。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
+起動順は portable host の `dotnet test` 開始直前に test execution の deadline を作り、portable host を単独で完了させ、その成功後に Bass、serial A、serial B、`remaining-bms-library`、remaining を同じ validated plan array から即時 start する。二つのremaining partitionは同じ `R` base filter、共通selectorのpositive / negative predicate、`ClassLevel` / `ProcessorCount`を持ち、互いに重ならず合計で `R` 全体を覆う。全 test process はこの一つの absolute execution deadline と、その +10 秒の failure-cleanup cutoff へ合流し、testhost ごとの deadline reset はしない。execution deadline を超えた invocation は、cleanup cutoff まで raw PID / creation identity の ownership を保持した descendant cleanup、stdout / stderr drain、artifact 保存、primary failure precedence を実行してから失敗する。各 testhost の成功判定は retained process handle の実際の `ExitTime` が deadline 内であることを基準とし、execution deadline 内に全 testhost が完了した場合だけを成功扱いにする。成功時の elapsed は portable-boundary `StartUtc` から全 host の最大 retained `ExitTime` まで、timeout 時の elapsed は `StartUtc` から execution deadline までを記録し、poll / cleanup 時間を含めない。成功後の出力収集、環境復元は test budget 外で行う。`--blame-crash` は保持し、per-testhost の `--blame-hang` 系引数と unused shard timeout plumbing は持たない。
 
 foreground input、keyboard focus、hit testing、nested modal activation が保証対象の7 methodは、すべて現行 FQN の `SettingsForegroundInteractionTests` に属し、`serial-state-a` だけが所有する。`SettingDialogEditCompletionTests` や旧 SettingsWindow owner の FQN を foreground selector に含めない。
 
@@ -74,7 +74,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter '<MS
 pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 ```
 
-Full は Functional に加えて、tool smoke、`ProcessIntegration`、self-contained publish、既存データ起動受入、update package 受入を実行する。Full は `Invoke-CanonicalFunctionalVerification` を `FunctionalTimeoutSeconds` と Full run root 配下の diagnostics root で一度だけ呼び出し、locked restore、build、built-output validation、Functional test execution を別 route で再構築しない。canonical Functional の test execution 完了後に current distribution publish / baseline / acceptance へ進み、update acceptance 完了後に v2.1.6.0 cache preparation を一度だけ実行してから `ProcessIntegration` へ進む。Functional の 300 秒 hard budget と 180 秒 reporting target は test execution phase だけに適用し、Full の準備・post-Functional release 検証とは別である。Performance、LargeFixture、parser full / slow は Full にも自動では含めず、変更対象に応じて明示実行する。
+Full は Functional に加えて、tool smoke、`ProcessIntegration`、self-contained publish、既存データ起動受入、update package 受入を実行する。Full は `Invoke-CanonicalFunctionalVerification` を `FunctionalTimeoutSeconds` と Full run root 配下の diagnostics root で一度だけ呼び出し、locked restore、build、built-output validation、Functional test execution を別 route で再構築しない。canonical Functional の test execution 完了後、tool smoke、公開 v2.1.6.0 cache preparation、current distribution publish、既存データ受入、現行 updater の正常系 smoke、`ProcessIntegration`、公開旧版からの移行を含む `ReleaseAcceptance` へ進む。Functional の 300 秒 hard budget と 180 秒 reporting target は test execution phase だけに適用し、Full の準備・post-Functional release 検証とは別である。Performance、LargeFixture、parser full / slow は Full にも自動では含めず、変更対象に応じて明示実行する。
 
 Full 内でも共通の事前検査と canonical Functional test execution を tool smoke / publish や update acceptance より前に実行する。release artifact workload の CPU / I/O の影響を test execution の 300 秒予算へ持ち込まず、portable 起動から全 testhost 完了までを同じ条件で評価するためである。
 
@@ -82,9 +82,13 @@ Full 内でも共通の事前検査と canonical Functional test execution を t
 
 共通の事前検査と各 Full phase は phase 開始時に `ExecutionDeadlineUtc` を一度だけ作成し、そこから正確に 10 秒後の `CleanupDeadlineUtc` と組にする。この pair は phase 内の全 monitored command、test lane、acceptance script へそのまま渡し、各 stage / subscenario が `TimeoutSeconds` から新しい期限を作らない。execution 中の wait、process exit、stream drain、artifact 検証は execution deadline の残り時間だけを使う。primary failure / timeout 後だけ owned-process stop、stream drain、dispose、diagnostic、sandbox cleanup が cleanup grace を使える。grace 中に遅れて終了した process は成功に戻さず、primary failure を維持する。
 
-Full は `tests-full-<run>` の下に一つだけ `distribution` root を作る。current app / updater / exact-version `SkipDocHtml` package と、固定 baseline commit をその root に準備し、`distribution-manifest.json` と SHA-256 seal を作成する。manifest は schema、run / artifact ID、absolute canonical paths、exact version / commit、relative path を `/` に正規化して ordinal-sort した tree hash、package SHA-256 を持つ。runner は baseline preparation 完了時の run ID、artifact ID、manifest JSON の SHA-256、seal の値を expected identity として保持し、`existing-data`、`update`、`ProcessIntegration`、`ReleaseAcceptance` の各 consumer の前後と Full 最終確認で全値の exact match を要求する。したがって consumer が manifest を自己整合的に置換・再 seal しても受け入れない。timestamp / latest scan、global fixed-path fallback、Full consumer の再 publish は行わない。acceptance script の manifest mode は明示指定時に必須であり、manifest が無い場合や path、ID、version、seal、artifact が一致しない場合は明示 failure にする。bare invocation は従来どおり self-preparation を許容する互換 mode である。v2.1.6.0 first-hop artifact はこの manifest とは別の checked-in metadata と canonical cache を持ち、`v216-cache-preparation` phase が `ProcessIntegration` より前にその cache を確定する。
+Full は `tests-full-<run>` の下で current app / updater / exact-version `SkipDocHtml` package を一度だけ publish する。`distribution-manifest.json` はその path、version、commit、run / artifact ID と診断用 package SHA-256 を渡すための生成物である。consumer は入力の存在・配置を確認して sandbox コピーを操作し、manifest の seal、tree hash、phase 前後の内容再照合や tracked-file fingerprint による外部変更監視は行わない。公開旧版は `devdocs/acceptance/v216-first-hop/artifact.json` が指定する配布 ZIP だけを使用する。
 
-`v216-cache-preparation` は metadata を最初に読み、metadata missing / invalid は failure とする。canonical cache が存在する場合は固定 size / SHA-256 を検証し、不一致を download で隠さず failure とする。canonical cache が存在しない場合だけ、metadata の exact HTTPS URL を `curl.exe` の bounded monitored process で同一 directory の一時 file へ取得し、固定 size / SHA-256 検証後に同じ directory へ atomic publish する。途中 bytes は canonical path に出さず、temporary file は phase owner が cleanup する。source build、latest artifact、`ab9d97ed...` fallback、自動 repair / retry は行わない。cache miss 自体は failure ではない。
+`scripts/accept-net10-update.ps1` は `-ArtifactManifestPath` を必須とする。現在版 ZIP の隔離コピーに同じ現在版 ZIP を適用し、現行 updater の ready/decision、適用、不要な管理ファイルの削除、本物の `BeMusicSeeker.exe` の自動再起動、起動完了、終了とデータ保持を確認する。旧版からの移行は `accept-v216-first-hop.ps1` が担当する。単独実行でも Full が生成した manifest を渡し、旧ソースや現在ソースを再ビルドしない。
+
+`UpdaterPackageSyncTests` の再起動失敗後の復元３件は、実行可能ファイルを破壊せず、managed build の実際の準備・適用処理と呼出し単位の process-start delegate を使う。NativeAOT executable を直接差し替えるための CLI や環境変数は追加しない。既存の private transaction entry を reflection で呼ぶのはこの境界に限定し、journal をテスト側で再実装せず、本番の preparation を使う。保証対象は起動境界への到達、元の例外、metadata・file/directory 遷移・利用者ファイルの復元であり、private symbol 自体の存続ではない。各ケースは GUID 付き directory を所有し、共有 hook や残留 task を作らない。他の process test と Full smoke は publish 済み updater の正常動作・復旧を引き続き確認する。
+
+`v216-cache-preparation` は metadata を最初に読み、metadata missing / invalid は failure とする。canonical cache が存在する場合は固定 size / SHA-256 を検証し、不一致を download で隠さず failure とする。canonical cache が存在しない場合だけ、metadata の exact HTTPS URL を `curl.exe` の bounded monitored process で同一 directory の一時 file へ取得し、固定 size / SHA-256 検証後に同じ directory へ atomic publish する。途中 bytes は canonical path に出さず、temporary file は phase owner が cleanup する。source build、latest artifact、自動 repair / retry は行わない。cache miss 自体は failure ではない。
 
 Full の non-UI updater launch / recovery と updater package-sync fixture process は `CreateNoWindow=true` を使う。画面を表示して startup / window behavior を検証する documented UI launch はこの例外であり、UI acceptance の foreground / window contract は変更しない。
 
@@ -94,15 +98,14 @@ Full の non-UI updater launch / recovery と updater package-sync fixture proce
 | format（共通事前検査） | 120 秒 |
 | analyzer（共通事前検査） | 180 秒 |
 | tool smoke | 60 秒 |
+| v2.1.6.0 cache preparation | 180 秒 |
 | current distribution publish | 180 秒 |
-| baseline preparation | 300 秒 |
 | existing-data acceptance | 180 秒 |
 | update acceptance | 240 秒 |
-| v2.1.6.0 cache preparation | 180 秒 |
 | `ProcessIntegration` | 180 秒 |
 | `ReleaseAcceptance` | 180 秒 |
 
-Functional / Full の `format` phase は solution / project を評価する route を使わず、repository root を `dotnet format whitespace --folder` で検査する。`artifacts/verification`、`bin`、`obj`、`.tmp` は runner が生成する diagnostics / build output / temporary workspace のため format scope から除外するが、repository 内のそれ以外の genuine workspace files は全件検査し、workspace の format failure を隠さない。baseline preparation の source checkout と build output は OS の temporary root（repository 外）へ展開し、検証用 distribution package と manifest だけを Full run root へコピーする。これにより baseline source が SDK の広域 item glob や後続 project evaluation に混入しない。temporary root の cleanup は primary phase failure を置き換えず、成功時の cleanup failure は phase failure として扱う。
+Functional / Full の `format` phase は solution / project を評価する route を使わず、repository root を `dotnet format whitespace --folder` で検査する。`artifacts/verification`、`bin`、`obj`、`.tmp` は runner が生成する diagnostics / build output / temporary workspace のため format scope から除外するが、repository 内のそれ以外の genuine workspace files は全件検査し、workspace の format failure を隠さない。acceptance の sandbox は repository 外の temporary root に作り、primary failure を維持して後片付けする。
 
 ## テスト lane
 
@@ -202,9 +205,7 @@ Full の release acceptance は、checked-in の
 `devdocs/acceptance/v216-first-hop/artifact.json` が指す公開 v2.1.6.0 zip だけを
 使用する。metadata が無い、size が `11,260,709` bytes と違う、または SHA-256 が
 `C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2` と一致しない場合は
-fail closed とし、source build、最新ファイル、`ab9d97ed3f53dab80fb2894f20f44abdfb6fed32`
-baseline へ fallback しない。`ab9d` は current v3 updater の互換性・recovery を確認する
-独立 baseline lane としてのみ扱う。
+明示的に失敗する。公開旧版を source build や別版のファイルに置き換えない。
 
 metadata の `downloadUrl` は `https://` の指定 GitHub release URL と完全一致しなければ
 invalid とする。Full では `ProcessIntegration` より前の単一 `v216-cache-preparation`

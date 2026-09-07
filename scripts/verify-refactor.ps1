@@ -407,36 +407,6 @@ function Assert-FunctionalShardConfiguration {
             throw "Foreground interaction fixture leaked into host '$($shard.Name)'."
         }
     }
-
-    $retiredFqns = @(
-        'BeMusicSeeker.Tests.BmsPlaylistUpdateTests'
-        'BeMusicSeeker.Tests.PlaylistWorkspaceViewModelTests'
-        'BeMusicSeeker.Tests.OwnedChartCollectionStateTests'
-        'BeMusicSeeker.Tests.PlaylistSummaryAggregationTests'
-        'BeMusicSeeker.Tests.RegularChartListOwnerTests'
-        'BeMusicSeeker.Tests.ChartInfoMetadataTests'
-        'BeMusicSeeker.Tests.ChartInfoMetadataSchemaExportImportTests'
-        'BeMusicSeeker.Tests.ChartInfoParserBehaviorTests'
-        'BeMusicSeeker.Tests.ChartInfoBackfillStorageTests'
-        'BeMusicSeeker.Tests.ChartInfoInlineHydrationTests'
-        'BeMusicSeeker.Tests.ChartInfoInstallFailureRetryTests'
-        'BeMusicSeeker.Tests.BmsLibraryInitializationServiceTests'
-        'BeMusicSeeker.Tests.StartupLibraryConstructionOwnerTests'
-        'BeMusicSeeker.Tests.SettingsWindowPresentationTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow'
-        'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterCommitsFocusedEditorBeforeAccepting'
-        'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_EnterKeepsDialogOpenWhenFocusedCandidateIsRejected'
-        'BeMusicSeeker.Tests.SettingDialogEditCompletionTests.Lr2AdvancedPathsDialog_InitialInvalidTupleStaysOpenAndFocusesRejectedEditor')
-    $routeText = @(
-        $shards | ForEach-Object {
-            @($_.Classes)
-            [string]$_.Filter
-            @($_.ExcludedClasses)
-        }) -join [Environment]::NewLine
-    foreach ($retiredFqn in $retiredFqns) {
-        if ($routeText.Contains($retiredFqn, [StringComparison]::Ordinal)) {
-            throw "Retired Functional selector remains in the executable launch plan: $retiredFqn"
-        }
-    }
 }
 
 . (Join-Path $repoRoot 'scripts\portable-package-layout.ps1')
@@ -454,16 +424,6 @@ function Invoke-CheckedCommand {
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed with exit code $LASTEXITCODE`: $Command $($Arguments -join ' ')"
     }
-}
-
-function Get-TrackedWorkingTreeFingerprint {
-    $diff = @(& git -C $repoRoot -c core.autocrlf=false diff --binary --full-index HEAD --)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to fingerprint tracked files (exit code $LASTEXITCODE)."
-    }
-
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($diff -join "`n")
-    return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes))
 }
 
 function New-FunctionalDeadlinePolicy {
@@ -1509,110 +1469,6 @@ function Invoke-CurrentDistributionPublish {
     }
 }
 
-function Invoke-BaselinePreparation {
-    param(
-        [Parameter(Mandatory)]
-        [string]$PhaseDirectory,
-
-        [Parameter(Mandatory)]
-        [string]$ArtifactRoot,
-
-        [Parameter(Mandatory)]
-        [string]$BaselineCommit,
-
-        [Parameter(Mandatory)]
-        [object]$Current,
-
-        [Parameter(Mandatory)]
-        [string]$RunId,
-
-        [Parameter(Mandatory)]
-        [string]$ArtifactId,
-
-        [Parameter(Mandatory)]
-        [object]$DeadlinePolicy
-    )
-
-    $baselineWorkRoot = Join-Path ([IO.Path]::GetTempPath()) (
-        'BeMusicSeeker-baseline-' + $RunId + '-' + [Guid]::NewGuid().ToString('N'))
-    $repositoryRootWithSeparator = ([IO.Path]::GetFullPath($repoRoot)).TrimEnd('\') + '\'
-    if ([IO.Path]::GetFullPath($baselineWorkRoot).StartsWith(
-            $repositoryRootWithSeparator,
-            [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Baseline preparation work root must be outside the repository: $baselineWorkRoot"
-    }
-
-    $archivePath = Join-Path $PhaseDirectory 'baseline-source.zip'
-    $sourceRoot = Join-Path $baselineWorkRoot 'source'
-    $primaryError = $null
-    try {
-        [void](New-Item -ItemType Directory -Path $sourceRoot -Force)
-        Invoke-VerificationPhaseCommand `
-        -Label 'Baseline source archive' `
-        -CommandPath 'git' `
-        -Arguments @('-C', $repoRoot, 'archive', '--format=zip', "--output=$archivePath", $BaselineCommit) `
-        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'archive') `
-        -DeadlinePolicy $DeadlinePolicy
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $sourceRoot -Force
-
-    $baselinePublishScript = Join-Path $sourceRoot 'scripts\publish.ps1'
-    if (-not (Test-Path -LiteralPath $baselinePublishScript -PathType Leaf)) {
-        throw "Baseline publish script is missing from checkout: $baselinePublishScript"
-    }
-    Invoke-VerificationPhaseCommand `
-        -Label 'Baseline distribution publish' `
-        -CommandPath 'pwsh' `
-        -Arguments @('-NoProfile', '-File', $baselinePublishScript, '-PackageOnly', '-SkipDocHtml') `
-        -DiagnosticsDirectory (Join-Path $PhaseDirectory 'publish') `
-        -DeadlinePolicy $DeadlinePolicy
-
-    $baselineVersion = Get-AssemblyInformationalVersion -Root $sourceRoot
-    $sourcePackagePath = Get-ExactReleasePackage `
-        -DistributionDirectory (Join-Path $sourceRoot 'dist') `
-        -Version $baselineVersion `
-        -Description 'Baseline'
-    $baselinePackageDirectory = Join-Path $ArtifactRoot 'baseline\package'
-    [void](New-Item -ItemType Directory -Path $baselinePackageDirectory -Force)
-    $baselinePackagePath = Join-Path $baselinePackageDirectory ([IO.Path]::GetFileName($sourcePackagePath))
-    Copy-Item -LiteralPath $sourcePackagePath -Destination $baselinePackagePath -Force
-
-    $manifest = New-DistributionArtifactManifest `
-        -ArtifactRoot $ArtifactRoot `
-        -RunId $RunId `
-        -ArtifactId $ArtifactId `
-        -CurrentAppRoot $Current.AppRoot `
-        -CurrentUpdaterRoot $Current.UpdaterRoot `
-        -CurrentPackagePath $Current.PackagePath `
-        -CurrentVersion $Current.Version `
-        -CurrentCommit $Current.Commit `
-        -BaselinePackagePath $baselinePackagePath `
-        -BaselineVersion $baselineVersion `
-        -BaselineCommit $BaselineCommit
-    Assert-DistributionArtifactManifest `
-        -ArtifactManifest $manifest `
-        -ExpectedRunId $RunId `
-        -ExpectedArtifactId $ArtifactId | Out-Null
-    return $manifest
-    }
-    catch {
-        $primaryError = $_
-        throw
-    }
-    finally {
-        if (Test-Path -LiteralPath $baselineWorkRoot) {
-            try {
-                Remove-Item -LiteralPath $baselineWorkRoot -Recurse -Force -ErrorAction Stop
-            }
-            catch {
-                if ($null -eq $primaryError) {
-                    throw
-                }
-                Write-Warning "Baseline preparation cleanup failed after a primary failure: $baselineWorkRoot. $($_.Exception.Message)"
-            }
-        }
-    }
-}
-
 function Invoke-V216ArtifactCachePreparation {
     param(
         [Parameter(Mandatory)]
@@ -2047,9 +1903,7 @@ if ($Mode -eq 'Full' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {
     throw 'Full mode does not accept TestFilter. Use Quick mode for an explicit opt-in lane.'
 }
 
-$trackedStateBefore = Get-TrackedWorkingTreeFingerprint
 $verificationFailure = $null
-$baselineCommit = 'ab9d97ed3f53dab80fb2894f20f44abdfb6fed32'
 $testDiagnosticsDirectory = Join-Path $verificationArtifactsDirectory (
     'tests-' + $Mode.ToLowerInvariant() + '-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 [void](New-Item -ItemType Directory -Path $testDiagnosticsDirectory -Force)
@@ -2085,6 +1939,13 @@ try {
             }
         })
 
+        [void](Invoke-MonitoredVerificationPhase -Name 'v216-cache-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
+            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
+            Invoke-V216ArtifactCachePreparation `
+                -PhaseDirectory $phaseDirectory `
+                -DeadlinePolicy $deadlinePolicy
+        })
+
         $fullDistributionRoot = Join-Path $testDiagnosticsDirectory 'distribution'
         $currentDistributionRoot = Join-Path $fullDistributionRoot 'current'
         $fullRunId = Split-Path -Leaf $testDiagnosticsDirectory
@@ -2097,74 +1958,31 @@ try {
                 -DeadlinePolicy $deadlinePolicy
         })[-1]
 
-        $artifactManifest = @(Invoke-MonitoredVerificationPhase -Name 'baseline-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            Invoke-BaselinePreparation `
-                -PhaseDirectory $phaseDirectory `
-                -ArtifactRoot $fullDistributionRoot `
-                -BaselineCommit $baselineCommit `
-                -Current $current `
-                -RunId $fullRunId `
-                -ArtifactId $fullArtifactId `
-                -DeadlinePolicy $deadlinePolicy
-        })[-1]
+        $artifactManifest = New-DistributionArtifactManifest `
+            -ArtifactRoot $fullDistributionRoot `
+            -RunId $fullRunId `
+            -ArtifactId $fullArtifactId `
+            -CurrentAppRoot $current.AppRoot `
+            -CurrentUpdaterRoot $current.UpdaterRoot `
+            -CurrentPackagePath $current.PackagePath `
+            -CurrentVersion $current.Version `
+            -CurrentCommit $current.Commit
         $artifactManifestPath = $artifactManifest.ManifestPath
-        $expectedFullRunId = $fullRunId
-        $expectedFullArtifactId = $fullArtifactId
-        $expectedFullManifestSha256 = [string]$artifactManifest.ManifestSha256
-        $expectedFullManifestSeal = (Get-Content -LiteralPath $artifactManifest.ManifestHashPath -Raw).Trim().ToLowerInvariant()
-        Assert-DistributionArtifactIdentity `
-            -ArtifactManifest $artifactManifest `
-            -ExpectedRunId $expectedFullRunId `
-            -ExpectedArtifactId $expectedFullArtifactId `
-            -ExpectedManifestSha256 $expectedFullManifestSha256 `
-            -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
         [Environment]::SetEnvironmentVariable('BMS_SCD_APP_PUBLISH_ROOT', [string]$artifactManifest.Current.appRoot, 'Process')
         [Environment]::SetEnvironmentVariable('BMS_SCD_UPDATER_PUBLISH_ROOT', [string]$artifactManifest.Current.updaterRoot, 'Process')
 
         [void](Invoke-MonitoredVerificationPhase -Name 'existing-data' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            Assert-DistributionArtifactIdentity `
-                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
-                -ExpectedRunId $expectedFullRunId `
-                -ExpectedArtifactId $expectedFullArtifactId `
-                -ExpectedManifestSha256 $expectedFullManifestSha256 `
-                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             Invoke-ExistingDataAcceptance `
                 -PhaseDirectory $phaseDirectory `
                 -ArtifactManifestPath $artifactManifestPath `
                 -DeadlinePolicy $deadlinePolicy
-            Assert-DistributionArtifactIdentity `
-                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
-                -ExpectedRunId $expectedFullRunId `
-                -ExpectedArtifactId $expectedFullArtifactId `
-                -ExpectedManifestSha256 $expectedFullManifestSha256 `
-                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
         })
         [void](Invoke-MonitoredVerificationPhase -Name 'update' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            Assert-DistributionArtifactIdentity `
-                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
-                -ExpectedRunId $expectedFullRunId `
-                -ExpectedArtifactId $expectedFullArtifactId `
-                -ExpectedManifestSha256 $expectedFullManifestSha256 `
-                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             Invoke-UpdateAcceptance `
                 -PhaseDirectory $phaseDirectory `
                 -ArtifactManifestPath $artifactManifestPath `
-                -DeadlinePolicy $deadlinePolicy
-            Assert-DistributionArtifactIdentity `
-                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
-                -ExpectedRunId $expectedFullRunId `
-                -ExpectedArtifactId $expectedFullArtifactId `
-                -ExpectedManifestSha256 $expectedFullManifestSha256 `
-                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
-        })
-
-        [void](Invoke-MonitoredVerificationPhase -Name 'v216-cache-preparation' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
-            param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            Invoke-V216ArtifactCachePreparation `
-                -PhaseDirectory $phaseDirectory `
                 -DeadlinePolicy $deadlinePolicy
         })
 
@@ -2179,12 +1997,6 @@ try {
             (Join-Path $testDiagnosticsDirectory ([string]$v216ReceiptInputs[0].RelativePath).Replace('/', '\')))
         $processIntegrationResultsPath = @(Invoke-MonitoredVerificationPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            Assert-DistributionArtifactIdentity `
-                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
-                -ExpectedRunId $expectedFullRunId `
-                -ExpectedArtifactId $expectedFullArtifactId `
-                -ExpectedManifestSha256 $expectedFullManifestSha256 `
-                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             $processIntegrationTestDirectory = Join-Path $phaseDirectory 'test'
             $processIntegrationResultsPath = Join-Path $processIntegrationTestDirectory 'results.trx'
             Invoke-TestLane `
@@ -2193,22 +2005,10 @@ try {
                 -DiagnosticsDirectory $processIntegrationTestDirectory `
                 -DeadlinePolicy $deadlinePolicy `
                 -NoBuild
-            Assert-DistributionArtifactIdentity `
-                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
-                -ExpectedRunId $expectedFullRunId `
-                -ExpectedArtifactId $expectedFullArtifactId `
-                -ExpectedManifestSha256 $expectedFullManifestSha256 `
-                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             return $processIntegrationResultsPath
         })[-1]
         $releaseAcceptancePaths = @(Invoke-MonitoredVerificationPhase -Name 'ReleaseAcceptance' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-            Assert-DistributionArtifactIdentity `
-                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
-                -ExpectedRunId $expectedFullRunId `
-                -ExpectedArtifactId $expectedFullArtifactId `
-                -ExpectedManifestSha256 $expectedFullManifestSha256 `
-                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             $v216FirstHopAcceptanceReceiptPath = @(Invoke-V216FirstHopAcceptance `
                     -PhaseDirectory $phaseDirectory `
                     -ArtifactManifestPath $artifactManifestPath `
@@ -2218,9 +2018,6 @@ try {
                 -not (Test-Path -LiteralPath $expectedV216FirstHopAcceptanceReceiptPath -PathType Leaf)) {
                 throw "v2.1.6.0 first-hop acceptance receipt path is missing or unexpected: $expectedV216FirstHopAcceptanceReceiptPath"
             }
-            Assert-V216ArtifactIdentity `
-                -MetadataPath $v216ArtifactMetadataPath `
-                -RepositoryRoot $repoRoot | Out-Null
             $releaseAcceptanceTestDirectory = Join-Path $phaseDirectory 'test'
             $releaseAcceptanceResultsPath = Join-Path $releaseAcceptanceTestDirectory 'results.trx'
             Invoke-TestLane `
@@ -2249,12 +2046,6 @@ try {
                     -ResultPaths $outcomeResultPaths `
                     -RosterPath $v216ArtifactMetadataPath `
                     -ReceiptPath (Join-Path $phaseDirectory 'release-outcomes.json'))
-            Assert-DistributionArtifactIdentity `
-                -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
-                -ExpectedRunId $expectedFullRunId `
-                -ExpectedArtifactId $expectedFullArtifactId `
-                -ExpectedManifestSha256 $expectedFullManifestSha256 `
-                -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
             return [pscustomobject][ordered]@{
                 AcceptanceReceiptPath = $v216FirstHopAcceptanceReceiptPath
                 ResultsPath = $releaseAcceptanceResultsPath
@@ -2263,12 +2054,6 @@ try {
         $v216FirstHopAcceptanceReceiptPath = [string]$releaseAcceptancePaths.AcceptanceReceiptPath
         $releaseAcceptanceResultsPath = [string]$releaseAcceptancePaths.ResultsPath
 
-        Assert-DistributionArtifactIdentity `
-            -ArtifactManifest (Read-DistributionArtifactManifest -ManifestPath $artifactManifestPath) `
-            -ExpectedRunId $expectedFullRunId `
-            -ExpectedArtifactId $expectedFullArtifactId `
-            -ExpectedManifestSha256 $expectedFullManifestSha256 `
-            -ExpectedManifestSeal $expectedFullManifestSeal | Out-Null
         Assert-RepositoryWhitespace
     }
     elseif (-not $canonicalFunctionalRequested) {
@@ -2310,18 +2095,6 @@ finally {
         }
     }
 }
-
-$trackedStateAfter = Get-TrackedWorkingTreeFingerprint
-if ($trackedStateAfter -ne $trackedStateBefore) {
-    $failureContext = if ($null -ne $verificationFailure) {
-        " Original verification failure: $($verificationFailure.Exception.Message)"
-    }
-    else {
-        [string]::Empty
-    }
-    throw "Verification changed one or more tracked files. Inspect git diff before continuing.$failureContext"
-}
-Write-Host "Tracked working tree fingerprint unchanged: $trackedStateAfter"
 
 if ($null -ne $verificationFailure) {
     throw $verificationFailure

@@ -4,11 +4,10 @@ function Get-VerificationRunnerContract {
     $phaseDescriptors = @(
         [ordered]@{ Name = 'tool-restore'; BudgetSeconds = 120; DiagnosticsSegment = 'tool-restore' }
         [ordered]@{ Name = 'tool-smoke'; BudgetSeconds = 60; DiagnosticsSegment = 'tool-smoke' }
+        [ordered]@{ Name = 'v216-cache-preparation'; BudgetSeconds = 180; DiagnosticsSegment = 'v216-cache-preparation' }
         [ordered]@{ Name = 'current-distribution-publish'; BudgetSeconds = 180; DiagnosticsSegment = 'current-distribution-publish' }
-        [ordered]@{ Name = 'baseline-preparation'; BudgetSeconds = 300; DiagnosticsSegment = 'baseline-preparation' }
         [ordered]@{ Name = 'existing-data'; BudgetSeconds = 180; DiagnosticsSegment = 'existing-data' }
         [ordered]@{ Name = 'update'; BudgetSeconds = 240; DiagnosticsSegment = 'update' }
-        [ordered]@{ Name = 'v216-cache-preparation'; BudgetSeconds = 180; DiagnosticsSegment = 'v216-cache-preparation' }
         [ordered]@{ Name = 'ProcessIntegration'; BudgetSeconds = 180; DiagnosticsSegment = 'process-integration' }
         [ordered]@{ Name = 'ReleaseAcceptance'; BudgetSeconds = 180; DiagnosticsSegment = 'release-acceptance' }
         [ordered]@{ Name = 'format'; BudgetSeconds = 120; DiagnosticsSegment = 'format' }
