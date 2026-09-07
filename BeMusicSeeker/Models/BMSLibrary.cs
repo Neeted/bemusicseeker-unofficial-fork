@@ -5435,6 +5435,8 @@ public partial class BMSLibrary : ObservableObject
 
             if (flag)
             {
+                IReadOnlyList<string> registeredBmsRoots =
+                    lr2SearchRootSnapshotOwner.CaptureForUpdate(options).RequestedRoots;
                 installTableCollectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
                 using (rwlockPendingInstallCharts.GetWriterGuard())
                 {
@@ -5443,6 +5445,7 @@ public partial class BMSLibrary : ObservableObject
                         _ = packageLifecycleOwner.ReloadInstallTable(
                             initializationService,
                             dbGateway,
+                            registeredBmsRoots,
                             ContainsInstalledChartUnsafe);
                     }
                 }

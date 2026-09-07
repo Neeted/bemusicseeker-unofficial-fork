@@ -1935,10 +1935,15 @@ internal sealed class BmsLibraryPackageInstallService
         }
     }
 
+    /// <summary>
+    /// Discovers detached install candidates, excluding registered BMS roots and
+    /// their descendants before either automatic installation or pending publication.
+    /// The roots describe configured ownership, not directories found in the chart index.
+    /// </summary>
     public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(
         IEnumerable<string> installPaths,
         IEnumerable<ChartPackage> currentPendingPackages,
-        IEnumerable<string> knownChartDirectories,
+        IEnumerable<string> registeredBmsRoots,
         Func<ChartFile, bool> isInstalledChart,
         double dupRateThreshInOnePkg,
         IPrimaryHashLookup installedChartLookup = null,
@@ -2003,10 +2008,11 @@ internal sealed class BmsLibraryPackageInstallService
         discoveryStopwatch.Stop();
         result.DiscoveryMs = discoveryStopwatch.ElapsedMilliseconds;
 
-        List<string> libraryDirectories = [.. (knownChartDirectories ?? []).Where(dir => !string.IsNullOrWhiteSpace(dir))];
+        List<string> libraryDirectories = [.. (registeredBmsRoots ?? []).Where(dir => !string.IsNullOrWhiteSpace(dir))];
         List<ChartPackage> pendingPackages = [.. (currentPendingPackages ?? []).Where(pkg => pkg != null)];
         discoveredPackages = [.. discoveredPackages
-            .Where(pkg => pkg != null && !libraryDirectories.Any(dir => pkg.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            .Where(pkg => pkg != null && !libraryDirectories.Any(dir =>
+                LongPathFileSystem.IsSameOrDescendantDirectoryPath(pkg.path, dir)))
             .Where(newPkg => !pendingPackages.Any(oldPkg => !string.IsNullOrWhiteSpace(oldPkg.path) && newPkg.path.Equals(oldPkg.path, StringComparison.OrdinalIgnoreCase)))
             .Where(newPkg => !pendingPackages.Any(oldPkg => !string.IsNullOrWhiteSpace(oldPkg.path) && LongPathFileSystem.DirectoryExists(oldPkg.path) && newPkg.path.StartsWith(oldPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))];
         List<string> distinctWorkflowRegroupEligibleSourceDirectories = [.. result.RegroupEligibleSourceDirectories

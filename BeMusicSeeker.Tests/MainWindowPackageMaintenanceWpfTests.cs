@@ -127,6 +127,10 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             }
         });
     }
+    /// <summary>
+    /// An external drop reaches the real mutation boundary so success, cleanup
+    /// failure and failed compensation retain their receipt and UI reporting.
+    /// </summary>
     [DataTestMethod]
     [DataRow(0)]
     [DataRow(1)]
@@ -145,6 +149,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 string sourceChart = Path.Combine(source, "chart.bms");
                 File.WriteAllText(sourceChart, "#PLAYER 1\r\n#TITLE DropTarget\r\n#ARTIST Artist\r\n");
                 string installRoot = Path.Combine(root, "Installed");
+                Directory.CreateDirectory(installRoot);
                 string destination = Path.Combine(installRoot, "DropTarget");
                 string dbPath = Path.Combine(root, "song.db");
                 using (var db = new LR2SongDBExtended(dbPath))
@@ -159,6 +164,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 IFileMutationService files = failureKind == 0 ? new ResilientFileMutationService()
                     : new BmsLibraryPackageInstallServiceTests.FailingDestinationDeleteFileMutationService(
                         failureKind == 1 ? source : destination);
+                // Register only the destination. Including DropSource in a BMS
+                // root would correctly skip it before this receipt test's mutation.
                 var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     () => new BmsLibraryOptionsSnapshot
@@ -168,7 +175,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         BMSInstallDir = installRoot,
                         KeepInstallablePackagesPending = false
                     })
-                { BMSFiles = [], SearchTargets = [root] };
+                { BMSFiles = [], SearchTargets = [installRoot] };
                 viewModel = MainWindowViewModelTestFactory.Create(new Settings(), dialogs);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);

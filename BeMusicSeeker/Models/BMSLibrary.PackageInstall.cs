@@ -199,6 +199,10 @@ public partial class BMSLibrary
             {
                 using LibraryFileMutationCapability mutationCapability =
                     lr2SongDbSyncMutation.CreateMutationCapability();
+                // Ingress protection uses configured roots, even when the chart
+                // index is empty or a root is excluded from resource scanning.
+                IReadOnlyList<string> registeredBmsRoots =
+                    lr2SearchRootSnapshotOwner.CaptureForUpdate(options).RequestedRoots;
                 List<string> expandedInstallPaths = packageInstallService.ExpandInstallSourcesWithProgress(
                     installPaths,
                     fileMutationService,
@@ -216,7 +220,6 @@ public partial class BMSLibrary
                 }
                 AutoInstallWorkflowResult workflow;
                 List<ChartPackage> pendingPackageSnapshot;
-                HashSet<string> knownChartDirectories;
                 IPrimaryHashLookup installedChartLookup;
                 using (rwlockBMSFilesInitializedAll.GetReaderGuard())
                 {
@@ -225,7 +228,6 @@ public partial class BMSLibrary
                         using (rwlockBMSFiles.GetReaderGuard())
                         {
                             pendingPackageSnapshot = [.. ChartPackagesPending.Where(package => package != null)];
-                            knownChartDirectories = CreateKnownChartDirectorySnapshotUnsafe();
                             installedChartLookup = CreateInstalledChartKeySnapshotExcludingChartsUnsafe([], "auto_install_prepare", 0L);
                         }
                     }
@@ -241,7 +243,7 @@ public partial class BMSLibrary
                 workflow = packageInstallService.PrepareAutoInstallWorkflow(
                     installPaths,
                     pendingPackageSnapshot,
-                    knownChartDirectories,
+                    registeredBmsRoots,
                     IsInstalledFromSnapshot,
                     dupRateThreshInOnePkg,
                     installedChartLookup,

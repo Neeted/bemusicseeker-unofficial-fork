@@ -71,6 +71,20 @@ P0 として次の操作は共通境界を通す。
 
 操作後の warning / error は report として蓄積し、`lockCopyFile` と model lock を抜けた後に dialog service で表示する。重複 warning を避けるため、同じ mutation の中で同じ message を複数 queue しない。
 
+### 保留の登録BMSルート除外
+
+保留の正本へ取り込む対象は、その取込み時点の登録BMSルート自身・配下を除外する。所持hashの有無や、譜面が既に索引へ載っているかには依存しない。登録ルートは既存の `Lr2SearchRootSnapshot.RequestedRoots`（LR2連携ではconfig、単体モードではSearchTargets）から取得し、譜面配置ディレクトリ集合や走査用の存在確認・出力先除外済み集合と取り違えない。
+
+- DnD由来の導入では、`PrepareAutoInstallWorkflow` のdiscovery結果から登録ルート自身・配下を除外してから、自動導入・保留追加・install行保存へ進む。ルート外の正当なパッケージは同じドロップに含まれていても受け付ける。
+- 起動・全再初期化では、`LoadInstallTable` が該当行を保留候補に入れず、既存のstale install行整理で削除してから正本の保留一覧を公開する。削除するのはinstall行だけであり、譜面・リソース・通常ライブラリのcatalog行は削除しない。旧版で混入した保留行もこの読込み境界で整理する。
+- パス比較は既存 `LongPathFileSystem.IsSameOrDescendantDirectoryPath` の正規化・大文字小文字を区別しない同一／子孫判定を使う。文字列の接頭辞だけが一致する別フォルダは除外しない。削除・試聴・導入先設定など個々の保留操作には、登録ルートの再検証を追加しない。
+
+**暫定仕様の制限:** 保留公開後の登録ルート変更を監視して、既存の保留全体を即時に再選別する仕組みは持たない。保留の元フォルダを含む領域を新しく登録した場合は、保留操作を続ける前にアプリを再起動するか全再初期化を完了させる。通常のファイル差分更新・プレイリスト更新だけでの再選別は保証しない。登録変更と保留操作が競合する場合の原子的な再選別も今回の保証外とする。
+
+除外の対象はパッケージのsource pathが登録ルート自身・配下である場合に限る。登録ルートを内包する祖先ディレクトリ全体のパッケージ化、別名パスによる物理的な同一性の解決、取込み後の外部変更への防御は拡張しない。登録ルートの祖先を導入元としてドロップする運用は避ける。
+
+回帰確認は `BmsLibraryPackageInstallServiceTests` の `InstallChartPackagesAuto_ExcludesRegisteredRootsWithoutChartIndex` / `PrepareAutoInstallWorkflow_ExcludesRegisteredRootsButKeepsOutsideSibling` と、`BmsLibraryInitializationInstallTests.ReloadInstallTable_ExcludesRegisteredRootsBeforePendingPublicationAndPreservesSources` に置く。既存fixtureの固有FS・DBと同期owner returnを使用し、新しいlane・共有設定・待機機構は追加しない。
+
 ### Pending chart legacy mutations
 
 保留譜面の削除、無効拡張子の修正、導入行の差分更新は、確認時に対象 K 件だけの immutable projection を一度作る。projection は対象の file identity、package / entry membership、authorized path を保持し、無関係な pending package の chart entries を読み直さない。lease 内で live owner、package collection、entry、path と、選択された操作単位の source existence / type、directory / reparse safety を再検証し、失敗した対象は明示的な non-success として扱う。確認後の process-exclusive owner と transaction が authoritative であり、外部 DB の全件再読込や全 catalog 比較は行わない。

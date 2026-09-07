@@ -4,7 +4,7 @@
 
 WPF `FileDrop` が返すパスは、Explorer などの通常ファイルだけでなく、アーカイバーが Drop のために一時展開した短命なファイルやフォルダーを指すことがある。導入処理は非同期キューで実行するため、Drop callback の終了後まで借用元パスが存在するとは仮定しない。
 
-入力を受け付けるかどうかと、アプリが入力を削除してよいかどうかは別の契約である。`TempDirectoryPublisher.IsManagedPath` は現在セッションにおける削除 ownership の判定であり、導入入力の allowlist ではない。読み取り可能な通常ファイルとフォルダーは保存場所だけを理由に拒否しない。
+入力を受け付けるかどうかと、アプリが入力を削除してよいかどうかは別の契約である。`TempDirectoryPublisher.IsManagedPath` は現在セッションにおける削除 ownership の判定であり、導入入力の allowlist ではない。acquisitionでは、読み取り可能な通常ファイルとフォルダーをtemp領域かどうかだけで拒否しない。導入・保留の正本への取込みでは、別途 [登録BMSルートの除外契約](library-mutation-boundary.md#保留の登録bmsルート除外) を適用する。
 
 ## path classification
 

@@ -528,9 +528,15 @@ internal sealed partial class PackageLifecycleOwner
         }
     }
 
+    /// <summary>
+    /// Reconciles persisted install rows against the registered BMS roots before
+    /// replacing the canonical pending collection. Rejected rows lose only their
+    /// install record; this restore boundary never removes source files.
+    /// </summary>
     internal InstallTableLoadResult ReloadInstallTable(
         BmsLibraryInitializationService initializationService,
         BmsLibraryDbGateway dbGateway,
+        IEnumerable<string> registeredBmsRoots,
         Func<ChartFile, bool> isInstalledChart)
     {
         if (initializationService == null)
@@ -542,7 +548,10 @@ internal sealed partial class PackageLifecycleOwner
             throw new ArgumentNullException(nameof(dbGateway));
         }
 
-        InstallTableLoadResult result = initializationService.LoadInstallTable(dbGateway, isInstalledChart);
+        InstallTableLoadResult result = initializationService.LoadInstallTable(
+            dbGateway,
+            registeredBmsRoots,
+            isInstalledChart);
         // StalePackages identifies rows that were classified for pruning. A
         // raw path in StaleInstallPaths that is not in this set is the
         // detached primary key of an otherwise valid survivor alias.

@@ -220,6 +220,7 @@ public sealed class BmsLibraryInitializationInstallTests
 
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
+                [],
                 chart => string.Equals(chart?.Md5, installedHash, StringComparison.OrdinalIgnoreCase));
 
             Assert.AreEqual(2, result.PendingPackages.Count);
@@ -234,6 +235,98 @@ public sealed class BmsLibraryInitializationInstallTests
             ChartPackage singleFileWarningPackage = result.PendingPackages.Single(pkg => pkg.path.Equals(singleFileChartPath, StringComparison.OrdinalIgnoreCase));
             Assert.IsTrue(installedWarningPackage.ChartEntries[0].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
             Assert.IsTrue(singleFileWarningPackage.ChartEntries[0].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.SingleBmsFile));
+        });
+    }
+
+    /// <summary>
+    /// Legacy install rows under registered roots are pruned before publication,
+    /// without deleting physical sources or catalog rows. A later explicit reload
+    /// applies a newly registered root to the entire pending collection.
+    /// </summary>
+    [TestMethod]
+    public void ReloadInstallTable_ExcludesRegisteredRootsBeforePendingPublicationAndPreservesSources()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string registeredRoot = Path.Combine(lr2RootPath, "Library");
+            string nestedDirectory = Path.Combine(registeredRoot, "Song");
+            string outsideDirectory = Path.Combine(lr2RootPath, "Library-pending");
+            string remainingDirectory = Path.Combine(lr2RootPath, "Downloads");
+            string[] packageDirectories = [registeredRoot, nestedDirectory, outsideDirectory, remainingDirectory];
+            var chartContents = new Dictionary<string, string>();
+            foreach (string directory in packageDirectories)
+            {
+                Directory.CreateDirectory(directory);
+                string chartPath = Path.Combine(directory, "chart.bms");
+                string content = CreateValidBmsText(Path.GetFileName(directory));
+                File.WriteAllText(chartPath, content, Encoding.ASCII);
+                chartContents.Add(chartPath, content);
+            }
+            string nestedChartPath = Path.Combine(nestedDirectory, "chart.bms");
+            string nestedAlias = Path.Combine(nestedDirectory, ".");
+            string[] protectedRows = [registeredRoot, nestedDirectory, nestedChartPath, nestedAlias];
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.InsertOrReplace(new LR2SongDB.song
+                {
+                    path = nestedChartPath,
+                    hash = "11111111111111111111111111111111",
+                    title = "Keep catalog"
+                });
+                foreach (string sourcePath in protectedRows.Concat(new[] { outsideDirectory, remainingDirectory }))
+                {
+                    songDb.InsertOrReplace(new ChartPackage { path = sourcePath }, typeof(LR2SongDBExtended.install));
+                }
+            }
+            var dbGateway = new BmsLibraryDbGateway(songDbPath);
+            var owner = new PackageLifecycleOwner(
+                dbGateway,
+                new TestUiScheduler(() => null!),
+                (_, _) => { },
+                _ => { },
+                _ => { },
+                packages => new ObservableCollection<ChartPackage>(packages ?? []),
+                () => { },
+                _ => { });
+            string rootAlias = Path.Combine(registeredRoot, ".").ToUpperInvariant()
+                + Path.DirectorySeparatorChar;
+
+            InstallTableLoadResult firstLoad = owner.ReloadInstallTable(
+                new BmsLibraryInitializationService(),
+                dbGateway,
+                [rootAlias],
+                _ => true);
+
+            CollectionAssert.AreEquivalent(protectedRows, firstLoad.StaleInstallPaths);
+            Assert.AreEqual(2, firstLoad.PendingPackages.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { outsideDirectory, remainingDirectory },
+                owner.PendingPackages.Select(package => package.path).ToArray());
+            CollectionAssert.AreEquivalent(
+                new[] { outsideDirectory, remainingDirectory },
+                dbGateway.LoadInstallPackages().Select(package => package.path).ToArray());
+
+            InstallTableLoadResult secondLoad = owner.ReloadInstallTable(
+                new BmsLibraryInitializationService(),
+                dbGateway,
+                [registeredRoot, outsideDirectory],
+                _ => true);
+
+            CollectionAssert.AreEquivalent(new[] { outsideDirectory }, secondLoad.StaleInstallPaths);
+            Assert.AreEqual(1, owner.PendingPackages.Count);
+            Assert.AreEqual(remainingDirectory, owner.PendingPackages[0].path);
+            Assert.AreEqual(remainingDirectory, dbGateway.LoadInstallPackages().Single().path);
+            foreach (KeyValuePair<string, string> chart in chartContents)
+            {
+                Assert.AreEqual(chart.Value, File.ReadAllText(chart.Key));
+            }
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDB.song catalogRow = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(nestedChartPath, catalogRow.path);
+            Assert.AreEqual("Keep catalog", catalogRow.title);
         });
     }
 
@@ -276,6 +369,7 @@ public sealed class BmsLibraryInitializationInstallTests
             InstallTableLoadResult result = packageLifecycleOwner.ReloadInstallTable(
                 new BmsLibraryInitializationService(),
                 dbGateway,
+                [],
                 _ => false);
 
             string canonicalValidPackagePath = LongPathFileSystem.TrimTrailingDirectorySeparators(
@@ -352,6 +446,7 @@ public sealed class BmsLibraryInitializationInstallTests
             InstallTableLoadResult result = packageLifecycleOwner.ReloadInstallTable(
                 new BmsLibraryInitializationService(),
                 dbGateway,
+                [],
                 _ => false);
 
             Assert.AreEqual(2, result.PendingPackages.Count);
@@ -413,7 +508,7 @@ public sealed class BmsLibraryInitializationInstallTests
         string missingSongDbPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MissingInitTests_" + Guid.NewGuid().ToString("N"), "song.db");
         var service = new BmsLibraryInitializationService();
 
-        Assert.ThrowsException<SQLite.SQLiteException>(() => service.LoadInstallTable(new BmsLibraryDbGateway(missingSongDbPath)));
+        Assert.ThrowsException<SQLite.SQLiteException>(() => service.LoadInstallTable(new BmsLibraryDbGateway(missingSongDbPath), []));
     }
 
     [TestMethod]
@@ -442,6 +537,7 @@ public sealed class BmsLibraryInitializationInstallTests
 
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
+                [],
                 chart => string.Equals(chart?.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
 
             ChartPackage pendingPackage = result.PendingPackages.Single();
@@ -479,6 +575,7 @@ public sealed class BmsLibraryInitializationInstallTests
 
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
+                [],
                 _ => false);
 
             ChartPackage pendingPackage = result.PendingPackages.Single();
@@ -517,6 +614,7 @@ public sealed class BmsLibraryInitializationInstallTests
             var service = new BmsLibraryInitializationService();
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
+                [],
                 _ => false);
 
             ChartPackage pendingPackage = result.PendingPackages.Single();
@@ -555,6 +653,7 @@ public sealed class BmsLibraryInitializationInstallTests
             var service = new BmsLibraryInitializationService();
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
+                [],
                 file => false);
 
             Assert.AreEqual(1, result.PendingPackages.Count);
@@ -936,6 +1035,7 @@ public sealed class BmsLibraryInitializationInstallTests
             var service = new BmsLibraryInitializationService();
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
+                [],
                 file => false);
 
             Assert.AreEqual(1, result.PendingPackages.Count);

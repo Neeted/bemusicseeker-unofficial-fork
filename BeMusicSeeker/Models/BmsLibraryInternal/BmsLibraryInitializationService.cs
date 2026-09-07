@@ -2403,8 +2403,14 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
+    /// <summary>
+    /// Restores detached pending packages outside the registered BMS roots.
+    /// Protected source paths are classified as stale install rows for the existing
+    /// startup reconciliation; neither their files nor catalog rows are deleted.
+    /// </summary>
     public InstallTableLoadResult LoadInstallTable(
         BmsLibraryDbGateway dbGateway,
+        IEnumerable<string> registeredBmsRoots,
         Func<ChartFile, bool> isInstalledChart = null)
     {
         var result = new InstallTableLoadResult();
@@ -2417,12 +2423,16 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             List<ChartPackage> packages = dbGateway.LoadInstallPackages();
+            List<string> libraryDirectories = [.. (registeredBmsRoots ?? [])
+                .Where(dir => !string.IsNullOrWhiteSpace(dir))];
             var seenCanonicalPaths = new HashSet<string>(StringComparer.Ordinal);
             foreach (ChartPackage package in packages ?? [])
             {
                 string rawPath = package?.path;
                 if (package == null
                     || !TryNormalizePendingPackagePath(rawPath, out string canonicalPath)
+                    || libraryDirectories.Any(dir =>
+                        LongPathFileSystem.IsSameOrDescendantDirectoryPath(canonicalPath, dir))
                     || (!LongPathFileSystem.FileExists(canonicalPath)
                         && !LongPathFileSystem.DirectoryExists(canonicalPath))
                     || package.ChartEntries == null

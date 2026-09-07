@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
@@ -826,6 +827,75 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// DnD's library entry point protects configuration roots even before chart
+    /// indexing, for both standalone settings and LR2's configuration source.
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, "root")]
+    [DataRow(false, "directory")]
+    [DataRow(false, "file")]
+    [DataRow(true, "directory")]
+    public void InstallChartPackagesAuto_ExcludesRegisteredRootsWithoutChartIndex(
+        bool useLr2,
+        string sourceKind)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string registeredRoot = Path.Combine(tempRootPath, "Library");
+            string rootChartPath = CreateBmsFile(registeredRoot, "root.bms", "#TITLE Root");
+            string nestedDirectory = Path.Combine(registeredRoot, "Song");
+            string nestedChartPath = CreateBmsFile(nestedDirectory, "chart.bms", "#TITLE Nested");
+            File.WriteAllText(Path.Combine(nestedDirectory, "readme.txt"), "Keep the single-file drop separate.");
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+            }
+
+            LR2Config? config = null;
+            if (useLr2)
+            {
+                string configDirectory = Path.Combine(tempRootPath, "LR2files", "Config");
+                Directory.CreateDirectory(configDirectory);
+                string configPath = Path.Combine(configDirectory, "config.xml");
+                new XDocument(new XElement("config",
+                    new XElement("jukebox", new XElement("path", registeredRoot))))
+                    .Save(configPath);
+                config = new LR2Config(configPath);
+            }
+            var library = new TestBmsLibrary(
+                songDbPath,
+                () => config!,
+                null!,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null!),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = useLr2,
+                    KeepInstallablePackagesPending = true
+                });
+            library.BMSFiles = [];
+            library.SearchTargets = useLr2 ? [] : [registeredRoot];
+            string sourcePath = sourceKind switch
+            {
+                "root" => registeredRoot,
+                "directory" => nestedDirectory,
+                _ => nestedChartPath
+            };
+
+            List<ChartPackage> installed = library.InstallChartPackagesAuto([sourcePath]);
+
+            Assert.AreEqual(0, installed.Count);
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+            Assert.AreEqual(0, new BmsLibraryDbGateway(songDbPath).LoadInstallPackages().Count);
+            Assert.IsTrue(File.Exists(rootChartPath));
+            Assert.IsTrue(File.Exists(nestedChartPath));
+        });
+    }
+
     [TestMethod]
     public void InstallChartPackagesAuto_WhenAnotherFileMutationOwnsAdmission_FailsInsteadOfPublishingEmptySuccess()
     {
@@ -1426,6 +1496,48 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
             Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+        });
+    }
+
+    /// <summary>
+    /// Protected and ordinary sources may be dropped together. Normalized root
+    /// aliases must not bypass protection or exclude a sibling with the same prefix.
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PrepareAutoInstallWorkflow_ExcludesRegisteredRootsButKeepsOutsideSibling(bool useRootAlias)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string registeredRoot = Path.Combine(tempDirectoryPath, "Library");
+            string outsideDirectory = Path.Combine(tempDirectoryPath, "Library-pending");
+            string protectedChart = CreateBmsFile(registeredRoot, "owned.bms", "#TITLE Owned");
+            string outsideChart = CreateBmsFile(outsideDirectory, "copy.bms", "#TITLE Copy");
+            File.WriteAllText(Path.Combine(tempDirectoryPath, "not-dropped.txt"), "Keep separate source directories.");
+            string rootPath = useRootAlias
+                ? Path.Combine(registeredRoot, ".").ToUpperInvariant() + Path.DirectorySeparatorChar
+                : registeredRoot;
+            var service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                [registeredRoot, outsideDirectory],
+                [],
+                [rootPath],
+                _ => true,
+                0.6);
+
+            Assert.AreEqual(1, result.DiscoveredPackages.Count);
+            Assert.IsTrue(string.Equals(outsideDirectory, result.DiscoveredPackages[0].path,
+                StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
+            Assert.IsTrue(string.Equals(outsideDirectory, result.PendingPackagesToAdd[0].path,
+                StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(0, result.AutoInstallCandidates.Count);
+            Assert.AreEqual(0, result.PendingPackagesToRemove.Count);
+            Assert.IsTrue(File.Exists(protectedChart));
+            Assert.IsTrue(File.Exists(outsideChart));
         });
     }
 
@@ -3203,7 +3315,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     KeepInstallablePackagesPending = false
                 });
             library.BMSFiles = [];
-            library.SearchTargets = [tempRootPath];
+            Directory.CreateDirectory(installRootPath);
+            library.SearchTargets = [installRootPath];
 
             PackageInstallCommandResult commandResult = library.InstallChartPackagesAutoWithProgress(
                 [firstSourceDirectoryPath, secondSourceDirectoryPath, thirdSourceDirectoryPath],
