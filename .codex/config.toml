@@ -7,3 +7,7 @@ enabled = true
 # while keeping one slot available for a worker-owned issue resolver. Close all
 # implementation threads before starting repo-static-review.
 max_concurrent_threads_per_session = 3
+
+[features.multi_agent_v2]
+min_wait_timeout_ms = 300000
+default_wait_timeout_ms = 300000
