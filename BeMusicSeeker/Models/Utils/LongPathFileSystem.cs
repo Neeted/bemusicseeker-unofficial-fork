@@ -214,6 +214,28 @@ internal static class LongPathFileSystem
         File.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
     }
 
+    /// <summary>
+    /// 同一 filesystem 上の staging file を、既存宛先の置換または初回移動で公開します。
+    /// 宛先を先に削除しないため、公開に失敗しても既存ファイルを保持できます。
+    /// </summary>
+    /// <param name="sourcePath">閉じられた staging file のパスです。</param>
+    /// <param name="destinationPath">公開先ファイルのパスです。</param>
+    public static void PublishFile(string sourcePath, string destinationPath)
+    {
+        ThrowIfSamePath(sourcePath, destinationPath);
+        if (FileExists(destinationPath))
+        {
+            File.Replace(
+                ToExtendedPath(sourcePath),
+                ToExtendedPath(destinationPath),
+                destinationBackupFileName: null,
+                ignoreMetadataErrors: true);
+            return;
+        }
+
+        File.Move(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath));
+    }
+
     public static void CopyFile(string sourcePath, string destinationPath, bool overwrite)
     {
         File.Copy(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath), overwrite);

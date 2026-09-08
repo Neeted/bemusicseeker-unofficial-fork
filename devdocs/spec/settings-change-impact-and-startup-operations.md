@@ -52,6 +52,8 @@ modal表示はbackground処理の停止を意味せず、`Settings.Default`は�
 - table-list URI とplaylist metadata URIのinline validation messageはpresentation transientとする。不正入力はraw URIとdirty状態を変更せず、同じWindow内のカテゴリ切替、再Activate、validation failureではmessageを維持する。Cancel、変更なしSave、native closeを含む終了後、共有ViewModelを使う次のfresh SettingsWindow activationで両messageをnotification付きで消去する。`ResetSettings()` はこのtransient cleanupのownerにしない。
 
 - 表示や dirty 判定は LR2 `config.xml` を保存しない。
+- PlaybackPanel の background 起動待ち中も Settings の表示・編集は停止しない。LR2body の試聴 scope が active な間に作成する `LR2Config` は、最新 disk XML の非所有値と保存済みの `system/windowsize_x`、`windowsize_y`、`screenmode`、`sound/volumemaster`、`volumeflag` を draft へ読み込む。試聴の一時値を draft の初期値へ混入させない。
+- 試聴中の通常 Save / BMS 検索 root Save は同じ短い保存排他へ参加し、active scope の保存済み5項目（元の欠落を含む）を保存文書へ適用してから draft の非所有変更を公開する。公開に成功した場合だけ、scope の保存値をその保存文書から同期する。試聴 publish は復元値を更新しない。試聴終了・起動失敗時は最新 XML の非所有変更を保持したまま、5値を開始時の値または欠落へ戻す。設定 Save で作成した draft は同じ試聴の後続復元へ共有しない。
 - UI 表示や差分比較に使う LR2 BMS 検索ルートは `GetBMSSearchDirectoriesForChangeTracking()` で読み、存在しないディレクトリを勝手に除外しない。
 - ランタイム検索対象や保存時の必須検証で実在ディレクトリだけが必要な場合は `GetBMSSearchDirectoriesReadOnly()` を使う。この読み取りも `config.xml` は保存しない。
 - LR2 `config.xml` の保存は、BMS 検索ルート変更、custom folder 出力先同期、または autoreload 設定の明示的な正規化が必要な場合だけ行う。
@@ -360,6 +362,10 @@ MainWindowの検索ルート追加・削除は下位ownerの保存失敗伝播�
 
 LR2停止時のwindow placement取得は既存Settingsのメモリ値だけを更新する。停止・次曲・player切替では設定Saveを呼ばない。通常の設定SaveはUI編集がなくても未保存のruntime位置を保存する。既存PropertyValuesのdirty状態で判断し、別の永続flagは持たない。Cancelはruntime位置を戻さない。強制終了では最後の未保存位置が失われる場合がある。
 
+LR2 の試聴開始後に設定画面が開いた場合、試聴用の一時5値は Settings の同一 draft へ引き継がれない。起動後にその draft で BMS 検索 root を編集して Save しても、保存文書には root の変更と非所有値だけを反映し、試聴5値は active scope の保存済み値へ戻す。process Start 前の失敗では process API の状態参照や強制終了を行わず、temporary publish が成功した場合にだけ5値を復元する。Start 後の失敗では process cleanup と復元を独立して試み、終了不能 process の所有権を保持する。元の失敗、復元失敗、対象 config path は既存の失敗通知へ渡す。
+
 terminal終了はplayer closeによる最後の位置取得後に一度だけ設定をSaveする。失敗はUI警告とログへ通知し、audio・一時fileなどのcleanupと終了要求を続ける。再入で保存・終了要求を重複させない。 terminal警告のnative dialog呼出しはApp最上位に閉じ、ApplicationCompositionの専用callbackを既存終了ownerへ渡す。
 
 P07/P08c/P08d-SはSettingsDialogBehaviorTestsのcommand/sessionとisolated provider readback、P08dはPlayerSettingsGatewayTestsとExternalPlayerProcessGatewayTestsのcapture経路、P09はShellShutdownWorkflowOwnerTestsのpublic player attachment・final save・通知/終了callbackで検証する。P10のkey/placeholder契約は全6言語に適用する。物理fault matrixはP01/P02のfixtureに集約する。
+
+LR2 試聴中の draft 境界と root 保存の実到達経路は `ExternalPlayerProcessGatewayTests` と `SettingsDialogBehaviorTests` の既存 fixtureで検証し、player生成後・PlayStart前の設定画面 main-window root Save、同じ draft を再生成しない起動中の root Save、起動直後・終了後の5値の意味的disk readbackを行う。設定画面の既存 Save / Cancel / root operation coverageは維持し、設定画面表示を理由に playback を停止しない契約を共有する。

@@ -33,15 +33,9 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private readonly object lockThis = new();
 
-    private int winSizeX;
+    private LR2Config.PreviewScope previewScope;
 
-    private int winSizeY;
-
-    private int volume = -1;
-
-    private bool? isWinMode;
-
-    private bool? isVolumeEnabled;
+    private bool previewPublished;
 
     private string _exePath;
 
@@ -130,63 +124,79 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         this.windowHost = windowHost ?? throw new ArgumentNullException(nameof(windowHost));
     }
 
+    /// <summary>
+    /// LR2body を終了し、active 試聴設定を復元します。
+    /// </summary>
     public void CloseProcess()
     {
-        Exception closeFailure;
+        Exception closeFailure = null;
         EventHandler exitHandler;
+        IExternalPlayerProcessSession process;
         lock (lockThis)
         {
-            if (LR2bodyProcess == null)
+            process = LR2bodyProcess;
+            if (process == null)
             {
                 return;
             }
-            if (onExitEventHandlerRegstered != null)
-            {
-                LR2bodyProcess.Exited -= onExitEventHandlerRegstered;
-            }
-            if (onExitEventHandlerDefault != null)
-            {
-                LR2bodyProcess.Exited -= onExitEventHandlerDefault;
-            }
-            storeWindowPosition();
-            closeFailure = null;
-            exitHandler = onExitEventHandlerDefault;
+            Exception handlerFailure = null;
             try
             {
-                LR2bodyProcess.CloseMainWindow();
-                waitPolicy.WaitForProcessExit(
-                    () => LR2bodyProcess.HasExited,
-                    LR2bodyProcess.Kill,
-                    "LR2body did not terminate after graceful close and kill.");
+                handlerFailure = UnregisterProcessHandlers(process);
+            }
+            catch (Exception exception)
+            {
+                handlerFailure = exception;
+            }
+            try
+            {
+                storeWindowPosition();
             }
             catch (Exception exception)
             {
                 closeFailure = exception;
             }
+            Exception terminateFailure = TryTerminateStartedProcess(process);
+            closeFailure = CombineFailures(closeFailure, handlerFailure, terminateFailure);
+            exitHandler = onExitEventHandlerDefault;
             if (closeFailure != null)
             {
                 if (onExitEventHandlerDefault != null)
                 {
-                    LR2bodyProcess.Exited += onExitEventHandlerDefault;
+                    process.Exited += onExitEventHandlerDefault;
                 }
                 if (onExitEventHandlerRegstered != null)
                 {
-                    LR2bodyProcess.Exited += onExitEventHandlerRegstered;
+                    process.Exited += onExitEventHandlerRegstered;
                 }
             }
         }
         if (closeFailure != null)
         {
-            throw new InvalidOperationException("LR2body could not be terminated.", closeFailure);
+            throw new InvalidOperationException(
+                "LR2body could not be terminated.",
+                closeFailure);
         }
         exitHandler?.Invoke(null, null);
     }
 
+    /// <summary>
+    /// 指定譜面を LR2body で再生し、試聴用設定を短時間だけ公開します。
+    /// </summary>
+    /// <param name="bmsFilePath">再生する譜面の絶対 path です。</param>
+    /// <param name="onExitEventHandler">終了時に呼び出す既存 callback です。</param>
+    /// <returns>起動処理の完了を表す task です。</returns>
     public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
     {
         return PlayStart(bmsFilePath, (onExitEventHandler != null) ? new EventHandler(onExitEventHandler.Invoke) : null);
     }
 
+    /// <summary>
+    /// 指定譜面を LR2body で再生し、試聴用設定を短時間だけ公開します。
+    /// </summary>
+    /// <param name="bmsFilePath">再生する譜面の絶対 path です。</param>
+    /// <param name="onExitEventHandler">終了時に呼び出す既存 callback です。</param>
+    /// <returns>起動処理の完了を表す task です。</returns>
     public Task PlayStart(string bmsFilePath, EventHandler onExitEventHandler = null)
     {
         lock (lockThis)
@@ -215,48 +225,135 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 ExePath,
                 "-A -NS \"" + bmsFilePath + "\"",
                 System.Diagnostics.ProcessWindowStyle.Hidden);
-            LR2bodyProcess = processGateway.Prepare(launchRequest);
-            LR2bodyProcess.Exited += onExitEventHandlerDefault;
-            if (onExitEventHandler != null)
+            IExternalPlayerProcessSession process = processGateway.Prepare(launchRequest);
+            LR2bodyProcess = process;
+            bool processStarted = false;
+            Exception primaryFailure = null;
+            Exception processCleanupFailure = null;
+            Exception previewRestoreFailure = null;
+            Exception previewEndFailure = null;
+            bool previewRestoreAttempted = false;
+            try
             {
-                onExitEventHandlerRegstered = onExitEventHandler;
-                LR2bodyProcess.Exited += onExitEventHandlerRegstered;
-            }
-            else
-            {
-                onExitEventHandlerRegstered = null;
-            }
-            storeConfig();
-            PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
-            setConfig((int)settings.LR2bodyResolution.Width, (int)settings.LR2bodyResolution.Height, isWinMode: true, settings.PlayerVolume);
-            ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
-            LR2bodyProcess.Start();
-            waitPolicy.WaitUntil(
-                () => !LR2bodyProcess.MainWindowHandle.IsEmpty,
-                () => LR2bodyProcess.HasExited,
-                () => { },
-                "LR2のメインウィンドウ待機がタイムアウトしました。",
-                pollMilliseconds: 0);
-            if (!LR2bodyProcess.HasExited)
-            {
-                LR2bodyHandleShowing = LR2bodyProcess.MainWindowHandle;
-                if (!setWindowStyle() || LR2bodyProcess == null || LR2bodyProcess.HasExited)
+                process.Exited += onExitEventHandlerDefault;
+                if (onExitEventHandler != null)
                 {
-                    if (LR2bodyProcess != null)
-                    {
-                        LR2bodyExited(LR2bodyProcess, EventArgs.Empty);
-                    }
+                    onExitEventHandlerRegstered = onExitEventHandler;
+                    process.Exited += onExitEventHandlerRegstered;
+                }
+                else
+                {
+                    onExitEventHandlerRegstered = null;
+                }
+
+                previewScope = lr2Config.BeginPreview();
+                PlayerSettingsSnapshot settings = playerSettingsGateway.CaptureSnapshot();
+                lr2Config.PublishPreview(
+                    previewScope,
+                    (int)settings.LR2bodyResolution.Width,
+                    (int)settings.LR2bodyResolution.Height,
+                    isWindowMode: true,
+                    masterVolume: settings.PlayerVolume,
+                    isVolumeEnabled: true);
+                previewPublished = true;
+                ExternalWindowHandle foregroundWindow = RequireWindowHost().GetForegroundWindow();
+                process.Start();
+                processStarted = true;
+                waitPolicy.WaitUntil(
+                    () => !process.MainWindowHandle.IsEmpty,
+                    () => process.HasExited,
+                    () => { },
+                    "LR2のメインウィンドウ待機がタイムアウトしました。",
+                    pollMilliseconds: 0);
+                if (process.HasExited)
+                {
+                    throw new TimeoutException("LR2の起動がタイムアウトしました。");
+                }
+
+                LR2bodyHandleShowing = process.MainWindowHandle;
+                if (!setWindowStyle() || LR2bodyProcess == null || process.HasExited)
+                {
                     throw new InvalidOperationException(
                         "LR2 exited before its window style could be applied.");
                 }
                 restoreWindowPosition(settings);
                 RestoreForegroundWindow(foregroundWindow);
                 BMSFilePathPlaying = bmsFilePath;
-                restoreConfig(isTempClear: false);
+                previewRestoreAttempted = true;
+                lr2Config.RestorePreview(previewScope);
                 return Task.CompletedTask;
             }
-            onExitEventHandlerDefault?.Invoke(null, null);
-            throw new TimeoutException("LR2の起動がタイムアウトしました。");
+            catch (Exception exception)
+            {
+                primaryFailure = exception;
+                if (processStarted)
+                {
+                    processCleanupFailure = TryTerminateStartedProcess(process);
+                    if (processCleanupFailure == null)
+                    {
+                        processCleanupFailure = UnregisterProcessHandlers(process);
+                        if (processCleanupFailure == null && ReferenceEquals(LR2bodyProcess, process))
+                        {
+                            LR2bodyProcess = null;
+                            LR2bodyHandleShowing = default;
+                            onExitEventHandlerRegstered = null;
+                        }
+                    }
+                }
+                else
+                {
+                    processCleanupFailure = UnregisterProcessHandlers(process);
+                    if (ReferenceEquals(LR2bodyProcess, process))
+                    {
+                        LR2bodyProcess = null;
+                        LR2bodyHandleShowing = default;
+                        onExitEventHandlerRegstered = null;
+                    }
+                }
+
+                if (previewPublished && previewScope != null && !previewRestoreAttempted)
+                {
+                    previewRestoreAttempted = true;
+                    try
+                    {
+                        lr2Config.RestorePreview(previewScope);
+                    }
+                    catch (Exception restoreException)
+                    {
+                        previewRestoreFailure = restoreException;
+                    }
+                }
+
+                if (processCleanupFailure == null || !processStarted)
+                {
+                    if (previewScope != null)
+                    {
+                        try
+                        {
+                            lr2Config.EndPreview(previewScope);
+                        }
+                        catch (Exception endException)
+                        {
+                            previewEndFailure = endException;
+                        }
+                        if (previewEndFailure == null)
+                        {
+                            previewScope = null;
+                            previewPublished = false;
+                        }
+                    }
+                }
+
+                Exception secondaryFailure = CombineFailures(
+                    processCleanupFailure,
+                    previewRestoreFailure,
+                    previewEndFailure);
+                if (secondaryFailure == null)
+                {
+                    throw;
+                }
+                throw CreatePreviewFailure(primaryFailure, secondaryFailure);
+            }
         }
     }
 
@@ -317,182 +414,84 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     {
     }
 
-    private void storeConfig()
+    private Exception TryTerminateStartedProcess(IExternalPlayerProcessSession process)
     {
+        Exception closeFailure = null;
         try
         {
-            winSizeX = lr2Config.GetWindowSizeX();
+            process.CloseMainWindow();
         }
-        catch
+        catch (Exception exception)
         {
-            winSizeX = 0;
+            closeFailure = exception;
         }
+
+        Exception waitFailure = null;
         try
         {
-            winSizeY = lr2Config.GetWindowSizeY();
+            waitPolicy.WaitForProcessExit(
+                () => process.HasExited,
+                process.Kill,
+                "LR2body did not terminate after graceful close and kill.");
         }
-        catch
+        catch (Exception exception)
         {
-            winSizeY = 0;
+            waitFailure = exception;
         }
-        try
-        {
-            isWinMode = lr2Config.IsScreenModeWindow();
-        }
-        catch
-        {
-            isWinMode = null;
-        }
-        try
-        {
-            volume = lr2Config.GetMasterVolume();
-        }
-        catch
-        {
-            volume = -1;
-        }
-        try
-        {
-            isVolumeEnabled = lr2Config.IsVolumeEnabled();
-        }
-        catch
-        {
-            isVolumeEnabled = null;
-        }
+        return CombineFailures(closeFailure, waitFailure);
     }
 
-    private void setConfig(int winSizeX, int winSizeY, bool isWinMode = true, int volume = 100, bool isVolumeEnabled = true)
+    private Exception UnregisterProcessHandlers(IExternalPlayerProcessSession process)
     {
+        Exception firstFailure = null;
         try
         {
-            lr2Config.SetWindowSizeX(winSizeX);
+            if (onExitEventHandlerRegstered != null)
+            {
+                process.Exited -= onExitEventHandlerRegstered;
+            }
         }
-        catch
+        catch (Exception exception)
         {
-        }
-        try
-        {
-            lr2Config.SetWindowSizeY(winSizeY);
-        }
-        catch
-        {
-        }
-        try
-        {
-            lr2Config.SetScreenMode(isWinMode);
-        }
-        catch
-        {
+            firstFailure = exception;
         }
         try
         {
-            lr2Config.SetMasterVolume(volume);
+            if (onExitEventHandlerDefault != null)
+            {
+                process.Exited -= onExitEventHandlerDefault;
+            }
         }
-        catch
+        catch (Exception exception)
         {
+            firstFailure = CombineFailures(firstFailure, exception);
         }
-        try
-        {
-            lr2Config.SetVolumeFlag(isVolumeEnabled);
-        }
-        catch
-        {
-        }
-        lr2Config.Save();
+        return firstFailure;
     }
 
-    private void restoreConfig(bool isTempClear = true)
+    private static Exception CombineFailures(params Exception[] failures)
     {
-        if (lr2Config == null)
+        Exception[] actualFailures = failures.Where(failure => failure != null).ToArray();
+        if (actualFailures.Length == 0)
         {
-            return;
+            return null;
         }
-        if (winSizeX != 0)
+        if (actualFailures.Length == 1)
         {
-            try
-            {
-                lr2Config.SetWindowSizeX(winSizeX);
-            }
-            catch
-            {
-            }
-            finally
-            {
-                if (isTempClear)
-                {
-                    winSizeX = 0;
-                }
-            }
+            return actualFailures[0];
         }
-        if (winSizeY != 0)
-        {
-            try
-            {
-                lr2Config.SetWindowSizeY(winSizeY);
-            }
-            catch
-            {
-            }
-            finally
-            {
-                if (isTempClear)
-                {
-                    winSizeY = 0;
-                }
-            }
-        }
-        if (isWinMode.HasValue)
-        {
-            try
-            {
-                lr2Config.SetScreenMode(isWinMode.Value);
-            }
-            catch
-            {
-            }
-            finally
-            {
-                if (isTempClear)
-                {
-                    isWinMode = null;
-                }
-            }
-        }
-        if (volume != -1)
-        {
-            try
-            {
-                lr2Config.SetMasterVolume(volume);
-            }
-            catch
-            {
-            }
-            finally
-            {
-                if (isTempClear)
-                {
-                    volume = -1;
-                }
-            }
-        }
-        if (isVolumeEnabled.HasValue)
-        {
-            try
-            {
-                lr2Config.SetVolumeFlag(isVolumeEnabled.Value);
-            }
-            catch
-            {
-            }
-            finally
-            {
-                if (isTempClear)
-                {
-                    isVolumeEnabled = null;
-                }
-            }
-        }
-        lr2Config.Save();
+        return new AggregateException(actualFailures);
+    }
+
+    private InvalidOperationException CreatePreviewFailure(
+        Exception primaryFailure,
+        Exception secondaryFailure)
+    {
+        return new InvalidOperationException(
+            "config=" + lr2Config.ConfigFilePath
+                + " primary=" + primaryFailure.Message
+                + " secondary=" + secondaryFailure.Message,
+            new AggregateException(primaryFailure, secondaryFailure));
     }
 
     private void restoreWindowPosition(PlayerSettingsSnapshot settings)
@@ -562,7 +561,39 @@ public class LR2body : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             {
                 BMSFilePathPlaying = null;
             }
-            restoreConfig();
+            if (previewScope == null)
+            {
+                return;
+            }
+
+            Exception restoreFailure = null;
+            try
+            {
+                if (previewPublished)
+                {
+                    lr2Config.RestorePreview(previewScope);
+                }
+            }
+            catch (Exception exception)
+            {
+                restoreFailure = exception;
+            }
+            try
+            {
+                lr2Config.EndPreview(previewScope);
+            }
+            catch (Exception exception)
+            {
+                restoreFailure = CombineFailures(restoreFailure, exception);
+            }
+            previewScope = null;
+            previewPublished = false;
+            if (restoreFailure != null)
+            {
+                throw CreatePreviewFailure(
+                    new InvalidOperationException("LR2 preview restore failed."),
+                    restoreFailure);
+            }
         }
     }
 }

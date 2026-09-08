@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -345,9 +346,267 @@ public sealed class ExternalPlayerProcessGatewayTests
             StringAssert.Contains(exception.Message, "window style");
             CollectionAssert.Contains(windowHost.Operations, "ApplyLr2WindowStyle");
             CollectionAssert.DoesNotContain(windowHost.Operations, "ApplyWindowPlacement");
-            StringAssert.Contains(File.ReadAllText(configPath), "<screenmode>1</screenmode>");
-            StringAssert.Contains(File.ReadAllText(configPath), "<volumemaster>100</volumemaster>");
+            XDocument restoredDocument = XDocument.Load(configPath);
+            Assert.AreEqual("1", ReadLr2Value(restoredDocument, "system", "screenmode"));
+            Assert.AreEqual("100", ReadLr2Value(restoredDocument, "sound", "volumemaster"));
         });
+    }
+
+    [TestMethod]
+    public void Lr2PreviewRestoresSavedFieldsAndKeepsPlayerConfigInstanceUnchanged()
+    {
+        WithTemporaryPlayerFiles("LR2body.exe", (root, executablePath, chartPath) =>
+        {
+            string configPath = CreateLr2Config(
+                root,
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode><customfolder>保存済み</customfolder></system><sound><volumemaster>23</volumemaster></sound><jukebox /></config>");
+            LR2Config playerConfig = new(configPath);
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            gateway.Session.BeforeStart = () =>
+            {
+                XDocument temporaryDocument = XDocument.Load(configPath);
+                Assert.AreEqual("800", ReadLr2Value(temporaryDocument, "system", "windowsize_x"));
+                Assert.AreEqual("600", ReadLr2Value(temporaryDocument, "system", "windowsize_y"));
+                Assert.AreEqual("1", ReadLr2Value(temporaryDocument, "system", "screenmode"));
+                Assert.AreEqual("100", ReadLr2Value(temporaryDocument, "sound", "volumemaster"));
+                Assert.AreEqual("1", ReadLr2Value(temporaryDocument, "sound", "volumeflag"));
+
+                LR2Config settingsDraft = new(configPath);
+                Assert.AreEqual("640", ReadLr2Value(settingsDraft, "system", "windowsize_x"));
+                Assert.AreEqual("480", ReadLr2Value(settingsDraft, "system", "windowsize_y"));
+                Assert.AreEqual("0", ReadLr2Value(settingsDraft, "system", "screenmode"));
+                Assert.AreEqual("23", ReadLr2Value(settingsDraft, "sound", "volumemaster"));
+                Assert.IsNull(settingsDraft.Element("config")?.Element("sound")?.Element("volumeflag"));
+            };
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)));
+            var player = new LR2body(
+                executablePath,
+                playerConfig,
+                new RecordingPlayerSettingsGateway(),
+                gateway);
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+
+            player.PlayStart(chartPath, (EventHandler)null!);
+
+            Assert.AreEqual("640", ReadLr2Value(playerConfig, "system", "windowsize_x"));
+            Assert.AreEqual("480", ReadLr2Value(playerConfig, "system", "windowsize_y"));
+            Assert.AreEqual("0", ReadLr2Value(playerConfig, "system", "screenmode"));
+            Assert.AreEqual("23", ReadLr2Value(playerConfig, "sound", "volumemaster"));
+            Assert.IsNull(playerConfig.Element("config")?.Element("sound")?.Element("volumeflag"));
+            XDocument restoredDocument = XDocument.Load(configPath);
+            Assert.AreEqual("保存済み", ReadLr2Value(restoredDocument, "system", "customfolder"));
+            Assert.AreEqual("640", ReadLr2Value(restoredDocument, "system", "windowsize_x"));
+            Assert.AreEqual("480", ReadLr2Value(restoredDocument, "system", "windowsize_y"));
+            Assert.AreEqual("0", ReadLr2Value(restoredDocument, "system", "screenmode"));
+            Assert.AreEqual("23", ReadLr2Value(restoredDocument, "sound", "volumemaster"));
+            Assert.IsNull(restoredDocument.Element("config")?.Element("sound")?.Element("volumeflag"));
+
+            gateway.Session.KeepRunning = false;
+            gateway.Session.RaiseExited();
+
+            XDocument exitDocument = XDocument.Load(configPath);
+            Assert.AreEqual("640", ReadLr2Value(exitDocument, "system", "windowsize_x"));
+            Assert.AreEqual("480", ReadLr2Value(exitDocument, "system", "windowsize_y"));
+            Assert.AreEqual("0", ReadLr2Value(exitDocument, "system", "screenmode"));
+            Assert.AreEqual("23", ReadLr2Value(exitDocument, "sound", "volumemaster"));
+            Assert.IsNull(exitDocument.Element("config")?.Element("sound")?.Element("volumeflag"));
+        });
+    }
+
+    [TestMethod]
+    public void Lr2PreviewUsesTheSameDraftForRootSaveAfterStartupBoundary()
+    {
+        WithTemporaryPlayerFiles("LR2body.exe", (root, executablePath, chartPath) =>
+        {
+            Directory.CreateDirectory(Path.Combine(root, "RootA"));
+            string configPath = CreateLr2Config(
+                root,
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster></sound><jukebox><path>RootA\\</path></jukebox></config>");
+            LR2Config playerConfig = new(configPath);
+            LR2Config settingsDraft = null;
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            gateway.Session.BeforeStart = () =>
+            {
+                settingsDraft = new LR2Config(configPath);
+                Assert.AreEqual("640", ReadLr2Value(settingsDraft, "system", "windowsize_x"));
+                Assert.AreEqual("23", ReadLr2Value(settingsDraft, "sound", "volumemaster"));
+            };
+            var player = new LR2body(
+                executablePath,
+                playerConfig,
+                new RecordingPlayerSettingsGateway(),
+                gateway);
+            ((IExternalWindowPlayer)player).AttachWindowHost(
+                new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
+
+            player.PlayStart(chartPath, (EventHandler)null!);
+
+            Assert.IsNotNull(settingsDraft);
+            Assert.IsTrue(settingsDraft.RemoveBMSSearchDirectoriesAndSave([Path.Combine(root, "RootA")]));
+            XDocument savedAfterRootEdit = XDocument.Load(configPath);
+            Assert.IsNull(savedAfterRootEdit.Element("config")?.Element("jukebox")?.Element("path"));
+            Assert.AreEqual("640", ReadLr2Value(savedAfterRootEdit, "system", "windowsize_x"));
+            Assert.AreEqual("23", ReadLr2Value(savedAfterRootEdit, "sound", "volumemaster"));
+
+            gateway.Session.KeepRunning = false;
+            gateway.Session.RaiseExited();
+            XDocument savedAfterExit = XDocument.Load(configPath);
+            Assert.IsNull(savedAfterExit.Element("config")?.Element("jukebox")?.Element("path"));
+            Assert.AreEqual("640", ReadLr2Value(savedAfterExit, "system", "windowsize_x"));
+            Assert.AreEqual("23", ReadLr2Value(savedAfterExit, "sound", "volumemaster"));
+        });
+    }
+
+    [TestMethod]
+    public void Lr2StartFailureBeforeProcessStartRestoresPublishedPreviewWithoutProcessCleanup()
+    {
+        WithTemporaryPlayerFiles("LR2body.exe", (root, executablePath, chartPath) =>
+        {
+            string configPath = CreateLr2Config(
+                root,
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound></config>");
+            LR2Config playerConfig = new(configPath);
+            var startFailure = new InvalidOperationException("start rejected");
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.StartException = startFailure;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            var player = new LR2body(
+                executablePath,
+                playerConfig,
+                new RecordingPlayerSettingsGateway(),
+                gateway);
+            ((IExternalWindowPlayer)player).AttachWindowHost(
+                new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
+
+            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+                () => player.PlayStart(chartPath, (EventHandler)null!));
+
+            Assert.AreSame(startFailure, failure);
+            Assert.IsFalse(gateway.Session.Started);
+            Assert.AreEqual(0, gateway.Session.HasExitedReadCount);
+            Assert.AreEqual(0, gateway.Session.CloseMainWindowCount);
+            Assert.AreEqual(0, gateway.Session.KillCount);
+            XDocument restoredDocument = XDocument.Load(configPath);
+            Assert.AreEqual("640", ReadLr2Value(restoredDocument, "system", "windowsize_x"));
+            Assert.AreEqual("23", ReadLr2Value(restoredDocument, "sound", "volumemaster"));
+            Assert.AreEqual("0", ReadLr2Value(restoredDocument, "sound", "volumeflag"));
+
+            gateway.Session.StartException = null;
+            gateway.Session.KeepRunning = true;
+            player.PlayStart(chartPath, (EventHandler)null!);
+            gateway.Session.KeepRunning = false;
+            player.CloseProcess();
+        });
+    }
+
+    [TestMethod]
+    public void Lr2StartFailureAfterProcessStartRetainsUnkillableProcessForExplicitClose()
+    {
+        WithTemporaryPlayerFiles("LR2body.exe", (root, executablePath, chartPath) =>
+        {
+            string configPath = CreateLr2Config(
+                root,
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound></config>");
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            gateway.Session.KillException = new InvalidOperationException("kill rejected");
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                CompleteLr2WindowStyleApply = false
+            };
+            var player = new LR2body(
+                executablePath,
+                new LR2Config(configPath),
+                new RecordingPlayerSettingsGateway(),
+                gateway,
+                new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
+            ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+
+            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+                () => player.PlayStart(chartPath, (EventHandler)null!));
+
+            StringAssert.Contains(failure.Message, configPath);
+            StringAssert.Contains(failure.Message, "window style");
+            StringAssert.Contains(failure.Message, "did not terminate");
+            Assert.IsTrue(gateway.Session.Started);
+            Assert.IsTrue(gateway.Session.KillCount > 0);
+            Assert.IsTrue(gateway.Session.HasExitedReadCount > 0);
+            XDocument restoredDocument = XDocument.Load(configPath);
+            Assert.AreEqual("640", ReadLr2Value(restoredDocument, "system", "windowsize_x"));
+            Assert.AreEqual("23", ReadLr2Value(restoredDocument, "sound", "volumemaster"));
+
+            gateway.Session.KillException = null;
+            player.CloseProcess();
+
+            Assert.IsFalse(gateway.Session.KeepRunning);
+            Assert.AreEqual("640", ReadLr2Value(XDocument.Load(configPath), "system", "windowsize_x"));
+        });
+    }
+
+    [TestMethod]
+    public void Lr2PreviewRestoreFailureKeepsPrimaryFailureAndConfigPath()
+    {
+        WithTemporaryPlayerFiles("LR2body.exe", (root, executablePath, chartPath) =>
+        {
+            string configPath = CreateLr2Config(
+                root,
+                "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound></config>");
+            var gateway = new RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            FileStream lockedConfig = null;
+            var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
+            {
+                CompleteLr2WindowStyleApply = false,
+                Lr2WindowStyleApplyAttempt = () =>
+                {
+                    gateway.Session.KeepRunning = false;
+                    lockedConfig = new FileStream(configPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                }
+            };
+            try
+            {
+                var player = new LR2body(
+                    executablePath,
+                    new LR2Config(configPath),
+                    new RecordingPlayerSettingsGateway(),
+                    gateway,
+                    new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(80)));
+                ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
+
+                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
+                    () => player.PlayStart(chartPath, (EventHandler)null!));
+
+                StringAssert.Contains(failure.Message, configPath);
+                StringAssert.Contains(failure.Message, "window style");
+                AggregateException aggregate = failure.InnerException as AggregateException;
+                Assert.IsNotNull(aggregate);
+                Assert.IsTrue(aggregate!.InnerExceptions.Count >= 2);
+            }
+            finally
+            {
+                lockedConfig?.Dispose();
+            }
+        });
+    }
+
+    private static string CreateLr2Config(string root, string xml)
+    {
+        string configDirectory = Path.Combine(root, "LR2files", "Config");
+        Directory.CreateDirectory(configDirectory);
+        string configPath = Path.Combine(configDirectory, "config.xml");
+        File.WriteAllText(configPath, xml, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        return configPath;
+    }
+
+    private static string ReadLr2Value(XDocument document, string sectionName, string fieldName)
+    {
+        return document.Element("config")?.Element(sectionName)?.Element(fieldName)?.Value;
     }
 
     [TestMethod]
@@ -625,20 +884,25 @@ public sealed class ExternalPlayerProcessGatewayTests
         }
     }
 
-    private sealed class RecordingPlayerSettingsGateway : IPlayerSettingsGateway
+    internal sealed class RecordingPlayerSettingsGateway : IPlayerSettingsGateway
     {
-        private readonly PlayerSettingsSnapshot snapshot = new(
-            AudioDriver.Invalid,
-            string.Empty,
-            string.Empty,
-            SampleRate.AUTO,
-            SampleFormat.AUTO,
-            0,
-            false,
-            100,
-            new PlayerResolution(800, 600),
-            true,
-            new WindowPlacement(0, 1, 0, 0, 0, 0, 0, 0, 800, 600));
+        private readonly PlayerSettingsSnapshot snapshot;
+
+        internal RecordingPlayerSettingsGateway(PlayerSettingsSnapshot snapshot = null)
+        {
+            this.snapshot = snapshot ?? new PlayerSettingsSnapshot(
+                AudioDriver.Invalid,
+                string.Empty,
+                string.Empty,
+                SampleRate.AUTO,
+                SampleFormat.AUTO,
+                0,
+                false,
+                100,
+                new PlayerResolution(800, 600),
+                true,
+                new WindowPlacement(0, 1, 0, 0, 0, 0, 0, 0, 800, 600));
+        }
 
         internal bool PlacementUpdated { get; private set; }
 
@@ -653,7 +917,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         }
     }
 
-    private sealed class RecordingExternalPlayerProcessGateway : IExternalPlayerProcessGateway
+    internal sealed class RecordingExternalPlayerProcessGateway : IExternalPlayerProcessGateway
     {
         private readonly Queue<IExternalPlayerProcessSession> preparedSessions = new();
 
@@ -683,13 +947,21 @@ public sealed class ExternalPlayerProcessGatewayTests
         }
     }
 
-    private sealed class RecordingExternalPlayerProcessSession : IExternalPlayerProcessSession
+    internal sealed class RecordingExternalPlayerProcessSession : IExternalPlayerProcessSession
     {
         private EventHandler? exitHandlers;
 
         internal bool Started { get; private set; }
 
         internal bool KeepRunning { get; set; }
+
+        internal Exception StartException { get; set; }
+
+        internal Action BeforeStart { get; set; }
+
+        internal int HasExitedReadCount { get; private set; }
+
+        internal int CloseMainWindowCount { get; private set; }
 
         internal Exception? KillException { get; set; }
 
@@ -701,7 +973,14 @@ public sealed class ExternalPlayerProcessGatewayTests
             remove => exitHandlers -= value;
         }
 
-        public bool HasExited => Started && !KeepRunning;
+        public bool HasExited
+        {
+            get
+            {
+                HasExitedReadCount++;
+                return Started && !KeepRunning;
+            }
+        }
 
         public ExternalWindowHandle MainWindowHandle { get; set; }
 
@@ -709,6 +988,11 @@ public sealed class ExternalPlayerProcessGatewayTests
 
         public void Start()
         {
+            BeforeStart?.Invoke();
+            if (StartException != null)
+            {
+                throw StartException;
+            }
             Started = true;
         }
 
@@ -719,6 +1003,7 @@ public sealed class ExternalPlayerProcessGatewayTests
 
         public void CloseMainWindow()
         {
+            CloseMainWindowCount++;
         }
 
         public void Kill()
@@ -733,7 +1018,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         }
     }
 
-    private sealed class RecordingExternalPlayerWindowHost : IExternalPlayerWindowHost
+    internal sealed class RecordingExternalPlayerWindowHost : IExternalPlayerWindowHost
     {
         private ExternalWindowHandle foregroundWindow;
 

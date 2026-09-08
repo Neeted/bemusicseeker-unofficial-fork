@@ -53,6 +53,83 @@ public sealed class LR2ConfigTests
     }
 
     [TestMethod]
+    public void Save_PreservesDeclaredXmlEncodingAndNonAsciiContent()
+    {
+        WithConfig(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><config><system><customfolder>日本語</customfolder></system><jukebox /></config>",
+            delegate (string configPath, LR2Config config)
+            {
+                config.EnsureDatabaseAutoReloadManualOnly();
+
+                config.Save();
+
+                byte[] bytes = File.ReadAllBytes(configPath);
+                string savedXml = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetString(bytes);
+                Assert.IsTrue(savedXml.Contains("日本語", StringComparison.Ordinal));
+                XDocument savedDocument = XDocument.Load(configPath);
+                Assert.IsTrue(string.Equals("utf-8", savedDocument.Declaration?.Encoding, StringComparison.OrdinalIgnoreCase));
+                Assert.AreEqual(
+                    "0",
+                    savedDocument.Element("config")?.Element("system")?.Element("autoreload")?.Value);
+            });
+    }
+
+    [TestMethod]
+    public void Save_WhenDestinationCannotBeReplaced_PreservesExistingBytes()
+    {
+        WithConfig("<config><system><autoreload>2</autoreload></system><jukebox /></config>", delegate (string configPath, LR2Config config)
+        {
+            byte[] previousBytes = File.ReadAllBytes(configPath);
+            string[] siblingPathsBefore = Directory.GetFiles(Path.GetDirectoryName(configPath));
+            config.EnsureDatabaseAutoReloadManualOnly();
+
+            using (var lockedDestination = new FileStream(
+                configPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None))
+            {
+                IOException failure = Assert.ThrowsException<IOException>(() => config.Save());
+
+                Assert.IsNotNull(failure.InnerException);
+                StringAssert.Contains(failure.Message, Path.GetDirectoryName(configPath));
+                CollectionAssert.AreEquivalent(siblingPathsBefore, Directory.GetFiles(Path.GetDirectoryName(configPath)));
+            }
+
+            CollectionAssert.AreEqual(previousBytes, File.ReadAllBytes(configPath));
+            Assert.AreEqual(LR2Config.DatabaseAutoReloadManualOnly, config.GetDatabaseAutoReloadMode());
+        });
+    }
+
+    [TestMethod]
+    public void RemoveBMSSearchDirectoriesAndSave_WhenDestinationCannotBeReplaced_RestoresDocument()
+    {
+        WithConfig("<config><system /><jukebox><path>Managed\\</path></jukebox></config>", delegate (string configPath, LR2Config config)
+        {
+            byte[] previousBytes = File.ReadAllBytes(configPath);
+            string[] siblingPathsBefore = Directory.GetFiles(Path.GetDirectoryName(configPath));
+
+            using (var lockedDestination = new FileStream(
+                configPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None))
+            {
+                IOException failure = Assert.ThrowsException<IOException>(() =>
+                    config.RemoveBMSSearchDirectoriesAndSave(["Managed"]));
+                Assert.IsNotNull(failure.InnerException);
+                StringAssert.Contains(failure.Message, Path.GetDirectoryName(configPath));
+                CollectionAssert.AreEquivalent(siblingPathsBefore, Directory.GetFiles(Path.GetDirectoryName(configPath)));
+            }
+
+            CollectionAssert.AreEqual(previousBytes, File.ReadAllBytes(configPath));
+            CollectionAssert.AreEqual(
+                new[] { "Managed" },
+                config.GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
+        });
+    }
+
+    [TestMethod]
     public void AddBMSSearchDirectories_RejectsNestedPathsWithinSameRequest()
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
@@ -457,9 +534,15 @@ public sealed class LR2ConfigTests
         Directory.CreateDirectory(configDirectoryPath);
         string configPath = Path.Combine(configDirectoryPath, "config.xml");
         File.WriteAllText(configPath, xml, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        Exception primaryFailure = null;
         try
         {
             action(configPath, new LR2Config(configPath));
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            throw;
         }
         finally
         {
@@ -467,8 +550,17 @@ public sealed class LR2ConfigTests
             {
                 Directory.Delete(tempRootPath, recursive: true);
             }
-            catch
+            catch (Exception cleanupFailure)
             {
+                if (primaryFailure == null)
+                {
+                    throw;
+                }
+
+                throw new AggregateException(
+                    "LR2Config テスト fixture の cleanup に失敗しました。",
+                    primaryFailure,
+                    cleanupFailure);
             }
         }
     }

@@ -2,9 +2,11 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -81,7 +83,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         try
         {
             string playlistDump = tables.GetPlaylistDump();
-            File.WriteAllText(fileName, playlistDump);
+            AtomicFileWriter.Write(fileName, stagingStream =>
+            {
+                byte[] bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(playlistDump);
+                stagingStream.Write(bytes, 0, bytes.Length);
+            });
             tables.OperationNotificationOwner.QueueInformation(
                 BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
                 BeMusicSeeker.Properties.Resources.Success);

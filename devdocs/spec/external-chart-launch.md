@@ -45,6 +45,12 @@ At menu-open time the MainWindow owner resolves the current settings and inserts
 
 The program gateway checks the absolute executable and chart paths at click time, constructs `ProcessStartInfo` with `UseShellExecute=false`, the executable parent as `WorkingDirectory`, and one resolved token per `ArgumentList` entry, then starts once without waiting or retaining the process. It does not redirect streams, use raw `Arguments`, or fall back to associated-open. Web failures use the existing typed external-shell request boundary.
 
+## LR2 試聴設定の境界
+
+LR2body の試聴が一時的に公開するのは `system/windowsize_x`、`system/windowsize_y`、`system/screenmode`、`sound/volumemaster`、`sound/volumeflag` の5項目です。公開時は最新の config XML を読み、共通の atomic writer で保存してから process を開始します。active な試聴 scope 中に作成した config object は、最新 XML の非所有値と保存済みの5項目から構成されるため、background startup 中に設定画面を開いても一時値が draft へ混入しません。
+
+LR2 config の通常 Save と検索 root Save は、同じ短い保存境界に参加します。保存文書には active scope の保存済み5項目（元の欠落を含む）を適用したうえで draft の非所有変更を反映し、公開成功後に scope の保存値をその文書から同期します。試聴用の一時公開は scope の保存値を更新しません。window 設定後と player 終了時には、後から保存された非所有値を保ったまま、5項目を元の値または元の欠落へ戻します。process 開始前の失敗では `HasExited` を参照せず、`CloseMainWindow` / `Kill` も呼ばずに参照と event handler だけを片付けます。開始済み process を終了できない場合は、明示的な close retry のため所有状態を保持します。起動または復元の主失敗は、対象 config path と副次失敗を付けて既存の player 失敗通知へ返します。
+
 ## Verification Map
 
 | Behavior / failure contract | Owner fixture | Decision |
@@ -61,5 +67,6 @@ The program gateway checks the absolute executable and chart paths at click time
 | right-click resource keys and six-language parity | `LocalizationResourceParityTests` | extend existing resource parity fixture |
 | program process-start contract and typed missing/start failures | `ExternalProgramLaunchGatewayTests` | new pure gateway fixture with a fake file-exists function and starter; no real process/filesystem |
 | menu-open resolution, stable-ID re-resolution, web/program placement, PlayHistory associated/program order, exact-row and typed failure terminal | `SelectedChartExternalActionWorkflowOwnerTests`, `MainWindowSelectedChartContextMenuWpfTests`, `MainWindowPlayHistoryWpfTests`, `MainWindowContextMenuResourceTests` | extend shared owner and existing WPF context-menu fixtures; assert localized messages without raw diagnostics; no real process or fixed wait |
+| LR2 試聴の5項目復元（起動直後・終了後のdisk readbackを含む）、非所有XMLの保持、起動前の設定画面 root Save、起動中の設定 draft 隔離、開始・終了失敗時の process 所有 | `ExternalPlayerProcessGatewayTests`（`Lr2PreviewRestoresSavedFieldsAndKeepsPlayerConfigInstanceUnchanged`、`Lr2PreviewUsesTheSameDraftForRootSaveAfterStartupBoundary`、`Lr2StartFailureBeforeProcessStartRestoresPublishedPreviewWithoutProcessCleanup`、`Lr2StartFailureAfterProcessStartRetainsUnkillableProcessForExplicitClose`、`Lr2PreviewRestoreFailureKeepsPrimaryFailureAndConfigPath`）および `SettingsDialogBehaviorTests.Lr2SettingsDraftCreatedDuringPreviewRemainsSavedAfterPreviewEnds` | 既存の recording process/window/settings gateway、設定画面の main-window root Save、固有の LR2 layout、同期的な Start/Exited と window callback を使用し、native UI、固定 wait、外部 writer は使わない |
 
 The pure tests run in the normal Quick lane with no WPF, reflection seam, real process, external executable, fixed wait, or shared resource. The context-menu coverage uses the existing WPF dispatcher/host lane and verifies materialization and terminal behavior without opening a browser or process. Settings editor behavior remains owned by the settings unit; the final repository Functional lane remains the root integration responsibility.

@@ -77,6 +77,8 @@ header の `course` は `[[{...}]]` のような入れ子配列も平坦化し�
 
 設定画面の復元は workspace がファイルを読み、BMSPlaylist の非同期復元が DB 復元と一覧適用を所有する。DB Monitor の取得、復元 transaction、commit 後のヘッダー読込、Monitor / connection の解放は同じ worker の同期 scope に閉じる。UI scheduler へ一覧適用を予約する前に DB scope を終了し、受理だけで成功にせず operation の Completion を await する。一覧の変更は UI dispatcher で行い、エントリは従来どおり遅延読込とする。
 
+playlist SQL backup の保存は、選択された destination と同じディレクトリへ一意の staging file を作成し、UTF-8（BOM なし）で dump を書き込んで stream を閉じた後に公開する。既存 destination は置換、初回 destination は移動で公開し、公開前の削除や直接上書きへ fallback しない。staging cleanup の失敗は主原因とともに診断へ残し、成功通知は公開後だけ発行する。
+
 既存 aggregate owner の collection transition は通常 reload / restore を区別する短命予約である。復元は登録、hydration receipt snapshot 生成の publication lease、一覧 reload、個別 reload reservation と競合する場合に DB 更新前に失敗する。復元中は保存・削除・登録・reload・hydration publication を拒否し、UI 完了または失敗まで予約を保持して finally で解放する。通常 reload の保存許容や既存 hydration 通知の generation gate は変更しない。hydration receipt の subscriber 通知は既存 publication lease 解放後であり、通知 callback の全寿命を予約へ含めない。
 
 file read または復元 transaction の commit 前の失敗は旧 DB と live 一覧を保持する。commit 後のヘッダー読込、UI dispatch / apply の失敗は復元済み DB を保持して error を伝播する。apply 前の拒否なら旧 live 一覧を保持し、途中までの UI 適用は補償しない。自動 retry、DB rollback、失敗時の成功通知・出力・設定画面 close・shutdown は行わない。復元自身の commit 後の persistence generation と開始時の collection snapshot を一覧適用へ渡し、古い世代による自己拒否を避ける。世代は既存 owner の同じ surface を表し、追加 token は設けない。

@@ -87,16 +87,35 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             List<PlaylistOperationNotificationPresentationRequestedEventArgs> successNotifications;
             PlaylistWorkspaceViewModel successWorkspace = CreateBackupWorkspace(
                 successDbPath,
-                [new BMSTable { playlist_id = 1, name = "Backup", symbol = "B", bmt_sort = 1 }],
+                [new BMSTable { playlist_id = 1, name = "バックアップ", symbol = "B", bmt_sort = 1 }],
                 out successPlaylist,
                 out successNotifications);
-            string expectedDump = successPlaylist.GetPlaylistDump();
+            successPlaylist.CommitBMSTableHeaderToDB(successPlaylist.BMSTables.Single());
             string successPath = Path.Combine(tempDirectory, "backup.sql");
 
             await successWorkspace.BackupPlaylistAsync(successPath);
 
             Assert.IsTrue(File.Exists(successPath));
-            Assert.AreEqual(expectedDump, File.ReadAllText(successPath));
+            byte[] backupBytes = File.ReadAllBytes(successPath);
+            Assert.IsFalse(backupBytes.Length >= 3
+                && backupBytes[0] == 0xEF
+                && backupBytes[1] == 0xBB
+                && backupBytes[2] == 0xBF);
+            string backupDump = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetString(backupBytes);
+            string roundTripDbDirectory = Path.Combine(tempDirectory, "round-trip");
+            Directory.CreateDirectory(roundTripDbDirectory);
+            string roundTripDbPath = Path.Combine(roundTripDbDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(roundTripDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(roundTripDbPath);
+            new PlaylistPersistenceRepository(roundTripDbPath).LoadPlaylistDump(backupDump);
+            using (var verifyRoundTrip = new LR2SongDBExtended(roundTripDbPath))
+            {
+                BMSTable restored = verifyRoundTrip.Table<BMSTable>().Single();
+                Assert.AreEqual("バックアップ", restored.name);
+                Assert.AreEqual("B", restored.symbol);
+            }
             Assert.AreEqual(1, successNotifications.Count);
             Assert.AreEqual("playlist backup notification", successNotifications[0].RouteName);
             Assert.AreEqual(
@@ -105,6 +124,32 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             StringAssert.Contains(
                 successNotifications[0].Receipt.Notifications.Single().Message,
                 BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup);
+
+            string previousBackupPath = Path.Combine(tempDirectory, "previous-backup.sql");
+            byte[] previousBackupBytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes("previous backup bytes");
+            File.WriteAllBytes(previousBackupPath, previousBackupBytes);
+            Exception? publishFailure = null;
+            using (var lockedDestination = new FileStream(
+                previousBackupPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None))
+            {
+                try
+                {
+                    await successWorkspace.BackupPlaylistAsync(previousBackupPath);
+                }
+                catch (Exception exception)
+                {
+                    publishFailure = exception;
+                }
+            }
+            Assert.IsNotNull(publishFailure);
+            CollectionAssert.AreEqual(previousBackupBytes, File.ReadAllBytes(previousBackupPath));
+            Assert.AreEqual(2, successNotifications.Count);
+            Assert.AreEqual(
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
+                successNotifications[1].Receipt.Notifications.Single().Severity);
 
             string emptyDbDirectory = Path.Combine(tempDirectory, "empty");
             Directory.CreateDirectory(emptyDbDirectory);

@@ -20,6 +20,8 @@ shutdown preparation は不可逆な終了準備として扱う。updater proces
 
 `CompleteTerminalShutdownAsync` は進行中・完了済みを含め同じ Task を返す。player の同期 close/drain は worker で実行し、その待機中も UI dispatcher は処理を継続する。window state capture → player close 実完了 → UI 上の設定保存（失敗通知を含む）→ audio runtime 解放 → application shutdown の順序を守る。設定保存失敗はログと通知を行い、既存どおり cleanup を継続する。
 
+LR2body の試聴 scope は player の terminal close または Exited signal で終了する。終了時は最新 config XML の非所有値を保持して試聴5値を復元し、復元と scope 解放が完了してから次の試聴を受け付ける。window/style 待機中に設定画面が開いてもこの終了境界を変えず、save lock 内へ UI、process wait、window callback を持ち込まない。Start 前の失敗は未開始 process の状態参照・Close・Killを行わず参照と event を片付け、Start 後に終了不能な process は明示 close が成功するまで ownership を保持する。
+
 準備完了の `IsCloseAllowed` だけでは terminal Window close を認可しない。`MainWindow` は terminal Task を await した後にだけ認可し、再入 `OnClosing` と `Closed` は同期 terminal cleanup を再実行しない。terminal 内の regular chart stop と DB process lock 最終確認も非同期に待つ。timeout、detach、強制 native 解放は追加しない。
 
 ## 終了準備で行うこと
@@ -73,6 +75,7 @@ SQLite connection lifetime は tracking しているが、すべての DB 操作
 - `MainWindowViewHostTests.MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose`: 実非表示 Window の通常終了・更新準備済み終了と再入 Close、player 待機中の UI marker、共有 owner Task、capture / save / audio / lifetime の順序。既存 shared WPF Application と native runtime を使うため class の DNP を維持し、native bootstrap のみを行い device は開かない。finally で gate、player、owner Task、Window、runtime を回収する。
 - `ShellShutdownWorkflowOwnerTests`: 一度だけの保存、player が最後に取得した placement の永続化、更新準備との合流、保存失敗時の UI 通知と cleanup 継続。既存 Settings / UI の DNP fixture を使う。
 - `ApplicationCompositionTests.CompositionSettingsLifecycleSharesSessionAcrossOpenEditReloadRedisplayAndShutdown`: 既存 settings session の共有契約を async terminal completion まで確認する。
+- `ExternalPlayerProcessGatewayTests`: LR2 試聴の process start/exit signal、start 前 failure、window/style failure、終了不能 process の explicit close、5値復元と config path を既存の recording gateway で確認する。固定 wait、実 LR2 process、追加 shutdown host は使用しない。
 
 ### terminal 中の再生操作
 

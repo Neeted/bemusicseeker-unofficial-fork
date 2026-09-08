@@ -45,12 +45,20 @@ scan が incomplete でも、既存 `song.db` の読み込み結果はそのま�
 - `LongPathFileSystem.FileExists(path)` / `DirectoryExists(path)` / `EntryExists(path)`
 - `LongPathFileSystem.EnumerateFiles(...)` / `EnumerateDirectories(...)` / `EnumerateFileSystemEntries(...)`
 - `LongPathFileSystem.CopyFile(...)` / `CopyDirectory(...)`
+- `LongPathFileSystem.PublishFile(...)`（同一ディレクトリ staging の既存置換または初回移動）
+- `AtomicFileWriter.Write(...)`（staging の close 後公開と所有 cleanup）
 - `IFileMutationService.EnsureDirectory(...)`
 - `IFileMutationService.MoveFile(...)` / `MoveDirectory(...)`
 - `IFileMutationService.DeleteFileDirect(...)` / `DeleteDirectoryDirect(...)`
 - `IFileMutationService.SetTimestamps(...)`
 
 `IFileMutationService` は ReadOnly 補正、短時間リトライ、診断ログ、`FileMutationException` への例外集約を提供する。導入、マージ、移動、削除、拡張子変更、スマート上書きなど、ユーザー操作に紐づく変更系ファイル操作はこの service を経由する。
+
+LR2 `config.xml` と playlist SQL backup の単一ファイル保存は `AtomicFileWriter` を使う。保存先を直接上書きせず、同じディレクトリの一意 staging を serializer の close 後に `PublishFile` で公開する。公開前の destination 削除、未所有 staging の一括 cleanup、失敗後の成功扱いは行わない。
+
+## Verification map
+
+`AtomicFileWriterTests` は LR2-SAFE-SAVE-v1 の S1–S4（既存 bytes 保全、意味的保存、close 後公開と所有 staging cleanup、主失敗・cleanup 失敗・残存絶対 path 診断）を、呼出し単位の fault delegate と test 所有の固有 temporary directory で検証する。通常 Quick / Functional lane の同期 throw・return を完了 signal とし、共有 temp や固定待機は使わない。LR2Config と playlist backup の実 file 接続は、それぞれ既存の `LR2ConfigTests` と `PlaylistWorkspacePersistenceCommandTests` で補完する。
 
 `MoveDirectory(..., overwrite: true)` は宛先ディレクトリを削除して置き換えるのではなく、既存宛先を保持したままマージ移動する。衝突ファイルは移動元で上書きし、宛先にしかないファイルは残す。source と destination の volume root が異なる場合、`MoveFile(...)` / `MoveDirectory(...)` は long-path 対応の copy + delete で move 相当を実現する。copy 成功後の source delete 失敗は成功扱いにせず、source と destination が両方残り得る失敗として呼び出し側へ返す。
 

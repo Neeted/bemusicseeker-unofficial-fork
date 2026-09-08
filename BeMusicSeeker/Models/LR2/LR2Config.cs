@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -13,6 +14,10 @@ namespace BeMusicSeeker.Models.LR2;
 public class LR2Config : XDocument
 {
     public const int DatabaseAutoReloadManualOnly = 0;
+
+    private static readonly object saveLock = new();
+
+    private static readonly Dictionary<string, PreviewScope> activePreviewScopes = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly ReaderWriterLockSlim rwlock = new();
 
@@ -50,6 +55,11 @@ public class LR2Config : XDocument
 
     public string LR2RootPath { get; private set; }
 
+    /// <summary>
+    /// このインスタンスが保存する config.xml の正規化済み path です。
+    /// </summary>
+    internal string ConfigFilePath => LongPathFileSystem.NormalizePathForStorage(ConfigPath);
+
     public LR2Config(string configPath)
         : base(LoadConfigDocument(configPath))
     {
@@ -57,6 +67,20 @@ public class LR2Config : XDocument
     }
 
     private static XDocument LoadConfigDocument(string configPath)
+    {
+        string normalizedConfigPath = LongPathFileSystem.NormalizePathForStorage(configPath);
+        lock (saveLock)
+        {
+            XDocument document = LoadConfigDocumentWithoutPreviewScope(normalizedConfigPath);
+            if (activePreviewScopes.TryGetValue(normalizedConfigPath, out PreviewScope scope))
+            {
+                RestorePreviewFields(document, scope);
+            }
+            return document;
+        }
+    }
+
+    private static XDocument LoadConfigDocumentWithoutPreviewScope(string configPath)
     {
         using FileStream stream = LongPathFileSystem.OpenRead(configPath);
         return XDocument.Load(stream);
@@ -319,6 +343,12 @@ public class LR2Config : XDocument
         }
     }
 
+    /// <summary>
+    /// 指定された BMS 検索 root を削除し、変更を config.xml へ保存します。
+    /// 保存に失敗した場合は XML の変更を元に戻します。
+    /// </summary>
+    /// <param name="dirs">削除する検索 root の列挙です。</param>
+    /// <returns>一つ以上の root を削除して保存した場合は <see langword="true"/> です。</returns>
     internal bool RemoveBMSSearchDirectoriesAndSave(IEnumerable<string> dirs = null)
     {
         using (new WriterGuard(rwlock))
@@ -332,7 +362,7 @@ public class LR2Config : XDocument
 
             try
             {
-                Save(ConfigPath, SaveOptions.None);
+                SaveAtomically();
                 return true;
             }
             catch
@@ -509,11 +539,347 @@ public class LR2Config : XDocument
         }
     }
 
+    /// <summary>
+    /// 現在の設定 XML を staging file へ書き込み、完了後に config.xml へ公開します。
+    /// </summary>
     public void Save()
     {
         using (new WriterGuard(rwlock))
         {
-            Save(ConfigPath, SaveOptions.None);
+            SaveAtomically();
         }
+    }
+
+    private void SaveAtomically()
+    {
+        string normalizedConfigPath = ConfigFilePath;
+        lock (saveLock)
+        {
+            XDocument document = new(this);
+            if (activePreviewScopes.TryGetValue(normalizedConfigPath, out PreviewScope scope))
+            {
+                RestorePreviewFields(document, scope);
+            }
+            AtomicFileWriter.Write(
+                normalizedConfigPath,
+                stagingStream => document.Save(stagingStream, SaveOptions.None));
+            if (activePreviewScopes.TryGetValue(normalizedConfigPath, out scope))
+            {
+                scope.UpdateFromDocument(document);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 試聴開始時点の保存済み LR2 設定を scope として登録します。
+    /// </summary>
+    /// <returns>試聴期間中に使う設定 scope です。</returns>
+    internal PreviewScope BeginPreview()
+    {
+        string normalizedConfigPath = ConfigFilePath;
+        lock (saveLock)
+        {
+            if (activePreviewScopes.ContainsKey(normalizedConfigPath))
+            {
+                throw new InvalidOperationException("LR2 config is already used by an active preview.");
+            }
+
+            XDocument document = LoadConfigDocumentWithoutPreviewScope(normalizedConfigPath);
+            PreviewScope scope = new(
+                normalizedConfigPath,
+                CapturePreviewField(document, "system", "windowsize_x"),
+                CapturePreviewField(document, "system", "windowsize_y"),
+                CapturePreviewField(document, "system", "screenmode"),
+                CapturePreviewField(document, "sound", "volumemaster"),
+                CapturePreviewField(document, "sound", "volumeflag"));
+            activePreviewScopes.Add(normalizedConfigPath, scope);
+            return scope;
+        }
+    }
+
+    /// <summary>
+    /// 試聴用の5項目だけを最新の config.xml へ一時公開します。
+    /// </summary>
+    /// <param name="scope">開始時に登録した試聴 scope です。</param>
+    /// <param name="windowSizeX">試聴中の横幅です。</param>
+    /// <param name="windowSizeY">試聴中の縦幅です。</param>
+    /// <param name="isWindowMode">試聴中に使う window mode です。</param>
+    /// <param name="masterVolume">試聴中に使う master volume です。</param>
+    /// <param name="isVolumeEnabled">試聴中に volume を有効にするかです。</param>
+    internal void PublishPreview(
+        PreviewScope scope,
+        int windowSizeX,
+        int windowSizeY,
+        bool isWindowMode,
+        int masterVolume,
+        bool isVolumeEnabled)
+    {
+        ValidatePreviewScope(scope);
+        lock (saveLock)
+        {
+            EnsureActivePreviewScope(scope);
+            XDocument document = LoadConfigDocumentWithoutPreviewScope(scope.ConfigPath);
+            SetPreviewField(document, "system", "windowsize_x", windowSizeX.ToString(CultureInfo.InvariantCulture));
+            SetPreviewField(document, "system", "windowsize_y", windowSizeY.ToString(CultureInfo.InvariantCulture));
+            SetPreviewField(document, "system", "screenmode", isWindowMode ? "1" : "0");
+            SetPreviewField(document, "sound", "volumemaster", masterVolume.ToString(CultureInfo.InvariantCulture));
+            SetPreviewField(document, "sound", "volumeflag", isVolumeEnabled ? "1" : "0");
+            PublishDocument(scope.ConfigPath, document);
+        }
+    }
+
+    /// <summary>
+    /// 試聴 scope が保持する保存済み5項目を最新の config.xml へ復元します。
+    /// </summary>
+    /// <param name="scope">開始時に登録した試聴 scope です。</param>
+    internal void RestorePreview(PreviewScope scope)
+    {
+        ValidatePreviewScope(scope);
+        lock (saveLock)
+        {
+            EnsureActivePreviewScope(scope);
+            XDocument document = LoadConfigDocumentWithoutPreviewScope(scope.ConfigPath);
+            RestorePreviewFields(document, scope);
+            PublishDocument(scope.ConfigPath, document);
+        }
+    }
+
+    /// <summary>
+    /// 試聴終了時に active scope の登録を解除します。
+    /// </summary>
+    /// <param name="scope">終了する試聴 scope です。</param>
+    internal void EndPreview(PreviewScope scope)
+    {
+        ValidatePreviewScope(scope);
+        lock (saveLock)
+        {
+            if (activePreviewScopes.TryGetValue(scope.ConfigPath, out PreviewScope activeScope)
+                && ReferenceEquals(activeScope, scope))
+            {
+                activePreviewScopes.Remove(scope.ConfigPath);
+            }
+            scope.IsEnded = true;
+        }
+    }
+
+    private static void PublishDocument(string configPath, XDocument document)
+    {
+        AtomicFileWriter.Write(
+            configPath,
+            stagingStream => document.Save(stagingStream, SaveOptions.None));
+    }
+
+    private void ValidatePreviewScope(PreviewScope scope)
+    {
+        if (scope == null)
+        {
+            throw new ArgumentNullException(nameof(scope));
+        }
+        if (!string.Equals(scope.ConfigPath, ConfigFilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ArgumentException("試聴 scope と config.xml の path が一致しません。", nameof(scope));
+        }
+    }
+
+    private static void EnsureActivePreviewScope(PreviewScope scope)
+    {
+        if (scope.IsEnded
+            || !activePreviewScopes.TryGetValue(scope.ConfigPath, out PreviewScope activeScope)
+            || !ReferenceEquals(activeScope, scope))
+        {
+            throw new InvalidOperationException("LR2 preview scope is no longer active.");
+        }
+    }
+
+    private static PreviewField CapturePreviewField(XDocument document, string sectionName, string fieldName)
+    {
+        XElement section = document.Element("config")?.Element(sectionName);
+        XElement field = section?.Element(fieldName);
+        return new PreviewField(section != null, field?.Value, field != null);
+    }
+
+    private static void SetPreviewField(XDocument document, string sectionName, string fieldName, string value)
+    {
+        XElement config = document.Element("config")
+            ?? throw new InvalidOperationException("LR2 config.xml の config セクションが見つかりません。");
+        XElement section = config.Element(sectionName);
+        if (section == null)
+        {
+            section = new XElement(sectionName);
+            config.Add(section);
+        }
+        XElement field = section.Element(fieldName);
+        if (field == null)
+        {
+            section.Add(new XElement(fieldName, value));
+        }
+        else
+        {
+            field.SetValue(value);
+        }
+    }
+
+    private static void RestorePreviewFields(XDocument document, PreviewScope scope)
+    {
+        RestorePreviewField(document, "system", "windowsize_x", scope.WindowSizeX);
+        RestorePreviewField(document, "system", "windowsize_y", scope.WindowSizeY);
+        RestorePreviewField(document, "system", "screenmode", scope.ScreenMode);
+        RestorePreviewField(document, "sound", "volumemaster", scope.MasterVolume);
+        RestorePreviewField(document, "sound", "volumeflag", scope.VolumeEnabled);
+    }
+
+    private static void RestorePreviewField(
+        XDocument document,
+        string sectionName,
+        string fieldName,
+        PreviewField savedField)
+    {
+        XElement config = document.Element("config");
+        if (config == null)
+        {
+            return;
+        }
+
+        XElement section = config.Element(sectionName);
+        if (savedField.Exists)
+        {
+            if (section == null)
+            {
+                section = new XElement(sectionName);
+                config.Add(section);
+            }
+            XElement field = section.Element(fieldName);
+            if (field == null)
+            {
+                section.Add(new XElement(fieldName, savedField.Value));
+            }
+            else
+            {
+                field.SetValue(savedField.Value);
+            }
+            return;
+        }
+
+        section?.Element(fieldName)?.Remove();
+        if (!savedField.SectionExists
+            && section != null
+            && !section.HasAttributes
+            && !section.Nodes().Any())
+        {
+            section.Remove();
+        }
+    }
+
+    /// <summary>
+    /// 試聴中に保全する5項目と対象 config.xml の path を保持します。
+    /// </summary>
+    internal sealed class PreviewScope
+    {
+        /// <summary>
+        /// 指定した config.xml と、その時点で保存されている試聴対象項目から scope を作成します。
+        /// </summary>
+        /// <param name="configPath">正規化済み config.xml の絶対 path。</param>
+        /// <param name="windowSizeX">保存されている windowsize_x の状態。</param>
+        /// <param name="windowSizeY">保存されている windowsize_y の状態。</param>
+        /// <param name="screenMode">保存されている screenmode の状態。</param>
+        /// <param name="masterVolume">保存されている volumemaster の状態。</param>
+        /// <param name="volumeEnabled">保存されている volumeflag の状態。</param>
+        internal PreviewScope(
+            string configPath,
+            PreviewField windowSizeX,
+            PreviewField windowSizeY,
+            PreviewField screenMode,
+            PreviewField masterVolume,
+            PreviewField volumeEnabled)
+        {
+            ConfigPath = configPath;
+            WindowSizeX = windowSizeX;
+            WindowSizeY = windowSizeY;
+            ScreenMode = screenMode;
+            MasterVolume = masterVolume;
+            VolumeEnabled = volumeEnabled;
+        }
+
+        /// <summary>
+        /// この scope が対象とする正規化済み config.xml の path です。
+        /// </summary>
+        internal string ConfigPath { get; }
+
+        /// <summary>
+        /// 保存されている windowsize_x の状態です。
+        /// </summary>
+        internal PreviewField WindowSizeX { get; private set; }
+
+        /// <summary>
+        /// 保存されている windowsize_y の状態です。
+        /// </summary>
+        internal PreviewField WindowSizeY { get; private set; }
+
+        /// <summary>
+        /// 保存されている screenmode の状態です。
+        /// </summary>
+        internal PreviewField ScreenMode { get; private set; }
+
+        /// <summary>
+        /// 保存されている volumemaster の状態です。
+        /// </summary>
+        internal PreviewField MasterVolume { get; private set; }
+
+        /// <summary>
+        /// 保存されている volumeflag の状態です。
+        /// </summary>
+        internal PreviewField VolumeEnabled { get; private set; }
+
+        /// <summary>
+        /// scope が終了済みなら <see langword="true"/> です。
+        /// </summary>
+        internal bool IsEnded { get; set; }
+
+        /// <summary>
+        /// 正常に公開された保存文書から、scope が保全する5項目を更新します。
+        /// </summary>
+        /// <param name="document">公開済みの保存文書。</param>
+        internal void UpdateFromDocument(XDocument document)
+        {
+            WindowSizeX = CapturePreviewField(document, "system", "windowsize_x");
+            WindowSizeY = CapturePreviewField(document, "system", "windowsize_y");
+            ScreenMode = CapturePreviewField(document, "system", "screenmode");
+            MasterVolume = CapturePreviewField(document, "sound", "volumemaster");
+            VolumeEnabled = CapturePreviewField(document, "sound", "volumeflag");
+        }
+    }
+
+    /// <summary>
+    /// XML section と要素の存在、および保存値を表します。
+    /// </summary>
+    internal readonly struct PreviewField
+    {
+        /// <summary>
+        /// XML section と要素の状態から保全値を作成します。
+        /// </summary>
+        /// <param name="sectionExists">対象 XML section が存在する場合は <see langword="true"/>。</param>
+        /// <param name="value">対象要素の保存値。要素がない場合は <see langword="null"/>。</param>
+        /// <param name="exists">対象 XML 要素が存在する場合は <see langword="true"/>。</param>
+        internal PreviewField(bool sectionExists, string value, bool exists)
+        {
+            SectionExists = sectionExists;
+            Value = value;
+            Exists = exists;
+        }
+
+        /// <summary>
+        /// 対象 XML section が保存時点で存在したかどうかです。
+        /// </summary>
+        internal bool SectionExists { get; }
+
+        /// <summary>
+        /// 対象 XML 要素の保存値です。
+        /// </summary>
+        internal string Value { get; }
+
+        /// <summary>
+        /// 対象 XML 要素が保存時点で存在したかどうかです。
+        /// </summary>
+        internal bool Exists { get; }
     }
 }

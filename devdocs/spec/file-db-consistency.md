@@ -34,6 +34,8 @@ FS と DB は同じ transaction に参加しない。DB の commit 成功は FS 
 4. **必要な順序を owner 内で閉じる。** durable result、canonical memory／関連参照の必須反映、任意の UI notification を区別する。必要な内部反映の失敗を、通知失敗や単なる cleanup 残りへ格下げしない。model lock／DB transaction を長時間の FS I/O や UI 待機のために保持しない。
 5. **失敗後に被害を増やさない。** 状態を確定できない対象の後続破壊的処理と、それに依存する成功処理を止める。独立 item の継続可否は各 batch の既存契約に従い、成功済み item の一括 rollback は追加しない。新しい global fault latch や全アプリ停止を一律に要求しない。
 
+生成ファイルを一つの destination へ保存する場合は、destination と同じディレクトリに所有する一意の staging file を作成し、serializer の close 後に既存 destination を `File.Replace`、初回 destination を `File.Move` で公開する。公開前に destination を削除せず、公開失敗時は既存 bytes を保全する。staging の cleanup 失敗は主原因を置き換えず、主原因・cleanup 原因・残存 staging path を診断へ残す。保存成功の通知は公開完了後にだけ行い、この規則へ DB と FS の複数ファイル transaction、永続 retry、crash recovery を追加しない。
+
 FS はファイルの実在・内容の正本だが、DB の全情報を再生成できるとは限らない。利用者が編集した項目、playlist、導入状態等を「FS に合わせる」という理由で一括破棄しない。どの field が再走査・再生成可能かは各機能の契約に従う。
 
 ### 3.1 SQLite transaction の失敗伝播

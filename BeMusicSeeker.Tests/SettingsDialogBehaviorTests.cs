@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -560,9 +561,10 @@ public sealed class SettingsDialogBehaviorTests
             string configDirectory = Path.GetDirectoryName(configPath)!;
             Directory.Delete(configDirectory, recursive: true);
 
-            await Assert.ThrowsExceptionAsync<DirectoryNotFoundException>(() =>
+            IOException saveFailure = await Assert.ThrowsExceptionAsync<IOException>(() =>
                 harness.Dialog.AddBmsSearchRootPathFromMainWindowPicker(addedRoot));
 
+            StringAssert.Contains(saveFailure.Message, configPath);
             CollectionAssert.AreEqual(Array.Empty<string>(), sequence);
             Assert.AreEqual(0, harness.SearchRoots.ApplyCount);
             Assert.AreEqual(0, harness.State.FileDiffReloadCount);
@@ -570,6 +572,100 @@ public sealed class SettingsDialogBehaviorTests
         finally
         {
             TryDeleteDirectory(lr2SaveFailureRoot);
+        }
+    }
+
+    [TestMethod]
+    public async Task Lr2SettingsDraftCreatedDuringPreviewRemainsSavedAfterPreviewEnds()
+    {
+        string root = CreateTemporaryRoot("settings-preview-draft");
+        SettingsDialogHarness harness = null;
+        try
+        {
+            (string songDbPath, string configPath, string bmsRoot) = CreateValidLr2Layout(root);
+            XDocument configDocument = XDocument.Load(configPath);
+            configDocument.Element("config")?.Element("system")?.Add(
+                new XElement("windowsize_x", "640"),
+                new XElement("windowsize_y", "480"),
+                new XElement("screenmode", "0"));
+            configDocument.Element("config")?.Add(
+                new XElement("sound", new XElement("volumemaster", "23")));
+            configDocument.Save(configPath, SaveOptions.None);
+
+            Settings settings = CreateLr2Settings(root, bmsRoot);
+            settings.LR2SongDBPath = songDbPath;
+            settings.LR2ConfigXmlPath = configPath;
+            string addedRoot = Path.Combine(root, "BMS-added");
+            Directory.CreateDirectory(addedRoot);
+            string preStartAddedRoot = Path.Combine(root, "BMS-before-preview");
+            Directory.CreateDirectory(preStartAddedRoot);
+
+            var gateway = new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerProcessGateway();
+            gateway.Session.KeepRunning = true;
+            gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
+            gateway.Session.BeforeStart = () =>
+            {
+                harness = SettingsDialogHarness.Create(settings, libraryAttached: true);
+            };
+            string executablePath = Path.Combine(root, "LR2body.exe");
+            string chartPath = Path.Combine(root, "preview.bms");
+            File.WriteAllBytes(executablePath, []);
+            File.WriteAllText(chartPath, "#BPM 120");
+            var player = new LR2body(
+                executablePath,
+                new LR2Config(configPath),
+                new ExternalPlayerProcessGatewayTests.RecordingPlayerSettingsGateway(),
+                gateway);
+            ((IExternalWindowPlayer)player).AttachWindowHost(
+                new ExternalPlayerProcessGatewayTests.RecordingExternalPlayerWindowHost(
+                    new ExternalWindowHandle(new IntPtr(99))));
+
+            using SettingsDialogHarness preStartHarness = SettingsDialogHarness.Create(
+                CreateLr2Settings(root, bmsRoot),
+                libraryAttached: true);
+            await preStartHarness.Dialog.AddBmsSearchRootPathFromMainWindowPicker(preStartAddedRoot);
+
+            XDocument savedBeforePreview = XDocument.Load(configPath);
+            CollectionAssert.Contains(
+                savedBeforePreview.Element("config")?.Element("jukebox")?.Elements("path")
+                    .Select(path => path.Value.TrimEnd('\\'))
+                    .ToArray(),
+                preStartAddedRoot);
+
+            player.PlayStart(chartPath, (EventHandler)null!);
+
+            XDocument savedAfterStart = XDocument.Load(configPath);
+            CollectionAssert.Contains(
+                savedAfterStart.Element("config")?.Element("jukebox")?.Elements("path")
+                    .Select(path => path.Value.TrimEnd('\\'))
+                    .ToArray(),
+                preStartAddedRoot);
+            gateway.Session.KeepRunning = false;
+            gateway.Session.RaiseExited();
+
+            Assert.IsNotNull(harness);
+            await harness!.Dialog.AddBmsSearchRootPathFromMainWindowPicker(addedRoot);
+
+            XDocument savedDocument = XDocument.Load(configPath);
+            Assert.AreEqual("640", savedDocument.Element("config")?.Element("system")?.Element("windowsize_x")?.Value);
+            Assert.AreEqual("480", savedDocument.Element("config")?.Element("system")?.Element("windowsize_y")?.Value);
+            Assert.AreEqual("0", savedDocument.Element("config")?.Element("system")?.Element("screenmode")?.Value);
+            Assert.AreEqual("23", savedDocument.Element("config")?.Element("sound")?.Element("volumemaster")?.Value);
+            CollectionAssert.Contains(
+                savedDocument.Element("config")?.Element("jukebox")?.Elements("path")
+                    .Select(path => path.Value.TrimEnd('\\'))
+                    .ToArray(),
+                addedRoot);
+            CollectionAssert.Contains(
+                savedDocument.Element("config")?.Element("jukebox")?.Elements("path")
+                    .Select(path => path.Value.TrimEnd('\\'))
+                    .ToArray(),
+                preStartAddedRoot);
+        }
+        finally
+        {
+            harness?.Dispose();
+            TryDeleteDirectory(root);
         }
     }
 
