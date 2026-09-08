@@ -857,7 +857,7 @@ The `Install` context menu contains several similarly named estimation operation
 
 `Estimate merge destination` is for pending packages that contain only already-owned charts, or for cases where you want to move only resources into an existing folder. It does not add bundled resources inside the pending package to the evaluation; it searches for a merge destination using only resources already present in the existing library. Existing `INSTL DST` values are overwritten. A confirmation dialog is shown before execution.
 
-`Install to estimated destination` installs pending packages whose `INSTL DST` is set into that estimated destination. Processing is grouped by destination, and file moves, `song.db` updates, maintenance information, chart metadata, and resource state are updated. Same-name collisions among bundled files are handled according to [Smart Overwrite](#smart-overwrite) in the settings dialog.
+`Install to estimated destination` installs pending packages whose `INSTL DST` is set into their estimated destinations, one package at a time in list order. After each package's file moves and `song.db` updates are committed, the pending list, maintenance information, chart metadata, and resource state are updated. Packages whose charts all have an empty `INSTL DST` remain in Pending. Same-name collisions among bundled files are handled according to [Smart Overwrite](#smart-overwrite) in the settings dialog.
 
 `Install ignoring warnings` ignores the estimated destination and treats the package as an ordinary new installation. **A typical use case is when the package shows something like `WAV 97%`, but that is known to be the original distribution state of the work.**
 
