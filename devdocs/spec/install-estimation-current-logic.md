@@ -411,6 +411,8 @@ metadata frontier が発生した場合は `estimate_install metadata_frontier` 
 - durable receipt 後は compensation せず、source / staging / backup の cleanup を一度だけ行う。cleanup failure は `CompletedWithCleanupFailure` とし、leftover を保持したまま terminal result として通知する。fresh install retry や pending への自動復帰はしない。
 - durable receipt 後の内部 finalizer exception は `DurableFinalizationFailed` とし、`DurableCommit=true` のまま compensation / retry を行わない。destination と DB を authoritative に保持し、失敗 item を成功登録・maintenance・score・state apply・after-apply から除外して batch の後続 mutation を停止する。cleanup-only failure は従来どおり `CompletedWithCleanupFailure` とし、non-throwing LR2 incomplete や post-lease callback failure はこの terminal state に分類しない。
 
+source cleanup は package ごとの `PackageSourceCleanupPolicy` を receipt batch に明示して決める。設定 snapshot は batch 開始時に固定する。重複分類の hash lookup と独立コピーの path lookup を分け、通常・auto・force・推定・single/resource-only の caller は開始時の所持情報と直前までの確定 destination を根拠に処理する。`DeleteVerifiedResidualContents` の追加削除は、残存候補がすべて BMS / BMSON として読取・hash 確認でき、cleanup 範囲外の既所持コピーまたは当該 plan の確定 destination で一件ずつ裏付けられる場合に限り全候補へ適用する。未所持、非譜面、確認不能、未承認の所持実体が一つでもあれば追加削除を行わず、source 自身や未実行の予約を証拠にしない。統合だけは `MergeOwnedSourceContents` により所持 source の cleanup を認めるが、残るコピーの証拠は必要とする。OFF でも実際に移動・消費した source は削除する。`delete_parent` は候補範囲を指定するだけで再帰削除の許可ではない。directory source と destination の同一・包含関係は mutation 前に拒否し、directory cleanup は空になった範囲だけを深い順で処理する。
+
 package batch、folder move、merge、auto-rename の command result は durable receipt、terminal state、recovery paths を direct caller / UI workflow まで伝播する。receipt 前の collection projection、notification、task start は行わず、durable success 後の projection と notification は post-commit phase に限定する。persistent journal、crash replay、cross-volume atomicity は保証しない。
 
 ### Pending install terminal reporting

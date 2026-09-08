@@ -42,41 +42,6 @@ internal sealed class ComponentMovePlanBuildResult
     public int SkippedByExclusion { get; set; }
 }
 
-internal sealed class ComponentMoveSummary
-{
-    public int Total { get; set; }
-
-    public int Moved { get; set; }
-
-    public int Overwritten { get; set; }
-
-    public int SkippedSame { get; set; }
-
-    public int SkippedOlder { get; set; }
-
-    public int DeletedAfterSkip { get; set; }
-
-    public int SkippedByExclusion { get; set; }
-
-    public int SkippedSamePath { get; set; }
-
-    public int Failed { get; set; }
-
-    public int RenamedKeep { get; set; }
-
-    public int RenamedFromOverwrite { get; set; }
-
-    public int RenamedFromSkipOlder { get; set; }
-
-    public int HashChecked { get; set; }
-
-    public int HashSameSkip { get; set; }
-
-    public int HashDiffRenamed { get; set; }
-
-    public int HashUnavailableRenamed { get; set; }
-}
-
 /// <summary>
 /// Immutable package-source target captured before a pending mutation starts.
 /// Filesystem work consumes only this frozen path and package metadata.
@@ -953,283 +918,6 @@ internal sealed class BmsLibraryPackageInstallService
         return expandedPaths;
     }
 
-    public bool MovePackageFiles(
-        ChartPackage package,
-        string installationDirectory,
-        BmsLibraryOptionsSnapshot options,
-        Func<IEnumerable<ChartFile>, string, string> createFolderPath,
-        Func<Exception, string> getDisplayedExceptionMessage,
-        IFileMutationService fileMutationService,
-        IBmsLibraryDialogService dialogService,
-        FileMutationOptions targetOnlyFileMutationOptions,
-        FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
-        Action<string> logInstallPerformance,
-        bool showMessageBoxOnInstallFail = true,
-        bool deleteAllContents = false,
-        IPrimaryHashLookup existingHashes = null,
-        ISet<string> excludedComponentPaths = null,
-        Action<Action> deferDiagnosticEffect = null)
-    {
-        if (package == null)
-        {
-            throw new ArgumentNullException(nameof(package));
-        }
-        string sourcePath = package.path;
-        string destinationDirectory = string.Empty;
-        bool isSingleFile = false;
-        bool isAutoNaming = false;
-        List<string> installComponentFiles = [];
-        if (LongPathFileSystem.FileExists(sourcePath))
-        {
-            installComponentFiles.Add(sourcePath);
-            isSingleFile = true;
-        }
-        else
-        {
-            if (!LongPathFileSystem.DirectoryExists(sourcePath))
-            {
-                return false;
-            }
-            installComponentFiles = [.. LongPathFileSystem.EnumerateFileSystemEntries(sourcePath)];
-            isAutoNaming = string.IsNullOrWhiteSpace(installationDirectory);
-        }
-
-        var installComponentPathSet = new HashSet<string>(installComponentFiles, StringComparer.OrdinalIgnoreCase);
-        List<PackageChartEntry> installTargetEntries = SelectInstallTargetEntries(package, installComponentPathSet, sourcePath, isSingleFile);
-        var installChartPathSet = new HashSet<string>(installTargetEntries.Select(entry => entry?.Chart?.Path).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        installComponentFiles = [.. installComponentFiles.Where(path => !installChartPathSet.Contains(path))];
-        ISet<string> componentExclusionPaths = BuildComponentExclusionSet(excludedComponentPaths, installTargetEntries);
-        if (componentExclusionPaths.Count > 0)
-        {
-            installComponentFiles = [.. installComponentFiles.Where(path => !componentExclusionPaths.Contains(path))];
-        }
-
-        if (!string.IsNullOrWhiteSpace(installationDirectory))
-        {
-            IPrimaryHashLookup hashSnapshot = existingHashes ?? EmptyPrimaryHashLookup.Instance;
-            List<PackageChartEntry> skippedEntries = [.. installTargetEntries
-                .Where(delegate (PackageChartEntry entry)
-                {
-                    string lookupKey = ChartLookupKey.GetPrimaryHash(entry?.Chart);
-                    return !string.IsNullOrWhiteSpace(lookupKey) && hashSnapshot.ContainsPrimaryHash(lookupKey);
-                })];
-            if (skippedEntries.Count > 0)
-            {
-                var skipPathSet = new HashSet<string>(skippedEntries.Select(entry => entry?.Chart?.Path).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-                installTargetEntries = [.. installTargetEntries.Where(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.Path) && !skipPathSet.Contains(entry.Chart.Path))];
-                package.RemoveChartEntries(entry =>
-                    !string.IsNullOrWhiteSpace(entry?.Chart?.Path)
-                    && skipPathSet.Contains(entry.Chart.Path));
-            }
-        }
-
-        try
-        {
-            if (string.IsNullOrWhiteSpace(installationDirectory))
-            {
-                destinationDirectory = createFolderPath?.Invoke(
-                    installTargetEntries.Select(entry => entry.Chart),
-                    options?.BMSInstallDir);
-            }
-            else
-            {
-                destinationDirectory = installationDirectory;
-            }
-
-            if (string.IsNullOrWhiteSpace(installationDirectory))
-            {
-                int dirSuffix = 1;
-                string baseDirName = destinationDirectory;
-                while (LongPathFileSystem.EntryExists(destinationDirectory))
-                {
-                    dirSuffix++;
-                    destinationDirectory = baseDirName + "(" + dirSuffix + ")";
-                }
-                if (!isAutoNaming)
-                {
-                    fileMutationService.EnsureDirectory(destinationDirectory, targetOnlyFileMutationOptions);
-                }
-            }
-
-            if (isAutoNaming)
-            {
-                if (!LongPathFileSystem.DirectoryExists(sourcePath))
-                {
-                    throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, sourcePath));
-                }
-                fileMutationService.MoveDirectory(sourcePath, destinationDirectory, overwrite: true, recursiveDirectoryTreeFileMutationOptions);
-            }
-            else
-            {
-                if (options?.EnableSmartComponentOverwrite == true)
-                {
-                    MovePackageComponentsSmart(
-                        package,
-                        installComponentFiles,
-                        destinationDirectory,
-                        componentExclusionPaths,
-                        options.KeepSmartOverwriteProtectedFilesByRenaming,
-                        fileMutationService,
-                        targetOnlyFileMutationOptions,
-                        logInstallPerformance);
-                }
-                else
-                {
-                    ComponentMovePlanBuildResult movePlanResult = BuildComponentMovePlan(installComponentFiles, destinationDirectory, componentExclusionPaths);
-                    movePlanResult.PlanItems.AsParallel().ForAll(delegate (ComponentMovePlanItem planItem)
-                    {
-                        string componentDestinationDirectory = Path.GetDirectoryName(planItem.DestinationPath);
-                        if (!string.IsNullOrWhiteSpace(componentDestinationDirectory))
-                        {
-                            fileMutationService.EnsureDirectory(componentDestinationDirectory, targetOnlyFileMutationOptions);
-                        }
-                        fileMutationService.MoveFile(planItem.SourcePath, planItem.DestinationPath, overwrite: true, targetOnlyFileMutationOptions);
-                    });
-                    CleanupEmptyComponentDirectories(installComponentFiles, fileMutationService, targetOnlyFileMutationOptions);
-                }
-
-                foreach (PackageChartEntry entry in installTargetEntries)
-                {
-                    ChartFile chart = entry?.Chart;
-                    string destinationBmsPath = BuildDestinationChartPath(sourcePath, destinationDirectory, chart);
-                    string destinationBmsDirectory = Path.GetDirectoryName(destinationBmsPath);
-                    if (!string.IsNullOrWhiteSpace(destinationBmsDirectory))
-                    {
-                        fileMutationService.EnsureDirectory(destinationBmsDirectory, targetOnlyFileMutationOptions);
-                    }
-                    while (LongPathFileSystem.EntryExists(destinationBmsPath))
-                    {
-                        string renamedFileName = Path.GetFileNameWithoutExtension(destinationBmsPath) + "_" + Path.GetExtension(destinationBmsPath);
-                        destinationBmsPath = Path.Combine(Path.GetDirectoryName(destinationBmsPath) ?? destinationDirectory, Path.GetFileName(renamedFileName));
-                    }
-                    if (!LongPathFileSystem.FileExists(chart?.Path))
-                    {
-                        throw new FileNotFoundException(Resources.Error_FileNotFound, chart?.Path);
-                    }
-                    fileMutationService.MoveFile(chart.Path, destinationBmsPath, overwrite: true, targetOnlyFileMutationOptions);
-                    entry.ApplyInstalledPath(destinationBmsPath);
-                }
-                CleanupEmptyComponentDirectories(installComponentFiles, fileMutationService, targetOnlyFileMutationOptions);
-            }
-        }
-        catch (Exception ex)
-        {
-            if (!showMessageBoxOnInstallFail)
-            {
-                return false;
-            }
-            Action showFailure = () => dialogService?.Show(
-                string.Format(Resources.Error_InstallFailed, package.path, destinationDirectory, getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message),
-                Resources.MessageBoxTitle_Error,
-                MessageBoxButton.OK,
-                MessageBoxImage.Hand,
-                MessageBoxResult.OK);
-            if (deferDiagnosticEffect != null)
-            {
-                deferDiagnosticEffect(showFailure);
-            }
-            else
-            {
-                InvokeBestEffort(showFailure, "package_install_cleanup_failure_dialog_failed");
-            }
-            return false;
-        }
-
-        if (isSingleFile)
-        {
-            package.ApplySingleFileInstallDestination(destinationDirectory, installTargetEntries);
-            package.path = Path.Combine(destinationDirectory, Path.GetFileName(package.path));
-            package.ReplaceChartEntries(installTargetEntries);
-        }
-        else
-        {
-            if (!(LongPathFileSystem.DirectoryExists(sourcePath) || isAutoNaming))
-            {
-                return false;
-            }
-            package.ApplyDirectoryInstallDestination(sourcePath, destinationDirectory, installTargetEntries);
-            package.path = destinationDirectory;
-            package.ReplaceChartEntries(installTargetEntries);
-        }
-
-        string directoryToDelete = string.Empty;
-        if (package.delete_parent)
-        {
-            directoryToDelete = Path.GetDirectoryName(sourcePath);
-        }
-        else if (LongPathFileSystem.DirectoryExists(sourcePath))
-        {
-            directoryToDelete = sourcePath;
-        }
-        if (!string.IsNullOrWhiteSpace(directoryToDelete) && LongPathFileSystem.DirectoryExists(directoryToDelete))
-        {
-            string folderDeletionDecisionReason = deleteAllContents
-                ? string.Empty
-                : "not_empty deleteAllContents=False";
-            if (deleteAllContents)
-            {
-                if (!TryBuildCurrentPackageHashCountsForSafeCleanup(package.ChartEntries, out Dictionary<string, int> currentPackageHashCounts, out folderDeletionDecisionReason))
-                {
-                    logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
-                    return true;
-                }
-
-                // NOTE:
-                // delete_parent は探索時の親候補フラグに過ぎないため、通常インストールでは
-                // 実際に残ったファイルを見て「空」または「既所持譜面のみ」の場合にだけ再帰削除します。
-                if (!CanDeleteDirectoryAfterInstall(directoryToDelete, existingHashes, currentPackageHashCounts, out folderDeletionDecisionReason))
-                {
-                    logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
-                    return true;
-                }
-            }
-            else if (HasRemainingDirectoryEntries(directoryToDelete))
-            {
-                logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
-                return true;
-            }
-
-            FileMutationOptions deleteOptions = deleteAllContents ? recursiveDirectoryTreeFileMutationOptions : targetOnlyFileMutationOptions;
-            try
-            {
-                fileMutationService.DeleteDirectoryDirect(directoryToDelete, deleteAllContents, deleteOptions);
-                logInstallPerformance?.Invoke("Folder deletion success: path=" + directoryToDelete + " deleteAllContents=" + deleteAllContents + " reason=" + folderDeletionDecisionReason);
-            }
-            catch (FileMutationException ex)
-            {
-                if (!deleteAllContents && HasRemainingDirectoryEntries(directoryToDelete))
-                {
-                    logInstallPerformance?.Invoke("Folder deletion skipped after failure: path=" + directoryToDelete + " reason=not_empty_after_failure deleteAllContents=False attempts=" + ex.AttemptCount);
-                    return true;
-                }
-
-                logInstallPerformance?.Invoke(string.Format(
-                    "Folder deletion failed: path={0} attempts={1} normalizedReadOnly={2} win32={3} errorType={4} error={5}",
-                    directoryToDelete,
-                    ex.AttemptCount,
-                    ex.NormalizedReadOnlyCount,
-                    ex.Win32ErrorCode,
-                    ex.RootCause.GetType().FullName,
-                    getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message));
-                Action showFailure = () => dialogService?.Show(
-                    string.Format(Resources.Error_FolderDeleteFailed, directoryToDelete, getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message),
-                    Resources.MessageBoxTitle_Error,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Hand,
-                    MessageBoxResult.OK);
-                if (deferDiagnosticEffect != null)
-                {
-                    deferDiagnosticEffect(showFailure);
-                }
-                else
-                {
-                    InvokeBestEffort(showFailure, "package_install_failure_dialog_failed");
-                }
-            }
-        }
-        return true;
-    }
-
     /// <summary>
     /// package install の filesystem 操作を destination-local staging と durable DB receipt の境界で実行します。
     /// source は DB owner が durable receipt を返すまで保持し、cleanup はその後だけ行います。
@@ -1246,9 +934,10 @@ internal sealed class BmsLibraryPackageInstallService
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
         Action<string> logInstallPerformance,
         Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableCommit,
+        PackageSourceCleanupPolicy sourceCleanupPolicy,
         bool showMessageBoxOnInstallFail = true,
-        bool deleteAllContents = false,
         IPrimaryHashLookup existingHashes = null,
+        IInstalledChartLookupIndex independentOwnershipLookup = null,
         ISet<string> excludedComponentPaths = null,
         Action<PackageInstallExecutionResult> onPreflightPrepared = null,
         Action<Action> enqueueDiagnosticEffect = null)
@@ -1318,7 +1007,6 @@ internal sealed class BmsLibraryPackageInstallService
                         && !skippedPathSet.Contains(entry.Chart.Path))];
                 }
             }
-
             HashSet<string> componentExclusionPaths = new(
                 BuildComponentExclusionSet(excludedComponentPaths, installTargetEntries),
                 StringComparer.OrdinalIgnoreCase);
@@ -1357,16 +1045,63 @@ internal sealed class BmsLibraryPackageInstallService
                 }
             }
 
+            if (isDirectory)
+            {
+                EnsureDirectoryMutationDestinationIsDistinct(sourcePath, destinationDirectory);
+            }
+
             var reservedDestinationPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var mutationPaths = new List<FileDbMutationPathPlan>();
             var chartDestinationPaths = new List<KeyValuePair<string, string>>();
             var sourceCleanupFiles = new List<string>();
             var sourceCleanupDirectories = new List<FileDbMutationCleanupPathPlan>();
             var reservedTemporaryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<string> sourceFilesBeforeMutation = null;
+            List<string> sourceCleanupBoundaryDirectories = [sourcePath];
+            if (!isAutoNaming
+                && (sourceCleanupPolicy == PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
+                    || sourceCleanupPolicy == PackageSourceCleanupPolicy.MergeOwnedSourceContents))
+            {
+                try
+                {
+                    sourceFilesBeforeMutation = isSingleFile
+                        ? [sourcePath]
+                        : [.. LongPathFileSystem.EnumerateFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories)];
+
+                    if (package.delete_parent)
+                    {
+                        string parentPath = Path.GetDirectoryName(sourcePath);
+                        bool destinationSharesParentRange = !string.IsNullOrWhiteSpace(parentPath)
+                            && (IsSamePath(destinationDirectory, parentPath)
+                                || IsPathUnderDirectory(destinationDirectory, parentPath)
+                                || IsPathUnderDirectory(parentPath, destinationDirectory));
+                        if (!string.IsNullOrWhiteSpace(parentPath) && !destinationSharesParentRange)
+                        {
+                            sourceFilesBeforeMutation = [.. sourceFilesBeforeMutation
+                                .Concat(LongPathFileSystem.EnumerateFiles(parentPath, "*", System.IO.SearchOption.AllDirectories))
+                                .Distinct(StringComparer.OrdinalIgnoreCase)];
+                            sourceCleanupBoundaryDirectories.Add(parentPath);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // A partial candidate scan cannot authorize deletion of
+                    // residual contents.  Keep every extra candidate when any
+                    // required source/parent enumeration is incomplete.
+                    sourceFilesBeforeMutation = null;
+                    logInstallPerformance?.Invoke(
+                        "package_source_cleanup preflight_scan_failed path="
+                        + sourcePath
+                        + " errorType="
+                        + ex.GetType().FullName
+                        + " error="
+                    + ex.Message);
+                }
+            }
 
             if (isAutoNaming)
             {
-                EnsureMutationDestinationIsDistinct(sourcePath, destinationDirectory);
                 mutationPaths.Add(CreateMutationPathPlan(
                     sourcePath,
                     destinationDirectory,
@@ -1461,14 +1196,6 @@ internal sealed class BmsLibraryPackageInstallService
                         reservedTemporaryPaths));
                 }
 
-                foreach (PackageChartEntry skippedEntry in skippedByInstalledHash)
-                {
-                    if (!string.IsNullOrWhiteSpace(skippedEntry?.Chart?.Path))
-                    {
-                        sourceCleanupFiles.Add(skippedEntry.Chart.Path);
-                    }
-                }
-
                 foreach (PackageChartEntry entry in installTargetEntries)
                 {
                     ChartFile chart = entry?.Chart;
@@ -1519,7 +1246,77 @@ internal sealed class BmsLibraryPackageInstallService
                     string parentPath = Path.GetDirectoryName(sourcePath);
                     if (!string.IsNullOrWhiteSpace(parentPath))
                     {
-                        sourceCleanupDirectories.Add(new FileDbMutationCleanupPathPlan(parentPath, recursive: false));
+                        bool destinationSharesParentRange = IsSamePath(destinationDirectory, parentPath)
+                            || IsPathUnderDirectory(destinationDirectory, parentPath)
+                            || IsPathUnderDirectory(parentPath, destinationDirectory);
+                        if (!destinationSharesParentRange)
+                        {
+                            try
+                            {
+                                foreach (string parentDirectoryPath in LongPathFileSystem.EnumerateDirectories(
+                                    parentPath,
+                                    "*",
+                                    System.IO.SearchOption.AllDirectories)
+                                    .OrderByDescending(path => path.Length))
+                                {
+                                    sourceCleanupDirectories.Add(new FileDbMutationCleanupPathPlan(parentDirectoryPath, recursive: false));
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                logInstallPerformance?.Invoke(
+                                    "package_source_cleanup parent_directory_scan_failed path="
+                                    + parentPath
+                                    + " errorType="
+                                    + ex.GetType().FullName
+                                    + " error="
+                                    + ex.Message);
+                            }
+                            sourceCleanupDirectories.Add(new FileDbMutationCleanupPathPlan(parentPath, recursive: false));
+                        }
+                    }
+                }
+
+                if (sourceCleanupPolicy == PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
+                    || sourceCleanupPolicy == PackageSourceCleanupPolicy.MergeOwnedSourceContents)
+                {
+                    HashSet<string> plannedDestinationChartPaths = new(
+                        chartDestinationPaths
+                            .Select(item => item.Key)
+                            .Where(path => !string.IsNullOrWhiteSpace(path)),
+                        StringComparer.OrdinalIgnoreCase);
+                    IPrimaryHashLookup plannedDestinationHashes = new PrimaryHashSetLookup(
+                        installTargetEntries
+                            .Where(entry => entry?.Chart != null
+                                && plannedDestinationChartPaths.Contains(entry.Chart.Path))
+                            .Select(entry => ChartLookupKey.GetPrimaryHash(entry.Chart))
+                            .Where(hash => !string.IsNullOrWhiteSpace(hash)));
+                    if (TryBuildVerifiedResidualCleanupFiles(
+                        sourceFilesBeforeMutation,
+                        sourceCleanupFiles,
+                        independentOwnershipLookup,
+                        plannedDestinationHashes,
+                        sourceCleanupBoundaryDirectories,
+                        sourceCleanupPolicy,
+                        out List<string> verifiedResidualCleanupFiles,
+                        out string residualCleanupDecisionReason))
+                    {
+                        sourceCleanupFiles.AddRange(verifiedResidualCleanupFiles);
+                        logInstallPerformance?.Invoke(
+                            "package_source_cleanup verified_residuals path="
+                            + sourcePath
+                            + " count="
+                            + verifiedResidualCleanupFiles.Count
+                            + " reason="
+                            + residualCleanupDecisionReason);
+                    }
+                    else
+                    {
+                        logInstallPerformance?.Invoke(
+                            "package_source_cleanup residuals_retained path="
+                            + sourcePath
+                            + " reason="
+                            + residualCleanupDecisionReason);
                     }
                 }
             }
@@ -1759,6 +1556,218 @@ internal sealed class BmsLibraryPackageInstallService
             source.ResourceHealthMaintenanceSnapshot);
     }
 
+    private static bool TryBuildVerifiedResidualCleanupFiles(
+        IEnumerable<string> sourceFilesBeforeMutation,
+        IEnumerable<string> plannedSourceCleanupFiles,
+        IInstalledChartLookupIndex independentlyOwnedLookup,
+        IPrimaryHashLookup plannedDestinationHashes,
+        IEnumerable<string> cleanupBoundaryDirectories,
+        PackageSourceCleanupPolicy sourceCleanupPolicy,
+        out List<string> verifiedResidualCleanupFiles,
+        out string reason)
+    {
+        verifiedResidualCleanupFiles = [];
+        if (sourceFilesBeforeMutation == null)
+        {
+            reason = "source_scan_unavailable";
+            return false;
+        }
+
+        HashSet<string> plannedCleanupPaths = new(
+            (plannedSourceCleanupFiles ?? [])
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        List<string> residualFiles = [.. (sourceFilesBeforeMutation ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path) && !plannedCleanupPaths.Contains(path))];
+        if (residualFiles.Count == 0)
+        {
+            reason = "safe_cleanup_allowed no_residual_candidates";
+            return true;
+        }
+
+        foreach (string residualFilePath in residualFiles)
+        {
+            if (!IsSupportedChartFilePath(residualFilePath))
+            {
+                reason = "residual_non_chart_file path=" + residualFilePath;
+                verifiedResidualCleanupFiles.Clear();
+                return false;
+            }
+
+            if (!TryGetRemainingChartLookupKey(residualFilePath, out string lookupKey, out reason))
+            {
+                verifiedResidualCleanupFiles.Clear();
+                return false;
+            }
+
+            bool hasPlannedDestinationCopy = plannedDestinationHashes?.ContainsPrimaryHash(lookupKey) == true;
+            IReadOnlyList<string> independentDirectories = independentlyOwnedLookup?.GetDistinctDirectoriesByPrimaryHash(lookupKey) ?? [];
+            bool hasOwnedContentInsideCleanupBoundary = independentDirectories
+                .Any(directory => IsPathWithinAnyCleanupBoundary(directory, cleanupBoundaryDirectories));
+            bool hasIndependentInstalledCopy = independentDirectories
+                .Any(directory => !IsPathWithinAnyCleanupBoundary(directory, cleanupBoundaryDirectories));
+            if (hasOwnedContentInsideCleanupBoundary
+                && sourceCleanupPolicy != PackageSourceCleanupPolicy.MergeOwnedSourceContents)
+            {
+                reason = "residual_owned_chart_inside_cleanup_boundary path="
+                    + residualFilePath
+                    + " hash="
+                    + lookupKey
+                    + " directories="
+                    + string.Join("|", independentDirectories);
+                verifiedResidualCleanupFiles.Clear();
+                return false;
+            }
+            if (!hasPlannedDestinationCopy && !hasIndependentInstalledCopy)
+            {
+                reason = "residual_chart_not_independently_owned path="
+                    + residualFilePath
+                    + " hash="
+                    + lookupKey
+                    + " independentDirectories="
+                    + string.Join("|", independentDirectories);
+                verifiedResidualCleanupFiles.Clear();
+                return false;
+            }
+            verifiedResidualCleanupFiles.Add(residualFilePath);
+        }
+
+        reason = "safe_cleanup_allowed residual_files_all_independently_owned count="
+            + verifiedResidualCleanupFiles.Count;
+        return true;
+    }
+
+    /// <summary>
+    /// 同じ導入計画で先に durable 化された destination を、後続 package の
+    /// 残存候補判定へ追加する読み取り lookup です。未実行の予約は追加せず、
+    /// executor が返した確定結果の chart path だけを登録します。
+    /// </summary>
+    private sealed class PlannedDestinationOwnershipLookup : IInstalledChartLookupIndex
+    {
+        private readonly IInstalledChartLookupIndex baseline;
+        private readonly Dictionary<string, HashSet<string>> plannedDirectoriesByHash =
+            new(StringComparer.OrdinalIgnoreCase);
+
+        internal PlannedDestinationOwnershipLookup(IInstalledChartLookupIndex baseline)
+        {
+            this.baseline = baseline;
+        }
+
+        public int HashCount => (baseline?.HashCount ?? 0) + plannedDirectoriesByHash.Count;
+
+        public int DistinctPrimaryHashCount => (baseline?.DistinctPrimaryHashCount ?? 0)
+            + plannedDirectoriesByHash.Keys.Count(hash => baseline?.ContainsPrimaryHash(hash) != true);
+
+        public bool ContainsPrimaryHash(string lookupHash)
+        {
+            return baseline?.ContainsPrimaryHash(lookupHash) == true
+                || (!string.IsNullOrWhiteSpace(lookupHash)
+                    && plannedDirectoriesByHash.ContainsKey(lookupHash));
+        }
+
+        public int GetPrimaryHashCount(string lookupHash)
+        {
+            return (baseline?.GetPrimaryHashCount(lookupHash) ?? 0)
+                + (plannedDirectoriesByHash.TryGetValue(lookupHash, out HashSet<string> directories)
+                    ? directories.Count
+                    : 0);
+        }
+
+        public IReadOnlyList<string> GetDistinctDirectoriesByPrimaryHash(string lookupHash)
+        {
+            HashSet<string> directories = new(
+                baseline?.GetDistinctDirectoriesByPrimaryHash(lookupHash) ?? [],
+                StringComparer.OrdinalIgnoreCase);
+            if (plannedDirectoriesByHash.TryGetValue(lookupHash, out HashSet<string> plannedDirectories))
+            {
+                directories.UnionWith(plannedDirectories);
+            }
+            return [.. directories];
+        }
+
+        public int GetUniquePrimaryHashCountByDirectory(string directoryPath)
+        {
+            int baselineCount = baseline?.GetUniquePrimaryHashCountByDirectory(directoryPath) ?? 0;
+            if (string.IsNullOrWhiteSpace(directoryPath))
+            {
+                return baselineCount;
+            }
+            string normalizedDirectory = Path.GetFullPath(directoryPath);
+            int plannedCount = plannedDirectoriesByHash.Count(item => item.Value.Contains(normalizedDirectory));
+            return baselineCount + plannedCount;
+        }
+
+        internal void AddCommittedEntries(IEnumerable<PackageChartEntry> entries)
+        {
+            foreach (PackageChartEntry entry in entries ?? [])
+            {
+                ChartFile chart = entry?.Chart;
+                string lookupHash = ChartLookupKey.GetPrimaryHash(chart);
+                string chartDirectory = string.IsNullOrWhiteSpace(chart?.Path)
+                    ? null
+                    : Path.GetDirectoryName(chart.Path);
+                if (string.IsNullOrWhiteSpace(lookupHash) || string.IsNullOrWhiteSpace(chartDirectory))
+                {
+                    continue;
+                }
+                string normalizedDirectory = Path.GetFullPath(chartDirectory);
+                if (!plannedDirectoriesByHash.TryGetValue(lookupHash, out HashSet<string> directories))
+                {
+                    directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    plannedDirectoriesByHash[lookupHash] = directories;
+                }
+                directories.Add(normalizedDirectory);
+            }
+        }
+    }
+
+    private static bool IsPathWithinAnyCleanupBoundary(
+        string path,
+        IEnumerable<string> cleanupBoundaryDirectories)
+    {
+        return (cleanupBoundaryDirectories ?? [])
+            .Where(boundary => !string.IsNullOrWhiteSpace(boundary))
+            .Any(boundary => IsSameOrContainedPath(path, boundary));
+    }
+
+    private static bool IsSameOrContainedPath(string path, string directoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(directoryPath))
+        {
+            return false;
+        }
+        try
+        {
+            string normalizedPath = Path.GetFullPath(path)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string normalizedDirectory = Path.GetFullPath(directoryPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.Equals(normalizedPath, normalizedDirectory, StringComparison.OrdinalIgnoreCase)
+                || normalizedPath.StartsWith(
+                    normalizedDirectory + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase)
+                || normalizedPath.StartsWith(
+                    normalizedDirectory + Path.AltDirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return IsPathUnderDirectory(path, directoryPath)
+                || string.Equals(path, directoryPath, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static void EnsureDirectoryMutationDestinationIsDistinct(
+        string sourceDirectory,
+        string destinationDirectory)
+    {
+        if (IsSameOrContainedPath(sourceDirectory, destinationDirectory)
+            || IsSameOrContainedPath(destinationDirectory, sourceDirectory))
+        {
+            throw new IOException("A directory source and destination must not overlap.");
+        }
+    }
+
     private static FileDbMutationPathPlan CreateMutationPathPlan(
         string sourcePath,
         string destinationPath,
@@ -1828,71 +1837,6 @@ internal sealed class BmsLibraryPackageInstallService
             MessageBoxButton.OK,
             MessageBoxImage.Hand,
             MessageBoxResult.OK);
-    }
-
-    private static bool TryBuildCurrentPackageHashCountsForSafeCleanup(IEnumerable<PackageChartEntry> installedPackageEntries, out Dictionary<string, int> currentPackageHashCounts, out string reason)
-    {
-        currentPackageHashCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (PackageChartEntry installedPackageEntry in installedPackageEntries ?? [])
-        {
-            if (installedPackageEntry?.Chart == null)
-            {
-                continue;
-            }
-            string lookupKey = ChartLookupKey.GetPrimaryHash(installedPackageEntry.Chart);
-            if (string.IsNullOrWhiteSpace(lookupKey))
-            {
-                reason = "current_package_hash_unavailable path=" + installedPackageEntry.Chart.Path;
-                return false;
-            }
-            currentPackageHashCounts[lookupKey] = currentPackageHashCounts.TryGetValue(lookupKey, out int count) ? count + 1 : 1;
-        }
-        reason = "safe_cleanup_allowed pending_installed_hashes=" + currentPackageHashCounts.Count;
-        return true;
-    }
-
-    private static bool CanDeleteDirectoryAfterInstall(string directoryPath, IPrimaryHashLookup existingHashes, IReadOnlyDictionary<string, int> currentPackageHashCounts, out string reason)
-    {
-        List<string> remainingFiles;
-        try
-        {
-            remainingFiles = [.. LongPathFileSystem.EnumerateFiles(directoryPath, "*", System.IO.SearchOption.AllDirectories)];
-        }
-        catch (Exception ex)
-        {
-            reason = "remaining_scan_failed path=" + directoryPath + " errorType=" + ex.GetType().FullName + " error=" + ex.Message;
-            return false;
-        }
-
-        if (remainingFiles.Count == 0)
-        {
-            reason = "safe_cleanup_allowed no_remaining_files";
-            return true;
-        }
-
-        foreach (string remainingFilePath in remainingFiles)
-        {
-            if (!IsSupportedChartFilePath(remainingFilePath))
-            {
-                reason = "remaining_non_chart_file path=" + remainingFilePath;
-                return false;
-            }
-
-            if (!TryGetRemainingChartLookupKey(remainingFilePath, out string remainingLookupKey, out reason))
-            {
-                return false;
-            }
-
-            int currentPackageCount = currentPackageHashCounts != null && currentPackageHashCounts.TryGetValue(remainingLookupKey, out int count) ? count : 0;
-            if ((existingHashes?.GetPrimaryHashCount(remainingLookupKey) ?? 0) + currentPackageCount <= 0)
-            {
-                reason = "remaining_chart_not_installed path=" + remainingFilePath + " hash=" + remainingLookupKey;
-                return false;
-            }
-        }
-
-        reason = "safe_cleanup_allowed remaining_files_all_installed_charts count=" + remainingFiles.Count;
-        return true;
     }
 
     private static bool TryGetRemainingChartLookupKey(string remainingFilePath, out string lookupKey, out string reason)
@@ -2345,6 +2289,8 @@ internal sealed class BmsLibraryPackageInstallService
         filterStopwatch.Stop();
         plan.FilterMs = filterStopwatch.ElapsedMilliseconds;
         plan.SelectedPendingCount = plan.SelectedPendingPackages.Count;
+        plan.IndependentOwnershipLookup = new PlannedDestinationOwnershipLookup(
+            installedChartLookup as IInstalledChartLookupIndex);
         plan.MoveGuardLookup = new PrimaryHashGuardLookup(
             installedChartLookup ?? EmptyPrimaryHashLookup.Instance);
         planStopwatch.Stop();
@@ -2383,10 +2329,15 @@ internal sealed class BmsLibraryPackageInstallService
     {
         var result = new PendingInstallBatchResult();
         List<FileDbMutationReceipt> mutationReceipts = [];
+        Exception batchFinalizationFailure = null;
         if (plan == null)
         {
             return result;
         }
+        plan.IndependentOwnershipLookup = plan.IndependentOwnershipLookup
+            is PlannedDestinationOwnershipLookup plannedDestinationOwnershipLookup
+                ? plannedDestinationOwnershipLookup
+                : new PlannedDestinationOwnershipLookup(plan.IndependentOwnershipLookup);
 
         foreach (ChartPackage originalPackage in plan.SelectedPendingPackages)
         {
@@ -2464,6 +2415,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
 
             PackageInstallExecutionResult installResult = installPackage?.Invoke(item);
+            batchFinalizationFailure ??= installResult?.MutationReceipt?.FinalizationFailure;
             List<FileDbMutationReceipt> packageReceipts = [..
                 installResult?.MutationReceipt?.Receipts ?? []];
             mutationReceipts.AddRange(packageReceipts);
@@ -2471,6 +2423,7 @@ internal sealed class BmsLibraryPackageInstallService
             bool packageRequiresTerminalStop = packageReceipts.Any(receipt =>
                 receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
                 || receipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
+                || installResult?.HasDurableFinalizationFailure == true
                 || manualRecoveryObserved?.Invoke() == true;
             bool packageSucceeded = installResult != null
                 && installResult.FailedPackages.Count == 0
@@ -2518,7 +2471,9 @@ internal sealed class BmsLibraryPackageInstallService
             }
         }
         plan.CleanupOnlyCandidateCount = plan.CleanupOnlyCandidates.Count;
-        result.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts);
+        result.MutationReceipt = new FileDbMutationBatchReceipt(
+            mutationReceipts,
+            batchFinalizationFailure);
         return result;
     }
 
@@ -2640,111 +2595,34 @@ internal sealed class BmsLibraryPackageInstallService
             : CleanupSourceKind.MissingSource;
     }
 
-    public PackageInstallExecutionResult InstallPackages(
-        IEnumerable<ChartPackage> chartPackagesInstall,
-        string installationDirectory,
-        Func<ChartPackage, string, bool, IPrimaryHashLookup, ISet<string>, bool> movePackageFiles,
-        Action<PackageInstallExecutionResult> upsertStorageRows,
-        Action<PackageInstallExecutionResult> updateMaintenance,
-        Action<PackageInstallExecutionResult> applyScores,
-        Action<PackageInstallExecutionResult> applyState,
-        Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null,
-        IPrimaryHashLookup existingHashes = null,
-        bool skipInstalledPackageWhenNoBms = false,
-        bool deleteSourceContentsAfterSuccessfulInstall = false)
-    {
-        var result = new PackageInstallExecutionResult();
-        List<ChartPackage> packages = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
-        List<FileDbMutationReceipt> mutationReceipts = [];
-        var totalStopwatch = Stopwatch.StartNew();
-        var moveStopwatch = Stopwatch.StartNew();
-        foreach (ChartPackage package in packages)
-        {
-            HashSet<string> excludedComponentPaths = null;
-            excludedComponentPathsByPackage?.TryGetValue(package, out excludedComponentPaths);
-            if (movePackageFiles != null && movePackageFiles(package, installationDirectory, deleteSourceContentsAfterSuccessfulInstall, existingHashes, excludedComponentPaths))
-            {
-                List<PackageChartEntry> packageEntries = package.ChartEntries;
-                result.AddedEntries.AddRange(packageEntries);
-                if (existingHashes is IMutablePrimaryHashLookup mutableExistingHashes)
-                {
-                    foreach (PackageChartEntry entry in packageEntries)
-                    {
-                        string lookupKey = ChartLookupKey.GetPrimaryHash(entry?.Chart);
-                        if (!string.IsNullOrWhiteSpace(lookupKey))
-                        {
-                            mutableExistingHashes.AddPrimaryHash(lookupKey);
-                        }
-                    }
-                }
-                bool shouldSkipInstalledPackageRegistration = skipInstalledPackageWhenNoBms && packageEntries.Count == 0;
-                if (!shouldSkipInstalledPackageRegistration)
-                {
-                    result.InstalledPackagesToRegister.Add(package);
-                }
-            }
-            else if (!string.IsNullOrWhiteSpace(package.path) && LongPathFileSystem.EntryExists(package.path))
-            {
-                result.FailedPackages.Add(package);
-            }
-        }
-        moveStopwatch.Stop();
-        result.MoveMs = moveStopwatch.ElapsedMilliseconds;
-
-        foreach (PackageChartEntry addedEntry in result.AddedEntries.Where(entry => entry?.Chart != null))
-        {
-            addedEntry.ClearPostInstallState();
-        }
-        result.AddedCharts.AddRange(result.AddedEntries
-            .Select(entry => entry?.Chart)
-            .Where(chart => chart != null));
-
-        var songDbStopwatch = Stopwatch.StartNew();
-        upsertStorageRows?.Invoke(result);
-        songDbStopwatch.Stop();
-        result.SongDbMs = songDbStopwatch.ElapsedMilliseconds;
-
-        var maintenanceStopwatch = Stopwatch.StartNew();
-        updateMaintenance?.Invoke(result);
-        maintenanceStopwatch.Stop();
-        result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
-
-        var scoreStopwatch = Stopwatch.StartNew();
-        applyScores?.Invoke(result);
-        scoreStopwatch.Stop();
-        result.ScoreMs = scoreStopwatch.ElapsedMilliseconds;
-
-        var applyStopwatch = Stopwatch.StartNew();
-        applyState?.Invoke(result);
-        applyStopwatch.Stop();
-        result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
-
-        totalStopwatch.Stop();
-        result.TotalMs = totalStopwatch.ElapsedMilliseconds;
-        return result;
-    }
-
     /// <summary>
     /// package ごとに filesystem receipt を確定します。durable DB receipt が確定した場合、
     /// または durable 前の失敗が補償済みとなった場合だけ、次の package へ進みます。
     /// manual recovery または durable finalization failure では後続を停止します。
+    /// durable receipt 後の package-level finalizer failure も batch receipt に保持し、
+    /// 後続を開始しません。
     /// </summary>
     internal PackageInstallExecutionResult InstallPackagesWithFileMutationReceipts(
         IEnumerable<ChartPackage> chartPackagesInstall,
         string installationDirectory,
-        Func<ChartPackage, string, bool, IPrimaryHashLookup, ISet<string>, Func<PackageInstallExecutionResult, FileDbMutationCommitResult>, FileDbMutationReceipt> movePackageFiles,
+        Func<ChartPackage, string, PackageSourceCleanupPolicy, IPrimaryHashLookup, IInstalledChartLookupIndex, ISet<string>, Func<PackageInstallExecutionResult, FileDbMutationCommitResult>, FileDbMutationReceipt> movePackageFiles,
         Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows,
         Action<PackageInstallExecutionResult> updateMaintenance,
         Action<PackageInstallExecutionResult> applyScores,
         Action<PackageInstallExecutionResult> applyState,
+        PackageSourceCleanupPolicy sourceCleanupPolicy,
         Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null,
         IPrimaryHashLookup existingHashes = null,
         bool skipInstalledPackageWhenNoBms = false,
-        bool deleteSourceContentsAfterSuccessfulInstall = false)
+        IInstalledChartLookupIndex independentOwnershipLookup = null)
     {
         var result = new PackageInstallExecutionResult();
         List<ChartPackage> packages = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
         List<FileDbMutationReceipt> mutationReceipts = [];
+        Exception batchFinalizationFailure = null;
+        PlannedDestinationOwnershipLookup plannedDestinationOwnershipLookup =
+            independentOwnershipLookup as PlannedDestinationOwnershipLookup
+                ?? new PlannedDestinationOwnershipLookup(independentOwnershipLookup);
         var totalStopwatch = Stopwatch.StartNew();
         var moveStopwatch = Stopwatch.StartNew();
         foreach (ChartPackage package in packages)
@@ -2755,8 +2633,9 @@ internal sealed class BmsLibraryPackageInstallService
             FileDbMutationReceipt mutationReceipt = movePackageFiles?.Invoke(
                 package,
                 installationDirectory,
-                deleteSourceContentsAfterSuccessfulInstall,
+                sourceCleanupPolicy,
                 existingHashes,
+                plannedDestinationOwnershipLookup,
                 excludedComponentPaths,
                 packageResult =>
                 {
@@ -2764,10 +2643,18 @@ internal sealed class BmsLibraryPackageInstallService
                     return applyDurableStorageRows?.Invoke(packageResult)
                         ?? FileDbMutationCommitResult.Durable();
                 });
+            if (mutationReceipt != null)
+            {
+                mutationReceipts.Add(mutationReceipt);
+                // Keep the receipt observable before package-level maintenance,
+                // score, and state callbacks can fail.
+                result.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts);
+            }
             if (mutationReceipt?.DurableCommit == true
                 && mutationReceipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed)
             {
                 committedPackageResult ??= CreatePackageInstallExecutionResult(package);
+                plannedDestinationOwnershipLookup.AddCommittedEntries(committedPackageResult.AddedEntries);
                 result.AddedEntries.AddRange(committedPackageResult.AddedEntries);
                 if (committedPackageResult.AddedCharts.Count > 0)
                 {
@@ -2796,13 +2683,26 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     result.InstalledPackagesToRegister.Add(package);
                 }
-                updateMaintenance?.Invoke(committedPackageResult);
-                applyScores?.Invoke(committedPackageResult);
-                applyState?.Invoke(committedPackageResult);
+                try
+                {
+                    updateMaintenance?.Invoke(committedPackageResult);
+                    applyScores?.Invoke(committedPackageResult);
+                    applyState?.Invoke(committedPackageResult);
+                }
+                catch (Exception exception)
+                {
+                    batchFinalizationFailure = exception;
+                    result.MutationReceipt = result.MutationReceipt.WithFinalizationFailure(exception);
+                    result.InstalledPackagesToRegister.RemoveAll(item => ReferenceEquals(item, package));
+                    result.FailedPackages.Add(package);
+                    // The filesystem/DB receipt is durable, but the package
+                    // finalizer is no longer safe to continue after a required
+                    // projection callback fails.
+                    break;
+                }
             }
             if (mutationReceipt != null)
             {
-                mutationReceipts.Add(mutationReceipt);
                 if (!mutationReceipt.DurableCommit
                     || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
                 {
@@ -2830,7 +2730,7 @@ internal sealed class BmsLibraryPackageInstallService
             // A receipt-aware move clears package-only warnings before the DB owner sees the rows.
             addedEntry.ClearPostInstallState();
         }
-        result.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts);
+        result.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts, batchFinalizationFailure);
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
@@ -2881,6 +2781,7 @@ internal sealed class BmsLibraryPackageInstallService
     {
         var result = new ForceInstallBatchResult();
         List<FileDbMutationReceipt> mutationReceipts = [];
+        Exception batchFinalizationFailure = null;
         List<ChartPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
         List<ChartPackage> pendingPackages = [.. (currentPendingPackages ?? []).Where(pkg => pkg != null)];
         result.Requested = requestedPackages.Count;
@@ -2910,6 +2811,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 mutationReceipts.AddRange(applyResult.MutationReceipt.Receipts);
             }
+            batchFinalizationFailure ??= applyResult.MutationReceipt?.FinalizationFailure;
             result.Processed++;
             if (failedPackages.Count == 0 && !applyResult.HasDurableFinalizationFailure)
             {
@@ -2932,7 +2834,9 @@ internal sealed class BmsLibraryPackageInstallService
                 break;
             }
         }
-        result.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts);
+        result.MutationReceipt = new FileDbMutationBatchReceipt(
+            mutationReceipts,
+            batchFinalizationFailure);
         return result;
     }
 
@@ -3749,169 +3653,4 @@ internal sealed class BmsLibraryPackageInstallService
         }
     }
 
-    private static bool IsBmsHashAvailable(string hash)
-    {
-        return !string.IsNullOrWhiteSpace(hash);
-    }
-
-    private void MovePackageComponentsSmart(
-        ChartPackage package,
-        List<string> installComponentFiles,
-        string destinationDirectory,
-        ISet<string> excludedComponentPaths,
-        bool keepProtectedFilesByRenaming,
-        IFileMutationService fileMutationService,
-        FileMutationOptions targetOnlyFileMutationOptions,
-        Action<string> logInstallPerformance)
-    {
-        var componentMoveSummary = new ComponentMoveSummary();
-        ComponentMovePlanBuildResult movePlanResult = BuildComponentMovePlan(installComponentFiles, destinationDirectory, excludedComponentPaths);
-        List<ComponentMovePlanItem> movePlanItems = movePlanResult.PlanItems;
-        componentMoveSummary.Total = movePlanItems.Count;
-        componentMoveSummary.SkippedByExclusion = movePlanResult.SkippedByExclusion;
-
-        foreach (ComponentMovePlanItem planItem in movePlanItems)
-        {
-            string srcFilePath = planItem.SourcePath;
-            string dstFilePath = planItem.DestinationPath;
-            if (!LongPathFileSystem.FileExists(srcFilePath))
-            {
-                throw new FileNotFoundException(Resources.Error_FileNotFound, srcFilePath);
-            }
-            if (IsSamePath(srcFilePath, dstFilePath))
-            {
-                componentMoveSummary.SkippedSame++;
-                componentMoveSummary.SkippedSamePath++;
-                continue;
-            }
-            string dstDirPath = Path.GetDirectoryName(dstFilePath);
-            if (!string.IsNullOrWhiteSpace(dstDirPath))
-            {
-                fileMutationService.EnsureDirectory(dstDirPath, targetOnlyFileMutationOptions);
-            }
-
-            ComponentMoveDecision moveDecision = DecideComponentMove(srcFilePath, dstFilePath);
-            bool keepByRename = keepProtectedFilesByRenaming && LongPathFileSystem.FileExists(dstFilePath) && IsSmartOverwriteProtectedExtension(srcFilePath) && moveDecision != ComponentMoveDecision.SkipSame;
-            if (keepByRename)
-            {
-                FileCollisionResolutionResult resolution = libraryFileOperationsService.ResolveFileCollisionWithSuffix(srcFilePath, dstFilePath, null, "smart_overwrite", logInstallPerformance);
-                if (resolution.EncounteredFileCollision)
-                {
-                    componentMoveSummary.HashChecked++;
-                }
-                if (resolution.DuplicateMatched)
-                {
-                    fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
-                    componentMoveSummary.SkippedSame++;
-                    componentMoveSummary.DeletedAfterSkip++;
-                    componentMoveSummary.HashSameSkip++;
-                    continue;
-                }
-                fileMutationService.MoveFile(srcFilePath, resolution.FinalPath, overwrite: false, targetOnlyFileMutationOptions);
-                componentMoveSummary.Moved++;
-                componentMoveSummary.RenamedKeep++;
-                if (resolution.AnyHashUnavailable)
-                {
-                    componentMoveSummary.HashUnavailableRenamed++;
-                }
-                else
-                {
-                    componentMoveSummary.HashDiffRenamed++;
-                }
-                if (moveDecision == ComponentMoveDecision.Overwrite)
-                {
-                    componentMoveSummary.RenamedFromOverwrite++;
-                }
-                else
-                {
-                    componentMoveSummary.RenamedFromSkipOlder++;
-                }
-                continue;
-            }
-
-            switch (moveDecision)
-            {
-                case ComponentMoveDecision.Move:
-                    fileMutationService.MoveFile(srcFilePath, dstFilePath, overwrite: true, targetOnlyFileMutationOptions);
-                    componentMoveSummary.Moved++;
-                    break;
-                case ComponentMoveDecision.Overwrite:
-                    fileMutationService.MoveFile(srcFilePath, dstFilePath, overwrite: true, targetOnlyFileMutationOptions);
-                    componentMoveSummary.Moved++;
-                    componentMoveSummary.Overwritten++;
-                    break;
-                case ComponentMoveDecision.SkipSame:
-                    fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
-                    componentMoveSummary.SkippedSame++;
-                    componentMoveSummary.DeletedAfterSkip++;
-                    break;
-                default:
-                    fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
-                    componentMoveSummary.SkippedOlder++;
-                    componentMoveSummary.DeletedAfterSkip++;
-                    break;
-            }
-        }
-        CleanupEmptyComponentDirectories(installComponentFiles, fileMutationService, targetOnlyFileMutationOptions);
-        int movedNewCount = Math.Max(0, componentMoveSummary.Moved - componentMoveSummary.Overwritten);
-        logInstallPerformance?.Invoke("component_move_summary package=" + package.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " moved_new=" + movedNewCount + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_same_path=" + componentMoveSummary.SkippedSamePath + " skipped_older=" + componentMoveSummary.SkippedOlder + " skipped_by_exclusion=" + componentMoveSummary.SkippedByExclusion + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip + " renamed_keep=" + componentMoveSummary.RenamedKeep + " renamed_from_overwrite=" + componentMoveSummary.RenamedFromOverwrite + " renamed_from_skip_older=" + componentMoveSummary.RenamedFromSkipOlder + " hash_checked=" + componentMoveSummary.HashChecked + " hash_same_skip=" + componentMoveSummary.HashSameSkip + " hash_diff_renamed=" + componentMoveSummary.HashDiffRenamed + " hash_unavailable_renamed=" + componentMoveSummary.HashUnavailableRenamed + " failed=" + componentMoveSummary.Failed);
-    }
-
-    private static void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentDirectories, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)
-    {
-        foreach (string installComponentDirectory in installComponentDirectories.Where(LongPathFileSystem.DirectoryExists).OrderByDescending(path => path.Length))
-        {
-            TryDeleteEmptyDirectoryTree(installComponentDirectory, fileMutationService, targetOnlyFileMutationOptions);
-        }
-    }
-
-    private static void TryDeleteEmptyDirectoryTree(string rootDirectoryPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)
-    {
-        try
-        {
-            if (!LongPathFileSystem.DirectoryExists(rootDirectoryPath))
-            {
-                return;
-            }
-            foreach (string childDirectoryPath in LongPathFileSystem.EnumerateDirectories(rootDirectoryPath).ToList())
-            {
-                TryDeleteEmptyDirectoryTree(childDirectoryPath, fileMutationService, targetOnlyFileMutationOptions);
-            }
-            if (!LongPathFileSystem.EnumerateFileSystemEntries(rootDirectoryPath).Any())
-            {
-                fileMutationService.DeleteDirectoryDirect(rootDirectoryPath, recursive: false, targetOnlyFileMutationOptions);
-            }
-        }
-        catch
-        {
-        }
-    }
-
-    private static bool HasRemainingDirectoryEntries(string directoryPath)
-    {
-        try
-        {
-            return LongPathFileSystem.DirectoryExists(directoryPath) && LongPathFileSystem.EnumerateFileSystemEntries(directoryPath).Any();
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static void InvokeBestEffort(Action action, string diagnostic)
-    {
-        if (action == null)
-        {
-            return;
-        }
-        try
-        {
-            action();
-        }
-        catch (Exception exception)
-        {
-            NLogWrapper.FileLogger?.Warn(exception, diagnostic);
-        }
-    }
 }

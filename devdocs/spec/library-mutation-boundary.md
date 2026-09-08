@@ -205,6 +205,12 @@ LR2 custom-folder 出力を伴うローカル playlist 編集は、entry hydrati
 
 既存 destination file との collision では、選択済みの collision suffix path だけを新しい chart の destination とし、旧 file と旧 DB row は変更しない。single-file package に installable chart がない cleanup-only case では、chart destination は作らず package path は preflight で選択した installation directory を保持する。map は package-install owner の immutable fact として扱い、generic file/DB boundary、retry、rollback、persistent recovery state は追加しない。
 
+### Package source cleanup policy
+
+`MovePackageFilesWithReceipt` は source cleanup の同意を `PackageSourceCleanupPolicy` として明示的に受け取る。`PreserveUnconsumedContents` は preflight で移動・消費した source だけを durable receipt 後に削除し、除外された譜面や同梱物を残す。`DeleteVerifiedResidualContents` は追加削除を許可するが、preflight で記録した source / `delete_parent` 範囲の全残存候補を評価する。候補がすべて対応する BMS / BMSON で読取・確定 hash 化でき、既存 catalog の独立した primary-hash 所持証拠に一致する場合だけ、その file 群をまとめて追加削除する。一つでも非譜面、読取不能、hash 不一致、未所持があれば追加分を全件保持する。source 自身や未実行の予約・計画だけは所持証拠に数えない。
+
+`delete_parent` は候補範囲を記録するだけで、destination またはその祖先を cleanup 対象にしない。parent とその descendant directory は移動後に空であることを確認できる場合だけ深い順に削除し、残存 file がある場合は残す。追加 cleanup は durable receipt の後にだけ実行し、receipt を maintenance、score、state projection より先に batch へ保持してから後段処理へ進む。後段の必須 projection callback が失敗した場合も、先行 durable receipt を `WithFinalizationFailure` で保持して後続 package を開始しない。通常、推定、auto、force、resource-only、merge の caller は同じ操作の設定 snapshot と独立した所持 hash snapshot を一度取得し、policy とともに receipt batch へ渡す。
+
 LR2 preparation の中間 stage / table / batch progress は `BMSLibrary` の既存 facade dispatcher queue が latest-state として coalesce して配信し、lease 保持中に public `PropertyChanged` subscriber を同期実行しない。dispatcher drain 内の subscriber 例外はログ後に次の property を継続し、generated output、LR2 folder row、DB status の durable 結果や terminal failure を変更しない。
 
 
@@ -233,7 +239,9 @@ batch で compensation を所有するのは一つの owner だけであり、pe
 
 ### 導入先修正後の保守再検査
 
-`FixInstallationDirectoryCharts` は、成功した移動と catalog path 更新に続いて、移動後の BMS / BMSON を `forceUpdate: true` で保守再検査する。新しい場所にリソースが存在するかを DB と表示へ反映し、移動前の不足情報をそのまま成功結果にしない。
+`FixInstallationDirectoryCharts` は通常導入・統合と共通の `MovePackageFilesWithReceipt` を使い、選択された一譜面だけを移動する。兄弟譜面・resource・親 directory は cleanup 対象にしない。衝突採番後の実 destination を receipt、catalog、owner、参照へ反映し、catalog callback は executor 内で一度だけ実行する。重複は移動前に分類し、未承認なら保持、承認済みなら既存のごみ箱削除へ渡す。
+
+成功した移動と catalog path 更新に続いて、移動後の BMS / BMSON を `forceUpdate: true` で保守再検査する。新しい場所にリソースが存在するかを DB と表示へ反映し、移動前の不足情報をそのまま成功結果にしない。
 
 この後処理は、導入先修正が取得済みの file-mutation lease を使う `ApplyCatalogMaintenanceUnderExistingReservation` へ接続する。通常の外部受付を再呼出しして自分自身の予約と競合させない。外部操作からの再入拒否は維持し、lane や再入許可は追加しない。保守の DB 反映が終わるまで外側の lease を保持し、通知は command-owned の post-lease list へ渡す。
 
@@ -253,7 +261,9 @@ batch で compensation を所有するのは一つの owner だけであり、pe
 
 選択削除・重複 hash 削除・導入先修正は、outer gate／activity／dialog scope／model lease の解放後に `LibraryChartRemovalReport` へ一回だけ結果を渡す。正常は silent、未実行・未確認・stale・unresolved・FS failure・catalog failure は Error。確認済み件数、未確認対象、catalog 段階、手動確認・詳細ログ案内を表示する。path は最大3件・各240字、代表 error は最大3件・各400字、本文4096字まで。任意 report failure は既存診断のみとし、結果変更や再通知をしない。削除固有 facts を folder receipt に偽装しない。
 
-catalog／必須反映失敗後は success-only selection／maintenance を進めない。導入先修正では先行 repair delta の保存を取り消さず、削除 outcome を持つ `LibraryChartRemovalException` で依存 maintenance を停止する。pending owner は outer finally 解放後にこの型だけを捕捉して報告し、global error handler へ再送出しない。付随 cleanup failure は同じ exception chain に保持する。純 FS 個別失敗の既存 continuation と無関係な exception の伝播は維持する。削除なしの修理は outcome なしで返す。
+catalog／必須反映失敗後は success-only selection／maintenance を進めない。導入先修正の `LibraryFixInstallationResult` は、先行移動の batch receipt、承認済み削除の outcome、後段 failure を別々に保持する。削除 catalog または保守失敗で先行移動を取り消さず、依存 maintenance を停止する。pending owner は outer finally 解放後に移動 facts を `FileDbMutationReport`、削除 facts を `LibraryChartRemovalReport` へ渡し、同じ削除 catalog failure を二重報告しない。削除なしの修復では removal outcome はなく、移動 receipt は保持する。
+
+R5 の検証は `BmsLibraryPackageInstallServiceTests`（設定 ON/OFF、範囲外所持証拠、親保護、resource-only、確定 prefix）、`BmsLibraryFolderRenameRefreshTests`（実 FS/SQLite の BMS・bmson 修復、衝突、重複承認、LR2 列、保守 failure）、`BmsLibraryDuplicateServiceTests`（統合と解放後保守）、`PendingPackageWorkflowOwnerTests`（解放後の移動・削除結果報告）を使う。旧 bool 移動・修復 forwarding のテストは共通 receipt と実 model の保証へ置換し、独立した互換経路として残さない。
 
 #### Verification map — FSDB-C-20260905
 

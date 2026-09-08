@@ -220,7 +220,7 @@ public partial class BMSLibrary
                 }
                 AutoInstallWorkflowResult workflow;
                 List<ChartPackage> pendingPackageSnapshot;
-                IPrimaryHashLookup installedChartLookup;
+                InstalledChartLookupIndexSnapshot installedChartLookup;
                 using (rwlockBMSFilesInitializedAll.GetReaderGuard())
                 {
                     using (rwlockPendingInstallCharts.GetReaderGuard())
@@ -228,7 +228,7 @@ public partial class BMSLibrary
                         using (rwlockBMSFiles.GetReaderGuard())
                         {
                             pendingPackageSnapshot = [.. ChartPackagesPending.Where(package => package != null)];
-                            installedChartLookup = CreateInstalledChartKeySnapshotExcludingChartsUnsafe([], "auto_install_prepare", 0L);
+                            installedChartLookup = CreateInstalledChartLookupSnapshotUnsafe();
                         }
                     }
                 }
@@ -290,7 +290,13 @@ public partial class BMSLibrary
                             mutationBatchReceiptObserver: receipt => autoInstallMutationReceipt = receipt,
                             diagnosticEffectObserver: diagnosticEffects.Add,
                             postLeaseEffectObserver: postLeaseEffects.Add,
-                            reportAtTerminal: reportAtTerminal);
+                            reportAtTerminal: reportAtTerminal,
+                            existingHashes: installedChartLookup,
+                            independentOwnershipLookup: installedChartLookup,
+                            optionsSnapshot: options,
+                            sourceCleanupPolicy: options.DeletePendingPackageSourceAfterInstall
+                                ? PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
+                                : PackageSourceCleanupPolicy.PreserveUnconsumedContents);
                         List<ChartPackage> failedPackages = installExecutionResult.FailedPackages;
                         if (autoInstallMutationReceipt?.ManualRecoveryRequired == true
                             || autoInstallMutationReceipt?.HasDurableFinalizationFailure == true)
@@ -570,10 +576,11 @@ public partial class BMSLibrary
         return receipt;
     }
 
-    private PackageInstallExecutionResult installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null, EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null, Action<FileDbMutationReceipt> mutationReceiptObserver = null, Action<FileDbMutationBatchReceipt> mutationBatchReceiptObserver = null, Action<Action> diagnosticEffectObserver = null, Action<Action> postLeaseEffectObserver = null, bool reportAtTerminal = false)
+    private PackageInstallExecutionResult installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows, PackageSourceCleanupPolicy sourceCleanupPolicy, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, IInstalledChartLookupIndex independentOwnershipLookup = null, bool skipInstalledPackageWhenNoBms = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null, EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null, Action<FileDbMutationReceipt> mutationReceiptObserver = null, Action<FileDbMutationBatchReceipt> mutationBatchReceiptObserver = null, Action<Action> diagnosticEffectObserver = null, Action<Action> postLeaseEffectObserver = null, bool reportAtTerminal = false, BmsLibraryOptionsSnapshot optionsSnapshot = null)
     {
         ArgumentNullException.ThrowIfNull(applyDurableStorageRows);
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
+        optionsSnapshot ??= CurrentOptionsSnapshot;
         List<ChartFile> addedChartsForChartInfo = [];
         IBmsLibraryDialogService installDialogService = estimatedInstallDeferredFeedback?.DialogService;
         Action<string> installPerformanceLogger = estimatedInstallDeferredFeedback == null
@@ -641,12 +648,12 @@ public partial class BMSLibrary
         PackageInstallExecutionResult result = packageInstallService.InstallPackagesWithFileMutationReceipts(
             installPackageList,
             installationDirectory,
-            (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths, applyDurableCommit) =>
+            (package, destinationDirectory, cleanupPolicy, hashSnapshot, ownershipLookup, excludedComponentPaths, applyDurableCommit) =>
             {
                 FileDbMutationReceipt receipt = packageInstallService.MovePackageFilesWithReceipt(
                     package,
                     destinationDirectory,
-                    CurrentOptionsSnapshot,
+                    optionsSnapshot,
                     CreateChartFolderPathFromCharts,
                     GetDisplayedExceptionMessage,
                     fileMutationService,
@@ -656,8 +663,9 @@ public partial class BMSLibrary
                     installPerformanceLogger,
                     applyDurableCommit,
                     showMessageBoxOnInstallFail: !reportAtTerminal,
-                    deleteAllContents: deleteAllContents,
+                    sourceCleanupPolicy: cleanupPolicy,
                     existingHashes: hashSnapshot,
+                    independentOwnershipLookup: independentOwnershipLookup,
                     excludedComponentPaths: excludedComponentPaths,
                     enqueueDiagnosticEffect: diagnosticEffectObserver);
                 return receipt;
@@ -666,10 +674,11 @@ public partial class BMSLibrary
             UpdateInstalledChartMaintenance,
             ApplyInstalledChartScores,
             ApplyInstalledChartState,
-            excludedComponentPathsByPackage,
-            existingHashes,
-            skipInstalledPackageWhenNoBms,
-            deleteSourceContentsAfterSuccessfulInstall);
+            sourceCleanupPolicy: sourceCleanupPolicy,
+            excludedComponentPathsByPackage: excludedComponentPathsByPackage,
+            existingHashes: existingHashes,
+            skipInstalledPackageWhenNoBms: skipInstalledPackageWhenNoBms,
+            independentOwnershipLookup: independentOwnershipLookup);
         foreach (FileDbMutationReceipt mutationReceipt in result.MutationReceipt?.Receipts ?? [])
         {
             mutationReceiptObserver?.Invoke(mutationReceipt);
@@ -691,7 +700,7 @@ public partial class BMSLibrary
                 }
             }
         }
-        installPerformanceLogger("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
+        installPerformanceLogger("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " sourceCleanupPolicy=" + sourceCleanupPolicy + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
         if (deferredMaintenanceCharts == null)
         {
             BuildAndPersistInlineChartInfoForInstalledCharts(
@@ -1572,14 +1581,17 @@ public partial class BMSLibrary
         {
             throw new ArgumentNullException(nameof(packages));
         }
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool hasInitializedBmsFiles;
         List<ChartPackage> pendingPackageSnapshot;
+        InstalledChartLookupIndexSnapshot installedChartHashSnapshot;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         using (rwlockPendingInstallCharts.GetReaderGuard())
         using (rwlockBMSFiles.GetReaderGuard())
         {
             hasInitializedBmsFiles = BMSFiles != null;
             pendingPackageSnapshot = [.. ChartPackagesPending.Where(package => package != null)];
+            installedChartHashSnapshot = CreateInstalledChartLookupSnapshotUnsafe();
         }
         if (!hasInitializedBmsFiles)
         {
@@ -1673,9 +1685,10 @@ public partial class BMSLibrary
                                 "install_package",
                                 mutationCapability,
                                 postLeaseEffects.Add),
-                            null,
-                            null,
-                            deferredInstalledPackages,
+                            sourceCleanupPolicy: options.DeletePendingPackageSourceAfterInstall
+                                ? PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
+                                : PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                            deferredInstalledPackages: deferredInstalledPackages,
                             mutationReceiptObserver: receipt =>
                             {
                                 manualRecoveryRequired |=
@@ -1685,7 +1698,10 @@ public partial class BMSLibrary
                             mutationBatchReceiptObserver: batchReceipt => mutationBatchReceipt = batchReceipt,
                             diagnosticEffectObserver: diagnosticEffects.Add,
                             postLeaseEffectObserver: postLeaseEffects.Add,
-                            reportAtTerminal: reportAtTerminal);
+                            reportAtTerminal: reportAtTerminal,
+                            existingHashes: installedChartHashSnapshot,
+                            independentOwnershipLookup: installedChartHashSnapshot,
+                            optionsSnapshot: options);
                         List<ChartPackage> failedPackages = installExecutionResult.FailedPackages;
                         return new ForceInstallPackageApplyResult(
                             failedPackages,
@@ -2003,11 +2019,7 @@ public partial class BMSLibrary
             installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(
                 packages,
                 [.. ChartPackagesPending.Where(package => package != null)],
-                CreateInstalledChartKeySnapshotExcludingChartsUnsafe(
-                    [],
-                    "install_pending_estimated_filter",
-                    0L,
-                    deferredFeedback.LogInstallPerformance));
+                CreateInstalledChartLookupSnapshotUnsafe());
         }
 
         bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
@@ -2061,17 +2073,21 @@ public partial class BMSLibrary
                 return installChartPackages(
                     [item.InstallWorkPackage],
                     applyDurableStorageRows,
-                    item.DestinationDirectory,
-                    deferredMaintenanceCharts,
-                    deferredInstalledPackages,
-                    excludedComponentPathsByPackage,
-                    installPlan.MoveGuardLookup,
+                    sourceCleanupPolicy: deletePendingPackageSourceAfterInstall
+                        ? PackageSourceCleanupPolicy.DeleteVerifiedResidualContents
+                        : PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                    installationDirectory: item.DestinationDirectory,
+                    deferredMaintenanceCharts: deferredMaintenanceCharts,
+                    deferredInstalledPackages: deferredInstalledPackages,
+                    excludedComponentPathsByPackage: excludedComponentPathsByPackage,
+                    existingHashes: installPlan.MoveGuardLookup,
+                    independentOwnershipLookup: installPlan.IndependentOwnershipLookup,
                     skipInstalledPackageWhenNoBms: true,
-                    deleteSourceContentsAfterSuccessfulInstall: deletePendingPackageSourceAfterInstall,
-                    batchApplyContext,
-                    deferredFeedback,
+                    estimatedInstallBatchApplyContext: batchApplyContext,
+                    estimatedInstallDeferredFeedback: deferredFeedback,
                     mutationReceiptObserver: receipt => mutationReceipts.Add(receipt),
-                    reportAtTerminal: reportAtTerminal);
+                    reportAtTerminal: reportAtTerminal,
+                    optionsSnapshot: options);
             },
             CreateInstalledDisplayPackageForResourceOnlyMerge,
             cleanupPendingPackageSource: null,
@@ -2094,7 +2110,9 @@ public partial class BMSLibrary
         batchResult.DeferredInstalledPackages.AddRange(deferredInstalledPackages);
         if (mutationReceipts.Count > 0)
         {
-            batchResult.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts);
+            batchResult.MutationReceipt = new FileDbMutationBatchReceipt(
+                mutationReceipts,
+                batchResult.MutationReceipt?.FinalizationFailure);
         }
 
         long libraryStateApplyMs;

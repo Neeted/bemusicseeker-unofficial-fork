@@ -46,6 +46,7 @@ internal sealed partial class LibraryFileOperationOwner
                 bool mergePrepared = false;
                 List<ChartFile> preparedSourceCharts = [];
                 IPrimaryHashLookup existingHashes = EmptyPrimaryHashLookup.Instance;
+                IInstalledChartLookupIndex independentOwnershipLookup = null;
                 LibraryMutationDelta catalogDelta = null;
                 DetachedMergePackage detachedPackage = null;
                 RunWithMergeSnapshotLocks(() =>
@@ -62,6 +63,7 @@ internal sealed partial class LibraryFileOperationOwner
                         out mergePrepared,
                         out preparedSourceCharts,
                         out existingHashes);
+                    independentOwnershipLookup = createInstalledChartLookupSnapshotUnsafe();
                     if (mergePrepared)
                     {
                         detachedPackage = CreateDetachedMergePackage(preparedSourceCharts, sourceDirectory);
@@ -77,10 +79,11 @@ internal sealed partial class LibraryFileOperationOwner
                 MaintenanceWorkflowResult maintenanceResult = null;
                 List<Action> mutationPostLeaseNotifications = [];
                 FileDbMutationReceipt mutationReceipt = null;
+                BmsLibraryOptionsSnapshot optionsSnapshot = lr2SynchronizationOwner.CurrentOptionsSnapshot;
                 mutationReceipt = packageInstallService.MovePackageFilesWithReceipt(
                     detachedPackage.Package,
                     destinationDirectory,
-                    lr2SynchronizationOwner.CurrentOptionsSnapshot,
+                    optionsSnapshot,
                     createChartFolderPathFromCharts,
                     DisplayedExceptionMessage.Format,
                     fileMutationService,
@@ -167,8 +170,9 @@ internal sealed partial class LibraryFileOperationOwner
                         return FileDbMutationCommitResult.Durable(durableFailure: postCommitFailure);
                     },
                     showMessageBoxOnInstallFail: false,
-                    deleteAllContents: true,
+                    sourceCleanupPolicy: PackageSourceCleanupPolicy.MergeOwnedSourceContents,
                     existingHashes: existingHashes,
+                    independentOwnershipLookup: independentOwnershipLookup,
                     onPreflightPrepared: installResult =>
                     {
                         List<ChartFile> destinationCharts = [.. (installResult?.AddedCharts ?? [])

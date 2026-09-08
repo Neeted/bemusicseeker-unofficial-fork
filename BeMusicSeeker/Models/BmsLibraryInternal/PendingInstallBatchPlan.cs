@@ -21,6 +21,13 @@ internal sealed class PendingInstallBatchPlan
     /// </summary>
     public IMutablePrimaryHashLookup MoveGuardLookup { get; set; } = new PrimaryHashSetLookup();
 
+    /// <summary>
+    /// 残存 chart の独立所持を path 付きで確認する開始時 snapshot です。
+    /// hash count だけの guard は source 範囲外の所持証拠にならないため、
+    /// cleanup policy が要求する場合だけ receipt executor へ渡します。
+    /// </summary>
+    public IInstalledChartLookupIndex IndependentOwnershipLookup { get; set; }
+
     /// <summary>保留照合、入力順 dedup、DST 適格性確認に要した時間です。</summary>
     public long FilterMs { get; set; }
 

@@ -74,6 +74,133 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
+    public async Task FixInstalledLocationsAsync_ReportsMovementReceiptAndLaterFailureAfterRelease()
+    {
+        var events = new List<string>();
+        var laterFailure = new IOException("repair maintenance failure");
+        var repairResult = new LibraryFixInstallationResult
+        {
+            MutationReceipt = new FileDbMutationBatchReceipt([
+                FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.Completed)]),
+            Failure = laterFailure
+        };
+        var store = new RecordingStore(events) { RepairResult = repairResult };
+        var gate = new ChartFileOperationSynchronizer();
+        bool releasedAtReport = false;
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            OnMessage = () =>
+            {
+                releasedAtReport = gate.TryEnter(out IDisposable lease) && events.Contains("activity-end");
+                lease?.Dispose();
+            }
+        };
+        var owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
+        Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
+            [CreateTarget(CreateChart(installDestination: @"C:\Installed"), ChartOperationCapabilities.RepairInstalledLocation)], out var request));
+
+        await owner.FixInstalledLocationsAsync(request);
+
+        Assert.IsTrue(releasedAtReport);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages.Single().Icon);
+        StringAssert.Contains(dialogs.Messages.Single().MessageBoxText, laterFailure.Message);
+        Assert.AreSame(repairResult.MutationReceipt, store.RepairResult!.MutationReceipt);
+        Assert.AreSame(laterFailure, store.RepairResult.Failure);
+    }
+
+    [TestMethod]
+    public async Task FixInstalledLocationsAsync_RealModelFailureReportsOnlyAfterGateRelease()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string tempRootPath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_PendingRepairTerminal_" + Guid.NewGuid().ToString("N"));
+        string sourceDirectoryPath = Path.Combine(tempRootPath, "Broken");
+        string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed");
+        string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+        string destinationChartPath = Path.Combine(destinationDirectoryPath, "chart.bms");
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        Directory.CreateDirectory(sourceDirectoryPath);
+        Directory.CreateDirectory(destinationDirectoryPath);
+        File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE Pending repair terminal\r\n");
+        try
+        {
+            BMSFile chartOwner = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                songDb.InsertOrReplace(chartOwner.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                string escapedDestinationPath = destinationChartPath.Replace("'", "''");
+                songDb.Execute(
+                    "CREATE TRIGGER pending_repair_path_failure BEFORE INSERT ON song WHEN NEW.path = '"
+                    + escapedDestinationPath
+                    + "' BEGIN SELECT RAISE(ABORT, 'pending-repair-path-fault'); END;");
+            }
+
+            var dialogs = new FileDbReportRecordingDialogs();
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new ResilientFileMutationService(),
+                dialogs)
+            {
+                BMSFiles = [chartOwner]
+            };
+            var events = new List<string>();
+            var store = new RecordingStore(events)
+            {
+                FixInstalledLocationsAction = (activeLibrary, charts, approvedPaths) =>
+                    activeLibrary.FixInstallationDirectoryCharts(charts, approvedPaths)
+            };
+            var gate = new ChartFileOperationSynchronizer();
+            bool reportAfterGateRelease = false;
+            dialogs.OnMessage = () =>
+            {
+                bool acquired = gate.TryEnter(out IDisposable lease);
+                reportAfterGateRelease = acquired && events.Contains("activity-end");
+                lease?.Dispose();
+            };
+
+            var owner = CreateOwner(
+                () => library,
+                events,
+                store,
+                dialogs,
+                chartFileOperations: gate);
+            ChartFile repairChart = ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsFile(chartOwner),
+                destinationDirectoryPath,
+                string.Empty,
+                string.Empty,
+                []);
+            Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
+                [CreateTarget(repairChart, ChartOperationCapabilities.RepairInstalledLocation)],
+                out RepairInstalledLocationRequest request));
+
+            await owner.FixInstalledLocationsAsync(request);
+
+            Assert.IsTrue(reportAfterGateRelease);
+            Assert.AreEqual(1, dialogs.Messages.Count);
+            Assert.AreEqual(0, dialogs.ModelMessages);
+            Assert.AreEqual(1, events.Count(value => value == "store-fix-installed-locations"));
+            Assert.IsTrue(File.Exists(sourceChartPath));
+            Assert.IsFalse(File.Exists(destinationChartPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(LongPathFileSystem.ToExtendedPath(tempRootPath), recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void CanOpenInstallDestination_RequiresPendingSectionAndEffectiveTargetCapability()
     {
         var owner = CreateOwner(
@@ -1884,8 +2011,11 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
         internal Exception? RepairFailure { get; set; }
+        internal LibraryFixInstallationResult? RepairResult { get; set; }
 
-        public LibraryChartRemovalOutcome FixInstalledLocations(
+        internal Func<BMSLibrary, IReadOnlyList<ChartFile>, IReadOnlyList<string>, LibraryFixInstallationResult>? FixInstalledLocationsAction { get; set; }
+
+        public LibraryFixInstallationResult FixInstalledLocations(
             BMSLibrary library,
             IReadOnlyList<ChartFile> repairCharts,
             IReadOnlyList<string> approvedDuplicateRemovalChartPaths)
@@ -1895,7 +2025,14 @@ public sealed class PendingPackageWorkflowOwnerTests
             ApprovedDuplicateRemovalChartPaths = approvedDuplicateRemovalChartPaths;
             ThrowIfConfigured();
             if (RepairFailure != null) throw RepairFailure;
-            return RemovalOutcome ?? null;
+            if (FixInstalledLocationsAction != null)
+            {
+                return FixInstalledLocationsAction(library, repairCharts, approvedDuplicateRemovalChartPaths);
+            }
+            return RepairResult ?? new LibraryFixInstallationResult
+            {
+                RemovalOutcome = RemovalOutcome
+            };
         }
 
         public IReadOnlyList<ChartPackage> GetInstalledOnlyPendingPackages(BMSLibrary library)

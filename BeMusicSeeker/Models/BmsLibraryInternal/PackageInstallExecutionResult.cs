@@ -4,6 +4,30 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// receipt 対応 package source cleanup に与える削除同意です。
+/// </summary>
+internal enum PackageSourceCleanupPolicy
+{
+    /// <summary>
+    /// 現在の mutation plan が消費したファイルだけを削除します。
+    /// </summary>
+    PreserveUnconsumedContents,
+
+    /// <summary>
+    /// 残存譜面の primary hash と範囲外 path を個別確認できた場合だけ、
+    /// 残存譜面も削除します。
+    /// </summary>
+    DeleteVerifiedResidualContents,
+
+    /// <summary>
+    /// 統合元が既存 catalog の所持 chart である場合に限り、source 範囲内の
+    /// 所持実体を安全判定の保護対象から除外します。外部 copy または確定済み
+    /// destination による独立所有の証拠は引き続き必要です。
+    /// </summary>
+    MergeOwnedSourceContents
+}
+
 internal sealed class PackageInstallExecutionResult
 {
     public List<PackageChartEntry> AddedEntries { get; } = [];

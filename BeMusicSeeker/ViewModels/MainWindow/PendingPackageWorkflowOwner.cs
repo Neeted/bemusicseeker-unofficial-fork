@@ -211,8 +211,8 @@ internal interface IPendingPackageStore
         BMSLibrary library,
         IReadOnlyList<ChartFile> repairCharts);
 
-    /// <summary>Returns observed library deletion facts to the operation terminal.</summary>
-    LibraryChartRemovalOutcome FixInstalledLocations(
+    /// <summary>Returns repair movement and deletion facts to the operation terminal.</summary>
+    LibraryFixInstallationResult FixInstalledLocations(
         BMSLibrary library,
         IReadOnlyList<ChartFile> repairCharts,
         IReadOnlyList<string> approvedDuplicateRemovalChartPaths);
@@ -670,8 +670,8 @@ internal sealed class PendingPackageWorkflowOwner
             await ShowPendingOperationAdmissionBusyAsync("Installed-location repair");
             return;
         }
-        LibraryChartRemovalOutcome removalOutcome = null;
-        Exception removalFailure = null;
+        LibraryFixInstallationResult repairResult = null;
+        Exception repairFailure = null;
         try
         {
             try
@@ -731,7 +731,7 @@ internal sealed class PendingPackageWorkflowOwner
                 }
 
                 await Task.Run(() => Execute(
-                    library => removalOutcome = store.FixInstalledLocations(
+                    library => repairResult = store.FixInstalledLocations(
                         library,
                         repairCharts,
                         approvedDuplicateRemovalChartPaths),
@@ -747,10 +747,28 @@ internal sealed class PendingPackageWorkflowOwner
         }
         catch (LibraryChartRemovalException exception)
         {
-            removalOutcome = exception.Outcome;
-            removalFailure = exception;
+            repairResult ??= new LibraryFixInstallationResult
+            {
+                RemovalOutcome = exception.Outcome,
+                Failure = exception
+            };
+            repairResult.RemovalOutcome ??= exception.Outcome;
+            repairResult.Failure ??= exception;
+            repairFailure = exception;
         }
-        await LibraryChartRemovalReport.ShowAsync(dialogs, removalOutcome, removalFailure);
+        bool removalCatalogFailure = repairResult?.RemovalOutcome?.CatalogFailure != null;
+        Exception mutationFailure = removalCatalogFailure
+            ? null
+            : repairResult?.Failure ?? repairFailure;
+        await FileDbMutationReport.ShowAsync(
+            dialogs,
+            BeMusicSeeker.Properties.Resources.FileDbMutationReport_Move,
+            repairResult?.MutationReceipt,
+            mutationFailure);
+        await LibraryChartRemovalReport.ShowAsync(
+            dialogs,
+            repairResult?.RemovalOutcome,
+            removalCatalogFailure ? repairResult?.Failure ?? repairFailure : null);
     }
 
     internal async Task DeleteInstalledOnlyPendingPackageSourcesAsync()
@@ -1801,7 +1819,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore, IPen
     }
 
     /// <summary>Preserves the model deletion outcome for terminal reporting.</summary>
-    public LibraryChartRemovalOutcome FixInstalledLocations(
+    public LibraryFixInstallationResult FixInstalledLocations(
         BMSLibrary library,
         IReadOnlyList<ChartFile> repairCharts,
         IReadOnlyList<string> approvedDuplicateRemovalChartPaths)

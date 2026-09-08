@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -49,6 +50,8 @@ internal sealed partial class LibraryFileOperationOwner
     private readonly CatalogStorageRowsOwner catalogStorageRowsOwner;
 
     private readonly Func<IEnumerable<ChartFile>, string, long, IPrimaryHashLookup> createInstalledChartKeySnapshotExcludingChartsUnsafe;
+
+    private readonly Func<InstalledChartLookupIndexSnapshot> createInstalledChartLookupSnapshotUnsafe;
 
     private readonly Func<IEnumerable<ChartFile>, string, string> createChartFolderPathFromCharts;
 
@@ -115,117 +118,6 @@ internal sealed partial class LibraryFileOperationOwner
         internal ChartFile DetachedChart { get; init; }
     }
 
-    private sealed class DetachedFixTargetLookup
-    {
-        private readonly Dictionary<BMSFile, DetachedFixTarget> bmsByOwner = [];
-
-        private readonly Dictionary<LR2SongDBExtended.bmson_song, DetachedFixTarget> bmsonByOwner = [];
-
-        private readonly Dictionary<string, DetachedFixTarget> byIdentity = new(StringComparer.OrdinalIgnoreCase);
-
-        private DetachedFixTargetLookup(IEnumerable<DetachedFixTarget> mappings)
-        {
-            foreach (DetachedFixTarget mapping in mappings ?? [])
-            {
-                if (mapping?.DetachedChart == null)
-                {
-                    continue;
-                }
-                BMSFile bmsOwner = mapping.DetachedChart.GetBmsStorageOwner();
-                if (bmsOwner != null)
-                {
-                    bmsByOwner.TryAdd(bmsOwner, mapping);
-                }
-                LR2SongDBExtended.bmson_song bmsonOwner = mapping.DetachedChart.GetBmsonStorageOwner();
-                if (bmsonOwner != null)
-                {
-                    bmsonByOwner.TryAdd(bmsonOwner, mapping);
-                }
-                string identityKey = CreateDetachedFixIdentityKey(mapping.DetachedChart);
-                if (!string.IsNullOrWhiteSpace(identityKey))
-                {
-                    byIdentity.TryAdd(identityKey, mapping);
-                }
-            }
-        }
-
-        internal static DetachedFixTargetLookup Create(IEnumerable<DetachedFixTarget> mappings)
-        {
-            return new DetachedFixTargetLookup(mappings);
-        }
-
-        internal bool TryGet(ChartFile chart, out DetachedFixTarget mapping)
-        {
-            mapping = null;
-            if (chart == null)
-            {
-                return false;
-            }
-            BMSFile bmsOwner = chart.GetBmsStorageOwner();
-            if (bmsOwner != null && bmsByOwner.TryGetValue(bmsOwner, out mapping))
-            {
-                return true;
-            }
-            LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
-            if (bmsonOwner != null && bmsonByOwner.TryGetValue(bmsonOwner, out mapping))
-            {
-                return true;
-            }
-            return byIdentity.TryGetValue(CreateDetachedFixIdentityKey(chart), out mapping);
-        }
-
-        internal bool TryGet(LibraryChartRef chart, out DetachedFixTarget mapping)
-        {
-            mapping = null;
-            if (chart == null)
-            {
-                return false;
-            }
-            BMSFile bmsOwner = chart.GetBmsStorageOwner();
-            if (bmsOwner != null && bmsByOwner.TryGetValue(bmsOwner, out mapping))
-            {
-                return true;
-            }
-            LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
-            if (bmsonOwner != null && bmsonByOwner.TryGetValue(bmsonOwner, out mapping))
-            {
-                return true;
-            }
-            return byIdentity.TryGetValue(CreateDetachedFixIdentityKey(chart), out mapping);
-        }
-
-        private static string CreateDetachedFixIdentityKey(ChartFile chart)
-        {
-            return chart == null
-                ? null
-                : CreateDetachedFixIdentityKey(chart.Kind, chart.Path, chart.Md5, chart.Sha256);
-        }
-
-        private static string CreateDetachedFixIdentityKey(LibraryChartRef chart)
-        {
-            return chart == null
-                ? null
-                : CreateDetachedFixIdentityKey(
-                    chart.Kind == LibraryChartKind.Bms ? ChartFileKind.Bms : ChartFileKind.Bmson,
-                    chart.Path,
-                    chart.Md5,
-                    chart.Sha256);
-        }
-
-        private static string CreateDetachedFixIdentityKey(
-            ChartFileKind kind,
-            string path,
-            string md5,
-            string sha256)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                return null;
-            }
-            return kind + "|" + path + "|" + (md5 ?? string.Empty) + "|" + (sha256 ?? string.Empty);
-        }
-    }
-
     /// <summary>
     /// Creates the file-operation owner with the canonical catalog mutation
     /// delegates.  Ordinary catalog apply stays capability-free; only callers
@@ -248,6 +140,7 @@ internal sealed partial class LibraryFileOperationOwner
         CatalogOwnedCollectionOwner catalogOwnedCollectionOwner,
         CatalogStorageRowsOwner catalogStorageRowsOwner,
         Func<IEnumerable<ChartFile>, string, long, IPrimaryHashLookup> createInstalledChartKeySnapshotExcludingChartsUnsafe,
+        Func<InstalledChartLookupIndexSnapshot> createInstalledChartLookupSnapshotUnsafe,
         Func<IEnumerable<ChartFile>, string, string> createChartFolderPathFromCharts,
         Func<ChartFile, IEnumerable<string>> getDuplicateInstallRepairPaths,
         Func<IEnumerable<ChartFile>, bool, string, Action<Action>, MaintenanceWorkflowResult> applyCatalogMaintenanceUnderExistingReservation,
@@ -276,6 +169,7 @@ internal sealed partial class LibraryFileOperationOwner
         this.catalogOwnedCollectionOwner = catalogOwnedCollectionOwner ?? throw new ArgumentNullException(nameof(catalogOwnedCollectionOwner));
         this.catalogStorageRowsOwner = catalogStorageRowsOwner ?? throw new ArgumentNullException(nameof(catalogStorageRowsOwner));
         this.createInstalledChartKeySnapshotExcludingChartsUnsafe = createInstalledChartKeySnapshotExcludingChartsUnsafe ?? throw new ArgumentNullException(nameof(createInstalledChartKeySnapshotExcludingChartsUnsafe));
+        this.createInstalledChartLookupSnapshotUnsafe = createInstalledChartLookupSnapshotUnsafe ?? throw new ArgumentNullException(nameof(createInstalledChartLookupSnapshotUnsafe));
         this.createChartFolderPathFromCharts = createChartFolderPathFromCharts ?? throw new ArgumentNullException(nameof(createChartFolderPathFromCharts));
         this.getDuplicateInstallRepairPaths = getDuplicateInstallRepairPaths ?? throw new ArgumentNullException(nameof(getDuplicateInstallRepairPaths));
         this.applyLibraryMutationDeltaWithCapability = applyLibraryMutationDeltaWithCapability
@@ -1193,106 +1087,21 @@ internal sealed partial class LibraryFileOperationOwner
         return target?.ChartSnapshot;
     }
 
-    private static LibraryChartRef CreateOwnerChartRef(LibraryFileOperationTargetSnapshot target)
-    {
-        if (target?.BmsOwner != null)
-        {
-            return LibraryChartRef.FromBmsFile(target.BmsOwner);
-        }
-        if (target?.BmsonOwner != null)
-        {
-            return LibraryChartRef.FromBmsonSong(target.BmsonOwner);
-        }
-        return null;
-    }
-
-    private static void CopyFixMutationDelta(
-        LibraryMutationDelta destination,
-        LibraryMutationDelta source,
-        DetachedFixTargetLookup mappingLookup)
-    {
-        if (destination == null || source == null)
-        {
-            return;
-        }
-        foreach (LibraryChartPathChange sourcePathChange in source.ChartPathChanges ?? [])
-        {
-            DetachedFixTarget mapping = null;
-            mappingLookup?.TryGet(sourcePathChange?.Chart, out mapping);
-            ChartFile ownerChart = CreateOwnerChartSnapshot(mapping?.Original);
-            if (mapping == null || ownerChart == null || string.IsNullOrWhiteSpace(sourcePathChange?.NewPath))
-            {
-                continue;
-            }
-            destination.ChartPathChanges.Add(new LibraryChartPathChange
-            {
-                Chart = ownerChart,
-                OldPath = mapping.Original.SourcePath,
-                NewPath = sourcePathChange.NewPath
-            });
-        }
-        foreach (LibraryInstallDestinationChange sourceInstallDestinationChange in source.UpdatedInstallDestinations ?? [])
-        {
-            DetachedFixTarget mapping = null;
-            mappingLookup?.TryGet(sourceInstallDestinationChange?.Chart, out mapping);
-            ChartFile ownerChart = CreateOwnerChartSnapshot(mapping?.Original);
-            if (mapping == null || ownerChart == null)
-            {
-                continue;
-            }
-            destination.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-            {
-                Chart = ownerChart,
-                NewInstallDestination = sourceInstallDestinationChange.NewInstallDestination,
-                ClearInstallDestinationState = sourceInstallDestinationChange.ClearInstallDestinationState
-            });
-        }
-        destination.NotifyStorageRowPathChanges |= source.NotifyStorageRowPathChanges;
-        destination.RaiseInstalledPackagesChanged |= source.RaiseInstalledPackagesChanged;
-        destination.InvalidateInstalledDirectoryIndex |= source.InvalidateInstalledDirectoryIndex;
-        destination.InvalidateParentFolderCache |= source.InvalidateParentFolderCache;
-        destination.ClearDuplicatedCache |= source.ClearDuplicatedCache;
-        destination.TotalMs = source.TotalMs;
-    }
-
-    private static List<ChartFile> MapMaintenanceCharts(
-        IEnumerable<ChartFile> detachedCharts,
-        DetachedFixTargetLookup mappingLookup)
-    {
-        var result = new List<ChartFile>();
-        var seenOwners = new HashSet<object>();
-        foreach (ChartFile detachedChart in detachedCharts ?? [])
-        {
-            DetachedFixTarget mapping = null;
-            mappingLookup?.TryGet(detachedChart, out mapping);
-            ChartFile ownerChart = CreateOwnerChartSnapshot(mapping?.Original);
-            if (ownerChart == null)
-            {
-                continue;
-            }
-            object owner = ownerChart.GetBmsStorageOwner() ?? (object)ownerChart.GetBmsonStorageOwner() ?? ownerChart;
-            if (seenOwners.Add(owner))
-            {
-                result.Add(ownerChart);
-            }
-        }
-        return result;
-    }
-
-    private LibraryMutationDelta FixInstallationDirectoryAfterAdmission(
+    private LibraryFixInstallationResult FixInstallationDirectoryAfterAdmission(
         IReadOnlyList<ChartFile> requestedCharts,
         IReadOnlyList<LibraryFileOperationTargetSnapshot> preflightTargets,
         IReadOnlyList<string> approvedDuplicateRemovalChartPaths,
         LibraryFileMutationCapability mutationCapability,
-        Action<Action> deferDiagnosticEffect,
-        out List<ChartFile> chartsToRemove,
-        out List<ChartFile> maintenanceCharts)
+        Action<Action> deferDiagnosticEffect)
     {
+        ArgumentNullException.ThrowIfNull(mutationCapability);
+        var result = new LibraryFixInstallationResult
+        {
+            RequestedCount = requestedCharts?.Count ?? 0
+        };
         var mappings = new List<DetachedFixTarget>();
-        var staleFailures = new List<LibraryDeleteFailure>();
         List<ChartFile> detachedCharts;
         IPrimaryHashLookup existingHashes;
-        int staleTargetCount = 0;
         using (EnterFixInstallationDirectorySnapshotScope())
         {
             for (int index = 0; index < (requestedCharts?.Count ?? 0); index++)
@@ -1313,8 +1122,7 @@ internal sealed partial class LibraryFileOperationOwner
                 Exception sourceFailure = null;
                 if (identityChanged || !expectedTarget.TryValidateCurrentSource(out sourceFailure))
                 {
-                    staleTargetCount++;
-                    staleFailures.Add(new LibraryDeleteFailure
+                    result.Failures.Add(new LibraryDeleteFailure
                     {
                         Path = expectedTarget?.SourcePath ?? requestedChart?.Path,
                         Exception = sourceFailure ?? new InvalidOperationException("Installation repair target became stale."),
@@ -1326,8 +1134,7 @@ internal sealed partial class LibraryFileOperationOwner
                 ChartFile detachedChart = CreateDetachedFixChart(expectedTarget);
                 if (detachedChart == null)
                 {
-                    staleTargetCount++;
-                    staleFailures.Add(new LibraryDeleteFailure
+                    result.Failures.Add(new LibraryDeleteFailure
                     {
                         Path = expectedTarget.SourcePath,
                         Exception = new InvalidOperationException("Installation repair target could not be detached."),
@@ -1345,8 +1152,7 @@ internal sealed partial class LibraryFileOperationOwner
             for (int index = requestedCharts?.Count ?? 0; index < (preflightTargets?.Count ?? 0); index++)
             {
                 LibraryFileOperationTargetSnapshot staleTarget = preflightTargets[index];
-                staleTargetCount++;
-                staleFailures.Add(new LibraryDeleteFailure
+                result.Failures.Add(new LibraryDeleteFailure
                 {
                     Path = staleTarget?.SourcePath,
                     Exception = new InvalidOperationException("Installation repair target became stale."),
@@ -1361,40 +1167,136 @@ internal sealed partial class LibraryFileOperationOwner
                 0L);
         }
 
-        DetachedFixTargetLookup mappingLookup = DetachedFixTargetLookup.Create(mappings);
-        LibraryFixInstallationResult sourceResult = libraryFileOperationsService.FixInstallationDirectory(
-            detachedCharts,
-            (package, destinationDirectory) => MoveChartPackageFiles(
-                package,
-                destinationDirectory,
-                showMessageBoxOnInstallFail: true,
-                deleteAllContents: false,
-                existingHashes: existingHashes,
-                deferDiagnosticEffect: deferDiagnosticEffect),
-            chart => IsApprovedDuplicateRemoval(chart, approvedDuplicateRemovalChartPaths));
-        var delta = new LibraryMutationDelta
+        var mutationReceipts = new List<FileDbMutationReceipt>();
+        var seenMaintenanceOwners = new HashSet<object>();
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        foreach (DetachedFixTarget mapping in mappings)
         {
-            SkippedCount = staleTargetCount + sourceResult.DuplicateSkippedCount,
-            TotalMs = sourceResult.TotalMs
-        };
-        delta.Failures.AddRange(staleFailures);
-        CopyFixMutationDelta(delta, sourceResult.MutationDelta, mappingLookup);
-        chartsToRemove = [];
-        foreach (LibraryChartRef chartToRemove in sourceResult.ChartsToRemove ?? [])
-        {
-            mappingLookup.TryGet(chartToRemove, out DetachedFixTarget mapping);
-            ChartFile ownerChart = CreateOwnerChartSnapshot(mapping?.Original);
-            if (ownerChart != null)
+            LibraryFileOperationTargetSnapshot originalTarget = mapping.Original;
+            ChartFile ownerChart = CreateOwnerChartSnapshot(originalTarget);
+            if (ownerChart == null)
             {
-                chartsToRemove.Add(ownerChart);
+                continue;
+            }
+
+            PackageChartEntry entry = PackageChartEntry.FromChart(mapping.DetachedChart);
+            if (entry == null)
+            {
+                continue;
+            }
+            ChartPackage package = ChartPackage.FromChartEntries([entry]);
+            package.path = originalTarget.SourcePath;
+            package.delete_parent = false;
+            string lookupKey = ChartLookupKey.GetPrimaryHash(mapping.DetachedChart);
+            bool duplicateBeforeMove = !string.IsNullOrWhiteSpace(lookupKey)
+                && existingHashes?.ContainsPrimaryHash(lookupKey) == true;
+            LibraryMutationDelta committedDelta = null;
+            FileDbMutationReceipt mutationReceipt = packageInstallService.MovePackageFilesWithReceipt(
+                package,
+                mapping.DetachedChart.InstallDestination,
+                lr2SynchronizationOwner.CurrentOptionsSnapshot,
+                createChartFolderPathFromCharts,
+                DisplayedExceptionMessage.Format,
+                fileMutationService,
+                dialogService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions,
+                LogInstallPerformance,
+                installResult =>
+                {
+                    if (duplicateBeforeMove)
+                    {
+                        // 重複は移動前に分類済みです。実行後の package entry
+                        // 件数を重複判定へ使わず、source を保持したまま完了します。
+                        return FileDbMutationCommitResult.Durable();
+                    }
+                    ChartFile movedChart = installResult?.AddedCharts?.SingleOrDefault();
+                    if (movedChart == null)
+                    {
+                        return FileDbMutationCommitResult.Failed(
+                            new InvalidOperationException(
+                                "Installation repair did not produce a moved chart projection."));
+                    }
+
+                    committedDelta = CreateFixMutationDelta(ownerChart, originalTarget.SourcePath, movedChart.Path);
+                    return ApplyLibraryMutationDeltaForFileMutation(
+                        committedDelta,
+                        "fix_installation_directory",
+                        mutationCapability,
+                        action => deferDiagnosticEffect?.Invoke(action));
+                },
+                sourceCleanupPolicy: PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                // 修復の失敗はreceiptへ集約し、Pending workflow が lease 解放後に
+                // terminal report を一度だけ表示します。
+                showMessageBoxOnInstallFail: false,
+                existingHashes: existingHashes,
+                independentOwnershipLookup: null,
+                enqueueDiagnosticEffect: deferDiagnosticEffect);
+            mutationReceipts.Add(mutationReceipt);
+            if (!mutationReceipt.DurableCommit
+                || mutationReceipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
+                || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
+            {
+                result.Failure = mutationReceipt.FinalizationFailure
+                    ?? mutationReceipt.Failure
+                    ?? new InvalidOperationException("Installation repair did not produce a durable receipt.");
+                break;
+            }
+
+            if (committedDelta != null)
+            {
+                result.MovedCount++;
+                ChartFile maintenanceChart = CreateOwnerChartSnapshot(originalTarget);
+                object owner = maintenanceChart?.GetBmsStorageOwner()
+                    ?? (object)maintenanceChart?.GetBmsonStorageOwner()
+                    ?? maintenanceChart;
+                if (maintenanceChart != null && seenMaintenanceOwners.Add(owner))
+                {
+                    result.MaintenanceCharts.Add(maintenanceChart);
+                }
+            }
+            else if (duplicateBeforeMove)
+            {
+                result.DuplicateSkippedCount++;
+                if (IsApprovedDuplicateRemoval(ownerChart, approvedDuplicateRemovalChartPaths))
+                {
+                    LibraryChartRef removableChart = LibraryChartRef.FromChartFile(ownerChart);
+                    if (removableChart != null)
+                    {
+                        result.ChartsToRemove.Add(removableChart);
+                    }
+                }
             }
         }
-        chartsToRemove = [.. chartsToRemove
-            .GroupBy(
-                chart => chart.Kind + ":" + chart.Path,
-                StringComparer.OrdinalIgnoreCase)
-            .Select(group => group.First())];
-        maintenanceCharts = MapMaintenanceCharts(sourceResult.MaintenanceCharts, mappingLookup);
+        stopwatch.Stop();
+        result.TotalMs = stopwatch.ElapsedMilliseconds;
+        result.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts);
+        return result;
+    }
+
+    private static LibraryMutationDelta CreateFixMutationDelta(
+        ChartFile ownerChart,
+        string oldPath,
+        string newPath)
+    {
+        var delta = new LibraryMutationDelta
+        {
+            NotifyStorageRowPathChanges = true,
+            InvalidateInstalledDirectoryIndex = true,
+            InvalidateParentFolderCache = true,
+            ClearDuplicatedCache = true
+        };
+        delta.ChartPathChanges.Add(new LibraryChartPathChange
+        {
+            Chart = ownerChart,
+            OldPath = oldPath,
+            NewPath = newPath
+        });
+        delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+        {
+            Chart = ownerChart,
+            NewInstallDestination = null
+        });
         return delta;
     }
 
@@ -1423,32 +1325,6 @@ internal sealed partial class LibraryFileOperationOwner
             .Where(chart => chart != null)];
         existingHashes = sourceResult.ExistingHashes ?? EmptyPrimaryHashLookup.Instance;
         return sourceResult.ReferenceMutationDelta;
-    }
-
-    private bool MoveChartPackageFiles(
-        ChartPackage package,
-        string destinationDirectory,
-        bool showMessageBoxOnInstallFail,
-        bool deleteAllContents,
-        IPrimaryHashLookup existingHashes,
-        Action<Action> deferDiagnosticEffect)
-    {
-        return packageInstallService.MovePackageFiles(
-            package,
-            destinationDirectory,
-            lr2SynchronizationOwner.CurrentOptionsSnapshot,
-            createChartFolderPathFromCharts,
-            DisplayedExceptionMessage.Format,
-            fileMutationService,
-            dialogService,
-            targetOnlyFileMutationOptions,
-            recursiveDirectoryTreeFileMutationOptions,
-            LogInstallPerformance,
-            showMessageBoxOnInstallFail,
-            deleteAllContents,
-            existingHashes,
-            excludedComponentPaths: null,
-            deferDiagnosticEffect: deferDiagnosticEffect);
     }
 
     private List<ChartFile> NormalizeResourceMaintenanceTargetCharts(IEnumerable<ChartFile> charts)
@@ -1992,8 +1868,12 @@ internal sealed partial class LibraryFileOperationOwner
         InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
     }
 
-    /// <summary>Returns optional deletion facts; a deletion catalog failure stops dependent repair maintenance.</summary>
-    internal LibraryChartRemovalOutcome FixInstallationDirectoryCharts(
+    /// <summary>
+    /// Repairs selected chart locations through the common filesystem/catalog
+    /// receipt boundary and retains movement, deletion, and terminal facts for
+    /// the caller after the mutation lease is released.
+    /// </summary>
+    internal LibraryFixInstallationResult FixInstallationDirectoryCharts(
         IEnumerable<ChartFile> charts,
         IEnumerable<string> approvedDuplicateRemovalChartPaths)
     {
@@ -2040,7 +1920,7 @@ internal sealed partial class LibraryFileOperationOwner
             }
         }
 
-        LibraryChartRemovalOutcome removalOutcome = null;
+        LibraryFixInstallationResult result = null;
         List<Action> postLeaseNotifications = [];
         try
         {
@@ -2052,48 +1932,60 @@ internal sealed partial class LibraryFileOperationOwner
                 }
                 using LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability();
                 mutationCapability.Validate(lr2SynchronizationOwner);
-                LibraryMutationDelta mutationDelta = FixInstallationDirectoryAfterAdmission(
+                result = FixInstallationDirectoryAfterAdmission(
                     chartList,
                     preflightTargets,
                     approvedDuplicateRemovalPaths,
                     mutationCapability,
-                    action => postLeaseNotifications.Add(action),
-                    out List<ChartFile> chartsToRemove,
-                    out List<ChartFile> maintenanceCharts);
-                foreach (LibraryDeleteFailure failure in mutationDelta.Failures)
+                    action => postLeaseNotifications.Add(action));
+                foreach (LibraryDeleteFailure failure in result.Failures)
                 {
                     postLeaseNotifications.Add(() => ShowDeleteFailure(failure));
                 }
-                ApplyLibraryMutationDeltaUnderExistingReservation(
-                    mutationDelta,
-                    "fix_installation_directory",
-                    mutationCapability,
-                    postLeaseNotifications);
-                if (chartsToRemove.Count > 0)
+                if (!result.HasDurableFinalizationFailure && result.Failure == null)
                 {
-                    removalOutcome = RemoveLibraryChartsCore(
-                        chartsToRemove.Select(LibraryChartRef.FromChartFile),
-                        sendToRecycleBin: true,
-                        approvedWholeFolderDeletePaths: [],
-                        mutationCapability,
-                        postLeaseNotifications);
-                    if (removalOutcome.CatalogFailure != null)
-                        throw new LibraryChartRemovalException(removalOutcome);
-                }
-                List<ChartFile> maintenanceTargets = NormalizeResourceMaintenanceTargetCharts(maintenanceCharts);
-                if (maintenanceTargets.Count > 0)
-                {
-                    // The repair already owns the file-mutation reservation.
-                    // Re-entering the public maintenance ingress would reject
-                    // our own lease after the file and path changes succeeded.
-                    MaintenanceWorkflowResult maintenanceResult = applyCatalogMaintenanceUnderExistingReservation(
-                        maintenanceTargets,
-                        true,
-                        "fix_installation_directory",
-                        postLeaseNotifications.Add);
-                    if (maintenanceResult.Canceled)
+                    if (result.ChartsToRemove.Count > 0)
                     {
-                        throw new OperationCanceledException();
+                        result.RemovalOutcome = RemoveLibraryChartsCore(
+                            result.ChartsToRemove,
+                            sendToRecycleBin: true,
+                            approvedWholeFolderDeletePaths: [],
+                            mutationCapability,
+                            postLeaseNotifications);
+                        if (result.RemovalOutcome.CatalogFailure != null)
+                        {
+                            result.Failure = new LibraryChartRemovalException(result.RemovalOutcome);
+                        }
+                    }
+                    if (result.Failure == null)
+                    {
+                        List<ChartFile> maintenanceTargets = NormalizeResourceMaintenanceTargetCharts(result.MaintenanceCharts);
+                        if (maintenanceTargets.Count > 0)
+                        {
+                            // The repair already owns the file-mutation reservation.
+                            // Re-entering the public maintenance ingress would reject
+                            // our own lease after the file and path changes succeeded.
+                            try
+                            {
+                                MaintenanceWorkflowResult maintenanceResult = applyCatalogMaintenanceUnderExistingReservation(
+                                    maintenanceTargets,
+                                    true,
+                                    "fix_installation_directory",
+                                    postLeaseNotifications.Add);
+                                if (maintenanceResult.Canceled)
+                                {
+                                    result.Failure = new OperationCanceledException();
+                                }
+                            }
+                            catch (Exception exception)
+                            {
+                                // The file receipt is already durable.  Retain the
+                                // maintenance failure with that receipt so the caller
+                                // can report the committed path move and the later
+                                // catalog failure together.
+                                result.Failure ??= exception;
+                            }
+                        }
                     }
                 }
             }
@@ -2102,7 +1994,7 @@ internal sealed partial class LibraryFileOperationOwner
         {
             InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
         }
-        return removalOutcome;
+        return result;
     }
 
     /// <summary>

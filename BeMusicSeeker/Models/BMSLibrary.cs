@@ -2889,6 +2889,7 @@ public partial class BMSLibrary : ObservableObject
             catalogOwnedCollectionOwner,
             catalogStorageRowsOwner,
             CreateInstalledChartKeySnapshotExcludingChartsUnsafe,
+            CreateInstalledChartLookupSnapshotUnsafe,
             CreateChartFolderPathFromCharts,
             GetDuplicateInstallRepairPaths,
             ApplyCatalogMaintenanceUnderExistingReservation,
@@ -12741,8 +12742,8 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    /// <summary>Returns observed deletion facts without retrying or inferring filesystem state.</summary>
-    internal LibraryChartRemovalOutcome FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths = null)
+    /// <summary>Returns repair movement, deletion, and terminal facts without retrying or inferring filesystem state.</summary>
+    internal LibraryFixInstallationResult FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths = null)
     {
         return libraryFileOperationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths);
     }
