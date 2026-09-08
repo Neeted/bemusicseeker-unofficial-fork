@@ -3,7 +3,8 @@
 - **文書種別:** 共通の非同期・並行性設計契約
 - **正本配置:** `devdocs/spec/workflow-concurrency-and-complexity.md`
 - **対象:** UI、ViewModel、scheduler、domain owner、DB／filesystem mutation、cache／projection、background task
-- **状態:** Active
+- **状態:** Active（設計・改修時の運用契約）
+- **方針更新:** 2026-09-08
 
 ## 1. 目的
 
@@ -21,17 +22,19 @@
 
 この指針は全面的な即時リファクタリングを要求しない。今後の変更で複雑性を増やさず、触れた workflow から段階的に整理するための正本とする。
 
+以下は改修時に守る採用済みの受付方針であり、現在の全入口が実装済みであることを表さない。現行の具体的な到達経路は feature spec、適用状況は [安全性改善計画](../plan/v3-safety-improvements-plan.md#concurrency-application) と [LR2 startup 手続き化計画](../plan/lr2-startup-procedural-orchestration-plan.md) で管理する。未実装の目標を現行動作・検証済みの保証として書き換えない。
+
 ## 2. 要約
 
 基本方針は次のとおり。
 
 1. **UI の非同期性と domain mutation の並行性を分けて考える。**
-2. **UI thread は止めないが、競合する mutation は queue／lane で直列化してよい。**
+2. **UI thread は止めないが、競合する新規変更要求は Busy で未実行終了させる。暗黙の後続 queue を既定にしない。**
 3. **model lock は短く保つが、操作全体の論理 ownership は完了まで保持してよい。**
 4. **古い UI 入力は authoritative owner の入口で stable identity から現在の対象へ再解決し、その後に対象の意味を再解釈しない。**
 5. **version token は read-only／latest-wins／cache validation に限定し、durable mutation の順序保証の代替にしない。**
 6. **durable surface は単一 owner、明示的 transaction、immutable plan、typed result で管理する。**
-7. **新しい並行性保証が明示要件でない場合、直列化を既定とする。**
+7. **新しい並行性は要件なしに増やさない。section 6 の機能上必要な queue と既存の並行操作も、一律の排他強化で失わせない。**
 8. **既存 workflow は一括置換せず、今後触る単位から token、callback、writer、状態を減らす。**
 
 ## 3. 背景と問題認識
@@ -50,23 +53,22 @@ UI thread で長時間の DB、filesystem、network、解析処理を行わな�
 状態を変更する複数の操作を、同じ正本に対して同時実行できる。
 ```
 
-UI thread を応答可能に保ったまま、競合操作を queue へ入れることはできる。
+通常の変更要求は次を既定とする。
 
 ```text
 ユーザーが操作Aを開始
-  -> background laneでAを実行
-  -> UIは応答可能
+  -> 実行ownerで非待機の操作受付を取得
+  -> AをUI threadを占有せずに実行。確定済み一覧は閲覧可能
 
-Aの途中で操作Bを入力
-  -> 入力は受理
-  -> Bは「Aの完了待ち」としてqueue
-  -> UIは応答可能
+Aの途中で競合する新規操作Bを入力
+  -> Busyで未受理・未実行とする。Bの副作用や待機項目を作らない
+  -> Aの完了後にBを自動実行しない
 
-A完了
-  -> Bを現在状態から再解決して実行
+A完了後、利用者が改めてBを要求
+  -> 受付を取得し、現在の正本から対象を解決して実行
 ```
 
-この構造では UI は止まらない。一方、domain mutation の意味上の順序は明確であり、広い version token で後から整合性を推測する必要がない。
+導入中の追加 ZIP は必要な機能なので、既存の導入 queue で受理・順次実行する例外とする。自動推定など既に受理した仕事の順序待ちも、新規手動要求の Busy 拒否とは別である。受理済みの仕事を捨てる口実にこの既定を使わない。
 
 ### 3.2 短い lock と短い ownership は別である
 
@@ -75,17 +77,17 @@ A完了
 推奨形は次のとおり。
 
 ```text
-logical mutation laneを取得
+非待機でlogical mutation admissionを取得（競合中はBusyで終了）
   -> 短いlockでimmutable input snapshotを取得
   -> lockを解放
   -> 長時間のI/O／解析
   -> immutable mutation planを作成
   -> 短いlock／transactionで検証・commit
-  -> publicationを直列に完了
-  -> laneを解放
+  -> 必要な正本反映・cleanup・結果を確定
+  -> admissionを解放し、表示更新を既存経路へ通知
 ```
 
-長く保持するのは model lock ではなく、「同じ durable surface を変更する別操作を開始させない」という論理 ownership である。
+長く保持するのは model lock ではなく、競合する別操作を受理しないための論理 ownership である。表示通知の順序は feature の契約に従うが、全cacheの更新完了を待つ必要はない。論理受付、低層のデータ保護、進捗表示のactivityを混同せず、単一の巨大lockへ統合しない。
 
 ### 3.3 古い表示からの入力受理と、古い意図の強制完遂は別である
 
@@ -94,13 +96,15 @@ logical mutation laneを取得
 推奨する契約は次のとおり。
 
 ```text
-UIはstable identityと意図を送る
-  -> command開始時に現在の正本から一度だけ再解決
+UIはstable identity・選択範囲・意図を送る
+  -> 操作受付を取得してから現在の正本へ一度だけ再解決
   -> 対象が既に存在しなければ「既に変更されています」と終了
   -> 解決後はmutation lane内で一つの操作として完了
 ```
 
-「入力を受理する」とは、必ず旧表示どおりの対象へ適用することではない。現在状態で安全に再解決できない場合は、明示的な stale-input result を返してよい。
+「入力を受理する」とは、必ず旧表示どおりの対象へ適用することではない。現在状態で安全に再解決できない場合は、明示的な stale-input result を返してよい。選択行番号、古い path、同一hashだけで別配置の譜面へ読み替えず、確認済みの対象集合を新しい検索結果へ黙って拡大しない。
+
+閲覧に使う「古い表示」は以前の確定済みデータであり、workerが変更途中のmutable collectionを無保護で読むことではない。既存のread modelを利用し、操作ごとに全ライブラリを複製するsnapshot基盤は追加しない。
 
 ### 3.4 deferred callback は因果関係を見えにくくする
 
@@ -169,9 +173,9 @@ shutdown後のapplyを防ぐためoperationToken追加
 
 | 種類 | 意味 | 主な利用先 | result discard |
 |---|---|---|---|
-| UI request generation | 最新の検索・sort・preview要求 | View／read model | 可 |
+| UI request generation | 最新の検索・sort・副作用のない補助表示要求 | View／read model | 可 |
 | Operation identity | 同じ画面上の旧operation完了通知を識別 | progress／terminal apply | 条件付きで可 |
-| Model revision | authoritative sourceが変更されたか | snapshot validation | mutationでは原則fail/requeue |
+| Model revision | authoritative sourceが変更されたか | snapshot validation | mutationでは未適用を明示。暗黙requeueなし |
 | Cache generation | 派生cacheがどのsourceに対応するか | read-only cache | 可 |
 | Publication sequence | notificationの表示順 | UI presentation | 可 |
 | Durable schema version | DB形式・migration世代 | persistence | discard用途ではない |
@@ -185,21 +189,22 @@ shutdown後のapplyを防ぐためoperationToken追加
 
 ### 5.1 UI responsiveness
 
-- UI thread は長時間の DB、filesystem、network、解析を実行してはならない。
-- UI を応答可能にするために、競合 mutation の同時実行を保証してはならない。
-- 待機中の command は queue 状態として表示してよい。
-- read-only 表示、検索、sort、preview は latest-wins で並行実行してよい。
+- UI thread は長時間の DB、filesystem、network、解析で占有しない。外部アーカイバの入力寿命を守る [Drop acquisition](drop-install-ingress.md#acquire-before-enqueue) など、既存の限定された同期入口を機械的に非同期化しない。
+- UI を応答可能にするために、競合 mutation の同時実行やキュー受理を保証してはならない。
+- Busy は未受理・未実行、queued は受理済みと区別して表示する。ボタン無効化だけに頼らず、実行 owner 入口でも受付を閉じる。
+- 確定済みread model上の閲覧・選択・検索・sortは継続してよい。常時最新であることを要求しない。
+- 「preview」「background」という名称だけでread-onlyに分類しない。一時コピー、LR2設定保存、録音、chart-infoのDB補完等は変更・資源所有を伴う。画面切替後の遅い読取り結果を除外する既存identityまで削除しない。
 
 ### 5.2 Mutation ownership
 
 - durable surface ごとに authoritative writer owner を一つ定める。
-- 同じ durable surface を変更する競合 workflow は、原則として同じ logical mutation lane へ入れる。
-- lock は短く保つが、logical lane は workflow の terminal state まで保持してよい。
-- operation gate 保持中に UI thread、dialog、event subscriber、別 owner の同期完了を待ってはならない。
+- 未承認の競合する新規変更は既存の論理受付で Busy 拒否する。同じDB/tableかどうかだけで並行許可を決めず、section 6 の例外を守る。writerの責務分割は、操作の同時受理を必要としない。
+- lock は短く保つが、logical admission は必要な変更・補償・cleanupが終端するまで保持してよい。取消要求の受領だけで解放しない。
+- operation gate 保持中に UI thread、dialog、event subscriber、別 owner の同期完了を待ってはならない。論理受付を持ってasyncに待つ場合も、相手が同じ受付を再取得する循環を作らない。既存leaseの引渡し境界を使い、ambientな再入回避を追加しない。
 
 ### 5.3 Input and snapshot
 
-- stale な UI object は authoritative owner の入口で stable identity から現在の対象へ一度だけ再解決し、その後の phase で利用者の意図や対象 identity を再解釈しない。
+- stale な UI object は操作受付を取得した authoritative owner の入口で stable identity から現在の対象へ一度だけ再解決し、その後の phase で利用者の意図や対象 identity を再解釈しない。確認ダイアログの前後で受付を解放する既存契約では、再取得後に確認済み範囲を照合する。
 - 外部変更、path safety、transaction precondition など feature spec が要求する lease／commit 境界の invariant は別途再検証する。
 - 長時間処理には immutable snapshot または immutable request を渡す。
 - snapshot の依存 surface を列挙できない場合、広い version token で補わず、request boundary を見直す。
@@ -217,20 +222,35 @@ FS と DB を跨ぐ場合の成功・部分失敗、限定補償、前方回復�
 
 ### 5.5 Concurrency default
 
-- 明示的なユーザー要件または性能要件がない競合 mutation は、直列化を既定とする。
-- 「UIを止めたくない」だけを、mutation concurrency の根拠にしてはならない。
-- 同時実行を導入する場合、操作互換性表、競合時の結果、commit 順序、failure contract を先に定める。
-- 同時実行による利益が、状態数・token・retry・test matrix の増加を上回ることを説明できなければ導入しない。
+- 明示要件のない競合する新規 mutation は、非待機の Busy 拒否を既定とする。後続操作の自動実行を約束しない。
+- 「UIを止めたくない」だけを mutation concurrency の根拠にせず、「単純化したい」だけを承認済み機能の縮退の根拠にしない。
+- section 6 の例外を維持したうえで、触る入口の許可／拒否、受理済み仕事の所有、commit 順序、failure contract を先に定める。全機能の組合せ表や汎用schedulerを新設しない。
+- 新しい同時実行による利益が状態数・token・retry・test matrixの増加を上回ることを説明できなければ導入しない。一件のbatch内の既存解析並列は、利用者操作の並行性とは別に扱う。
 
-## 6. 操作種別ごとの共通既定
+## 6. 操作種別ごとの共通既定と維持する例外
 
-| 組合せ | 共通既定 |
-|---|---|
-| 同じ durable surface を変更する操作同士 | 同じ owner／lane で直列化する |
-| schema migration と DB mutation | feature spec で queue または reject と利用者向け結果を一意に決める |
-| authoritative state を変更しない独立 read | 並行実行してよい |
+以下を採用済みの製品上の境界とする。通常のBusy既定より具体的な行を優先する。これは新しい互換性管理エンジンや全アプリ共通の排他gateを要求するものではない。
 
-個別機能の observable behavior は対象 feature spec を正本とする。共通既定と異なる並行性を採用する場合は、`devdocs/decisions/` に理由と代替案を記録する。
+| 実行中／対象 | 受付・維持する挙動 | 境界・参照 |
+|---|---|---|
+| 通常の変更中に、別の競合変更 | 新規要求はBusyで未実行終了。導入中の所持譜面削除・登録ルート適用などを同時実行する要件はない | UIの閲覧は継続。停止・取消・終了要求は現在の操作の終端制御へ接続する |
+| 起動中、一覧が先に表示された | 必要なlocal初期化と、有効なLR2連携で必要な同期が終端するまで変更受付を待たせてよい。未受理操作を後で自動実行する予約は作らない | optional online同期・全cache warmupの完了を一律に待たせない。設定画面の利用は下記の例外。適用は [既存startup計画](../plan/lr2-startup-procedural-orchestration-plan.md) |
+| 導入中の追加ZIPドロップ | 既存の導入queueへ予約できることを維持する。先行導入と追加分の実変更を同時実行する要件ではない | [drop-install-ingress.md](drop-install-ingress.md) の入力確保・順序・cancel/drain・所有を維持。起動前やURL取得中等の既存拒否を解除する要件ではない |
+| 保留へ追加・復元された譜面 | 既存の対象条件に従って自動的に導入先推定を開始・終端する。推定中の保留一覧閲覧・選択は可能、追加の手動推定・削除等はBusyで断る | 受理した自動推定を競合だけで失い、手動再推定を必須にしない。[推定仕様](install-estimation-current-logic.md) の候補評価・batch内並列を維持。一般的な失敗後の自動retryは追加しない |
+| 導入中の新規一時試聴・録音／録音中の別変更 | Busyで断り、後で自動再生・自動変更しない | 試聴中に競合する変更へ進む場合は、既存Stop→実際の再生終了・設定復元・一時資源cleanup→変更の順序を優先。停止不能なら変更を始めない。通常再生との新しい並行性は追加しない |
+| 手動の外部表同期・URL取得の通信待ち | プレイリスト編集はBusyで断ってよい。一方、ライブラリ操作は現在の実入口が許可し安全に成立する範囲を維持し、通信中という理由だけで一括禁止しない | プレイリスト内容の編集と、行を入口にした所持譜面の操作を区別。[プレイリスト仕様](playlist-data-and-export-flow.md)・[URL取得仕様](playlist-url-download-resolution.md)。URL取得と追加drop等の既存拒否、適用段階のfile/DB lease、LR2実DB同期の排他は維持 |
+| 変更操作中の設定画面 | 開く・編集する・既存のCancel／close／UI previewを現状どおり利用できる。全体Busyを理由に入口を閉じたり、全面read-onlyにしたりしない | 開くこととSave／適用／schema操作は別。これらの既存のavailability・拒否・失敗後retryを維持する。[設定仕様](settings-change-impact-and-startup-operations.md) |
+| authoritative stateを変えない閲覧・計算 | 確定済み入力で継続してよい。必要なら既存のlatest-winsを使う | 一覧の鮮度を正本変更の認可に使わない。workerが変更途中のmodelを無保護で読まない |
+
+### 6.1 例外を拡大せずに適用する
+
+通信待ち中に維持するライブラリ操作は、UI／ownerの現行入口、既存受付、実際の適用段階までを対象unitで記録する。「同じDBではないから安全」やprivate APIの並行呼出しだけを根拠にしない。逆に、この確認を理由に未調査の全ライブラリ操作を先に無効化しない。具体的な安全性違反が見つかった組合せだけ、保全を満たす局所修正または再計画とする。新しい並行性や一般的なfetch/apply分割基盤は要求しない。
+
+設定画面のmodal表示はbackground workerの停止を意味しない。既存の`Settings.Default`兼用編集バッファをread-only snapshotと仮定せず、触る操作が必要とする実行時設定は既存のprofile／operation入力から取得する。設定画面の利用を禁止したり全設定draft基盤を新設したりして回避せず、途中で未保存値を読み直す問題が実入口で成立する範囲だけを修正する。保存拒否時のsnapshot復元等は設定仕様に従う。
+
+自動推定の完了とは、対象条件に沿った推定結果・推定不能・取消・失敗のいずれかへ終端することであり、導入先が必ず見つかることや自動インストールを意味しない。追加・復元から受理済みbatchへのhandoffと、後から来る手動操作を分ける。後者はBusyで断り、前者は既存ownerで所有したまま開始順を整える。既存queue以外の汎用retry／resumeを追加しない。
+
+この表にない並行性を新設する場合は、対象feature specとdecisionに理由・代替案を記録する。既存キューの削除や設定画面の利用制限も、単なる実装整理ではなく製品挙動の変更として扱う。
 
 ## 7. version token 使用ポリシー
 
@@ -240,7 +260,7 @@ version／generation token は、結果を安全に捨てられる read-only／p
 
 - keyword search。
 - sort order／virtual view。
-- preview、thumbnail、補助表示。
+- 副作用のないthumbnail、補助表示。試聴・録音の資源所有は含めない。
 - read-only cache。
 - coalesced refresh。
 - UI terminal apply の旧operation識別。
@@ -328,8 +348,8 @@ UI request generation発行
 ### 8.2 Durable mutation workflow
 
 ```text
-command受付
-  -> logical mutation lane取得
+command受付判定
+  -> 非待機のlogical admission取得（競合はBusy、受理済みqueueは別契約）
   -> current authoritative stateから対象再解決
   -> immutable snapshot取得
   -> I/O／解析
@@ -357,26 +377,15 @@ source-specific revision取得
 
 自動retryは無制限にしない。高頻度更新時は latest requested revision を一つだけ保持する。
 
-## 9. Mutation lane の考え方
+## 9. 論理受付と既存queue
 
-lane は UI threadを止めるlockではない。意味上競合するcommandを並べるlogical ownerである。
+logical admissionはUI threadを止めるlockでも、後続要求を必ず保存するqueueでもない。既存の受付を共有してBusy拒否できる範囲を先に検討する。section 6の例外があるため、全操作を長時間保持する単一global gateへ入れる案も既定にしない。
 
-候補例:
+ownerの責務分割、低層のDB/file lease、表示用activityを保ちながら、入口ごとに何を受理するかを明確にする。新しいlane／scheduler／compatibility managerを、機能名の違いだけを理由に作らない。
 
-```text
-CatalogMutationLane
-LibraryFileMutationLane
-PlaylistMutationLane
-Lr2DatabaseMutationLane
-SettingsPersistenceLane
-PresentationLane
-```
+### 9.1 対象範囲の操作互換性
 
-lane 数は増やしすぎない。新しい lane を作る前に、既存 lane との互換性を検討する。
-
-### 9.1 操作互換性表
-
-cross-workflow 変更では、対象 feature spec または計画に、実行中の操作、新規操作、queue／reject／coalesce／parallel の一意な方針、選択理由を記録する。表にない組合せを「何となく並行可能」とみなさない。
+cross-workflow変更では、触る実入口についてsection 6の既定と例外、競合時の結果、受理済み仕事の終端を計画へ記録する。拒否だけでなく、維持する追加drop・自動推定・設定画面・既存の通信との並行操作も確認する。全アプリの組合せ表を機械的に生成する必要はない。
 
 ## 10. 新規変更・機能追加の指針
 
@@ -387,7 +396,7 @@ cross-workflow 変更では、対象 feature spec または計画に、実行中
 1. durable／authoritative surface は何か。
 2. writer owner は誰か。
 3. UI responsiveness と mutation concurrency のどちらが本当に必要か。
-4. 競合操作は queue／reject／coalesce／parallel のどれか。
+4. 新規要求はBusyで拒否できるか。section 6の例外、受理済みqueue、既存の並行操作を維持する範囲は何か。
 5. command開始時に一度再解決すれば足りないか。
 6. logical ownershipをworkflow全体で保持できない理由があるか。
 7. version tokenなしで明示的順序にできないか。
@@ -400,8 +409,8 @@ cross-workflow 変更では、対象 feature spec または計画に、実行中
 要件が曖昧な場合は次を既定とする。
 
 - UI thread外で実行する。
-- 競合mutationはqueueする。
-- read-only処理だけ並行化する。
+- 未承認の競合する新規mutationはBusyで未実行終了し、暗黙queueを作らない。
+- 確定済み表示の閲覧とsection 6の例外を維持する。既存機能をglobal Busy化で縮退させない。
 - stale UI inputは開始時に再解決する。
 - tokenを追加しない。
 - retry／resumeを追加しない。
@@ -411,8 +420,8 @@ cross-workflow 変更では、対象 feature spec または計画に、実行中
 
 新しいtokenを追加する前に、順に検討する。
 
-1. 同じlaneで直列化できないか。
-2. ownerを一つへ統合できないか。
+1. 承認済みの例外を維持しつつ、既存受付で未受理の競合をBusy拒否できないか。
+2. 必要な処理順を既存のworkflow owner内に閉じられないか。
 3. immutable requestへ必要なfactを直接含められないか。
 4. commit後のtyped receiptを直接渡せないか。
 5. callbackを明示的なawait順へ戻せないか。
@@ -435,6 +444,7 @@ cross-workflow 変更では、対象 feature spec または計画に、実行中
 - snapshotのsource surfaceが説明できない。
 - cache invalidationとauthoritative mutationを同じversionで表す。
 - UI操作を拒否したくないという理由だけでmutationを並行化する。
+- 排他を単純化するため、必要な追加ZIP queue、保留の自動推定、設定画面、現在許可する通信中のライブラリ操作を一括停止する。
 - callback list内の順序が正しさに影響するが、型とtestに表れていない。
 - 旧routeと新routeが同じdurable surfaceを両方更新する。
 - 到達しないdefensive stateのためにrepair／resume／fallbackを追加する。
@@ -464,7 +474,7 @@ version tokenの一致を、入力完全性やdurable successの代わりにし�
 
 - operation id。
 - workflow origin。
-- lane acquisition／wait。
+- admissionの取得／Busy拒否、または既存queueの受理／待機。
 - authoritative input revision。
 - token publish／consume／discardと理由。
 - processed／skipped／failed／total。
@@ -533,7 +543,7 @@ ordering／token の test evidence は `test-authoring-contract.md` と、必要
 |---|---|
 | durable state | 互換性・migration・削除条件を要求 |
 | version／generation token | 依存表とownerを要求 |
-| mutation lane | 操作互換性表を要求 |
+| mutation lane | 既存受付では足りない理由と、対象範囲の既定・例外を要求 |
 | deferred callback | required／best-effort分類と順序を要求 |
 | retry／resume branch | 明示的な利用者要件を要求 |
 | writer owner | 既存writerとの統合を優先 |
@@ -563,7 +573,7 @@ owner間callback edge数
 
 - [ ] UI responsivenessとdomain concurrencyを分けて説明した。
 - [ ] authoritative surfaceとwriter ownerを特定した。
-- [ ] 競合操作をqueue／reject／parallelのどれにするか決めた。
+- [ ] 新規要求のBusy拒否と受理済み仕事を区別し、section 6の必要なqueue・並行操作・設定画面を維持した。
 - [ ] logical ownershipの範囲を定めた。
 - [ ] stale UI input の再解決と、lease／commit 境界の invariant 再検証を区別した。
 - [ ] version tokenなしで順序を表現できないか検討した。
@@ -581,7 +591,7 @@ owner間callback edge数
 - [ ] token発行後に、必要なconsumer前で同じtokenが進む経路がない。
 - [ ] required callbackの実行順が明示されている。
 - [ ] stale resultのdiscardがdurable dataを失わない。
-- [ ] queueすべき競合mutationが楽観的に同時実行されていない。
+- [ ] Busy拒否する操作に暗黙queueがなく、拒否側の副作用がない。受理済みの自動推定・導入queueを失わず、維持すべき入口を一括禁止していない。
 - [ ] command開始後に対象の意味を各phaseで再解釈していない。
 - [ ] 同じsurfaceのwriterが増えていない。
 - [ ] successが例外なしだけで決まっていない。
@@ -596,7 +606,7 @@ owner間callback edge数
 - concurrency、ownership、transaction、completion semanticsは、承認済みspec／decisionから一意に決まる必要がある。
 - 仕様、実装、test、reviewを同じモデル群が作った場合、それらを独立した証拠とみなさない。
 - cross-owner、DB ownership、全表置換、migration、retry／resume変更は、人間または明示的authorityがdecision listを閉じる。
-- 要件が不明な場合、モデルはtokenやfallbackを追加せず、直列化案またはreplanを返す。
+- 要件が不明な場合、モデルはtokenやfallbackを追加せず、承認済み例外を維持したBusy拒否案またはreplanを返す。設定画面の閉鎖や既存の並行性の縮退を無断で代替案にしない。
 - static reviewはdiffの局所説明だけでなく、production ingressのtimelineと操作互換性を確認する。
 
 ## 17. 保守方法

@@ -28,6 +28,8 @@ acquisition は batch atomic である。正規化、存在確認、安全性検
 
 ## queue ownership
 
+導入実行中でも追加の ZIP／対応アーカイブをドロップし、既存queueへ予約できることを維持する。これは複数導入の実変更を並行させる契約ではなく、Busy既定のためにこの予約機能を削除しない。下記のlibrary未接続、cancel drain、generation切替、shutdown、URL download中などの受付拒否は維持し、起動中の新しい先行予約や一般的な操作queueへ拡張しない。
+
 acquisition 成功時の request は durable path、user-visible original path、acquisition が作成した managed ingress root を保持する。stable path と別 producer の既存 managed path は、この request の cleanup 対象に含めない。
 
 ownership は次の一方向に遷移する。

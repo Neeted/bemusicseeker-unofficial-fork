@@ -127,6 +127,8 @@ merge 先探索では、まず package 内の chart 全体を BMS / bmson 共通
 
 startup restore / auto-install 由来の pending estimate は package ごとの batch で走ります。zip/package ごとに batch を分け、重い package が他 package を巻き込まないようにします。
 
+受付の改修条件は [共通並行性契約 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外) に従います。保留に入った対象の自動推定は維持し、推定中に追加で要求される手動推定・削除を並行成功させる必要はありません。保留一覧の閲覧・選択や、以下のbatch内計算並列は別のものです。現行のdequeue後の受付競合でbatchを失う経路と、手動入口の保護は [BMS-016](../plan/v3-safety-improvements-plan.md#bms-016) の未改修対象です。自動推定が競合したら手動でやり直す契約へ変更したり、任意の推定失敗を自動retryする仕組みを追加したりしません。
+
 batch の scan root、shared source surface、fallback surface、source baseline prefilter は directory package root だけを対象にします。file package は親 `SourceDirectory` を保持しますが batch surface は持たず、directory package と同じ親を指す場合も surface を共有しません。file-only batch の root / chunk / resource / tracked / visited / max count は0で、scan backend は空です。
 
 batch 末尾では、folder DnD や全ファイル選択 DnD で同一 source directory から複数の単体 pending package として発見された chart を、条件付きで directory package へまとめ直します。この再グループ化は導入先推定結果の表示整理であり、通常推定そのものではありません。

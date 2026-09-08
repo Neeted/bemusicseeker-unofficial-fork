@@ -1,6 +1,6 @@
 # Codex エージェント運用契約
 
-最終更新: 2026-09-06
+最終更新: 2026-09-08
 
 この文書は、BeMusicSeeker で複数段階の変更を計画・実装・レビューするときの Codex 運用の正本である。目的は、ルートエージェントへ要件・判断・統合責任を残しながら、必要な作業だけを適切なモデルへ委譲し、重複調査、実装バイアス、過剰な並列化、長い生ログによる rate limit と context の消費を抑えることである。
 
@@ -25,13 +25,15 @@
 
 - **Goal**: 何を変え、どの observable outcome を得るか。
 - **Context**: 関連する file、symbol、spec、現行 route、既知の failure evidence。
-- **Constraints**: 対象外、互換性、ownership、threading、永続化、安全性、作業中差分。
+- **Constraints**: 対象外、互換性、ownership、threading、永続化、安全性、作業中差分。runtime の操作受付を変更する場合は、[並行性契約 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外)に照らし、Busy で拒否する新規要求、受理済みの仕事、維持する既存の並行操作を分ける。
 - **変更分類と恒久テストの必要性**: [test-authoring-contract.md](test-authoring-contract.md) section 1 に従い、テストの設計前に扱いと検証方法を数行で決める。
 - **Done when**: behavior、削除する旧 route、必要な test lane、review、artifact。テストの追加・意味変更・置換を必要と判断した場合は independent authority、既存 coverage、shared resource、completion signal も含める。不要または削除のみの場合は判断理由と適切な検証を含める。
 - **Decision list**: 選択で observable behavior が変わる事項と、既に決まっている回答。
 - **Production reachability / observable impact**: 実 UI / event / startup / scheduler / owner / supported public ingress から対象 state へ至る route、入口 precondition と system assumption、利用者または persisted / external data に現れる差分。
 
 repository の正本、既存 test、履歴、合意済み方針から一意に決まる事項は、ルートまたは clarifier が調べて解決する。永続化、fallback、failure contract、ownership、互換性、破壊的操作などが一意に決まらない場合だけ、ユーザーへ具体的な質問を返す。current implementation や既存 test の expected value が存在することだけで、その behavior を仕様として確定しない。
+
+アプリが同時に受理する利用者操作、単一 batch 内の計算並列度、実装 worker の並列度は別々の判断である。並行性を減らす案でも既存の明示的な機能を失うなら behavior change として扱う。設定画面を開くことを設定適用の受付と同一視せず、通信待ちを理由に全ライブラリ操作を禁止しない。共通 spec で決定済みの要件を再び未決として worker へ渡さず、触る実入口・状態境界・残る実装選択だけを unit に記載する。
 
 ### Reachability / impact gate
 
@@ -135,7 +137,7 @@ Inputs that must not become oracle authority:
 2. 書込み所有 path と、必要な read-only 参照範囲
 3. 先行 unit、他 worker、生成物との依存関係
 4. 変更する production route と、必要性判断で変更する test route、および同時に退役する旧 route
-5. 維持する UI、persisted data、file / protocol compatibility、threading、shutdown、failure invariant
+5. 維持する UI、persisted data、file / protocol compatibility、threading、shutdown、failure invariant。受付変更では対象範囲の具体的な UI / owner 入口について、拒否側の無副作用と、維持する queue・閲覧・並行操作の両方を含める
 6. 必要性判断で test semantics を変更する場合の承認済み Test Contract Packet / Contract ID。不要または削除のみなら `not required` と理由
 7. 必要と判断した場合の追加・更新する behavior test、具体的な Quick filter、統合時の Functional / opt-in lane。不要なら適切な実行確認・静的検査
 8. 必要と判断した場合の coverage ledger: candidate fixture、必要な追加・置換の配置、shared resource / lane、completion signal、退役 test / helper / route

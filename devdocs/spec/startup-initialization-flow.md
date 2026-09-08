@@ -2,6 +2,8 @@
 
 この資料は、BeMusicSeeker の起動、再初期化、リロードで現在正本として扱う初期化フローをまとめる。実装履歴ではなく、現行動作と守るべき境界だけを書く。
 
+受付方針の適用状況: 以下のreadiness表は現在の実装を記述する。改修時には、[共通並行性契約 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外)に従い、一覧閲覧を先に許可したまま必須local処理・必要なLR2同期の終端まで変更操作を待たせてよい。この境界変更は [LR2 startup 手続き化計画](../plan/lr2-startup-procedural-orchestration-plan.md) の未実装範囲であり、現行markerの意味やearly admissionが変更済みであるとは扱わない。
+
 ## 目的
 
 起動時の状態は、単一の「初期化完了」ではなく次の境界で扱う。

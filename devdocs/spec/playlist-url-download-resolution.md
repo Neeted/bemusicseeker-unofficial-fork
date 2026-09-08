@@ -23,6 +23,10 @@ BeMusicSeeker は、対応できる範囲で URL をダウンロード可能な�
 - Google Drive folder の列挙や候補選択は行いません。
 - JavaScript 操作、CAPTCHA、ログイン、ブラウザの download event 捕捉が必要な配布元は自動解決しません。
 
+## 受付変更時の境界
+
+[共通並行性契約 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外)に従い、通信待ち中のプレイリスト編集はBusy拒否できるが、現在の実入口で許可するライブラリ操作は通信中という理由だけで一括禁止しない。ここでいう取得は、LR2 DBの実同期や取得後の導入を無保護で並行実行してよいという意味ではない。URL取得中の追加ドロップ拒否、導入queueとの競合、取得済み入力のhandoff、cancel時の取得済みファイルの扱いは下記の現行契約を維持する。
+
 ## 操作ごとの挙動
 
 ### 単体 URL 操作

@@ -17,6 +17,10 @@
 設定UIは `MainWindow` 内の overlay ではなく、`MainWindow` を owner とする独立した modal `SettingsWindow` として表示する。
 表示には共通 dialog coordinator の owner 解決と `ShowDialog()` 経路を使用し、設定ウィンドウが開いている間は `MainWindow` を操作できない状態にする。owner を持たない表示や、失敗を無視して modeless 表示へ切り替える fallback は行わない。
 
+変更操作が進行中であることだけを理由に、設定画面の表示・編集・既存のCancel／closeを禁止したり、全面read-onlyへ変更したりしない。既存のdialog重複、edit completion、audio test、reload retry pending等の個別制限は維持する。画面を開けることはSave、schema操作、再初期化等の実行許可ではなく、下記のOK契約とStartup Apply Gate、各ownerのavailabilityを使う。
+
+modal表示はbackground処理の停止を意味せず、`Settings.Default`は独立draftではない。新規・改修する処理で必要な設定の取得時点と所有を扱う際は、[共通並行性契約 section 6.1](workflow-concurrency-and-complexity.md#61-例外を拡大せずに適用する)に従う。全設定のdraft再設計、既存UI previewの撤廃、Saveを予約して後で自動適用する変更は行わない。
+
 - 設定ウィンドウは表示ごとに生成し、同時に複数表示しない。既存ウィンドウの表示中に open request を受けた場合は、そのウィンドウを前面へ戻す。
 - 設定ウィンドウは標準の WPF title bar を持ち、リサイズ可能とする。titleは設定画面自身を表すlocalized resourceを使い、Advanced categoryのlocalized labelと共有しない。位置、サイズ、選択カテゴリ、scroll位置は永続化しない。
 - title bar は独自chromeへ置換しない。source initialization 後に current theme の semantic brushからnative caption属性を更新し、表示中のtheme変更へ追従する。DWM非対応時やnative失敗時はsystem fallbackを維持し、設定画面の表示やclose lifecycleを失敗させない。theme購読はclose時に解除する。

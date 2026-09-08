@@ -60,9 +60,9 @@ WPF binding collectionはUI read modelとして扱い、所有者のUI scheduler
 
 - domain writer lock保持中にUI、dialog、event subscriber、別owner callbackを同期実行しない。
 - workerから`Dispatcher.Invoke`、`.Result`、`.Wait()`でUI完了を待たない。
-- background producerはimmutable fact / versionをqueueして戻る。
-- UI applyはcoalesceし、stale generationを高コスト処理前に棄却する。
-- DB、filesystem、networkはUI thread外で実行し、UI terminal apply中には行わない。
+- 高頻度かつ破棄可能な表示通知は、immutable factをqueueし、既存の表示identityでcoalesce／stale判定してよい。単発の必須手順をqueue、version、callbackへ分割する既定ではない。
+- 単発の変更は既存workflow ownerが必要な処理を明示的にawaitして終端させる。確定済み表示は操作中も閲覧に使ってよく、全cacheの最新化を完了条件にしない。
+- 長時間のDB、filesystem、networkはUI thread外で実行し、UI terminal apply中には行わない。外部アーカイバの短命な入力を確保するDrop callbackなど、feature specが定める入口の寿命契約は機械的なTask.Run化で壊さない。
 - shutdown時はqueued taskを追跡し、観測不能なfire-and-forgetを作らない。
 
 破壊的chart / package operationは [library-mutation-boundary.md](library-mutation-boundary.md) を正本にする。

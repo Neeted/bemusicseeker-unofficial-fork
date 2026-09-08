@@ -44,7 +44,8 @@
 ### 非同期ワークフローと並行性
 
 - scheduler、background task、owner間callback、snapshot、version / generation token、mutation laneを変更する場合は、`devdocs\spec\workflow-concurrency-and-complexity.md`を先に確認する。
-- UI responsiveness だけから mutation concurrency を推測しない。対象 feature spec と承認済み decision がない競合 mutation は、UI を応答可能に保つ直列化案または replan とする。
+- UI responsiveness だけから mutation concurrency や後続 queue を推測しない。未承認の競合する新規変更要求は、実行 owner の入口で非待機の Busy 拒否を既定とする。受理済み処理と未受理要求を区別し、必要な終端まで論理的な操作 ownership を保持する。
+- 受付の例外と維持すべき機能は上記共通 spec の section 6 に従う。追加 ZIP の導入予約、保留への追加に伴う自動推定、設定画面の利用、通信待ち中に現在許可されるライブラリ操作を、一律の global Busy 化で失わせない。確定済み表示の閲覧を維持し、その表示から変更へ進むときは受付後に現在の対象へ解決する。
 
 ## ログ
 

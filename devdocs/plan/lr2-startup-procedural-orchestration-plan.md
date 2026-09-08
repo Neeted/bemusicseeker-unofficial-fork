@@ -5,7 +5,9 @@ Status: Planned; not implemented
 この文書は、現在 scheduler、共有 receipt、version 判定へ分散している startup／reload から
 LR2 `song.db` 同期までの順序制御を、将来 application-level procedure owner へ移すための
 作業計画である。現行仕様の正本ではなく、現在の one-shot 契約と narrow guard は
-`devdocs/spec/lr2-song-db-generation.md` を正とする。
+[lr2-song-db-generation.md](../spec/lr2-song-db-generation.md) を正とする。
+
+製品上の受付方針は採用済みであり、[共通並行性契約 section 6](../spec/workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外)に従う。一覧表示後も必須処理の終端まで変更操作を待たせてよい。以下は未実装であり、起動受付の変更を [安全性改善計画](v3-safety-improvements-plan.md#concurrency-application) の個々の不具合修正へ無条件に含めない。
 
 ## Goal
 
@@ -34,8 +36,18 @@ preflight / user decision
   logical mutation admission を一つ保持する。
 - logical admission は DB transaction、model lock、UI thread の同期 block ではない。各 DB
   transaction／collection lock は、その stage 内の commit／apply に必要な期間だけ保持する。
-- read-only の navigation、検索、表示は利用可能にする。catalog、playlist output、LR2 DB を
-  変更する command は新しい pending queue を作らず、既存の busy contract で明示的に拒否する。
+- 確定済み一覧のnavigation、検索、表示は利用可能にする。local初期化と必要なLR2処理が
+  終端するまで、新規の競合変更commandはBusyで未実行終了させ、新しいpending queueを作らない。
+- 設定画面を開く・編集する既存入口は閉じない。Save／適用、schema操作などは設定仕様の
+  個別availabilityで判定し、modal表示をbackground writer停止とみなさない。
+- 必須local処理と必要なLR2同期に待機範囲を限定する。任意のオンライン取得、folder treeの
+  遅延更新、全cache warmup、無関係なpost taskのidleを変更受付の解禁条件にしない。
+- standaloneまたはLR2自動同期を行わない設定では、対応する不要stageを待たない。必要stageの
+  失敗時は受付の所有を解放して既存の失敗・修復導線へ戻す。受付解放を初期化成功とみなさず、
+  変更可否は既存のfailed状態の契約に従う。
+- 起動後の導入queueへ、この起動用のBusyを持ち越さない。導入中の追加ZIPは既存の予約を維持する。
+  復元された保留の自動推定は、必要入力と受付が揃ってから既存ownerへ明示的に引き渡す。
+  受理済み推定をBusyで失わせず、保留全件の推定・任意のonline処理を新しい必須startup条件にはしない。
 - dialog、Dispatcher、event subscriber、別 owner の同期完了を lock／transaction 保持中に
   待たない。
 
@@ -86,8 +98,11 @@ late UI publication／shutdown の識別など、別の実需がある場所で�
 2. **Startup direct chain**
    - file diff、required chart-info、LR2 preparation／sync を application-level startup owner の
      direct await chain へ移す。
-   - logical mutation admission を LR2 terminal まで渡せる explicit capability-aware entry を設け、
-     nested acquire や ambient ownership は使わない。
+   - logical mutation admission の明示引渡しは既存境界を優先し、不足する場合は対象stageに
+     必要な最小の引渡しを設ける。nested acquireやambient ownershipは使わず、
+     新しい全アプリschedulerは作らない。
+   - 現行のearly admissionを、確定済み一覧の閲覧と変更受付に分ける。standalone／同期無効・
+     必須stage失敗・設定画面表示・復元保留の自動推定へのhandoffを実入口で確認する。
 3. **Startup token／global slot retirement**
    - direct result が同じ事実を運ぶことを確認後、startup route の global receipt、scan／receipt
      version equality、scheduler-idle enrollment を削除する。
@@ -104,7 +119,10 @@ static review を持ち、同じ巨大 file の同時編集は行わない。
 ## Completion criteria
 
 - startup は file diff から LR2 terminal まで一つの明示的な procedure ordering を持つ。
-- mutation command は同じ logical admission で拒否され、read-only UI は応答可能である。
+- 必須処理中の競合mutationは未実行のBusyとなり、自動予約されない。確定済み一覧と設定画面は
+  現行の個別制限の範囲で利用できる。起動完了後の追加ZIP導入予約を失わない。
+- optional online処理や全cache warmupを止めていても、必須stageの終端と既存の失敗判定から
+  変更受付を決められる。復元保留の自動推定を失わず、起動Busyと相互待ちを作らない。
 - required stage の completion／failure／shutdown が typed result として一度だけ伝播する。
 - startup correctness に global receipt、broad version equality、scheduler idle を使わない。
 - DB／model lock、transaction、operation gate を保持した sync-over-async がない。
@@ -113,7 +131,7 @@ static review を持ち、同じ巨大 file の同時編集は行わない。
 
 ## Non-goals
 
-- この計画は今回の `LR2-OWNED-NARROW-20260904` 局所修正では実装しない。
+- narrow guardの局所修正を遡って手続き化の実装済み証跡としない。
 - startup 完了を LR2 成功と同一視しない。
 - external filesystem watcher、automatic retry／replay、resume cursor、persistent manifest、
   compatibility fallback を追加しない。
