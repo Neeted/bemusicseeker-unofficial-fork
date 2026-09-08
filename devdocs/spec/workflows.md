@@ -70,7 +70,7 @@ library の full file scan とは別操作である。reload 実行は bounded p
 
 - install / merge 後は catalog、song DB、resource index、maintenance、chart_info の更新境界を明確に保つ。
 - 新規インストールで即時 auto install を行う場合は、同一 workflow 内で先に auto install 対象として予約した hash を使って install 試行対象を一意化し、後続の重複 package は保留へ回して同一バッチ内の重複譜面を複数回導入しない。先行 package の導入に成功した場合だけ、後続 package の同一譜面へ `AlreadyInstalled` warning を付ける。auto install を行わない設定や先行導入失敗時は、後続 package に導入済み warning を付けない。
-- 保留から推定導入先へインストールする場合も、同一バッチ内で先に導入対象になった hash を予約し、後続重複を保留へ残す。新規インストールと保留推定インストールの重複分類は同じ primary hash guard の考え方に揃える。
+- 保留から推定導入先へインストールする場合は、入力順に一件ずつ分類・実行・receipt 確定を行う。開始時所持と先行の durable `AddedEntries` だけを共有 primary hash guard へ反映し、package 内の重複は局所的に抑止する。先行 package が実際には導入されなかった場合、その hash で後続 package を除外しない。
 - folder operation 後の resource index cleanup は `DirectoryResourceLookupCache.Keys` を正本にする。
 - reinstall correction は candidate-only の health 評価を使い、source/bundled resource を混ぜない。
 

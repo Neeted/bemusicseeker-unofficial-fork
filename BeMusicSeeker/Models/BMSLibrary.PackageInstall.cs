@@ -279,7 +279,7 @@ public partial class BMSLibrary
                     packagesToInstall =>
                     {
                         List<ChartPackage> packageList = [.. (packagesToInstall ?? []).Where(package => package != null)];
-                        List<ChartPackage> failedPackages = installChartPackages(
+                        PackageInstallExecutionResult installExecutionResult = installChartPackages(
                             packageList,
                             installResult => ApplyInstalledChartStorageTargetsForFileMutation(
                                 installResult,
@@ -291,6 +291,7 @@ public partial class BMSLibrary
                             diagnosticEffectObserver: diagnosticEffects.Add,
                             postLeaseEffectObserver: postLeaseEffects.Add,
                             reportAtTerminal: reportAtTerminal);
+                        List<ChartPackage> failedPackages = installExecutionResult.FailedPackages;
                         if (autoInstallMutationReceipt?.ManualRecoveryRequired == true
                             || autoInstallMutationReceipt?.HasDurableFinalizationFailure == true)
                         {
@@ -569,7 +570,7 @@ public partial class BMSLibrary
         return receipt;
     }
 
-    private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null, EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null, Action<FileDbMutationReceipt> mutationReceiptObserver = null, Action<FileDbMutationBatchReceipt> mutationBatchReceiptObserver = null, Action<Action> diagnosticEffectObserver = null, Action<Action> postLeaseEffectObserver = null, bool reportAtTerminal = false)
+    private PackageInstallExecutionResult installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null, EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null, Action<FileDbMutationReceipt> mutationReceiptObserver = null, Action<FileDbMutationBatchReceipt> mutationBatchReceiptObserver = null, Action<Action> diagnosticEffectObserver = null, Action<Action> postLeaseEffectObserver = null, bool reportAtTerminal = false)
     {
         ArgumentNullException.ThrowIfNull(applyDurableStorageRows);
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
@@ -669,19 +670,9 @@ public partial class BMSLibrary
             existingHashes,
             skipInstalledPackageWhenNoBms,
             deleteSourceContentsAfterSuccessfulInstall);
-        if (estimatedInstallBatchApplyContext != null)
-        {
-            AppendUnattemptedEstimatedInstallFailuresAfterDurableFinalizationFailure(
-                result,
-                installPackageList);
-        }
         foreach (FileDbMutationReceipt mutationReceipt in result.MutationReceipt?.Receipts ?? [])
         {
             mutationReceiptObserver?.Invoke(mutationReceipt);
-        }
-        if (estimatedInstallBatchApplyContext != null && result.FailedPackages.Count < installPackageList.Count)
-        {
-            estimatedInstallBatchApplyContext.AddInstalledTargets(ChartStorageTargetSet.FromCharts([]), installationDirectory);
         }
         mutationBatchReceiptObserver?.Invoke(result.MutationReceipt);
         if (result.InstalledPackagesToRegister.Count > 0)
@@ -707,52 +698,7 @@ public partial class BMSLibrary
                 "install_package_inline",
                 addedChartsForChartInfo);
         }
-        return result.FailedPackages;
-    }
-
-    private static void AppendUnattemptedEstimatedInstallFailuresAfterDurableFinalizationFailure(
-        PackageInstallExecutionResult result,
-        IReadOnlyList<ChartPackage> installPackageList)
-    {
-        FileDbMutationReceipt terminalReceipt = result?.MutationReceipt?.Receipts?
-            .FirstOrDefault(receipt =>
-                receipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed);
-        if (terminalReceipt == null || installPackageList == null || installPackageList.Count == 0)
-        {
-            return;
-        }
-
-        int terminalPackageIndex = -1;
-        for (int packageIndex = 0; packageIndex < installPackageList.Count; packageIndex++)
-        {
-            ChartPackage package = installPackageList[packageIndex];
-            if (package == null || string.IsNullOrWhiteSpace(package.path))
-            {
-                continue;
-            }
-            if (terminalReceipt.SourcePaths.Any(sourcePath =>
-                string.Equals(sourcePath, package.path, StringComparison.OrdinalIgnoreCase)))
-            {
-                terminalPackageIndex = packageIndex;
-                break;
-            }
-        }
-        if (terminalPackageIndex < 0 || terminalPackageIndex + 1 >= installPackageList.Count)
-        {
-            return;
-        }
-
-        var failedPackageSet = new HashSet<ChartPackage>(result.FailedPackages ?? []);
-        for (int packageIndex = terminalPackageIndex + 1;
-            packageIndex < installPackageList.Count;
-            packageIndex++)
-        {
-            ChartPackage unattemptedPackage = installPackageList[packageIndex];
-            if (unattemptedPackage != null && failedPackageSet.Add(unattemptedPackage))
-            {
-                result.FailedPackages.Add(unattemptedPackage);
-            }
-        }
+        return result;
     }
 
     /// <summary>
@@ -1720,7 +1666,7 @@ public partial class BMSLibrary
                     {
                         bool manualRecoveryRequired = false;
                         FileDbMutationBatchReceipt mutationBatchReceipt = null;
-                        List<ChartPackage> failedPackages = installChartPackages(
+                        PackageInstallExecutionResult installExecutionResult = installChartPackages(
                             packagesToInstall,
                             installResult => ApplyInstalledChartStorageTargetsForFileMutation(
                                 installResult,
@@ -1740,6 +1686,7 @@ public partial class BMSLibrary
                             diagnosticEffectObserver: diagnosticEffects.Add,
                             postLeaseEffectObserver: postLeaseEffects.Add,
                             reportAtTerminal: reportAtTerminal);
+                        List<ChartPackage> failedPackages = installExecutionResult.FailedPackages;
                         return new ForceInstallPackageApplyResult(
                             failedPackages,
                             manualRecoveryRequired,
@@ -2026,7 +1973,6 @@ public partial class BMSLibrary
     private PendingEstimatedInstallExecutionReceipt ExecutePendingEstimatedInstall(
         IEnumerable<ChartPackage> packages,
         PendingEstimatedInstallExecutionContext executionContext,
-        IReadOnlyDictionary<string, IReadOnlyList<string>> componentFilesByPackage,
         Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows,
         bool reportAtTerminal = false)
     {
@@ -2044,9 +1990,9 @@ public partial class BMSLibrary
         EstimatedInstallDeferredFeedback deferredFeedback = executionContext.DeferredFeedback;
         BmsLibraryOptionsSnapshot options;
         PendingInstallBatchPlan installPlan;
-        // The estimate gate protects construction of the route-specific plan only.  The
-        // filesystem executor and durable mutation phases must be able to re-enter the
-        // model without waiting for this gate while the logical file reservation is held.
+        // 推定実行ゲートは route 固有の plan 構築だけを保護する。
+        // 論理ファイル予約を保持したまま filesystem executor と durable mutation が
+        // このゲートを待たずに model へ再入できる必要がある。
         using (packageLifecycleOwner.EnterPendingEstimateExecutionScope())
         using (PendingEstimatedInstallMutationLease.Acquire(
             rwlockBMSFilesInitializedAll.GetReaderGuard,
@@ -2061,14 +2007,7 @@ public partial class BMSLibrary
                     [],
                     "install_pending_estimated_filter",
                     0L,
-                    deferredFeedback.LogInstallPerformance),
-                options.DeletePendingPackageSourceAfterInstall,
-                (package, destinationDirectory, excludedComponentPaths) =>
-                    CountComponentMoveTargetsFromSnapshot(
-                        package,
-                        destinationDirectory,
-                        excludedComponentPaths,
-                        componentFilesByPackage));
+                    deferredFeedback.LogInstallPerformance));
         }
 
         bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
@@ -2085,71 +2024,55 @@ public partial class BMSLibrary
                 installPlan,
                 deletePendingPackageSourceAfterInstall);
         }
-        if (installPlan.Groups.Count == 0 && installPlan.DeferredManualHoldCount > 0)
-        {
-            totalStopwatch.Stop();
-            deferredFeedback.LogInstallPerformance(
-                "install_pending_packages_to_estimated_destinations skipped reason=deferred_manual_merge_hold deferredManualHold="
-                + installPlan.DeferredManualHoldCount
-                + " selected="
-                + installPlan.SelectedPendingCount
-                + " filterMs="
-                + installPlan.FilterMs
-                + " totalMs="
-                + totalStopwatch.ElapsedMilliseconds);
-            return CreateSkippedPendingEstimatedInstallReceipt(
-                totalStopwatch,
-                installPlan,
-                deletePendingPackageSourceAfterInstall);
-        }
+        // component 列挙は意図的に model guard の外で行う。
+        // filter 済み候補の snapshot だけを使い、hash を予約しないためである。
+        IReadOnlyDictionary<string, IReadOnlyList<string>> componentFilesByPackage =
+            CapturePackageComponentFiles(installPlan.SelectedPendingPackages);
 
         deferredFeedback.LogInstallPerformance(
             "install_pending_packages_to_estimated_destinations start selected="
             + installPlan.SelectedPendingCount
-            + " groups="
-            + installPlan.Groups.Count
-            + " groupedPackages="
-            + installPlan.GroupedPackageCount
-            + " installTargets="
-            + installPlan.InstallTargetFileCount
             + " deferredManualHold="
             + installPlan.DeferredManualHoldCount
             + " deleteSourceContents="
             + deletePendingPackageSourceAfterInstall
             + " filterMs="
             + installPlan.FilterMs
-            + " groupBuildMs="
-            + installPlan.GroupBuildMs
             + " planBuildMs="
             + installPlan.PlanBuildMs);
 
         var batchApplyContext = new EstimatedInstallBatchApplyContext();
         List<FileDbMutationReceipt> mutationReceipts = [];
+        List<ChartFile> deferredMaintenanceCharts = [];
+        List<ChartPackage> deferredInstalledPackages = [];
         PendingInstallBatchResult batchResult = packageInstallService.ExecuteEstimatedInstallBatchPlan(
             installPlan,
             deletePendingPackageSourceAfterInstall,
-            (
-                installPackages,
-                destinationDirectory,
-                deferredMaintenanceCharts,
-                deferredInstalledPackages,
-                excludedComponentPathsByPackage,
-                existingHashes,
-                skipInstalledPackageWhenNoBms,
-                deleteSourceContentsAfterSuccessfulInstall) => installChartPackages(
-                    installPackages,
+            item =>
+            {
+                Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null;
+                if (item?.ExcludedComponentPaths != null && item.InstallWorkPackage != null)
+                {
+                    excludedComponentPathsByPackage = new()
+                    {
+                        [item.InstallWorkPackage] = item.ExcludedComponentPaths
+                    };
+                }
+                return installChartPackages(
+                    [item.InstallWorkPackage],
                     applyDurableStorageRows,
-                    destinationDirectory,
+                    item.DestinationDirectory,
                     deferredMaintenanceCharts,
                     deferredInstalledPackages,
                     excludedComponentPathsByPackage,
-                    existingHashes,
-                    skipInstalledPackageWhenNoBms,
-                    deleteSourceContentsAfterSuccessfulInstall,
+                    installPlan.MoveGuardLookup,
+                    skipInstalledPackageWhenNoBms: true,
+                    deleteSourceContentsAfterSuccessfulInstall: deletePendingPackageSourceAfterInstall,
                     batchApplyContext,
                     deferredFeedback,
                     mutationReceiptObserver: receipt => mutationReceipts.Add(receipt),
-                    reportAtTerminal: reportAtTerminal),
+                    reportAtTerminal: reportAtTerminal);
+            },
             CreateInstalledDisplayPackageForResourceOnlyMerge,
             cleanupPendingPackageSource: null,
             logInfo: deferredFeedback.LogInstallPerformance,
@@ -2160,8 +2083,19 @@ public partial class BMSLibrary
             mutationReceiptObserver: receipt => mutationReceipts.Add(receipt),
             manualRecoveryObserved: () => mutationReceipts.Any(receipt =>
                 receipt?.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired
-                    || receipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed));
-        batchResult.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts);
+                    || receipt?.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed),
+            countComponentMoveTargets: (package, destinationDirectory, excludedComponentPaths) =>
+                CountComponentMoveTargetsFromSnapshot(
+                    package,
+                    destinationDirectory,
+                    excludedComponentPaths,
+                    componentFilesByPackage));
+        batchResult.DeferredMaintenanceCharts.AddRange(deferredMaintenanceCharts);
+        batchResult.DeferredInstalledPackages.AddRange(deferredInstalledPackages);
+        if (mutationReceipts.Count > 0)
+        {
+            batchResult.MutationReceipt = new FileDbMutationBatchReceipt(mutationReceipts);
+        }
 
         long libraryStateApplyMs;
         long pendingApplyMs;
@@ -2491,8 +2425,6 @@ public partial class BMSLibrary
         ArgumentNullException.ThrowIfNull(applyDurableStorageRows);
         List<ChartPackage> requestedPackages =
             [.. packages.Where(package => package != null)];
-        IReadOnlyDictionary<string, IReadOnlyList<string>> componentFilesByPackage =
-            CapturePackageComponentFiles(requestedPackages);
         var executionContext = new PendingEstimatedInstallExecutionContext();
         executionContext.DeferPackageEntryNotifications(requestedPackages);
         PendingEstimatedInstallExecutionReceipt receipt = null;
@@ -2503,7 +2435,6 @@ public partial class BMSLibrary
             receipt = ExecutePendingEstimatedInstall(
                 requestedPackages,
                 executionContext,
-                componentFilesByPackage,
                 applyDurableStorageRows, reportAtTerminal);
             CompletePendingEstimatedInstallUnderGuard(
                 receipt,

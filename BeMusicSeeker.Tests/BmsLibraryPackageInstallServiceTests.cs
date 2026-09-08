@@ -407,6 +407,547 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 全譜面の推定先が空の先行パッケージが、後続パッケージの共通譜面を
+    /// 既所持として誤除外しないことを、実ファイルと song.db で検証します。
+    /// </summary>
+    [TestMethod]
+    public void InstallPendingPackagesToEstimatedDestinations_EmptyDestinationPackageDoesNotReserveHashForLaterPackage()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "installed-r2-02");
+            string firstSourceDirectoryPath = Path.Combine(tempRootPath, "pending-empty-destination");
+            string secondSourceDirectoryPath = Path.Combine(tempRootPath, "pending-valid-destination");
+            string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "shared.bms", "#TITLE Shared");
+            string secondSharedChartPath = CreateBmsFile(secondSourceDirectoryPath, "shared.bms", "#TITLE Shared");
+            string secondUniqueChartPath = CreateBmsFile(secondSourceDirectoryPath, "unique.bms", "#TITLE Unique");
+            BMSFile firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
+            BMSFile secondSharedChart = BMSFile.CreateBMSFileFromFile(secondSharedChartPath);
+            BMSFile secondUniqueChart = BMSFile.CreateBMSFileFromFile(secondUniqueChartPath);
+            Assert.AreEqual(firstChart.hash, secondSharedChart.hash);
+
+            ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage([firstChart]);
+            firstPackage.path = firstSourceDirectoryPath;
+            firstPackage.delete_parent = false;
+            firstPackage.ChartEntries.Single().SetWarning(
+                ChartWarningKind.InstallEstimationAmbiguous,
+                "keep warning");
+            string firstWarningDigest = ChartWarningTestHelpers.BuildDigestText(
+                firstPackage.ChartEntries.Single());
+            ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage([
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(secondSharedChart, destinationDirectoryPath),
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(secondUniqueChart, destinationDirectoryPath)]);
+            secondPackage.path = secondSourceDirectoryPath;
+            secondPackage.delete_parent = false;
+
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = destinationDirectoryPath,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
+                [firstPackage, secondPackage]);
+
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "shared.bms")));
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "unique.bms")));
+            Assert.IsTrue(File.Exists(firstChartPath));
+            Assert.AreEqual(1, library.ChartPackagesPending.Count);
+            Assert.AreSame(firstPackage, library.ChartPackagesPending.Single());
+            Assert.AreEqual(string.Empty, firstPackage.ChartEntries.Single().Chart.InstallDestination);
+            Assert.AreEqual(
+                firstWarningDigest,
+                ChartWarningTestHelpers.BuildDigestText(firstPackage.ChartEntries.Single()));
+
+            string installedSharedPath = Path.Combine(destinationDirectoryPath, "shared.bms");
+            string installedUniquePath = Path.Combine(destinationDirectoryPath, "unique.bms");
+            Assert.IsTrue(library.BMSFiles.Any(file => string.Equals(file.path, installedSharedPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(library.BMSFiles.Any(file => string.Equals(file.path, installedUniquePath, StringComparison.OrdinalIgnoreCase)));
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedSharedPath));
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedUniquePath));
+            Assert.IsTrue(result.MutationReceipt.HasDurableCommit);
+            Assert.IsFalse(result.FailedPackages.Contains(secondPackage));
+        });
+    }
+
+    /// <summary>
+    /// 推定先移動は package を入力順に一件ずつ durable receipt まで確定し、
+    /// manual recovery に到達した package の後ろを実行しません。
+    /// </summary>
+    [TestMethod]
+    public void InstallPendingPackagesToEstimatedDestinations_AppliesDurablePrefixBeforeManualRecoveryStopsSuffix()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string installRootPath = Path.Combine(tempRootPath, "estimated-prefix-installed");
+            string firstSourceDirectoryPath = Path.Combine(tempRootPath, "estimated-prefix-first");
+            string secondSourceDirectoryPath = Path.Combine(tempRootPath, "estimated-prefix-second");
+            string thirdSourceDirectoryPath = Path.Combine(tempRootPath, "estimated-prefix-third");
+            string firstDestinationDirectoryPath = Path.Combine(installRootPath, "D1");
+            string secondDestinationDirectoryPath = Path.Combine(installRootPath, "D2");
+            string thirdDestinationDirectoryPath = firstDestinationDirectoryPath;
+            string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Estimated Prefix First");
+            string secondChartPath = CreateBmsFile(secondSourceDirectoryPath, "second.bms", "#TITLE Estimated Prefix Second");
+            string thirdChartPath = CreateBmsFile(thirdSourceDirectoryPath, "third.bms", "#TITLE Estimated Prefix Third");
+            string secondDestinationChartPath = Path.Combine(secondDestinationDirectoryPath, "second.bms");
+
+            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            {
+                string escapedSecondDestinationChartPath = secondDestinationChartPath.Replace("'", "''");
+                seedSongDb.Execute(
+                    "CREATE TRIGGER fail_second_estimated_install_target BEFORE INSERT ON song WHEN NEW.path = '"
+                    + escapedSecondDestinationChartPath
+                    + "' BEGIN SELECT RAISE(ABORT, 'forced second estimated-install target failure'); END;");
+            }
+
+            ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(firstChartPath),
+                    firstDestinationDirectoryPath));
+            ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(secondChartPath),
+                    secondDestinationDirectoryPath));
+            ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(thirdChartPath),
+                    thirdDestinationDirectoryPath));
+            firstPackage.path = firstSourceDirectoryPath;
+            secondPackage.path = secondSourceDirectoryPath;
+            thirdPackage.path = thirdSourceDirectoryPath;
+            firstPackage.delete_parent = secondPackage.delete_parent = thirdPackage.delete_parent = false;
+
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new FailingDestinationDeleteFileMutationService(secondDestinationChartPath),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installRootPath,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage, thirdPackage]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
+                [firstPackage, secondPackage, thirdPackage]);
+
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsTrue(result.ManualRecoveryRequired);
+            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[0].TerminalState);
+            Assert.AreEqual(FileDbMutationTerminalState.ManualRecoveryRequired, result.MutationReceipt.Receipts[1].TerminalState);
+            Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
+            Assert.IsTrue(result.PendingPackagesToRemove.Contains(firstPackage));
+            Assert.IsTrue(result.FailedPackages.Contains(secondPackage));
+            Assert.IsFalse(result.FailedPackages.Contains(thirdPackage));
+            Assert.IsTrue(library.ChartPackagesInstalled.Any(package =>
+                string.Equals(package.path, firstDestinationDirectoryPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(library.ChartPackagesPending.Any(package => ReferenceEquals(package, secondPackage)));
+            Assert.IsTrue(library.ChartPackagesPending.Any(package => ReferenceEquals(package, thirdPackage)));
+            Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first.bms")));
+            Assert.IsTrue(Directory.Exists(secondDestinationDirectoryPath));
+            Assert.IsFalse(File.Exists(Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
+
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(
+                1,
+                verifySongDb.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    Path.Combine(firstDestinationDirectoryPath, "first.bms")));
+            Assert.AreEqual(
+                0,
+                verifySongDb.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    secondDestinationChartPath));
+            Assert.AreEqual(firstSourceDirectoryPath, firstPackage.path, ignoreCase: true);
+            Assert.AreEqual(secondSourceDirectoryPath, secondPackage.path, ignoreCase: true);
+            Assert.AreEqual(thirdSourceDirectoryPath, thirdPackage.path, ignoreCase: true);
+        });
+    }
+
+    /// <summary>
+    /// DB precommit failure は hash を durable guard に追加せず、後続の同一 hash
+    /// package が入力順に再試行できることを実FSと song.dbで検証します。
+    /// </summary>
+    [TestMethod]
+    public void InstallPendingPackagesToEstimatedDestinations_DoesNotReserveHashAfterPrecommitFailure()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "estimated-retry-installed");
+            string firstSourceDirectoryPath = Path.Combine(tempRootPath, "estimated-retry-first");
+            string secondSourceDirectoryPath = Path.Combine(tempRootPath, "estimated-retry-second");
+            string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Estimated Retry");
+            string secondChartPath = CreateBmsFile(secondSourceDirectoryPath, "second.bms", "#TITLE Estimated Retry");
+            BMSFile firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
+            BMSFile secondChart = BMSFile.CreateBMSFileFromFile(secondChartPath);
+            Assert.AreEqual(firstChart.hash, secondChart.hash);
+            string firstDestinationChartPath = Path.Combine(destinationDirectoryPath, "first.bms");
+            string secondDestinationChartPath = Path.Combine(destinationDirectoryPath, "second.bms");
+
+            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            {
+                string escapedFirstDestinationChartPath = firstDestinationChartPath.Replace("'", "''");
+                seedSongDb.Execute(
+                    "CREATE TRIGGER fail_first_estimated_retry_target BEFORE INSERT ON song WHEN NEW.path = '"
+                    + escapedFirstDestinationChartPath
+                    + "' BEGIN SELECT RAISE(ABORT, 'forced first estimated-retry target failure'); END;");
+            }
+
+            ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(firstChart, destinationDirectoryPath));
+            ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(secondChart, destinationDirectoryPath));
+            firstPackage.path = firstSourceDirectoryPath;
+            secondPackage.path = secondSourceDirectoryPath;
+            firstPackage.delete_parent = secondPackage.delete_parent = false;
+
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = destinationDirectoryPath,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
+                [firstPackage, secondPackage]);
+
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsFalse(result.ManualRecoveryRequired);
+            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, result.MutationReceipt.Receipts[0].TerminalState);
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[1].TerminalState);
+            Assert.AreEqual(1, result.FailedPackages.Count);
+            Assert.AreSame(firstPackage, result.FailedPackages[0]);
+            Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
+            Assert.IsTrue(result.PendingPackagesToRemove.Contains(secondPackage));
+            Assert.IsTrue(library.ChartPackagesPending.Any(package => ReferenceEquals(package, firstPackage)));
+            Assert.IsFalse(library.ChartPackagesPending.Any(package => ReferenceEquals(package, secondPackage)));
+            Assert.IsFalse(File.Exists(firstDestinationChartPath));
+            Assert.IsTrue(File.Exists(secondDestinationChartPath));
+            Assert.IsTrue(File.Exists(firstChartPath));
+            Assert.IsTrue(library.BMSFiles.Any(file => string.Equals(file.path, secondDestinationChartPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.AreEqual(string.Empty, secondPackage.ChartEntries.Single().Chart.InstallDestination);
+
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", firstDestinationChartPath));
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", secondDestinationChartPath));
+        });
+    }
+
+    /// <summary>
+    /// 実 filesystem executor の durable finalizer failure は、durable factsを
+    /// 保持したまま estimated batch の後続 package を停止させます。
+    /// </summary>
+    [TestMethod]
+    public void ExecuteEstimatedInstallBatchPlan_StopsAfterDurableFinalizationFailure()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string firstSourceDirectoryPath = Path.Combine(tempDirectoryPath, "estimated-finalizer-first");
+            string secondSourceDirectoryPath = Path.Combine(tempDirectoryPath, "estimated-finalizer-second");
+            string thirdSourceDirectoryPath = Path.Combine(tempDirectoryPath, "estimated-finalizer-third");
+            string firstDestinationDirectoryPath = Path.Combine(tempDirectoryPath, "estimated-finalizer-installed-first");
+            string secondDestinationDirectoryPath = Path.Combine(tempDirectoryPath, "estimated-finalizer-installed-second");
+            string thirdDestinationDirectoryPath = Path.Combine(tempDirectoryPath, "estimated-finalizer-installed-third");
+            string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Estimated Finalizer First");
+            string secondChartPath = CreateBmsFile(secondSourceDirectoryPath, "second.bms", "#TITLE Estimated Finalizer Second");
+            string thirdChartPath = CreateBmsFile(thirdSourceDirectoryPath, "third.bms", "#TITLE Estimated Finalizer Third");
+            ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(firstChartPath),
+                    firstDestinationDirectoryPath));
+            ChartPackage secondPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(secondChartPath),
+                    secondDestinationDirectoryPath));
+            ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(thirdChartPath),
+                    thirdDestinationDirectoryPath));
+            firstPackage.path = firstSourceDirectoryPath;
+            secondPackage.path = secondSourceDirectoryPath;
+            thirdPackage.path = thirdSourceDirectoryPath;
+            firstPackage.delete_parent = secondPackage.delete_parent = thirdPackage.delete_parent = false;
+
+            var service = new BmsLibraryPackageInstallService();
+            PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
+                [firstPackage, secondPackage, thirdPackage],
+                [firstPackage, secondPackage, thirdPackage],
+                CreateInstalledChartLookup([]));
+            var finalizationFailure = new InvalidOperationException("estimated-finalizer-failure");
+            int callbackCount = 0;
+
+            PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
+                plan,
+                deletePendingPackageSourceAfterInstall: false,
+                installPackage: item =>
+                {
+                    callbackCount++;
+                    return service.InstallPackagesWithFileMutationReceipts(
+                        [item.InstallWorkPackage],
+                        item.DestinationDirectory,
+                        (package, destinationDirectory, _, hashSnapshot, excludedComponentPaths, applyDurableCommit) =>
+                            service.MovePackageFilesWithReceipt(
+                                package,
+                                destinationDirectory,
+                                new BmsLibraryOptionsSnapshot
+                                {
+                                    EnableSmartComponentOverwrite = false,
+                                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                                },
+                                (_, _) => destinationDirectory,
+                                exception => exception.Message,
+                                new RealFileMutationService(),
+                                null,
+                                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                                _ => { },
+                                applyDurableCommit,
+                                showMessageBoxOnInstallFail: false,
+                                existingHashes: hashSnapshot,
+                                excludedComponentPaths: excludedComponentPaths),
+                        _ => ReferenceEquals(item.OriginalPackage, secondPackage)
+                            ? FileDbMutationCommitResult.Durable(() => throw finalizationFailure)
+                            : FileDbMutationCommitResult.Durable(),
+                        _ => { },
+                        _ => { },
+                        _ => { },
+                        existingHashes: plan.MoveGuardLookup);
+                },
+                createInstalledDisplayPackage: null,
+                cleanupPendingPackageSource: null);
+
+            Assert.AreEqual(2, callbackCount);
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsTrue(result.HasDurableFinalizationFailure);
+            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[0].TerminalState);
+            Assert.AreEqual(FileDbMutationTerminalState.DurableFinalizationFailed, result.MutationReceipt.Receipts[1].TerminalState);
+            Assert.AreSame(finalizationFailure, result.MutationReceipt.Receipts[1].FinalizationFailure);
+            Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
+            Assert.IsTrue(result.PendingPackagesToRemove.Contains(firstPackage));
+            Assert.AreEqual(1, result.FailedPackages.Count);
+            Assert.AreSame(secondPackage, result.FailedPackages[0]);
+            Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first.bms")));
+            Assert.IsTrue(File.Exists(Path.Combine(secondDestinationDirectoryPath, "second.bms")));
+            Assert.IsFalse(File.Exists(Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
+            Assert.IsTrue(File.Exists(thirdChartPath));
+        });
+    }
+
+    /// <summary>
+    /// 先行導入後の cleanup-only 候補もその場で receipt を確定し、
+    /// durable finalization failure で後続候補を停止します。
+    /// </summary>
+    [TestMethod]
+    public void ExecuteEstimatedInstallBatchPlan_StopsAfterCleanupOnlyDurableFinalizationFailure()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string firstSourceDirectoryPath = Path.Combine(tempRootPath, "estimated-cleanup-finalizer-first");
+            string secondSourceDirectoryPath = Path.Combine(tempRootPath, "estimated-cleanup-finalizer-second");
+            string thirdSourceDirectoryPath = Path.Combine(tempRootPath, "estimated-cleanup-finalizer-third");
+            string firstDestinationDirectoryPath = Path.Combine(tempRootPath, "estimated-cleanup-finalizer-installed-first");
+            string secondDestinationDirectoryPath = Path.Combine(tempRootPath, "estimated-cleanup-finalizer-installed-second");
+            string thirdDestinationDirectoryPath = Path.Combine(tempRootPath, "estimated-cleanup-finalizer-installed-third");
+            string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Estimated Cleanup Finalizer Shared");
+            string secondChartPath = CreateBmsFile(secondSourceDirectoryPath, "second.bms", "#TITLE Estimated Cleanup Finalizer Shared");
+            string thirdChartPath = CreateBmsFile(thirdSourceDirectoryPath, "third.bms", "#TITLE Estimated Cleanup Finalizer Suffix");
+            BMSFile firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
+            BMSFile secondChart = BMSFile.CreateBMSFileFromFile(secondChartPath);
+            Assert.AreEqual(firstChart.hash, secondChart.hash);
+            ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    firstChart,
+                    firstDestinationDirectoryPath));
+            ChartPackage cleanupOnlyPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    secondChart,
+                    firstDestinationDirectoryPath));
+            ChartPackage suffixPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(thirdChartPath),
+                    thirdDestinationDirectoryPath));
+            firstPackage.path = firstSourceDirectoryPath;
+            cleanupOnlyPackage.path = secondSourceDirectoryPath;
+            suffixPackage.path = thirdSourceDirectoryPath;
+            firstPackage.delete_parent = cleanupOnlyPackage.delete_parent = suffixPackage.delete_parent = false;
+
+            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            {
+                seedSongDb.CreateTable<LR2SongDBExtended.install>();
+                seedSongDb.InsertOrReplace(firstPackage, typeof(LR2SongDBExtended.install));
+                seedSongDb.InsertOrReplace(cleanupOnlyPackage, typeof(LR2SongDBExtended.install));
+                seedSongDb.InsertOrReplace(suffixPackage, typeof(LR2SongDBExtended.install));
+            }
+            var songDbGateway = new BmsLibraryDbGateway(songDbPath);
+            var service = new BmsLibraryPackageInstallService();
+            PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
+                [firstPackage, cleanupOnlyPackage, suffixPackage],
+                [firstPackage, cleanupOnlyPackage, suffixPackage],
+                CreateInstalledChartLookup([]));
+            var finalizationFailure = new InvalidOperationException("estimated-cleanup-finalizer-failure");
+            var fileMutationService = new RealFileMutationService();
+            int installCallbackCount = 0;
+            int cleanupCallbackCount = 0;
+
+            PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
+                plan,
+                deletePendingPackageSourceAfterInstall: true,
+                installPackage: item =>
+                {
+                    installCallbackCount++;
+                    PackageInstallExecutionResult packageResult = service.InstallPackagesWithFileMutationReceipts(
+                        [item.InstallWorkPackage],
+                        item.DestinationDirectory,
+                        (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths, applyDurableCommit) =>
+                            service.MovePackageFilesWithReceipt(
+                                package,
+                                destinationDirectory,
+                                new BmsLibraryOptionsSnapshot
+                                {
+                                    EnableSmartComponentOverwrite = false,
+                                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                                },
+                                (_, _) => destinationDirectory,
+                                exception => exception.Message,
+                                fileMutationService,
+                                null,
+                                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                                _ => { },
+                                applyDurableCommit,
+                                showMessageBoxOnInstallFail: false,
+                                deleteAllContents: deleteAllContents,
+                                existingHashes: hashSnapshot,
+                                excludedComponentPaths: excludedComponentPaths),
+                        packageResult =>
+                        {
+                            songDbGateway.ApplyInstallTableMutation(
+                                [packageResult.InstallPathToDelete],
+                                []);
+                            return FileDbMutationCommitResult.Durable();
+                        },
+                        _ => { },
+                        _ => { },
+                        _ => { },
+                        existingHashes: plan.MoveGuardLookup);
+                    return packageResult;
+                },
+                createInstalledDisplayPackage: null,
+                cleanupPendingPackageSource: null,
+                cleanupPendingPackageSourceWithReceipt: cleanupPackage =>
+                {
+                    cleanupCallbackCount++;
+                    var cleanupPlan = new FileDbMutationPlan(
+                        Guid.NewGuid(),
+                        [],
+                        [],
+                        [new FileDbMutationCleanupPathPlan(cleanupPackage.path, recursive: true)],
+                        recursiveSourceCleanup: false);
+                    return new FileDbMutationExecutor(
+                        cleanupPlan,
+                        fileMutationService,
+                        new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                        new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree))
+                        .Execute(() =>
+                        {
+                            songDbGateway.ApplyInstallTableMutation(
+                                [cleanupPackage.path],
+                                []);
+                            return FileDbMutationCommitResult.Durable(
+                                () => throw finalizationFailure);
+                        });
+                },
+                countComponentMoveTargets: (package, _, _) =>
+                    string.Equals(package?.path, cleanupOnlyPackage.path, StringComparison.OrdinalIgnoreCase) ? 0 : 1);
+
+            Assert.AreEqual(1, installCallbackCount);
+            Assert.AreEqual(1, cleanupCallbackCount);
+            Assert.AreEqual(1, plan.CleanupOnlyCandidateCount);
+            Assert.AreEqual(1, result.CleanupOnlyFailed);
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsTrue(result.HasDurableFinalizationFailure);
+            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[0].TerminalState);
+            Assert.AreEqual(FileDbMutationTerminalState.DurableFinalizationFailed, result.MutationReceipt.Receipts[1].TerminalState);
+            Assert.AreSame(finalizationFailure, result.MutationReceipt.Receipts[1].FinalizationFailure);
+            Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
+            Assert.IsTrue(result.PendingPackagesToRemove.Contains(firstPackage));
+            Assert.IsFalse(result.PendingPackagesToRemove.Contains(cleanupOnlyPackage));
+            Assert.IsFalse(result.PendingPackagesToRemove.Contains(suffixPackage));
+            Assert.IsFalse(result.FailedPackages.Contains(cleanupOnlyPackage));
+            Assert.IsFalse(result.FailedPackages.Contains(suffixPackage));
+            Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first.bms")));
+            Assert.IsFalse(File.Exists(Path.Combine(secondDestinationDirectoryPath, "second.bms")));
+            Assert.IsFalse(File.Exists(Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
+            Assert.IsTrue(File.Exists(thirdChartPath));
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM install WHERE path = ?;",
+                firstSourceDirectoryPath));
+            Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM install WHERE path = ?;",
+                secondSourceDirectoryPath));
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM install WHERE path = ?;",
+                thirdSourceDirectoryPath));
+        });
+    }
+
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_ResourceOnlyBmsonWorksWithoutBmsFiles()
     {
@@ -488,6 +1029,172 @@ public sealed class BmsLibraryPackageInstallServiceTests
             ChartFile displayChart = displayPackage.ChartEntries.Single().Chart;
             Assert.AreSame(installedBmson, displayChart.GetBmsonStorageOwner());
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
+        });
+    }
+
+    /// <summary>
+    /// 先行 package の durable 導入後に source cleanup だけが失敗しても、
+    /// 後続 package が同じ推定導入 loop で固有譜面または resource-only として
+    /// 再評価され、batch の cleanup failure を保持することを検証します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void InstallPendingPackagesToEstimatedDestinations_ReevaluatesResourceOnlyAfterEarlierCommit(
+        bool includeUniqueChart)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "estimated-resource-only-after-commit");
+            string firstPendingDirectoryPath = Path.Combine(tempRootPath, "estimated-resource-only-first");
+            string secondPendingDirectoryPath = Path.Combine(tempRootPath, "estimated-resource-only-second");
+            Directory.CreateDirectory(destinationDirectoryPath);
+            Directory.CreateDirectory(firstPendingDirectoryPath);
+            Directory.CreateDirectory(secondPendingDirectoryPath);
+            string firstBmsonPath = Path.Combine(firstPendingDirectoryPath, "chart.bmson");
+            string secondBmsonPath = Path.Combine(secondPendingDirectoryPath, "chart.bmson");
+            string secondUniqueBmsonPath = Path.Combine(secondPendingDirectoryPath, "unique.bmson");
+            string secondResourcePath = Path.Combine(secondPendingDirectoryPath, "sound.wav");
+            File.WriteAllText(firstBmsonPath, "{}");
+            if (includeUniqueChart)
+            {
+                File.WriteAllText(secondBmsonPath, "{}");
+                File.WriteAllText(secondUniqueBmsonPath, "{}");
+            }
+            else
+            {
+                File.WriteAllText(secondBmsonPath, CreateBmsonJsonWithSound("sound.wav"));
+                File.WriteAllText(secondResourcePath, "resource");
+            }
+
+            const string sharedMd5 = "1234567890abcdef1234567890abcdef";
+            const string sharedSha256 = "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+            var firstBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = firstBmsonPath,
+                folder = firstPendingDirectoryPath,
+                title = "Shared",
+                artist = "Artist",
+                md5 = sharedMd5,
+                sha256 = sharedSha256
+            };
+            var secondBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = secondBmsonPath,
+                folder = secondPendingDirectoryPath,
+                title = "Shared",
+                artist = "Artist",
+                md5 = sharedMd5,
+                sha256 = sharedSha256
+            };
+            var secondUniqueBmson = new LR2SongDBExtended.bmson_song
+            {
+                path = secondUniqueBmsonPath,
+                folder = secondPendingDirectoryPath,
+                title = "Unique",
+                artist = "Artist",
+                md5 = "abcdefabcdefabcdefabcdefabcdefab",
+                sha256 = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+            };
+            PackageChartEntry firstEntry = PackageChartEntry.FromChart(
+                ChartFileProjection.FromBmsonSong(
+                    firstBmson,
+                    includeWarningSnapshot: false,
+                    includeResourceReferences: false));
+            firstEntry.ApplyInstallDestination(destinationDirectoryPath, "Shared", "Artist");
+            PackageChartEntry secondEntry = PackageChartEntry.FromChart(
+                ChartFileProjection.FromBmsonSong(
+                    secondBmson,
+                    includeWarningSnapshot: false,
+                    includeResourceReferences: false));
+            secondEntry.ApplyInstallDestination(destinationDirectoryPath, "Shared", "Artist");
+            PackageChartEntry secondUniqueEntry = PackageChartEntry.FromChart(
+                ChartFileProjection.FromBmsonSong(
+                    secondUniqueBmson,
+                    includeWarningSnapshot: false,
+                    includeResourceReferences: false));
+            secondUniqueEntry.ApplyInstallDestination(destinationDirectoryPath, "Unique", "Artist");
+            ChartPackage firstPackage = ChartPackage.FromChartEntries([firstEntry]);
+            firstPackage.path = firstPendingDirectoryPath;
+            firstPackage.delete_parent = false;
+            ChartPackage secondPackage = ChartPackage.FromChartEntries(
+                includeUniqueChart
+                    ? [secondEntry, secondUniqueEntry]
+                    : [secondEntry]);
+            secondPackage.path = secondPendingDirectoryPath;
+            secondPackage.delete_parent = false;
+
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new FailingDestinationDeleteFileMutationService(firstBmsonPath),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = destinationDirectoryPath,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = true,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
+                [firstPackage, secondPackage]);
+
+            string installedBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            Assert.IsTrue(File.Exists(installedBmsonPath));
+            if (includeUniqueChart)
+            {
+                Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "unique.bmson")));
+            }
+            else
+            {
+                Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
+            }
+            Assert.IsTrue(File.Exists(firstBmsonPath));
+            if (includeUniqueChart)
+            {
+                Assert.IsTrue(Directory.Exists(secondPendingDirectoryPath));
+                Assert.IsTrue(File.Exists(secondBmsonPath));
+            }
+            else
+            {
+                Assert.IsFalse(Directory.Exists(secondPendingDirectoryPath));
+            }
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.IsTrue(result.PendingPackagesToRemove.Contains(firstPackage));
+            Assert.IsTrue(result.PendingPackagesToRemove.Contains(secondPackage));
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsTrue(result.CompletedWithCleanupFailure);
+            Assert.IsFalse(result.HasDurableFinalizationFailure);
+            Assert.AreEqual(2, result.MutationReceipt.Receipts.Count);
+            Assert.AreEqual(
+                FileDbMutationTerminalState.CompletedWithCleanupFailure,
+                result.MutationReceipt.Receipts[0].TerminalState);
+            Assert.IsTrue(result.MutationReceipt.Receipts[0].DurableCommit);
+            Assert.IsNull(result.MutationReceipt.Receipts[0].FinalizationFailure);
+            Assert.IsNotNull(result.MutationReceipt.Receipts[0].CleanupFailure);
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[1].TerminalState);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM bmson_song WHERE path = ?;",
+                installedBmsonPath));
+            if (includeUniqueChart)
+            {
+                Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM bmson_song WHERE path = ?;",
+                    Path.Combine(destinationDirectoryPath, "unique.bmson")));
+            }
         });
     }
 
@@ -1058,7 +1765,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void BuildEstimatedInstallBatchPlan_GroupsNewChartsAndKeepsCleanupOnlyCandidates()
+    public void BuildEstimatedInstallBatchPlan_FiltersCandidatesWithoutReservingUncommittedHashes()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
@@ -1081,30 +1788,18 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [mixedPackage, cleanupOnlyPackage],
             [mixedPackage, cleanupOnlyPackage],
-            CreateInstalledChartLookup([installedFile, cleanupInstalledFile]),
-            deletePendingPackageSourceAfterInstall: true,
-            countComponentMoveTargets: (pkg, dst, excluded) => pkg.path == cleanupOnlyPackage.path ? 0 : 2);
+            CreateInstalledChartLookup([installedFile, cleanupInstalledFile]));
 
         Assert.AreEqual(2, plan.SelectedPendingPackages.Count);
-        Assert.AreEqual(1, plan.Groups.Count);
-        Assert.AreEqual(1, plan.CleanupOnlyCandidates.Count);
-        Assert.AreSame(cleanupOnlyPackage, plan.CleanupOnlyCandidates[0]);
-        Assert.AreEqual(1, plan.InstallTargetFileCount);
-        PendingInstallBatchItem groupedItem = plan.Groups[0].Items.Single();
-        Assert.AreSame(mixedPackage, groupedItem.OriginalPackage);
-        Assert.AreEqual(destinationDirectory, groupedItem.DestinationDirectory);
-        Assert.AreEqual(1, groupedItem.InstallWorkPackage.GetBmsOwnersForTest().Count);
-        Assert.AreSame(newFile, groupedItem.InstallWorkPackage.GetBmsOwnersForTest()[0]);
-        CollectionAssert.Contains(groupedItem.ExcludedComponentPaths.ToList(), alreadyInstalledInPackage.path);
+        Assert.AreEqual(0, plan.CleanupOnlyCandidates.Count);
+        Assert.IsTrue(plan.MoveGuardLookup.ContainsPrimaryHash(installedFile.hash));
+        Assert.IsFalse(plan.MoveGuardLookup.ContainsPrimaryHash(newFile.hash));
         PackageChartEntry alreadyInstalledEntry = mixedPackage.ChartEntries.Single(entry => ReferenceEquals(entry.Chart.GetBmsStorageOwner(), alreadyInstalledInPackage));
-        Assert.IsTrue(alreadyInstalledEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-        Assert.AreEqual("[1] " + BeMusicSeeker.Properties.Resources.WarningDigest_AlreadyInstalled, ChartWarningTestHelpers.BuildDigestText(alreadyInstalledEntry));
+        Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(alreadyInstalledEntry));
         Assert.IsTrue(plan.FilterMs >= 0);
-        Assert.IsTrue(plan.GroupBuildMs >= 0);
         Assert.IsTrue(plan.PlanBuildMs >= 0);
         Assert.AreEqual(2, plan.SelectedPendingCount);
-        Assert.AreEqual(1, plan.GroupedPackageCount);
-        Assert.AreEqual(1, plan.CleanupOnlyCandidateCount);
+        Assert.AreEqual(0, plan.CleanupOnlyCandidateCount);
     }
 
     [TestMethod]
@@ -1125,15 +1820,136 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [pendingPackage],
             [pendingPackage],
-            CreateInstalledChartLookup([installedFile]),
-            deletePendingPackageSourceAfterInstall: false,
-            countComponentMoveTargets: (_, _, _) => 1);
+            CreateInstalledChartLookup([installedFile]));
 
-        Assert.AreEqual(1, plan.Groups.Count);
-        Assert.AreEqual(1, plan.Groups[0].Items.Count);
-        Assert.AreEqual(1, plan.Groups[0].Items[0].InstallWorkPackage.GetBmsOwnersForTest().Count);
-        Assert.AreSame(pendingFile, plan.Groups[0].Items[0].InstallWorkPackage.GetBmsOwnersForTest()[0]);
+        PendingInstallBatchItem capturedItem = null;
+        PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
+            plan,
+            deletePendingPackageSourceAfterInstall: false,
+            installPackage: item =>
+            {
+                capturedItem = item;
+                return CreateSuccessfulPackageInstallResult(item.InstallWorkPackage);
+            },
+            createInstalledDisplayPackage: null,
+            cleanupPendingPackageSource: null);
+
+        Assert.IsNotNull(capturedItem);
+        Assert.AreEqual(1, capturedItem.InstallWorkPackage.GetBmsOwnersForTest().Count);
+        Assert.AreSame(pendingFile, capturedItem.InstallWorkPackage.GetBmsOwnersForTest()[0]);
+        Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
         Assert.AreEqual(string.Empty, pendingFile.Warnings.BuildDigestText());
+    }
+
+    [TestMethod]
+    public void ExecuteEstimatedInstallBatchPlan_SuppressesDuplicateHashWithinOnePackage()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        string destinationDirectory = "C:\\Installed\\Target";
+        TestableBmsFile firstFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\first.bms");
+        TestableBmsFile duplicateFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\duplicate.bms");
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(firstFile, destinationDirectory),
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(duplicateFile, destinationDirectory));
+        package.path = "C:\\Pending\\Pkg1";
+
+        PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
+            [package],
+            [package],
+            CreateInstalledChartLookup([]));
+        PendingInstallBatchItem capturedItem = null;
+        PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
+            plan,
+            deletePendingPackageSourceAfterInstall: false,
+            installPackage: item =>
+            {
+                capturedItem = item;
+                return CreateSuccessfulPackageInstallResult(item.InstallWorkPackage);
+            },
+            createInstalledDisplayPackage: null,
+            cleanupPendingPackageSource: null);
+
+        Assert.IsNotNull(capturedItem);
+        Assert.AreEqual(1, capturedItem.InstallWorkPackage.ChartEntries.Count);
+        Assert.AreSame(firstFile, capturedItem.InstallWorkPackage.GetBmsOwnersForTest().Single());
+        Assert.IsTrue(capturedItem.ExcludedComponentPaths.Contains(duplicateFile.path));
+        Assert.IsFalse(package.ChartEntries[1].Chart.Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+        Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
+    }
+
+    [TestMethod]
+    public void ExecuteEstimatedInstallBatchPlan_SkipsMismatchedDestinationsWithoutAddingHashFacts()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        TestableBmsFile firstFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\first.bms");
+        TestableBmsFile secondFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\second.bms");
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(firstFile, "C:\\Installed\\First"),
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(secondFile, "C:\\Installed\\Second"));
+        package.path = "C:\\Pending\\Pkg1";
+
+        PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
+            [package],
+            [package],
+            CreateInstalledChartLookup([]));
+        int callbackCount = 0;
+        PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
+            plan,
+            deletePendingPackageSourceAfterInstall: false,
+            installPackage: _ =>
+            {
+                callbackCount++;
+                return CreateSuccessfulPackageInstallResult(package);
+            },
+            createInstalledDisplayPackage: null,
+            cleanupPendingPackageSource: null);
+
+        Assert.AreEqual(0, callbackCount);
+        Assert.AreEqual(0, result.PendingPackagesToRemove.Count);
+        Assert.AreEqual(0, result.FailedPackages.Count);
+        Assert.AreEqual("C:\\Installed\\First", package.ChartEntries[0].Chart.InstallDestination);
+        Assert.AreEqual("C:\\Installed\\Second", package.ChartEntries[1].Chart.InstallDestination);
+        Assert.IsFalse(plan.MoveGuardLookup.ContainsPrimaryHash(firstFile.hash));
+        Assert.IsFalse(plan.MoveGuardLookup.ContainsPrimaryHash(secondFile.hash));
+    }
+
+    [TestMethod]
+    public void ExecuteEstimatedInstallBatchPlan_AllowsInstalledEmptyDestinationWithNewTarget()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryPackageInstallService();
+        string destinationDirectory = "C:\\Installed\\Target";
+        TestableBmsFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Lib\\installed.bms");
+        TestableBmsFile pendingFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\new.bms");
+        ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(installedFile, string.Empty),
+            ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, destinationDirectory));
+        package.path = "C:\\Pending\\Pkg1";
+
+        PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
+            [package],
+            [package],
+            CreateInstalledChartLookup([installedFile]));
+        PendingInstallBatchItem capturedItem = null;
+        PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
+            plan,
+            deletePendingPackageSourceAfterInstall: false,
+            installPackage: item =>
+            {
+                capturedItem = item;
+                return CreateSuccessfulPackageInstallResult(item.InstallWorkPackage);
+            },
+            createInstalledDisplayPackage: null,
+            cleanupPendingPackageSource: null);
+
+        Assert.IsNotNull(capturedItem);
+        Assert.AreSame(pendingFile, capturedItem.InstallWorkPackage.GetBmsOwnersForTest().Single());
+        Assert.IsTrue(capturedItem.ExcludedComponentPaths.Contains(installedFile.path));
+        Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
+        Assert.IsTrue(capturedItem.DestinationDirectory.Equals(destinationDirectory, StringComparison.OrdinalIgnoreCase));
     }
 
     [TestMethod]
@@ -1165,13 +1981,20 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [pendingPackage],
             [pendingPackage],
-            CreateInstalledChartLookup([], [installedBmson]),
+            CreateInstalledChartLookup([], [installedBmson]));
+
+        PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
+            plan,
             deletePendingPackageSourceAfterInstall: true,
+            installPackage: _ => throw new AssertFailedException("resource-only package must not run a chart move when no component target exists."),
+            createInstalledDisplayPackage: null,
+            cleanupPendingPackageSource: _ => (true, CleanupSourceKind.MissingSource),
             countComponentMoveTargets: (_, _, _) => 0);
 
-        Assert.AreEqual(0, plan.Groups.Count);
         Assert.AreEqual(1, plan.CleanupOnlyCandidates.Count);
         Assert.AreSame(pendingPackage, plan.CleanupOnlyCandidates[0]);
+        Assert.AreEqual(1, result.CleanupOnlySucceeded);
+        Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
         Assert.IsTrue(pendingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
         Assert.IsNull(pendingEntry.GetBmsOwnerForTest());
     }
@@ -1190,13 +2013,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [deferredPackage],
             [deferredPackage],
-            CreateInstalledChartLookup([]),
-            deletePendingPackageSourceAfterInstall: false,
-            countComponentMoveTargets: (_, _, _) => 0);
+            CreateInstalledChartLookup([]));
 
-        Assert.AreEqual(1, plan.SelectedPendingPackages.Count);
-        Assert.AreEqual(0, plan.Groups.Count);
+        Assert.AreEqual(0, plan.SelectedPendingPackages.Count);
         Assert.AreEqual(1, plan.DeferredManualHoldCount);
+        Assert.AreEqual(string.Empty, pendingFile.Warnings.BuildDigestText());
     }
 
     [TestMethod]
@@ -1222,47 +2043,44 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [mixedPackage, cleanupOnlyPackage],
             [mixedPackage, cleanupOnlyPackage],
-            CreateInstalledChartLookup([installedFile, cleanupInstalledFile]),
-            deletePendingPackageSourceAfterInstall: true,
-            countComponentMoveTargets: (pkg, dst, excluded) => pkg.path == cleanupOnlyPackage.path ? 0 : 2);
+            CreateInstalledChartLookup([installedFile, cleanupInstalledFile]));
 
         PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
             plan,
-            true,
-            (installPackages, destinationDirectoryArg, deferredMaintenanceCharts, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) =>
+            deletePendingPackageSourceAfterInstall: true,
+            installPackage: item =>
             {
-                deferredInstalledPackages.AddRange(installPackages);
-                foreach (ChartPackage installPackage in installPackages)
-                {
-                    deferredMaintenanceCharts.AddRange(installPackage.ChartEntries.Select(entry => entry.Chart));
-                }
-                return [];
+                Assert.AreSame(mixedPackage, item.OriginalPackage);
+                Assert.AreEqual(1, item.InstallWorkPackage.ChartEntries.Count);
+                Assert.AreSame(newFile, item.InstallWorkPackage.GetBmsOwnersForTest()[0]);
+                CollectionAssert.Contains(item.ExcludedComponentPaths.ToList(), alreadyInstalledInPackage.path);
+                return CreateSuccessfulPackageInstallResult(item.InstallWorkPackage);
             },
-            (originalPackage, destinationDirectoryArg) =>
+            createInstalledDisplayPackage: (originalPackage, destinationDirectoryArg) =>
             {
                 ChartPackage package = ChartPackageTestExtensions.CreatePackage(originalPackage.GetBmsOwnersForTest());
                 package.path = destinationDirectoryArg;
                 package.delete_parent = false;
                 return package;
             },
-            (cleanupPackage) => cleanupPackage == cleanupOnlyPackage
+            cleanupPendingPackageSource: cleanupPackage => cleanupPackage == cleanupOnlyPackage
                 ? (true, CleanupSourceKind.MissingSource)
-                : (false, CleanupSourceKind.MissingSource));
+                : (false, CleanupSourceKind.MissingSource),
+            countComponentMoveTargets: (pkg, _, _) => pkg.path == cleanupOnlyPackage.path ? 0 : 2);
 
         Assert.AreEqual(2, result.PendingPackagesToRemove.Count);
         CollectionAssert.AreEquivalent(new[] { mixedPackage.path, cleanupOnlyPackage.path }, result.InstallRowsToDelete.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
-        Assert.AreEqual(1, result.DeferredInstalledPackages.Count);
+        Assert.AreEqual(0, result.DeferredInstalledPackages.Count);
         Assert.AreEqual(1, result.CleanupOnlySucceeded);
         Assert.AreEqual(0, result.CleanupOnlyFailed);
         Assert.AreEqual(1, result.CleanupOnlyMissingSource);
-        Assert.AreEqual(1, result.DeferredMaintenanceCharts.Count);
-        Assert.AreSame(newFile, result.DeferredMaintenanceCharts[0].GetBmsStorageOwner());
+        Assert.AreEqual(0, result.DeferredMaintenanceCharts.Count);
         Assert.IsTrue(mixedPackage.ChartEntries.All(entry => string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)));
         Assert.IsTrue(cleanupOnlyPackage.ChartEntries.All(entry => string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)));
     }
 
     [TestMethod]
-    public void ExecuteEstimatedInstallBatchPlan_CarriesDeferredBmsonMaintenanceCharts()
+    public void ExecuteEstimatedInstallBatchPlan_ExecutesOneBmsonWorkItem()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         var service = new BmsLibraryPackageInstallService();
@@ -1283,27 +2101,21 @@ public sealed class BmsLibraryPackageInstallServiceTests
         PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
             [bmsonPackage],
             [bmsonPackage],
-            CreateInstalledChartLookup([]),
-            deletePendingPackageSourceAfterInstall: false,
-            countComponentMoveTargets: (_, _, _) => 1);
+            CreateInstalledChartLookup([]));
 
         PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
             plan,
-            false,
-            (installPackages, destinationDirectoryArg, deferredMaintenanceCharts, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) =>
+            deletePendingPackageSourceAfterInstall: false,
+            installPackage: item =>
             {
-                deferredInstalledPackages.AddRange(installPackages);
-                foreach (PackageChartEntry entry in installPackages.SelectMany(package => package.ChartEntries))
-                {
-                    deferredMaintenanceCharts.Add(entry?.Chart);
-                }
-                return [];
+                Assert.AreSame(bmsonPackage, item.OriginalPackage);
+                Assert.AreSame(bmsonEntry, item.InstallWorkPackage.ChartEntries.Single());
+                return CreateSuccessfulPackageInstallResult(item.InstallWorkPackage);
             },
-            (originalPackage, destinationDirectoryArg) => null,
-            (_) => (false, CleanupSourceKind.MissingSource));
+            createInstalledDisplayPackage: null,
+            cleanupPendingPackageSource: null);
 
-        Assert.AreEqual(1, result.DeferredMaintenanceCharts.Count);
-        Assert.AreSame(bmsonSong, result.DeferredMaintenanceCharts[0].GetBmsonStorageOwner());
+        Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
         Assert.IsNull(bmsonEntry.GetBmsOwnerForTest());
         Assert.AreEqual(string.Empty, bmsonEntry.Chart.InstallDestination);
     }
@@ -5162,6 +5974,28 @@ public sealed class BmsLibraryPackageInstallServiceTests
         };
         file.SetHash(hash);
         return file;
+    }
+
+    private static PackageInstallExecutionResult CreateSuccessfulPackageInstallResult(ChartPackage package)
+    {
+        var result = new PackageInstallExecutionResult();
+        result.AddedEntries.AddRange(package?.ChartEntries ?? []);
+        result.AddedCharts.AddRange(result.AddedEntries
+            .Select(entry => entry?.Chart)
+            .Where(chart => chart != null));
+        result.MutationReceipt = new FileDbMutationBatchReceipt([
+            new FileDbMutationReceipt(
+                Guid.NewGuid(),
+                FileDbMutationTerminalState.Completed,
+                durableCommit: true,
+                compensationAttemptCount: 0,
+                cleanupAttemptCount: 0,
+                sourcePaths: [],
+                destinationPaths: [],
+                stagingPaths: [],
+                backupPaths: [],
+                recoveryPaths: [])]);
+        return result;
     }
 
     private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookup(IEnumerable<BMSFile> installedFiles)

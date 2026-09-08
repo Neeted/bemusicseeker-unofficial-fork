@@ -176,11 +176,13 @@ Background pending estimate では、directory package の source baseline prefi
 
 ## 推定先への移動
 
-`InstallPendingPackagesToEstimatedDestinations` は、推定済み pending package を destination directory ごとの group にまとめて処理します。ファイル移動そのものは group は逐次です。これは移動済みファイルと `song.db` 反映の対応を保ち、失敗時の切り分けを単純にするためです。
+`InstallPendingPackagesToEstimatedDestinations` は、短い model guard の中で現在の pending との照合、入力順の重複排除、全有効 entry の `INSTL DST` が空の候補の除外を行います。候補を確定して guard を解放した後、適格候補だけの component snapshot を取得します。除外候補の source、pending row、DST、warning は変更しません。
 
-group ごとの処理では、ファイル移動、`song.db` の譜面 upsert、install row 削除対象の収集、インストール済み package への登録対象収集を行います。`song.db` の譜面 upsert は group ごとに維持します。ここを batch 末尾へ寄せると、移動済みファイルが DB に未反映のままクラッシュする窓が広がるためです。
+候補は入力順に一件ずつ分類して実行します。所持判定は開始時の primary hash と、直前までに durable receipt で確定した `AddedEntries` だけを共有 `PrimaryHashGuardLookup` に反映します。package 内の同一 hash は局所的に抑止し、未確定の重複へ `AlreadyInstalled` warning を付けません。既所持 chart と新規 chart が混在する場合は、既所持 chart を除外して新規 chart を一件の work item として扱います。新規対象の DST が空または複数に分かれる場合は実績を追加せず、その package を保留に残します。
 
-一方、library/cache/index は batch 末尾でまとめて反映します。具体的には、group ごとに追加 chart と変更 directory を `EstimatedInstallBatchApplyContext` に蓄積し、全 group 完了後に `BMSFiles` / `BmsonSongs` の置換、`directoryResourceLookupCache` の追加 directory scan、playlist library index invalidation/prewarm を最大 1 回に寄せます。追加 bmson は追加 chart のうち `Kind=Bmson` のものとして扱い、batch 後の inline chart_info 対象も `AddedCharts` から再投影します。これにより、複数 group install で `playlist_library_index_prewarm cancelled/debounced` や `reverse_lookup_incremental_update` が group 数分発生しないようにします。
+各 work item は filesystem 移動と `song.db` upsert を一つの receipt で確定します。対応する durable receipt がある場合だけ install row の削除、DST のクリア、保留からの除去を行い、manual recovery または durable finalization failure ではその時点で停止して未着手 suffix を維持します。全 chart が既所持になった package は、その時点で resource-only、cleanup-only の条件を評価します。
+
+library/cache/index は batch 末尾でまとめて反映します。各 item の追加 chart と変更 directory を `EstimatedInstallBatchApplyContext` に蓄積し、全 item 完了後に `BMSFiles` / `BmsonSongs` の置換、`directoryResourceLookupCache` の追加 directory scan、playlist library index invalidation/prewarm を最大 1 回に寄せます。追加 bmson は追加 chart のうち `Kind=Bmson` のものとして扱い、batch 後の inline chart_info 対象も `AddedCharts` から再投影します。これにより、複数 item install で `playlist_library_index_prewarm cancelled/debounced` や `reverse_lookup_incremental_update` が item 数分発生しないようにします。
 
 maintenance / chart_info inline 更新も batch 末尾です。maintenance 対象は、追加された BMS / bmson chart に加えて、resource file が移動された destination directory 内の既存 installed chart です。chart も resource も移動しない cleanup-only 成功では maintenance を行いません。
 
@@ -190,8 +192,8 @@ resource health index は delta 更新を優先します。既存 snapshot が�
 
 ログ確認時は次を見ると、処理の粒度を確認できます。
 
-- `install_pending_packages_to_estimated_destinations group`: destination group ごとの逐次移動と group 単位の DB 反映。
-- `reverse_lookup_incremental_update reason=install_package`: batch 末尾の reverse lookup 差分更新。複数 group でも原則 1 回。
+- `install_pending_packages_to_estimated_destinations item`: 入力順一件ごとの移動、receipt 確定、pending 更新。
+- `reverse_lookup_incremental_update reason=install_package`: batch 末尾の reverse lookup 差分更新。複数 item でも原則 1 回。
 - `maintenance_update`: batch 末尾の affected chart maintenance。`resourceHealthIndexMode=delta` なら resource health index は差分更新です。
 - `resource_health_index_delta`: full rebuild ではなく affected chart の projection だけを更新したことを示します。
 - `chart_info_inline_install`: batch 末尾の chart_info inline parse / persist。
