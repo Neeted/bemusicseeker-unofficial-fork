@@ -785,52 +785,68 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task PreparationWaitsForRunningReloadCleanupAfterPendingCancellation()
     {
-        var dispatcherEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var dispatcherRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var shutdownMarked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        bool shutdownRequested = false;
-        int garbageCollectionCount = 0;
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(
-            action => action(),
-            reloadCleanupDispatcherIdleWaiter: async () =>
-            {
-                dispatcherEntered.TrySetResult(true);
-                await dispatcherRelease.Task.ConfigureAwait(false);
-            },
-            reloadCleanupShutdownRequestedProvider: () => Volatile.Read(ref shutdownRequested),
-            reloadCleanupGarbageCollector: () => Interlocked.Increment(ref garbageCollectionCount));
-        var warnings = new List<string>();
-        ShellShutdownWorkflowOwner owner = CreateDirectOwner(
-            viewModel,
-            playlistWorkspace: workspace,
-            markShutdown: _ =>
-            {
-                Volatile.Write(ref shutdownRequested, true);
-                shutdownMarked.TrySetResult(true);
-            },
-            logShutdownWarning: warnings.Add);
-        Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
-        await dispatcherEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-        Task cleanupIdle = workspace.WaitForPlaylistReloadCleanupIdleAsync();
-        Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("reload_cleanup");
-
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(ShellShutdownWorkflowOwnerTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string settingsPath = Path.Combine(directory, "user.config");
+        MainWindowViewModel? viewModel = null;
         try
         {
-            await shutdownMarked.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-            Assert.IsFalse(cleanupIdle.IsCompleted);
-            Assert.IsFalse(preparation.IsCompleted);
+            var settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            var dispatcherEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var dispatcherRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var shutdownMarked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool shutdownRequested = false;
+            int garbageCollectionCount = 0;
+            viewModel = MainWindowViewModelTestFactory.Create(settings);
+            PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(
+                action => action(),
+                reloadCleanupDispatcherIdleWaiter: async () =>
+                {
+                    dispatcherEntered.TrySetResult(true);
+                    await dispatcherRelease.Task.ConfigureAwait(false);
+                },
+                reloadCleanupShutdownRequestedProvider: () => Volatile.Read(ref shutdownRequested),
+                reloadCleanupGarbageCollector: () => Interlocked.Increment(ref garbageCollectionCount));
+            var warnings = new List<string>();
+            ShellShutdownWorkflowOwner owner = CreateDirectOwner(
+                viewModel,
+                playlistWorkspace: workspace,
+                markShutdown: _ =>
+                {
+                    Volatile.Write(ref shutdownRequested, true);
+                    shutdownMarked.TrySetResult(true);
+                },
+                logShutdownWarning: warnings.Add);
+            Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
+            await dispatcherEntered.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            Task cleanupIdle = workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            Task<ShutdownPreparationResult> preparation = owner.PrepareForStartupUpdateAsync("reload_cleanup");
+
+            try
+            {
+                await shutdownMarked.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                Assert.IsFalse(cleanupIdle.IsCompleted);
+                Assert.IsFalse(preparation.IsCompleted);
+            }
+            finally
+            {
+                dispatcherRelease.TrySetResult(true);
+            }
+
+            await cleanupIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+            Assert.IsFalse(result.SlowWaitLogged);
+            Assert.AreEqual(0, garbageCollectionCount);
+            Assert.AreEqual(0, warnings.Count);
         }
         finally
         {
-            dispatcherRelease.TrySetResult(true);
+            viewModel?.SettingDialog.Dispose();
+            Directory.Delete(directory, true);
         }
-
-        await cleanupIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-        ShutdownPreparationResult result = await preparation.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-        Assert.IsFalse(result.SlowWaitLogged);
-        Assert.AreEqual(0, garbageCollectionCount);
-        Assert.AreEqual(0, warnings.Count);
     }
 
     [TestMethod]
