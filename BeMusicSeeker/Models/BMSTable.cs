@@ -49,6 +49,114 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     public string LoadedRawHeaderSha256 { get; private set; }
 
+    /// <summary>
+    /// 一つの playlist mutation だけを補償するための一時スナップショットです。
+    /// </summary>
+    internal sealed class MutationSnapshot
+    {
+        /// <summary>同じ表と行を復元するため、変更前の所属・内容・更新情報を保全します。</summary>
+        internal MutationSnapshot(
+            BMSTable table,
+            IReadOnlyList<BMSTableEntry> entries,
+            IReadOnlyDictionary<BMSTableEntry, BMSTableEntry.MutationState> entryStates,
+            IReadOnlyList<string> folderOrder,
+            DateTime lastUpdate,
+            int playlistEntriesRevision)
+        {
+            Table = table;
+            Entries = entries;
+            EntryStates = entryStates;
+            FolderOrder = folderOrder;
+            LastUpdate = lastUpdate;
+            PlaylistEntriesRevision = playlistEntriesRevision;
+        }
+
+        /// <summary>この操作内スナップショットの復元先の表です。</summary>
+        internal BMSTable Table { get; }
+
+        /// <summary>変更前の行集合と行オブジェクトの参照です。</summary>
+        internal IReadOnlyList<BMSTableEntry> Entries { get; }
+
+        /// <summary>対象操作と保存時の正規化が変更し得る既存行の状態です。</summary>
+        internal IReadOnlyDictionary<BMSTableEntry, BMSTableEntry.MutationState> EntryStates { get; }
+
+        /// <summary>変更前のフォルダー表示順です。</summary>
+        internal IReadOnlyList<string> FolderOrder { get; }
+
+        /// <summary>変更前の表の更新日時です。</summary>
+        internal DateTime LastUpdate { get; }
+
+        /// <summary>変更前の行更新リビジョンです。</summary>
+        internal int PlaylistEntriesRevision { get; }
+    }
+
+    /// <summary>
+    /// 現在の table と既存 entry object の状態を operation 内補償用に取得します。
+    /// </summary>
+    /// <returns>変更前の table state。</returns>
+    internal MutationSnapshot CaptureMutationSnapshot()
+    {
+        List<BMSTableEntry> entrySnapshot = [.. (_entries ?? [])];
+        Dictionary<BMSTableEntry, BMSTableEntry.MutationState> entryStates = [];
+        foreach (BMSTableEntry entry in entrySnapshot.Where(entry => entry != null).Distinct())
+        {
+            entryStates.Add(entry, entry.CaptureMutationState());
+        }
+        return new MutationSnapshot(
+            this,
+            entrySnapshot,
+            entryStates,
+            _Folder_order == null ? null : [.. _Folder_order],
+            base.last_update,
+            PlaylistEntriesRevision);
+    }
+
+    /// <summary>
+    /// DB commit 前に失敗した operation の変更を、同じ object を保ったまま戻します。
+    /// </summary>
+    /// <param name="snapshot">この table から取得した補償用 snapshot。</param>
+    /// <param name="publishNotifications">
+    /// 復元時に property/folder cache 通知を発行するかどうか。
+    /// model lock 内の途中失敗では通知を遅らせ、DB failure 後の終端でのみ発行します。
+    /// </param>
+    internal void RestoreMutationSnapshot(MutationSnapshot snapshot, bool publishNotifications = true)
+    {
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        if (!ReferenceEquals(snapshot.Table, this))
+        {
+            throw new ArgumentException("Mutation snapshot belongs to another playlist table.", nameof(snapshot));
+        }
+
+        _entries = [.. snapshot.Entries];
+        foreach (BMSTableEntry entry in _entries.Where(entry => entry != null).Distinct())
+        {
+            if (snapshot.EntryStates.TryGetValue(entry, out BMSTableEntry.MutationState state))
+            {
+                state.Restore(entry, this);
+            }
+            else
+            {
+                entry.parent = this;
+            }
+        }
+        _Folder_order = snapshot.FolderOrder == null ? null : [.. snapshot.FolderOrder];
+        base.last_update = snapshot.LastUpdate;
+        RebuildFolderState(publishNotifications);
+        bool revisionChanged = _PlaylistEntriesRevision != snapshot.PlaylistEntriesRevision;
+        _PlaylistEntriesRevision = snapshot.PlaylistEntriesRevision;
+        if (publishNotifications)
+        {
+            RaisePropertyChanged("Folder_order");
+            if (revisionChanged)
+            {
+                RaisePropertyChanged(nameof(PlaylistEntriesRevision));
+            }
+        }
+    }
+
     public override string folder_order
     {
         get
@@ -834,10 +942,40 @@ public class BMSTable : LR2SongDBExtended.playlist
     /// <returns>特殊ノードを含まない、並び順適用後のフォルダ名一覧。</returns>
     private List<string> getSortedFolderList()
     {
-        List<string> folderList = [.. (from e in entries
-                                   where !e.is_removed
-                                   select e.folder).Distinct()];
-        IEnumerable<string> enumerable = (Folder_order ?? [])
+        return GetSortedFolderList(entries, Folder_order);
+    }
+
+    /// <summary>
+    /// 指定した entry と明示順から、実 table と同じフォルダ表示順を算出します。
+    /// Root-folder drop の計画中も live table を変更せず同じ順序規則を使うために公開します。
+    /// </summary>
+    /// <param name="sourceEntries">現在または計画中の playlist entry 群。</param>
+    /// <param name="folderOrder">永続化されている明示フォルダ順。</param>
+    /// <returns>特殊ノードを含まない、並び順適用後のフォルダ名一覧。</returns>
+    internal static List<string> GetSortedFolderList(
+        IEnumerable<BMSTableEntry> sourceEntries,
+        IEnumerable<string> folderOrder)
+    {
+        return GetSortedFolderList(
+            (sourceEntries ?? Enumerable.Empty<BMSTableEntry>())
+            .Where(entry => entry != null && !entry.is_removed)
+            .Select(entry => entry.folder),
+            folderOrder);
+    }
+
+    /// <summary>
+    /// フォルダ名集合と明示順から、実 table と同じフォルダ表示順を算出します。
+    /// 計画中の entry がまだ folder field を持たない場合も、所属予定名をそのまま利用できます。
+    /// </summary>
+    /// <param name="sourceFolderNames">現在または計画中のフォルダ名。</param>
+    /// <param name="folderOrder">永続化されている明示フォルダ順。</param>
+    /// <returns>特殊ノードを含まない、並び順適用後のフォルダ名一覧。</returns>
+    internal static List<string> GetSortedFolderList(
+        IEnumerable<string> sourceFolderNames,
+        IEnumerable<string> folderOrder)
+    {
+        List<string> folderList = [.. (sourceFolderNames ?? Enumerable.Empty<string>()).Distinct()];
+        IEnumerable<string> enumerable = (folderOrder ?? Enumerable.Empty<string>())
             .Where(f => folderList.Contains(f))
             .Distinct(StringComparer.Ordinal);
         List<string> list = [.. folderList.Except(enumerable)];
@@ -891,12 +1029,15 @@ public class BMSTable : LR2SongDBExtended.playlist
     /// フォルダ状態の派生値を再構築し、関連プロパティ変更通知を発行します。
     /// フォルダ構成が変わる更新経路は、このメソッドを通じて状態を同期します。
     /// </summary>
-    private void RebuildFolderState()
+    private void RebuildFolderState(bool publishNotifications = true)
     {
         InvalidateFolderStateCache();
         EnsureFolderStateCache();
-        RaisePropertyChanged("folder_list");
-        RaisePropertyChanged("FolderNodes");
+        if (publishNotifications)
+        {
+            RaisePropertyChanged("folder_list");
+            RaisePropertyChanged("FolderNodes");
+        }
     }
 
     /// <summary>
@@ -1094,16 +1235,34 @@ public class BMSTable : LR2SongDBExtended.playlist
         return entries.Where(e => e.md5 != "00000000000000000000000000000000");
     }
 
+    /// <summary>
+    /// 既存フォルダ名と衝突しない新規フォルダ名を解決します。
+    /// Root-folder drop の計画中も同じ命名規則を使えるよう、table の変更を行わずに判定します。
+    /// </summary>
+    /// <param name="newName">希望するフォルダ名。</param>
+    /// <param name="existingFolderNames">現在または計画済みのフォルダ名。</param>
+    /// <returns>既存名と衝突しないフォルダ名。</returns>
+    internal static string ResolveNewFolderName(
+        string newName,
+        IEnumerable<string> existingFolderNames)
+    {
+        string baseName = string.IsNullOrWhiteSpace(newName) ? "新しいフォルダー" : newName;
+        HashSet<string> names = new(
+            existingFolderNames ?? Enumerable.Empty<string>(),
+            StringComparer.Ordinal);
+        string resolvedName = baseName;
+        int suffix = 1;
+        while (names.Contains(resolvedName))
+        {
+            suffix++;
+            resolvedName = baseName + " (" + suffix + ")";
+        }
+        return resolvedName;
+    }
+
     public string CreateNewFolder(string newName)
     {
-        string text = (newName = (string.IsNullOrWhiteSpace(newName) ? "新しいフォルダー" : newName));
-        HashSet<string> existingFolderNames = GetExistingFolderNameSet();
-        int num = 1;
-        while (existingFolderNames.Contains(text))
-        {
-            num++;
-            text = newName + " (" + num + ")";
-        }
+        string text = ResolveNewFolderName(newName, GetExistingFolderNameSet());
         var bMSTableEntry = BMSTableEntry.CreateDummyBMSTableEntry();
         bMSTableEntry.parent = this;
         bMSTableEntry.folder = text;

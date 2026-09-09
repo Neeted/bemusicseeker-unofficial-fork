@@ -132,6 +132,273 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void PlaylistLocalMutation_DatabaseFailureRestoresLiveStateAndAllowsFollowingSave()
+    {
+        string[] mutationKinds = ["rename-folder", "create-folder", "remove-folder", "remove-entry", "drop"];
+        foreach (string mutationKind in mutationKinds)
+        {
+            string tempDirectory = Path.Combine(
+                Path.GetTempPath(),
+                "BmsPlaylistUpdateTests",
+                "mutation-failure-" + mutationKind + "-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDirectory);
+            try
+            {
+                string songDbPath = CreateTempSongDbPath(tempDirectory);
+                PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+                const int playlistId = 9071;
+                BMSTableEntry targetEntry = CreateEntry(
+                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "Original");
+                targetEntry.playlist_id = playlistId;
+                targetEntry.title = "Target before failure";
+                BMSTableEntry retainedEntry = CreateEntry(
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    "Keep");
+                retainedEntry.playlist_id = playlistId;
+                retainedEntry.title = "Retained before failure";
+                BMSTable table = new()
+                {
+                    playlist_id = playlistId,
+                    name = "Mutation failure target",
+                    symbol = "MF",
+                    last_update = new DateTime(2026, 9, 9, 12, 0, 0, DateTimeKind.Local),
+                    entries = [targetEntry, retainedEntry]
+                };
+                table.Folder_order = ["Original", "Keep"];
+                using (var setup = new LR2SongDBExtended(songDbPath))
+                {
+                    setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                    setup.InsertOrReplace(targetEntry, typeof(LR2SongDBExtended.playlist_entry));
+                    setup.InsertOrReplace(retainedEntry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+
+                var playlist = new TestBmsPlaylist(
+                    songDbPath,
+                    null,
+                    null,
+                    null,
+                    null,
+                    () => new PlaylistUrlCompletionOptionsSnapshot(),
+                    () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false },
+                    () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+                    CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                        songDbPath,
+                        CustomFolderOutputPhysicalSurface.Empty))
+                {
+                    BMSTables = new ObservableCollection<BMSTable>([table])
+                };
+
+                int initialRevision = table.PlaylistEntriesRevision;
+                DateTime initialLastUpdate = table.last_update;
+                string[] initialFolderOrder = [.. table.Folder_order];
+                string[] initialEntryFolders = [targetEntry.folder, retainedEntry.folder];
+                const string triggerName = "playlist_mutation_test_write_failure";
+                using (var failDatabaseWrite = new LR2SongDBExtended(songDbPath))
+                {
+                    failDatabaseWrite.Execute(
+                        "CREATE TRIGGER " + triggerName + " "
+                        + "BEFORE INSERT ON playlist WHEN NEW.playlist_id = 9071 "
+                        + "BEGIN SELECT RAISE(ABORT, 'playlist mutation DB write failure'); END;");
+                }
+
+                Exception failure = null;
+                try
+                {
+                    ApplyMutationForFailureCase(
+                        playlist,
+                        table,
+                        targetEntry,
+                        mutationKind,
+                        "FailedFolder");
+                }
+                catch (Exception exception)
+                {
+                    failure = exception;
+                }
+
+                Assert.IsNotNull(failure, mutationKind);
+                StringAssert.Contains(failure.ToString(), "playlist mutation DB write failure", mutationKind);
+                Assert.AreEqual(initialRevision, table.PlaylistEntriesRevision, mutationKind);
+                Assert.AreEqual(initialLastUpdate, table.last_update, mutationKind);
+                CollectionAssert.AreEqual(initialFolderOrder, table.Folder_order, mutationKind);
+                CollectionAssert.AreEqual(
+                    new BMSTableEntry[] { targetEntry, retainedEntry },
+                    table.entries,
+                    mutationKind);
+                Assert.AreSame(table, targetEntry.parent, mutationKind);
+                Assert.AreSame(table, retainedEntry.parent, mutationKind);
+                CollectionAssert.AreEqual(initialEntryFolders, new[] { targetEntry.folder, retainedEntry.folder }, mutationKind);
+                Assert.AreEqual("Target before failure", targetEntry.title, mutationKind);
+                Assert.AreEqual("Retained before failure", retainedEntry.title, mutationKind);
+
+                using (var verifyFailedWrite = new LR2SongDBExtended(songDbPath))
+                {
+                    BMSTable persistedTable = verifyFailedWrite.Table<BMSTable>()
+                        .Single(item => item.playlist_id == playlistId);
+                    Assert.AreEqual("Mutation failure target", persistedTable.name, mutationKind);
+                    CollectionAssert.AreEqual(initialFolderOrder, persistedTable.Folder_order, mutationKind);
+                    List<BMSTableEntry> persistedEntries = [.. verifyFailedWrite.Table<BMSTableEntry>()
+                        .Where(item => item.playlist_id == playlistId && !item.is_removed)
+                        .OrderBy(item => item.md5, StringComparer.Ordinal)];
+                    CollectionAssert.AreEqual(
+                        new[] { targetEntry.md5, retainedEntry.md5 },
+                        persistedEntries.Select(item => item.md5).ToArray(),
+                        mutationKind);
+                    Assert.IsTrue(persistedEntries.All(item =>
+                        item.title is "Target before failure" or "Retained before failure"), mutationKind);
+                }
+
+                using (var removeFailureTrigger = new LR2SongDBExtended(songDbPath))
+                {
+                    removeFailureTrigger.Execute("DROP TRIGGER " + triggerName + ";");
+                }
+
+                ApplyMutationAfterFailure(playlist, table, targetEntry, mutationKind, "AfterFailure");
+
+                using (var verifyFollowingWrite = new LR2SongDBExtended(songDbPath))
+                {
+                    BMSTable persistedTable = verifyFollowingWrite.Table<BMSTable>()
+                        .Single(item => item.playlist_id == playlistId);
+                    List<BMSTableEntry> persistedEntries = [.. verifyFollowingWrite.Table<BMSTableEntry>()
+                        .Where(item => item.playlist_id == playlistId && !item.is_removed)];
+                    AssertFollowingMutationState(
+                        persistedTable,
+                        persistedEntries,
+                        targetEntry,
+                        mutationKind);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempDirectory))
+                {
+                    Directory.Delete(tempDirectory, recursive: true);
+                }
+            }
+        }
+    }
+
+    private static void ApplyMutationForFailureCase(
+        BMSPlaylist playlist,
+        BMSTable table,
+        BMSTableEntry targetEntry,
+        string mutationKind,
+        string folderName)
+    {
+        switch (mutationKind)
+        {
+            case "rename-folder":
+                playlist.RenameFolderBMSTable(table, "Original", folderName);
+                return;
+            case "create-folder":
+                playlist.CreateNewFolderBMSTable(table, folderName);
+                return;
+            case "remove-folder":
+                playlist.RemoveFolderBMSTable(table, "Original");
+                return;
+            case "remove-entry":
+                playlist.RemoveEntriesBMSTable([targetEntry], table);
+                return;
+            case "drop":
+                BMSTableEntry droppedEntry = CreateEntry(
+                    "cccccccccccccccccccccccccccccccc",
+                    folderName);
+                droppedEntry.playlist_id = table.playlist_id;
+                PlaylistDropMutationResult result = playlist.ApplyPlaylistDropMutation(
+                    table,
+                    "PlaylistLocalMutation_DatabaseFailure",
+                    folderName,
+                    [],
+                    [droppedEntry],
+                    []);
+                Assert.IsTrue(result.Applied);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mutationKind), mutationKind, null);
+        }
+    }
+
+    private static void ApplyMutationAfterFailure(
+        BMSPlaylist playlist,
+        BMSTable table,
+        BMSTableEntry targetEntry,
+        string mutationKind,
+        string folderName)
+    {
+        switch (mutationKind)
+        {
+            case "rename-folder":
+                playlist.RenameFolderBMSTable(table, "Original", folderName);
+                return;
+            case "create-folder":
+                playlist.CreateNewFolderBMSTable(table, folderName);
+                return;
+            case "remove-folder":
+                playlist.RemoveFolderBMSTable(table, "Original");
+                return;
+            case "remove-entry":
+                playlist.RemoveEntriesBMSTable([targetEntry], table);
+                return;
+            case "drop":
+                BMSTableEntry droppedEntry = CreateEntry(
+                    "dddddddddddddddddddddddddddddddd",
+                    folderName);
+                droppedEntry.playlist_id = table.playlist_id;
+                PlaylistDropMutationResult result = playlist.ApplyPlaylistDropMutation(
+                    table,
+                    "PlaylistLocalMutation_FollowingSave",
+                    folderName,
+                    [],
+                    [droppedEntry],
+                    []);
+                Assert.IsTrue(result.Applied);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mutationKind), mutationKind, null);
+        }
+    }
+
+    private static void AssertFollowingMutationState(
+        BMSTable persistedTable,
+        IReadOnlyList<BMSTableEntry> persistedEntries,
+        BMSTableEntry targetEntry,
+        string mutationKind)
+    {
+        switch (mutationKind)
+        {
+            case "rename-folder":
+                CollectionAssert.Contains(persistedTable.Folder_order, "AfterFailure", mutationKind);
+                Assert.IsTrue(persistedEntries.Any(entry => entry.md5 == targetEntry.md5 && entry.folder == "AfterFailure"), mutationKind);
+                Assert.IsFalse(persistedEntries.Any(entry => entry.folder == "FailedFolder"), mutationKind);
+                return;
+            case "create-folder":
+                Assert.IsTrue(
+                    persistedEntries.Any(entry =>
+                        entry.md5 == "00000000000000000000000000000000"
+                        && entry.folder == "AfterFailure"),
+                    mutationKind);
+                Assert.IsFalse(persistedEntries.Any(entry => entry.folder == "FailedFolder"), mutationKind);
+                return;
+            case "remove-folder":
+                CollectionAssert.DoesNotContain(persistedTable.Folder_order, "Original", mutationKind);
+                Assert.IsTrue(persistedEntries.Any(entry => entry.md5 == targetEntry.md5 && string.IsNullOrEmpty(entry.folder)), mutationKind);
+                return;
+            case "remove-entry":
+                Assert.IsFalse(persistedEntries.Any(entry => entry.md5 == targetEntry.md5), mutationKind);
+                Assert.IsTrue(persistedEntries.Any(entry => entry.md5 == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"), mutationKind);
+                return;
+            case "drop":
+                Assert.IsTrue(persistedEntries.Any(entry => entry.md5 == "dddddddddddddddddddddddddddddddd" && entry.folder == "AfterFailure"), mutationKind);
+                Assert.IsFalse(persistedEntries.Any(entry => entry.md5 == "cccccccccccccccccccccccccccccccc"), mutationKind);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mutationKind), mutationKind, null);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public async Task PlaylistWorkspaceMutation_ReportsDetailContentChangeForCurrentTable()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));

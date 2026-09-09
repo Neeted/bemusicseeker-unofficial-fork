@@ -14,6 +14,7 @@ using System.Windows.Data;
 using System.Windows.Interop;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -350,6 +351,8 @@ public sealed class MainWindowProgressStatusBarWpfTests
     public async Task DefaultFactory_MapsEveryOwnerRouteAndPreservesPlaylistCancellationPriority()
     {
         var settings = new Settings { OperationModeLR2DB = false };
+        using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
+            PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
         var composition = new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
             playlistWorkspaceDialogService: new AcceptedStatusBarTestDialogService(),
@@ -357,6 +360,18 @@ public sealed class MainWindowProgressStatusBarWpfTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
+        TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(
+            ownedPlaylistStore.SongDbPath,
+            settings);
+        IStartupLibraryApplicationPort applicationPort = viewModel;
+        applicationPort.AttachStartupLibrary(library);
+        applicationPort.AttachStartupServices(
+            new StartupLibraryServices(
+                StartupLibraryConstructionTestSupport.CreateProfile(
+                    Path.GetDirectoryName(ownedPlaylistStore.SongDbPath)!,
+                    ownedPlaylistStore.SongDbPath),
+                library,
+                ownedPlaylistStore.Store));
         MainWindowProgressStatusBarTerminals terminals = MainWindowProgressStatusBarTerminals.Create(viewModel);
         int packageCancelRequests = 0;
         int maintenanceCancelRequests = 0;

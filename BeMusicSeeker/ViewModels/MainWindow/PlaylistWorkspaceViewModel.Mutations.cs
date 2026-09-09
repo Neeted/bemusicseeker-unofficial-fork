@@ -21,6 +21,82 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler PlaylistReferenceSortInvalidationRequested;
 
+    private bool TryEnterPlaylistMutationAdmission(
+        BMSPlaylist playlistStore,
+        out IDisposable lease)
+    {
+        if (playlistStore != null)
+        {
+            if (playlistStore.IsPlaylistUpdating)
+            {
+                lease = null;
+                return false;
+            }
+            return playlistStore.TryEnterPlaylistMutation(out lease);
+        }
+        lease = null;
+        return false;
+    }
+
+    private async Task<IDisposable> WaitForPlaylistMutationAdmissionAsync(BMSPlaylist playlistStore)
+    {
+        if (playlistStore != null)
+        {
+            return await playlistStore.WaitForPlaylistMutationAsync().ConfigureAwait(false);
+        }
+        throw new InvalidOperationException("Playlist persistence is not available.");
+    }
+
+    private IDisposable TryBeginPlaylistMutationForOwner(
+        BMSPlaylist playlistStore,
+        PlaylistWorkspaceMutationKind kind)
+    {
+        if (TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable lease))
+        {
+            return lease;
+        }
+        RaiseMutationRejected(kind, isBusy: true, isStale: false);
+        return null;
+    }
+
+    private bool TryBeginPlaylistMutation(
+        BMSPlaylist playlistStore,
+        PlaylistWorkspaceMutationKind kind,
+        out IDisposable lease)
+    {
+        if (TryEnterPlaylistMutationAdmission(playlistStore, out lease))
+        {
+            return true;
+        }
+        RaiseMutationRejected(kind, isBusy: true, isStale: false);
+        return false;
+    }
+
+    private void RaiseMutationRejected(
+        PlaylistWorkspaceMutationKind kind,
+        bool isBusy,
+        bool isStale)
+    {
+        MutationRejected?.Invoke(
+            this,
+            new PlaylistWorkspaceMutationRejectedEventArgs(kind, isBusy, isStale));
+    }
+
+    private bool TryResolvePlaylistTableForMutation(
+        BMSPlaylist playlistStore,
+        BMSTable requestedTable,
+        PlaylistWorkspaceMutationKind kind,
+        out BMSTable activeTable)
+    {
+        activeTable = playlistStore?.ResolveActivePlaylistTableForMutation(requestedTable);
+        if (activeTable != null)
+        {
+            return true;
+        }
+        RaiseMutationRejected(kind, isBusy: false, isStale: true);
+        return false;
+    }
+
     internal Task<BMSTable> CreatePlaylistAsync()
     {
         return Task.Run(CreatePlaylist);
@@ -65,10 +141,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             return Task.CompletedTask;
         }
 
-        Task[] deleteTasks = [.. entries
-            .GroupBy(entry => entry.parent)
-            .Select(group => Task.Run(() => DeleteEntries(group, group.Key)))];
-        return Task.WhenAll(deleteTasks);
+        return Task.Run(() => DeleteEntries(entries));
     }
 
     private void RenameFolder(BMSTable table, PlaylistFolderNode folder, string newName)
@@ -80,27 +153,85 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         string oldName = folder.FolderName;
         BMSPlaylist playlistStore = GetPlaylistStore();
+        if (!TryBeginPlaylistMutation(
+                playlistStore,
+                PlaylistWorkspaceMutationKind.RenameFolder,
+                out IDisposable admission))
+        {
+            return;
+        }
+        using (admission)
+        {
+            if (!TryResolvePlaylistTableForMutation(
+                playlistStore,
+                table,
+                PlaylistWorkspaceMutationKind.RenameFolder,
+                out BMSTable activeTable))
+            {
+                return;
+            }
+            if (!CanMutate(activeTable, PlaylistWorkspaceMutationKind.RenameFolder))
+            {
+                return;
+            }
+            if (!playlistStore.ContainsPlaylistFolderForMutation(activeTable, oldName))
+            {
+                RaiseMutationRejected(PlaylistWorkspaceMutationKind.RenameFolder, isBusy: false, isStale: true);
+                return;
+            }
+            RenameFolderAdmitted(playlistStore, activeTable, oldName, newName);
+        }
+    }
+
+    private void RenameFolderAdmitted(
+        BMSPlaylist playlistStore,
+        BMSTable activeTable,
+        string oldName,
+        string newName)
+    {
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
-        playlistStore.AcquireReaderLockBMSTables();
         try
         {
-            if (!CanMutate(table, PlaylistWorkspaceMutationKind.RenameFolder)
-                || !playlistStore.ContainsBMSTable(table)
-                || !playlistStore.RenameFolderBMSTable(table, oldName, newName))
+            if (!CanMutate(activeTable, PlaylistWorkspaceMutationKind.RenameFolder)
+                || !playlistStore.ContainsBMSTable(activeTable)
+                || !playlistStore.ContainsPlaylistFolderForMutation(activeTable, oldName)
+                || !playlistStore.RenameFolderBMSTable(activeTable, oldName, newName))
             {
                 return;
             }
             RemapCurrentPlaylistDetailFolderSelection(
-                table,
+                activeTable,
                 new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     [oldName] = newName ?? string.Empty
                 });
-            PublishEntriesChanged(table);
+            PublishEntriesChanged(activeTable);
+        }
+        catch (PlaylistMutationPostCommitException)
+        {
+            if (playlistStore.ContainsBMSTable(activeTable))
+            {
+                try
+                {
+                    RemapCurrentPlaylistDetailFolderSelection(
+                        activeTable,
+                        new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            [oldName] = newName ?? string.Empty
+                        });
+                    PublishEntriesChanged(activeTable);
+                }
+                catch (Exception secondaryException)
+                {
+                    TryLogPlaylistDropSecondaryFailure(
+                        secondaryException,
+                        "playlist_rename_post_commit_ui_invalidation_failed");
+                }
+            }
+            throw;
         }
         finally
         {
-            playlistStore.FreeReaderLockBMSTables();
             PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist rename folder notification");
         }
     }
@@ -112,25 +243,59 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
         BMSPlaylist playlistStore = GetPlaylistStore();
-        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
-        playlistStore.AcquireReaderLockBMSTables();
-        try
+        if (!TryBeginPlaylistMutation(
+                playlistStore,
+                PlaylistWorkspaceMutationKind.CreateFolder,
+                out IDisposable admission))
         {
-            if (!CanMutate(table, PlaylistWorkspaceMutationKind.CreateFolder)
-                || !playlistStore.ContainsBMSTable(table))
+            return;
+        }
+        using (admission)
+        {
+            if (!TryResolvePlaylistTableForMutation(
+                    playlistStore,
+                    table,
+                    PlaylistWorkspaceMutationKind.CreateFolder,
+                    out BMSTable activeTable)
+                || !CanMutate(activeTable, PlaylistWorkspaceMutationKind.CreateFolder))
             {
                 return;
             }
-            string createdFolder = playlistStore.CreateNewFolderBMSTable(table);
-            if (createdFolder != null)
+            using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
+            try
             {
-                PublishEntriesChanged(table);
+                if (!CanMutate(activeTable, PlaylistWorkspaceMutationKind.CreateFolder)
+                    || !playlistStore.ContainsBMSTable(activeTable))
+                {
+                    return;
+                }
+                string createdFolder = playlistStore.CreateNewFolderBMSTable(activeTable);
+                if (createdFolder != null)
+                {
+                    PublishEntriesChanged(activeTable);
+                }
             }
-        }
-        finally
-        {
-            playlistStore.FreeReaderLockBMSTables();
-            PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist create folder notification");
+            catch (PlaylistMutationPostCommitException)
+            {
+                if (playlistStore.ContainsBMSTable(activeTable))
+                {
+                    try
+                    {
+                        PublishEntriesChanged(activeTable);
+                    }
+                    catch (Exception secondaryException)
+                    {
+                        TryLogPlaylistDropSecondaryFailure(
+                            secondaryException,
+                            "playlist_create_post_commit_ui_invalidation_failed");
+                    }
+                }
+                throw;
+            }
+            finally
+            {
+                PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist create folder notification");
+            }
         }
     }
 
@@ -167,7 +332,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-
         if (targetFolder?.IsSpecial == true)
         {
             return;
@@ -180,8 +344,32 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         BMSPlaylist playlistStore = GetPlaylistStore();
-        BMSLibrary library = GetPlaylistLibrary();
+        if (!TryBeginPlaylistMutation(
+                playlistStore,
+                PlaylistWorkspaceMutationKind.AddEntries,
+                out IDisposable admission))
+        {
+            return;
+        }
+        using IDisposable admissionScope = admission;
+        if (!TryResolvePlaylistTableForMutation(
+                playlistStore,
+                table,
+                PlaylistWorkspaceMutationKind.AddEntries,
+                out BMSTable activeTable)
+            || !CanMutate(activeTable, PlaylistWorkspaceMutationKind.AddEntries))
+        {
+            return;
+        }
+        bool isRootFolderDrop = string.IsNullOrWhiteSpace(folderName);
+        if (!isRootFolderDrop
+            && !playlistStore.ContainsPlaylistFolderForMutation(activeTable, folderName))
+        {
+            RaiseMutationRejected(PlaylistWorkspaceMutationKind.AddEntries, isBusy: false, isStale: true);
+            return;
+        }
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
+        BMSLibrary library = GetPlaylistLibrary();
         List<BMSTableEntry> entriesToRemove = [];
         List<BMSTableEntry> entriesToAdd = [];
         List<PlaylistDropFolderMutation> folderMutations = [];
@@ -193,11 +381,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             bool readerLockHeld = false;
             try
             {
-                playlistStore.EnsurePlaylistEntriesLoaded(table, "PlaylistWorkspaceViewModel.AddRowsToFolder");
+                playlistStore.EnsurePlaylistEntriesLoaded(activeTable, "PlaylistWorkspaceViewModel.AddRowsToFolder");
                 playlistStore.AcquireReaderLockBMSTables();
                 readerLockHeld = true;
-                if (!CanMutate(table, PlaylistWorkspaceMutationKind.AddEntries)
-                    || !playlistStore.ContainsBMSTable(table))
+                if (!CanMutate(activeTable, PlaylistWorkspaceMutationKind.AddEntries)
+                    || !playlistStore.ContainsBMSTable(activeTable))
                 {
                     return;
                 }
@@ -205,10 +393,10 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     List<BMSTableEntry> entriesFromTarget = [.. sourceRows
                         .Select(GridRowResolver.GetPlaylistEntry)
-                        .Where(entry => entry != null && entry.parent == table)];
+                        .Where(entry => entry != null && entry.parent == activeTable)];
                     List<BMSTableEntry> entriesAlreadyInFolder = [.. entriesFromTarget
                         .Where(entry => string.Equals(entry.folder ?? string.Empty, folderName, StringComparison.Ordinal))];
-                    if (table.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder
+                    if (activeTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder
                         && string.IsNullOrWhiteSpace(folderName))
                     {
                         entriesToRemove.AddRange(entriesFromTarget);
@@ -228,14 +416,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                 resolvedCharts = [.. sourceRows
                     .Select(ResolveDropChart)
                     .Where(chart => chart != null)];
-                if (table.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder
+                if (activeTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder
                     && string.IsNullOrWhiteSpace(folderName))
                 {
                     entriesToAdd.AddRange(sourceRows
                         .Where(ShouldPreserveEntryForRootFolderDrop)
                         .Select(row => GridRowResolver.GetPlaylistEntry(row)?.Duplicate())
                         .Where(entry => entry != null));
-                    folderMutations.AddRange(BuildRootFolderDropMutations(sourceRows, table, library));
+                    folderMutations.AddRange(BuildRootFolderDropMutations(sourceRows, activeTable, library));
                 }
                 else
                 {
@@ -264,7 +452,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
 
             mutationResult = playlistStore.ApplyPlaylistDropMutation(
-                table,
+                activeTable,
                 "PlaylistWorkspaceViewModel.AddRowsToFolder",
                 folderName,
                 entriesToRemove,
@@ -275,7 +463,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 primaryFailure = mutationResult.PrimaryException;
                 try
                 {
-                    library.AddReferenceBMSTablesToCharts(table, resolvedCharts);
+                    library.AddReferenceBMSTablesToCharts(activeTable, resolvedCharts);
                 }
                 catch (Exception exception)
                 {
@@ -285,7 +473,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
                 try
                 {
-                    PublishEntriesChanged(table);
+                    PublishEntriesChanged(activeTable);
                 }
                 catch (Exception exception)
                 {
@@ -318,42 +506,149 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private void DeleteEntries(IEnumerable<BMSTableEntry> entries, BMSTable table)
+    private void DeleteEntries(IEnumerable<BMSTableEntry> entries)
     {
         if (entries == null)
         {
             throw new ArgumentNullException(nameof(entries));
         }
-        if (!CanMutate(table, PlaylistWorkspaceMutationKind.RemoveEntries))
+        List<BMSTableEntry> requestedEntries = [.. entries.Where(entry => entry != null)];
+        if (requestedEntries.Count == 0)
         {
+            return;
+        }
+        BMSPlaylist playlistStore = getPlaylistStore();
+        List<IGrouping<BMSTable, BMSTableEntry>> requestedGroups = [.. requestedEntries
+            .GroupBy(entry => entry.parent)
+            .Where(group => group.Key != null)];
+        if (playlistStore == null)
+        {
+            foreach (IGrouping<BMSTable, BMSTableEntry> group in requestedGroups)
+            {
+                if (CanMutate(group.Key, PlaylistWorkspaceMutationKind.RemoveEntries))
+                {
+                    // 永続化未構成の local 編集では、従来どおり capability failure を表面化します。
+                    // external row はこの必須 store lookup より前に拒否します。
+                    GetPlaylistStore();
+                }
+            }
             return;
         }
 
-        List<BMSTableEntry> entryList = [.. entries.Where(entry => entry != null)];
-        if (entryList.Count == 0)
+        if (!TryBeginPlaylistMutation(
+                playlistStore,
+                PlaylistWorkspaceMutationKind.RemoveEntries,
+                out IDisposable admission))
         {
             return;
         }
-        BMSPlaylist playlistStore = GetPlaylistStore();
-        BMSLibrary library = GetPlaylistLibrary();
-        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
-        playlistStore.AcquireReaderLockBMSTables();
-        try
+        using IDisposable admissionScope = admission;
+        Dictionary<BMSTable, List<BMSTableEntry>> entriesByTable = [];
+        foreach (BMSTableEntry requestedEntry in requestedEntries)
         {
-            if (!CanMutate(table, PlaylistWorkspaceMutationKind.RemoveEntries)
-                || !playlistStore.ContainsBMSTable(table)
-                || !playlistStore.RemoveEntriesBMSTable(entryList, table))
+            if (!playlistStore.TryResolveActivePlaylistEntry(
+                    requestedEntry,
+                    out BMSTable activeTable,
+                    out BMSTableEntry activeEntry))
             {
-                return;
+                RaiseMutationRejected(PlaylistWorkspaceMutationKind.RemoveEntries, isBusy: false, isStale: true);
+                continue;
             }
-            library.RemoveReferenceBMSTables(table, entryList);
-            PublishEntriesChanged(table);
+            if (!CanMutate(activeTable, PlaylistWorkspaceMutationKind.RemoveEntries))
+            {
+                continue;
+            }
+            if (!entriesByTable.TryGetValue(activeTable, out List<BMSTableEntry> activeEntries))
+            {
+                activeEntries = [];
+                entriesByTable.Add(activeTable, activeEntries);
+            }
+            if (!activeEntries.Contains(activeEntry))
+            {
+                activeEntries.Add(activeEntry);
+            }
         }
-        finally
+        if (entriesByTable.Count == 0)
         {
-            playlistStore.FreeReaderLockBMSTables();
-            PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist delete entries notification");
+            return;
         }
+        BMSLibrary library = GetPlaylistLibrary();
+        ExceptionDispatchInfo primaryFailure = null;
+        foreach (KeyValuePair<BMSTable, List<BMSTableEntry>> group in entriesByTable)
+        {
+            using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession =
+                playlistStore.OperationNotificationOwner.BeginSession();
+            BMSTable activeTable = null;
+            List<BMSTableEntry> activeEntries = null;
+            try
+            {
+                activeTable = playlistStore.ResolveActivePlaylistTableForMutation(group.Key);
+                if (activeTable == null)
+                {
+                    RaiseMutationRejected(PlaylistWorkspaceMutationKind.RemoveEntries, isBusy: false, isStale: true);
+                    continue;
+                }
+                activeEntries = [.. group.Value
+                    .Select(entry => playlistStore.TryResolveActivePlaylistEntry(
+                        entry,
+                        out BMSTable resolvedTable,
+                        out BMSTableEntry resolvedEntry)
+                        && ReferenceEquals(resolvedTable, activeTable)
+                            ? resolvedEntry
+                            : null)
+                    .Where(entry => entry != null)
+                    .Distinct()];
+                if (activeEntries.Count == 0)
+                {
+                    RaiseMutationRejected(PlaylistWorkspaceMutationKind.RemoveEntries, isBusy: false, isStale: true);
+                    continue;
+                }
+                if (!CanMutate(activeTable, PlaylistWorkspaceMutationKind.RemoveEntries)
+                    || !playlistStore.ContainsBMSTable(activeTable)
+                    || !playlistStore.RemoveEntriesBMSTable(activeEntries, activeTable))
+                {
+                    continue;
+                }
+                library.RemoveReferenceBMSTables(activeTable, activeEntries);
+                PublishEntriesChanged(activeTable);
+            }
+            catch (PlaylistMutationPostCommitException exception)
+            {
+                if (activeTable != null && activeEntries != null)
+                {
+                    try
+                    {
+                        library.RemoveReferenceBMSTables(activeTable, activeEntries);
+                    }
+                    catch (Exception secondaryException)
+                    {
+                        TryLogPlaylistDropSecondaryFailure(
+                            secondaryException,
+                            "playlist_delete_post_commit_reference_update_failed");
+                    }
+                    try
+                    {
+                        PublishEntriesChanged(activeTable);
+                    }
+                    catch (Exception secondaryException)
+                    {
+                        TryLogPlaylistDropSecondaryFailure(
+                            secondaryException,
+                            "playlist_delete_post_commit_ui_invalidation_failed");
+                    }
+                }
+                primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
+            }
+            catch (Exception exception)
+            {
+                primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist delete entries notification");
+            }
+        }
+        primaryFailure?.Throw();
     }
 
     internal static bool AreDropCandidateRows(IEnumerable<object> rows)
@@ -392,6 +687,22 @@ public sealed partial class PlaylistWorkspaceViewModel
         BMSLibrary library)
     {
         List<PlaylistDropFolderMutation> mutations = [];
+        List<string> workingFolderOrder = [.. (table.Folder_order ?? [])];
+        Dictionary<string, List<BMSTableEntry>> workingEntriesByFolder = new(StringComparer.Ordinal);
+        foreach (BMSTableEntry entry in table.entries ?? [])
+        {
+            if (entry == null || entry.is_removed)
+            {
+                continue;
+            }
+            string entryFolder = entry.folder ?? string.Empty;
+            if (!workingEntriesByFolder.TryGetValue(entryFolder, out List<BMSTableEntry> folderEntries))
+            {
+                folderEntries = [];
+                workingEntriesByFolder.Add(entryFolder, folderEntries);
+            }
+            folderEntries.Add(entry);
+        }
         List<ChartFile> charts = [.. sourceRows
             .Where(row => !ShouldPreserveEntryForRootFolderDrop(row))
             .Select(ResolveDropChart)
@@ -401,13 +712,16 @@ public sealed partial class PlaylistWorkspaceViewModel
             .ToList())
         {
             List<string> orgMd5s = library.GetPlaylistFolderOrgMd5sForCharts(directoryCharts);
+            List<string> orderedWorkingFolders = BMSTable.GetSortedFolderList(
+                workingEntriesByFolder.Keys,
+                workingFolderOrder);
             string targetFolder = null;
             if (orgMd5s.Count > 0)
             {
-                targetFolder = table.folder_list
+                targetFolder = orderedWorkingFolders
                     .Where(folder => !string.IsNullOrWhiteSpace(folder))
-                    .FirstOrDefault(folder => table.entries
-                        .Where(entry => entry.folder == folder)
+                    .FirstOrDefault(folder => workingEntriesByFolder.TryGetValue(folder, out List<BMSTableEntry> folderEntries)
+                        && folderEntries
                         .Select(entry => entry.md5)
                         .Intersect(orgMd5s, StringComparer.OrdinalIgnoreCase)
                         .Any());
@@ -415,13 +729,24 @@ public sealed partial class PlaylistWorkspaceViewModel
             string newFolderName = null;
             if (string.IsNullOrWhiteSpace(targetFolder))
             {
-                newFolderName = BMSLibrary.GetLongestCommonChartInfo(directoryCharts.Select(chart => chart.Title));
+                newFolderName = BMSTable.ResolveNewFolderName(
+                    BMSLibrary.GetLongestCommonChartInfo(directoryCharts.Select(chart => chart.Title)),
+                    orderedWorkingFolders);
+                targetFolder = newFolderName;
             }
+            List<BMSTableEntry> plannedEntries = [.. directoryCharts.Select(chart =>
+                BMSTableEntry.CreateForPlaylistDrop(chart, orgMd5s))];
+            if (!workingEntriesByFolder.TryGetValue(targetFolder, out List<BMSTableEntry> plannedFolderEntries))
+            {
+                plannedFolderEntries = [];
+                workingEntriesByFolder.Add(targetFolder, plannedFolderEntries);
+            }
+            plannedFolderEntries.AddRange(plannedEntries);
             mutations.Add(
                 new PlaylistDropFolderMutation(
-                    targetFolder,
+                    string.IsNullOrWhiteSpace(newFolderName) ? targetFolder : null,
                     newFolderName,
-                    directoryCharts.Select(chart => BMSTableEntry.CreateForPlaylistDrop(chart, orgMd5s))));
+                    plannedEntries));
         }
         return mutations;
     }
@@ -436,7 +761,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return true;
         }
-        MutationRejected?.Invoke(this, new PlaylistWorkspaceMutationRejectedEventArgs(kind));
+        RaiseMutationRejected(kind, isBusy: false, isStale: false);
         return false;
     }
 
@@ -585,23 +910,40 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 }
 
+/// <summary>編集が未実行となった場合に、画面へ通知する操作の種類です。</summary>
 internal enum PlaylistWorkspaceMutationKind
 {
     RenameFolder,
     RemoveFolder,
     CreateFolder,
     AddEntries,
-    RemoveEntries
+    RemoveEntries,
+    /// <summary>手動のプレイリスト再取得です。</summary>
+    Reload
 }
 
+/// <summary>編集を実行しなかった理由を、画面の通知へ渡します。</summary>
 internal sealed class PlaylistWorkspaceMutationRejectedEventArgs : EventArgs
 {
-    internal PlaylistWorkspaceMutationRejectedEventArgs(PlaylistWorkspaceMutationKind kind)
+    /// <summary>操作種別と、競合または対象消失による未実行の理由を保持します。</summary>
+    internal PlaylistWorkspaceMutationRejectedEventArgs(
+        PlaylistWorkspaceMutationKind kind,
+        bool isBusy = false,
+        bool isStale = false)
     {
         Kind = kind;
+        IsBusy = isBusy;
+        IsStale = isStale;
     }
 
+    /// <summary>実行しなかった操作の種類です。</summary>
     internal PlaylistWorkspaceMutationKind Kind { get; }
+
+    /// <summary>先行操作との競合により、待機せず未実行となったかを示します。</summary>
+    internal bool IsBusy { get; }
+
+    /// <summary>現在の対象を一意に解決できず、未実行となったかを示します。</summary>
+    internal bool IsStale { get; }
 }
 
 internal sealed class PlaylistFolderContextMenuAvailability

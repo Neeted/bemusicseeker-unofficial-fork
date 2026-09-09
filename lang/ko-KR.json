@@ -734,6 +734,8 @@
   "Msg_SelectedPlaylistExternalPackageLookupResult": "외부 API 입수처 검색 결과\n\n대상 MD5: {0}\n설치 대상: {1}\n입수처 없음: {2}\n건너뜀(다운로드 완료 URL): {3}\n건너뜀(실패한 URL): {4}\n건너뜀(크기 제한): {5}\n건너뜀(지원 안 함): {6}\n실패: {7}\n취소로 미처리: {8}",
   "Warn_ElevatedProcessDragDropLimited": "BeMusicSeeker가 관리자 권한으로 실행 중입니다.\n\n일반 권한의 Explorer 창에서 파일이나 폴더를 드래그 앤 드롭하면 Windows가 차단할 수 있습니다.\n드래그 앤 드롭으로 곡을 추가하려면 BeMusicSeeker를 일반 권한으로 실행해 주세요.",
   "Warn_PendingPackageNotFound": "선택한 채보가 보류 중인 패키지에서 찾을 수 없습니다.",
+  "Warn_PlaylistMutationBusy": "다른 재생 목록 작업이 이미 진행 중입니다.\n작업이 완료된 후 다시 시도하세요.",
+  "Warn_PlaylistMutationStale": "표시된 재생 목록 대상이 오래되었거나 이미 삭제되었습니다.\n현재 대상을 선택한 후 다시 시도하세요.",
   "Warn_InvalidInstallPath": "설치 대상 경로가 잘못되었습니다.\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "설치 대상 폴더를 찾을 수 없습니다.\n{0}",
   "Warn_InstallDirMustContainBms": "설치 대상에는 기존 BMS 파일이 있는 폴더만 지정할 수 있습니다.\n{0}",

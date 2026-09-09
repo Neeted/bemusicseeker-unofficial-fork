@@ -39,8 +39,9 @@ internal static class ThemedMessageBox
     /// <param name="defaultResult">既定の結果。</param>
     /// <param name="options">WPF message box option。</param>
     /// <param name="warningMessageBoxText">本文とは別に警告色で表示する補助本文。</param>
+    /// <param name="modalScopeFactory">表示中の modal window を owner として登録する境界。省略時は scope を追加しません。</param>
     /// <returns>message box の表示結果。</returns>
-    internal static ThemedMessageBoxResponse ShowWithStatus(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None, MessageBoxOptions options = MessageBoxOptions.None, string warningMessageBoxText = null)
+    internal static ThemedMessageBoxResponse ShowWithStatus(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None, MessageBoxOptions options = MessageBoxOptions.None, string warningMessageBoxText = null, Func<Window, IDisposable> modalScopeFactory = null)
     {
         MessageBoxResult result = NormalizeDefaultResult(button, defaultResult);
         bool wasButtonSelected = false;
@@ -55,13 +56,21 @@ internal static class ThemedMessageBox
             dialog.FlowDirection = FlowDirection.RightToLeft;
         }
 
-        bool? dialogResult = dialog.ShowDialog();
-        if (dialogResult == true && wasButtonSelected)
+        IDisposable modalScope = modalScopeFactory?.Invoke(dialog);
+        try
         {
-            return new ThemedMessageBoxResponse(result, closedWithoutSelection: false);
-        }
+            bool? dialogResult = dialog.ShowDialog();
+            if (dialogResult == true && wasButtonSelected)
+            {
+                return new ThemedMessageBoxResponse(result, closedWithoutSelection: false);
+            }
 
-        return new ThemedMessageBoxResponse(NormalizeDefaultResult(button, defaultResult), closedWithoutSelection: true);
+            return new ThemedMessageBoxResponse(NormalizeDefaultResult(button, defaultResult), closedWithoutSelection: true);
+        }
+        finally
+        {
+            modalScope?.Dispose();
+        }
     }
 
     /// <summary>

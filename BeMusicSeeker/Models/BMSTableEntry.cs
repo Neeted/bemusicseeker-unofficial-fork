@@ -615,6 +615,55 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return snapshot;
     }
 
+    /// <summary>
+    /// プレイリスト mutation の一時補償に使う、この entry の状態を取得します。
+    /// </summary>
+    /// <returns>同じ entry object へ状態を戻せる不変スナップショット。</returns>
+    internal MutationState CaptureMutationState()
+    {
+        return new MutationState(this);
+    }
+
+    /// <summary>
+    /// operation 内の補償用 entry 状態です。保存境界を越えて保持しません。
+    /// </summary>
+    internal sealed class MutationState
+    {
+        private readonly BMSTableEntry snapshot;
+
+        /// <summary>行の参照を維持して復元できるよう、操作前の値を保全します。</summary>
+        internal MutationState(BMSTableEntry source)
+        {
+            snapshot = (BMSTableEntry)source.MemberwiseClone();
+            snapshot.parent = null;
+            snapshot._orgMd5 = source._orgMd5 == null ? null : [.. source._orgMd5];
+        }
+
+        /// <summary>
+        /// 同一 entry object へ、補償開始時点の値を戻します。
+        /// </summary>
+        /// <param name="target">復元対象の entry。</param>
+        /// <param name="parent">復元後に設定する親 table。</param>
+        internal void Restore(BMSTableEntry target, BMSTable parent)
+        {
+            // Local playlist edits only change folder/parent membership.  The
+            // remaining assignments cover the fields that
+            // NormalizeForPlaylistPersistence can materialize before a later
+            // database write fails.  Detail-cell fields (for example comment,
+            // memo, or adddate) are intentionally left untouched because this
+            // operation does not own those edits.
+            target._bmsfile = snapshot._bmsfile;
+            target._md5 = snapshot._md5;
+            target.level = snapshot.level;
+            target._title = snapshot._title;
+            target._artist = snapshot._artist;
+            target.folder = snapshot.folder;
+            target.deferredOrgMd5Raw = snapshot.deferredOrgMd5Raw;
+            target._orgMd5 = snapshot._orgMd5 == null ? null : [.. snapshot._orgMd5];
+            target.parent = parent;
+        }
+    }
+
     internal void ApplyPlaylistEditableStateFrom(BMSTableEntry source)
     {
         ApplyPlaylistEditableStateFrom(source, null);

@@ -345,6 +345,20 @@ Page composition follows the shared unboxed Settings section grammar. `General` 
 
 Availability remains part of the edit contract: external synchronization disables its dependent URL and folder-editing controls; Custom Folder is available only when `OperationModeLR2DB` is enabled; automatic folder sorting disables manual ordering; and `LevelFolder` is available for File entry type but not Folder entry type. The save, reset, validation-failure, retry, owner-shutdown, and cleanup lifecycle is independent of navigation and remains unchanged. A single native title-bar close request starts the reset lifecycle; once reset reaches `Completed`, the same request's modal window closes with the cancelled/false result without requiring a second user close request. Pending, validation-failed, or faulted reset keeps the window and edit session active. The footer displays the update timestamp exactly as `Update: yyyy/MM/dd`.
 
+## Playlist local mutation persistence and notification contract
+
+プレイリストの手動編集は、folder の rename / create / remove、entry の削除、drop を一つの mutation として扱う。受付済みの mutation は、対象 `BMSTable` の live state の変更と `PlaylistAggregatePersistenceOwner` の playlist / entry 保存を同じ操作境界で完了させる。保存前に失敗した場合は、DB の transaction が保持する変更前の正本を残し、操作開始時の table object と entry object を保ったまま entries の集合、entry の変更可能な値、folder order、`last_update`、entry revision を復元する。失敗した操作の値を次の明示編集や DB 再オープンへ持ち越さず、全 table の交換や無条件 reload、永続 undo / retry は行わない。複数 table の削除は既存どおり table ごとの保存単位を維持し、保存済みの別 table を後から補償しない。
+
+復元中は collection / table guard の内側で UI 完了を待たない。model の途中失敗では property 通知を発行せず、DB 保存失敗から復帰した後に必要な current detail、reference、folder tree の再投影を owner の通常 notification consumer へ渡す。通知と required cleanup の終端まで mutation の論理受付を保持し、その間の新しい local edit は非待機の Busy 拒否とする。accepted deferred synchronization だけは既存の coalescing queue 内で admission 終端を非同期に待機してから active state を反映する。collection reader、table writer、DB scope を解放してから `PublishEntriesChanged`、`FolderRemovalApplied`、operation receipt の subscriber を実行する。
+
+DB commit 後の LR2 custom-folder または beatoraja BMT 出力の失敗は、すでに durable になった playlist 内容、live table、再オープン後の DB を補償で戻さない。出力対象と元の原因を warning / error receipt へ記録し、current UI と library reference は durable mutation を基準に更新する。非同期 BMT export は local mutation の保存結果とは別の既存終端として扱い、後続の通知や操作受付を未完了のまま残さない。
+
+この契約の検証は、所有 DB の実保存を SQLite failure seam で失敗させる `BmsPlaylistPersistenceLifecycleTests` と、実 workspace drop の custom-folder output / reference / notification fixture で行う。保存失敗後に無条件 reload を挟まず、同じ active table の独立した成功編集と DB 再オープンを続けて、失敗値の混入がないことを確認する。
+
+Root folder への folder-entry drop は、入力順を保った directory 単位の計画を先に作る。計画中は live table を変更せず、既存 folder と既に計画した folder / entry を working set として保持する。各 directory の分類は `GetPlaylistFolderOrgMd5sForCharts` が返す library の package MD5 集合と、folder entry の MD5 の overlap だけで判定し、先行 directory で計画した entry も後続 directory の対象に含める。候補は非削除 entry のある folder に限り、削除履歴だけの folder は候補へ含めず履歴自体は保持する。複数候補の優先順は実 folder 一覧と同じ folder order と自然順を使い、計画した folder にも同じ規則を適用する。新規 folder 名は `BMSTable` の既存命名規則で working set 内の衝突を suffix 化し、同じ title だけ、または空の org 集合だけでは folder を統合しない。計画済み mutation は既存の playlist mutation の commit / rollback 境界へ順番どおり渡し、一括投入と同じ入力を小分けした投入で folder 所属と重複除去後の entry 集合が一致する。任意の入力順を同一視したり、既存手動分類を移行したりはしない。
+
+この分類契約は `PlaylistWorkspacePersistenceCommandTests` の実 `AddRowsToFolderAsync` 入口で、別 DB の一括 / 分割投入、先行計画 folder との package MD5 overlap、既存 folder 合流、title が同じ別曲の非統合、衝突 suffix を検証する。既存の entry identity、missing row / bmson の保持、B の operation-only snapshot 補償はそれぞれの既存 contract と同じ fixture で確認する。
+
 ## Verification map
 
 A2 の HTTP 本文期限・取消し契約は既存 fixture に置く。loopback HTTP は test ごとの動的 port、DB は GUID temporary directory を使用し、新しい lane や `DoNotParallelize` は追加しない。正常完了は Task / signal で観測し、実時間の制限は失敗 watchdog と実 HTTP 要求の安全期限に限る。共有 `Settings.Default` は変更・参照せず fixture 所有の immutable settings snapshot を渡し、取消しと gate 解放後に発行済み task の完了を確認してから資源を削除する。成功した本体の cleanup failure は失敗にし、既に本体が失敗している場合も cleanup 診断を残す。
@@ -368,6 +382,13 @@ BMT manifest の失敗契約 (`BMT-MANIFEST-FAILURE-1`) は次の既存 fixture 
 | BMT-N: session 終了後の失敗報告と物理件数 0 の URL 同期 | `BmsPlaylistMigrationAndRegistrationTests` | Functional `serial-state-a`、既存 class-wide DNP / GUID DB と config |
 | BMT-N: 対象・原因を既存 presentation event へ配送 | `PlaylistWorkspacePersistenceCommandTests` | Functional、既存 workspace fixture |
 | BMT-L: resource key と対象・原因 placeholder | `LocalizationResourceParityTests` | Functional、resource artifact の読取り |
+
+C01/C02 の root-folder classification contract は、次の既存 workspace fixture で検証する。各 case は GUID temporary DB を自身で所有し、library の BMSFiles と playlist store を test case 単位で分離する。planner の private state は観測せず、実 drop の live folder / entry と DB 側の durable rows を比較する。
+
+| 契約 | fixture | lane / resource |
+| --- | --- | --- |
+| C01: 先行 planned folder を後続 directory の package MD5 overlap 判定へ使い、一括 / 分割投入を同値にする | `PlaylistWorkspacePersistenceCommandTests` | filtered Quick と Functional、case 所有の GUID DB / BMSFiles |
+| C02: 既存 overlap 合流、title-only 非統合、folder 名衝突 suffix | `PlaylistWorkspacePersistenceCommandTests` | filtered Quick と Functional、既存 `AddRowsToFolderAsync` fixture |
 
 U2 の復元応答性契約は既存 fixture に配置する。UI は共通 TestUiDispatcherHost を使い、scheduler の受付・実行・Completion、operation Task、collection event で完了を観測する。SQL/header read 専用の failure injection と hydration snapshot publication lease の途中停止は production seam がないため追加せず、後者は既存 admission guard を維持する。
 

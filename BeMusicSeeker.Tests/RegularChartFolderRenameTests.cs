@@ -223,6 +223,55 @@ public sealed class RegularChartFolderRenameTests
         });
     }
 
+    [TestMethod]
+    public void FolderRename_RemainsAllowedWhilePlaylistCommunicationIsActive()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string libraryRoot = Path.GetDirectoryName(songDbPath)!;
+            string sourceDirectory = Path.Combine(libraryRoot, "playlist-communication-source");
+            string destinationDirectory = Path.Combine(libraryRoot, "playlist-communication-destination");
+            string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+            Directory.CreateDirectory(sourceDirectory);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE playlist communication\r\n");
+            var file = CreateTestableBmsFile(chartPath);
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                BMSFiles = [file]
+            };
+            var playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            playlist.IsPlaylistUpdating = true;
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistAdmission));
+            try
+            {
+                using RegularChartListOwner owner = CreateOwner(
+                    new MainChartListViewModel(),
+                    CreateWorkspaceForOwner(),
+                    action => action(),
+                    mutationDialogs: new FileDbReportRecordingDialogs());
+                owner.AttachNormalLibraryRefreshSource(library);
+
+                Task renameTask = owner.RenameChartFolderAsync(
+                    CreateRenameRequest(file),
+                    "playlist-communication-destination");
+                renameTask.GetAwaiter().GetResult();
+
+                Assert.IsFalse(Directory.Exists(sourceDirectory));
+                Assert.IsTrue(Directory.Exists(destinationDirectory));
+                Assert.IsTrue(File.Exists(Path.Combine(destinationDirectory, "chart.bms")));
+                owner.StopAsync().GetAwaiter().GetResult();
+            }
+            finally
+            {
+                playlistAdmission.Dispose();
+                playlist.IsPlaylistUpdating = false;
+            }
+        });
+    }
+
 
     [TestMethod]
     public void FolderRenames_SerializeMutationsWithoutWaitingForRefreshDrain()

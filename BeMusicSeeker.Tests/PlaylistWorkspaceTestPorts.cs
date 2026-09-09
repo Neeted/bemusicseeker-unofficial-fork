@@ -22,7 +22,8 @@ internal static class PlaylistWorkspaceTestPorts
         Func<bool>? installQueueActiveProvider = null,
         Func<Task>? reloadCleanupDispatcherIdleWaiter = null,
         Func<bool>? reloadCleanupShutdownRequestedProvider = null,
-        Action? reloadCleanupGarbageCollector = null)
+        Action? reloadCleanupGarbageCollector = null,
+        Func<BMSPlaylist>? playlistStoreProvider = null)
     {
         return new PlaylistWorkspaceViewModel(
             dispatch ?? throw new ArgumentNullException(nameof(dispatch)),
@@ -46,7 +47,7 @@ internal static class PlaylistWorkspaceTestPorts
             PlaylistSummaryBmtSortCoordinator,
             KeywordSearchHistorySettingsStore,
             KeywordSearchFavoritesSettingsStore,
-            PlaylistStoreProvider,
+            playlistStoreProvider ?? PlaylistStoreProvider,
             PlaylistPropertySaveService,
             () => null!,
             () => null!,
@@ -188,7 +189,69 @@ internal static class PlaylistWorkspaceTestPorts
     internal static IKeywordSearchFavoritesSettingsStore KeywordSearchFavoritesSettingsStore =>
         new InMemoryKeywordSearchFavoritesSettingsStore();
 
+    /// <summary>
+    /// Tests which do not exercise playlist persistence intentionally keep the
+    /// provider unavailable.  A test that reaches URL admission or playlist
+    /// mutation must pass an owned store explicitly.
+    /// </summary>
     internal static Func<BMSPlaylist> PlaylistStoreProvider => () => null!;
+
+    /// <summary>
+    /// Creates a schema-backed store owned by one test case.
+    /// </summary>
+    internal static OwnedPlaylistStore CreateOwnedPlaylistStore()
+    {
+        string directory = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            nameof(PlaylistWorkspaceTestPorts),
+            "PlaylistStore-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(directory);
+        string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+        BeMusicSeeker.Models.BmsLibraryInternal.PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        BMSPlaylist playlist = new TestBmsPlaylist(
+            songDbPath,
+            null,
+            null,
+            null,
+            null,
+            () => new PlaylistUrlCompletionOptionsSnapshot(),
+            () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false },
+            () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+            new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+        return new OwnedPlaylistStore(playlist, songDbPath, directory);
+    }
+
+    internal sealed class OwnedPlaylistStore : IDisposable
+    {
+        private readonly string directory;
+        private int disposed;
+
+        internal OwnedPlaylistStore(BMSPlaylist playlist, string songDbPath, string directory)
+        {
+            Store = playlist ?? throw new ArgumentNullException(nameof(playlist));
+            SongDbPath = songDbPath ?? throw new ArgumentNullException(nameof(songDbPath));
+            this.directory = directory ?? throw new ArgumentNullException(nameof(directory));
+        }
+
+        internal BMSPlaylist Store { get; }
+
+        /// <summary>
+        /// Gets the database path owned by this store fixture for startup-service attachment.
+        /// </summary>
+        internal string SongDbPath { get; }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) != 0)
+            {
+                return;
+            }
+            if (System.IO.Directory.Exists(directory))
+            {
+                System.IO.Directory.Delete(directory, recursive: true);
+            }
+        }
+    }
 
     internal static Func<Action, Task> PlaylistRestoreUiApplyScheduler => action =>
     {

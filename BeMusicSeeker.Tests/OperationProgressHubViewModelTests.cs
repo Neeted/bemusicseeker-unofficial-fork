@@ -69,10 +69,13 @@ public sealed class OperationProgressHubViewModelTests
         try
         {
             var urlGateway = new BlockingPlaylistUrlDownloadGateway(urlRoot);
+            using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
+                PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
             var playlistWorkspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(
                 action => action(),
                 new PlaylistUrlAcquisitionWorkflow(urlGateway, _ => { }),
-                new AcceptedDialogService());
+                new AcceptedDialogService(),
+                playlistStoreProvider: () => ownedPlaylistStore.Store);
             hub.AttachPlaylistProgressSources(playlistWorkspace, action => action(), () => false);
 
             Task urlAcquisition = playlistWorkspace.RunPlaylistUrlBatchAsync(

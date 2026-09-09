@@ -734,6 +734,8 @@
   "Msg_SelectedPlaylistExternalPackageLookupResult": "Résultat de recherche via API externe\n\nMD5 ciblés : {0}\nCibles d’installation : {1}\nAucune source : {2}\nIgnoré (URL téléchargée) : {3}\nIgnoré (URL échouée) : {4}\nIgnoré (limite de taille) : {5}\nIgnoré (non pris en charge) : {6}\nÉchec : {7}\nIgnoré par annulation : {8}",
   "Warn_ElevatedProcessDragDropLimited": "BeMusicSeeker s’exécute avec des privilèges administrateur.\n\nWindows peut bloquer le glisser-déposer de fichiers ou de dossiers depuis une fenêtre de l’Explorateur lancée normalement.\nLancez BeMusicSeeker normalement lorsque vous ajoutez des morceaux par glisser-déposer.",
   "Warn_PendingPackageNotFound": "La partition sélectionnée n'a pas été trouvée dans les paquets en attente.",
+  "Warn_PlaylistMutationBusy": "Une autre opération de playlist est déjà en cours.\nRéessayez lorsqu'elle sera terminée.",
+  "Warn_PlaylistMutationStale": "La cible de playlist affichée est obsolète ou a déjà été supprimée.\nSélectionnez la cible actuelle et réessayez.",
   "Warn_InvalidInstallPath": "Le chemin de destination d'installation est invalide.\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "Le dossier de destination d'installation est introuvable.\n{0}",
   "Warn_InstallDirMustContainBms": "Seuls les dossiers contenant des fichiers BMS existants peuvent être spécifiés comme destination d'installation.\n{0}",

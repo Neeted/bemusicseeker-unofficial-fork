@@ -734,6 +734,8 @@
   "Msg_SelectedPlaylistExternalPackageLookupResult": "外部 API 入手先検索結果\n\n対象 MD5: {0}\n導入対象: {1}\n入手先なし: {2}\nスキップ(成功済み URL): {3}\nスキップ(失敗済み URL): {4}\nスキップ(サイズ上限): {5}\nスキップ(非対応): {6}\n失敗: {7}\nキャンセルにより未処理: {8}",
   "Warn_ElevatedProcessDragDropLimited": "BeMusicSeeker が管理者権限で起動しています。\n\n通常権限のエクスプローラーからファイルやフォルダーをドラッグ＆ドロップできない場合があります。\nドラッグ＆ドロップで楽曲を追加する場合は、BeMusicSeeker を通常起動してください。",
   "Warn_PendingPackageNotFound": "選択した譜面が保留パッケージに見つかりませんでした。",
+  "Warn_PlaylistMutationBusy": "別のプレイリスト処理が実行中のため、操作を開始できません。\n処理の完了後に再実行してください。",
+  "Warn_PlaylistMutationStale": "表示中のプレイリスト対象が更新されたか、既に削除されています。\n現在の対象を選択してから再実行してください。",
   "Warn_InvalidInstallPath": "インストール先のパスが不正です。\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "インストール先のフォルダが見つかりません。\n{0}",
   "Warn_InstallDirMustContainBms": "インストール先には既存BMSが存在するフォルダのみ指定できます。\n{0}",

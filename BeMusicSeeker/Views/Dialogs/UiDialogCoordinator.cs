@@ -14,9 +14,6 @@ namespace BeMusicSeeker.Views.Dialogs;
 /// </summary>
 internal sealed class UiDialogCoordinator : IUiDialogService
 {
-    private static readonly Func<Window, UiMessageRequest, ThemedMessageBoxResponse> defaultMessagePresenter =
-        PresentThemedMessageBox;
-
     private readonly UiDialogOwnerResolver ownerResolver;
 
     private readonly Func<Window, IDisposable> modalScopeFactory;
@@ -27,7 +24,7 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     /// 既定の owner resolver を使う coordinator を初期化します。
     /// </summary>
     internal UiDialogCoordinator()
-        : this(new UiDialogOwnerResolver(), UiDialogOwnerResolver.PushActiveModal, defaultMessagePresenter)
+        : this(new UiDialogOwnerResolver(), UiDialogOwnerResolver.PushActiveModal)
     {
     }
 
@@ -37,7 +34,7 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     /// <param name="ownerResolver">dialog owner を解決する resolver。</param>
     /// <exception cref="ArgumentNullException">ownerResolver が null の場合。</exception>
     internal UiDialogCoordinator(UiDialogOwnerResolver ownerResolver)
-        : this(ownerResolver, UiDialogOwnerResolver.PushActiveModal, defaultMessagePresenter)
+        : this(ownerResolver, UiDialogOwnerResolver.PushActiveModal)
     {
     }
 
@@ -50,8 +47,10 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     internal UiDialogCoordinator(
         UiDialogOwnerResolver ownerResolver,
         Func<Window, IDisposable> modalScopeFactory)
-        : this(ownerResolver, modalScopeFactory, defaultMessagePresenter)
     {
+        this.ownerResolver = ownerResolver ?? throw new ArgumentNullException(nameof(ownerResolver));
+        this.modalScopeFactory = modalScopeFactory ?? throw new ArgumentNullException(nameof(modalScopeFactory));
+        messagePresenter = PresentThemedMessageBox;
     }
 
     /// <summary>
@@ -66,9 +65,8 @@ internal sealed class UiDialogCoordinator : IUiDialogService
         UiDialogOwnerResolver ownerResolver,
         Func<Window, IDisposable> modalScopeFactory,
         Func<Window, UiMessageRequest, ThemedMessageBoxResponse> messagePresenter)
+        : this(ownerResolver, modalScopeFactory)
     {
-        this.ownerResolver = ownerResolver ?? throw new ArgumentNullException(nameof(ownerResolver));
-        this.modalScopeFactory = modalScopeFactory ?? throw new ArgumentNullException(nameof(modalScopeFactory));
         this.messagePresenter = messagePresenter ?? throw new ArgumentNullException(nameof(messagePresenter));
     }
 
@@ -745,7 +743,7 @@ internal sealed class UiDialogCoordinator : IUiDialogService
                 ? UiDialogResult.ClosedByUser(response.MessageBoxResult)
                 : UiDialogResult.FromMessageBoxResult(response.MessageBoxResult);
         }
-        catch (InvalidOperationException) when (ReferenceEquals(messagePresenter, defaultMessagePresenter)
+        catch (InvalidOperationException) when (messagePresenter == PresentThemedMessageBox
             && (Application.Current?.Dispatcher?.HasShutdownStarted == true || Application.Current?.Dispatcher?.HasShutdownFinished == true))
         {
             return UiDialogResult.NotShown(UiDialogStatus.AppClosing);
@@ -756,7 +754,9 @@ internal sealed class UiDialogCoordinator : IUiDialogService
         }
     }
 
-    private static ThemedMessageBoxResponse PresentThemedMessageBox(Window owner, UiMessageRequest request)
+    private ThemedMessageBoxResponse PresentThemedMessageBox(
+        Window owner,
+        UiMessageRequest request)
     {
         return ThemedMessageBox.ShowWithStatus(
             owner,
@@ -766,6 +766,7 @@ internal sealed class UiDialogCoordinator : IUiDialogService
             request.Icon,
             request.DefaultResult,
             request.Options,
-            request.WarningMessageBoxText);
+            request.WarningMessageBoxText,
+            modalScopeFactory);
     }
 }

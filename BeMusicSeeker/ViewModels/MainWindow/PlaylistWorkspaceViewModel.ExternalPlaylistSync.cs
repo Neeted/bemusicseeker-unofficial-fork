@@ -100,6 +100,14 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 ExternalPlaylistSyncRequestSnapshot request = CaptureDeferredExternalSyncRequest();
                 DateTime startedAt = DateTime.UtcNow;
+                BMSPlaylist currentPlaylists = getPlaylistStore() ?? playlists;
+                // deferred request は既存 coalescing worker が受理済みなので、store admission を非同期に待機できます。
+                // manual command は非待機 Try 経路を使います。
+                using IDisposable admission = await WaitForPlaylistMutationAdmissionAsync(currentPlaylists).ConfigureAwait(false);
+                if (playlistReloadCleanupShutdownRequestedProvider())
+                {
+                    return;
+                }
                 using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
                 bool succeeded = false;
                 int updatedCount = 0;
@@ -123,8 +131,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         + request.FromReloadTables.ToString().ToLowerInvariant()
                         + " version="
                         + request.Version);
-                    BMSPlaylist currentPlaylists = getPlaylistStore();
-                    if (currentPlaylists == null)
+                    if (getPlaylistStore() == null)
                     {
                         throw new InvalidOperationException("Playlist persistence is not available.");
                     }

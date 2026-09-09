@@ -88,8 +88,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly object playlistUrlAcquisitionSync = new();
 
-    private readonly SemaphoreSlim playlistUrlAcquisitionCommandGate = new(1, 1);
-
     private readonly Func<Action, Task> playlistUrlAcquisitionPresentationScheduler;
 
     private readonly Func<bool> playlistUrlInstallQueueActiveProvider;
@@ -198,17 +196,14 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
 
-        if (!playlistUrlAcquisitionCommandGate.Wait(0))
+        BMSPlaylist playlistStore = getPlaylistStore();
+        if (!TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable admission))
         {
             return;
         }
-        try
+        using (admission)
         {
             await RunSinglePlaylistUrlCoreAsync(url);
-        }
-        finally
-        {
-            playlistUrlAcquisitionCommandGate.Release();
         }
     }
 
@@ -252,17 +247,14 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal async Task RunPlaylistUrlBatchAsync(IEnumerable<Uri> urls, bool isDiffUrl)
     {
-        if (!playlistUrlAcquisitionCommandGate.Wait(0))
+        BMSPlaylist playlistStore = getPlaylistStore();
+        if (!TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable admission))
         {
             return;
         }
-        try
+        using (admission)
         {
             await RunPlaylistUrlBatchCoreAsync(urls, isDiffUrl);
-        }
-        finally
-        {
-            playlistUrlAcquisitionCommandGate.Release();
         }
     }
 
@@ -392,17 +384,14 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private async Task RunExternalPackageLookupAsync(IEnumerable<string> chartMd5Targets)
     {
-        if (!playlistUrlAcquisitionCommandGate.Wait(0))
+        BMSPlaylist playlistStore = getPlaylistStore();
+        if (!TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable admission))
         {
             return;
         }
-        try
+        using (admission)
         {
             await RunExternalPackageLookupCoreAsync(chartMd5Targets);
-        }
-        finally
-        {
-            playlistUrlAcquisitionCommandGate.Release();
         }
     }
 

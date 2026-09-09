@@ -56,8 +56,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private readonly IUiDialogService playlistWorkspaceDialogService;
 
-    private readonly SemaphoreSlim manualReloadSemaphore = new(1, 1);
-
     private readonly PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
 
     private readonly PlaylistCatalogSummaryOwner playlistCatalogSummaryOwner = new();
@@ -249,7 +247,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             getPlaylistStore,
             getPlaylistLibrary,
             getLr2Config,
-            customFolderOutputSettingsProvider);
+            customFolderOutputSettingsProvider,
+            (store, kind) => TryBeginPlaylistMutationForOwner(
+                store,
+                kind));
         PlaylistTableLevelOverwriteWorkflow = new PlaylistTableLevelOverwriteWorkflowOwner(
             this.playlistWorkspaceDialogService,
             getPlaylistLibrary);

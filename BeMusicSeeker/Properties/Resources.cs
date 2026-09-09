@@ -1600,6 +1600,12 @@ public class Resources
     public static string Warn_PendingPackageNotFound => ResourceManager.GetString("Warn_PendingPackageNotFound", resourceCulture);
 
 
+    public static string Warn_PlaylistMutationBusy => ResourceManager.GetString("Warn_PlaylistMutationBusy", resourceCulture);
+
+
+    public static string Warn_PlaylistMutationStale => ResourceManager.GetString("Warn_PlaylistMutationStale", resourceCulture);
+
+
     public static string Warn_InvalidInstallPath => ResourceManager.GetString("Warn_InvalidInstallPath", resourceCulture);
 
 

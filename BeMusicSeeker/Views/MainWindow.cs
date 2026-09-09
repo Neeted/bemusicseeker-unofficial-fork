@@ -726,20 +726,55 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         object sender,
         PlaylistWorkspaceMutationRejectedEventArgs request)
     {
-        string message = request.Kind switch
+        if (request == null)
         {
-            PlaylistWorkspaceMutationKind.RenameFolder => BeMusicSeeker.Properties.Resources.Msg_failed_rename_playlist_folder,
-            PlaylistWorkspaceMutationKind.RemoveFolder => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder,
-            PlaylistWorkspaceMutationKind.CreateFolder => BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder,
-            PlaylistWorkspaceMutationKind.AddEntries => BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry,
-            PlaylistWorkspaceMutationKind.RemoveEntries => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry,
-            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
-        };
-        ShowUiMessage(
+            return;
+        }
+        string message = request.IsBusy
+            ? BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationBusy
+            : request.IsStale
+                ? BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationStale
+                : request.Kind switch
+                {
+                    PlaylistWorkspaceMutationKind.RenameFolder => BeMusicSeeker.Properties.Resources.Msg_failed_rename_playlist_folder,
+                    PlaylistWorkspaceMutationKind.RemoveFolder => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder,
+                    PlaylistWorkspaceMutationKind.CreateFolder => BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder,
+                    PlaylistWorkspaceMutationKind.AddEntries => BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry,
+                    PlaylistWorkspaceMutationKind.RemoveEntries => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry,
+                    PlaylistWorkspaceMutationKind.Reload => BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist,
+                    _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
+                };
+        ShowPlaylistWorkspaceUiMessage(
             message,
             BeMusicSeeker.Properties.Resources.Error,
             MessageBoxImage.Hand,
             "playlist mutation rejection notification");
+    }
+
+    /// <summary>
+    /// playlist workspace の同期通知を、workspace と同じ owner-scoped dialog service で表示します。
+    /// </summary>
+    /// <param name="messageBoxText">表示する本文。</param>
+    /// <param name="caption">dialog title。</param>
+    /// <param name="icon">表示する icon。</param>
+    /// <param name="routeName">失敗時に識別する route 名。</param>
+    private void ShowPlaylistWorkspaceUiMessage(
+        string messageBoxText,
+        string caption,
+        MessageBoxImage icon,
+        string routeName)
+    {
+        UiDialogResult result = playlistWorkspaceDialogService
+            .ShowMessageAsync(new UiMessageRequest(
+                messageBoxText,
+                caption,
+                MessageBoxButton.OK,
+                icon,
+                MessageBoxResult.OK,
+                owner: this))
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfUiDialogNotShown(result, routeName);
     }
 
     private void MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested(

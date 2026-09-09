@@ -1452,7 +1452,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 playlist_id = 7815,
                 name = "Drop target",
                 symbol = "DROP",
-                Output_dir = "DropTarget"
+                Output_dir = "DropTarget",
+                Folder_order = ["Imported"]
             };
             var playlist = new TestBmsPlaylist(
                 songDbPath,
@@ -1493,6 +1494,275 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual("Drop target", displayObservedDuringInvalidation.Names);
             Assert.AreEqual("DROP", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Drop target", library.GetPlaylistReferenceDisplay(chart).Names);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistRootFolderDrop_UsesPlannedFoldersAcrossBatchAndSplitInputs()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "playlist-root-drop-working-set-" + Guid.NewGuid().ToString("N"));
+        string batchDirectory = Path.Combine(tempDirectory, "batch");
+        string splitDirectory = Path.Combine(tempDirectory, "split");
+        Directory.CreateDirectory(batchDirectory);
+        Directory.CreateDirectory(splitDirectory);
+        try
+        {
+            (_, _, BMSTable batchTable, PlaylistWorkspaceViewModel batchWorkspace,
+                ChartFile batchChartA, ChartFile batchChartB, ChartFile batchChartC) = CreateRootDropWorkingSetFixture(batchDirectory, 7820);
+            (_, _, BMSTable splitTable, PlaylistWorkspaceViewModel splitWorkspace,
+                ChartFile splitChartA, ChartFile splitChartB, ChartFile splitChartC) = CreateRootDropWorkingSetFixture(splitDirectory, 7821);
+
+            await batchWorkspace.AddRowsToFolderAsync(
+                [
+                    LibraryChartRow.FromChartFile(batchChartA),
+                    LibraryChartRow.FromChartFile(batchChartB),
+                    LibraryChartRow.FromChartFile(batchChartC)
+                ],
+                batchTable);
+
+            await splitWorkspace.AddRowsToFolderAsync(
+                [
+                    LibraryChartRow.FromChartFile(splitChartA),
+                    LibraryChartRow.FromChartFile(splitChartB)
+                ],
+                splitTable);
+            await splitWorkspace.AddRowsToFolderAsync(
+                [LibraryChartRow.FromChartFile(splitChartC)],
+                splitTable);
+
+            string[] batchFolders = [.. batchTable.folder_list.Where(folder => !string.IsNullOrWhiteSpace(folder))];
+            string[] splitFolders = [.. splitTable.folder_list.Where(folder => !string.IsNullOrWhiteSpace(folder))];
+            string[] batchEntries = [.. batchTable.GetEntriesExceptDummy()
+                .Select(entry => entry.md5 + "|" + entry.folder)
+                .OrderBy(value => value, StringComparer.Ordinal)];
+            string[] splitEntries = [.. splitTable.GetEntriesExceptDummy()
+                .Select(entry => entry.md5 + "|" + entry.folder)
+                .OrderBy(value => value, StringComparer.Ordinal)];
+
+            string[] expectedFolders = ["Alpha", "Zeta"];
+            string[] expectedEntries = [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa|Zeta",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb|Alpha",
+                "cccccccccccccccccccccccccccccccc|Alpha"
+            ];
+            CollectionAssert.AreEqual(expectedFolders, batchFolders, "batch folders: " + string.Join(",", batchFolders));
+            CollectionAssert.AreEqual(expectedFolders, splitFolders, "split folders: " + string.Join(",", splitFolders));
+            CollectionAssert.AreEqual(expectedEntries, batchEntries, "batch entries: " + string.Join(",", batchEntries));
+            CollectionAssert.AreEqual(expectedEntries, splitEntries, "split entries: " + string.Join(",", splitEntries));
+
+            AssertPersistedRootDropEntries(
+                Path.Combine(batchDirectory, "song.db"),
+                7820,
+                batchEntries);
+            AssertPersistedRootDropEntries(
+                Path.Combine(splitDirectory, "song.db"),
+                7821,
+                splitEntries);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistRootFolderDrop_MergesByPackageHashAndSuffixesNameCollisions()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "playlist-root-drop-classification-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            const string existingHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string mergedHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            const string sameTitleHash = "cccccccccccccccccccccccccccccccc";
+            BMSTable table = new()
+            {
+                playlist_id = 7822,
+                name = "Root classification",
+                symbol = "ROOT-CLASSIFICATION",
+                Output_dir = "RootClassification",
+                entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder,
+                is_root_folder = true,
+                Folder_order = ["Existing"],
+                entries =
+                [
+                    new BMSTableEntry
+                    {
+                        md5 = existingHash,
+                        title = "Existing source",
+                        folder = "Existing"
+                    }
+                ]
+            };
+            string mergeDirectory = Path.Combine(tempDirectory, "merge-directory");
+            string noPackageDirectory = Path.Combine(tempDirectory, "no-package-directory");
+            BMSFile packageAnchor = CreatePlaylistDropBmsFile(
+                existingHash,
+                "Package anchor",
+                Path.Combine(mergeDirectory, "anchor.bms"));
+            BMSFile mergedFile = CreatePlaylistDropBmsFile(
+                mergedHash,
+                "Merged song",
+                Path.Combine(mergeDirectory, "merged.bms"));
+            BMSFile sameTitleFile = CreatePlaylistDropBmsFile(
+                sameTitleHash,
+                "Existing",
+                Path.Combine(noPackageDirectory, "same-title.bms"));
+            (_, TestBmsLibrary library, BMSTable activeTable, PlaylistWorkspaceViewModel workspace) =
+                CreateRootDropStore(tempDirectory, table, [packageAnchor, mergedFile]);
+
+            await workspace.AddRowsToFolderAsync(
+                [
+                    LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(mergedFile)),
+                    LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(sameTitleFile))
+                ],
+                activeTable);
+
+            Assert.AreEqual(2, activeTable.folder_list.Count(folder => !string.IsNullOrWhiteSpace(folder)));
+            Assert.IsTrue(activeTable.GetEntriesExceptDummy().Any(entry =>
+                entry.md5 == existingHash && entry.folder == "Existing"));
+            Assert.IsTrue(activeTable.GetEntriesExceptDummy().Any(entry =>
+                entry.md5 == mergedHash && entry.folder == "Existing"));
+            BMSTableEntry sameTitleEntry = activeTable.GetEntriesExceptDummy().Single(entry => entry.md5 == sameTitleHash);
+            Assert.AreEqual("Existing (2)", sameTitleEntry.folder);
+            Assert.IsTrue(activeTable.GetEntriesExceptDummy().Any(entry =>
+                entry.folder == "Existing" && entry.md5 == existingHash));
+
+            AssertPersistedRootDropEntries(
+                Path.Combine(tempDirectory, "song.db"),
+                7822,
+                [.. activeTable.GetEntriesExceptDummy()
+                    .Select(entry => entry.md5 + "|" + entry.folder)
+                    .OrderBy(value => value, StringComparer.Ordinal)]);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistRootFolderDrop_DoesNotClassifyIntoRemovedOnlyFolderHistory()
+    {
+        const string historyHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "playlist-root-drop-removed-history-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerPath = Path.Combine(tempDirectory, "header.json");
+            string scorePath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(
+                headerPath,
+                BmsPlaylistTestSupport.CreateUtf8BomBytes(
+                    "{\r\n\"name\":\"Removed history source\",\r\n\"symbol\":\"REMOVED-HISTORY\",\r\n\"entry_type\":\"folder\",\r\n\"compat_prefix\":\"\",\r\n\"folder_order\":[\"Old\"],\r\n\"folder_sort_key\":\"\",\r\n\"folder_sort_ascending\":true,\r\n\"data_url\":\"./score.json\"\r\n}"));
+            File.WriteAllBytes(
+                scorePath,
+                BmsPlaylistTestSupport.CreateUtf8BomBytes(
+                    "[{\"md5\":\"" + historyHash + "\",\"title\":\"Old source\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSPlaylist playlist = new TestBmsPlaylist(
+                songDbPath,
+                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                    songDbPath,
+                    CustomFolderOutputPhysicalSurface.Empty));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerPath));
+            table.playlist_id = 7823;
+            table.entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder;
+            table.is_root_folder = true;
+            table.Folder_order = ["Old"];
+            BMSTableEntry oldEntry = table.entries.Single();
+            oldEntry.folder = "Old";
+            oldEntry.parent = table;
+            table.EnableExternalSync();
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            PersistPlaylistAggregate(songDbPath, table);
+
+            File.WriteAllBytes(scorePath, BmsPlaylistTestSupport.CreateUtf8BomBytes("[]"));
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> reloadResults =
+                await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+                    [table],
+                    reason: "test_removed_only_folder_history");
+
+            Assert.IsTrue(reloadResults.Single().Succeeded);
+            BMSTable historyTable = playlist.BMSTables.Single();
+            Assert.AreEqual(
+                1,
+                historyTable.entries.Count(entry => entry.md5 == historyHash && entry.is_removed),
+                "The canonical reload must leave a removed history row for the drop to encounter.");
+            Assert.AreEqual("Old", historyTable.entries.Single(entry => entry.md5 == historyHash).folder);
+            historyTable.DisableExternalSync();
+
+            string dropDirectory = Path.Combine(tempDirectory, "drop-directory");
+            BMSFile packageAnchor = CreatePlaylistDropBmsFile(
+                historyHash,
+                "Package anchor",
+                Path.Combine(dropDirectory, "anchor.bms"));
+            BMSFile droppedFile = CreatePlaylistDropBmsFile(
+                historyHash,
+                "New song",
+                Path.Combine(dropDirectory, "new-song.bms"));
+            TestBmsLibrary library = new(songDbPath)
+            {
+                BMSFiles = [packageAnchor, droppedFile]
+            };
+            PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
+                playlist,
+                library);
+
+            await workspace.AddRowsToFolderAsync(
+                [LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(droppedFile))],
+                historyTable);
+
+            BMSTableEntry activeEntry = historyTable.entries.SingleOrDefault(
+                entry => entry.md5 == historyHash && !entry.is_removed);
+            Assert.IsNotNull(
+                activeEntry,
+                "A chart matching only removed folder history must remain as a new active entry.");
+            Assert.AreNotEqual(
+                "Old",
+                activeEntry!.folder,
+                "A removed-only folder must not become the root-drop classification target.");
+            Assert.AreEqual(
+                1,
+                historyTable.entries.Count(entry => entry.md5 == historyHash && !entry.is_removed));
+            Assert.AreEqual(
+                1,
+                historyTable.entries.Count(entry => entry.md5 == historyHash && entry.is_removed));
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(
+                1L,
+                verify.ExecuteScalar<long>(
+                    "SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND is_removed = 0;",
+                    7823,
+                    historyHash));
+            Assert.AreNotEqual(
+                "Old",
+                verify.ExecuteScalar<string>(
+                    "SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND is_removed = 0;",
+                    7823,
+                    historyHash));
         }
         finally
         {
@@ -1548,7 +1818,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 playlist_id = 7816,
                 name = "Drop admission target",
                 symbol = "DROP-ADMISSION",
-                Output_dir = "DropAdmission"
+                Output_dir = "DropAdmission",
+                Folder_order = ["Imported", "Fault", "PreparationFault", "DatabaseFault"]
             };
             var playlist = new TestBmsPlaylist(
                 songDbPath,
@@ -1877,6 +2148,209 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     [TestMethod]
+    public async Task PlaylistMutationAdmission_RejectsCompetingEditUntilDropNotificationCompletes()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        Task dropTask = null;
+        using var releaseSynchronization = new ManualResetEventSlim(false);
+        try
+        {
+            string outputBaseDirectory = Path.Combine(tempDirectory, "custom-folder-output");
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = outputBaseDirectory,
+                LR2CustomFolderOutputBaseDirRootType = outputBaseDirectory,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            var synchronizationStarted = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            var synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                songDbPath,
+                CustomFolderOutputPhysicalSurface.Empty);
+            synchronization.SynchronizationStartProbe = _ =>
+            {
+                synchronizationStarted.TrySetResult(true);
+                releaseSynchronization.Wait();
+            };
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => outputSettings,
+                synchronization)
+            {
+                BMSTables = new ObservableCollection<BMSTable>
+                {
+                    new BMSTable
+                    {
+                        playlist_id = 7817,
+                        name = "Admission target",
+                        symbol = "ADMISSION",
+                        Output_dir = "AdmissionTarget",
+                        Folder_order = ["Imported"]
+                    }
+                }
+            };
+            BMSTable table = playlist.BMSTables.Single();
+            var library = new TestBmsLibrary(songDbPath);
+            PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
+                playlist,
+                library,
+                () => outputSettings);
+            PlaylistWorkspaceMutationRejectedEventArgs rejected = null;
+            workspace.MutationRejected += (_, request) => rejected = request;
+            ChartFile chart = ChartFileProjection.FromBmsFile(
+                BMSFile.FromSongTableRawValues(
+                    CreateSongTableRow(
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        Path.Combine(tempDirectory, "admission-chart.bms"))));
+
+            dropTask = workspace.AddRowsToFolderAsync(
+                [LibraryChartRow.FromChartFile(chart)],
+                table,
+                PlaylistFolderNode.CreateFolder("Imported"));
+            await synchronizationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            await workspace.RenameFolderAsync(
+                table,
+                PlaylistFolderNode.CreateFolder("Imported"),
+                "Renamed");
+
+            Assert.IsNotNull(rejected);
+            Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, rejected.Kind);
+            Assert.IsTrue(rejected.IsBusy);
+            Assert.IsFalse(rejected.IsStale);
+            Assert.IsTrue(table.entries.Any(entry => entry.folder == "Imported"));
+            Assert.IsFalse(table.entries.Any(entry => entry.folder == "Renamed"));
+
+            releaseSynchronization.Set();
+            await dropTask.WaitAsync(TimeSpan.FromSeconds(5));
+            await workspace.RenameFolderAsync(
+                table,
+                PlaylistFolderNode.CreateFolder("Imported"),
+                "Renamed");
+
+            Assert.IsTrue(table.entries.Any(entry => entry.folder == "Renamed"));
+        }
+        finally
+        {
+            releaseSynchronization.Set();
+            if (dropTask != null)
+            {
+                await dropTask.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistEntryRemoval_ResolvesStaleIdentityAndRejectsNameOnlyFallback()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            CustomFolderOutputSettingsSnapshot outputSettings = new();
+            var currentEntry = new BMSTableEntry
+            {
+                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                title = "Stable title",
+                folder = "Folder"
+            };
+            var currentTable = new BMSTable
+            {
+                playlist_id = 7818,
+                name = "Current table",
+                entries = [currentEntry],
+                Folder_order = ["Folder"]
+            };
+            var playlist = new TestBmsPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => outputSettings,
+                null)
+            {
+                BMSTables = new ObservableCollection<BMSTable>([currentTable])
+            };
+            var library = new TestBmsLibrary(songDbPath);
+            PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
+                playlist,
+                library,
+                () => outputSettings);
+            List<PlaylistWorkspaceMutationRejectedEventArgs> rejections = [];
+            workspace.MutationRejected += (_, request) => rejections.Add(request);
+            var staleTable = new BMSTable
+            {
+                playlist_id = currentTable.playlist_id,
+                name = "Old table"
+            };
+            var sameTitleDifferentHash = new BMSTableEntry
+            {
+                playlist_id = currentTable.playlist_id,
+                parent = staleTable,
+                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                title = currentEntry.title,
+                folder = "Folder"
+            };
+
+            await workspace.DeleteSelectedEntriesAsync([
+                new PlaylistDetailSourceRow(sameTitleDifferentHash, resolvedChart: null)]);
+
+            Assert.AreEqual(1, currentTable.GetEntriesExceptDummy().Count());
+            Assert.IsTrue(rejections.Any(request =>
+                request.Kind == PlaylistWorkspaceMutationKind.RemoveEntries
+                && request.IsStale
+                && !request.IsBusy));
+
+            rejections.Clear();
+            var staleEntry = new BMSTableEntry
+            {
+                playlist_id = currentTable.playlist_id,
+                parent = staleTable,
+                md5 = currentEntry.md5,
+                folder = currentEntry.folder,
+                title = currentEntry.title
+            };
+            await workspace.DeleteSelectedEntriesAsync([
+                new PlaylistDetailSourceRow(staleEntry, resolvedChart: null)]);
+
+            Assert.AreEqual(0, currentTable.GetEntriesExceptDummy().Count());
+            Assert.AreEqual(0, rejections.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void PlaylistWorkspaceDropPolicyRejectsMixedExternalAndSpecialTargets()
     {
         var workspace = new PlaylistWorkspaceViewModel(
@@ -2042,6 +2516,107 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         await workspace.RenameFolderAsync(table, specialFolder, "Renamed");
         await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(table, specialFolder);
         await workspace.AddRowsToFolderAsync([], table, specialFolder);
+    }
+
+    private static (BMSPlaylist Playlist, TestBmsLibrary Library, BMSTable Table, PlaylistWorkspaceViewModel Workspace,
+        ChartFile ChartA, ChartFile ChartB, ChartFile ChartC) CreateRootDropWorkingSetFixture(
+        string tempDirectory,
+        int playlistId)
+    {
+        string directoryA = Path.Combine(tempDirectory, "directory-a");
+        string directoryB = Path.Combine(tempDirectory, "directory-b");
+        string directoryC = Path.Combine(tempDirectory, "directory-c");
+        BMSFile chartAFile = CreatePlaylistDropBmsFile(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "Zeta",
+            Path.Combine(directoryA, "zeta.bms"));
+        BMSFile chartBFile = CreatePlaylistDropBmsFile(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "Alpha",
+            Path.Combine(directoryB, "alpha.bms"));
+        BMSFile chartCFile = CreatePlaylistDropBmsFile(
+            "cccccccccccccccccccccccccccccccc",
+            "Gamma",
+            Path.Combine(directoryC, "gamma.bms"));
+        BMSFile packageAnchorA = CreatePlaylistDropBmsFile(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "Package anchor A",
+            Path.Combine(directoryC, "package-anchor-a.bms"));
+        BMSFile packageAnchorB = CreatePlaylistDropBmsFile(
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "Package anchor B",
+            Path.Combine(directoryC, "package-anchor-b.bms"));
+        BMSTable table = new()
+        {
+            playlist_id = playlistId,
+            name = "Root drop",
+            symbol = "ROOT-DROP-" + playlistId,
+            Output_dir = "RootDrop" + playlistId,
+            entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder,
+            is_root_folder = true,
+            Folder_order = []
+        };
+        (BMSPlaylist playlist, TestBmsLibrary library, BMSTable activeTable, PlaylistWorkspaceViewModel workspace) =
+            CreateRootDropStore(tempDirectory, table, [chartAFile, chartBFile, chartCFile, packageAnchorA, packageAnchorB]);
+        return (
+            playlist,
+            library,
+            activeTable,
+            workspace,
+            ChartFileProjection.FromBmsFile(chartAFile),
+            ChartFileProjection.FromBmsFile(chartBFile),
+            ChartFileProjection.FromBmsFile(chartCFile));
+    }
+
+    private static (BMSPlaylist Playlist, TestBmsLibrary Library, BMSTable Table, PlaylistWorkspaceViewModel Workspace) CreateRootDropStore(
+        string tempDirectory,
+        BMSTable table,
+        IEnumerable<BMSFile> libraryFiles)
+    {
+        string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(tempDirectory);
+        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        BMSPlaylist playlist = new TestBmsPlaylist(
+            songDbPath,
+            null,
+            null,
+            null,
+            null,
+            () => new PlaylistUrlCompletionOptionsSnapshot(),
+            () => new BeatorajaBmtOptionsSnapshot(),
+            () => new CustomFolderOutputSettingsSnapshot(),
+            null)
+        {
+            BMSTables = new ObservableCollection<BMSTable>([table])
+        };
+        TestBmsLibrary library = new(songDbPath)
+        {
+            BMSFiles = [.. libraryFiles ?? []]
+        };
+        PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
+            playlist,
+            library,
+            () => new CustomFolderOutputSettingsSnapshot());
+        return (playlist, library, table, workspace);
+    }
+
+    private static BMSFile CreatePlaylistDropBmsFile(string md5, string title, string path)
+    {
+        string[] values = CreateSongTableRow(md5, path);
+        values[1] = title;
+        return BMSFile.FromSongTableRawValues(values);
+    }
+
+    private static void AssertPersistedRootDropEntries(
+        string songDbPath,
+        int playlistId,
+        IReadOnlyList<string> expectedEntries)
+    {
+        using var database = new LR2SongDBExtended(songDbPath);
+        string[] persistedEntries = [.. database.Table<LR2SongDBExtended.playlist_entry>()
+            .Where(entry => entry.playlist_id == playlistId && !entry.is_removed)
+            .Select(entry => entry.md5 + "|" + entry.folder)
+            .OrderBy(value => value, StringComparer.Ordinal)];
+        CollectionAssert.AreEqual(expectedEntries.ToArray(), persistedEntries);
     }
 
 }

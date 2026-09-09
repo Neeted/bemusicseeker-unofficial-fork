@@ -28,6 +28,8 @@ internal sealed class PlaylistRemovalWorkflowOwner
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
+    private readonly Func<BMSPlaylist, PlaylistWorkspaceMutationKind, IDisposable> tryBeginPlaylistMutation;
+
     internal event EventHandler ReferenceSortInvalidationRequested;
 
     internal event EventHandler SummaryRefreshRequested;
@@ -40,12 +42,16 @@ internal sealed class PlaylistRemovalWorkflowOwner
 
     internal event EventHandler<PlaylistFolderRemovalAppliedEventArgs> FolderRemovalApplied;
 
+    /// <summary>
+    /// 削除の確認・保存・通知を接続します。フォルダー削除は取得した論理受付を通知終端まで保持します。
+    /// </summary>
     internal PlaylistRemovalWorkflowOwner(
         IUiDialogService dialogs,
         Func<BMSPlaylist> playlistStoreProvider,
         Func<BMSLibrary> playlistLibraryProvider,
         Func<LR2Config> lr2ConfigProvider,
-        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider)
+        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
+        Func<BMSPlaylist, PlaylistWorkspaceMutationKind, IDisposable> tryBeginPlaylistMutation = null)
     {
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.playlistStoreProvider = playlistStoreProvider ?? throw new ArgumentNullException(nameof(playlistStoreProvider));
@@ -53,6 +59,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
         this.lr2ConfigProvider = lr2ConfigProvider ?? throw new ArgumentNullException(nameof(lr2ConfigProvider));
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
             ?? throw new ArgumentNullException(nameof(customFolderOutputSettingsProvider));
+        this.tryBeginPlaylistMutation = tryBeginPlaylistMutation;
     }
 
     internal async Task RemoveTreeTableAsync(BMSTable table, Action applySelectionBeforeMutation)
@@ -236,25 +243,70 @@ internal sealed class PlaylistRemovalWorkflowOwner
         }
 
         BMSPlaylist playlistStore = GetPlaylistStore();
+        IDisposable admission = tryBeginPlaylistMutation?.Invoke(
+            playlistStore,
+            PlaylistWorkspaceMutationKind.RemoveFolder);
+        if (tryBeginPlaylistMutation != null && admission == null)
+        {
+            return;
+        }
+        using IDisposable admissionScope = admission;
+        BMSTable activeTable = playlistStore.ResolveActivePlaylistTableForMutation(table);
+        if (activeTable == null)
+        {
+            MutationRejected?.Invoke(
+                this,
+                new PlaylistWorkspaceMutationRejectedEventArgs(
+                    PlaylistWorkspaceMutationKind.RemoveFolder,
+                    isBusy: false,
+                    isStale: true));
+            return;
+        }
+        if (!playlistStore.ContainsPlaylistFolderForMutation(activeTable, folderName))
+        {
+            MutationRejected?.Invoke(
+                this,
+                new PlaylistWorkspaceMutationRejectedEventArgs(
+                    PlaylistWorkspaceMutationKind.RemoveFolder,
+                    isBusy: false,
+                    isStale: true));
+            return;
+        }
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession =
             playlistStore.OperationNotificationOwner.BeginSession();
-        playlistStore.AcquireReaderLockBMSTables();
         try
         {
-            if (!CanRemoveFolder(table)
-                || !playlistStore.ContainsBMSTable(table)
-                || !playlistStore.RemoveFolderBMSTable(table, folderName))
+            if (!CanRemoveFolder(activeTable)
+                || !playlistStore.ContainsBMSTable(activeTable)
+                || !playlistStore.ContainsPlaylistFolderForMutation(activeTable, folderName)
+                || !playlistStore.RemoveFolderBMSTable(activeTable, folderName))
             {
                 return;
             }
 
             FolderRemovalApplied?.Invoke(
                 this,
-                new PlaylistFolderRemovalAppliedEventArgs(table, folderName));
+                new PlaylistFolderRemovalAppliedEventArgs(activeTable, folderName));
+        }
+        catch (PlaylistMutationPostCommitException)
+        {
+            if (playlistStore.ContainsBMSTable(activeTable))
+            {
+                try
+                {
+                    FolderRemovalApplied?.Invoke(
+                        this,
+                        new PlaylistFolderRemovalAppliedEventArgs(activeTable, folderName));
+                }
+                catch
+                {
+                    // UI/reference publication is best effort after a durable mutation.
+                }
+            }
+            throw;
         }
         finally
         {
-            playlistStore.FreeReaderLockBMSTables();
             OperationNotificationPresentationRequested?.Invoke(
                 this,
                 new PlaylistOperationNotificationPresentationRequestedEventArgs(

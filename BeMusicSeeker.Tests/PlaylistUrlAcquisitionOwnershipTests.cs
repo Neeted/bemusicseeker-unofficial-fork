@@ -24,6 +24,18 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistUrlAcquisitionOwnershipTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+
+    private readonly List<PlaylistWorkspaceTestPorts.OwnedPlaylistStore> ownedPlaylistStores = [];
+
+    [TestCleanup]
+    public void CleanupOwnedPlaylistStores()
+    {
+        for (int index = ownedPlaylistStores.Count - 1; index >= 0; index--)
+        {
+            ownedPlaylistStores[index].Dispose();
+        }
+        ownedPlaylistStores.Clear();
+    }
     [TestMethod]
     public void OptionsSnapshot_CapturesAutoInstallSettingsWithoutExposingSettingsObject()
     {
@@ -1255,7 +1267,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             null!));
     }
 
-    private static PlaylistWorkspaceViewModel CreateWorkspace(
+    private PlaylistWorkspaceViewModel CreateWorkspace(
         Action<Action> dispatch,
         Func<PlaylistUrlAcquisitionOptionsSnapshot>? optionsProvider = null,
         PlaylistUrlAcquisitionWorkflow? acquisitionWorkflow = null,
@@ -1268,6 +1280,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Func<Action, Task>? presentationScheduler = null,
         Func<bool>? installQueueActiveProvider = null)
     {
+        PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
+            PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
+        ownedPlaylistStores.Add(ownedPlaylistStore);
         Func<Action, Task> urlPresentationScheduler = presentationScheduler
             ?? (action =>
             {
@@ -1301,7 +1316,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            () => ownedPlaylistStore.Store,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
             () => null!,

@@ -60,7 +60,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         await ResyncPlaylistsAsync([table]);
-        return ResolveActivePlaylistTable(table, table.name);
+        return GetPlaylistStore().ResolveActivePlaylistTableForMutation(table);
     }
 
     internal BMSTable ResolveActivePlaylistSummaryTable(PlaylistSummaryRow row)
@@ -125,11 +125,25 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        await manualReloadSemaphore.WaitAsync().ConfigureAwait(false);
-        try
+        BMSPlaylist playlists = GetPlaylistStore();
+        if (playlists.IsPlaylistUpdating
+            || !TryEnterPlaylistMutationAdmission(playlists, out IDisposable admission))
         {
-            BMSPlaylist playlists = GetPlaylistStore();
-            List<BMSTable> activeTables = [.. requestedTables
+            RaiseMutationRejected(PlaylistWorkspaceMutationKind.Reload, isBusy: true, isStale: false);
+            return;
+        }
+        using (admission)
+        {
+            List<BMSTable> resolvedRequestedTables = [.. requestedTables
+                .Select(playlists.ResolveActivePlaylistTableForMutation)
+                .Where(table => table != null)
+                .Distinct()];
+            if (resolvedRequestedTables.Count == 0)
+            {
+                RaiseMutationRejected(PlaylistWorkspaceMutationKind.Reload, isBusy: false, isStale: true);
+                return;
+            }
+            List<BMSTable> activeTables = [.. resolvedRequestedTables
                 .Where(playlists.ContainsBMSTable)
                 .Where(table =>
                 {
@@ -138,6 +152,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 })];
             if (activeTables.Count == 0)
             {
+                RaiseMutationRejected(PlaylistWorkspaceMutationKind.Reload, isBusy: false, isStale: true);
                 return;
             }
             bool isFullReload = activeTables.Count > 1;
@@ -191,10 +206,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                     notificationSession,
                     "manual playlist resync notification");
             }
-        }
-        finally
-        {
-            manualReloadSemaphore.Release();
         }
     }
 

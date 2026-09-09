@@ -734,6 +734,8 @@
   "Msg_SelectedPlaylistExternalPackageLookupResult": "外部 API 來源搜尋結果\n\n目標 MD5: {0}\n安裝目標: {1}\n沒有來源: {2}\n略過(已下載 URL): {3}\n略過(失敗 URL): {4}\n略過(大小上限): {5}\n略過(不支援): {6}\n失敗: {7}\n因取消未處理: {8}",
   "Warn_ElevatedProcessDragDropLimited": "BeMusicSeeker 正在以系統管理員權限執行。\n\nWindows 可能會阻止從一般權限的檔案總管視窗拖放檔案或資料夾。\n若要透過拖放新增樂曲，請以一般方式啟動 BeMusicSeeker。",
   "Warn_PendingPackageNotFound": "在待處理的安裝包中未找到所選譜面。",
+  "Warn_PlaylistMutationBusy": "另一個播放清單操作正在進行中。\n請在操作完成後重試。",
+  "Warn_PlaylistMutationStale": "顯示的播放清單目標已過時或已被刪除。\n請選取目前的目標後重試。",
   "Warn_InvalidInstallPath": "安裝目標路徑無效。\n{0}\n\n{1}",
   "Warn_InstallDirNotFound": "找不到安裝目標資料夾。\n{0}",
   "Warn_InstallDirMustContainBms": "安裝目標只能指定包含現有BMS檔案的資料夾。\n{0}",

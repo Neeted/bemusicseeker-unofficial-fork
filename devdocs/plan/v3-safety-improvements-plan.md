@@ -30,7 +30,7 @@ DB／ファイルシステムはアプリの排他的利用を前提とする。
 | 適用単位 | 主な入口・writable pathの候補 | 完了の判定・既存計画との分担 | 状態 |
 |---|---|---|---|
 | 起動の閲覧／変更受付分離 | [既存startup計画](lr2-startup-procedural-orchestration-plan.md) のunits。MainWindowViewModel、startup owner、BMSLibrary.Lr2SynchronizationOwner | 必須local・必要LR2処理中は変更を未実行Busyとする。設定画面は開ける。optional online／全cache完了へ待機を広げない。standalone・同期無効・失敗後の復旧・保留復元の自動推定を確認 | 未実装、既存計画で追跡 |
-| プレイリスト編集と通信の受付 | [BMS-004](#bms-004)、[BMS-029](#bms-029)。PlaylistWorkspaceViewModel.Mutations／Reload／PlaylistUrlAcquisition、PlaylistAggregatePersistenceOwner | 通信中の編集は断り、現行の実入口で許可されるライブラリ操作は維持。通信後の適用は既存file/DB境界を守る。編集禁止のために一覧全体・設定画面・ライブラリを止めない | 未実装、対象issueに接続 |
+| プレイリスト編集と通信の受付 | [BMS-004](#bms-004)、[BMS-029](#bms-029)。PlaylistWorkspaceViewModel.Mutations／Reload／PlaylistUrlAcquisition、PlaylistAggregatePersistenceOwner | 通信中の編集は断り、現行の実入口で許可されるライブラリ操作は維持。通信後の適用は既存file/DB境界を守る。編集禁止のために一覧全体・設定画面・ライブラリを止めない | BMS-004完了、本文取消のBMS-029は未着手 |
 | 保留の自動推定と手動操作 | [BMS-016](#bms-016)。PackageLifecycleOwner、PendingInstallEstimateQueueProcessor、PendingPackageWorkflowOwner、対応View terminal | 保留追加・復元から自動推定へ進み、推定中の手動推定・削除だけをBusyで断る。受理済み自動batchを失わない。既存batch内並列を変更しない | 未実装、BMS-016で追跡 |
 | 設定画面の利用維持 | [BMS-001](#bms-001)・[BMS-011](#bms-011)等で触る設定／処理入口。SettingsDialogViewModel、ApplicationComposition、MainWindowの設定表示、対象owner | 表示・編集・既存Cancel／UI previewを保ち、Save拒否時のsnapshot復元・失敗後retry等を設定仕様どおり確認。必要な実行時設定の取得は触る入口に限定し、全設定draft基盤を作らない | 互換性条件、独立の全面改修なし |
 | 試聴・録音と導入の受付 | [BMS-017](#bms-017)〜[BMS-019](#bms-019)、[BMS-021](#bms-021)の関連入口。PlaybackPanelViewModel、PackageInstallWorkflowOwner、SelectedChartMutationWorkflowOwner、録音owner | 新規の競合試聴・録音・変更はBusy。試聴から変更へは既存Stopと実cleanupを完了してから進む。録音の強制中断や拒否した再生の自動予約を追加しない | 未実装、対象入口で確認・不足だけ改修 |
@@ -50,9 +50,9 @@ DB／ファイルシステムはアプリの排他的利用を前提とする。
 | [BMS-001](#bms-001) | LR2試聴による保存済み検索ルートの巻戻しを防ぐ | リリース前 | 完了（2026-09-09） | 8〜16 |
 | [BMS-002](#bms-002) | LR2 XML・プレイリストバックアップの保存失敗時に旧ファイルを保全する | 保守対応 | 完了（2026-09-09） | 8〜16 |
 | [BMS-003](#bms-003) | LR2プロセス開始失敗でも試聴用設定を復元する | 限定改善 | 完了（2026-09-09） | 8〜16 |
-| [BMS-004](#bms-004) | プレイリスト編集と更新反映のUI・collection lock循環待ちを解消する | リリース前 | 未着手 | 16〜32 |
-| [BMS-005](#bms-005) | プレイリストDB保存失敗時にlive編集内容も整合させる | 保守対応 | 未着手 | 16〜32 |
-| [BMS-006](#bms-006) | フォルダ管理型プレイリストの一括ドロップを分割投入と整合させる | 保守対応 | 未着手 | 8〜16 |
+| [BMS-004](#bms-004) | プレイリスト編集と更新反映のUI・collection lock循環待ちを解消する | リリース前 | 完了（2026-09-09） | 16〜32 |
+| [BMS-005](#bms-005) | プレイリストDB保存失敗時にlive編集内容も整合させる | 保守対応 | 完了（2026-09-09） | 16〜32 |
+| [BMS-006](#bms-006) | フォルダ管理型プレイリストの一括ドロップを分割投入と整合させる | 保守対応 | 完了（2026-09-09） | 8〜16 |
 | [BMS-007](#bms-007) | プレイリストSQLバックアップの文字列・数値・NULLの型を保つ | 保守対応 | 未着手 | 8〜16 |
 | [BMS-008](#bms-008) | beatoraja Table URL同期の失敗を部分失敗として利用者へ返す | 保守対応 | 未着手 | 8〜16 |
 | [BMS-009](#bms-009) | BMT出力要求の置換でも旧出力先cleanupを落とさない | 限定改善 | 未着手 | 8〜16 |
@@ -250,6 +250,8 @@ BMS-002 と BMS-007 はバックアップ保存、BMS-022 と BMS-026〜BMS-028 
 
 BMS-004 の通知・lock 境界を先行する。続いて BMS-005 の DB 失敗時整合、BMS-006 のバッチ内分類を別の完了条件で進める。Mutations partial、BMSPlaylist、BMSTable と共通テストが主な共有面。
 
+2026-09-09 に3件の実装・受入を完了。以下の事象・到達経路は修正前の調査記録として残す。実入口を照合して対象を絞り、編集受付と通知、DB保存失敗時のlive復元、一括dropの分類を修正した。現行契約は [playlist-data-and-export-flow.md](../spec/playlist-data-and-export-flow.md)、妥当性確認・検証・最終レビューの証跡は [作業記録](2026-09-09-playlist-edit-safety.md) を参照。Functionalは4648成功・11スキップ・0失敗、177.8秒。
+
 **既存計画・仕様との境界:** プレイリスト復元の worker／UI 分離は [既存の応答性改善記録](2026-09-06-wait-responsiveness.md)にある。本領域はローカル編集の残課題を扱い、復元の非同期化をやり直す計画ではない。
 
 <a id="bms-004"></a>
@@ -273,7 +275,7 @@ BMS-004 の通知・lock 境界を先行する。続いて BMS-005 の DB 失敗
 
 **保全条件・対象外:** InvokeをBeginInvokeへ機械置換するだけ、全面lock削除、広いgenerationの追加で隠さない。 UI応答性の改善を、未承認の同時mutation許可と解釈しない。
 
-**実装時に決める事項:** 既存の手動リロード／URL取得状態と編集入口の接続、受付の取得・解放位置。受理済み自動同期の適用は元ownerの終端まで順序を持たせる。通信中に維持するライブラリ操作の具体的な実入口を記録する。採用済みの編集Busyとライブラリ操作維持を再び未決にせず、一覧lock解放とidentity確認を別に維持する。
+**採用した方式:** store単位で編集を受け付け、保存・通知・cleanupの終端まで所有する。後続の手動編集はBusyで拒否し、受理済み自動同期は既存queue内で受付解放を待つ。通知前に一覧lockを解放し、受付後に現在の対象identityを解決する。通信中のライブラリ操作・設定画面の維持は [作業記録](2026-09-09-playlist-edit-safety.md) に実入口と検証を記録した。
 
 **変更範囲・参照:**
 
@@ -287,12 +289,12 @@ BMS-004 の通知・lock 境界を先行する。続いて BMS-005 の DB 失敗
 | [BeMusicSeeker/ViewModels/MainWindow/PlaylistWorkspaceViewModel.Reload.cs](../../BeMusicSeeker/ViewModels/MainWindow/PlaylistWorkspaceViewModel.Reload.cs) | 改修候補：手動リロードの受付・終端と編集可否の接続 |
 | [BeMusicSeeker/ViewModels/MainWindow/PlaylistWorkspaceViewModel.PlaylistUrlAcquisition.cs](../../BeMusicSeeker/ViewModels/MainWindow/PlaylistWorkspaceViewModel.PlaylistUrlAcquisition.cs) | 改修候補：既存取得状態と編集可否。本文取消はBMS-029 |
 
-**受入条件（案）:**
+**受入条件（確認済み）:**
 
-- [ ] **BMS-004-AC1** — 実入口から手動リロード／URL取得の通信とUI反映を制御し、別表を含む後続のプレイリスト編集がBusyで未実行終了する。Dispatcherの閲覧・進捗処理は継続し、受理済み背景更新等の残る共有lock経路でもUI待ちとreader／writer待ちが循環しない。
-- [ ] **BMS-004-AC2** — 受理した操作の保存・正本反映・結果通知が終端し、操作受付・lock が残らない。Busy で拒否した操作は DB／model を変更せず、先行完了後に自動起動しない。利用者が改めて要求すれば現在状態を使って実行できる。
-- [ ] **BMS-004-AC3** — フォルダ追加・名前変更・entry 削除等の同型入口にも同じ受付・終端方針が適用される。古い一覧からの選択は受付後に現在の表・対象へ解決し、消失または同一性を確定できない場合は未実行を明示する。表示の遅れを理由に別対象へ読み替えない。
-- [ ] **BMS-004-AC4** — 通信だけを停止した状態で、対象unitが現行許可を確認したライブラリ操作と設定画面の入口が引き続き利用できる。通信完了後の適用は既存leaseに従って成功／失敗を終端する。プレイリスト編集の拒否を、一覧全体や所持譜面操作の一括無効化で代替しない。
+- [x] **BMS-004-AC1** — 実入口から手動リロード／URL取得の通信とUI反映を制御し、別表を含む後続のプレイリスト編集がBusyで未実行終了する。Dispatcherの閲覧・進捗処理は継続し、受理済み背景更新等の残る共有lock経路でもUI待ちとreader／writer待ちが循環しない。
+- [x] **BMS-004-AC2** — 受理した操作の保存・正本反映・結果通知が終端し、操作受付・lock が残らない。Busy で拒否した操作は DB／model を変更せず、先行完了後に自動起動しない。利用者が改めて要求すれば現在状態を使って実行できる。
+- [x] **BMS-004-AC3** — フォルダ追加・名前変更・entry 削除等の同型入口にも同じ受付・終端方針が適用される。古い一覧からの選択は受付後に現在の表・対象へ解決し、消失または同一性を確定できない場合は未実行を明示する。表示の遅れを理由に別対象へ読み替えない。
+- [x] **BMS-004-AC4** — 通信だけを停止した状態で、対象unitが現行許可を確認したライブラリ操作と設定画面の入口が引き続き利用できる。通信完了後の適用は既存leaseに従って成功／失敗を終端する。プレイリスト編集の拒否を、一覧全体や所持譜面操作の一括無効化で代替しない。
 
 **検証候補:** [PlaylistWorkspacePersistenceCommandTests.cs](../../BeMusicSeeker.Tests/PlaylistWorkspacePersistenceCommandTests.cs)、[MainWindowPlaylistWorkspaceWpfTests.cs](../../BeMusicSeeker.Tests/MainWindowPlaylistWorkspaceWpfTests.cs)、[BmsPlaylistExternalReloadTests.cs](../../BeMusicSeeker.Tests/BmsPlaylistExternalReloadTests.cs)。
 
@@ -323,7 +325,7 @@ BMS-004 の通知・lock 境界を先行する。続いて BMS-005 の DB 失敗
 
 **保全条件・対象外:** 派生出力失敗を理由にcommit済みDBを巻き戻さない。単にReloadを無条件実行して利用者の別編集を消さない。 内部revisionの値そのものより、stale判定と次回保存の正しさを保証する。
 
-**決定待ち:** 変更候補を分離する方式か、既存 snapshot で live を戻す方式か。復元する状態と commit 前後の境界。
+**採用した方式:** 操作開始時の snapshot で、変更した live state を object identity を保って復元する。DB commit 後の出力失敗では保存内容を戻さない。現行契約は [playlist-data-and-export-flow.md](../spec/playlist-data-and-export-flow.md)、検証証跡は [作業記録](2026-09-09-playlist-edit-safety.md) を参照。
 
 **変更範囲・参照:**
 
@@ -334,11 +336,11 @@ BMS-004 の通知・lock 境界を先行する。続いて BMS-005 の DB 失敗
 | [BeMusicSeeker/Models/BMSTable.cs:1149–1171](../../BeMusicSeeker/Models/BMSTable.cs#L1149-L1171) | 改修：entry削除 |
 | [BeMusicSeeker/Models/BmsLibraryInternal/PlaylistAggregatePersistenceOwner.cs:629–646](../../BeMusicSeeker/Models/BmsLibraryInternal/PlaylistAggregatePersistenceOwner.cs#L629-L646) | 改修：失敗時playlist_id補償 |
 
-**受入条件（案）:**
+**受入条件（確認済み）:**
 
-- [ ] **BMS-005-AC1** — 各ローカル編集のDB失敗直後に、liveとDBがどちらも失敗前の内容になる。
-- [ ] **BMS-005-AC2** — 直後の無関係な成功保存と再起動の双方で、失敗した変更が混入しない。
-- [ ] **BMS-005-AC3** — DB成功後の派生出力失敗では、保存済み編集を保持し、出力だけの失敗を通知する。
+- [x] **BMS-005-AC1** — 各ローカル編集のDB失敗直後に、liveとDBがどちらも失敗前の内容になる。
+- [x] **BMS-005-AC2** — 直後の無関係な成功保存と再起動の双方で、失敗した変更が混入しない。
+- [x] **BMS-005-AC3** — DB成功後の派生出力失敗では、保存済み編集を保持し、出力だけの失敗を通知する。
 
 **検証候補:** [PlaylistWorkspacePersistenceCommandTests.cs](../../BeMusicSeeker.Tests/PlaylistWorkspacePersistenceCommandTests.cs)、[BmsPlaylistPersistenceLifecycleTests.cs](../../BeMusicSeeker.Tests/BmsPlaylistPersistenceLifecycleTests.cs)、[PlaylistSummaryBulkEditTests.cs](../../BeMusicSeeker.Tests/PlaylistSummaryBulkEditTests.cs)。
 
@@ -369,7 +371,7 @@ BMS-004 の通知・lock 境界を先行する。続いて BMS-005 の DB 失敗
 
 **保全条件・対象外:** 既存データを自動で一括統合するmigrationは含めない。ユーザーの手動フォルダ分類を再解釈しない。 順序の違う入力まで常に同じ結果にする要件は追加せず、同じ順序のバッチ分割不変性を対象とする。
 
-**決定待ち:** 予定フォルダと曲 identity を保持するバッチ内作業集合。既存の曲同一性・命名規則は変更しない。
+**採用した方式:** 予定 folder と entry を保持する作業集合で、後続 directory を既存と同じ分類・順序・命名規則で計画する。削除履歴だけの folder は候補に含めない。現行契約は [playlist-data-and-export-flow.md](../spec/playlist-data-and-export-flow.md)、検証証跡は [作業記録](2026-09-09-playlist-edit-safety.md) を参照。
 
 **変更範囲・参照:**
 
@@ -379,11 +381,11 @@ BMS-004 の通知・lock 境界を先行する。続いて BMS-005 の DB 失敗
 | [BeMusicSeeker/ViewModels/MainWindow/PlaylistWorkspaceViewModel.Mutations.cs:389–427](../../BeMusicSeeker/ViewModels/MainWindow/PlaylistWorkspaceViewModel.Mutations.cs#L389-L427) | 改修：BuildRootFolderDropMutations |
 | [BeMusicSeeker/Models/BMSPlaylist.cs:4624–4735](../../BeMusicSeeker/Models/BMSPlaylist.cs#L4624-L4735) | 改修：ApplyPlaylistDropMutation |
 
-**受入条件（案）:**
+**受入条件（確認済み）:**
 
-- [ ] **BMS-006-AC1** — 同一の順序で一括投入した結果と2回に分けた結果で、曲グループ所属と重複排除後のentriesが一致する。
-- [ ] **BMS-006-AC2** — 別曲だが同名タイトル、orgMd5なし、既存フォルダあり、フォルダ名衝突を区別し、誤統合しない。
-- [ ] **BMS-006-AC3** — 新しいworking setを計画段階でliveへ公開しない。既存のDB失敗後rollback不備はBMS-005へ分離し、その修正後に両契約を統合確認する。
+- [x] **BMS-006-AC1** — 同一の順序で一括投入した結果と2回に分けた結果で、曲グループ所属と重複排除後のentriesが一致する。
+- [x] **BMS-006-AC2** — 別曲だが同名タイトル、orgMd5なし、既存フォルダあり、フォルダ名衝突を区別し、誤統合しない。
+- [x] **BMS-006-AC3** — 新しいworking setを計画段階でliveへ公開しない。既存のDB失敗後rollback不備はBMS-005へ分離し、その修正後に両契約を統合確認する。
 
 **検証候補:** [PlaylistWorkspacePersistenceCommandTests.cs](../../BeMusicSeeker.Tests/PlaylistWorkspacePersistenceCommandTests.cs)、[MainWindowPlaylistWorkspaceWpfTests.cs](../../BeMusicSeeker.Tests/MainWindowPlaylistWorkspaceWpfTests.cs)、[BmsPlaylistPersistenceLifecycleTests.cs](../../BeMusicSeeker.Tests/BmsPlaylistPersistenceLifecycleTests.cs)。
 
