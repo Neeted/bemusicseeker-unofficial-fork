@@ -2,7 +2,9 @@
 
 Status: Active
 
-基準コミット: `2fbc7a72450ed325f3554a59f105c4c10d6d6ca9`
+基準コミット: `2fbc7a72450ed325f3554a59f105c4c10d6d6ca9`（BMS-001〜BMS-030）
+
+追加項目の確認コミット: `487132ae220c2a66345845720b91b71d19f58d11`（BMS-031〜BMS-033）
 
 対象: v3.0.0.0 のリリース前修正と、リリース後の保守改善
 
@@ -12,7 +14,7 @@ Status: Active
 
 DB／ファイルシステムはアプリの排他的利用を前提とする。外部変更への防御は、BMS-012 の削除前確認など個別に示す小さい範囲に限る。BMS-020・BMS-027 は説明改善、BMS-014 は既存防御の成立確認を先行する。
 
-事象・ソース行番号は上記コミットの静的調査に基づく。修正・検証の進捗は各項目とリンク先の作業記録を参照する。以下の受入条件は本計画の到達目標であり、個別作業記録で承認・検証されるまでは Test Contract Packet や検証実績として扱わない。現行契約は [spec/](../spec/README.md)、開発・検証運用は [AGENTS.md](../../AGENTS.md) に従う。
+事象・ソース参照は各項目に対応する上記コミットの静的確認に基づく。修正・検証の進捗は各項目とリンク先の作業記録を参照する。以下の受入条件は本計画の到達目標であり、個別作業記録で承認・検証されるまでは Test Contract Packet や検証実績として扱わない。現行契約は [spec/](../spec/README.md)、開発・検証運用は [AGENTS.md](../../AGENTS.md) に従う。
 
 ## 受付方針と適用範囲
 
@@ -25,12 +27,12 @@ DB／ファイルシステムはアプリの排他的利用を前提とする。
 <a id="concurrency-application"></a>
 ### 受付方針の適用単位
 
-設計・運用文書への方針反映とruntime改修は別に記録する。下記は関連改修を進める際の範囲であり、30件すべての着手前に共通基盤を作る工程ではない。起動再構成や各機能全体の受付変更を、リリース前のBMS-001／BMS-004へ無条件に追加しない。
+設計・運用文書への方針反映とruntime改修は別に記録する。下記は関連改修を進める際の範囲であり、全項目の着手前に共通基盤を作る工程ではない。起動再構成や各機能全体の受付変更を、リリース前のBMS-001／BMS-004へ無条件に追加しない。
 
 | 適用単位 | 主な入口・writable pathの候補 | 完了の判定・既存計画との分担 | 状態 |
 |---|---|---|---|
 | 起動の閲覧／変更受付分離 | [既存startup計画](lr2-startup-procedural-orchestration-plan.md) のunits。MainWindowViewModel、startup owner、BMSLibrary.Lr2SynchronizationOwner | 必須local・必要LR2処理中は変更を未実行Busyとする。設定画面は開ける。optional online／全cache完了へ待機を広げない。standalone・同期無効・失敗後の復旧・保留復元の自動推定を確認 | 未実装、既存計画で追跡 |
-| プレイリスト編集と通信の受付 | [BMS-004](#bms-004)、[BMS-029](#bms-029)。PlaylistWorkspaceViewModel.Mutations／Reload／PlaylistUrlAcquisition、PlaylistAggregatePersistenceOwner | 通信中の編集は断り、現行の実入口で許可されるライブラリ操作は維持。通信後の適用は既存file/DB境界を守る。編集禁止のために一覧全体・設定画面・ライブラリを止めない | BMS-004完了、本文取消のBMS-029は未着手 |
+| プレイリスト編集と通信の受付 | [BMS-004](#bms-004)、[BMS-029](#bms-029)、[BMS-031](#bms-031)。PlaylistWorkspaceViewModel.Mutations／DetailEditing／Reload／PlaylistUrlAcquisition、BMSPlaylist、PlaylistAggregatePersistenceOwner | 通信中の編集は断り、現行の実入口で許可されるライブラリ操作は維持。詳細セル編集もモデル変更・DB保存前に必要な受付を取得し、後続競合は未実行Busyとする。通信後の適用は既存file/DB境界を守る。一覧全体・設定画面・ライブラリを一律に止めない | BMS-004完了。本文取消のBMS-029、詳細セル編集のBMS-031は未着手 |
 | 保留の自動推定と手動操作 | [BMS-016](#bms-016)。PackageLifecycleOwner、PendingInstallEstimateQueueProcessor、PendingPackageWorkflowOwner、対応View terminal | 保留追加・復元から自動推定へ進み、推定中の手動推定・削除だけをBusyで断る。受理済み自動batchを失わない。既存batch内並列を変更しない | 未実装、BMS-016で追跡 |
 | 設定画面の利用維持 | [BMS-001](#bms-001)・[BMS-011](#bms-011)等で触る設定／処理入口。SettingsDialogViewModel、ApplicationComposition、MainWindowの設定表示、対象owner | 表示・編集・既存Cancel／UI previewを保ち、Save拒否時のsnapshot復元・失敗後retry等を設定仕様どおり確認。必要な実行時設定の取得は触る入口に限定し、全設定draft基盤を作らない | 互換性条件、独立の全面改修なし |
 | 試聴・録音と導入の受付 | [BMS-017](#bms-017)〜[BMS-019](#bms-019)、[BMS-021](#bms-021)の関連入口。PlaybackPanelViewModel、PackageInstallWorkflowOwner、SelectedChartMutationWorkflowOwner、録音owner | 新規の競合試聴・録音・変更はBusy。試聴から変更へは既存Stopと実cleanupを完了してから進む。録音の強制中断や拒否した再生の自動予約を追加しない | 未実装、対象入口で確認・不足だけ改修 |
@@ -41,7 +43,7 @@ DB／ファイルシステムはアプリの排他的利用を前提とする。
 
 ## 進捗と着手順
 
-まず BMS-001 と BMS-004 をそれぞれ完了させる。BMS-007 は保守対応だが、SQL バックアップを移行・復旧に使う前に対応する。領域内の順序は各節に示す。
+リリース前対象の BMS-001 と BMS-004 は完了済み。保守対応では BMS-031 の詳細セル編集を優先する。BMS-007 は SQL バックアップを移行・復旧に使う前に対応する。BMS-032 は保守対応、BMS-033 は限定改善とし、追加3件をリリース前の必須条件には加えない。領域内の順序は各節に示す。
 
 工数は、既存コードを把握した実装者による局所調査・実装・関連検証・必要な文書更新の概算人時。横断検証、独立レビュー、新しい OS／native 試験環境の構築は別枠であり、重複作業があるため単純合算しない。BMS-014 は確認のみの工数で、違反が見つかった場合の実装は別見積り。
 
@@ -77,18 +79,21 @@ DB／ファイルシステムはアプリの排他的利用を前提とする。
 | [BMS-028](#bms-028) | 未来日付の世代を自動バックアップ間隔判定から除外する | 限定改善 | 未着手 | 4〜8 |
 | [BMS-029](#bms-029) | 単発URLダウンロードの本文待機をキャンセル・期限で終端できるようにする | 保守対応 | 未着手 | 8〜16 |
 | [BMS-030](#bms-030) | アーカイブ展開と外部HTML／JSON取得に小さな資源予算を設ける | 限定改善 | 未着手 | 16〜32 |
+| [BMS-031](#bms-031) | プレイリスト詳細セル編集の受付を保存前に揃え、後続競合を未実行で拒否する | 保守対応（優先） | 未着手 | 16〜32 |
+| [BMS-032](#bms-032) | 外部ビューアINIの書込み・復元失敗時に既存設定を保全し、失敗を通知する | 保守対応 | 未着手 | 8〜16 |
+| [BMS-033](#bms-033) | JSONエクスポートのheaderとdataに同一保存先を指定した場合は書込み前に拒否する | 限定改善 | 未着手 | 2〜4 |
 
 ## 改修単位と writable path
 
 各項のソース表の「改修」「改修候補」が writable path の予定範囲。「参照」は到達経路や既存防御の確認先。記載したメソッド・責務、検証候補、仕様反映先の必要な部分を対象とし、ファイル全体の整理は含めない。表示文言の共通リソースは AGENTS.md の既存の変更範囲を使う。
 
-ソースリンクはリポジトリ内への相対参照。行番号は基準コミットに限り、作業 HEAD では記載したシンボルから照合する。検証候補は既存 fixture の所在であり、受入条件を検証済みという意味ではない。
+ソースリンクはリポジトリ内への相対参照。既存項目の行番号は基準コミットに限り、作業 HEAD では記載したシンボルから照合する。BMS-031〜BMS-033 は行番号を固定せず、追加項目の確認コミットで照合したシンボル・責務を示す。検証候補は既存 fixture の所在であり、受入条件を検証済みという意味ではない。
 
 | 領域 | 対象 | 共有する主な変更面 |
 |---|---|---|
-| [LR2 設定と外部試聴](#lr2-settings) | [BMS-001](#bms-001)、[BMS-002](#bms-002)、[BMS-003](#bms-003) | LR2Config、LR2body、設定 composition |
-| [プレイリスト編集](#playlist-edit) | [BMS-004](#bms-004)、[BMS-005](#bms-005)、[BMS-006](#bms-006) | PlaylistWorkspaceViewModel.Mutations、BMSPlaylist、BMSTable |
-| [プレイリストのバックアップ・互換出力](#playlist-output) | [BMS-007](#bms-007)、[BMS-008](#bms-008)、[BMS-009](#bms-009) | Dump／Restore、PlaylistBmtOutputOwner |
+| [LR2 設定と外部試聴](#lr2-settings) | [BMS-001](#bms-001)、[BMS-002](#bms-002)、[BMS-003](#bms-003)、[BMS-032](#bms-032) | LR2Config、LR2body、設定 composition、uBMplay／BMIIDXView2015 の INI 保存 |
+| [プレイリスト編集](#playlist-edit) | [BMS-004](#bms-004)、[BMS-005](#bms-005)、[BMS-006](#bms-006)、[BMS-031](#bms-031) | PlaylistWorkspaceViewModel.Mutations／DetailEditing、BMSPlaylist、BMSTable、PlaylistDetailRow |
+| [プレイリストのバックアップ・互換出力](#playlist-output) | [BMS-007](#bms-007)、[BMS-008](#bms-008)、[BMS-009](#bms-009)、[BMS-033](#bms-033) | Dump／Restore、PlaylistBmtOutputOwner、PlaylistWorkspaceViewModel.PlaylistExport |
 | [所持譜面の文字コード・拡張子変更](#chart-mutations) | [BMS-010](#bms-010)、[BMS-011](#bms-011)、[BMS-012](#bms-012) | SelectedChartMutationWorkflowOwner、View terminal、collision 判定 |
 | [保留パッケージと導入結果](#pending-install) | [BMS-013](#bms-013)、[BMS-014](#bms-014)、[BMS-015](#bms-015)、[BMS-016](#bms-016) | PackageInstallService、保留 snapshot、FileDbMutationBoundary、推定 queue |
 | [一時試聴・展開領域・録音](#preview-audio) | [BMS-017](#bms-017)、[BMS-018](#bms-018)、[BMS-019](#bms-019)、[BMS-020](#bms-020)、[BMS-021](#bms-021) | PlaybackPanelViewModel、temporarilyCopyFiles、録音 writer |
@@ -103,7 +108,7 @@ BMS-002 と BMS-007 はバックアップ保存、BMS-022 と BMS-026〜BMS-028 
 
 2026-09-08 の依頼で BMS-001 / BMS-002 / BMS-003 に着手。実装経路を照合して3件の妥当性を確認した。具体的な所有境界、採用した順序、承認済みテスト契約と検証は [作業記録](2026-09-08-lr2-settings-safety.md) にまとめる。保存公開を先行し、続いて正本管理と開始失敗時復元を同じ試聴単位で扱う。SQL の値変換を扱う BMS-007 は今回変更しない。
 
-2026-09-09 に3件の実装・受入を完了。以下の問題記述は修正前の調査記録として残す。保存した設定を正本にする境界、試聴5値の復元、同一directoryからの原子的公開を現行specへ反映し、Functional（201.3秒、失敗0）とreview修正後の関連Quick・fresh static reviewを完了した。
+2026-09-09 に BMS-001〜BMS-003 の実装・受入を完了。この3件の問題記述は修正前の調査記録として残す。保存した設定を正本にする境界、試聴5値の復元、同一directoryからの原子的公開を現行specへ反映し、Functional（201.3秒、失敗0）とreview修正後の関連Quick・fresh static reviewを完了した。
 
 <a id="bms-001"></a>
 ### BMS-001 — LR2試聴による保存済み検索ルートの巻戻しを防ぐ
@@ -245,14 +250,55 @@ BMS-002 と BMS-007 はバックアップ保存、BMS-022 と BMS-026〜BMS-028 
 
 **続けて整理する項目:** [BMS-001](#bms-001)：同じ LR2body の設定変更・復元。古い XML 全体の復元を強化しない。
 
+<a id="bms-032"></a>
+### BMS-032 — 外部ビューアINIの書込み・復元失敗時に既存設定を保全し、失敗を通知する
+
+**事象・影響:** uBMplayとBMIIDXView2015は、試聴開始時に既存INIへ直接上書きする。書込み途中のI/O失敗で旧設定を失い得るが、その失敗を通知せず起動へ進む。uBMplayは書込み失敗時に読み取っていた元byte列も破棄し、後の復元を「復元不要」として成功扱いする。復元時の直接上書きにも途中失敗時の保全がない。
+
+**成立条件・操作例:** 試聴プレイヤーにuBMplayまたはBMIIDXView2015を選び、譜面を試聴する。既存INIを読み取った後、設定書込みの途中で容量不足等のI/O障害が起きる場合が対象。別プロセスによるINIの同時編集や、すべての書込み例外での破損を前提にはしない。
+
+**到達経路:** 試聴開始 → uBMplayの `TemporarilyRewriteSettings` またはBMIIDXView2015の `temporarilyRewriteSettings` → 本番INIへの直接書込み → 例外を捕捉して処理続行 → 外部プレイヤー起動。uBMplayの `RevertSettings` は元byte列が失われていると書込みをせず成功を返す。
+
+**修正方針:**
+
+- 既存の `AtomicFileWriter` を使い、INIと同じディレクトリの一意なstagingへ書き切ってから公開する。uBMplayの復元も同じ保存方式に揃える。stage書込み・公開失敗では既存ファイルを保全し、当該試行の一時ファイルだけを回収する。
+- 読み取れた元byte列を保存例外を理由に破棄しない。uBMplayの既存試聴scopeで、復元が必要な状態と成功後に復元対象を解放する境界を維持する。復元失敗を「復元不要」と読み替えない。
+- 設定反映に失敗した試聴要求は通常起動へ進めず、対象INIと原因を既存の再生失敗通知へ返す。準備済みの未開始process参照等は既存の終了経路で片付け、cleanup失敗が主原因を隠さないようにする。復元失敗もログだけで終わらせず、設定が残ったことを利用者が判断できる通知にする。
+- Shift_JIS、改行、音量の範囲、無関係なsection・key・コメントの保持を維持する。uBMplayで不足section／keyを補完した場合、保存成功後に補完内容を残す既存の挙動は変更しない。
+
+**保全条件・対象外:** BMIIDXView2015へ新しい設定復元の寿命を追加しない。全設定の統合管理、外部編集とのmerge、永続復元ジャーナル、新しい自動再試行、電源断耐久の保証は追加しない。既存INIがない場合の初回保存でも不完全な本番ファイルを公開しない。正常時のprocess所有・停止・設定補完の契約を維持する。
+
+**変更範囲・参照:**
+
+| ソース（シンボル・責務で照合） | 扱い・対象 |
+|---|---|
+| [uBMplay.cs](../../BeMusicSeeker/Models/uBMplay.cs) | 改修：TemporarilyRewriteSettings、RevertSettings、PlayStartと既存終了経路への失敗伝播 |
+| [BMIIDXView2015.cs](../../BeMusicSeeker/Models/BMIIDXView2015.cs) | 改修：temporarilyRewriteSettings、PlayStartでの設定反映失敗と未開始processのcleanup |
+| [AtomicFileWriter.cs](../../BeMusicSeeker/Models/Utils/AtomicFileWriter.cs) | 参照：同一ディレクトリからの公開、失敗時の旧内容保全と一時ファイルcleanup。原則として既存APIを再利用 |
+
+**受入条件（案）:**
+
+- [ ] **BMS-032-AC1** — 両プレイヤーの設定反映でstage書込み失敗／公開失敗を注入すると、既存INIがbyte単位で残る。その試聴要求の起動へ進まず、設定反映失敗が利用者へ通知される。
+- [ ] **BMS-032-AC2** — 復元対象の全項目を持つuBMplay INIは正常終了時に元byte列へ戻る。復元のstage書込み／公開に失敗しても不完全なINIへ置き換えず、元byte列を保持し、復元失敗を明示する。
+- [ ] **BMS-032-AC3** — uBMplayの不足section／key補完、Shift_JISの日本語、既存改行・無関係な設定、音量範囲を維持する。初回保存失敗で不完全なINIを公開せず、補完保存の成功後は従来どおり補完内容が残る。
+- [ ] **BMS-032-AC4** — 設定反映失敗とcleanup失敗が重なっても主原因と対象pathを保持し、他のファイルや所有していないprocessを片付けない。既存の停止・終了・次の明示試聴へ進める所有状態を保つ。
+
+**検証候補:** [UbmplaySettingsTests.cs](../../BeMusicSeeker.Tests/UbmplaySettingsTests.cs)、[ExternalPlayerProcessGatewayTests.cs](../../BeMusicSeeker.Tests/ExternalPlayerProcessGatewayTests.cs)、[PlaybackPanelViewModelTests.cs](../../BeMusicSeeker.Tests/PlaybackPanelViewModelTests.cs)、[AtomicFileWriterTests.cs](../../BeMusicSeeker.Tests/AtomicFileWriterTests.cs)。既存のINI互換性ケースを維持し、共通writerの単体検証だけで起動抑止・利用者通知の検証を代替しない。
+
+**仕様反映先:** [external-chart-launch.md](../spec/external-chart-launch.md)、[file-db-consistency.md](../spec/file-db-consistency.md)。INI固有の変更・復元範囲と失敗通知を記載し、共通の公開方式は既存契約を参照する。
+
+**工数の根拠:** 2プレイヤーの保存・復元と失敗伝播、既存gatewayを使う起動抑止の確認が中心。共通writerの新設は含めない。見積り確度は中。
+
+**関連項目:** [BMS-002](#bms-002) のファイル公開方式を再利用するが、LR2 XML・SQLバックアップの完了状態とは分ける。[BMS-003](#bms-003) のLR2開始失敗時復元を再実装する項目ではない。
+
 <a id="playlist-edit"></a>
 ## プレイリスト編集
 
 BMS-004 の通知・lock 境界を先行する。続いて BMS-005 の DB 失敗時整合、BMS-006 のバッチ内分類を別の完了条件で進める。Mutations partial、BMSPlaylist、BMSTable と共通テストが主な共有面。
 
-2026-09-09 に3件の実装・受入を完了。以下の事象・到達経路は修正前の調査記録として残す。実入口を照合して対象を絞り、編集受付と通知、DB保存失敗時のlive復元、一括dropの分類を修正した。現行契約は [playlist-data-and-export-flow.md](../spec/playlist-data-and-export-flow.md)、妥当性確認・検証・最終レビューの証跡は [作業記録](2026-09-09-playlist-edit-safety.md) を参照。Functionalは4648成功・11スキップ・0失敗、177.8秒。
+2026-09-09 に BMS-004〜BMS-006 の実装・受入を完了。この3件の事象・到達経路は修正前の調査記録として残す。実入口を照合して対象を絞り、編集受付と通知、DB保存失敗時のlive復元、一括dropの分類を修正した。現行契約は [playlist-data-and-export-flow.md](../spec/playlist-data-and-export-flow.md)、妥当性確認・検証・最終レビューの証跡は [作業記録](2026-09-09-playlist-edit-safety.md) を参照。Functionalは4648成功・11スキップ・0失敗、177.8秒。
 
-**既存計画・仕様との境界:** プレイリスト復元の worker／UI 分離は [既存の応答性改善記録](2026-09-06-wait-responsiveness.md)にある。本領域はローカル編集の残課題を扱い、復元の非同期化をやり直す計画ではない。
+**既存計画・仕様との境界:** プレイリスト復元の worker／UI 分離は [既存の応答性改善記録](2026-09-06-wait-responsiveness.md)にある。本領域は編集の残課題を扱い、復元の非同期化をやり直す計画ではない。BMS-031 は詳細セル編集を既存の受付・保存契約へ接続する追加項目であり、完了済みのフォルダ編集・entry削除・dropの改修をやり直さない。
 
 <a id="bms-004"></a>
 ### BMS-004 — プレイリスト編集と更新反映のUI・collection lock循環待ちを解消する
@@ -395,10 +441,57 @@ BMS-004 の通知・lock 境界を先行する。続いて BMS-005 の DB 失敗
 
 **続けて整理する項目:** [BMS-005](#bms-005)：予定集合の計画と durable 保存後の反映境界を合わせる。 [BMS-004](#bms-004)：同じ Mutations partial の変更を統合する。
 
+<a id="bms-031"></a>
+### BMS-031 — プレイリスト詳細セル編集の受付を保存前に揃え、後続競合を未実行で拒否する
+
+**事象・影響:** 詳細セル編集は、モデルを変更してDBへ保存した後に、LR2カスタムフォルダ出力のための変更受付を取得する。ここでBusyになると、保存済みなのに内部entryだけを旧値へ戻し、DB・モデル・表示が食い違う。その後の別のプレイリスト保存で旧値が再保存され、確定済みの編集が消え得る。DB保存自体の失敗でも、表示セルだけが編集後の値を保ち、ログだけでは利用者が失敗に気付けない経路がある。
+
+**成立条件・操作例:** LR2 DB連携でカスタムフォルダ出力が有効なローカルプレイリストを開き、曲Aの `MEMO` を確定した後、その出力中に曲Bの `MEMO` を確定する。後続編集のDB保存が先に通り、出力受付でBusyになるタイミングで成立する。別途BMSを導入する操作は必要ない。対象は詳細の `ENTRY LEVEL`、`URL1`、`URL2`、`COMMENT`、`MEMO` の確定経路であり、外部同期プレイリストは従来どおり `MEMO` のみ編集可能とする。
+
+**到達経路:** 詳細セル確定 → `CompleteDetailEdit` が表示行とentryへ入力を適用 → `CommitBMSTableEntry` がDBを保存 → LR2出力の受付取得 → Busy例外 → 呼出し元がentryだけを復元する。プレイリスト変更の論理受付を通らず、DB保存後に別の受付を要求する順序が問題である。
+
+**修正方針:**
+
+- 入力は対象の同一性・編集項目・入力値として受け取り、表示行やentryへ先に適用しない。既存のプレイリスト変更受付を非待機で取得し、その後に現在の対象を解決して必要な読込みを行う。
+- LR2出力が必要な操作では、モデル変更・DB保存の前に既存のライブラリ変更受付も非待機で取得する。一方でも取得できなければ取得済みの受付を解放し、副作用なしのBusyとして終了する。スタンドアローン等、LR2出力が不要な場合にその受付を追加しない。
+- 必要な受付を確保した操作を先行とし、後続の競合するセル編集やライブラリ変更を未実行で拒否する。逆にライブラリ変更が先行する場合はセル編集を保存前に断る。DB commitの早さで優先順位を決めず、拒否した操作を後で自動実行しない。
+- 取得済みのライブラリ変更権限は既存の `LibraryFileMutationCapability` で出力処理へ渡し、途中で再取得しない。プレイリスト変更受付は保存・必要な反映・通知・cleanupの終端まで保持する。collection／table lock、DB scope、ライブラリ変更leaseを解放してからUI通知へ進み、UIを同期的に待つ循環を作らない。
+- DB保存失敗では、この操作が変更したモデル・表示行・詳細source snapshotを旧値へ整合させ、保存失敗を通知する。DB保存後の実際の出力I/O失敗では確定値を保ち、既存の `PlaylistMutationPostCommitException` 等の保存契約・通知経路を再利用する。すべての例外でentryを旧値へ戻す処理を改める。競合による保存後Busyを結果分類で吸収する方式にはしない。
+
+**保全条件・対象外:** 単一entryの保存を表全体の書換えへ拡大しない。新しい結果型・永続状態・retry queue・広いversion token・global gateは追加しない。非同期BMT出力は既存の独立した終端のままとし、その完了までセル編集受付を延長しない。編集可能な列、URL等の入力検証、対象の同一性規則を維持する。外部通信待ち全体をライブラリ変更受付で囲まず、確定済み一覧の閲覧・設定画面・追加ZIPの予約等、共通並行性契約section 6の例外を維持する。
+
+**変更範囲・参照:**
+
+| ソース（シンボル・責務で照合） | 扱い・対象 |
+|---|---|
+| [PlaylistWorkspaceViewModel.DetailEditing.cs](../../BeMusicSeeker/ViewModels/MainWindow/PlaylistWorkspaceViewModel.DetailEditing.cs) | 改修：CompleteDetailEdit、CommitRowAndSynchronizeSourceAsync、入力の適用時点と表示整合 |
+| [PlaylistWorkspaceViewModel.Mutations.cs](../../BeMusicSeeker/ViewModels/MainWindow/PlaylistWorkspaceViewModel.Mutations.cs) | 参照／改修候補：既存のプレイリスト変更受付と通知終端の再利用 |
+| [BMSPlaylist.cs](../../BeMusicSeeker/Models/BMSPlaylist.cs) | 改修：CommitBMSTableEntryの受付・保存・LR2出力順序。既存のApplyLocalTableMutationと確定後失敗契約を参照 |
+| [PlaylistDetailRow.cs](../../BeMusicSeeker/ViewModels/PlaylistDetailRow.cs) | 改修候補：編集値の適用・失敗時の表示復元に必要な範囲 |
+| [MainWindowViewModel.cs](../../BeMusicSeeker/ViewModels/MainWindowViewModel.cs) | 改修候補：セル確定要求と失敗通知の接続のみ。業務判断はWorkspace／ownerに置く |
+| [PlaylistAggregatePersistenceOwner.cs](../../BeMusicSeeker/Models/BmsLibraryInternal/PlaylistAggregatePersistenceOwner.cs)、[PlaylistCustomFolderOutputMaintenanceOwner.cs](../../BeMusicSeeker/Models/BmsLibraryInternal/PlaylistCustomFolderOutputMaintenanceOwner.cs) | 参照：CommitEntry、取得済み変更権限を使うLR2出力、post-lease通知 |
+
+**受入条件（案）:**
+
+- [ ] **BMS-031-AC1** — 実際の詳細セル確定入口から、先行編集の保存・LR2出力中に後続編集を要求すると、後続はDB・モデル・表示の確定値を変えずBusyとなる。先行編集は完了し、後続は自動実行されない。
+- [ ] **BMS-031-AC2** — セル編集が必要な受付を確保した後は、後続の競合ライブラリ変更が未実行Busyとなり、セル編集が保存後にBusyへ転落しない。ライブラリ変更が先行した場合はセル編集をDB保存前に拒否する。
+- [ ] **BMS-031-AC3** — 実際のDB保存失敗で、DB・entry・表示行・詳細source snapshotが旧値で一致し、利用者へ保存失敗が通知される。その後の独立した成功編集とDB再オープンでも失敗した入力が混入しない。
+- [ ] **BMS-031-AC4** — DB保存後の実際のLR2出力失敗では、DB・モデル・表示に確定値を保ち、Busyではなく出力失敗を通知する。その後の別のプレイリスト保存とDB再オープンでも確定済み編集が消えない。
+- [ ] **BMS-031-AC5** — スタンドアローンとLR2連携、ローカル表と外部同期表の編集可否を維持する。確定済み一覧・設定画面を一律に閉じず、通信待ち中の既存許可操作と非同期BMT出力の独立した終端を維持する。
+- [ ] **BMS-031-AC6** — 成功・Busy・保存失敗・出力失敗の各終端で受付とlockが残らず、次の明示操作と通常終了へ進める。UI通知待ちとmodel lock待ちの循環を作らない。
+
+**検証候補:** [PlaylistViewPipelineTests.cs](../../BeMusicSeeker.Tests/PlaylistViewPipelineTests.cs)、[PlaylistWorkspacePersistenceCommandTests.cs](../../BeMusicSeeker.Tests/PlaylistWorkspacePersistenceCommandTests.cs)、[BmsPlaylistPersistenceLifecycleTests.cs](../../BeMusicSeeker.Tests/BmsPlaylistPersistenceLifecycleTests.cs)、[MainWindowPlaylistWorkspaceWpfTests.cs](../../BeMusicSeeker.Tests/MainWindowPlaylistWorkspaceWpfTests.cs)。既存fixtureを拡張し、実入口から保存・出力の進行点を明示的に同期する。固定待ちや手動の早押しに依存せず、モデル単独の復元確認でDB・表示・通知の確認を代替しない。
+
+**仕様反映先:** [playlist-data-and-export-flow.md](../spec/playlist-data-and-export-flow.md)、[custom-table-view.md](../spec/custom-table-view.md)。受付の正本は [workflow-concurrency-and-complexity.md](../spec/workflow-concurrency-and-complexity.md) とし、詳細セル入口への適用範囲を機能仕様へ反映する。
+
+**工数の根拠:** 既存受付への接続、入力適用時点の変更、DB・表示整合と競合順序の回帰確認が中心。新しい並行性基盤の作成は含めない。見積り確度は中。
+
+**関連項目:** [BMS-004](#bms-004) の受付・通知終端と [BMS-005](#bms-005) の保存契約を再利用する。通信本文の取消・期限を扱う [BMS-029](#bms-029) とは別の完了条件とする。
+
 <a id="playlist-output"></a>
 ## プレイリストのバックアップ・互換出力
 
-BMS-007 は移行・復旧でバックアップを使用する前に対応する。BMT 側は BMS-008 の部分失敗結果を先に整理し、BMS-009 の未実行 cleanup 保持を続ける。SQL dump と BMT 要求管理は別単位。
+BMS-007 は移行・復旧でバックアップを使用する前に対応する。BMT 側は BMS-008 の部分失敗結果を先に整理し、BMS-009 の未実行 cleanup 保持を続ける。BMS-033 の手動 JSON エクスポートは独立した入力検証として扱い、SQL dump や BMT 要求管理の変更を前提にしない。
 
 **既存計画・仕様との境界:** [BMT manifest の完了記録](bmt-manifest-failure-handling.md)の所有情報・保存失敗契約を維持する。BMS-009 は、受け付け済みなのに実行前に消える cleanup が対象。一度失敗した旧フォルダの自動回収は追加しない。
 
@@ -538,6 +631,43 @@ BMS-007 は移行・復旧でバックアップを使用する前に対応する
 **工数の根拠:** 要求併合の意味とcleanup所有範囲を固定した順序テストが必要。 見積り確度は中。
 
 **続けて整理する項目:** [BMS-008](#bms-008)：同じ owner と失敗通知。未実行 cleanup を保持しても失敗の通知を落とさない。
+
+<a id="bms-033"></a>
+### BMS-033 — JSONエクスポートのheaderとdataに同一保存先を指定した場合は書込み前に拒否する
+
+**事象・影響:** プレイリストのJSONエクスポートで、headerとdataの保存先が同じかを検査していない。両方に同じファイルを指定すると、headerを書いた直後にdataで上書きし、有効な2ファイルの組を生成しないまま正常終了する。元のプレイリストDBは残るため、別の保存先で出力し直せる。
+
+**成立条件・操作例:** 「headerの保存先」「dataの保存先」の2回の保存ダイアログで、同じ未作成の `table.json` を指定する。実際の書込みは両方の選択後なので、この場合は既存ファイルの上書き警告でも防げない。
+
+**到達経路:** `ExportPlaylistTableAsync` で2つの保存先を受け取る → `ExportPlaylistTableCoreAsync` がnullだけを確認 → `ExportPlaylistTable` が同じパスへheader、dataの順で書き込む。
+
+**修正方針:**
+
+- 2つの保存先が確定した後、既存のパス正規化・比較規則を使って絶対パスを照合する。通常のWindowsパスで大文字小文字や `.`／`..` の表記だけが異なる同一宛先も拒否する。
+- 同一宛先なら、どちらのファイルも書き込まず、既存の出力失敗通知経路で別々の保存先が必要であることを通知する。検証は出力処理の入口で行い、保存ダイアログの警告だけに依存しない。再選択は利用者の明示操作とする。
+
+**保全条件・対象外:** 既存宛先、プレイリストDB、モデルの `Data_url` を変更せずに拒否する。二ファイル全体のトランザクション化、既存出力の世代バックアップ、hardlink／symlink等の別名追跡は追加しない。異なる宛先へのJSON形式・出力順序・既存の保存失敗通知・一時的な `Data_url` の復元を維持する。
+
+**変更範囲・参照:**
+
+| ソース（シンボル・責務で照合） | 扱い・対象 |
+|---|---|
+| [PlaylistWorkspaceViewModel.PlaylistExport.cs](../../BeMusicSeeker/ViewModels/MainWindow/PlaylistWorkspaceViewModel.PlaylistExport.cs) | 改修：ExportPlaylistTableAsync／ExportPlaylistTableCoreAsyncの保存先検証と出力失敗通知 |
+| [BMSTable.cs](../../BeMusicSeeker/Models/BMSTable.cs) | 参照：HeaderToJson／DataToJson。JSON形式・内容の変更は対象外 |
+
+**受入条件（案）:**
+
+- [ ] **BMS-033-AC1** — 実際の2回の保存先選択から同じ未作成パスを指定すると、ファイルを作成せず、保存先が重複していることを通知する。既存の同じパスを選んだ場合も元byte列を変えない。
+- [ ] **BMS-033-AC2** — 大文字小文字や `.`／`..` の表記だけが異なる同一宛先を拒否し、同じbasenameでもディレクトリが異なる宛先は受け入れる。
+- [ ] **BMS-033-AC3** — 異なる宛先への出力では、headerとdataがそれぞれ期待するJSON構造を持ち、既存のURL保持・一時URL復元を維持する。どちらかの保存ダイアログの取消、保存先重複の拒否でDB・モデル・既存ファイルを変更しない。
+
+**検証候補:** [PlaylistWorkspacePersistenceCommandTests.cs](../../BeMusicSeeker.Tests/PlaylistWorkspacePersistenceCommandTests.cs)。既存の保存ダイアログfixtureを使い、ファイル内容・非作成・通知を確認する。BMT出力やSQLバックアップのfixtureへ統合しない。
+
+**仕様反映先:** [playlist-data-and-export-flow.md](../spec/playlist-data-and-export-flow.md)、[docs/manual.ja.md](../../docs/manual.ja.md) のJSONエクスポート説明。
+
+**工数の根拠:** 保存前のパス比較と拒否通知、既存の出力fixtureへのケース追加に限定する。見積り確度は高。
+
+**関連項目:** [BMS-007](#bms-007) のSQLバックアップ、[BMS-008](#bms-008)・[BMS-009](#bms-009) のBMT出力とは別の手動出力入口として完了判定する。
 
 <a id="chart-mutations"></a>
 ## 所持譜面の文字コード・拡張子変更
@@ -1575,4 +1705,8 @@ BMS-029 のキャンセルから本文 I/O 終了までを先に接続する。B
 
 2026-09-08: 設計・運用文書に採用済み受付方針を反映し、本計画を追加。BMS-016は要件決定済みとして実装待ちへ移し、BMS-001／004／011／017／029等の保全・受入条件を調整した。起動再構成は既存計画へ接続する。
 
-項目ごとのruntime修正、受入条件の実行確認、ビルド・テスト・Fullの実行記録はまだない。文書の適用だけを不具合修正や新しい受付の実装完了と数えない。完了時の恒久契約は各項の仕様反映先へ統合し、本節には対応項目・実装コミット・検証証跡・残課題を記録する。
+2026-09-08の計画追加時点では、項目ごとのruntime修正・受入条件の実行確認・ビルド・テスト・Fullの実行記録はなかった。その後の完了項目は、各項目とリンク先の作業記録を参照する。
+
+2026-09-09: BMS-031〜BMS-033を未着手項目として追加。詳細セル編集の保存前受付、外部ビューアINIの保存保全、JSONエクスポートの同一保存先拒否を既存領域へ統合した。BMS-031は保守対応の優先項目、BMS-032は保守対応、BMS-033は限定改善とする。この追加は計画書のみの変更であり、3件の実装・受入検証は未実施。
+
+文書の適用だけを不具合修正や新しい受付の実装完了と数えない。完了時の恒久契約は各項の仕様反映先へ統合し、実装コミット・検証証跡・残課題を各項目から追跡できるようにする。
