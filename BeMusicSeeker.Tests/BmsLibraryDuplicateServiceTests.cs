@@ -956,6 +956,88 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// 選択した source folder の merge は、同梱通常ファイルと既存ディレクトリの
+    /// 型衝突が一件でもあれば detached package 全体を変更前に拒否し、source
+    /// 登録、宛先、song.db を保持します。
+    /// </summary>
+    [TestMethod]
+    public void MergeChartDirectory_RejectsTypeConflictAndPreservesSourceRegistration()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(
+                Path.GetTempPath(),
+                "BeMusicSeeker_DuplicateMergeTypeConflict_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Source");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Destination");
+            string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            string sourceBundledFilePath = Path.Combine(sourceDirectoryPath, "BGA");
+            string destinationBundledDirectoryPath = Path.Combine(destinationDirectoryPath, "BGA");
+            string destinationSentinelPath = Path.Combine(destinationBundledDirectoryPath, "sentinel.txt");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationBundledDirectoryPath);
+            File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE merge conflict\r\n#ARTIST source\r\n#00111:01\r\n");
+            File.WriteAllText(sourceBundledFilePath, "source bundled file");
+            File.WriteAllText(destinationSentinelPath, "destination sentinel");
+            byte[] sourceChartBytes = File.ReadAllBytes(sourceChartPath);
+            byte[] sourceBundledFileBytes = File.ReadAllBytes(sourceBundledFilePath);
+            try
+            {
+                BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(sourceFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService())
+                {
+                    BMSFiles = [sourceFile],
+                    BmsonSongs = []
+                };
+
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(
+                    sourceDirectoryPath,
+                    destinationDirectoryPath,
+                    operationId: 1);
+
+                Assert.IsFalse(receipt.MergeApplied);
+                Assert.IsNotNull(receipt.MutationReceipt);
+                Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.MutationReceipt.TerminalState);
+                Assert.IsFalse(receipt.MutationReceipt.DurableCommit);
+                FileDbMutationDestinationTypeConflict conflict = receipt.DestinationTypeConflicts.Single();
+                Assert.AreEqual(sourceBundledFilePath, conflict.SourcePath);
+                Assert.AreEqual(destinationBundledDirectoryPath, conflict.DestinationPath);
+                Assert.IsFalse(conflict.ExpectedIsDirectory);
+                Assert.IsTrue(conflict.ExistingIsDirectory);
+                Assert.IsTrue(Directory.Exists(sourceDirectoryPath));
+                CollectionAssert.AreEqual(sourceChartBytes, File.ReadAllBytes(sourceChartPath));
+                CollectionAssert.AreEqual(sourceBundledFileBytes, File.ReadAllBytes(sourceBundledFilePath));
+                Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
+                Assert.IsTrue(Directory.Exists(destinationBundledDirectoryPath));
+                Assert.AreEqual("destination sentinel", File.ReadAllText(destinationSentinelPath));
+                Assert.AreEqual(1, library.BMSFiles.Count);
+                Assert.AreEqual(sourceChartPath, library.BMSFiles.Single().path);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(sourceChartPath));
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(Path.Combine(destinationDirectoryPath, "chart.bms")));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(LongPathFileSystem.ToExtendedPath(tempRootPath), recursive: true);
+                }
+            }
+        });
+    }
+
     [TestMethod]
     public void MergeChartDirectory_BmsonDuplicateSkip_KeepsDestinationOnly()
     {

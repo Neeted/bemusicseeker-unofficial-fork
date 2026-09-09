@@ -3279,6 +3279,24 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="FileDbMutationReport_Rename" xml:space="preserve"><value>フォルダ名の変更</value></data>
   <data name="FileDbMutationReport_Move" xml:space="preserve"><value>フォルダの移動</value></data>
   <data name="FileDbMutationReport_Merge" xml:space="preserve"><value>重複フォルダの統合</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_Counts" xml:space="preserve"><value>宛先の型が異なるため拒否した対象: {0} 件</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_Successes" xml:space="preserve"><value>この操作で確定した他の対象: {0} 件</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_Cleanup" xml:space="preserve"><value>後片付けに失敗した対象: {0} 件</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_Reason" xml:space="preserve"><value>予定したファイル／フォルダと既存の宛先の型が異なるため、変更前に対象を拒否しました。</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_Detail" xml:space="preserve"><value>パッケージ元: {0}
+パッケージ導入先: {1}
+元: {2}
+宛先: {3}
+予定: {4} ／ 既存: {5}</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_More" xml:space="preserve"><value>ほか {0} 件の型衝突はログに記録しました。</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_Guidance" xml:space="preserve"><value>型衝突した対象のファイルとフォルダ、登録状態は変更していません。宛先を確認してから、必要な場合は別の導入先を指定してください。詳細はログを確認してください。</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_MergeTitle" xml:space="preserve"><value>フォルダーを統合できませんでした</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_MergeCounts" xml:space="preserve"><value>型が異なるため拒否した統合: {0} 件</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_MergeSuccesses" xml:space="preserve"><value>この操作で完了した他の統合: {0} 件</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_MergeReason" xml:space="preserve"><value>予定したファイル／フォルダと既存の宛先の型が異なるため、統合を変更前に拒否しました。</value></data>
+  <data name="FileDbMutationReport_DestinationTypeConflict_MergeGuidance" xml:space="preserve"><value>型衝突した統合元・宛先・登録状態は変更していません。宛先を確認してから、必要な場合は別の統合先を指定してください。詳細はログを確認してください。</value></data>
+  <data name="FileDbMutationReport_File" xml:space="preserve"><value>ファイル</value></data>
+  <data name="FileDbMutationReport_Directory" xml:space="preserve"><value>フォルダ</value></data>
   <data name="LibraryChartRemovalReport_Title" xml:space="preserve"><value>ライブラリ削除の結果</value></data>
   <data name="LibraryChartRemovalReport_Counts" xml:space="preserve"><value>削除確認済みの譜面: {0}、削除未実行・実在未確認: {1}、削除結果未確認: {2}、対象が変更済み・解決不能: {3}</value></data>
   <data name="LibraryChartRemovalReport_CatalogNotAttempted" xml:space="preserve"><value>カタログ反映は実行されていません。</value></data>

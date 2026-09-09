@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -429,6 +430,361 @@ public sealed class ResilientFileMutationServiceTests
     }
 
     /// <summary>
+    /// 予定する型と既存宛先の型が異なる場合、退避前に拒否して双方を保持することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_RejectsFileDestinationWhenExistingDirectory()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination");
+            WriteAllText(sourcePath, "source");
+            LongPathFileSystem.CreateDirectory(destinationPath);
+            string sentinelPath = Path.Combine(destinationPath, "sentinel.txt");
+            WriteAllText(sentinelPath, "sentinel");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
+            bool commitCalled = false;
+            var mutationService = new InterleavingFileMutationService();
+            var executor = new FileDbMutationExecutor(
+                plan,
+                mutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+            {
+                commitCalled = true;
+                return FileDbMutationCommitResult.Durable();
+            });
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.IsFalse(commitCalled);
+            Assert.AreEqual(0, mutationService.MutationOperations.Count);
+            Assert.IsNotNull(receipt.Failure);
+            Assert.IsTrue(LongPathFileSystem.FileExists(sourcePath));
+            Assert.IsTrue(LongPathFileSystem.DirectoryExists(destinationPath));
+            Assert.AreEqual("sentinel", ReadAllText(sentinelPath));
+            Assert.IsFalse(LongPathFileSystem.FileExists(plan.Paths[0].StagingPath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(plan.Paths[0].BackupPath));
+        });
+    }
+
+    /// <summary>
+    /// 予定するディレクトリと既存通常ファイルの逆向き衝突も、退避前に拒否することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_RejectsDirectoryDestinationWhenExistingFile()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source-directory");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination-directory");
+            LongPathFileSystem.CreateDirectory(sourcePath);
+            WriteAllText(Path.Combine(sourcePath, "source.bms"), "source");
+            WriteAllText(destinationPath, "existing file");
+            FileDbMutationPathPlan path = CreateMutationPathPlanForTest(sourcePath, destinationPath, isDirectory: true);
+            var plan = new FileDbMutationPlan(
+                Guid.NewGuid(),
+                [path],
+                [sourcePath],
+                [],
+                recursiveSourceCleanup: true);
+            bool commitCalled = false;
+            var mutationService = new InterleavingFileMutationService();
+            var executor = new FileDbMutationExecutor(
+                plan,
+                mutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+            {
+                commitCalled = true;
+                return FileDbMutationCommitResult.Durable();
+            });
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.IsFalse(commitCalled);
+            Assert.AreEqual(0, mutationService.MutationOperations.Count);
+            var conflict = receipt.Failure as FileDbMutationDestinationTypeConflictException;
+            Assert.IsNotNull(conflict);
+            Assert.AreEqual(sourcePath, conflict.SourcePath);
+            Assert.AreEqual(destinationPath, conflict.DestinationPath);
+            Assert.IsTrue(conflict.ExpectedIsDirectory);
+            Assert.IsFalse(conflict.ExistingIsDirectory);
+            Assert.IsTrue(LongPathFileSystem.DirectoryExists(sourcePath));
+            Assert.AreEqual("existing file", ReadAllText(destinationPath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(path.StagingPath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(path.BackupPath));
+        });
+    }
+
+    /// <summary>
+    /// 置換フラグ相当の backup path が実態と食い違っていても、型ガードを迂回できないことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_RejectsTypeConflictWhenBackupFlagSaysDestinationIsAbsent()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination-directory");
+            string stagingPath = LongPathFileSystem.CreateMutationSiblingPath(destinationPath, "stage");
+            WriteAllText(sourcePath, "source");
+            LongPathFileSystem.CreateDirectory(destinationPath);
+            string sentinelPath = Path.Combine(destinationPath, "sentinel.txt");
+            WriteAllText(sentinelPath, "sentinel");
+            var path = new FileDbMutationPathPlan(
+                sourcePath,
+                destinationPath,
+                stagingPath,
+                backupPath: string.Empty,
+                isDirectory: false);
+            var plan = new FileDbMutationPlan(
+                Guid.NewGuid(),
+                [path],
+                [sourcePath],
+                [],
+                recursiveSourceCleanup: false);
+
+            var mutationService = new InterleavingFileMutationService();
+            FileDbMutationReceipt receipt = new FileDbMutationExecutor(
+                plan,
+                mutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions).Execute(
+                    () => FileDbMutationCommitResult.Durable());
+
+            Assert.AreEqual(0, mutationService.MutationOperations.Count);
+            var conflict = receipt.Failure as FileDbMutationDestinationTypeConflictException;
+            Assert.IsNotNull(conflict);
+            Assert.AreEqual(destinationPath, conflict.DestinationPath);
+            Assert.IsFalse(conflict.ExpectedIsDirectory);
+            Assert.IsTrue(conflict.ExistingIsDirectory);
+            Assert.IsTrue(LongPathFileSystem.FileExists(sourcePath));
+            Assert.AreEqual("sentinel", ReadAllText(sentinelPath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(path.StagingPath));
+        });
+    }
+
+    /// <summary>
+    /// 計画後半に型衝突がある場合、前半の公開も開始前に拒否することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_RejectsWholePlanWhenLaterDestinationTypeConflicts()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string firstSourcePath = Path.Combine(tempDirectoryPath, "first.bms");
+            string firstDestinationPath = Path.Combine(tempDirectoryPath, "first-destination.bms");
+            string secondSourcePath = Path.Combine(tempDirectoryPath, "second.bms");
+            string secondDestinationPath = Path.Combine(tempDirectoryPath, "second-destination");
+            WriteAllText(firstSourcePath, "first");
+            WriteAllText(secondSourcePath, "second");
+            LongPathFileSystem.CreateDirectory(secondDestinationPath);
+            string sentinelPath = Path.Combine(secondDestinationPath, "sentinel.txt");
+            WriteAllText(sentinelPath, "sentinel");
+            var firstPath = CreateMutationPathPlanForTest(firstSourcePath, firstDestinationPath, isDirectory: false);
+            var secondPath = CreateMutationPathPlanForTest(secondSourcePath, secondDestinationPath, isDirectory: false);
+            var plan = new FileDbMutationPlan(
+                Guid.NewGuid(),
+                [firstPath, secondPath],
+                [firstSourcePath, secondSourcePath],
+                [],
+                recursiveSourceCleanup: false);
+            bool commitCalled = false;
+            var mutationService = new InterleavingFileMutationService();
+            var executor = new FileDbMutationExecutor(
+                plan,
+                mutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+            {
+                commitCalled = true;
+                return FileDbMutationCommitResult.Durable();
+            });
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.IsFalse(commitCalled);
+            Assert.AreEqual(0, mutationService.MutationOperations.Count);
+            Assert.IsNotNull(receipt.Failure);
+            Assert.IsTrue(LongPathFileSystem.FileExists(firstSourcePath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(firstDestinationPath));
+            Assert.IsTrue(LongPathFileSystem.FileExists(secondSourcePath));
+            Assert.IsTrue(LongPathFileSystem.DirectoryExists(secondDestinationPath));
+            Assert.AreEqual("sentinel", ReadAllText(sentinelPath));
+            Assert.IsFalse(LongPathFileSystem.FileExists(firstPath.StagingPath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(firstPath.BackupPath));
+            Assert.IsFalse(LongPathFileSystem.FileExists(secondPath.StagingPath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(secondPath.BackupPath));
+        });
+    }
+
+    /// <summary>
+    /// 全体検証後に外部で作られた異なる型の宛先も、退避直前に停止することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_RechecksDestinationTypeBeforePromotion()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourcePath = Path.Combine(tempDirectoryPath, "source.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "destination");
+            WriteAllText(sourcePath, "source");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(sourcePath, destinationPath);
+            var mutationService = new InterleavingFileMutationService(
+                afterFirstCopy: () =>
+                {
+                    LongPathFileSystem.CreateDirectory(destinationPath);
+                    WriteAllText(Path.Combine(destinationPath, "sentinel.txt"), "external");
+                });
+            var executor = new FileDbMutationExecutor(
+                plan,
+                mutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+            bool commitCalled = false;
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+            {
+                commitCalled = true;
+                return FileDbMutationCommitResult.Durable();
+            });
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.IsFalse(commitCalled);
+            Assert.AreEqual(1, receipt.CompensationAttemptCount);
+            var conflict = receipt.Failure as FileDbMutationDestinationTypeConflictException;
+            Assert.IsNotNull(conflict);
+            Assert.AreEqual(destinationPath, conflict.DestinationPath);
+            Assert.IsTrue(LongPathFileSystem.FileExists(sourcePath));
+            Assert.AreEqual("external", ReadAllText(Path.Combine(destinationPath, "sentinel.txt")));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(plan.Paths[0].StagingPath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(plan.Paths[0].BackupPath));
+        });
+    }
+
+    /// <summary>
+    /// 先行操作後の退避直前衝突では、既存の一回補償で先行操作を戻すことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_RechecksLaterDestinationAndCompensatesEarlierPromotion()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string firstSourcePath = Path.Combine(tempDirectoryPath, "first.bms");
+            string firstDestinationPath = Path.Combine(tempDirectoryPath, "first-destination.bms");
+            string secondSourcePath = Path.Combine(tempDirectoryPath, "second.bms");
+            string secondDestinationPath = Path.Combine(tempDirectoryPath, "second-destination");
+            WriteAllText(firstSourcePath, "first");
+            WriteAllText(secondSourcePath, "second");
+            FileDbMutationPathPlan firstPath = CreateMutationPathPlanForTest(firstSourcePath, firstDestinationPath, isDirectory: false);
+            FileDbMutationPathPlan secondPath = CreateMutationPathPlanForTest(secondSourcePath, secondDestinationPath, isDirectory: false);
+            var plan = new FileDbMutationPlan(
+                Guid.NewGuid(),
+                [firstPath, secondPath],
+                [firstSourcePath, secondSourcePath],
+                [],
+                recursiveSourceCleanup: false);
+            var mutationService = new InterleavingFileMutationService(
+                promotionDestinationPath: firstDestinationPath,
+                afterFirstPromotion: () =>
+                {
+                    LongPathFileSystem.CreateDirectory(secondDestinationPath);
+                    WriteAllText(Path.Combine(secondDestinationPath, "sentinel.txt"), "external");
+                });
+            var executor = new FileDbMutationExecutor(
+                plan,
+                mutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+            bool commitCalled = false;
+
+            FileDbMutationReceipt receipt = executor.Execute(() =>
+            {
+                commitCalled = true;
+                return FileDbMutationCommitResult.Durable();
+            });
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.IsFalse(commitCalled);
+            Assert.AreEqual(1, receipt.CompensationAttemptCount);
+            Assert.IsInstanceOfType(receipt.Failure, typeof(FileDbMutationDestinationTypeConflictException));
+            Assert.IsTrue(LongPathFileSystem.FileExists(firstSourcePath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(firstDestinationPath));
+            Assert.IsTrue(LongPathFileSystem.FileExists(secondSourcePath));
+            Assert.IsTrue(LongPathFileSystem.DirectoryExists(secondDestinationPath));
+            Assert.AreEqual("external", ReadAllText(Path.Combine(secondDestinationPath, "sentinel.txt")));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(firstPath.StagingPath));
+            Assert.IsFalse(LongPathFileSystem.EntryExists(secondPath.StagingPath));
+        });
+    }
+
+    /// <summary>
+    /// 先行操作後の型衝突で補償にも失敗した場合、通常拒否へ格下げせず復旧事実を保持することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_RechecksLaterDestinationAndPreservesCompensationFailure()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string firstSourcePath = Path.Combine(tempDirectoryPath, "first.bms");
+            string firstDestinationPath = Path.Combine(tempDirectoryPath, "first-destination.bms");
+            string secondSourcePath = Path.Combine(tempDirectoryPath, "second.bms");
+            string secondDestinationPath = Path.Combine(tempDirectoryPath, "second-destination");
+            WriteAllText(firstSourcePath, "first");
+            WriteAllText(secondSourcePath, "second");
+            FileDbMutationPathPlan firstPath = CreateMutationPathPlanForTest(firstSourcePath, firstDestinationPath, isDirectory: false);
+            FileDbMutationPathPlan secondPath = CreateMutationPathPlanForTest(secondSourcePath, secondDestinationPath, isDirectory: false);
+            var plan = new FileDbMutationPlan(
+                Guid.NewGuid(),
+                [firstPath, secondPath],
+                [firstSourcePath, secondSourcePath],
+                [],
+                recursiveSourceCleanup: false);
+            var mutationService = new InterleavingFileMutationService(
+                promotionDestinationPath: firstDestinationPath,
+                afterFirstPromotion: () =>
+                {
+                    LongPathFileSystem.CreateDirectory(secondDestinationPath);
+                    WriteAllText(Path.Combine(secondDestinationPath, "sentinel.txt"), "external");
+                },
+                compensationFailurePath: firstDestinationPath);
+            var executor = new FileDbMutationExecutor(
+                plan,
+                mutationService,
+                targetOnlyFileMutationOptions,
+                recursiveDirectoryTreeFileMutationOptions);
+
+            FileDbMutationReceipt receipt = executor.Execute(
+                () => FileDbMutationCommitResult.Durable());
+
+            Assert.AreEqual(FileDbMutationTerminalState.ManualRecoveryRequired, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.AreEqual(1, receipt.CompensationAttemptCount);
+            Assert.IsInstanceOfType(receipt.Failure, typeof(IOException));
+            StringAssert.Contains(receipt.Failure.ToString(), "injected-compensation-delete-failure");
+            Assert.IsTrue(receipt.RecoveryPaths.Contains(firstSourcePath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(receipt.RecoveryPaths.Contains(firstDestinationPath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(receipt.RecoveryPaths.Contains(firstPath.StagingPath, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(LongPathFileSystem.FileExists(firstSourcePath));
+            Assert.IsTrue(LongPathFileSystem.FileExists(firstDestinationPath));
+            Assert.AreEqual("first", ReadAllText(firstDestinationPath));
+            Assert.IsTrue(LongPathFileSystem.FileExists(secondSourcePath));
+            Assert.IsTrue(LongPathFileSystem.DirectoryExists(secondDestinationPath));
+            Assert.AreEqual("external", ReadAllText(Path.Combine(secondDestinationPath, "sentinel.txt")));
+        });
+    }
+
+    /// <summary>
     /// durable DB commit 後の canonical finalizer は、同じ executor session 内で
     /// source cleanup より前に一度だけ実行され、receipt には callback を保持しないことを検証します。
     /// </summary>
@@ -634,16 +990,128 @@ public sealed class ResilientFileMutationServiceTests
 
     private static FileDbMutationPlan CreateFileDbMutationPlan(string sourcePath, string destinationPath)
     {
+        FileDbMutationPathPlan path = CreateMutationPathPlanForTest(sourcePath, destinationPath, isDirectory: false);
+        return new FileDbMutationPlan(
+            Guid.NewGuid(),
+            [path],
+            [sourcePath],
+            [],
+            recursiveSourceCleanup: false);
+    }
+
+    private static FileDbMutationPathPlan CreateMutationPathPlanForTest(
+        string sourcePath,
+        string destinationPath,
+        bool isDirectory)
+    {
         string stagingPath = LongPathFileSystem.CreateMutationSiblingPath(destinationPath, "stage");
         string backupPath = LongPathFileSystem.EntryExists(destinationPath)
             ? LongPathFileSystem.CreateMutationSiblingPath(destinationPath, "backup")
             : string.Empty;
-        return new FileDbMutationPlan(
-            Guid.NewGuid(),
-            [new FileDbMutationPathPlan(sourcePath, destinationPath, stagingPath, backupPath, isDirectory: false)],
-            [sourcePath],
-            [],
-            recursiveSourceCleanup: false);
+        return new FileDbMutationPathPlan(sourcePath, destinationPath, stagingPath, backupPath, isDirectory);
+    }
+
+    private sealed class InterleavingFileMutationService : IFileMutationService
+    {
+        private readonly ResilientFileMutationService inner = new();
+        private readonly string promotionDestinationPath;
+        private readonly Action afterFirstCopy;
+        private readonly Action afterFirstPromotion;
+        private readonly string compensationFailurePath;
+        private bool copyCallbackInvoked;
+        private bool promotionCallbackInvoked;
+
+        /// <summary>事前検証テストが変更 I/O の試行を検出できるよう、全 mutation 呼び出しを記録します。</summary>
+        internal List<string> MutationOperations { get; } = [];
+
+        public InterleavingFileMutationService(
+            string promotionDestinationPath = null,
+            Action afterFirstCopy = null,
+            Action afterFirstPromotion = null,
+            string compensationFailurePath = null)
+        {
+            this.promotionDestinationPath = promotionDestinationPath;
+            this.afterFirstCopy = afterFirstCopy;
+            this.afterFirstPromotion = afterFirstPromotion;
+            this.compensationFailurePath = compensationFailurePath;
+        }
+
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(EnsureDirectory));
+            inner.EnsureDirectory(directoryPath, options);
+        }
+
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(MoveFile));
+            inner.MoveFile(sourcePath, destinationPath, overwrite, options);
+            if (!promotionCallbackInvoked
+                && afterFirstPromotion != null
+                && string.Equals(destinationPath, promotionDestinationPath, StringComparison.OrdinalIgnoreCase))
+            {
+                promotionCallbackInvoked = true;
+                afterFirstPromotion();
+            }
+        }
+
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(MoveDirectory));
+            inner.MoveDirectory(sourcePath, destinationPath, overwrite, options);
+        }
+
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(CopyFile));
+            inner.CopyFile(sourcePath, destinationPath, overwrite, options);
+            if (!copyCallbackInvoked && afterFirstCopy != null)
+            {
+                copyCallbackInvoked = true;
+                afterFirstCopy();
+            }
+        }
+
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(CopyDirectory));
+            inner.CopyDirectory(sourcePath, destinationPath, overwrite, options);
+        }
+
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(DeleteFileDirect));
+            if (!string.IsNullOrWhiteSpace(compensationFailurePath)
+                && string.Equals(filePath, compensationFailurePath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("injected-compensation-delete-failure");
+            }
+            inner.DeleteFileDirect(filePath, options);
+        }
+
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(DeleteFileShell));
+            inner.DeleteFileShell(filePath, uiOption, recycleOption, options);
+        }
+
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(DeleteDirectoryDirect));
+            inner.DeleteDirectoryDirect(directoryPath, recursive, options);
+        }
+
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(DeleteDirectoryShell));
+            inner.DeleteDirectoryShell(directoryPath, uiOption, recycleOption, options);
+        }
+
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
+        {
+            MutationOperations.Add(nameof(SetTimestamps));
+            inner.SetTimestamps(path, isDirectory, creationTime, lastWriteTime, options);
+        }
     }
 
     private static void WithTemporaryDirectory(Action<string> testAction)

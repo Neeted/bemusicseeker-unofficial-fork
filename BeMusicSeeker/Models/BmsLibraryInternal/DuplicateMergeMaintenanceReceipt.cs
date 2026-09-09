@@ -89,6 +89,10 @@ internal sealed class DuplicateMergeMaintenanceReceipt
     /// </summary>
     internal FileDbMutationReceipt MutationReceipt { get; }
 
+    /// <summary>マージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
+    internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
+        MutationReceipt?.DestinationTypeConflicts ?? [];
+
     internal bool HasDurableCommit => MutationReceipt?.DurableCommit == true;
 
     /// <summary>

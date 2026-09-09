@@ -3901,6 +3901,331 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
+    /// 同梱通常ファイルと既存ディレクトリの型衝突は、smart overwrite の設定にかかわらず
+    /// パッケージ全体を変更前に拒否し、source と宛先を保持することを検証します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void MovePackageFilesWithReceipt_RejectsBundledFileWhenDestinationIsDirectory(bool enableSmartOverwrite)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            string sourceChartPath = CreateBmsFile(sourceDirectoryPath, "chart.bms", "#TITLE Type conflict");
+            string sourceBundledFilePath = Path.Combine(sourceDirectoryPath, "BGA");
+            File.WriteAllText(sourceBundledFilePath, "bundled-file");
+            Directory.CreateDirectory(destinationDirectoryPath);
+            string destinationBundledDirectoryPath = Path.Combine(destinationDirectoryPath, "BGA");
+            Directory.CreateDirectory(destinationBundledDirectoryPath);
+            string firstSentinelPath = Path.Combine(destinationBundledDirectoryPath, "first.sentinel");
+            string secondSentinelPath = Path.Combine(destinationBundledDirectoryPath, "second.sentinel");
+            File.WriteAllText(firstSentinelPath, "first-sentinel");
+            File.WriteAllText(secondSentinelPath, "second-sentinel");
+            byte[] sourceChartBytes = File.ReadAllBytes(sourceChartPath);
+            byte[] sourceBundledFileBytes = File.ReadAllBytes(sourceBundledFilePath);
+            byte[] firstSentinelBytes = File.ReadAllBytes(firstSentinelPath);
+            byte[] secondSentinelBytes = File.ReadAllBytes(secondSentinelPath);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([
+                BMSFile.CreateBMSFileFromFile(sourceChartPath)]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+            int durableCallbackCount = 0;
+
+            FileDbMutationReceipt receipt = new BmsLibraryPackageInstallService().MovePackageFilesWithReceipt(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = enableSmartOverwrite,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                exception => exception.Message,
+                new RealFileMutationService(),
+                null,
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                _ => { },
+                _ =>
+                {
+                    durableCallbackCount++;
+                    return FileDbMutationCommitResult.Durable();
+                },
+                sourceCleanupPolicy: PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                showMessageBoxOnInstallFail: false);
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.AreEqual(0, durableCallbackCount);
+            Assert.IsNotNull(receipt.Failure);
+            Assert.IsTrue(Directory.Exists(sourceDirectoryPath));
+            CollectionAssert.AreEqual(sourceChartBytes, File.ReadAllBytes(sourceChartPath));
+            CollectionAssert.AreEqual(sourceBundledFileBytes, File.ReadAllBytes(sourceBundledFilePath));
+            Assert.IsTrue(Directory.Exists(destinationDirectoryPath));
+            Assert.IsTrue(Directory.Exists(destinationBundledDirectoryPath));
+            CollectionAssert.AreEqual(firstSentinelBytes, File.ReadAllBytes(firstSentinelPath));
+            CollectionAssert.AreEqual(secondSentinelBytes, File.ReadAllBytes(secondSentinelPath));
+            Assert.IsFalse(File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms")));
+        });
+    }
+
+    /// <summary>
+    /// 保留画面の実入口では、型衝突 package だけを拒否し、前後の独立 package
+    /// は durable な DB 登録と一覧更新まで継続することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void InstallPendingPackagesToEstimatedDestinations_RejectsConflictingPackageAndContinuesIndependentPackages()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string installRootPath = Path.Combine(tempRootPath, "pending-route-installed");
+            string firstSourceDirectoryPath = Path.Combine(tempRootPath, "pending-route-first");
+            string conflictSourceDirectoryPath = Path.Combine(tempRootPath, "pending-route-conflict");
+            string thirdSourceDirectoryPath = Path.Combine(tempRootPath, "pending-route-third");
+            string firstDestinationDirectoryPath = Path.Combine(installRootPath, "first");
+            string conflictDestinationDirectoryPath = Path.Combine(installRootPath, "conflict");
+            string thirdDestinationDirectoryPath = Path.Combine(installRootPath, "third");
+            string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Pending first");
+            string conflictChartPath = CreateBmsFile(conflictSourceDirectoryPath, "conflict.bms", "#TITLE Pending conflict");
+            string thirdChartPath = CreateBmsFile(thirdSourceDirectoryPath, "third.bms", "#TITLE Pending third");
+            string conflictBundledFilePath = Path.Combine(conflictSourceDirectoryPath, "BGA");
+            File.WriteAllText(conflictBundledFilePath, "conflicting bundled file");
+            Directory.CreateDirectory(firstDestinationDirectoryPath);
+            Directory.CreateDirectory(conflictDestinationDirectoryPath);
+            Directory.CreateDirectory(thirdDestinationDirectoryPath);
+            string conflictDestinationDirectoryPathForBundledFile = Path.Combine(conflictDestinationDirectoryPath, "BGA");
+            Directory.CreateDirectory(conflictDestinationDirectoryPathForBundledFile);
+            string conflictSentinelPath = Path.Combine(conflictDestinationDirectoryPathForBundledFile, "sentinel.txt");
+            File.WriteAllText(conflictSentinelPath, "destination sentinel");
+
+            ChartPackage firstPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(firstChartPath),
+                    firstDestinationDirectoryPath));
+            ChartPackage conflictPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(conflictChartPath),
+                    conflictDestinationDirectoryPath));
+            ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BMSFile.CreateBMSFileFromFile(thirdChartPath),
+                    thirdDestinationDirectoryPath));
+            firstPackage.path = firstSourceDirectoryPath;
+            conflictPackage.path = conflictSourceDirectoryPath;
+            thirdPackage.path = thirdSourceDirectoryPath;
+            firstPackage.delete_parent = conflictPackage.delete_parent = thirdPackage.delete_parent = false;
+
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installRootPath,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection([firstPackage, conflictPackage, thirdPackage]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
+                [firstPackage, conflictPackage, thirdPackage]);
+
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.AreEqual(2, result.PendingPackagesToRemove.Count);
+            Assert.AreEqual(2, result.DeferredInstalledPackages.Count);
+            Assert.AreEqual(1, result.FailedPackages.Count);
+            Assert.AreSame(conflictPackage, result.FailedPackages.Single());
+            Assert.AreEqual(3, result.MutationReceipt.Receipts.Count);
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[0].TerminalState);
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, result.MutationReceipt.Receipts[1].TerminalState);
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, result.MutationReceipt.Receipts[2].TerminalState);
+            Assert.AreEqual(1, result.DestinationTypeConflicts.Count);
+            Assert.AreEqual(conflictBundledFilePath, result.DestinationTypeConflicts[0].SourcePath);
+            Assert.AreEqual(
+                conflictDestinationDirectoryPathForBundledFile,
+                result.DestinationTypeConflicts[0].DestinationPath);
+            Assert.IsFalse(result.DestinationTypeConflicts[0].ExpectedIsDirectory);
+            Assert.IsTrue(result.DestinationTypeConflicts[0].ExistingIsDirectory);
+
+            Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first.bms")));
+            Assert.IsTrue(File.Exists(Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
+            Assert.IsTrue(File.Exists(conflictChartPath));
+            Assert.IsTrue(File.Exists(conflictBundledFilePath));
+            Assert.IsTrue(Directory.Exists(conflictDestinationDirectoryPathForBundledFile));
+            Assert.AreEqual("destination sentinel", File.ReadAllText(conflictSentinelPath));
+            Assert.AreEqual(1, library.ChartPackagesPending.Count);
+            Assert.AreSame(conflictPackage, library.ChartPackagesPending.Single());
+            Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(
+                1,
+                verifySongDb.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    Path.Combine(firstDestinationDirectoryPath, "first.bms")));
+            Assert.AreEqual(
+                0,
+                verifySongDb.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    conflictChartPath));
+            Assert.AreEqual(
+                1,
+                verifySongDb.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
+        });
+    }
+
+    /// <summary>
+    /// 宛先 root 自体が通常ファイルの場合も、root の作成前に型衝突として拒否し、
+    /// source と既存ファイルを変更しないことを検証します。
+    /// </summary>
+    [TestMethod]
+    public void MovePackageFilesWithReceipt_RejectsFileDestinationRootBeforeMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationPath = Path.Combine(tempDirectoryPath, "Installed");
+            string sourceChartPath = CreateBmsFile(sourceDirectoryPath, "chart.bms", "#TITLE Root conflict");
+            File.WriteAllText(destinationPath, "existing destination file");
+            byte[] sourceBytes = File.ReadAllBytes(sourceChartPath);
+            int durableCallbackCount = 0;
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+                BMSFile.CreateBMSFileFromFile(sourceChartPath));
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+
+            FileDbMutationReceipt receipt = new BmsLibraryPackageInstallService().MovePackageFilesWithReceipt(
+                package,
+                destinationPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                exception => exception.Message,
+                new RealFileMutationService(),
+                null,
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                _ => { },
+                _ =>
+                {
+                    durableCallbackCount++;
+                    return FileDbMutationCommitResult.Durable();
+                },
+                sourceCleanupPolicy: PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                showMessageBoxOnInstallFail: false);
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.AreEqual(0, durableCallbackCount);
+            FileDbMutationDestinationTypeConflict conflict = receipt.DestinationTypeConflicts.Single();
+            Assert.AreEqual(sourceDirectoryPath, conflict.SourcePath);
+            Assert.AreEqual(destinationPath, conflict.DestinationPath);
+            Assert.IsTrue(conflict.ExpectedIsDirectory);
+            Assert.IsFalse(conflict.ExistingIsDirectory);
+            Assert.IsTrue(Directory.Exists(sourceDirectoryPath));
+            CollectionAssert.AreEqual(sourceBytes, File.ReadAllBytes(sourceChartPath));
+            Assert.AreEqual("existing destination file", File.ReadAllText(destinationPath));
+        });
+    }
+
+    /// <summary>
+    /// 明示した候補順の後半に型衝突がある場合、前半の候補も公開せずに
+    /// パッケージの変更を全体として拒否することを検証します。
+    /// </summary>
+    [TestMethod]
+    public void BuildComponentMovePlan_ExplicitOrderedCandidatesRejectWholePackageBeforePromotion()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            string firstSourcePath = Path.Combine(sourceDirectoryPath, "normal.bin");
+            string secondSourcePath = Path.Combine(sourceDirectoryPath, "BGA");
+            File.WriteAllText(firstSourcePath, "normal");
+            File.WriteAllText(secondSourcePath, "bundled-file");
+            string secondDestinationPath = Path.Combine(destinationDirectoryPath, "BGA");
+            Directory.CreateDirectory(secondDestinationPath);
+            string sentinelPath = Path.Combine(secondDestinationPath, "sentinel.txt");
+            File.WriteAllText(sentinelPath, "sentinel");
+            ComponentMovePlanBuildResult componentPlan = new BmsLibraryPackageInstallService().BuildComponentMovePlan(
+                [firstSourcePath, secondSourcePath],
+                destinationDirectoryPath,
+                excludedComponentPaths: null);
+            Assert.AreEqual(2, componentPlan.PlanItems.Count);
+            Assert.AreEqual(firstSourcePath, componentPlan.PlanItems[0].SourcePath);
+            Assert.AreEqual(secondSourcePath, componentPlan.PlanItems[1].SourcePath);
+            var mutationPaths = componentPlan.PlanItems.Select(item =>
+            {
+                string stagingPath = LongPathFileSystem.CreateMutationSiblingPath(item.DestinationPath, "stage");
+                string backupPath = LongPathFileSystem.EntryExists(item.DestinationPath)
+                    ? LongPathFileSystem.CreateMutationSiblingPath(item.DestinationPath, "backup")
+                    : string.Empty;
+                return new FileDbMutationPathPlan(
+                    item.SourcePath,
+                    item.DestinationPath,
+                    stagingPath,
+                    backupPath,
+                    isDirectory: false);
+            }).ToList();
+            FileDbMutationPlan plan = new(
+                Guid.NewGuid(),
+                mutationPaths,
+                [firstSourcePath, secondSourcePath],
+                [],
+                recursiveSourceCleanup: false);
+            bool durableCallbackCalled = false;
+            FileDbMutationReceipt receipt = new FileDbMutationExecutor(
+                plan,
+                new RealFileMutationService(),
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree))
+                .Execute(() =>
+                {
+                    durableCallbackCalled = true;
+                    return FileDbMutationCommitResult.Durable();
+                });
+
+            Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+            Assert.IsFalse(receipt.DurableCommit);
+            Assert.IsFalse(durableCallbackCalled);
+            Assert.IsInstanceOfType(receipt.Failure, typeof(FileDbMutationDestinationTypeConflictException));
+            Assert.IsTrue(File.Exists(firstSourcePath));
+            Assert.IsFalse(File.Exists(Path.Combine(destinationDirectoryPath, "normal.bin")));
+            Assert.IsTrue(File.Exists(secondSourcePath));
+            Assert.IsTrue(Directory.Exists(secondDestinationPath));
+            Assert.AreEqual("sentinel", File.ReadAllText(sentinelPath));
+            foreach (FileDbMutationPathPlan path in mutationPaths)
+            {
+                Assert.IsFalse(LongPathFileSystem.FileExists(path.StagingPath));
+                Assert.IsFalse(LongPathFileSystem.EntryExists(path.BackupPath));
+            }
+        });
+    }
+
+    /// <summary>
     /// durable DB receipt 後にだけ source を finalize cleanup し、canonical
     /// package state finalizer は cleanup 前に実行されることを検証します。
     /// </summary>

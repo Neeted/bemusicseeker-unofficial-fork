@@ -118,6 +118,10 @@ internal sealed class PackageInstallCompletionReceipt : EventArgs
 
     internal FileDbMutationBatchReceipt MutationReceipt { get; }
 
+    /// <summary>パッケージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
+    internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
+        MutationReceipt?.DestinationTypeConflicts ?? [];
+
     internal bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
 
     internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;

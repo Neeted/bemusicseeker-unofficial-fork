@@ -143,8 +143,17 @@ internal sealed class BmsLibraryPackageInstallService
         return !string.IsNullOrWhiteSpace(extension) && smartOverwriteProtectedExtensions.Contains(extension);
     }
 
+    /// <summary>
+    /// 異なる宛先型を拒否した後、同じ型のコンポーネント衝突に対する既存ポリシーを決定します。
+    /// </summary>
+    /// <param name="srcFilePath">コンポーネントの元ファイル。</param>
+    /// <param name="dstFilePath">コンポーネントの宛先ファイル。</param>
     public ComponentMoveDecision DecideComponentMove(string srcFilePath, string dstFilePath)
     {
+        FileDbMutationDestinationTypeGuard.ValidatePath(
+            srcFilePath,
+            dstFilePath,
+            expectedIsDirectory: false);
         if (!LongPathFileSystem.FileExists(dstFilePath))
         {
             return ComponentMoveDecision.Move;
@@ -282,6 +291,108 @@ internal sealed class BmsLibraryPackageInstallService
             return Path.Combine(destinationDirectory, relativePath);
         }
         return Path.Combine(destinationDirectory, Path.GetFileName(chartPath));
+    }
+
+    private static string ResolveChartDestinationPath(
+        string sourceRootPath,
+        string destinationDirectory,
+        ChartFile chart,
+        ISet<string> reservedDestinationPaths = null)
+    {
+        string destinationChartPath = BuildDestinationChartPath(
+            sourceRootPath,
+            destinationDirectory,
+            chart);
+        while (!string.IsNullOrWhiteSpace(destinationChartPath)
+            && (LongPathFileSystem.EntryExists(destinationChartPath)
+                || reservedDestinationPaths?.Contains(destinationChartPath) == true))
+        {
+            string fileName = Path.GetFileNameWithoutExtension(destinationChartPath);
+            string extension = Path.GetExtension(destinationChartPath);
+            destinationChartPath = Path.Combine(
+                Path.GetDirectoryName(destinationChartPath) ?? destinationDirectory,
+                fileName + "_" + extension);
+        }
+        return destinationChartPath;
+    }
+
+    private void ValidatePackageDestinationTypes(
+        string sourcePath,
+        bool isAutoNaming,
+        string destinationDirectory,
+        IEnumerable<string> installComponentFiles,
+        IEnumerable<PackageChartEntry> installTargetEntries,
+        ISet<string> excludedComponentPaths)
+    {
+        FileDbMutationDestinationTypeGuard.ValidatePath(
+            sourcePath,
+            destinationDirectory,
+            expectedIsDirectory: true);
+
+        if (!isAutoNaming)
+        {
+            // BuildComponentMovePlan は共有する明示順の候補境界です。
+            // 下の executor 用計画と同じ除外規則と相対パス規則を適用します。
+            ComponentMovePlanBuildResult componentPlan = BuildComponentMovePlan(
+                installComponentFiles,
+                destinationDirectory,
+                excludedComponentPaths);
+            foreach (ComponentMovePlanItem componentItem in componentPlan.PlanItems)
+            {
+                if (string.IsNullOrWhiteSpace(componentItem?.SourcePath))
+                {
+                    continue;
+                }
+                FileDbMutationDestinationTypeGuard.ValidatePath(
+                    componentItem.SourcePath,
+                    componentItem.DestinationPath,
+                    expectedIsDirectory: false);
+            }
+        }
+
+        foreach (PackageChartEntry entry in installTargetEntries ?? [])
+        {
+            ChartFile chart = entry?.Chart;
+            string destinationChartPath = isAutoNaming
+                ? BuildDestinationChartPath(
+                    sourcePath,
+                    destinationDirectory,
+                    chart)
+                : ResolveChartDestinationPath(
+                    sourcePath,
+                    destinationDirectory,
+                    chart);
+            if (string.IsNullOrWhiteSpace(destinationChartPath)
+                || string.IsNullOrWhiteSpace(chart?.Path))
+            {
+                continue;
+            }
+            FileDbMutationDestinationTypeGuard.ValidatePath(
+                chart.Path,
+                destinationChartPath,
+                expectedIsDirectory: false);
+        }
+    }
+
+    private static FileDbMutationReceipt CreatePreflightFailureReceipt(
+        FileDbMutationPlan emptyPlan,
+        string sourcePath,
+        string destinationDirectory,
+        FileDbMutationDestinationTypeConflictException exception)
+    {
+        return new FileDbMutationReceipt(
+            emptyPlan.OperationId,
+            FileDbMutationTerminalState.Failed,
+            durableCommit: false,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            [sourcePath],
+            [destinationDirectory],
+            [],
+            [],
+            [],
+            exception,
+            destinationTypeConflicts: [exception.Conflict]);
     }
 
     public List<ChartPackage> DeduplicatePackagesByPathOrReference(IEnumerable<ChartPackage> packages)
@@ -1050,6 +1161,29 @@ internal sealed class BmsLibraryPackageInstallService
                 EnsureDirectoryMutationDestinationIsDistinct(sourcePath, destinationDirectory);
             }
 
+            // mutation plan と同じコンポーネント／譜面候補を解決し、smart 判定、
+            // source cleanup 計画、DB callback の前にパッケージ全体を検証します。
+            try
+            {
+                ValidatePackageDestinationTypes(
+                    sourcePath,
+                    isAutoNaming,
+                    destinationDirectory,
+                    installComponentFiles,
+                    installTargetEntries,
+                    componentExclusionPaths);
+            }
+            catch (FileDbMutationDestinationTypeConflictException exception)
+            {
+                // 型衝突をパッケージ拒否へ分類するのは、この外側の read-only 検証だけです。
+                // executor 実行中の衝突は、下の通常の補償／エラー receipt 経路に残します。
+                return CreatePreflightFailureReceipt(
+                    emptyPlan,
+                    sourcePath,
+                    destinationDirectory,
+                    exception);
+            }
+
             var reservedDestinationPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var mutationPaths = new List<FileDbMutationPathPlan>();
             var chartDestinationPaths = new List<KeyValuePair<string, string>>();
@@ -1199,7 +1333,11 @@ internal sealed class BmsLibraryPackageInstallService
                 foreach (PackageChartEntry entry in installTargetEntries)
                 {
                     ChartFile chart = entry?.Chart;
-                    string destinationChartPath = BuildDestinationChartPath(sourcePath, destinationDirectory, chart);
+                    string destinationChartPath = ResolveChartDestinationPath(
+                        sourcePath,
+                        destinationDirectory,
+                        chart,
+                        reservedDestinationPaths);
                     if (string.IsNullOrWhiteSpace(destinationChartPath))
                     {
                         continue;
@@ -1209,15 +1347,6 @@ internal sealed class BmsLibraryPackageInstallService
                         throw new FileNotFoundException(Resources.Error_FileNotFound, chart?.Path);
                     }
                     sourceCleanupFiles.Add(chart.Path);
-                    while (LongPathFileSystem.EntryExists(destinationChartPath)
-                        || reservedDestinationPaths.Contains(destinationChartPath))
-                    {
-                        string fileName = Path.GetFileNameWithoutExtension(destinationChartPath);
-                        string extension = Path.GetExtension(destinationChartPath);
-                        destinationChartPath = Path.Combine(
-                            Path.GetDirectoryName(destinationChartPath) ?? destinationDirectory,
-                            fileName + "_" + extension);
-                    }
                     EnsureMutationDestinationIsDistinct(chart.Path, destinationChartPath);
                     EnsureUniqueDestinationPath(reservedDestinationPaths, destinationChartPath);
                     chartDestinationPaths.Add(new KeyValuePair<string, string>(chart.Path, destinationChartPath));

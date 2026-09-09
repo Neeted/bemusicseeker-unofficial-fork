@@ -83,6 +83,24 @@ DML の既存限定 retry、SQLite の `BusyTimeout`、DB schema、process lock�
 
 UI、shutdown、logger 自身の failure を含めた必達保証は設けない。これは、通常利用可能な通知経路へ結果を渡し忘れる実装や、捕捉した failure を成功へ変換する実装を正当化しない。
 
+### 導入・マージの宛先型衝突（AUD-01）
+
+置換許可は、ファイルとディレクトリの間の型変更を許可しない。異なる型の既存宛先は、退避・公開より前に拒否する。共通 executor は計画全体を最初の変更より前に検証し、各宛先の退避直前にも確認する。削除専用の対象を配置先として検証しない。
+
+導入では、既存の採番・宛先解決とコンポーネントの除外規則を適用した上で、パッケージ全体を読み取り専用で検証する。スマート上書きの判定、source の削除、ディレクトリ作成、DB 反映より先に検証を完了する。型衝突したパッケージは元と宛先の内容・登録・保留状態を維持し、成功件数や成功後 cleanup に含めない。独立した他のパッケージは継続できる。同型上書き・既存の譜面採番・新規フォルダー採番は維持し、衝突回避のための新しい同梱ファイル改名は追加しない。
+
+重複フォルダーマージでは、選択した source フォルダーから宛先への既存の確定単位全体を、最初の変更前に検証する。一部だけの統合成功は作らない。共通パッケージサービス自身も変更前に同じ検証を行う。
+
+通常の事前拒否は、外側の読み取り専用検証で検出した場合に限る。操作単位に集約し、変更 lease・DB 使用権・transaction・同期 lock を解放してから既存通知経路で Warning / OK を一回表示する。理由、拒否件数、source・導入先・衝突パスを示し、詳細は先頭5件と残件数、ログには全検出分を記録する。他のパッケージが成功した場合だけ成功件数を添える。通常キャンセルでも既検出情報は残し、終了中は新しいモーダルを開始しない。
+
+executor が実行時に検出した型衝突は、既存の実行失敗・補償・復旧通知へ渡す。内包する例外の型だけで、補償失敗を無変更の事前拒否へ格下げしない。外部変更の継続監視や新しい復旧保証は設けない。
+
+#### Verification map: AUD-01
+
+`BmsLibraryPackageInstallServiceTests` は smart ON/OFF、順序付き候補、実保留導入の成功・拒否混在と FS/SQLite/一覧保全を検証する。`BmsLibraryDuplicateServiceTests` は実マージの一確定単位と登録保全、`ResilientFileMutationServiceTests` は両方向の executor 拒否、退避直前検査、既存補償と復旧失敗を検証する。いずれも固有の temp filesystem / DB と既存 I/O 境界を使う。
+
+`FileDbMutationReportTests`、`PendingPackageWorkflowOwnerTests`、`PackageInstallWorkflowOwnerTests` は集約警告、成功0の案内抑制、実ownerからterminalへの資源解放後の表示、cancel/shutdown、実行失敗との分類を保証する。`LocalizationResourceParityTests` は全言語の key・placeholder を確認する。既存の通常 Functional lane で実行し、実モーダルや固定待機を追加しない。
+
 ## 6. 後から安全に整合を取る条件
 
 自動的・無条件の最終収束は保証しない。DB 書込み不能、権限、媒体の接続等の原因が解消され、現在状態を安全に読めることが再整合の前提となる。通常は失敗しない操作の失敗を一過性と決めつけず、同じ command の単純 retry を標準の回復策にしない。既存の低レベル I/O の限定 retry を、この文書だけで削除・拡張しない。

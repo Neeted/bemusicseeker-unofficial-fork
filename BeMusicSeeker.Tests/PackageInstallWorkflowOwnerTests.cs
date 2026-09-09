@@ -1401,6 +1401,8 @@ public sealed class PackageInstallWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, string.Empty);
             int mutationCalls = 0;
+            int completionPublished = 0;
+            int failurePublished = 0;
             var owner = new PackageInstallWorkflowOwner(
                 new ChartFileOperationSynchronizer(),
                 new ChartMutationActivityOwner(),
@@ -1414,6 +1416,8 @@ public sealed class PackageInstallWorkflowOwnerTests
                     action();
                     return true;
                 });
+            owner.CompletionPublished += _ => Interlocked.Increment(ref completionPublished);
+            owner.FailurePublished += _ => Interlocked.Increment(ref failurePublished);
             owner.RefreshSuppressionChanged += (_, args) =>
             {
                 if (args.IsSuppressed)
@@ -1427,6 +1431,8 @@ public sealed class PackageInstallWorkflowOwnerTests
 
             await AssertOwnerIdleAsync(owner);
             Assert.AreEqual(0, mutationCalls);
+            Assert.AreEqual(0, completionPublished);
+            Assert.AreEqual(0, failurePublished);
             Assert.IsFalse(Directory.Exists(ingressRoot));
         }
         finally

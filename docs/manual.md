@@ -320,6 +320,8 @@ When `During smart overwrite, keep *.bmx/*.pmx/*.txt without overwriting by auto
 
 NOTE: Chart files themselves, such as BMS / PMS / bmson files, are not overwritten on same-name collision; they are installed with adjusted names such as `chart_.bms`. This is BeMusicSeeker behavior unrelated to the smart overwrite setting.
 
+If file and folder types conflict, such as when a bundled file would be placed at the path of an existing folder, the entire package is rejected before any changes, whether Smart Overwrite is enabled or disabled. Files in the rejected package are not moved, overwritten, or deleted, and the package is not registered as installed. A warning shows the affected paths. Check the destination and package contents before trying again. In a batch install, other packages without a conflict continue to be processed.
+
 This setting is used by processes that move bundled files into existing folders, such as install to an estimated destination, resource overwrite for packages that contain only already-owned charts, and duplicate folder merge. When installing an unowned new work into a new folder as a whole, same-name file collisions are rare in the first place, so smart overwrite has limited effect.
 
 ### Right-click settings
@@ -944,6 +946,8 @@ In the duplicate-file-check tree, select the folder you want to merge away, in o
 If bmson files exist under the target folder, they are also treated as charts. If the destination already contains a chart with the same hash, that chart file is not moved, so the duplication is resolved. If only the chart filename collides, the file is moved with a changed filename, so charts with different hashes are not lost.
 
 For bundled resources, when the destination already contains a same-name file, overwrite, skip, or automatic numbering is performed according to [Smart Overwrite](#smart-overwrite) in the settings dialog. As the confirmation dialog also notes, when resources with different quality or formats such as `ogg` and `wav` are mixed, check which one you want to keep before running the merge.
+
+If file and folder types conflict, the entire merge from the selected folder into the destination is rejected before any changes. Files and registrations at both the source and destination are preserved, and a warning shows the conflicting path. Files without a conflict are not merged ahead of the rejected files.
 
 The source folder is deleted after moving if it becomes empty, or if all remaining files are "chart files that can already be judged as owned." If something unexpected remains, such as non-chart files, unreadable charts, charts with unknown hashes, or charts with unowned hashes, deleting the source folder is skipped.
 

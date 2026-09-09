@@ -119,6 +119,299 @@ public sealed class FileDbMutationReportTests
     }
 
     [TestMethod]
+    public void DestinationTypeConflictsRenderWarningWithFiveDetailsAndOmittedCount()
+    {
+        FileDbMutationDestinationTypeConflict[] conflicts = Enumerable.Range(0, 6)
+            .Select(index => new FileDbMutationDestinationTypeConflict(
+                @"C:\Source\source" + index,
+                @"D:\Destination\destination" + index,
+                expectedIsDirectory: false,
+                existingIsDirectory: true))
+            .ToArray();
+        var receipt = new FileDbMutationReceipt(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.Failed,
+            durableCommit: false,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            [@"C:\Source\package"],
+            [@"D:\Destination\package"],
+            [],
+            [],
+            [],
+            new FileDbMutationDestinationTypeConflictException(conflicts[0]),
+            destinationTypeConflicts: conflicts);
+
+        UiMessageRequest report = FileDbMutationReport.Create(
+            "install-operation",
+            new FileDbMutationBatchReceipt([receipt]));
+
+        Assert.IsNotNull(report);
+        Assert.AreEqual(MessageBoxImage.Warning, report.Icon);
+        Assert.AreEqual(Resources.FileDbMutationReport_Title, report.Caption);
+        StringAssert.Contains(report.MessageBoxText, @"C:\Source\package");
+        StringAssert.Contains(report.MessageBoxText, @"D:\Destination\package");
+        foreach (FileDbMutationDestinationTypeConflict conflict in conflicts.Take(5))
+            StringAssert.Contains(report.MessageBoxText, conflict.DestinationPath);
+        Assert.IsFalse(report.MessageBoxText.Contains(conflicts[5].DestinationPath, StringComparison.Ordinal));
+        string omittedText = string.Format(
+            CultureInfo.CurrentCulture,
+            Resources.FileDbMutationReport_DestinationTypeConflict_More,
+            1);
+        StringAssert.Contains(report.MessageBoxText, omittedText);
+        Assert.IsTrue(report.MessageBoxText.Length <= 4096);
+    }
+
+    [TestMethod]
+    public void DestinationTypeConflictReportRetainsCleanupFailureAsWarning()
+    {
+        var conflict = new FileDbMutationDestinationTypeConflict(
+            @"C:\Source\BGA",
+            @"D:\Destination\BGA",
+            expectedIsDirectory: false,
+            existingIsDirectory: true);
+        var conflictReceipt = new FileDbMutationReceipt(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.Failed,
+            durableCommit: false,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            [@"C:\Source\package"],
+            [@"D:\Destination\package"],
+            [],
+            [],
+            [],
+            new FileDbMutationDestinationTypeConflictException(conflict),
+            destinationTypeConflicts: [conflict]);
+        FileDbMutationReceipt cleanupReceipt = Receipt(FileDbMutationTerminalState.CompletedWithCleanupFailure);
+
+        UiMessageRequest report = FileDbMutationReport.Create(
+            "mixed-cleanup-operation",
+            new FileDbMutationBatchReceipt([conflictReceipt, cleanupReceipt]));
+
+        Assert.AreEqual(MessageBoxImage.Warning, report.Icon);
+        string cleanupText = string.Format(
+            CultureInfo.CurrentCulture,
+            Resources.FileDbMutationReport_DestinationTypeConflict_Cleanup,
+            1);
+        StringAssert.Contains(report.MessageBoxText, cleanupText);
+        StringAssert.Contains(report.MessageBoxText, cleanupReceipt.CleanupFailure!.Message);
+        foreach (string path in cleanupReceipt.RecoveryPaths)
+            StringAssert.Contains(report.MessageBoxText, path);
+    }
+
+    [TestMethod]
+    public void DestinationTypeConflictReportKeepsFiveDetailsAndRecoverySummaryWithinBudget()
+    {
+        FileDbMutationDestinationTypeConflict[] conflicts = Enumerable.Range(0, 6)
+            .Select(index => new FileDbMutationDestinationTypeConflict(
+                @"C:\Source\package-" + index + new string('s', 800),
+                @"D:\Destination\package-" + index + new string('d', 800),
+                expectedIsDirectory: false,
+                existingIsDirectory: true))
+            .ToArray();
+        var conflictReceipt = new FileDbMutationReceipt(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.Failed,
+            durableCommit: false,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            [@"C:\Source\package-root-" + new string('p', 800)],
+            [@"D:\Destination\package-root-" + new string('q', 800)],
+            [],
+            [],
+            [],
+            new FileDbMutationDestinationTypeConflictException(conflicts[0]),
+            destinationTypeConflicts: conflicts);
+        const string recoveryPath = @"D:\Recovery\manual-";
+        FileDbMutationReceipt recoveryReceipt = new(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.ManualRecoveryRequired,
+            durableCommit: false,
+            compensationAttemptCount: 1,
+            cleanupAttemptCount: 0,
+            [@"C:\Source\manual"],
+            [@"D:\Destination\manual"],
+            [],
+            [],
+            [recoveryPath + new string('r', 800)],
+            new IOException("long-manual-recovery-marker"));
+
+        UiMessageRequest report = FileDbMutationReport.Create(
+            "long-mixed-operation",
+            new FileDbMutationBatchReceipt([conflictReceipt, recoveryReceipt]));
+
+        Assert.AreEqual(MessageBoxImage.Error, report.Icon);
+        Assert.IsTrue(report.MessageBoxText.Length <= 4096);
+        foreach (FileDbMutationDestinationTypeConflict conflict in conflicts.Take(5))
+        {
+            string sourcePrefix = conflict.SourcePath[..Math.Min(conflict.SourcePath.Length, 60)];
+            StringAssert.Contains(report.MessageBoxText, sourcePrefix);
+        }
+        Assert.IsFalse(report.MessageBoxText.Contains(conflicts[5].SourcePath, StringComparison.Ordinal));
+        StringAssert.Contains(
+            report.MessageBoxText,
+            string.Format(
+                CultureInfo.CurrentCulture,
+                Resources.FileDbMutationReport_DestinationTypeConflict_More,
+                1));
+        StringAssert.Contains(report.MessageBoxText, recoveryPath);
+        StringAssert.Contains(report.MessageBoxText, "long-manual-recovery-marker");
+        StringAssert.Contains(
+            report.MessageBoxText,
+            Resources.FileDbMutationReport_DestinationTypeConflict_Guidance);
+    }
+
+    [TestMethod]
+    public void DestinationTypeConflictsUseMergeTerminalWordingWhenRequested()
+    {
+        var conflict = new FileDbMutationDestinationTypeConflict(
+            @"C:\Source\source",
+            @"D:\Destination\destination",
+            expectedIsDirectory: false,
+            existingIsDirectory: true);
+        var receipt = new FileDbMutationReceipt(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.Failed,
+            durableCommit: false,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            [@"C:\Source\package"],
+            [@"D:\Destination\package"],
+            [],
+            [],
+            [],
+            new FileDbMutationDestinationTypeConflictException(conflict),
+            destinationTypeConflicts: [conflict]);
+
+        UiMessageRequest report = FileDbMutationReport.Create(
+            Resources.FileDbMutationReport_Merge,
+            new FileDbMutationBatchReceipt([receipt]),
+            mergeOperation: true);
+
+        Assert.AreEqual(MessageBoxImage.Warning, report.Icon);
+        Assert.AreEqual(Resources.FileDbMutationReport_DestinationTypeConflict_MergeTitle, report.Caption);
+        StringAssert.Contains(
+            report.MessageBoxText,
+            Resources.FileDbMutationReport_DestinationTypeConflict_MergeReason);
+        string zeroSuccessText = string.Format(
+            CultureInfo.CurrentCulture,
+            Resources.FileDbMutationReport_DestinationTypeConflict_MergeSuccesses,
+            0);
+        Assert.IsFalse(report.MessageBoxText.Contains(zeroSuccessText, StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void DestinationTypeConflictsShowSuccessfulCountOnlyWhenPresent()
+    {
+        var conflict = new FileDbMutationDestinationTypeConflict(
+            @"C:\Source\source",
+            @"D:\Destination\destination",
+            expectedIsDirectory: false,
+            existingIsDirectory: true);
+        var conflictReceipt = new FileDbMutationReceipt(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.Failed,
+            durableCommit: false,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            [@"C:\Source\package"],
+            [@"D:\Destination\package"],
+            [],
+            [],
+            [],
+            new FileDbMutationDestinationTypeConflictException(conflict),
+            destinationTypeConflicts: [conflict]);
+
+        UiMessageRequest report = FileDbMutationReport.Create(
+            "install-operation",
+            new FileDbMutationBatchReceipt([
+                conflictReceipt,
+                Receipt(FileDbMutationTerminalState.Completed)
+            ]));
+
+        string successText = string.Format(
+            CultureInfo.CurrentCulture,
+            Resources.FileDbMutationReport_DestinationTypeConflict_Successes,
+            1);
+        StringAssert.Contains(report.MessageBoxText, successText);
+    }
+
+    [TestMethod]
+    public void DestinationTypeConflictReportRetainsRecoveryPathsForMixedManualRecovery()
+    {
+        var conflict = new FileDbMutationDestinationTypeConflict(
+            @"C:\Source\source",
+            @"D:\Destination\destination",
+            expectedIsDirectory: false,
+            existingIsDirectory: true);
+        var conflictReceipt = new FileDbMutationReceipt(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.Failed,
+            durableCommit: false,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            [@"C:\Source\package"],
+            [@"D:\Destination\package"],
+            [],
+            [],
+            [],
+            new FileDbMutationDestinationTypeConflictException(conflict),
+            destinationTypeConflicts: [conflict]);
+        const string recoveryPath = @"D:\Recovery\first-backup";
+        FileDbMutationReceipt recoveryReceipt = new(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.ManualRecoveryRequired,
+            durableCommit: false,
+            compensationAttemptCount: 1,
+            cleanupAttemptCount: 0,
+            [@"C:\Source\other"],
+            [@"D:\Destination\other"],
+            [],
+            [],
+            [recoveryPath],
+            new IOException("manual-recovery-marker"));
+
+        UiMessageRequest report = FileDbMutationReport.Create(
+            "mixed-operation",
+            new FileDbMutationBatchReceipt([conflictReceipt, recoveryReceipt]));
+
+        Assert.AreEqual(MessageBoxImage.Error, report.Icon);
+        StringAssert.Contains(report.MessageBoxText, recoveryPath);
+        StringAssert.Contains(report.MessageBoxText, "manual-recovery-marker");
+    }
+
+    [TestMethod]
+    public void ExecutorTypeConflictWithoutPreflightFactsRemainsError()
+    {
+        var conflict = new FileDbMutationDestinationTypeConflict(
+            @"C:\source\BGA",
+            @"D:\destination\BGA",
+            expectedIsDirectory: false,
+            existingIsDirectory: true);
+        var receipt = new FileDbMutationReceipt(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.Failed,
+            durableCommit: false,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            [conflict.SourcePath],
+            [conflict.DestinationPath],
+            [],
+            [],
+            [],
+            new FileDbMutationDestinationTypeConflictException(conflict));
+
+        UiMessageRequest report = FileDbMutationReport.Create(
+            "executor-operation",
+            new FileDbMutationBatchReceipt([receipt]));
+
+        Assert.IsNotNull(report);
+        Assert.AreEqual(MessageBoxImage.Error, report.Icon);
+        StringAssert.Contains(report.MessageBoxText, receipt.Failure!.Message);
+    }
+
+    [TestMethod]
     public async Task ReporterFailureDoesNotAlterFactsOrRetry()
     {
         var receipt = Receipt(FileDbMutationTerminalState.DurableFinalizationFailed);

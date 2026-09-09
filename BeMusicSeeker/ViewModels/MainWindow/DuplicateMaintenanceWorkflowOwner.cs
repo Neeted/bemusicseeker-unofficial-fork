@@ -132,6 +132,10 @@ internal sealed class DuplicateMaintenanceMutationResult
 
     internal DuplicateMergeMaintenanceReceipt MutationReceipt { get; }
 
+    /// <summary>マージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
+    internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
+        MutationReceipt?.DestinationTypeConflicts ?? [];
+
     /// <summary>Includes the catalog commit observed by library deletion.</summary>
     internal bool HasDurableCommit => RemovalOutcome?.CatalogDurable == true || MutationReceipt?.HasDurableCommit == true;
 
@@ -510,7 +514,8 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 DuplicateMaintenanceMutationResult result = await mutationTask;
                 await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Merge,
                     result.MutationReceipt?.MutationReceipt is { } receipt ? new FileDbMutationBatchReceipt([receipt]) : null,
-                    result.Failure);
+                    result.Failure,
+                    mergeOperation: true);
                 return result;
             }
             Task<DuplicateMaintenanceMutationResult> regularMutationTask = Task.Run(() => ExecuteMutation(

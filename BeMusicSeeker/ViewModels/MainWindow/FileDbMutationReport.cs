@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
@@ -15,19 +16,31 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal static class FileDbMutationReport
 {
+    private const int MaximumMessageLength = 4096;
+    private const int ConflictOperationLimit = 160;
+    private const int ConflictDetailPathLimit = 72;
+    private const int ConflictRecoveryPathLimit = 96;
+    private const int ConflictErrorLimit = 160;
+    private const int ConflictGuidanceLimit = 512;
+
     /// <summary>
     /// Creates a localized warning/error, or null for an entirely normal result.
     /// Candidate paths are not probed; counts describe receipt operations, not files.
     /// The optional culture also permits rendering without changing global resources.
     /// </summary>
+    /// <param name="mergeOperation">true の場合はマージ専用の文言を使用します。</param>
     internal static UiMessageRequest Create(
         string operation,
         FileDbMutationBatchReceipt batch,
         Exception failure = null,
-        CultureInfo culture = null)
+        CultureInfo culture = null,
+        bool mergeOperation = false)
     {
         if (batch == null)
             return null;
+
+        string Localized(string key) => Resources.ResourceManager.GetString(key, culture ?? Resources.Culture);
+        string Format(string key, params object[] values) => string.Format(culture ?? CultureInfo.CurrentCulture, Localized(key), values);
 
         var receipts = batch.Receipts;
         // The result may carry the same primary exception as its receipt. It is
@@ -43,11 +56,117 @@ internal static class FileDbMutationReport
         int manual = receipts.Count(receipt => receipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired);
         bool hasError = notCommitted > 0 || finalization > 0 || manual > 0
             || batch.FinalizationFailure != null || failure != null;
+        IReadOnlyList<FileDbMutationDestinationTypeConflict> destinationTypeConflicts =
+            batch.DestinationTypeConflicts;
+        bool hasNonConflictFailure = batch.FinalizationFailure != null || failure != null
+            || receipts.Any(receipt => !IsReadOnlyConflictRefusal(receipt)
+                && (!receipt.DurableCommit
+                    || receipt.FinalizationFailure != null
+                    || receipt.TerminalState is FileDbMutationTerminalState.ManualRecoveryRequired
+                        or FileDbMutationTerminalState.DurableFinalizationFailed));
+        if (destinationTypeConflicts.Count > 0)
+        {
+            int successfulOperations = receipts.Count(receipt => receipt.DurableCommit
+                && receipt.TerminalState != FileDbMutationTerminalState.DurableFinalizationFailed);
+            bool hasCleanupFailure = cleanup > 0;
+            var conflictDetails = batch.Receipts
+                .SelectMany(receipt => (receipt.DestinationTypeConflicts ?? [])
+                    .Select(conflict => (Receipt: receipt, Conflict: conflict)))
+                .GroupBy(item => string.Join("\u001f",
+                    item.Conflict.SourcePath,
+                    item.Conflict.DestinationPath,
+                    item.Conflict.ExpectedIsDirectory,
+                    item.Conflict.ExistingIsDirectory), StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToArray();
+            var conflictLines = new List<string>
+            {
+                Format(nameof(Resources.FileDbMutationReport_Operation), Limit(operation, ConflictOperationLimit)),
+                Format(mergeOperation
+                    ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeCounts)
+                    : nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Counts),
+                    destinationTypeConflicts.Count)
+            };
+            if (successfulOperations > 0)
+            {
+                conflictLines.Add(Format(mergeOperation
+                    ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeSuccesses)
+                    : nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Successes),
+                    successfulOperations));
+            }
+            conflictLines.Add(Localized(mergeOperation
+                    ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeReason)
+                    : nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Reason)));
+            foreach ((FileDbMutationReceipt Receipt, FileDbMutationDestinationTypeConflict Conflict) detail in conflictDetails.Take(5))
+            {
+                string packageSourcePath = detail.Receipt.SourcePaths.FirstOrDefault()
+                    ?? detail.Conflict.SourcePath;
+                string packageDestinationPath = detail.Receipt.DestinationPaths.FirstOrDefault()
+                    ?? detail.Conflict.DestinationPath;
+                conflictLines.Add(Format(
+                    nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Detail),
+                    Limit(packageSourcePath, ConflictDetailPathLimit),
+                    Limit(packageDestinationPath, ConflictDetailPathLimit),
+                    Limit(detail.Conflict.SourcePath, ConflictDetailPathLimit),
+                    Limit(detail.Conflict.DestinationPath, ConflictDetailPathLimit),
+                    Localized(detail.Conflict.ExpectedIsDirectory
+                        ? nameof(Resources.FileDbMutationReport_Directory)
+                        : nameof(Resources.FileDbMutationReport_File)),
+                    Localized(detail.Conflict.ExistingIsDirectory
+                        ? nameof(Resources.FileDbMutationReport_Directory)
+                        : nameof(Resources.FileDbMutationReport_File))));
+            }
+            if (destinationTypeConflicts.Count > 5)
+            {
+                conflictLines.Add(Format(
+                    nameof(Resources.FileDbMutationReport_DestinationTypeConflict_More),
+                    destinationTypeConflicts.Count - 5));
+            }
+            if (hasCleanupFailure)
+            {
+                conflictLines.Add(Format(
+                    nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Cleanup),
+                    cleanup));
+            }
+            if (hasNonConflictFailure)
+            {
+                conflictLines.Add(Localized(nameof(Resources.FileDbMutationReport_TerminalFailure)));
+            }
+            if (hasCleanupFailure || hasNonConflictFailure)
+            {
+                AppendConflictRecoveryDetails(
+                    conflictLines,
+                    receipts,
+                    failure,
+                    batch.FinalizationFailure,
+                    culture);
+            }
+            string conflictGuidance = Limit(
+                Localized(mergeOperation
+                    ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeGuidance)
+                    : nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Guidance)),
+                ConflictGuidanceLimit);
+            string conflictBody = string.Join(Environment.NewLine, conflictLines)
+                + Environment.NewLine + conflictGuidance;
+            // join 前にすべての外部入力項目を上限内へ収めます。5 件の詳細と
+            // cleanup／復旧要約を表示し、最後の上限は想定外に長い翻訳テンプレートへの
+            // 防御としてだけ使用します。
+            if (conflictBody.Length > MaximumMessageLength)
+            {
+                conflictBody = Limit(
+                    string.Join(Environment.NewLine, conflictLines),
+                    MaximumMessageLength - Environment.NewLine.Length - conflictGuidance.Length)
+                    + Environment.NewLine + conflictGuidance;
+            }
+            string conflictTitle = Localized(mergeOperation
+                ? nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeTitle)
+                : nameof(Resources.FileDbMutationReport_Title));
+            return hasNonConflictFailure
+                ? UiMessageRequest.CreateError(conflictBody, conflictTitle)
+                : UiMessageRequest.CreateWarning(conflictBody, conflictTitle);
+        }
         if (!hasError && cleanup == 0)
             return null;
-
-        string Localized(string key) => Resources.ResourceManager.GetString(key, culture ?? Resources.Culture);
-        string Format(string key, params object[] values) => string.Format(culture ?? CultureInfo.CurrentCulture, Localized(key), values);
 
         string body = Format(nameof(Resources.FileDbMutationReport_Operation), Limit(operation, 240))
             + Environment.NewLine
@@ -71,7 +190,7 @@ internal static class FileDbMutationReport
         string guidance = Localized(nameof(Resources.FileDbMutationReport_Guidance));
         // Reserve the guidance even when localized text or input is unusually long.
         guidance = Limit(guidance, 1024);
-        body = Limit(body, 4096 - Environment.NewLine.Length - guidance.Length)
+        body = Limit(body, MaximumMessageLength - Environment.NewLine.Length - guidance.Length)
             + Environment.NewLine + guidance;
         string title = Localized(nameof(Resources.FileDbMutationReport_Title));
         return hasError ? UiMessageRequest.CreateError(body, title) : UiMessageRequest.CreateWarning(body, title);
@@ -81,12 +200,13 @@ internal static class FileDbMutationReport
     /// Logs full abnormal facts and awaits at most one dialog. Notification failure
     /// never replaces the caller's receipt/failure or triggers another mutation.
     /// </summary>
+    /// <param name="mergeOperation">true の場合はマージ専用の文言を使用します。</param>
     internal static async Task ShowAsync(IUiDialogService dialogs, string operation,
-        FileDbMutationBatchReceipt batch, Exception failure = null)
+        FileDbMutationBatchReceipt batch, Exception failure = null, bool mergeOperation = false)
     {
         try
         {
-            UiMessageRequest request = Create(operation, batch, failure);
+            UiMessageRequest request = Create(operation, batch, failure, mergeOperation: mergeOperation);
             if (request == null)
                 return;
             foreach (FileDbMutationReceipt receipt in batch.Receipts)
@@ -101,6 +221,10 @@ internal static class FileDbMutationReport
                         + " staging=" + string.Join("|", receipt.StagingPaths)
                         + " backup=" + string.Join("|", receipt.BackupPaths)
                         + " candidates=" + string.Join("|", receipt.RecoveryPaths)
+                        + " destinationTypeConflicts=" + string.Join("|", receipt.DestinationTypeConflicts.Select(conflict =>
+                            conflict.SourcePath + "->" + conflict.DestinationPath
+                            + " expectedDirectory=" + conflict.ExpectedIsDirectory
+                            + " existingDirectory=" + conflict.ExistingIsDirectory))
                         + " finalization=" + receipt.FinalizationFailure + " cleanup=" + receipt.CleanupFailure);
                 }
                 catch { /* Diagnostic sinks must not affect terminal facts. */ }
@@ -138,4 +262,56 @@ internal static class FileDbMutationReport
     /// <summary>Bounds a displayed field without altering the retained diagnostic facts.</summary>
     internal static string Limit(string value, int maximum) =>
         string.IsNullOrEmpty(value) || value.Length <= maximum ? value : value[..(maximum - 1)] + "…";
+
+    private static void AppendConflictRecoveryDetails(
+        List<string> lines,
+        IReadOnlyList<FileDbMutationReceipt> receipts,
+        Exception failure,
+        Exception batchFinalizationFailure,
+        CultureInfo culture)
+    {
+        string[] recoveryPaths = receipts
+            .SelectMany(receipt => receipt.RecoveryPaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .Select(path => Limit(path, ConflictRecoveryPathLimit))
+            .ToArray();
+        if (recoveryPaths.Length > 0)
+        {
+            lines.Add(LocalizedReportText(nameof(Resources.FileDbMutationReport_CandidatePaths), culture));
+            lines.AddRange(recoveryPaths);
+        }
+        var errors = new[] { failure, batchFinalizationFailure }
+            .Concat(receipts.SelectMany(receipt => new[]
+            {
+                IsReadOnlyConflictRefusal(receipt) ? null : receipt.Failure,
+                IsReadOnlyConflictRefusal(receipt) ? null : receipt.FinalizationFailure,
+                receipt.CleanupFailure
+            }))
+            .Where(error => error != null)
+            .Distinct()
+            .Take(3);
+        foreach (Exception error in errors)
+        {
+            lines.Add(FormatReportText(
+                nameof(Resources.FileDbMutationReport_Error),
+                culture,
+                Limit(error.Message, ConflictErrorLimit)));
+        }
+    }
+
+    private static string LocalizedReportText(string key, CultureInfo culture) =>
+        Resources.ResourceManager.GetString(key, culture ?? Resources.Culture);
+
+    private static string FormatReportText(string key, CultureInfo culture, params object[] values) =>
+        string.Format(culture ?? CultureInfo.CurrentCulture, LocalizedReportText(key, culture), values);
+
+    private static bool IsReadOnlyConflictRefusal(FileDbMutationReceipt receipt) =>
+        receipt.DestinationTypeConflicts.Count > 0
+        && receipt.Failure is FileDbMutationDestinationTypeConflictException
+        && receipt.FinalizationFailure == null
+        && receipt.CleanupFailure == null
+        && !receipt.DurableCommit
+        && receipt.TerminalState == FileDbMutationTerminalState.Failed;
 }

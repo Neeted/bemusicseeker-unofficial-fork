@@ -11,6 +11,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -1608,6 +1609,74 @@ public sealed class PendingPackageWorkflowOwnerTests
         Assert.IsTrue(gate.TryEnter(out IDisposable released));
         released.Dispose();
         Assert.AreEqual(1, events.Count(value => value == (manual ? "store-manual-install" : "store-force-install")));
+    }
+
+    [TestMethod]
+    public async Task RealPendingOwnerResultReportsConflictAfterOwnerReleasesMutationGate()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var conflict = new FileDbMutationDestinationTypeConflict(
+            @"C:\pending\BGA",
+            @"D:\installed\BGA",
+            expectedIsDirectory: false,
+            existingIsDirectory: true);
+        var receipt = new FileDbMutationReceipt(
+            Guid.NewGuid(),
+            FileDbMutationTerminalState.Failed,
+            durableCommit: false,
+            compensationAttemptCount: 0,
+            cleanupAttemptCount: 0,
+            [@"C:\pending"],
+            [@"D:\installed"],
+            [],
+            [],
+            [],
+            new FileDbMutationDestinationTypeConflictException(conflict),
+            destinationTypeConflicts: [conflict]);
+        var events = new List<string>();
+        var store = new RecordingStore(events)
+        {
+            TerminalReceipt = new FileDbMutationBatchReceipt([receipt])
+        };
+        var gate = new ChartFileOperationSynchronizer();
+        bool releasedAtReport = false;
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            OnMessage = () =>
+            {
+                bool acquired = gate.TryEnter(out IDisposable lease);
+                releasedAtReport = acquired && events.Contains("activity-end");
+                lease?.Dispose();
+            }
+        };
+        var owner = CreateOwner(
+            CreateLibrary,
+            events,
+            store,
+            dialogs,
+            chartFileOperations: gate);
+        ChartPackage package = ChartPackage.FromChartEntries([
+            PackageChartEntry.FromChart(CreateChart())
+        ]);
+
+        PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync([package]);
+        var terminal = new MainWindowPendingPackageMutationViewTerminal(
+            () => false,
+            () => 1,
+            _ => Task.FromResult(true),
+            dialogs);
+        await terminal.ApplyAsync(
+            result,
+            PackageCatalogSection.Pending,
+            MainViewUpdateMode.PendingInstallFolderSelected,
+            nameof(RealPendingOwnerResultReportsConflictAfterOwnerReleasesMutationGate));
+
+        Assert.IsTrue(releasedAtReport);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(System.Windows.MessageBoxImage.Warning, dialogs.Messages[0].Icon);
+        StringAssert.Contains(dialogs.Messages[0].MessageBoxText, conflict.DestinationPath);
+        Assert.AreSame(conflict, result.DestinationTypeConflicts[0]);
+        Assert.AreEqual(1, events.Count(value => value == "store-manual-install"));
     }
 
     private static PendingPackageWorkflowOwner CreateOwner(

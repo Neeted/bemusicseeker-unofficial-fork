@@ -2335,6 +2335,48 @@ public class Resources
     public static string FileDbMutationReport_Move => ResourceManager.GetString("FileDbMutationReport_Move", resourceCulture);
 
     public static string FileDbMutationReport_Merge => ResourceManager.GetString("FileDbMutationReport_Merge", resourceCulture);
+
+    /// <summary>宛先型衝突のローカライズ済み要約。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_Counts => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_Counts", resourceCulture);
+
+    /// <summary>宛先型衝突後に確定した対象数のローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_Successes => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_Successes", resourceCulture);
+
+    /// <summary>宛先型衝突に伴う cleanup 失敗数のローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_Cleanup => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_Cleanup", resourceCulture);
+
+    /// <summary>宛先型衝突の理由を示すローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_Reason => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_Reason", resourceCulture);
+
+    /// <summary>宛先型衝突の詳細を示すローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_Detail => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_Detail", resourceCulture);
+
+    /// <summary>省略した宛先型衝突数のローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_More => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_More", resourceCulture);
+
+    /// <summary>宛先型衝突時の案内を示すローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_Guidance => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_Guidance", resourceCulture);
+
+    /// <summary>マージ時の宛先型衝突タイトルのローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_MergeTitle => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_MergeTitle", resourceCulture);
+
+    /// <summary>マージ時の宛先型衝突要約のローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_MergeCounts => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_MergeCounts", resourceCulture);
+
+    /// <summary>宛先型衝突後に完了したマージ数のローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_MergeSuccesses => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_MergeSuccesses", resourceCulture);
+
+    /// <summary>マージ時の宛先型衝突理由のローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_MergeReason => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_MergeReason", resourceCulture);
+
+    /// <summary>マージ時の宛先型衝突案内のローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_DestinationTypeConflict_MergeGuidance => ResourceManager.GetString("FileDbMutationReport_DestinationTypeConflict_MergeGuidance", resourceCulture);
+
+    /// <summary>ファイル型名のローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_File => ResourceManager.GetString("FileDbMutationReport_File", resourceCulture);
+
+    /// <summary>フォルダー型名のローカライズ済み表示。</summary>
+    public static string FileDbMutationReport_Directory => ResourceManager.GetString("FileDbMutationReport_Directory", resourceCulture);
     /// <summary>Localized portable settings startup notification.</summary>
     public static string PortableSettingsRecovered => ResourceManager.GetString("PortableSettingsRecovered", resourceCulture);
 

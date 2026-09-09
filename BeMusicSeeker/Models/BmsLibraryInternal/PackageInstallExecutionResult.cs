@@ -44,6 +44,10 @@ internal sealed class PackageInstallExecutionResult
     /// </summary>
     public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
 
+    /// <summary>パッケージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
+    public IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
+        MutationReceipt?.DestinationTypeConflicts ?? [];
+
     /// <summary>
     /// Gets whether a post-durable finalizer failed for this package batch.
     /// </summary>
@@ -83,6 +87,10 @@ internal sealed class PackageInstallCommandResult
     internal IReadOnlyList<ChartPackage> RegisteredPackages { get; }
 
     internal FileDbMutationBatchReceipt MutationReceipt { get; }
+
+    /// <summary>パッケージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
+    internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
+        MutationReceipt.DestinationTypeConflicts;
 
     internal bool HasDurableCommit => MutationReceipt.HasDurableCommit;
 

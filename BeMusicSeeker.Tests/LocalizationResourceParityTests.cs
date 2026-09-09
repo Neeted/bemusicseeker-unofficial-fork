@@ -178,7 +178,21 @@ public sealed class LocalizationResourceParityTests
             [nameof(Resources.FileDbMutationReport_Guidance)] = 0,
             [nameof(Resources.FileDbMutationReport_Rename)] = 0,
             [nameof(Resources.FileDbMutationReport_Move)] = 0,
-            [nameof(Resources.FileDbMutationReport_Merge)] = 0
+            [nameof(Resources.FileDbMutationReport_Merge)] = 0,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Counts)] = 1,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Successes)] = 1,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Cleanup)] = 1,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Reason)] = 0,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Detail)] = 6,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_More)] = 1,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_Guidance)] = 0,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeTitle)] = 0,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeCounts)] = 1,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeSuccesses)] = 1,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeReason)] = 0,
+            [nameof(Resources.FileDbMutationReport_DestinationTypeConflict_MergeGuidance)] = 0,
+            [nameof(Resources.FileDbMutationReport_File)] = 0,
+            [nameof(Resources.FileDbMutationReport_Directory)] = 0
         };
         var resx = ReadResxStringValues(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         foreach (var pair in required)

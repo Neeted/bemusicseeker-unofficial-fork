@@ -15,6 +15,10 @@ internal sealed class PendingInstallBatchResult
 
     public FileDbMutationBatchReceipt MutationReceipt { get; internal set; }
 
+    /// <summary>保留項目の変更前に見つかった immutable な宛先型衝突を取得します。</summary>
+    public IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
+        MutationReceipt?.DestinationTypeConflicts ?? [];
+
     public bool HasDurableCommit => MutationReceipt?.HasDurableCommit == true;
 
     public bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;

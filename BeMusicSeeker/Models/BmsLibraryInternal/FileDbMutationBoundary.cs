@@ -170,6 +170,7 @@ internal sealed class FileDbMutationReceipt
     /// <param name="failure">The primary terminal failure, if any.</param>
     /// <param name="finalizationFailure">A failure from post-commit finalization, if any.</param>
     /// <param name="cleanupFailure">A failure from post-commit cleanup, if any.</param>
+    /// <param name="destinationTypeConflicts">パッケージの事前検証で見つけた read-only の宛先型衝突。</param>
     public FileDbMutationReceipt(
         Guid operationId,
         FileDbMutationTerminalState terminalState,
@@ -183,7 +184,8 @@ internal sealed class FileDbMutationReceipt
         IEnumerable<string> recoveryPaths,
         Exception failure = null,
         Exception finalizationFailure = null,
-        Exception cleanupFailure = null)
+        Exception cleanupFailure = null,
+        IEnumerable<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = null)
     {
         OperationId = operationId;
         TerminalState = terminalState;
@@ -198,6 +200,7 @@ internal sealed class FileDbMutationReceipt
         Failure = failure;
         FinalizationFailure = finalizationFailure;
         CleanupFailure = cleanupFailure;
+        DestinationTypeConflicts = FreezeDestinationTypeConflicts(destinationTypeConflicts);
     }
 
     public Guid OperationId { get; }
@@ -235,6 +238,12 @@ internal sealed class FileDbMutationReceipt
     public Exception CleanupFailure { get; }
 
     /// <summary>
+    /// パッケージの事前検証で検出した immutable な宛先型衝突を取得します。
+    /// executor 実行中の失敗は通常の failure 経路へ渡します。
+    /// </summary>
+    public IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts { get; }
+
+    /// <summary>
     /// Gets whether cleanup produced an exception after the durable commit.
     /// </summary>
     public bool HasCleanupFailure => CleanupFailure != null;
@@ -265,7 +274,8 @@ internal sealed class FileDbMutationReceipt
             RecoveryPaths,
             combinedFailure,
             FinalizationFailure,
-            CleanupFailure);
+            CleanupFailure,
+            DestinationTypeConflicts);
     }
 
     private static IReadOnlyList<string> Freeze(IEnumerable<string> values)
@@ -273,6 +283,20 @@ internal sealed class FileDbMutationReceipt
         return Array.AsReadOnly((values ?? [])
             .Where(value => !string.IsNullOrWhiteSpace(value))
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray());
+    }
+
+    private static IReadOnlyList<FileDbMutationDestinationTypeConflict> FreezeDestinationTypeConflicts(
+        IEnumerable<FileDbMutationDestinationTypeConflict> values)
+    {
+        return Array.AsReadOnly((values ?? [])
+            .Where(value => value != null)
+            .GroupBy(value => string.Join("\u001f",
+                value.SourcePath,
+                value.DestinationPath,
+                value.ExpectedIsDirectory,
+                value.ExistingIsDirectory), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
             .ToArray());
     }
 }
@@ -312,6 +336,16 @@ internal sealed class FileDbMutationBatchReceipt
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray());
+        DestinationTypeConflicts = Array.AsReadOnly(Receipts
+            .SelectMany(receipt => receipt.DestinationTypeConflicts ?? [])
+            .Where(conflict => conflict != null)
+            .GroupBy(conflict => string.Join("\u001f",
+                conflict.SourcePath,
+                conflict.DestinationPath,
+                conflict.ExpectedIsDirectory,
+                conflict.ExistingIsDirectory), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToArray());
     }
 
     internal IReadOnlyList<FileDbMutationReceipt> Receipts { get; }
@@ -336,6 +370,9 @@ internal sealed class FileDbMutationBatchReceipt
     internal bool CompletedWithCleanupFailure { get; }
 
     internal IReadOnlyList<string> RecoveryPaths { get; }
+
+    /// <summary>パッケージの事前検証で見つかった宛先型衝突を重複なしで取得します。</summary>
+    internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts { get; }
 
     /// <summary>
     /// Returns the same immutable batch facts with a failure from a
@@ -423,6 +460,9 @@ internal sealed class FileDbMutationExecutor
 
         try
         {
+            // どの path も staging する前に immutable な計画全体を検証します。
+            // 後半の型衝突で、前半の公開済み entry を残さないためです。
+            FileDbMutationDestinationTypeGuard.ValidatePlan(plan);
             Stage();
             Promote();
         }
@@ -492,6 +532,13 @@ internal sealed class FileDbMutationExecutor
     {
         foreach (FileDbMutationPathPlan path in plan.Paths)
         {
+            // 計画全体の事前検証後に宛先が変わる可能性があります。親の作成、退避、
+            // 公開より前に確認し、外部変更は宛先の親を変更せず通常の executor
+            // failure 契約へ渡します。
+            FileDbMutationDestinationTypeGuard.ValidatePath(
+                path.SourcePath,
+                path.DestinationPath,
+                path.IsDirectory);
             EnsureParentDirectory(path.DestinationPath);
             if (LongPathFileSystem.EntryExists(path.DestinationPath))
             {
