@@ -9,5 +9,27 @@ enabled = true
 max_concurrent_threads_per_session = 3
 
 [features.multi_agent_v2]
+enabled = true
+
 min_wait_timeout_ms = 900000
 default_wait_timeout_ms = 900000
+max_wait_timeout_ms = 3600000
+
+root_agent_usage_hint_text = """
+When waiting for delegated subagents, use event-driven waiting.
+Do not poll agent status, read agent threads, inspect diffs/logs, or emit
+user-facing 'still waiting' progress messages merely to check whether an
+agent has completed.
+
+After delegation, prefer one wait_agent call with timeout_ms=900000.
+Wake early only for actual mailbox/subagent activity or user input.
+If the wait times out with no meaningful state change, re-arm the wait
+without a user-facing progress update and without list_agents/read_thread
+polling.
+
+Only inspect a subagent or report progress when:
+1. the subagent sends new information,
+2. the subagent completes or requests attention,
+3. the user sends new input, or
+4. there is another independent reason to perform work.
+"""
