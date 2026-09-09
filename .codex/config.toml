@@ -9,5 +9,5 @@ enabled = true
 max_concurrent_threads_per_session = 3
 
 [features.multi_agent_v2]
-min_wait_timeout_ms = 300000
-default_wait_timeout_ms = 300000
+min_wait_timeout_ms = 900000
+default_wait_timeout_ms = 900000
