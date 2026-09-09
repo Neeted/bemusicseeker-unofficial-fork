@@ -61,6 +61,10 @@ UI binding collectionはUI laneで適用する。model lock中の同期UI callba
 
 通常起動ではEverything native bridgeでchart / audio / image / movieを列挙する。native resultはchart-relative resource keyとdestination reverse lookupを含む。Everything unavailable時はmanaged fallbackで同じsemanticsのindexを作る。
 
+## データ規模と性能要件
+
+DB / index / cache / package 処理は、小規模データだけで判断しない。代表的大規模ライブラリと操作差分、処理速度最優先の方針、測定・退行判定は [performance-and-scale.md](performance-and-scale.md) を正本にする。省メモリや UI 応答目的の低 CPU 使用率を性能目標にせず、正しさ・安全な所有権を維持した完了時間の短縮を評価する。
+
 ## Data model
 
 - LR2 linkedまたはstandaloneのsong DB: chart catalog。

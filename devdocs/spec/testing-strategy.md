@@ -1,6 +1,6 @@
 # テスト運用方針
 
-最終更新: 2026-09-07
+最終更新: 2026-09-10
 
 この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。個々の test の設計、既存 coverage 調査、共通 infrastructure、Codex handoff は [test-authoring-contract.md](test-authoring-contract.md) を正本とする。
 
@@ -122,6 +122,23 @@ Functional / Full の `format` phase は solution / project を評価する rout
 | Parser slow | `ParserCompatibilitySlow` | 除外 | 除外 | 既知の巨大・低速 fixture |
 
 カテゴリはテストの保証内容ではなく実行特性を表す。たとえば軽量な互換性テストは `Compatibility` のまま Functional に含める。複数 lane に該当するときは、より重い実行特性のカテゴリを追加する。
+
+## アプリ性能・大規模データの検証
+
+アプリが扱う規模、処理速度最優先の方針、代表操作と性能の受入条件は [performance-and-scale.md](performance-and-scale.md) に従う。本書の300秒・180秒等は検証runnerの予算であり、install / delete / startupの許容時間ではない。Functional / Full成功は大規模性能passを意味しない。
+
+既存の明示入口は次のとおり。通常検証入口でrestore済みの環境で実行する（このscript自身は `--no-restore`）。既存scriptとrunnerの挙動は変更しない。
+
+```powershell
+pwsh -NoProfile -File .\scripts\benchmark-net10-performance.ps1 -Corpus all -Configuration Release -Scale small,medium,large -Output artifacts/performance/scale-review
+```
+
+`Net10PerformanceCorpus` の1,000 / 25,000 / 200,000行はsynthetic row corpusであり、800万キーのreverse lookup、実DB、20 ZIPのinstall / delete全体を再現するfixtureではない。現在のcandidate view / parserの仕事量検証と、実ライブラリ規模の性能受入を分ける。対応するbenchmarkがない経路は、明示的な実アプリ比較または対象ownerを通るbenchmarkで評価し、未実施なら未検証と記録する。
+
+- 小さい入力で結果・世代不変・重複仕事等を決定的に検証できる場合は、[test-authoring-contract.md](test-authoring-contract.md)の必要性判断に従い既存coverageを利用する。特定のprivate methodやcollection型を固定するtestは作らない。
+- 大規模fixture、実時間・throughputの比較は既存のopt-in laneへ置き、Functionalへ混ぜない。代表規模と固定差分の組合せを測り、chart行数だけを増やしてresource / DB規模も再現したことにしない。
+- baseline / candidate、同一断面、cache / startup workの状態、完了marker、反復値・ばらつき、結果の同等性を残す。具体的な判定は性能要件を正本とし、個々のbenchmarkで恣意的な「許容退行率」を追加しない。
+- 文書だけの変更はroot `AGENTS.md`のprose検証でよく、大規模fixtureや新しい性能assertionを機械的に追加しない。
 
 ## 外部 audio encoder の opt-in smoke
 

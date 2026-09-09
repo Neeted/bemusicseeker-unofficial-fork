@@ -4,6 +4,10 @@
 
 目的は、追加・更新譜面で同じファイルを軽量 parser と `chart_info` parser が別々に読む状態を避け、どの入口を使うべきかを明確にすること。
 
+## 性能要件との関係
+
+対象規模と処理速度優先の方針は [performance-and-scale.md](performance-and-scale.md) に従う。後述のsnapshot寿命・長期modelへの非保持は現行の所有権とpipeline境界であり、省メモリを最優先とする一般原則ではない。寿命が有効な同じ入力は積極的に再利用し、参照数・package数に応じた不要な再read / 再parseを避ける。worker / queueを調整する場合は、低CPU使用率ではなく完了時間と既存の取消・commit境界で評価する。
+
 ## 基本方針
 
 - 新規コードで譜面 bytes と digest が必要な場合は `ChartFileSnapshot` を使う。

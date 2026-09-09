@@ -865,6 +865,8 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 
 ### 性能確認
 
+対象規模と処理速度最優先の共通要件は [performance-and-scale.md](performance-and-scale.md) に従う。上記の21万譜面に加え、resource reverse lookupとDB / playlistの規模、操作の小さな差分も評価する。memoryはallocation / GC / paging等の速度要因として観測し、省メモリ自体を速度より優先しない。synthetic row corpusの成功だけで大規模のinstall / deleteまで検証済みとしない。
+
 この領域はlarge library startup、main view、duplicate search、install estimation、mergeに直接触れる。性能確認はcurrent .NET 10のstage log、固定seed synthetic fixture、golden behaviorを正本にする。過去net472ログは症状や優先度の参考に留め、新しいinstrumentationや厳密A/Bをnet472側へ追加しない。実データ依存のWPF描画やcold-bootは、engineering完了後の手動受入れで確認する。
 
 重点 log:

@@ -1,6 +1,6 @@
 # Codex エージェント運用契約
 
-最終更新: 2026-09-08
+最終更新: 2026-09-10
 
 この文書は、BeMusicSeeker で複数段階の変更を計画・実装・レビューするときの Codex 運用の正本である。目的は、ルートエージェントへ要件・判断・統合責任を残しながら、必要な作業だけを適切なモデルへ委譲し、重複調査、実装バイアス、過剰な並列化、長い生ログによる rate limit と context の消費を抑えることである。
 
@@ -26,6 +26,7 @@
 - **Goal**: 何を変え、どの observable outcome を得るか。
 - **Context**: 関連する file、symbol、spec、現行 route、既知の failure evidence。
 - **Constraints**: 対象外、互換性、ownership、threading、永続化、安全性、作業中差分。runtime の操作受付を変更する場合は、[並行性契約 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外)に照らし、Busy で拒否する新規要求、受理済みの仕事、維持する既存の並行操作を分ける。
+- **性能影響がある場合**: [performance-and-scale.md](performance-and-scale.md) に従い、対象操作、全体規模と差分、全件処理の反復回数、cache / snapshot / receipt の範囲、必要な逐次境界、比較する完了markerを整理する。処理速度を最優先とし、低メモリ・低CPU使用率だけで退行を正当化しない。無関係な変更には大規模測定を要求しない。
 - **変更分類と恒久テストの必要性**: [test-authoring-contract.md](test-authoring-contract.md) section 1 に従い、テストの設計前に扱いと検証方法を数行で決める。
 - **Done when**: behavior、削除する旧 route、必要な test lane、review、artifact。テストの追加・意味変更・置換を必要と判断した場合は independent authority、既存 coverage、shared resource、completion signal も含める。不要または削除のみの場合は判断理由と適切な検証を含める。
 - **Decision list**: 選択で observable behavior が変わる事項と、既に決まっている回答。
@@ -146,6 +147,7 @@ Inputs that must not become oracle authority:
 11. static review の intent、base / head、review scope、packet conformance scope
 12. 実装を止めて再計画・ユーザー判断へ戻す具体的な evidence
 13. 統合 conflict を避ける path ownership と handoff 順
+14. 性能影響がある場合の代表規模・差分、仕事量、必要な比較・未検証範囲。workerは小規模test成功だけで性能passとせず、handoffに操作別の実測または未測定を明記する
 
 計画は「調査して適宜直す」だけで終わらせず、worker が observable semantics や test oracle を推測せずに着手できる粒度まで閉じる。
 

@@ -7,6 +7,14 @@
 - 差分の小ささ自体を目的にしない一方、承認済みで実際に到達可能な observable behavior に不要な persistent state、retry / replay / rollback、compatibility route、抽象化や、依頼と無関係な全面整理は追加しない。
 - コミット、push、tag、署名、公開、version 更新は、ユーザーの明示指示または合意済みの作業手順がある場合だけ行う。
 
+## 性能とデータ規模
+
+- 性能上の最優先は、同じ仕事を正しく完了するまでの処理速度（wall-clock time / throughput）とする。省メモリ性や、UI 応答のための CPU 使用量抑制を優先しない。速度向上に有効な cache 保持・一括処理・操作内の独立計算の並列化を許容するが、データ整合性、ownership、取消、shutdown、WPF thread affinity は維持する。
+- 通常の設計前提は約21万譜面、約3万譜面フォルダ、800万規模の resource reverse lookup key、複数譜面・数百 resource を含み得る package とする。これは入力上限ではない。実ファイル数、directory 別 resource entry、reverse key、DB row を同じ件数として扱わない。
+- DB query、cache / snapshot / receipt、index、package loop、publication、scheduler / 並列度を変更する場合は、[データ規模と性能要件](devdocs/spec/performance-and-scale.md) を先に読み、全体件数と操作差分、全件処理の呼出回数、再利用・失効範囲、必要な逐次境界を計画とレビューに含める。exact 規模と参照記録は同 spec を正本にする。
+- 少数 install / delete の内側で全 catalog / 巨大 dictionary を反復走査・コピー・sort する設計や、no-op 判定前の全 root コピーを既定にしない。immutable な契約は全件複製を要求しない。全件処理が必要な例外は理由と実測を示す。
+- 性能は同条件・同じ完了範囲で操作別に比較する。別操作の短縮、低メモリ、低 CPU、first-visible だけの短縮で処理完了の退行を相殺しない。Functional 成功や小規模 corpus だけで大規模性能を検証済みとしない。未測定は明示する。
+
 ## 作業の進め方とサブエージェント
 
 複数段階の変更、実装の委譲、並列 worker、static review を伴う作業では、`devdocs\spec\codex-agent-workflow.md` を運用の正本として先に確認する。単純な質問や軽微な文書修正まで機械的にサブエージェントへ渡さない。
@@ -27,7 +35,7 @@
 
 - `docs\` は利用者向け資料の正本とする。README の補足、導入・操作手順、画面説明、公開時に利用者が読む資料を置く。内部実装契約、開発手順、設計判断履歴の正本は置かない。
 - `devdocs\` は開発者・保守者向け資料の正本とする。
-  - `devdocs\spec\`: 現在の実装が満たす現行仕様、契約、受入条件、テスト戦略。
+  - `devdocs\spec\`: 現行仕様と採用済みの設計・性能要件、契約、受入条件、テスト戦略。現行挙動と未達の要件・目標を区別し、採用済みでも未検証の要件を実装済み保証として書かない。
   - `devdocs\decisions\`: ADR、採用理由、検討した代替案、判断履歴。
   - `devdocs\plan\`: 実行中の移行・作業計画と、固有の検証証跡を残す完了記録。完了後の恒久契約は現行仕様へ統合し、重複する本文は削除または履歴として整理する。
 - 設計判断が現行の実装契約になった場合、正本を `devdocs\spec\` に統合し、旧配置には移動案内だけを残す。内容を複数箇所で重複管理しない。

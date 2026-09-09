@@ -51,6 +51,12 @@ UI event が開始した操作は、元の Task を await して完了結果を�
 
 `install-performance.log` は INFO レベルの性能ログを前提にしているため、明示的に INFO 未満を抑制した場合は出力対象から外れる。
 
+## 性能markerの計測契約
+
+処理速度の主指標、operation完了境界、対象件数と差分、入れ子・並列timerの扱いは [performance-and-scale.md](performance-and-scale.md) を正本とする。markerの名前だけで計測範囲を推定させず、範囲変更は旧版との比較可否を明示する。未計測を0msと解釈させず、失われたmarkerは欠測として扱う。
+
+大規模経路では必要なphase単位の集約counterを使い、全件走査・rootコピー・再構築の回数、total / affected件数、DB読込row、I/O量を時間と対応付ける。新しいcounter全てが現行ログに実装済みという意味ではない。計測のために per-resource 同期ログや巨大collectionの文字列化を追加しない。
+
 ## ローテーション
 
 ログファイルは NLog の `FileTarget` でサイズベースのローテーションを行う。独自のファイル移動・削除処理は持たない。

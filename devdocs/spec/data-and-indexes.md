@@ -2,6 +2,8 @@
 
 この資料は、現行実装で正本として扱うデータと索引をまとめる。
 
+データ規模、処理速度の優先順位、差分更新の仕事量、性能受入は [performance-and-scale.md](performance-and-scale.md) を正本とする。表・索引の所有権を変更するときも、全件の cardinality と更新差分を別々に評価する。
+
 ## Catalog
 
 所持 catalog は BMS と BMSON を含む。
@@ -67,6 +69,10 @@ native bridge path では `EBridge_ScanChartAndResources` の packed result か�
 
 Everything unavailable 時の managed fallback scan とテスト用 merge path では、`ChartScanResult` が category 別 resource dictionary を持つ。
 
+### 規模を伴う cache / snapshot の改修
+
+上記の旧世代不変・atomic publish は維持するが、全件コピーを追加する根拠にはしない。改修時は [性能要件 section 3](performance-and-scale.md#3-規模を踏まえた設計要件) に従い、no-op 前の root コピー、空カテゴリの detach、package / folder ごとの全 root 複製を確認する。consumer が必要とする範囲の不変 facts、世代の再利用、既存の安全な境界内でのバッチ化を検討する。これらの性能条件が既存の全経路で達成済みという意味ではない。
+
 ## Resource Ownership
 
 resource ownership は chart-directory keyed に再集約する。
@@ -125,6 +131,8 @@ LR2 ranking 系は 2 table に分かれる。
 ## DB Access
 
 startup hydration の read phase は read-only connection を使う。
+
+DB / index 改修では、query 件数だけでなく実際の読込・materialize row 数を代表規模で確認する。局所 path / hash の要求を全 table の読込と再索引化へ広げず、必要な projection と既存 lookup / 集合更新を使う。初回 full load と操作ごとの増分処理は別に測る。具体的な規模・受入方法は [性能要件](performance-and-scale.md) に従う。
 
 - read-only loader は schema ensure / repair を行わない。
 - write が必要な cleanup / backfill / metadata update / file diff commit は write-capable transaction path に分ける。

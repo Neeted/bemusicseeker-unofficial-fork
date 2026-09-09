@@ -273,6 +273,10 @@ LR2 sync の `song_rows` pipeline は reader / worker / writer の責務を明�
 
 startup background scheduler は `MainWindowViewModel` が `BMSLibrary.StartupBackgroundTaskScheduler` と `BMSPlaylist.StartupBackgroundTaskScheduler` へ delegate を注入し、`StartupBackgroundTaskSchedulerOwner.Queue()` に接続された task を、dependency、lane concurrency、required / post classification に従って実行する。
 
+### 規模・処理速度と現行の並列度
+
+startupのデータ規模と性能評価は [performance-and-scale.md](performance-and-scale.md) に従う。本書のworker / lane / queue値は現行実装の設定であり、UI応答のためにCPU使用量を抑える性能目標ではない。変更時はownership / required-idle等の安全境界を維持し、operableだけでなくrequired / postとscheduler外の必要処理までの時間を比較する。省メモリ目的のcache破棄や明示GCも、操作時間・総完了時間への効果を確認し、低いメモリ値だけで採用しない。
+
 ### Required initialization
 
 `startup_initialization_complete` が待つ主な task / phase は次である。

@@ -4,7 +4,7 @@
 - **正本配置:** `devdocs/spec/workflow-concurrency-and-complexity.md`
 - **対象:** UI、ViewModel、scheduler、domain owner、DB／filesystem mutation、cache／projection、background task
 - **状態:** Active（設計・改修時の運用契約）
-- **方針更新:** 2026-09-08
+- **方針更新:** 2026-09-10
 
 ## 1. 目的
 
@@ -23,6 +23,12 @@
 この指針は全面的な即時リファクタリングを要求しない。今後の変更で複雑性を増やさず、触れた workflow から段階的に整理するための正本とする。
 
 以下は改修時に守る採用済みの受付方針であり、現在の全入口が実装済みであることを表さない。現行の具体的な到達経路は feature spec、適用状況は [安全性改善計画](../plan/v3-safety-improvements-plan.md#concurrency-application) と [LR2 startup 手続き化計画](../plan/lr2-startup-procedural-orchestration-plan.md) で管理する。未実装の目標を現行動作・検証済みの保証として書き換えない。
+
+### 性能要件との関係
+
+性能上の優先順位と規模は [performance-and-scale.md](performance-and-scale.md) に従う。ここでいう UI responsiveness は UI thread の所有権・非同期待ち・確定済み表示の契約であり、UI に CPU を譲るために処理速度を落とす目標ではない。受理済み1操作内の独立計算を十分な並列度で実行することは、競合する新規 mutation を同時受理することとは別である。
+
+短い lock や immutable snapshot を実現するために、操作ごとに全 catalog / 巨大 reverse root を複製しない。対象件数・依存範囲・コピーと再構築の回数を明示し、必要な逐次境界を残したまま余分な仕事を減らす。現在の lane / worker 数を、低 CPU 使用率のための恒久的上限と解釈しない。
 
 ## 2. 要約
 
@@ -572,6 +578,7 @@ owner間callback edge数
 ### Author checklist
 
 - [ ] UI responsivenessとdomain concurrencyを分けて説明した。
+- [ ] [性能要件](performance-and-scale.md)に沿い、対象規模・差分・全件コピー/再構築の回数を示した。低CPU使用率だけを理由に受理済み処理を減速していない。
 - [ ] authoritative surfaceとwriter ownerを特定した。
 - [ ] 新規要求のBusy拒否と受理済み仕事を区別し、section 6の必要なqueue・並行操作・設定画面を維持した。
 - [ ] logical ownershipの範囲を定めた。

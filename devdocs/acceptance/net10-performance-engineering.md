@@ -2,7 +2,7 @@
 
 [起動仕様](../spec/startup-initialization-flow.md) / [distribution](./net10-distribution-performance.md) / [現在地](../plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md)
 
-この文書はcurrent-only reportである。逐次unit履歴はGit historyへ委ねる。
+この文書は下記 Reviewed snapshot の受入記録である。逐次unit履歴はGit historyへ委ね、後続HEADの性能passを保証しない。データ規模・処理速度の優先順位・共通受入条件は [performance-and-scale.md](../spec/performance-and-scale.md) を正本とし、本文の配布形式selection thresholdを全操作の退行許容値へ流用しない。
 
 ## Reviewed snapshot
 
