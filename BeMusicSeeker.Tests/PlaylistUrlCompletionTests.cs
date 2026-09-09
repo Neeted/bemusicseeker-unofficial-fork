@@ -21,7 +21,30 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistUrlCompletionTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private string isolatedSettingsDirectory = string.Empty;
+    private BeMusicSeeker.Properties.Settings testSettings = null!;
+
+    [TestInitialize]
+    public void InitializeIsolatedSettings()
+    {
+        isolatedSettingsDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistUrlCompletionTests),
+            "settings-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(isolatedSettingsDirectory);
+        testSettings = PortableSettingsPersistenceTests.OpenSettings(
+            Path.Combine(isolatedSettingsDirectory, "user.config"));
+    }
+
+    [TestCleanup]
+    public void CleanupIsolatedSettings()
+    {
+        if (Directory.Exists(isolatedSettingsDirectory))
+        {
+            Directory.Delete(isolatedSettingsDirectory, recursive: true);
+        }
+    }
+
     [TestMethod]
     [TestCategory("Playlist")]
     public void ParseMd5UrlMappingTsv_SkipsHeaderInvalidRowsAndKeepsFirstDuplicate()
