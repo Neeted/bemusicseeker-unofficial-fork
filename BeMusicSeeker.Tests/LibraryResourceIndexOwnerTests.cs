@@ -298,6 +298,117 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.IsNotNull(receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(secondDirectory));
     }
 
+    [TestMethod]
+    public void RemoveUnderSourceDirectories_PublishesSuccessfulSubtreesOnceAndCopiesEntriesOnce()
+    {
+        const string first = @"C:\Library\First";
+        const string nested = @"C:\Library\First\Nested";
+        const string failed = @"C:\Library\Failed";
+        const string last = @"C:\Library\Last";
+        var owner = new LibraryResourceIndexOwner(CreateFullResourceIndex(first, nested, failed, last));
+        LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+        var entryCopies = new List<int>();
+        before.DirectoryLookupCache.EntriesRootCopiedObserver = count => entryCopies.Add(count);
+
+        // This is the confirmed filesystem result, not the original selection containing Failed.
+        LibraryResourceIndexMutationReceipt receipt = owner.RemoveUnderSourceDirectories(
+            [nested, first, first.ToUpperInvariant(), last]);
+
+        Assert.IsTrue(receipt.MutationResult.Changed);
+        Assert.AreEqual(before.Generation + 1, receipt.Snapshot.Generation);
+        Assert.AreEqual(3, receipt.MutationResult.RemovedDirectoryCount);
+        CollectionAssert.AreEqual(new[] { 4 }, entryCopies);
+        CollectionAssert.AreEquivalent(new[] { first, nested, failed, last }, before.DirectoryLookupCache.Keys.ToArray());
+        CollectionAssert.AreEqual(new[] { failed }, receipt.Snapshot.DirectoryLookupCache.Keys.ToArray());
+        CollectionAssert.AreEqual(new[] { failed }, receipt.Snapshot.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(17u).ToArray());
+        CollectionAssert.AreEqual(new[] { failed }, receipt.Snapshot.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(23u).ToArray());
+        CollectionAssert.AreEqual(new[] { failed }, receipt.Snapshot.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(31u).ToArray());
+        Assert.AreSame(receipt.Snapshot.Index, owner.CaptureSnapshot().Index);
+    }
+
+    [TestMethod]
+    public void RemoveUnderSourceDirectories_EmptyAndMissingInputsDoNotPublishOrCopy()
+    {
+        var owner = new LibraryResourceIndexOwner(CreateFullResourceIndex(@"C:\Library\Keep"));
+        LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+        var copies = new List<int>();
+        var writes = new List<uint>();
+        before.DirectoryLookupCache.EntriesRootCopiedObserver = count => copies.Add(count);
+        before.DirectoryLookupCache.ReverseBucketWrittenObserver = (_, hash) => writes.Add(hash);
+
+        LibraryResourceIndexMutationReceipt empty = owner.RemoveUnderSourceDirectories([]);
+        LibraryResourceIndexMutationReceipt missing = owner.RemoveUnderSourceDirectories(
+            ["", " ", @"C:\Library\Missing", @"C:\Library\Missing"]);
+
+        Assert.IsFalse(empty.MutationResult.Changed);
+        Assert.IsFalse(missing.MutationResult.Changed);
+        Assert.AreSame(before.Index, owner.CaptureSnapshot().Index);
+        Assert.AreEqual(before.Generation, owner.CaptureSnapshot().Generation);
+        Assert.AreEqual(0, copies.Count);
+        Assert.AreEqual(0, writes.Count);
+    }
+
+    [TestMethod]
+    public void RemoveUnderSourceDirectories_EnumerationFailureDoesNotPublishItsPrefix()
+    {
+        const string first = @"C:\Library\First";
+        const string second = @"C:\Library\Second";
+        var owner = new LibraryResourceIndexOwner(CreateFullResourceIndex(first, second));
+        LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+        var failure = new InvalidOperationException("confirmed-result enumeration failed");
+        IEnumerable<string> FailingInput()
+        {
+            yield return first;
+            throw failure;
+        }
+
+        Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() =>
+            owner.RemoveUnderSourceDirectories(FailingInput())));
+
+        LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
+        Assert.AreSame(before.Index, after.Index);
+        Assert.AreSame(before.DirectoryLookupCache, after.DirectoryLookupCache);
+        Assert.AreEqual(before.Generation, after.Generation);
+        CollectionAssert.AreEqual(new[] { first, second }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(17u).ToArray());
+    }
+
+    [TestMethod]
+    public void ResourcePackages_KeepPerPackageGenerationsAndEarlierCandidateSnapshots()
+    {
+        const string existing = @"C:\Library\Existing";
+        const string first = @"C:\Library\Package1";
+        const string second = @"C:\Library\Package2";
+        var owner = new LibraryResourceIndexOwner(CreateFullResourceIndex(existing));
+        LibraryResourceIndexSnapshot initial = owner.CaptureSnapshot();
+        LibraryResourceIndexSnapshot one = owner.AddDirectory(first, [17u, 18u], [23u], [31u]).Snapshot;
+        LibraryResourceIndexSnapshot two = owner.AddDirectory(second, [17u], [23u, 24u], [31u]).Snapshot;
+
+        Assert.AreEqual(initial.Generation + 1, one.Generation);
+        Assert.AreEqual(one.Generation + 1, two.Generation);
+        CollectionAssert.AreEqual(new[] { existing }, initial.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(17u).ToArray());
+        CollectionAssert.AreEqual(new[] { existing, first }, one.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(17u).ToArray());
+        CollectionAssert.AreEqual(new[] { existing, first, second }, two.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(17u).ToArray());
+        Assert.AreEqual(0, initial.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(18u).Count);
+        CollectionAssert.AreEqual(new[] { first }, two.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(18u).ToArray());
+        Assert.AreEqual(0, one.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(24u).Count);
+        CollectionAssert.AreEqual(new[] { second }, two.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(24u).ToArray());
+    }
+
+    private static LibraryResourceIndex CreateFullResourceIndex(params string[] directories)
+    {
+        return LibraryResourceIndex.CreateFromNativeCanonicalArrays(
+            directories,
+            directories.Select(_ => new uint[] { 17u }).ToArray(),
+            directories.Select(_ => new uint[] { 23u }).ToArray(),
+            directories.Select(_ => new uint[] { 31u }).ToArray(),
+            directories.Select(_ => new uint[] { 17u }).ToArray(),
+            directories.Select(_ => new uint[] { 23u }).ToArray(),
+            directories.Select(_ => new uint[] { 31u }).ToArray(),
+            new Dictionary<uint, string[]> { [17u] = directories.ToArray() },
+            new Dictionary<uint, string[]> { [23u] = directories.ToArray() },
+            new Dictionary<uint, string[]> { [31u] = directories.ToArray() });
+    }
+
     private static LibraryResourceIndex CreateIndex(params string[] directories)
     {
         var index = new LibraryResourceIndex();

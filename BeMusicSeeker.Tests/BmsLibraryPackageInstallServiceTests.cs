@@ -28,6 +28,164 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryPackageInstallServiceTests
 {
 
+    /// <summary>
+    /// Observes the first package's published candidates before the second package is staged,
+    /// then verifies that both the original and intermediate resource snapshots stay unchanged.
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot(bool force)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string existingDirectory = Path.Combine(root, "Existing");
+            string installationRoot = Path.Combine(root, "Installed");
+            string[] sources = [Path.Combine(root, "Pending1"), Path.Combine(root, "Pending2")];
+            string[] names = ["first.bms", "second.bms"];
+            string body = "#BPM 120\r\n#WAV01 shared.wav\r\n#BMP01 picture.png\r\n#BMP02 clip.mp4\r\n#00111:01\r\n";
+            var packages = new List<ChartPackage>();
+            for (int i = 0; i < sources.Length; i++)
+            {
+                string path = CreateBmsFile(sources[i], names[i], "#TITLE P0Package" + i + "\r\n" + body);
+                // These bytes are only enumerated, existence-checked and moved, never decoded.
+                File.WriteAllBytes(Path.Combine(sources[i], "shared.wav"), [1, 2, 3]);
+                File.WriteAllBytes(Path.Combine(sources[i], "picture.png"), [4, 5]);
+                File.WriteAllBytes(Path.Combine(sources[i], "clip.mp4"), [6, 7]);
+                Directory.CreateDirectory(Path.Combine(sources[i], "sub"));
+                File.WriteAllBytes(Path.Combine(sources[i], "sub", "extra.ogg"), [8, 9]);
+                string destination = Path.Combine(installationRoot, "Estimated" + i);
+                var entries = new List<PackageChartEntry>
+                {
+                    ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                        BMSFile.CreateBMSFileFromFile(path), destination)
+                };
+                if (i == 0)
+                {
+                    string alternate = CreateBmsFile(sources[i], "alternate.bms", "#TITLE P0Alternate\r\n" + body);
+                    entries.Add(ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                        BMSFile.CreateBMSFileFromFile(alternate), destination));
+                }
+                ChartPackage package = ChartPackageTestExtensions.CreatePackage(entries.ToArray());
+                package.path = sources[i];
+                package.delete_parent = false;
+                packages.Add(package);
+            }
+            string existingPath = CreateBmsFile(existingDirectory, "existing.bms", "#TITLE Existing\r\n" + body);
+            if (force)
+            {
+                // Force mode must still install real resources when one chart is already owned.
+                File.Copy(Path.Combine(sources[0], names[0]), existingPath, overwrite: true);
+            }
+            File.WriteAllBytes(Path.Combine(existingDirectory, "shared.wav"), [1, 2, 3]);
+            BMSFile existing = BMSFile.CreateBMSFileFromFile(existingPath);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(existing.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+            }
+            var fileMutations = new RealFileMutationService();
+            var library = new TestBmsLibrary(songDbPath, null, null, fileMutations,
+                new RecordingDialogService(), new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installationRoot,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [existing],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection(packages),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            uint shared = ChartResourceKeyHash.GetLookupHash("shared");
+            uint image = ChartResourceKeyHash.GetLookupHash("picture");
+            uint movie = ChartResourceKeyHash.GetLookupHash("clip");
+            LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
+            owner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
+                [existingDirectory], [[shared]], [[]], [[]], [[shared]], [[]], [[]],
+                new Dictionary<uint, string[]> { [shared] = [existingDirectory] }, [], []));
+            LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+            LibraryResourceIndexSnapshot? beforeSecondPackage = null;
+            string[] audioAtSecondPackage = [];
+            string[] imageAtSecondPackage = [];
+            string[] movieAtSecondPackage = [];
+            fileMutations.BeforeCopy = sourcePath =>
+            {
+                if (beforeSecondPackage.HasValue
+                    || !(string.Equals(sourcePath, sources[1], StringComparison.OrdinalIgnoreCase)
+                        || sourcePath.StartsWith(sources[1] + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return;
+                }
+                // Observe actual lookup results now, not just a snapshot inspected after the batch.
+                // Assertions stay outside the executor so they cannot be caught as mutation failures.
+                LibraryResourceIndexSnapshot snapshot = owner.CaptureSnapshot();
+                beforeSecondPackage = snapshot;
+                audioAtSecondPackage = snapshot.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray();
+                imageAtSecondPackage = snapshot.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(image).ToArray();
+                movieAtSecondPackage = snapshot.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(movie).ToArray();
+            };
+
+            if (force)
+            {
+                FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
+                    packages, approveNormalInstallOverride: true, approvedNormalInstallOverridePackages: null);
+                Assert.IsTrue(receipt.HasDurableCommit);
+                Assert.IsFalse(receipt.HasDurableFinalizationFailure);
+            }
+            else
+            {
+                PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
+                Assert.IsTrue(result.HasDurableCommit);
+                Assert.AreEqual(0, result.FailedPackages.Count);
+            }
+
+            string[] installedPaths = names.Select(name => library.BMSFiles.Single(file =>
+                Path.GetFileName(file.path) == name).path).ToArray();
+            string[] destinations = installedPaths.Select(path => Path.GetDirectoryName(path)!).ToArray();
+            Assert.AreEqual(2, destinations.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+            Assert.IsTrue(library.BMSFiles.Any(file => Path.GetFileName(file.path) == "alternate.bms"));
+            foreach (string destination in destinations)
+            {
+                CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(destination, "shared.wav")));
+                CollectionAssert.AreEqual(new byte[] { 8, 9 }, File.ReadAllBytes(Path.Combine(destination, "sub", "extra.ogg")));
+                Assert.IsTrue(File.Exists(Path.Combine(destination, "picture.png")));
+                Assert.IsTrue(File.Exists(Path.Combine(destination, "clip.mp4")));
+            }
+            LibraryResourceIndexSnapshot intermediate = beforeSecondPackage
+                ?? throw new AssertFailedException("The second package must reach real filesystem staging.");
+            Assert.AreEqual(before.Generation + 1, intermediate.Generation);
+            CollectionAssert.AreEquivalent(new[] { existingDirectory, destinations[0] }, audioAtSecondPackage);
+            CollectionAssert.AreEqual(new[] { destinations[0] }, imageAtSecondPackage);
+            CollectionAssert.AreEqual(new[] { destinations[0] }, movieAtSecondPackage);
+
+            LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
+            Assert.AreEqual(before.Generation + 2, after.Generation);
+            Assert.AreNotSame(before.DirectoryLookupCache, intermediate.DirectoryLookupCache);
+            Assert.AreNotSame(intermediate.DirectoryLookupCache, after.DirectoryLookupCache);
+            CollectionAssert.AreEquivalent(new[] { existingDirectory, destinations[0] },
+                intermediate.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
+            CollectionAssert.AreEqual(new[] { destinations[0] },
+                intermediate.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(image).ToArray());
+            CollectionAssert.AreEqual(new[] { destinations[0] },
+                intermediate.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(movie).ToArray());
+            CollectionAssert.AreEquivalent(new[] { existingDirectory }.Concat(destinations).ToArray(),
+                after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
+            CollectionAssert.AreEquivalent(destinations, after.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(image).ToArray());
+            CollectionAssert.AreEquivalent(destinations, after.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(movie).ToArray());
+            CollectionAssert.AreEqual(new[] { existingDirectory }, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
+            Assert.AreEqual(0, before.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(image).Count);
+            Assert.AreEqual(0, before.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(movie).Count);
+            using var readback = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(4, readback.Table<LR2SongDB.song>().Count());
+        });
+    }
+
     [TestMethod]
     public void RemovePendingPackages_DeletesManagedTemporaryPackageSource()
     {
@@ -570,6 +728,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     /// <summary>
     /// 推定先移動は package を入力順に一件ずつ durable receipt まで確定し、
     /// manual recovery に到達した package の後ろを実行しません。
+    /// resource 候補も先行成功分だけを保持し、失敗分・未実行分を公開しません。
     /// </summary>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_AppliesDurablePrefixBeforeManualRecoveryStopsSuffix()
@@ -584,9 +743,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string firstDestinationDirectoryPath = Path.Combine(installRootPath, "D1");
             string secondDestinationDirectoryPath = Path.Combine(installRootPath, "D2");
             string thirdDestinationDirectoryPath = firstDestinationDirectoryPath;
-            string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Estimated Prefix First");
-            string secondChartPath = CreateBmsFile(secondSourceDirectoryPath, "second.bms", "#TITLE Estimated Prefix Second");
-            string thirdChartPath = CreateBmsFile(thirdSourceDirectoryPath, "third.bms", "#TITLE Estimated Prefix Third");
+            string firstChartPath = CreateBmsFileWithResources(
+                firstSourceDirectoryPath, "first.bms", "#TITLE Estimated Prefix First", "first-resource");
+            string secondChartPath = CreateBmsFileWithResources(
+                secondSourceDirectoryPath, "second.bms", "#TITLE Estimated Prefix Second", "second-resource");
+            string thirdChartPath = CreateBmsFileWithResources(
+                thirdSourceDirectoryPath, "third.bms", "#TITLE Estimated Prefix Third", "third-resource");
             string secondDestinationChartPath = Path.Combine(secondDestinationDirectoryPath, "second.bms");
 
             using (var seedSongDb = new LR2SongDBExtended(songDbPath))
@@ -638,6 +800,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
 
+            LibraryResourceIndexOwner resourceOwner = LibraryResourceIndexTestSupport.GetOwner(library);
+            resourceOwner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
+                [], [], [], [], [], [], [], [], [], []));
+            LibraryResourceIndexSnapshot before = resourceOwner.CaptureSnapshot();
+
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
                 [firstPackage, secondPackage, thirdPackage]);
 
@@ -657,6 +824,26 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first.bms")));
             Assert.IsTrue(Directory.Exists(secondDestinationDirectoryPath));
             Assert.IsFalse(File.Exists(Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
+
+            LibraryResourceIndexSnapshot after = resourceOwner.CaptureSnapshot();
+            Assert.AreEqual(before.Generation + 1, after.Generation);
+            CollectionAssert.AreEquivalent(new[] { firstDestinationDirectoryPath },
+                after.DirectoryLookupCache.Keys.ToArray());
+            AssertResourceCandidates(after, "first-resource", firstDestinationDirectoryPath);
+            AssertResourceCandidates(after, "second-resource");
+            // The estimated-install suffix shares the first destination; distinct resource keys
+            // also detect accidental publication there, not just an extra directory entry.
+            AssertResourceCandidates(after, "third-resource");
+            foreach (string resourceKey in new[] { "first-resource", "second-resource", "third-resource" })
+            {
+                AssertResourceCandidates(before, resourceKey);
+            }
+            Assert.AreEqual(0, before.DirectoryLookupCache.Count);
+            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 },
+                File.ReadAllBytes(Path.Combine(firstDestinationDirectoryPath, "first-resource.wav")));
+            Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first-resource.png")));
+            Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first-resource.mp4")));
+            Assert.IsTrue(File.Exists(thirdChartPath));
 
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(
@@ -4523,7 +4710,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
     /// <summary>
     /// A manual-recovery receipt stops the batch, while the successful prefix
-    /// is still applied to the pending and installed collections.
+    /// is still applied to the pending and installed collections and the resource index.
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -4537,9 +4724,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string firstSourceDirectoryPath = Path.Combine(tempRootPath, "PendingFirst");
             string secondSourceDirectoryPath = Path.Combine(tempRootPath, "PendingSecond");
             string thirdSourceDirectoryPath = Path.Combine(tempRootPath, "PendingThird");
-            string firstChartPath = CreateBmsFile(firstSourceDirectoryPath, "first.bms", "#TITLE Prefix First");
-            string secondChartPath = CreateBmsFile(secondSourceDirectoryPath, "second.bms", "#TITLE Prefix Second");
-            string thirdChartPath = CreateBmsFile(thirdSourceDirectoryPath, "third.bms", "#TITLE Prefix Third");
+            string firstChartPath = CreateBmsFileWithResources(
+                firstSourceDirectoryPath, "first.bms", "#TITLE Prefix First", "first-resource");
+            string secondChartPath = CreateBmsFileWithResources(
+                secondSourceDirectoryPath, "second.bms", "#TITLE Prefix Second", "second-resource");
+            string thirdChartPath = CreateBmsFileWithResources(
+                thirdSourceDirectoryPath, "third.bms", "#TITLE Prefix Third", "third-resource");
             BMSFile firstChart = BMSFile.CreateBMSFileFromFile(firstChartPath);
             BMSFile secondChart = BMSFile.CreateBMSFileFromFile(secondChartPath);
             BMSFile thirdChart = BMSFile.CreateBMSFileFromFile(thirdChartPath);
@@ -4553,6 +4743,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             secondPackage.delete_parent = false;
             thirdPackage.delete_parent = false;
 
+            string firstDestinationDirectoryPath = Path.Combine(installRootPath, "Prefix First");
             string secondDestinationDirectoryPath = Path.Combine(installRootPath, "Prefix Second");
             string secondDestinationChartPath = Path.Combine(secondDestinationDirectoryPath, "second.bms");
             using (var seedSongDb = new LR2SongDBExtended(songDbPath))
@@ -4581,6 +4772,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
             library.BMSFiles = [firstChart, secondChart, thirdChart];
             library.ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage, thirdPackage]);
             library.ChartPackagesInstalled = CreatePackageCollection([]);
+
+            LibraryResourceIndexOwner resourceOwner = LibraryResourceIndexTestSupport.GetOwner(library);
+            resourceOwner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
+                [], [], [], [], [], [], [], [], [], []));
+            LibraryResourceIndexSnapshot before = resourceOwner.CaptureSnapshot();
 
             FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [firstPackage, secondPackage, thirdPackage],
@@ -4614,6 +4810,26 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(thirdSourceDirectoryPath, thirdPackage.path);
             Assert.IsTrue(Directory.Exists(thirdSourceDirectoryPath));
             Assert.IsFalse(Directory.Exists(Path.Combine(installRootPath, "Prefix Third")));
+
+            LibraryResourceIndexSnapshot after = resourceOwner.CaptureSnapshot();
+            Assert.AreEqual(before.Generation + 1, after.Generation);
+            CollectionAssert.AreEquivalent(new[] { firstDestinationDirectoryPath },
+                after.DirectoryLookupCache.Keys.ToArray());
+            AssertResourceCandidates(after, "first-resource", firstDestinationDirectoryPath);
+            AssertResourceCandidates(after, "second-resource");
+            // Each package has a distinct key so failed and unexecuted resources cannot hide
+            // behind a candidate already published for the successful prefix.
+            AssertResourceCandidates(after, "third-resource");
+            foreach (string resourceKey in new[] { "first-resource", "second-resource", "third-resource" })
+            {
+                AssertResourceCandidates(before, resourceKey);
+            }
+            Assert.AreEqual(0, before.DirectoryLookupCache.Count);
+            CollectionAssert.AreEqual(new byte[] { 1, 2, 3 },
+                File.ReadAllBytes(Path.Combine(firstDestinationDirectoryPath, "first-resource.wav")));
+            Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first-resource.png")));
+            Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first-resource.mp4")));
+            Assert.IsTrue(File.Exists(thirdChartPath));
 
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             List<LR2SongDB.song> installedRows = [.. verifySongDb.Table<LR2SongDB.song>()];
@@ -6090,6 +6306,37 @@ public sealed class BmsLibraryPackageInstallServiceTests
         return filePath;
     }
 
+    private static string CreateBmsFileWithResources(
+        string directoryPath,
+        string fileName,
+        string titleLine,
+        string resourceKey)
+    {
+        string chartPath = CreateBmsFile(directoryPath, fileName, titleLine
+            + "\r\n#BPM 120\r\n#WAV01 " + resourceKey + ".wav"
+            + "\r\n#BMP01 " + resourceKey + ".png"
+            + "\r\n#BMP02 " + resourceKey + ".mp4\r\n#00111:01\r\n");
+        // The fixture only scans, checks and transfers these bytes; it never decodes media.
+        File.WriteAllBytes(Path.Combine(directoryPath, resourceKey + ".wav"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(directoryPath, resourceKey + ".png"), [4, 5]);
+        File.WriteAllBytes(Path.Combine(directoryPath, resourceKey + ".mp4"), [6, 7]);
+        return chartPath;
+    }
+
+    private static void AssertResourceCandidates(
+        LibraryResourceIndexSnapshot snapshot,
+        string resourceKey,
+        params string[] expectedDirectories)
+    {
+        uint hash = ChartResourceKeyHash.GetLookupHash(resourceKey);
+        CollectionAssert.AreEquivalent(expectedDirectories,
+            snapshot.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(hash).ToArray(), "Audio: " + resourceKey);
+        CollectionAssert.AreEquivalent(expectedDirectories,
+            snapshot.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(hash).ToArray(), "Image: " + resourceKey);
+        CollectionAssert.AreEquivalent(expectedDirectories,
+            snapshot.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(hash).ToArray(), "Movie: " + resourceKey);
+    }
+
     private static string CreateBmsonJsonWithSound(string soundName)
     {
         return "{"
@@ -6768,6 +7015,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
     private sealed class RealFileMutationService : IFileMutationService
     {
+        /// <summary>Observes a source immediately before a real file or directory copy; unset by default.</summary>
+        public Action<string>? BeforeCopy { get; set; }
+
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -6806,6 +7056,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
+            BeforeCopy?.Invoke(sourcePath);
             string destinationParent = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationParent))
             {
@@ -6816,6 +7067,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
+            BeforeCopy?.Invoke(sourcePath);
             Directory.CreateDirectory(destinationPath);
             foreach (string directoryPath in Directory.GetDirectories(sourcePath, "*", System.IO.SearchOption.AllDirectories))
             {

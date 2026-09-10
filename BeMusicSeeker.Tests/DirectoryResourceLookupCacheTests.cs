@@ -374,6 +374,262 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.IsFalse(cache.GetDirectoriesByAudioRelativeHash(2u) is string[]);
     }
 
+    [TestMethod]
+    public void CloneForMutation_EmptyResourceEntryChangesOnlyTheDirectoryMap()
+    {
+        DirectoryResourceLookupCache original = CreateNativeCanonicalCache();
+        var writes = new List<(ChartResourceKind Kind, uint Hash)>();
+        var entryCopies = new List<int>();
+        original.ReverseBucketWrittenObserver = (kind, hash) => writes.Add((kind, hash));
+        original.EntriesRootCopiedObserver = count => entryCopies.Add(count);
+        DirectoryResourceLookupCache next = original.CloneForMutation();
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult result = next.AddDir(
+            @"C:\Songs\NoResources", [], [], []);
+        next.AddDir(@"C:\Songs\AlsoEmpty", [], [], []);
+
+        Assert.IsTrue(result.Changed);
+        Assert.AreEqual(0, result.UpdatedHashCount);
+        Assert.AreEqual(0, writes.Count);
+        CollectionAssert.AreEqual(new[] { 2 }, entryCopies);
+        Assert.AreEqual(2, original.Count);
+        Assert.AreEqual(4, next.Count);
+        Assert.IsNull(original.GetEntryOrNull(@"C:\Songs\NoResources"));
+        Assert.IsNotNull(next.GetEntryOrNull(@"C:\Songs\NoResources"));
+    }
+
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    public void CloneForMutation_ActualResourceChangeWritesOnlyItsCategory(int category)
+    {
+        DirectoryResourceLookupCache original = CreateNativeCanonicalCache();
+        var writes = new List<(ChartResourceKind Kind, uint Hash)>();
+        original.ReverseBucketWrittenObserver = (kind, hash) => writes.Add((kind, hash));
+        DirectoryResourceLookupCache next = original.CloneForMutation();
+        uint[][] hashes = [[], [], []];
+        hashes[category] = [41u];
+        string added = @"C:\Songs\Resources";
+        ChartResourceKind expectedKind = new[]
+        {
+            ChartResourceKind.Audio, ChartResourceKind.Image, ChartResourceKind.Movie
+        }[category];
+
+        next.AddDir(added, hashes[0], hashes[1], hashes[2]);
+
+        CollectionAssert.AreEqual(new[] { (expectedKind, 41u) }, writes);
+        Assert.AreEqual(0, GetCandidates(original, category, 41u).Length);
+        CollectionAssert.AreEqual(new[] { added }, GetCandidates(next, category, 41u));
+        Assert.IsTrue(next.IsFullReverseLookupBuilt);
+        DirectoryResourceLookupCache removed = next.CloneForMutation();
+        writes.Clear();
+        removed.RemoveDir(added);
+        CollectionAssert.AreEqual(new[] { (expectedKind, 41u) }, writes);
+        Assert.AreEqual(0, GetCandidates(removed, category, 41u).Length);
+        CollectionAssert.AreEqual(new[] { added }, GetCandidates(next, category, 41u));
+    }
+
+    [TestMethod]
+    public void SelfOwnedOnlyChange_PreservesEntryChangeWithoutRewritingIdenticalCandidates()
+    {
+        const string directory = @"C:\Songs\Only";
+        DirectoryResourceLookupCache original = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
+            [directory], [[11u]], [[22u]], [[33u]], [[11u]], [[22u]], [[33u]],
+            new Dictionary<uint, string[]> { [11u] = [directory] },
+            new Dictionary<uint, string[]> { [22u] = [directory] },
+            new Dictionary<uint, string[]> { [33u] = [directory] });
+        var writes = new List<uint>();
+        original.ReverseBucketWrittenObserver = (_, hash) => writes.Add(hash);
+        DirectoryResourceLookupCache next = original.CloneForMutation();
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult result = next.AddDir(
+            directory, [11u], [22u], [33u], [], [22u], [33u]);
+
+        Assert.IsTrue(result.Changed);
+        Assert.AreEqual(0, writes.Count);
+        CollectionAssert.AreEqual(new uint[] { 11u }, original.GetEntryOrNull(directory).SelfOwnedAudioRelativePathHashArray);
+        Assert.AreEqual(0, next.GetEntryOrNull(directory).SelfOwnedAudioRelativePathHashArray.Length);
+        CollectionAssert.AreEqual(new[] { directory }, next.GetDirectoriesByAudioRelativeHash(11u).ToArray());
+    }
+
+    /// <summary>
+    /// Characterizes the retained candidate-order contract: a SelfOwned-only replacement
+    /// still moves the directory to the tail, but writes nothing if it was already last.
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void SelfOwnedOnlyChange_MultipleCandidatesPreserveRemoveThenAppendOrder(bool changeLastCandidate)
+    {
+        const string first = @"C:\Songs\First";
+        const string second = @"C:\Songs\Second";
+        DirectoryResourceLookupCache original = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
+            [first, second], [[11u], [11u]], [[22u], [22u]], [[33u], [33u]],
+            [[11u], [11u]], [[22u], [22u]], [[33u], [33u]],
+            new Dictionary<uint, string[]> { [11u] = [first, second] },
+            new Dictionary<uint, string[]> { [22u] = [first, second] },
+            new Dictionary<uint, string[]> { [33u] = [first, second] });
+        var writes = new List<(ChartResourceKind Kind, uint Hash)>();
+        original.ReverseBucketWrittenObserver = (kind, hash) => writes.Add((kind, hash));
+        DirectoryResourceLookupCache next = original.CloneForMutation();
+        string changedDirectory = changeLastCandidate ? second : first;
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult result = next.AddDir(
+            changedDirectory, [11u], [22u], [33u], [], [22u], [33u]);
+
+        Assert.IsTrue(result.Changed);
+        if (changeLastCandidate)
+        {
+            Assert.AreEqual(0, writes.Count);
+        }
+        else
+        {
+            CollectionAssert.AreEquivalent(new[]
+            {
+                (ChartResourceKind.Audio, 11u),
+                (ChartResourceKind.Image, 22u),
+                (ChartResourceKind.Movie, 33u)
+            }, writes);
+        }
+        string[] expectedCandidates = changeLastCandidate ? [first, second] : [second, first];
+        uint[] hashes = [11u, 22u, 33u];
+        for (int category = 0; category < hashes.Length; category++)
+        {
+            CollectionAssert.AreEqual(new[] { first, second }, GetCandidates(original, category, hashes[category]));
+            CollectionAssert.AreEqual(expectedCandidates, GetCandidates(next, category, hashes[category]));
+        }
+        CollectionAssert.AreEqual(new uint[] { 11u },
+            original.GetEntryOrNull(changedDirectory).SelfOwnedAudioRelativePathHashArray);
+        Assert.AreEqual(0, next.GetEntryOrNull(changedDirectory).SelfOwnedAudioRelativePathHashArray.Length);
+        string unchangedDirectory = changeLastCandidate ? first : second;
+        AssertEntriesEqual(original.GetEntryOrNull(unchangedDirectory), next.GetEntryOrNull(unchangedDirectory));
+    }
+
+    [TestMethod]
+    public void DirectoryReplacement_PreservesRemoveThenAppendCandidateOrder()
+    {
+        DirectoryResourceLookupCache original = CreateNativeCanonicalCache();
+        DirectoryResourceLookupCache next = original.CloneForMutation();
+        next.AddDir(@"C:\Songs\A", [1u, 2u, 4u], [], []);
+
+        CollectionAssert.AreEqual(new[] { @"C:\Songs\A", @"C:\Songs\B" },
+            original.GetDirectoriesByAudioRelativeHash(2u).ToArray());
+        CollectionAssert.AreEqual(new[] { @"C:\Songs\B", @"C:\Songs\A" },
+            next.GetDirectoriesByAudioRelativeHash(2u).ToArray());
+        CollectionAssert.AreEqual(new[] { @"C:\Songs\A" },
+            next.GetDirectoriesByAudioRelativeHash(4u).ToArray());
+    }
+
+    [TestMethod]
+    public void LazyMutation_UpdatesCachedMissButDoesNotInventAnUncachedEmptyResult()
+    {
+        const string first = @"C:\Songs\First";
+        const string second = @"C:\Songs\Second";
+        var original = new DirectoryResourceLookupCache();
+        original.AddDir(first, [17u, 18u], [], []);
+        Assert.AreEqual(0, original.GetDirectoriesByAudioRelativeHash(19u).Count);
+        var writes = new List<uint>();
+        original.ReverseBucketWrittenObserver = (_, hash) => writes.Add(hash);
+        DirectoryResourceLookupCache next = original.CloneForMutation();
+
+        next.AddDir(second, [17u, 19u], [], []);
+
+        CollectionAssert.AreEqual(new uint[] { 19u }, writes);
+        CollectionAssert.AreEqual(new[] { second }, next.GetDirectoriesByAudioRelativeHash(19u).ToArray());
+        Assert.AreEqual(0, original.GetDirectoriesByAudioRelativeHash(19u).Count);
+        CollectionAssert.AreEquivalent(new[] { first, second }, next.GetDirectoriesByAudioRelativeHash(17u).ToArray());
+        CollectionAssert.AreEqual(new[] { first }, original.GetDirectoriesByAudioRelativeHash(17u).ToArray());
+        Assert.AreEqual(0, next.GetDirectoriesByAudioRelativeHash(0u).Count);
+        Assert.IsFalse(next.IsFullReverseLookupBuilt);
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ResourceMutationSequence_MatchesIndependentMembershipFactsInEveryRetainedGeneration(bool native)
+    {
+        const string a = @"C:\Songs\A";
+        const string b = @"C:\Songs\B";
+        const string c = @"C:\Songs\C";
+        var facts = new Dictionary<string, uint[][]>(StringComparer.OrdinalIgnoreCase)
+        {
+            [a] = [[1u, 2u], [10u], [20u]],
+            [b] = [[2u], [11u], []]
+        };
+        DirectoryResourceLookupCache cache;
+        if (native)
+        {
+            cache = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
+                [a, b], [[1u, 2u], [2u]], [[10u], [11u]], [[20u], []],
+                [[1u, 2u], [2u]], [[10u], [11u]], [[20u], []],
+                new Dictionary<uint, string[]> { [1u] = [a], [2u] = [a, b] },
+                new Dictionary<uint, string[]> { [10u] = [a], [11u] = [b] },
+                new Dictionary<uint, string[]> { [20u] = [a] });
+        }
+        else
+        {
+            cache = new DirectoryResourceLookupCache();
+            cache.AddDir(a, facts[a][0], facts[a][1], facts[a][2]);
+            cache.AddDir(b, facts[b][0], facts[b][1], facts[b][2]);
+        }
+        var retained = new List<(DirectoryResourceLookupCache Cache, Dictionary<string, uint[][]> Facts)>();
+        for (int step = 0; step < 5; step++)
+        {
+            retained.Add((cache, new Dictionary<string, uint[][]>(facts, StringComparer.OrdinalIgnoreCase)));
+            // Oracle membership is a direct relation in fixture facts, not the incremental algorithm.
+            foreach (var generation in retained)
+            {
+                CollectionAssert.AreEquivalent(generation.Facts.Keys.ToArray(), generation.Cache.Keys.ToArray());
+                foreach (uint hash in new uint[] { 0u, 1u, 2u, 3u, 10u, 11u, 20u, 21u, 99u })
+                {
+                    for (int category = 0; category < 3; category++)
+                    {
+                        string[] expected = generation.Facts.Where(pair => hash != 0u && pair.Value[category].Contains(hash))
+                            .Select(pair => pair.Key).ToArray();
+                        CollectionAssert.AreEquivalent(expected, GetCandidates(generation.Cache, category, hash));
+                    }
+                }
+            }
+            if (step == 4)
+            {
+                break;
+            }
+            cache = cache.CloneForMutation();
+            if (step == 0)
+            {
+                facts[a] = [[2u, 3u], [10u, 11u], [21u]];
+                cache.AddDir(a, facts[a][0], facts[a][1], facts[a][2]);
+            }
+            else if (step == 1)
+            {
+                facts[c] = [[1u, 3u], [], [20u]];
+                cache.AddDir(c, facts[c][0], facts[c][1], facts[c][2]);
+            }
+            else if (step == 2)
+            {
+                facts.Remove(b);
+                cache.RemoveDir(b);
+            }
+            else
+            {
+                facts[@"C:\Songs\Empty"] = [[], [], []];
+                cache.AddDir(@"C:\Songs\Empty", [], [], []);
+            }
+        }
+    }
+
+    private static string[] GetCandidates(DirectoryResourceLookupCache cache, int category, uint hash)
+    {
+        return (category switch
+        {
+            0 => cache.GetDirectoriesByAudioRelativeHash(hash),
+            1 => cache.GetDirectoriesByImageRelativeHash(hash),
+            2 => cache.GetDirectoriesByMovieRelativeHash(hash),
+            _ => throw new ArgumentOutOfRangeException(nameof(category))
+        }).ToArray();
+    }
+
     private static DirectoryResourceLookupCache CreateCache()
     {
         var cache = new DirectoryResourceLookupCache();

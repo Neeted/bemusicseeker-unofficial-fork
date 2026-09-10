@@ -166,10 +166,32 @@ internal sealed class LibraryResourceIndexOwner
     /// </summary>
     internal LibraryResourceIndexMutationReceipt RemoveUnderSourceDirectory(string sourceDirectory)
     {
+        return RemoveUnderSourceDirectories([sourceDirectory]);
+    }
+
+    /// <summary>
+    /// Removes confirmed directory subtrees in one unpublished mutation and publishes at most
+    /// one generation. Callers pass successful filesystem results, never the original delete plan.
+    /// </summary>
+    /// <remarks>
+    /// Duplicate and overlapping subtrees cannot remove or count an entry twice. Enumeration or
+    /// mutation failure leaves the prior snapshot published; it does not undo filesystem work.
+    /// </remarks>
+    internal LibraryResourceIndexMutationReceipt RemoveUnderSourceDirectories(
+        IEnumerable<string> sourceDirectories)
+    {
         lock (gate)
         {
-            return MutateCurrentUnsafe(
-                cache => cache.RemoveUnderSourceDirectory(sourceDirectory));
+            return MutateCurrentUnsafe(cache =>
+            {
+                DirectoryResourceLookupCache.ReverseLookupMutationResult result =
+                    DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+                foreach (string directory in sourceDirectories ?? [])
+                {
+                    result = result.Combine(cache.RemoveUnderSourceDirectory(directory));
+                }
+                return result;
+            });
         }
     }
 
@@ -333,6 +355,7 @@ internal sealed class LibraryResourceIndexOwner
             return new LibraryResourceIndexMutationReceipt(previousSnapshot, mutationResult);
         }
 
+        nextCache.FreezeReverseLookupChanges();
         LibraryResourceIndex nextIndex =
             previousSnapshot.Index.DeriveWithDirectoryLookupCache(nextCache);
         currentSnapshot = new LibraryResourceIndexSnapshot(

@@ -47,7 +47,12 @@ install readiness の critical path では、導入先推定に必要な catalog
   - owner が current `LibraryResourceIndex`、対応する `DirectoryResourceLookupCache`、runtime generation を一体で所有する。
   - file-scan replacement、move / rename、whole-folder delete、install、merge は owner の replace / mutation command を通す。長寿命 owner / service は cache instance を保持しない。
   - snapshot は index / directory cache / generation の対応を atomic に捕捉し、公開後の directory/resource mapping は後続 mutation で変化しない。変更 command は current cache を copy-on-write し、新 index/cache/generation を一括 publish する。変更 receipt は mutation result と変更後 snapshot を返し、実変更時だけ generation を進める。`Replace` に渡した完成済み index は owner へ ownership transfer され、呼出側は publish 後に直接変更しない。
-  - cache copy-on-write は dictionary root、immutable `Entry`、immutable reverse-lookup bucket を generation 間で共有する。mutation は unpublished clone の dictionary root を必要時に detach し、変更対象の entry / bucket だけを置換する。入力配列は ownership transfer が明示された native canonical build を除いて複製し、呼出側 alias を保持しない。`Entry` の内部 backing 配列も assembly consumer へ公開しない。
+  - directory entry は immutable `Entry` と dictionary root を共有し、unpublished clone の初回entry変更時だけrootをdetachする。入力配列は ownership transfer が明示された native canonical build を除いて複製し、呼出側 alias を保持しない。`Entry` の内部 backing 配列も assembly consumer へ公開しない。
+  - resource reverse lookup は所有権移転された不変の初期baseと、keyごとの最新値を持つ構造共有の差分mapで構成する。forkでbaseを列挙・全コピーせず、初回mutationにも全件変換を持ち込まない。差分の更新は変更keyへのtree経路とcandidate配列だけを置換し、前世代への参照chainを持たない。lookupは差分とbaseの二層で、世代数分を辿らない。ownerのpublish前とlazy結果の格納完了時に計算済み変更nodeをfreezeし、次操作へそのfreeze処理を持ち越さない。
+  - 最終candidate列が順序も含めて同一のbucketは逆引きを書き換えない。directory entryの変更（空resource、SelfOwnedのみ等）は別に判断する。SelfOwnedのみの変更でも、従来互換のremove-then-addで候補順序が変わるbucketは書き換える（例: `[A, B]` のAを更新すると `[B, A]`）。末尾候補の更新等で最終列が同じなら書かない。カテゴリの参照集合が同じことだけでは無書込を保証しない。候補順序、大小文字比較、hash=0、full/lazy、未cachedと空候補の区別は維持する。`updatedHashes` は従来のremove/add遷移の集計であり、正味のbucket書込回数とは異なる。
+  - 初期baseの置換前payloadはindexの寿命内で保持し、差分は同じkeyの履歴ではなく最新値だけを持つ。明示scan/replacementや既存の全逆引きinvalidateでbaseも置き換わる。自動compact、操作後への必須更新の遅延、世代台帳は追加しない。差分が長期に増えた場合の処理速度は別途の未測定事項とする。
+  - whole-folder deleteは物理削除が成功した `DeletedFolderPaths` を一つのowner commandへ渡し、全成功分を一度だけpublishする。失敗・未実行のフォルダは取り除かず、重複/親子のentryを二重計上しない。入力列挙/反映失敗は旧snapshotを維持するが、先行FS削除が取り消されたとは扱わない。
+  - installはpackage単位の確定・公開境界を維持し、後続packageの処理から先行成功分のresource候補を参照可能にする。途中の `ManualRecoveryRequired` では公開済みの成功prefixを保持し、その失敗packageと未実行suffixの候補を追加しない。これは失敗packageのFS残存物が取り消されたという保証ではなく、回復済み失敗の後続継続可否も既存のbatch契約に従う。
   - merge の source subtree removal と destination scan addition は単一 owner command で unpublished clone に適用し、combined receipt として1回だけ publish する。途中で入力列挙または mutation が失敗した場合は例外を伝播し、旧 snapshot / generation を維持する。remove と add の最終 mapping が更新前と同一なら no-op とし、snapshot identity と generation を維持する。
 - key semantics:
   - chart-relative resource key。
@@ -72,6 +77,12 @@ Everything unavailable 時の managed fallback scan とテスト用 merge path �
 ### 規模を伴う cache / snapshot の改修
 
 上記の旧世代不変・atomic publish は維持するが、全件コピーを追加する根拠にはしない。改修時は [性能要件 section 3](performance-and-scale.md#3-規模を踏まえた設計要件) に従い、no-op 前の root コピー、空カテゴリの detach、package / folder ごとの全 root 複製を確認する。consumer が必要とする範囲の不変 facts、世代の再利用、既存の安全な境界内でのバッチ化を検討する。これらの性能条件が既存の全経路で達成済みという意味ではない。
+
+### Verification map: resource-index mutation
+
+`DirectoryResourceLookupCacheTests` は小規模のentry/3カテゴリ/SelfOwned、full/lazy/空候補、候補順序、旧snapshotと独立membership factsを確認する。SelfOwnedのみの変更は単一候補に加え、複数候補の先頭/末尾更新を区別し、順序変更時の実書込と最終列が同じ場合の無書込を確認する。`ResourceReverseLookupMapTests` は列挙禁止のowned read-only baseを実際の格納部品へ渡し、初期受取/fork/実変更がbase全件の列挙・コピーへ戻らないこと、双方向の世代分離を確認する。`LibraryResourceIndexOwnerTests` は成功subtreeの一括公開・entryコピー回数・例外時非公開を確認する。`OwnedChartCollectionLibraryMutationTests` と `BmsLibraryPackageInstallServiceTests` は実library command、一時DB/ファイル、既存FS fakeを通して部分削除失敗およびリソース同梱の推定先/強制導入を確認する。導入成功ケースは2 package目のsource copy直前にsnapshotと3カテゴリの候補列を捕捉し、先行公開と中間snapshotの不変性を区別して確認する。既存の推定先/強制 `ManualRecoveryRequired` ケースにはpackageごとに異なるresource keyを与え、成功prefixだけの候補保持、失敗分/未実行分の非混入、旧snapshot不変を確認する。
+
+このcoverageはFunctionalの振る舞いテストであり、wall-clockの閾値・本番規模fixture・外部Everythingは要求しない。`LibraryResourceIndexTestSupport` のreflectionは既存ownerのsetupとsnapshot観測に限定し、private workflowを呼ばない。対応する診断APIができた場合にこの例外を退役する。instance-localのentryコピー/bucket書込observerは実処理直後のテスト観測専用で、通常運用は未設定とする。実行有無は[実装記録](../plan/install-delete-resource-index-p0.md)に分離し、追加テストの存在をpassや速度保証とは扱わない。
 
 ## Resource Ownership
 

@@ -17,6 +17,85 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionLibraryMutationTests
 {
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RemoveLibraryCharts_PublishesOneResourceGenerationForConfirmedFoldersOnly(bool recycle)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string[] folders = [Path.Combine(root, "A"), Path.Combine(root, "B"), Path.Combine(root, "C")];
+            var files = new List<TestableBmsFile>();
+            for (int i = 0; i < folders.Length; i++)
+            {
+                Directory.CreateDirectory(folders[i]);
+                string path = Path.Combine(folders[i], "chart.bms");
+                File.WriteAllText(path, "#PLAYER 1\r\n#TITLE Removal\r\n#BPM 120\r\n");
+                File.WriteAllText(Path.Combine(folders[i], "shared.wav"), "scan-only resource");
+                files.Add(CreateFile(new string((char)('a' + i), 32), path));
+            }
+            var deletionFailure = new IOException("B deletion failed before changing files");
+            var filesystem = new TestFileMutationService
+            {
+                BeforeDirectoryDelete = path =>
+                {
+                    if (path == folders[1])
+                    {
+                        throw deletionFailure;
+                    }
+                }
+            };
+            var library = new TestBmsLibrary(songDbPath, null, null, filesystem,
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            {
+                BMSFiles = files,
+                BmsonSongs = []
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                foreach (TestableBmsFile file in files)
+                {
+                    db.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+            }
+            uint shared = ChartResourceKeyHash.GetLookupHash("shared");
+            LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
+            owner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
+                folders,
+                folders.Select(_ => new[] { shared }).ToArray(),
+                [[], [], []], [[], [], []],
+                folders.Select(_ => new[] { shared }).ToArray(),
+                [[], [], []], [[], [], []],
+                new Dictionary<uint, string[]> { [shared] = folders.ToArray() }, [], []));
+            LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+            var entryCopies = new List<int>();
+            before.DirectoryLookupCache.EntriesRootCopiedObserver = count => entryCopies.Add(count);
+
+            LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(
+                files.Select(LibraryChartRef.FromBmsFile), recycle, folders);
+
+            Assert.AreEqual(2, result.ConfirmedChartCount);
+            Assert.IsTrue(result.CatalogDurable);
+            Assert.AreSame(deletionFailure, result.Targets.Single(target => target.Path == files[1].path).Failure);
+            Assert.IsFalse(Directory.Exists(folders[0]));
+            Assert.IsTrue(Directory.Exists(folders[1]));
+            Assert.IsFalse(Directory.Exists(folders[2]));
+            Assert.IsTrue(File.Exists(Path.Combine(folders[1], "shared.wav")));
+            Assert.IsTrue(filesystem.DirectoryRecycleOptions.All(option => option ==
+                (recycle ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently)));
+            LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
+            Assert.AreEqual(before.Generation + 1, after.Generation);
+            CollectionAssert.AreEqual(new[] { 3 }, entryCopies);
+            CollectionAssert.AreEqual(new[] { folders[1] }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
+            CollectionAssert.AreEqual(folders, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
+            using var readback = new LR2SongDBExtended(songDbPath);
+            CollectionAssert.AreEqual(new[] { files[1].path }, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+        });
+    }
+
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]

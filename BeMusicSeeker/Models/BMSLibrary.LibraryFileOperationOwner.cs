@@ -681,12 +681,10 @@ internal sealed partial class LibraryFileOperationOwner
         delta.InvalidateParentFolderCache = delta.ChartRemoveRequests.Count > 0;
         delta.ClearDuplicatedCache = delta.ChartRemoveRequests.Count > 0
             || delta.UpdatedInstallDestinations.Count > 0;
-        resourceIndexMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        foreach (string deletedFolderPath in execution.DeletedFolderPaths)
-        {
-            resourceIndexMutation = resourceIndexMutation.Combine(
-                resourceIndexOwner.RemoveUnderSourceDirectory(deletedFolderPath).MutationResult);
-        }
+        // Filesystem results are already complete. Publish their successful subtrees together;
+        // failed or merely planned folders must remain in the index.
+        resourceIndexMutation = resourceIndexOwner
+            .RemoveUnderSourceDirectories(execution.DeletedFolderPaths).MutationResult;
         failures = delta.Failures;
         removedChartCount = execution.RemovedTargetIndexes.Distinct().Count();
         folderDeleteCount = execution.FolderDeleteCount;
