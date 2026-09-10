@@ -126,7 +126,11 @@ internal sealed class ResourceHealthIndexMutationFacts
             .Where(chart => chart != null)];
     }
 
-    private static ResourceMaintenanceTargetSet SnapshotTargetSet(ResourceMaintenanceTargetSet targetSet)
+    /// <summary>
+    /// full 入力の版を保持し、storage owner の後続変更を読まない不変入力へ切り離す。
+    /// receipt 作成時と、実 full rebuild に必要な遅延取得時で同じ境界を使う。
+    /// </summary>
+    internal static ResourceMaintenanceTargetSet SnapshotTargetSet(ResourceMaintenanceTargetSet targetSet)
     {
         if (!targetSet.IsSpecified)
         {

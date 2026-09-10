@@ -150,11 +150,17 @@ internal sealed class ResourceHealthIndexOwner
         return snapshot;
     }
 
+    /// <summary>
+    /// 変更を適用し、実 full rebuild に入力が不足する場合だけ全 owned 入力を同期取得する。
+    /// provider は state lock の外で高々一回呼び、取得した入力を不変化してから版を照合する。
+    /// </summary>
     internal ResourceHealthIndexDispatchResult Apply(
         ResourceHealthIndexMutationFacts mutation,
         string reason,
-        ResourceHealthIndexCurrentVersion currentVersion)
+        ResourceHealthIndexCurrentVersion currentVersion,
+        Func<string, ResourceMaintenanceTargetSet> fullOwnedTargetProvider)
     {
+        ArgumentNullException.ThrowIfNull(fullOwnedTargetProvider);
         var result = new ResourceHealthIndexDispatchResult
         {
             Snapshot = TryGetCurrentSnapshot()
@@ -200,10 +206,17 @@ internal sealed class ResourceHealthIndexOwner
         }
         if (mutation.RebuildFull || mutation.HasDeltaTargets)
         {
+            ResourceMaintenanceTargetSet fullOwnedTargetSet = mutation.FullOwnedTargetSet;
+            if (!fullOwnedTargetSet.HasFullOwnedVersion)
+            {
+                fullOwnedTargetSet = ResourceHealthIndexMutationFacts.SnapshotTargetSet(fullOwnedTargetProvider(reason));
+                // 取得中に owned collection が初期構築される場合も、取得後の版で照合する。
+                currentVersion = currentVersionProvider();
+            }
             ResourceHealthIndexSnapshot previousSnapshot = GetPublishedSnapshotOrEmpty();
             ResourceHealthIndexSnapshot rebuiltSnapshot = EnsureCurrent(
                 reason,
-                mutation.FullOwnedTargetSet,
+                fullOwnedTargetSet,
                 currentVersion,
                 forceRebuild: true);
             result.Snapshot = rebuiltSnapshot;

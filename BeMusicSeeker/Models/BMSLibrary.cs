@@ -9690,7 +9690,8 @@ public partial class BMSLibrary : ObservableObject
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             if (result.ResourceHealthMutation.RebuildFull && result.OwnedCollectionChanged)
             {
-                result.ResourceHealthMutation.FullOwnedTargetSet = CreateFullOwnedResourceMaintenanceTargetSet(reason);
+                // collection 更新前の入力は再利用せず、実際に full rebuild する場合だけ取得し直す。
+                result.ResourceHealthMutation.FullOwnedTargetSet = default;
             }
             result.ResourceHealthDispatchResult = DispatchResourceHealthIndexMutation(result.ResourceHealthMutation, reason);
             resourceHealthMs += StopPerformanceStepStopwatch(stepStopwatch);
@@ -11023,16 +11024,11 @@ public partial class BMSLibrary : ObservableObject
         ResourceHealthIndexMutation mutation,
         string reason)
     {
-        if (mutation != null
-            && (mutation.RebuildFull || (mutation.HasDeltaTargets && !mutation.InvalidateIfDeltaFails))
-            && !mutation.FullOwnedTargetSet.HasFullOwnedVersion)
-        {
-            mutation.FullOwnedTargetSet = CreateFullOwnedResourceMaintenanceTargetSet(reason);
-        }
         return resourceHealthOwner.Apply(
             mutation?.ToFacts(),
             reason,
-            GetCurrentResourceHealthIndexVersion());
+            GetCurrentResourceHealthIndexVersion(),
+            CreateFullOwnedResourceMaintenanceTargetSet);
     }
 
     internal ResourceHealthWarningProjection TryGetCurrentResourceHealthWarningProjection(ChartFile chart)
