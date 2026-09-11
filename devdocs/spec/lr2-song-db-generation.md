@@ -66,10 +66,10 @@ BeMusicSeeker が管理する現在の BMS chart path は file-diff が管理す
 full reconciliation は既存 `song` row の membership を追加・削除せず、file-diff が確定した row に対して生成列だけを更新します。
 stale row の追加・削除・prune と app-owned maintenance / chart digest の整理は、既存の file-diff / scoped incremental route が担当します。
 
-`song.path` は原則として実 chart path です。
-既存 row と file system 探索結果が case-insensitive には一致するが ordinal では一致しない場合は、探索結果の path 表記を正とし、`song.path`、`bmson_song.path`、関連 `maintenance.path` をその表記へ更新します。
-この更新は case-only rename や旧 DB 由来の path 表記差を収束させるための key 更新であり、NOCASE 一致だけを current とは見なしません。
-`song.folder` / `song.parent` は path 表記に依存する LR2 CRC32 なので、BMS の path 表記を更新するときは同じ入力から再計算した値へ更新します。
+`song.path` は原則として実 chart path です。DB 行の同一性と収束の正本は [path-identity.md](path-identity.md) です。
+file-diff は対象範囲の信頼できる scan 入力を exact path で照合し、現在の path の行を維持・追加・更新し、含まれない旧行をその旧 exact key で削除します。case-only の差分も、それ以外の path 差分も同じ規則です。NOCASE 一致や同じ実ファイルへの解決だけで current と判定したり、旧行の key を単純に書き換えて既存の現在行と統合したりしません。`bmson_song` と関連 `maintenance` にも同じ行 identity を使いますが、BMSON を LR2 出力へ含める意味ではありません。
+保存値の relink は行集合の収束とは別です。BMS の一対一・同一 MD5 relink を case-only にも統一する方針と、現行実装に残る除外は [path identity の relink 規則](path-identity.md#relink-policy) に従います。採用済みの統一化は未実装であり、既存の現在行の保存値保護や maintenance の再評価を外しません。
+`song.folder` / `song.parent` は path 表記に依存する LR2 CRC32 なので、現在の BMS path から再計算した値へ更新します。
 LR2 互換 path として扱えない BMS も、BeMusicSeeker の管理対象 BMS である限り `song` row からは削除しません。
 その場合は `song.folder` / `song.parent` を `NULL` にし、LR2 互換性警告として扱います。
 

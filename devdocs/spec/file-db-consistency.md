@@ -1,6 +1,6 @@
 # ファイル操作と DB 操作の整合性・補償契約
 
-最終更新: 2026-09-06
+最終更新: 2026-09-11
 
 ## 1. 目的と適用範囲
 
@@ -29,7 +29,7 @@ FS と DB は同じ transaction に参加しない。DB の commit 成功は FS 
 ## 3. 不整合を減らす設計
 
 1. **破壊的処理前に対象と意味を決める。** stable identity、実際に使う path、上書き・削除の承認範囲を既存 owner の入口で確定する。既に検証された invariant の下流で、同じ確認や version token を増やさない。DB の試し書き等で「後の commit は失敗しない」と保証しようとしない。
-2. **同じ計画の事実を各段階へ渡す。** 実際の destination、削除・保持した対象を FS と DB の両方で使う。途中で別の path を再計算したり、失敗後に対象を拡大したりしない。
+2. **同じ計画の事実を各段階へ渡す。** 実際の destination、削除・保持した対象を FS と DB の両方で使う。途中で別の path を再計算したり、失敗後に対象を拡大したりしない。DB 行の削除には旧行の exact key、追加・更新には現在の exact path を使い分ける。同じ実体へ解決されることを理由に別の DB 行まで対象へ加えない。上流が複数行を対象と確認した場合は各 exact key を明示し、DB・storage rows・owned collection へ同じ対象集合を渡す。比較と relink は [path-identity.md](path-identity.md) に従う。
 3. **単一 DB 内では transaction を使う。** 一体で保存すべき関連行は既存 gateway／owner の transaction にまとめる。DB 内の rollback と FS に対する補償は別の契約とし、DB を rollback しただけで FS も元に戻ったと扱わない。複数 DB や外部出力も一つの commit と見なさない。
 4. **必要な順序を owner 内で閉じる。** durable result、canonical memory／関連参照の必須反映、任意の UI notification を区別する。必要な内部反映の失敗を、通知失敗や単なる cleanup 残りへ格下げしない。model lock／DB transaction を長時間の FS I/O や UI 待機のために保持しない。
 5. **失敗後に被害を増やさない。** 状態を確定できない対象の後続破壊的処理と、それに依存する成功処理を止める。独立 item の継続可否は各 batch の既存契約に従い、成功済み item の一括 rollback は追加しない。新しい global fault latch や全アプリ停止を一律に要求しない。
@@ -114,6 +114,8 @@ executor が実行時に検出した型衝突は、既存の実行失敗・補�
 - 利用者へ案内する対応は、その機能で実際に利用可能かつ安全なものに限る。安全な再反映経路がない場合は、原因解消と対象確認・手動対応が必要であることを伝え、未実装の修復ボタンや必ず成功する再試行を約束しない。
 
 現行の空走査保護は `BmsLibraryInitializationService.ApplyFileScanDiff`／`ShouldSkipEmptyScanWithExistingDb` にあり、startup と `ReloadFileDiff` の共通経路に作用する。この保護の存在や、保護が収束より優先されること自体は不具合ではない。
+
+正常な差分反映の対象範囲では [path identity の収束規則](path-identity.md#convergence) を用い、case-only とそれ以外の path 差分を同じ exact set の差分として扱う。これは上記の安全条件を外す意味ではない。軽量 `ReloadFileDiff` は DB を再読込しないため、外部 DB 編集を取り込む必要がある場合は `FullReinitialize` を使う。局所操作や任意の再読込が、外部編集を含む全 DB を必ず修復するとは案内しない。
 
 ### 登録ディレクトリとファイル差分の入力
 
