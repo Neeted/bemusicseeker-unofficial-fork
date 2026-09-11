@@ -43,9 +43,9 @@ internal static class ChartFileRuntimeStateKey
     {
         if (!string.IsNullOrWhiteSpace(md5))
         {
-            return md5.Trim();
+            return md5.Trim().ToUpperInvariant();
         }
-        return string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim();
+        return string.IsNullOrWhiteSpace(sha256) ? null : sha256.Trim().ToUpperInvariant();
     }
 
     internal static string CreatePathKey(ChartFile chart)

@@ -47,6 +47,7 @@ public sealed class OwnedChartCollectionProjectionTests
         Assert.AreSame(bmsonSong, bmsonChart.GetBmsonStorageOwner());
     }
 
+    /// <summary>未所持identityと同じexact keyの重複だけを除外し、別caseの行は保持します。</summary>
     [TestMethod]
     public void FromStorageRows_FiltersPathlessMd5lessAndExactDuplicateRows()
     {
@@ -54,7 +55,7 @@ public sealed class OwnedChartCollectionProjectionTests
         var pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         var pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
         var md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
-        var duplicateBms = CreateFile("22222222222222222222222222222222", Path.Combine("C:\\Installed", "Bms", ".", "chart.bms"), new string('2', 64));
+        var duplicateBms = CreateFile("22222222222222222222222222222222", pathfulBms.path, new string('2', 64));
         var pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         var pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
         var md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);

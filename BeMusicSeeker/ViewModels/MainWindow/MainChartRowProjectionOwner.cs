@@ -13,7 +13,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class MainChartRowProjectionOwner
 {
-    private readonly Dictionary<string, ChartFileTransientState> transientStatesByKey = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ChartFileTransientState> transientStatesByKey = new(StringComparer.Ordinal);
     private int chartInfoVersion;
     private int scoreSnapshotVersion;
 
@@ -239,7 +239,7 @@ internal sealed class MainChartRowProjectionOwner
             (currentCharts ?? [])
                 .Select(ChartFileRuntimeStateKey.Create)
                 .Where(key => !string.IsNullOrWhiteSpace(key)),
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         PruneTransientStates(currentKeys);
     }
 
@@ -251,7 +251,7 @@ internal sealed class MainChartRowProjectionOwner
         }
         PruneTransientStates(
             library?.CreateOwnedChartRuntimeStatePrimaryKeySnapshot()
-            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            ?? new HashSet<string>(StringComparer.Ordinal));
     }
 
     internal void ClearTransientStates()

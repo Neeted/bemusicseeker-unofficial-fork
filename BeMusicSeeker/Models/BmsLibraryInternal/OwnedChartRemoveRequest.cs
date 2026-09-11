@@ -66,6 +66,7 @@ internal sealed class OwnedChartRemoveRequest
         return bmsonOwner == null ? null : FromOwnerReference(bmsonOwner);
     }
 
+    /// <summary>確認済みの旧DB行のexact keyを加工せず削除要求に保持します。</summary>
     internal static OwnedChartRemoveRequest FromPathCleanup(ChartFileKind kind, string path)
     {
         return string.IsNullOrWhiteSpace(path)

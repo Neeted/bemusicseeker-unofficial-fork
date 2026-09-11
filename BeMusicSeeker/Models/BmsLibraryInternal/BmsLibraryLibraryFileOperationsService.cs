@@ -464,7 +464,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             (approvedWholeFolderDeletePaths ?? [])
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
-        var selectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var selectedPaths = new HashSet<string>(StringComparer.Ordinal);
         var folderPlans = new List<LibraryChartRemovalPlanFolder>();
         var installDestinationTargets = new List<LibraryChartRemovalInstallDestinationTarget>();
         foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in targets
@@ -474,12 +474,12 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             bool canDeleteWholeFolder = libraryChartLookup.CountChartRefsUnderRealPath(folderGroup.Key, selectedPaths) == folderGroup.Count();
             bool deleteWholeFolder = canDeleteWholeFolder && approvedPaths.Contains(folderGroup.Key);
-            // Resolve each target by its path and kind so the executor never
-            // needs to retain the canonical lookup or a live owner reference.
+            // Directory grouping follows filesystem scope, but target indexes keep catalog row identity.
+            // Resolve the fallback by exact path so case-only rows remain separate confirmed targets.
             IReadOnlyList<int> targetIndexes = Array.AsReadOnly(folderGroup
                 .Select(chart => targets.FindIndex(candidate => ReferenceEquals(candidate, chart)
                     || (candidate.Kind == chart.Kind
-                        && string.Equals(candidate.Path, chart.Path, StringComparison.OrdinalIgnoreCase))))
+                        && string.Equals(candidate.Path, chart.Path, StringComparison.Ordinal))))
                 .Where(index => index >= 0)
                 .ToArray());
             folderPlans.Add(new LibraryChartRemovalPlanFolder
@@ -557,6 +557,26 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             ? RecycleOption.SendToRecycleBin
             : RecycleOption.DeletePermanently;
         var removedTargetIndexes = new HashSet<int>();
+        // Selected catalog rows keep exact identity, while Windows filesystem aliases share one mutation result.
+        // Only indexes already present in this plan are propagated; an unselected catalog alias is never added.
+        var failedPhysicalTargets = new Dictionary<string, Exception>(StringComparer.OrdinalIgnoreCase);
+        var targetIndexesByPhysicalPath = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+        foreach (LibraryChartRemovalPlanTarget target in plan.Targets ?? [])
+        {
+            if (target == null)
+            {
+                continue;
+            }
+
+            string physicalPathKey = CreatePhysicalPathKey(target.Path);
+            if (!targetIndexesByPhysicalPath.TryGetValue(physicalPathKey, out List<int> physicalTargetIndexes))
+            {
+                physicalTargetIndexes = [];
+                targetIndexesByPhysicalPath[physicalPathKey] = physicalTargetIndexes;
+            }
+            physicalTargetIndexes.Add(target.Index);
+        }
+
         foreach (LibraryChartRemovalPlanFolder folder in plan.Folders ?? [])
         {
             if (folder == null)
@@ -580,8 +600,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                         recursiveDirectoryTreeFileMutationOptions);
                     result.FolderDeleteCount++;
                     result.DeletedFolderPaths.Add(folder.Path);
-                    result.RemovedTargetIndexes.AddRange(folder.TargetIndexes ?? []);
-                    removedTargetIndexes.UnionWith(folder.TargetIndexes ?? []);
+                    foreach (int targetIndex in folder.TargetIndexes ?? [])
+                    {
+                        ConfirmPhysicalTargetGroup(targetIndex);
+                    }
                     RecordFolderTargets(folder, LibraryChartRemovalState.Confirmed);
                 }
                 catch (Exception exception)
@@ -606,18 +628,30 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 {
                     continue;
                 }
+                string physicalPathKey = CreatePhysicalPathKey(target.Path);
+                if (removedTargetIndexes.Contains(target.Index))
+                {
+                    result.Targets.Add(new(target.Path, LibraryChartRemovalState.Confirmed));
+                    continue;
+                }
+                if (failedPhysicalTargets.TryGetValue(physicalPathKey, out Exception priorFailure))
+                {
+                    result.Targets.Add(new(target.Path, LibraryChartRemovalState.Unconfirmed, priorFailure));
+                    continue;
+                }
+
                 try
                 {
-                    if (LongPathFileSystem.FileExists(target.Path))
+                    string existingPhysicalPath = FindExistingPhysicalTargetPath(physicalPathKey);
+                    if (existingPhysicalPath != null)
                     {
                         fileMutationService.DeleteFileShell(
-                            target.Path,
+                            existingPhysicalPath,
                             UIOption.OnlyErrorDialogs,
                             recycleOption,
                             targetOnlyFileMutationOptions);
                         result.FileDeleteCount++;
-                        result.RemovedTargetIndexes.Add(target.Index);
-                        removedTargetIndexes.Add(target.Index);
+                        ConfirmPhysicalTargetGroup(target.Index);
                         result.Targets.Add(new(target.Path, LibraryChartRemovalState.Confirmed));
                     }
                     else
@@ -627,6 +661,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 }
                 catch (Exception exception)
                 {
+                    failedPhysicalTargets[physicalPathKey] = exception;
                     result.Targets.Add(new(target.Path, LibraryChartRemovalState.Unconfirmed, exception));
                     result.Failures.Add(new LibraryDeleteFailure
                     {
@@ -643,6 +678,63 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             foreach (int index in folder.TargetIndexes ?? [])
                 result.Targets.Add(new(plan.Targets[index].Path, state, failure));
+        }
+
+        void ConfirmPhysicalTargetGroup(int targetIndex)
+        {
+            if (targetIndex < 0 || targetIndex >= plan.Targets.Count)
+            {
+                return;
+            }
+
+            string physicalPathKey = CreatePhysicalPathKey(plan.Targets[targetIndex].Path);
+            if (!targetIndexesByPhysicalPath.TryGetValue(physicalPathKey, out List<int> physicalTargetIndexes))
+            {
+                physicalTargetIndexes = [targetIndex];
+            }
+            foreach (int physicalTargetIndex in physicalTargetIndexes)
+            {
+                if (removedTargetIndexes.Add(physicalTargetIndex))
+                {
+                    result.RemovedTargetIndexes.Add(physicalTargetIndex);
+                }
+            }
+        }
+
+        string FindExistingPhysicalTargetPath(string physicalPathKey)
+        {
+            if (!targetIndexesByPhysicalPath.TryGetValue(physicalPathKey, out List<int> physicalTargetIndexes))
+            {
+                return null;
+            }
+
+            foreach (int physicalTargetIndex in physicalTargetIndexes)
+            {
+                if (physicalTargetIndex < 0 || physicalTargetIndex >= plan.Targets.Count)
+                {
+                    continue;
+                }
+
+                string candidatePath = plan.Targets[physicalTargetIndex].Path;
+                if (LongPathFileSystem.FileExists(candidatePath))
+                {
+                    return candidatePath;
+                }
+            }
+            return null;
+        }
+
+        static string CreatePhysicalPathKey(string path)
+        {
+            try
+            {
+                return LongPathFileSystem.NormalizePathForStorage(path);
+            }
+            catch
+            {
+                // Keep malformed catalog paths isolated to the existing per-target filesystem outcome.
+                return path ?? string.Empty;
+            }
         }
     }
 
@@ -734,7 +826,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         ILibraryChartCanonicalLookup libraryChartLookup)
     {
         List<string> result = [];
-        var selectedChartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var selectedChartPaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in (canonicalCharts ?? []).Where(HasPath).GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
                                                                    orderby groupedFiles.Key.Length descending
                                                                    select groupedFiles)

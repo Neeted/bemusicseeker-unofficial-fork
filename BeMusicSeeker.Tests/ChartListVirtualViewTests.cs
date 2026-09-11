@@ -167,6 +167,34 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void RowProjectionTransientState_UsesExactPathAndCaseInsensitiveHash()
+    {
+        const string path = @"D:\Charts\InstallDestination\Chart.bms";
+        const string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        BMSFile sourceOwner = CreateFile(path, "Source", "InstallDestination", hash: hash);
+        ChartFile statefulChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(sourceOwner, includeWarningSnapshot: false),
+            @"C:\Installed\Exact",
+            "Installed",
+            string.Empty,
+            []);
+        var projectionOwner = new MainChartRowProjectionOwner();
+        projectionOwner.UpdateTransientStates([statefulChart], forceInstallDestinationProjection: true);
+
+        BMSFile exactOwner = CreateFile(path, "Exact", "InstallDestination", hash: hash.ToUpperInvariant());
+        BMSFile aliasOwner = CreateFile(path.ToLowerInvariant(), "Alias", "InstallDestination", hash: hash);
+        ChartFileTransientState exactState = projectionOwner.GetTransientState(
+            ChartFileProjection.FromBmsFile(exactOwner, includeWarningSnapshot: false),
+            includeWarningSnapshot: false);
+        ChartFileTransientState aliasState = projectionOwner.GetTransientState(
+            ChartFileProjection.FromBmsFile(aliasOwner, includeWarningSnapshot: false),
+            includeWarningSnapshot: false);
+
+        Assert.AreEqual(@"C:\Installed\Exact", exactState.InstallDestination);
+        Assert.IsFalse(aliasState.HasInstallDestinationState);
+    }
+
+    [TestMethod]
     public void VirtualChartSubsetRow_UsesScoreProviderForOwnerBackedBmsProjection()
     {
         BMSFile file = CreateFile(

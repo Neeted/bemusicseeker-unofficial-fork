@@ -91,11 +91,11 @@ SelfOwnedのみの変更でも、既存のremove→appendで候補が`[A, B] →
 
 根拠: `ResourceReverseLookupMap.cs`、`DirectoryResourceLookupCache.cs:397–431,962–992`、`LibraryResourceIndexOwner.cs:172–195,344–365`（いずれも`BeMusicSeeker/Models/BmsLibraryInternal/`）。契約: `devdocs/spec/data-and-indexes.md`。
 
-## 5. 未修正課題の一覧
+## 5. 課題と進捗の一覧
 
 | ID | 現行の問題 | 対象操作 | 種別・順序 |
 | --- | --- | --- | --- |
-| R2a | PathCleanup・storage row更新でexact pathとcase-insensitive keyが混在 | merge、install、catalog変更 | 正しさを先に修正 |
+| R2a | PathCleanup・storage・owned・package・導入lookupのexact path統一 | merge、install、catalog変更 | 実装済み、最終検証・review中 |
 | R2b | PathCleanupがsong / maintenance / BMSONを全件materializeし、行・hashごとに削除・孤児確認 | 主にmerge、PathCleanupを使う修正経路 | R2a後にDB処理を限定 |
 | R2c | resource-healthのchart identityがpathをcase-insensitive比較 | warning表示・maintenanceを伴う変更 | R5c前に正しさを修正 |
 | RELINK-1 | file diffの一対一・同一MD5 relinkにcase-onlyだけの除外が残る | startup / file diff / 再初期化 | 採用済みの仕様統一。R2群直後の独立unit |
@@ -113,52 +113,17 @@ SelfOwnedのみの変更でも、既存のremove→appendで候補が`[A, B] →
 
 ### R2a — mutation経路のexact path identityを揃える
 
-#### 課題と仕様
+Status: Implemented. 恒久的なpath identity契約とテスト対応表は[path identity](../spec/path-identity.md#r2a-test-map)を正本とする。
 
-`path-identity.md`は、`song.path`、`folder.path`、`maintenance.path`、`bmson_song.path`、`install.path`などの行同一性をcase-sensitiveなexact stringとする。owned chart lookupもこの規則に従う。目的は、同じ実体へ解決され得る別DB行も取り落とさず識別し、現在のexact path集合へ収束させることである。case-only複数行の恒久保存や、物理的に別ファイルとみなすことが目的ではない。
+#### 完了記録
 
-正常に反映できるscope内では、case-only差分もそれ以外のpath差分も同じexact setの規則で追加・更新・削除する。保存値の引継ぎは行集合とは別であり、BMSの一対一・同一MD5 relinkをcase-onlyにも統一する採用済み方針は[relink規則](../spec/path-identity.md#relink-policy)に従う。**R2a / R2b / R2cではrelinkコードやその期待値を変更せず、RELINK-1で別に実装する。** 現行のcase-only除外を恒久契約として追加固定しない。
-
-現在のPathCleanupには次の不一致がある。
-
-| 箇所 | 現行処理 | 改修時の意味 |
-| --- | --- | --- |
-| `BMSLibrary.LibraryFileOperationOwner.Merge.cs:419–470` `BuildMergeCatalogDelta` | source / moved pathの集合を`OrdinalIgnoreCase`で作り、未移動分をPathCleanup化 | 行を表すsource / moved pathは大小文字を保持し、exactに分類する |
-| `CatalogMutationOwner.cs:1398–1406` `CreatePathCleanupKeys` | `CreateOwnedPathKey`で加工し、`Distinct(OrdinalIgnoreCase)` | cleanup対象のexact row pathを失わない |
-| `BmsLibraryDbGateway.cs:683–685,721–737,775–777,809–827` | case-insensitive cleanup集合で全DB行を絞る | 承認されたexact pathだけを削除対象にする |
-| `CatalogStorageRowsOwner.cs:93–129,163–219,238–247` | installの置換・BMSON grouping・cleanup・移動先保護にcase-insensitive集合 | DBと同じexact集合・保護条件で正本storage rowsを更新する |
-| `OwnedChartCollectionState.cs:162,679–706` | `chartsByPath`は`Ordinal`でPathCleanupを解決 | この大小文字区別を下流で崩さない |
-| `BmsLibraryStateApplier.cs:172–196,293–316,364`周辺 | package pruningにもcase-insensitive path照合がある | chart row identityとpackage directory探索を分け、対応するexact chartだけをpruneする |
-
-上記のうちファイル名のみの参照は`BeMusicSeeker/Models/BmsLibraryInternal/`配下。`BMSLibrary.*`は`BeMusicSeeker/Models/`配下。
-
-たとえばDBに`C:\Library\Song\Chart.bms`と`C:\Library\Song\chart.bms`があり、前者だけのPathCleanupが確定した場合、後者はそのcommandの削除対象ではない。現行DB側は両方を選び得る一方、owned collection側は前者だけを解決する。構築済みかつstorage versionが一致する場合、`CatalogOwnedCollectionOwner.ApplyMutation:290–326`は元のremove requestだけを適用して新versionを記録するため、この不一致は増分更新経路にも持ち越され得る。この不一致を高速なcase-insensitive索引へ移して固定してはいけない。
-
-#### 修正方針
-
-1. source / moved分類や成功receiptから、削除・更新する旧／新exact path集合を組み立てる処理を確認する。その上で`OwnedChartRemoveRequest.Path`から始まるcleanup row pathをexactに維持し、request、DB、storage rows、owned collection、package反映の同一性を揃える。上流が複数旧行を対象と確認した場合は各exact keyを渡す。上流で対象を落としたまま下流のcomparerだけ直す修正では完了しない。用途が明確になる名称へ整理してよいが、新しい汎用path frameworkは作らない。
-2. raw DB pathをidentityとする境界では、比較前の`Trim`、`GetFullPath`、case foldによって別文字列を統合しない。既存の取込み時のstorage path生成やFS path正規化は別の責務として維持する。共有`CreateOwnedPathKey`の全呼出しを一律変更せず、row identityに使う経路を切り分ける。
-3. 正当な通常moveのdestination保護は保持し、その保護集合もexact row pathで評価する。case-insensitiveな保護集合で別caseの削除対象まで保護しない。
-4. file diffが得るcurrent exact setによるstale cleanupは維持する。局所PathCleanupの中で`File.Exists`やcase-insensitive一致から「他variantもstale」と推測しない。削除対象の旧DB keyを現在の表記へ変換してからDELETEしない。scope、不完全走査・空走査保護、個別read失敗は既存契約を維持し、軽量reloadで外部DB編集まで取り込めるとは扱わない。
-5. `OrdinalIgnoreCase`の全置換はしない。hash identity、表示sort、resource候補、探索scopeの比較規則は、それぞれの契約に従う。FS候補集合からDBへ進む場合は実際のexact path factsへ戻す。
-
-#### 受入条件・既存coverage
-
-| Contract ID | 小規模で確認する結果 | 検出する誤実装 |
-| --- | --- | --- |
-| R2-EXACT-REMOVE | case-only二行と通常差分の二行を対にし、指定exact pathだけがsong / maintenance / BMSON、storage rows、owned lookup、該当packageから除かれる | SQLだけexact化し、memory側はcase-insensitiveのままにする |
-| R2-EXACT-UPSERT | 一方のexact pathへの追加・更新で、他方のownerと保存値が失われない。case-onlyかどうかで規則を変えない | `GroupBy(OrdinalIgnoreCase)`によるBMSON統合、BMSリストからの巻添え除去 |
-| R2-PROTECT | 移動先exact pathは残り、別exact keyのcleanup対象はcase-onlyでも独立して処理される | protection集合のcase fold、保護の全面削除 |
-| R2-CONVERGE | 正常な対象scopeで`DB={A,B}` / `scan={B}`は`{B}`へ、`DB={A}` / `scan={B}`も`{B}`へ収束する。case-onlyと通常差分を対にし、既存Bの保存値をAで上書きしない | `File.Exists`やNOCASEで旧行をcurrent扱いする、既存Bまで消す。新規Bへのrelinkの期待値はRELINK-1で別に扱う |
-| R2-REAPPLY | 同じ正常scanの再適用で不要な行の追加・削除が生じない。局所mutation直後のDB / memory一致も別に確認する | 後続file diffの修復だけで局所反映の成功とする |
-| R2-TARGET-SET | 成功factsから対象集合を作り、複数exact keyが確定した場合は各層へすべて渡し、未確定の別行は加えない | 上流でcase foldして対象を落とす、下流だけexact化する |
-| R2-MISSING-ROW | songがなくmaintenanceだけある明示対象もexactにcleanupされ、無関係な別pathは残る | live ownerがないというだけでDB掃除を省略する、maintenanceを全表pruneする |
-
-配置候補は`CatalogMutationOwnerTests`、`OwnedChartCollectionLookupMembershipTests`、`BmsLibraryStateApplierTests`、`OwnedChartCollectionLibraryMutationTests`。収束の既存coverageは`BmsLibraryInitializationFileScanTests`のcase-only BMS / BMSONケース、`BmsLibraryInitializationInlineChartInfoTests.ApplyFileScanDiff_BulkDeleteKeepsExactPathKeys`、`Lr2SongDbWriterTests`を使用する。BMS case-only既存testには旧relink除外のassertionも含まれるが、その変更はRELINK-1の所有とし、R2で統一化を実装済みにしない。
-
-case-only二行のDBは仕様が認める入力である。通常Windows上で同じ物理ファイルを二つ作れることをfixtureの条件にしない。既存scan seamや一時DBを使い、通常入口からの到達を示す。新しいcase-only rename機能や、サポート外のpath形式の自動修復を追加しない。
-
-**Done when:** 対象集合の組立てから局所反映の完了まで同じexact key集合を各層が扱い、巻添え削除・混同・対象の取り落としがなく、既存のFS / DB失敗契約を保持する。後続file diffによる偶然の修復を合格条件にしない。性能改修とRELINK-1の双方から分離してレビュー可能な差分にする。
+- merge分類、catalog cleanup / upsert、DB gateway、storage rows、owned / ref lookup、installed package反映、install-destination state / overlayで、DB / catalog rowを表すpathを未加工のexact keyとして扱うようにした。hash identity、directory探索、resource探索などrow identityではない比較規則は変更していない。
+- row identityとphysical filesystem target identityを分離した。複数の選択済みexact rowが同じ物理fileへ解決される場合、filesystem操作は既存の正規化・case-insensitive identityで一回にまとめ、その結果を選択済みexact targetへだけ反映する。未選択rowを物理alias一致だけでcatalog mutation対象へ追加しない。
+- mergeのdetached packageでは、旧exact keyをcatalog mutation集合に保持したまま、物理source / owner copy / package rootを既存FS規則へ揃えて同じ物理sourceの二重予約を避けるようにした。
+- whole-folder削除後のinstall-destination clearは、削除folderの判定をfilesystem規則のまま維持しつつ、clear対象のcatalog row bindingとclear済み集合をexact pathで識別する。
+- 現行では起動時file diffを設定で省略してもmutationを禁止していないため、未収束rowが局所mutationへ到達し得る前提を維持する。この状態でもrowはexactに扱い、physical I/Oは同一実体としてまとめてよい。将来はfile diffを省略・未完了の状態ではfile mutationを禁止する方針とするが、その受付gate変更はR2aに含めない。
+- file diffの保存値relinkはRELINK-1、PathCleanupの全表materialize削減はR2b、resource-health keyはR2c、storage list再構築削減はR5aへ残した。schema、新しいretry / replay / persistent state、lease / publication境界は追加していない。
+- R2aでは新しい全catalog走査・全件copyを追加していない。既存のcleanup時全表materialize、孤児hash確認、storage list再作成、package走査の費用は後続unitの対象とする。
 
 ### R2b — PathCleanupの全DB読込を対象限定・集合更新へ移す
 

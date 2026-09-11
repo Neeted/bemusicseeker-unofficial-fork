@@ -80,6 +80,42 @@ DB 内の行を区別したまま処理することで、case-only の複数行�
 
 ディレクトリ探索、リソース探索、`.lr2folder` の prefix scope、拡張子判定など、ファイルシステム探索に近い処理は Windows / NTFS 前提の case-insensitive 比較を使うことがある。DB 境界では、消す旧 exact key と登録する現在の exact path を区別して扱う。
 
+## 局所catalog mutationの実装境界（R2a）
+
+`OwnedChartRemoveRequest.Path`、`CatalogStorageRowsRemovalRequest`のcleanup集合、DBの削除対象、storage rows、owned/ref lookup、installed packageのchart pruningは、未加工のexact pathを同じ規則で照合する。明示されたmaintenance-only行も対象へ含める。通常moveの新exact pathは同じkeyのcleanupから保護し、別keyのcleanupを妨げない。
+
+導入先のupsertは同じexact keyだけを置換し、`ChartStorageTargetSet`のBMSON集約も同じkey内に限定する。構築済みinstalled lookupとprimary-only lookupは、catalogで置換する旧行だけの所持hashを除く。別caseやdot成分を含む別keyの追加で、残るownerの所持を失わせない。path-only選択や別instanceの再解決もexact keyを使い、未登録の別表記をFSの同一性だけで削除対象へ解決しない。
+
+mergeはsource scopeに含まれる旧exact keyをすべて保持する。一方、detached packageの物理source・owner copy・package rootだけを既存FS正規化へ揃え、case-insensitive比較で一回の処理にまとめる。集合の比較keyだけでなく実際のpackage pathも揃え、component列挙が同じファイルを再投入しないようにする。代表にしない旧行もcatalog分類から落とさず、確定した移動先へのrelocationと、残りの旧keyへのPathCleanupに分けて同じcatalog transactionへ渡す。これはfile diffの同一MD5 relinkや、新しいcase-only物理renameの実装ではない。
+
+正常なfile diff後は対象scopeがスキャン集合へ収束するが、現行では既存DBの起動時スキャンを設定で省略してもfile mutationを禁止していない。そのため、未収束のcase-only / dot別表記rowが通常起動のDB読込み後にmerge / delete等へ到達し得る。この状態では、catalog rowのtarget集合はexact keyで保持する一方、実際に同じ物理fileへ解決される選択済みtargetのfilesystem操作は、各workflowの既存FS規則に従って一回にまとめてよい。物理alias一致だけを理由に未選択rowをcatalog mutation対象へ追加してはいけない。
+
+将来は、起動時file diffを省略した、または必要な収束を完了していない状態ではfile mutationの受付を禁止する方針とする。これは採用済みの将来境界であり、現行実装にはまだ入っていない。R2aのtestは、現在到達可能な未収束rowを扱う保証を固定するものであって、scan skip中のmutationを恒久機能として固定するものではない。
+
+whole-folder削除のようにphysical folderの成功factを起点に後続stateを更新する場合も、folder containment / deletion判定はfilesystem規則を使い、どのcatalog rowのinstall-destination stateをclearするかはexact row pathで識別する。row identityとphysical target identityを同じcomparerへ統合しない。
+
+DBの全表materialize・孤児確認の限定化はR2b、resource-healthのkey比較はR2c、storage listの全件再構築削減はR5aに残る。R2aはこれらの完了や大規模速度改善を保証しない。
+
+<a id="r2a-test-map"></a>
+### Test map — R2a
+
+この表のSpec IDを恒久的なbehavior識別子とし、テストコード側は`Class.Method`を対応IDとして参照する。DataTestMethodは同じmethod IDの各data rowで対照条件を持つ。実行日時、TRX、Quick / Functionalの成功記録は現行仕様には保持しない。
+
+| Spec ID | 現行保証 | 対応するテストコード ID |
+| --- | --- | --- |
+| `R2-EXACT-REMOVE` | 明示された旧exact keyだけをDB / storage / owned / packageから除去し、別exact rowを巻き込まない | `BmsLibraryStateApplierTests.ApplyLibraryMutationDelta_ExactRemovalKeepsOtherRowsAndPackages`; `CatalogMutationOwnerTests.ApplyCatalogMutation_CaseVariantPathCollisionRemovesOldExactRow` |
+| `R2-MISSING-ROW` | `song`がなくても明示されたexact maintenance rowをcleanupし、無関係rowへ広げない | `CatalogMutationOwnerTests.ApplyCatalogMutation_RemovalDeletesMaintenanceWhenSongRowIsMissing` |
+| `R2-EXACT-UPSERT` | 同じexact keyだけを置換し、case-only / dot別表記のowner・保存値・hash所持を保持する | `CatalogMutationOwnerTests.ApplyInstalledTargetUpsert_PreservesEveryExactKey`; `OwnedChartCollectionInstalledOverlayTests.ApplyInstalledChartStorageTargets_BuiltLookupUpsertUsesOwnedPathExactView`; `OwnedChartCollectionProjectionTests.FromStorageRows_FiltersPathlessMd5lessAndExactDuplicateRows` |
+| `R2-PROTECT` | 通常moveの確定destination exact keyだけを保護し、別exact cleanup keyを過剰保護しない | `CatalogMutationOwnerTests.ApplyCatalogMutation_PathCleanupDoesNotRemoveRelocatedDestination`; `BmsLibraryStateApplierTests.ApplyLibraryMutationDelta_PathCleanupDoesNotPruneRelocatedDestination` |
+| `R2-TARGET-SET` | 上流で確定した複数exact rowを全層へ渡し、case foldで落とさず、未確定rowを追加しない | `BmsLibraryDuplicateServiceTests.MergeChartDirectory_ConsumesEveryConfirmedExactSourceKey`; `BmsLibraryDuplicateServiceTests.MergeChartDirectory_AfterStartupWithoutFileScanConsumesDotAliasRows`; `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_CaseOnlyExactRowsAreBothRemoved`; `OwnedChartCollectionLibraryMutationTests.GetLibraryWholeFolderDeleteConfirmationPaths_PreservesCaseOnlyNestedSelections` |
+| `R2-PHYSICAL-ALIAS` | 選択済みexact rowが同じ物理fileを指す場合はfilesystem mutation結果を共有するが、failure時にalias経由でretryしない | `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_PhysicalAliasExactRowsAreBothRemovedWithoutWholeFolderDelete`; `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_PhysicalAliasDeleteFailureIsNotRetried` |
+| `R2-EXACT-LOOKUP` | path-only / owner lookupはexact row keyで解決し、directory探索用のFS identityをrow認可へ流用しない | `OwnedChartCollectionReferenceIndexTests.CreateSnapshotForPaths_ProjectsOnlyRequestedPaths`; `OwnedChartCollectionReferenceIndexTests.CreateLibraryChartRefIndexSnapshot_ResolvesPathOnlyAndCountsRealPathSubtree`; `OwnedChartCollectionLookupMembershipTests.ContainsKnownChart_UsesOwnedReferenceAndKindPathExactLookup`; `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_ResolvesSelectionThroughProductionOwner`; `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_UnresolvedSelectionKeepsFilesystemAndDatabase` |
+| `R2-INSTALL-STATE` | file-scan residual、runtime overlay、row projection、whole-folder後clearでinstall-destination stateをexact row pathへ結び、hash比較規則は維持する | `InstallDestinationStateOwnerTests.ReattachFileScanResidualInstallDestinationCharts_UsesExactPathWhenAliasHashMatches`; `InstallDestinationStateOwnerTests.OverlayRuntimeStates_UsesExactPathAndCaseInsensitiveHash`; `InstallDestinationStateOwnerTests.CreateOverlaySnapshot_PreservesCaseOnlyRowsWithSameHash`; `ChartListVirtualViewTests.RowProjectionTransientState_UsesExactPathAndCaseInsensitiveHash`; `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_WholeFolderClearsCaseOnlyExactInstallDestinationsIndependently` |
+| `R2-CONVERGE` | 正常file diffでは既存/currentのexact集合差分へ収束し、case-onlyも通常差分と同じrow規則で扱う | `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsPathMismatchReplacesExactPathWithoutMigratingUserColumns`; `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsonPathMismatchAddsExactPathWithoutMigratingMaintenance`; `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsonPathMismatchReplacesExactPathAndConverges`; `BmsLibraryInitializationInlineChartInfoTests.ApplyFileScanDiff_BulkDeleteKeepsExactPathKeys`; `Lr2SongDbWriterTests.UpsertGeneratedSongs_TreatsCaseOnlyPathAsDistinct` |
+| `R2-REAPPLY` | 同じ正常scanの再適用では不要なrow追加・削除を繰り返さない | `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsPathMismatchReplacesExactPathWithoutMigratingUserColumns`; `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsonPathMismatchReplacesExactPathAndConverges` |
+
+source文字列assertionやprivate workflowの直接呼出しをこの契約の正本にはしない。file diffの保存値relink期待値は[Relink](#relink-policy)の実装状態に従い、R2aのSpec IDへ混ぜない。
+
 <a id="relink-policy"></a>
 ## Relink: 保存値引継ぎ
 
@@ -101,4 +137,4 @@ DB 内の行を区別したまま処理することで、case-only の複数行�
 
 現行の `FileScanParseCommitOwner.PrepareMovedBmsUserColumnRestores` は通常の一対一 relink を持つが、`IsCaseOnlyPathPair` で case-only の組を除外している。したがって **上記の統一化は採用済み・未実装**であり、この文書変更だけで挙動や既存テストの期待値が変わったとは扱わない。
 
-[ライブラリ変更計画](../plan/BeMusicSeeker-library-mutation-performance.md) の **RELINK-1** で、この除外と対応するテストを独立して変更する。R2 の row identity / DB 処理の修正には混ぜない。PathCleanup・storage rows・resource-health key の exact identity に残る未達も同計画の R2a / R2b / R2c で管理する。通常スキャンの行集合の規則は維持し、RELINK-1 の完了時にこの実装状態を更新する。
+[ライブラリ変更計画](../plan/BeMusicSeeker-library-mutation-performance.md) の **RELINK-1** で、この除外と対応するテストを独立して変更する。R2aの局所行identity修正には含めず、DB処理の限定化はR2b、resource-health keyのexact identityはR2cで管理する。通常スキャンの行集合の規則は維持し、RELINK-1の完了時にこの実装状態を更新する。

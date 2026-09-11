@@ -9238,9 +9238,6 @@ public partial class BMSLibrary : ObservableObject
         return mutation;
     }
 
-    private static string CreateOwnedPathKey(string path)
-        => OwnedChartCollectionState.CreateOwnedPathKey(path);
-
     private StorageRowsVersionSnapshot CaptureStorageRowsVersionUnsafe()
     {
         lock (lockStorageRowsVersion)
@@ -9367,12 +9364,11 @@ public partial class BMSLibrary : ObservableObject
 
     private static string CreateKindPathRemoveKey(ChartFileKind kind, string path)
     {
-        string pathKey = CreateOwnedPathKey(path);
-        if (string.IsNullOrWhiteSpace(pathKey))
+        if (string.IsNullOrWhiteSpace(path))
         {
             return null;
         }
-        return kind + ":" + pathKey;
+        return kind + ":" + path;
     }
 
     private static bool HasBmsStorageRowCollectionChange(OwnedChartCollectionStorageMutation mutation)
@@ -9468,7 +9464,7 @@ public partial class BMSLibrary : ObservableObject
         }
         var bmsOwners = new HashSet<BMSFile>();
         var bmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>();
-        var pathKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pathKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (ChartFile chart in storageMutation.RemoveRequests
             .Select(request => request?.CreateChartSnapshot())
             .Where(chart => chart != null))
@@ -9996,13 +9992,15 @@ public partial class BMSLibrary : ObservableObject
         }
 
         List<ChartFile> addedChartList = [.. storageMutation.AddedCharts.Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
+        // catalogで実際に置換するexact行だけを旧hashの除去対象にする。
+        // FS正規化すると、別表記の追加でも残存ownerの所持数を減らしてしまう。
         var addedBmsPaths = new HashSet<string>(
-            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => CreateOwnedPathKey(chart.Path)).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
+            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bms).Select(chart => chart.Path),
+            StringComparer.Ordinal);
         var addedBmsonPaths = new HashSet<string>(
-            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bmson).Select(chart => CreateOwnedPathKey(chart.Path)).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        var addedPaths = new HashSet<string>(addedBmsPaths, StringComparer.OrdinalIgnoreCase);
+            addedChartList.Where(chart => chart.Kind == ChartFileKind.Bmson).Select(chart => chart.Path),
+            StringComparer.Ordinal);
+        var addedPaths = new HashSet<string>(addedBmsPaths, StringComparer.Ordinal);
         addedPaths.UnionWith(addedBmsonPaths);
         if (addedPaths.Count > 0)
         {
@@ -10020,7 +10018,7 @@ public partial class BMSLibrary : ObservableObject
                 {
                     continue;
                 }
-                string existingPathKey = CreateOwnedPathKey(existingRef.Path);
+                string existingPathKey = existingRef.Path;
                 if (existingRef.Kind == LibraryChartKind.Bms && addedBmsPaths.Contains(existingPathKey)
                     || existingRef.Kind == LibraryChartKind.Bmson && addedBmsonPaths.Contains(existingPathKey))
                 {

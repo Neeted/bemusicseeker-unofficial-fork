@@ -547,8 +547,8 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
     }
 
     /// <summary>
-    /// Commits relocation and removal rows as one durable catalog transaction.
-    /// The caller applies live storage and package state only after this method returns.
+    /// 移動・削除・追加を旧／新exact keyで一つのcatalog transactionへ反映します。
+    /// 呼出し側はcommit後にだけstorageとpackageを反映し、別表記の行を対象へ加えません。
     /// </summary>
     internal CatalogRelocationDbReceipt ReplaceAndRemoveLibraryMutationRows(
         CatalogRelocationRequest relocationRequest,
@@ -567,13 +567,13 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             .Where(replacement => replacement?.Song != null
                 && !string.IsNullOrWhiteSpace(replacement.Song.path)
                 && !string.IsNullOrWhiteSpace(replacement.OldPath))
-            .GroupBy(replacement => replacement.OldPath, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(replacement => replacement.OldPath, StringComparer.Ordinal)
             .Select(group => group.Last())];
         List<BmsonSongPathReplacement> bmsonRows = [.. (relocationRequest?.BmsonPathReplacements ?? [])
             .Where(replacement => replacement?.Song != null
                 && !string.IsNullOrWhiteSpace(replacement.Song.path)
                 && !string.IsNullOrWhiteSpace(replacement.OldPath))
-            .GroupBy(replacement => replacement.OldPath, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(replacement => replacement.OldPath, StringComparer.Ordinal)
             .Select(group => group.Last())];
         bool hasBmsRemoval = removalRequest != null
             && (removalRequest.RemovedBmsRows.Count > 0
@@ -682,7 +682,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         var directRemovalPaths = new HashSet<string>(StringComparer.Ordinal);
         var pathCleanupKeys = new HashSet<string>(
             removalRequest.BmsPathCleanupKeys ?? [],
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var maintenancePaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (BMSFile owner in removalRequest.RemovedBmsRows ?? [])
@@ -723,13 +723,13 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             rows.AddRange(songDb.Table<BMSFile>()
                 .AsEnumerable()
                 .Where(row => row != null
-                    && pathCleanupKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(row.path)))
+                    && pathCleanupKeys.Contains(row.path))
                 .Where(row => !protectedDestinationPaths.Contains(row.path))
                 .Where(row => selectedExactPaths.Add(row.path)));
             foreach (string path in songDb.Table<BMSFileMaintenanceInfo>()
                 .AsEnumerable()
                 .Where(row => row != null
-                    && pathCleanupKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(row.path)))
+                    && pathCleanupKeys.Contains(row.path))
                 .Where(row => !protectedDestinationPaths.Contains(row.path))
                 .Select(row => row.path))
             {
@@ -774,7 +774,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         var directRemovalPaths = new HashSet<string>(StringComparer.Ordinal);
         var pathCleanupKeys = new HashSet<string>(
             removalRequest.BmsonPathCleanupKeys ?? [],
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         bool hasMaintenanceTable = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
         var maintenancePaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (LR2SongDBExtended.bmson_song owner in removalRequest.RemovedBmsonRows ?? [])
@@ -811,7 +811,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             rows.AddRange(songDb.Table<LR2SongDBExtended.bmson_song>()
                 .AsEnumerable()
                 .Where(row => row != null
-                    && pathCleanupKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(row.path)))
+                    && pathCleanupKeys.Contains(row.path))
                 .Where(row => !protectedDestinationPaths.Contains(row.path))
                 .Where(row => selectedExactPaths.Add(row.path)));
             if (hasMaintenanceTable)
@@ -819,7 +819,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 foreach (string path in songDb.Table<BMSFileMaintenanceInfo>()
                     .AsEnumerable()
                     .Where(row => row != null
-                        && pathCleanupKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(row.path)))
+                        && pathCleanupKeys.Contains(row.path))
                     .Where(row => !protectedDestinationPaths.Contains(row.path))
                     .Select(row => row.path))
                 {

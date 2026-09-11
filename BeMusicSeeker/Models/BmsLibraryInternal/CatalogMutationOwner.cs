@@ -868,8 +868,8 @@ internal sealed class CatalogMutationOwner
             throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
         }
         if (!string.IsNullOrWhiteSpace(oldPath)
-            && !string.Equals(bmsFile.path, oldPath, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(bmsFile.path, newPath, StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(bmsFile.path, oldPath, StringComparison.Ordinal)
+            && !string.Equals(bmsFile.path, newPath, StringComparison.Ordinal))
         {
             throw new InvalidCastException(Resources.Error_OldPathMismatch);
         }
@@ -893,8 +893,8 @@ internal sealed class CatalogMutationOwner
             throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
         }
         if (!string.IsNullOrWhiteSpace(oldPath)
-            && !string.Equals(bmsonSong.path, oldPath, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(bmsonSong.path, newPath, StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(bmsonSong.path, oldPath, StringComparison.Ordinal)
+            && !string.Equals(bmsonSong.path, newPath, StringComparison.Ordinal))
         {
             throw new InvalidCastException(Resources.Error_OldPathMismatch);
         }
@@ -1360,7 +1360,7 @@ internal enum CatalogMutationApplyKind
 }
 
 /// <summary>
-/// Immutable input snapshot for catalog storage-row removal.
+/// owner参照と未加工の旧exact path集合を保持する、catalog行削除の入力snapshot。
 /// </summary>
 internal sealed class CatalogStorageRowsRemovalRequest
 {
@@ -1384,10 +1384,12 @@ internal sealed class CatalogStorageRowsRemovalRequest
 
     internal IReadOnlyList<BMSFile> RemovedBmsRows { get; }
 
+    /// <summary>明示的に削除対象とされたBMS行の未加工exact key。</summary>
     internal IReadOnlyList<string> BmsPathCleanupKeys { get; }
 
     internal IReadOnlyList<LR2SongDBExtended.bmson_song> RemovedBmsonRows { get; }
 
+    /// <summary>明示的に削除対象とされたBMSON行の未加工exact key。</summary>
     internal IReadOnlyList<string> BmsonPathCleanupKeys { get; }
 
     internal bool HasChanges => RemovedBmsRows.Count > 0
@@ -1401,9 +1403,9 @@ internal sealed class CatalogStorageRowsRemovalRequest
     {
         return Snapshot(requests
             .Where(request => request.Mode == OwnedChartRemoveMode.PathCleanup && request.Kind == kind)
-            .Select(request => OwnedChartCollectionState.CreateOwnedPathKey(request.Path))
+            .Select(request => request.Path)
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase));
+            .Distinct(StringComparer.Ordinal));
     }
 
     private static IReadOnlyList<T> Snapshot<T>(IEnumerable<T> values)

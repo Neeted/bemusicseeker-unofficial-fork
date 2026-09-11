@@ -34,12 +34,13 @@ internal sealed class ChartStorageTargetSet
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
+    /// <summary>確定した譜面のstorage ownerを集め、BMSONは同じexact path内だけで集約します。</summary>
     internal static ChartStorageTargetSet FromCharts(IEnumerable<ChartFile> charts)
     {
         List<BMSFile> bmsFiles = [];
         List<ChartFile> bmsCharts = [];
-        var bmsonSongsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
-        var bmsonChartsByPath = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
+        var bmsonSongsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.Ordinal);
+        var bmsonChartsByPath = new Dictionary<string, ChartFile>(StringComparer.Ordinal);
         foreach (ChartFile chart in charts ?? [])
         {
             if (chart == null)
@@ -86,6 +87,7 @@ internal sealed class ChartStorageTargetSet
         }
     }
 
+    /// <summary>指定されたexact pathごとのstorage行を、別keyを畳まず反映対象にします。</summary>
     internal static ChartStorageTargetSet FromRows(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
@@ -100,7 +102,7 @@ internal sealed class ChartStorageTargetSet
             ThrowIfInvalidStorageIdentity(file.path, file.hash);
             bmsFileList.Add(file);
         }
-        var bmsonSongsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        var bmsonSongsByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.Ordinal);
         foreach (LR2SongDBExtended.bmson_song bmsonSong in bmsonSongs ?? [])
         {
             if (bmsonSong != null)

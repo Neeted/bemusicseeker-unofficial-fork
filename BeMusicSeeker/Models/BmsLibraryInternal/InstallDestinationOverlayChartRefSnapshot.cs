@@ -43,7 +43,7 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
     {
         List<LibraryChartRef> refs = [.. (charts ?? [])
             .Where(chart => chart != null)
-            .GroupBy(CreateRuntimeKey, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(CreateRuntimeKey, StringComparer.Ordinal)
             .Where(group => !string.IsNullOrWhiteSpace(group.Key))
             .Select(group => group.First())];
         if (refs.Count == 0)

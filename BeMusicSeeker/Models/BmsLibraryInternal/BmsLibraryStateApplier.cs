@@ -173,8 +173,8 @@ internal sealed partial class PackageLifecycleOwner
             .Where(fact => fact.RemovalMode == OwnedChartRemoveMode.PathCleanup && fact.Kind == ChartFileKind.Bms)
             .Select(fact => fact.Path)
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Where(path => !protectedBmsPathKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(path)))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+            .Where(path => !protectedBmsPathKeys.Contains(path))
+            .Distinct(StringComparer.Ordinal)];
             if (bmsOwnerIdentityKeys.Count > 0 || bmsPathCleanupPaths.Count > 0)
             {
                 PruneInstalledPackagesForBmsFiles(bmsOwnerIdentityKeys, bmsPathCleanupPaths);
@@ -192,8 +192,8 @@ internal sealed partial class PackageLifecycleOwner
             .Where(fact => fact.RemovalMode == OwnedChartRemoveMode.PathCleanup && fact.Kind == ChartFileKind.Bmson)
             .Select(fact => fact.Path)
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Where(path => !protectedBmsonPathKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(path)))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+            .Where(path => !protectedBmsonPathKeys.Contains(path))
+            .Distinct(StringComparer.Ordinal)];
             if (bmsonOwnerIdentityKeys.Count > 0 || bmsonPathCleanupPaths.Count > 0)
             {
                 PruneInstalledPackagesForBmsonSongs(bmsonOwnerIdentityKeys, bmsonPathCleanupPaths);
@@ -217,7 +217,7 @@ internal sealed partial class PackageLifecycleOwner
                         fact.Md5,
                         fact.Sha256))
                     .Where(key => !string.IsNullOrWhiteSpace(key)),
-                StringComparer.OrdinalIgnoreCase);
+                StringComparer.Ordinal);
             foreach (CatalogRelocationPathFact pathFact in (pathFacts ?? [])
                 .Where(fact => fact?.Kind == kind))
             {
@@ -245,9 +245,10 @@ internal sealed partial class PackageLifecycleOwner
             string md5,
             string sha256)
         {
-            string pathKey = OwnedChartCollectionState.CreateOwnedPathKey(path) ?? string.Empty;
-            string md5Key = md5?.Trim() ?? string.Empty;
-            string sha256Key = sha256?.Trim() ?? string.Empty;
+            // hashの比較規則だけを維持し、複合key全体のcase foldで別のpath行を消さない。
+            string pathKey = path ?? string.Empty;
+            string md5Key = md5?.Trim().ToUpperInvariant() ?? string.Empty;
+            string sha256Key = sha256?.Trim().ToUpperInvariant() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(pathKey)
                 && string.IsNullOrWhiteSpace(md5Key)
                 && string.IsNullOrWhiteSpace(sha256Key))
@@ -267,10 +268,10 @@ internal sealed partial class PackageLifecycleOwner
                 return false;
             }
 
-            string removedPathKey = OwnedChartCollectionState.CreateOwnedPathKey(removedFact.Path);
-            string relocationOldPathKey = OwnedChartCollectionState.CreateOwnedPathKey(pathFact.OldPath);
+            string removedPathKey = removedFact.Path;
+            string relocationOldPathKey = pathFact.OldPath;
             bool samePath = !string.IsNullOrWhiteSpace(removedPathKey)
-                && string.Equals(removedPathKey, relocationOldPathKey, StringComparison.OrdinalIgnoreCase);
+                && string.Equals(removedPathKey, relocationOldPathKey, StringComparison.Ordinal);
             bool relocationHasDigest = !string.IsNullOrWhiteSpace(pathFact.Md5)
                 || !string.IsNullOrWhiteSpace(pathFact.Sha256);
             bool sameDigest = (!relocationHasDigest
@@ -290,9 +291,9 @@ internal sealed partial class PackageLifecycleOwner
                 (protectedPathFacts ?? [])
                     .Where(fact => fact?.Kind == kind)
                     .Where(fact => !(removalFacts ?? []).Any(removedFact => IsSameOwner(removedFact, fact)))
-                    .Select(fact => OwnedChartCollectionState.CreateOwnedPathKey(fact.NewPath))
+                    .Select(fact => fact.NewPath)
                     .Where(path => !string.IsNullOrWhiteSpace(path)),
-                StringComparer.OrdinalIgnoreCase);
+                StringComparer.Ordinal);
         }
 
         private void PruneInstalledPackagesForBmsFiles(IEnumerable<string> removedIdentityKeys, IEnumerable<string> pathCleanupPaths)
@@ -304,7 +305,7 @@ internal sealed partial class PackageLifecycleOwner
 
             HashSet<string> removedIdentityKeySet = new(
                 (removedIdentityKeys ?? []).Where(key => !string.IsNullOrWhiteSpace(key)),
-                StringComparer.OrdinalIgnoreCase);
+                StringComparer.Ordinal);
             List<string> pathCleanupList = [.. (pathCleanupPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
             if (removedIdentityKeySet.Count == 0 && pathCleanupList.Count == 0)
             {
@@ -312,8 +313,8 @@ internal sealed partial class PackageLifecycleOwner
             }
 
             var pathCleanupSet = new HashSet<string>(
-                pathCleanupList.Select(OwnedChartCollectionState.CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
-                StringComparer.OrdinalIgnoreCase);
+                pathCleanupList,
+                StringComparer.Ordinal);
             bool installedPackagesChanged = false;
             runPackageCollectionStateMutation(() =>
             {
@@ -353,7 +354,7 @@ internal sealed partial class PackageLifecycleOwner
 
             HashSet<string> removedIdentityKeySet = new(
                 (removedIdentityKeys ?? []).Where(key => !string.IsNullOrWhiteSpace(key)),
-                StringComparer.OrdinalIgnoreCase);
+                StringComparer.Ordinal);
             List<string> pathCleanupList = [.. (pathCleanupPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
             if (removedIdentityKeySet.Count == 0 && pathCleanupList.Count == 0)
             {
@@ -361,8 +362,8 @@ internal sealed partial class PackageLifecycleOwner
             }
 
             var pathCleanupSet = new HashSet<string>(
-                pathCleanupList.Select(OwnedChartCollectionState.CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
-                StringComparer.OrdinalIgnoreCase);
+                pathCleanupList,
+                StringComparer.Ordinal);
             bool installedPackagesChanged = false;
             runPackageCollectionStateMutation(() =>
             {
@@ -423,7 +424,7 @@ internal sealed partial class PackageLifecycleOwner
                 return true;
             }
 
-            string pathKey = OwnedChartCollectionState.CreateOwnedPathKey(chart.Path);
+            string pathKey = chart.Path;
             return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupPaths.Contains(pathKey);
         }
 
@@ -445,7 +446,7 @@ internal sealed partial class PackageLifecycleOwner
                 return true;
             }
 
-            string pathKey = OwnedChartCollectionState.CreateOwnedPathKey(chart.Path);
+            string pathKey = chart.Path;
             return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupPaths.Contains(pathKey);
         }
     }

@@ -767,6 +767,72 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// generic／installの両upsertで別exact keyを保持し、複数BMSONの入力を畳みません。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("CHART", false, false)]
+    [DataRow("other", false, false)]
+    [DataRow(".\\chart", false, false)]
+    [DataRow("CHART", true, false)]
+    [DataRow("other", true, false)]
+    [DataRow("CHART", false, true)]
+    [DataRow("CHART", true, true)]
+    public void ApplyInstalledTargetUpsert_PreservesEveryExactKey(string siblingName, bool generic, bool replaceBoth)
+    {
+        BmsLibraryStateApplierTestSupport.WithTemporarySongDb(songDbPath =>
+        {
+            var oldBms = CreateBms("chart.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            var keptBms = CreateBms(siblingName + ".bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            keptBms.favorite = 7;
+            keptBms.tag = "preserved";
+            var oldBmson = CreateBmson("chart.bmson", "cccccccccccccccccccccccccccccccc");
+            var keptBmson = CreateBmson(siblingName + ".bmson", "dddddddddddddddddddddddddddddddd");
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDBExtended.bmson_song>();
+                db.InsertOrReplace(oldBms, typeof(LR2SongDB.song));
+                db.InsertOrReplace(keptBms, typeof(LR2SongDB.song));
+                db.InsertOrReplace(oldBmson, typeof(LR2SongDBExtended.bmson_song));
+                db.InsertOrReplace(keptBmson, typeof(LR2SongDBExtended.bmson_song));
+            }
+            var storage = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initial = storage.ReplaceRowsAndCaptureSnapshot([oldBms, keptBms], [oldBmson, keptBmson]);
+            var owned = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(owned.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([oldBms, keptBms], [oldBmson, keptBmson]),
+                initial.BmsRowsVersion, initial.BmsonRowsVersion));
+            var owner = new CatalogMutationOwner(storage, owned, new BmsLibraryDbGateway(songDbPath));
+            var addedBms = CreateBms("chart.bms", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+            var addedBmson = CreateBmson("chart.bmson", "ffffffffffffffffffffffffffffffff");
+            BMSFile[] bmsInput = replaceBoth ? [addedBms, keptBms] : [addedBms];
+            LR2SongDBExtended.bmson_song[] bmsonInput = replaceBoth ? [addedBmson, keptBmson] : [addedBmson];
+
+            if (generic)
+            {
+                Assert.IsTrue(owner.ApplyCatalogMutation(new LibraryMutationDelta(), [], bmsInput, bmsonInput).Applied);
+            }
+            else
+            {
+                Assert.IsTrue(owner.ApplyInstalledTargetUpsert(bmsInput, bmsonInput).Applied);
+            }
+
+            CollectionAssert.AreEquivalent(new[] { addedBms, keptBms }, storage.BmsRows.ToArray());
+            CollectionAssert.AreEquivalent(new[] { addedBmson, keptBmson }, storage.BmsonRows.ToArray());
+            CollectionAssert.AreEquivalent(new[] { addedBms.path, keptBms.path, addedBmson.path, keptBmson.path }, owned.Collection.CreatePathSnapshot());
+            using var readback = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(2, readback.Table<LR2SongDB.song>().Count());
+            Assert.AreEqual(2, readback.Table<LR2SongDBExtended.bmson_song>().Count());
+            Assert.AreEqual(addedBms.hash, readback.Find<LR2SongDB.song>(addedBms.path).hash);
+            Assert.AreEqual(keptBms.hash, readback.Find<LR2SongDB.song>(keptBms.path).hash);
+            Assert.AreEqual(7, readback.Find<LR2SongDB.song>(keptBms.path).favorite);
+            Assert.AreEqual("preserved", readback.Find<LR2SongDB.song>(keptBms.path).tag);
+            Assert.AreEqual(addedBmson.md5, readback.Find<LR2SongDBExtended.bmson_song>(addedBmson.path).md5);
+            Assert.AreEqual(keptBmson.md5, readback.Find<LR2SongDBExtended.bmson_song>(keptBmson.path).md5);
+        });
+    }
+
     [TestMethod]
     public void ApplyInstalledTargetUpsert_RejectsStaleRequestBeforeChangingRows()
     {

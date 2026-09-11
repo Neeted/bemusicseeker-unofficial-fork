@@ -639,7 +639,8 @@ internal sealed partial class LibraryFileOperationOwner
         }
         delta.Failures.AddRange(execution.Failures);
         HashSet<string> deletedFolders = new(execution.DeletedFolderPaths, StringComparer.OrdinalIgnoreCase);
-        var clearedInstallTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Deleted folders use filesystem identity; the follow-up state targets are exact catalog rows.
+        var clearedInstallTargets = new HashSet<string>(StringComparer.Ordinal);
         foreach (LibraryChartRemovalInstallDestinationTarget target in plan.InstallDestinationTargets ?? [])
         {
             if (target == null || !deletedFolders.Contains(target.FolderPath))
@@ -1561,7 +1562,7 @@ internal sealed partial class LibraryFileOperationOwner
         return binding != null
             && target != null
             && binding.Kind == target.Kind
-            && string.Equals(binding.Path, target.Path, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(binding.Path, target.Path, StringComparison.Ordinal)
             && string.Equals(binding.Md5 ?? string.Empty, target.Md5 ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             && string.Equals(binding.Sha256 ?? string.Empty, target.Sha256 ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }
@@ -1573,7 +1574,7 @@ internal sealed partial class LibraryFileOperationOwner
         return chart != null
             && target != null
             && (chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms) == target.Kind
-            && string.Equals(chart.Path, target.Path, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(chart.Path, target.Path, StringComparison.Ordinal)
             && string.Equals(chart.Md5 ?? string.Empty, target.Md5 ?? string.Empty, StringComparison.OrdinalIgnoreCase)
             && string.Equals(chart.Sha256 ?? string.Empty, target.Sha256 ?? string.Empty, StringComparison.OrdinalIgnoreCase);
     }

@@ -217,10 +217,9 @@ internal sealed partial class LibraryFileOperationOwner
         IEnumerable<ChartFile> sourceCharts,
         string sourceDirectory)
     {
-        var detachedBmsByCanonical = new Dictionary<BMSFile, BMSFile>();
-        var detachedBmsonByCanonical = new Dictionary<LR2SongDBExtended.bmson_song, LR2SongDBExtended.bmson_song>();
         var canonicalBmsByDetached = new Dictionary<BMSFile, BMSFile>();
         var canonicalBmsonByDetached = new Dictionary<LR2SongDBExtended.bmson_song, LR2SongDBExtended.bmson_song>();
+        var sourceFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         List<PackageChartEntry> entries = [];
         foreach (ChartFile sourceChart in sourceCharts ?? [])
         {
@@ -229,31 +228,33 @@ internal sealed partial class LibraryFileOperationOwner
             {
                 continue;
             }
+            // 起動時scanを省略した旧DBではdot別表記も残る。物理packageのpathを
+            // component列挙と揃え、同じ実ファイルの二重予約を防ぐ。旧exact keyは
+            // canonical ownerとpreparedSourceChartsに残し、catalog deltaだけで扱う。
+            string sourceFilePath = LongPathFileSystem.NormalizePathForStorage(chartSnapshot.Path);
+            if (!sourceFilePaths.Add(sourceFilePath))
+            {
+                continue;
+            }
 
             ChartFile detachedChart = chartSnapshot;
             BMSFile canonicalBmsFile = sourceChart.GetBmsStorageOwner();
             if (canonicalBmsFile != null)
             {
-                if (!detachedBmsByCanonical.TryGetValue(canonicalBmsFile, out BMSFile detachedBmsFile))
-                {
-                    detachedBmsFile = canonicalBmsFile.CreateSongRowPersistenceCopy();
-                    detachedBmsByCanonical[canonicalBmsFile] = detachedBmsFile;
-                    canonicalBmsByDetached[detachedBmsFile] = canonicalBmsFile;
-                }
-                detachedChart = CreateDetachedChart(chartSnapshot, detachedBmsFile, null);
+                BMSFile detachedBmsFile = canonicalBmsFile.CreateSongRowPersistenceCopy();
+                detachedBmsFile.path = sourceFilePath;
+                canonicalBmsByDetached[detachedBmsFile] = canonicalBmsFile;
+                detachedChart = CreateDetachedChart(chartSnapshot, sourceFilePath, detachedBmsFile, null);
             }
             else
             {
                 LR2SongDBExtended.bmson_song canonicalBmsonSong = sourceChart.GetBmsonStorageOwner();
                 if (canonicalBmsonSong != null)
                 {
-                    if (!detachedBmsonByCanonical.TryGetValue(canonicalBmsonSong, out LR2SongDBExtended.bmson_song detachedBmsonSong))
-                    {
-                        detachedBmsonSong = CreateBmsonPersistenceCopy(canonicalBmsonSong);
-                        detachedBmsonByCanonical[canonicalBmsonSong] = detachedBmsonSong;
-                        canonicalBmsonByDetached[detachedBmsonSong] = canonicalBmsonSong;
-                    }
-                    detachedChart = CreateDetachedChart(chartSnapshot, null, detachedBmsonSong);
+                    LR2SongDBExtended.bmson_song detachedBmsonSong = CreateBmsonPersistenceCopy(canonicalBmsonSong);
+                    detachedBmsonSong.path = sourceFilePath;
+                    canonicalBmsonByDetached[detachedBmsonSong] = canonicalBmsonSong;
+                    detachedChart = CreateDetachedChart(chartSnapshot, sourceFilePath, null, detachedBmsonSong);
                 }
             }
 
@@ -265,7 +266,7 @@ internal sealed partial class LibraryFileOperationOwner
         }
 
         ChartPackage package = ChartPackage.FromChartEntries(entries);
-        package.path = sourceDirectory;
+        package.path = LongPathFileSystem.NormalizePathForStorage(sourceDirectory);
         package.delete_parent = false;
         return new DetachedMergePackage(
             package,
@@ -275,12 +276,13 @@ internal sealed partial class LibraryFileOperationOwner
 
     private static ChartFile CreateDetachedChart(
         ChartFile source,
+        string sourceFilePath,
         BMSFile bmsFile,
         LR2SongDBExtended.bmson_song bmsonSong)
     {
         return new ChartFile(
             source.Kind,
-            source.Path,
+            sourceFilePath,
             source.Md5,
             source.Sha256,
             source.Title,
@@ -420,14 +422,14 @@ internal sealed partial class LibraryFileOperationOwner
             (preparedSourceCharts ?? [])
                 .Select(chart => chart?.GetBmsStorageOwner()?.path)
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         HashSet<string> sourceBmsonPaths = new(
             (preparedSourceCharts ?? [])
                 .Select(chart => chart?.GetBmsonStorageOwner()?.path)
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        HashSet<string> movedBmsSourcePaths = new(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> movedBmsonSourcePaths = new(StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
+        HashSet<string> movedBmsSourcePaths = new(StringComparer.Ordinal);
+        HashSet<string> movedBmsonSourcePaths = new(StringComparer.Ordinal);
 
         foreach (BMSFile movedBmsFile in movedTargets?.BmsFiles ?? [])
         {

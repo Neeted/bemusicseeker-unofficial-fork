@@ -155,6 +155,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(0, snapshot.Count);
     }
 
+    /// <summary>指定したexact keyだけを投影し、同じFSへ解決する別表記を対象へ加えません。</summary>
     [TestMethod]
     public void CreateSnapshotForPaths_ProjectsOnlyRequestedPaths()
     {
@@ -165,7 +166,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([firstBms, secondBms], [targetBmson]);
 
         List<ChartFile> snapshot = state.CreateSnapshotForPaths(
-            [Path.Combine("C:\\Installed", "Target", ".", "first.bms"), targetBmson.path, targetBmson.path],
+            [firstBms.path, targetBmson.path, targetBmson.path],
             includeWarningSnapshot: false,
             includeResourceReferences: false,
             includeScoreSnapshot: false);
@@ -174,6 +175,12 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), firstBms)));
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), targetBmson)));
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), secondBms)));
+
+        Assert.AreEqual(0, state.CreateSnapshotForPaths(
+            [Path.Combine("C:\\Installed", "Target", ".", "first.bms")],
+            includeWarningSnapshot: false,
+            includeResourceReferences: false,
+            includeScoreSnapshot: false).Count);
     }
 
     [TestMethod]
@@ -396,6 +403,7 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         CollectionAssert.AreEqual(new[] { sharedDirectory, nestedDirectory }, directories);
     }
 
+    /// <summary>行のexact lookupと、directory探索の既存正規化を区別します。</summary>
     [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ResolvesPathOnlyAndCountsRealPathSubtree()
     {
@@ -410,13 +418,17 @@ public sealed class OwnedChartCollectionReferenceIndexTests
 
         LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
         CanonicalChartResolveResult resolveResult = index.ResolveCanonicalCharts([
-            LibraryChartRef.FromPath(LibraryChartKind.Bms, Path.Combine(targetDirectory, ".", "direct.bms"), directBms.hash, directBms.sha256),
+            LibraryChartRef.FromPath(LibraryChartKind.Bms, directBms.path, directBms.hash, directBms.sha256),
             LibraryChartRef.FromPath(LibraryChartKind.Bmson, bmsonSong.path, bmsonSong.md5, bmsonSong.sha256)
         ]);
 
         Assert.AreEqual(2, resolveResult.CanonicalCharts.Count);
         Assert.AreSame(directBms, resolveResult.CanonicalCharts.Single(chart => chart.Kind == LibraryChartKind.Bms).GetBmsStorageOwner());
         Assert.AreSame(bmsonSong, resolveResult.CanonicalCharts.Single(chart => chart.Kind == LibraryChartKind.Bmson).GetBmsonStorageOwner());
+        Assert.AreEqual(0, index.ResolveCanonicalCharts([
+            LibraryChartRef.FromPath(LibraryChartKind.Bms, Path.Combine(targetDirectory, ".", "direct.bms"), directBms.hash, directBms.sha256)
+        ]).CanonicalCharts.Count);
+        Assert.AreEqual(3, index.CountChartRefsUnderRealPath(Path.Combine(targetDirectory.ToUpperInvariant(), "."), null));
         Assert.AreEqual(3, index.CountChartRefsUnderRealPath(targetDirectory, null));
         Assert.AreEqual(2, index.CountChartRefsUnderRealPath(targetDirectory, new HashSet<string>([directBms.path], StringComparer.OrdinalIgnoreCase)));
         Assert.AreEqual(3, index.GetChartRefsUnderRealPath(targetDirectory).Count);

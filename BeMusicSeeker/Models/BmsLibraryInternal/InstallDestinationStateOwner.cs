@@ -14,7 +14,7 @@ internal sealed class InstallDestinationStateOwner
 
     private readonly CatalogStorageRowsOwner storageRowsOwner;
 
-    private readonly Dictionary<string, InstallDestinationRuntimeStateEntry> runtimeStatesByKey = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, InstallDestinationRuntimeStateEntry> runtimeStatesByKey = new(StringComparer.Ordinal);
 
     private readonly Func<HashSet<string>> currentOwnedRuntimeStateKeySnapshotProvider;
 
@@ -138,7 +138,7 @@ internal sealed class InstallDestinationStateOwner
         LibraryMutationDelta delta,
         IReadOnlyCollection<LibraryChartPathChange> pathChanges)
     {
-        var chartsByKey = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
+        var chartsByKey = new Dictionary<string, ChartFile>(StringComparer.Ordinal);
         foreach (ChartFile chart in delta?.CreateAppliedInstallDestinationChartSnapshots() ?? [])
         {
             AddChangedChart(chartsByKey, chart);
@@ -213,10 +213,7 @@ internal sealed class InstallDestinationStateOwner
 
     private static bool AreResidualPathsEqual(string left, string right)
     {
-        return string.Equals(
-            OwnedChartCollectionState.CreateOwnedPathKey(left),
-            OwnedChartCollectionState.CreateOwnedPathKey(right),
-            StringComparison.OrdinalIgnoreCase);
+        return string.Equals(left, right, StringComparison.Ordinal);
     }
 
     private static ChartFile CreatePackageStateChart(ChartFile source, ChartFile ownerProjection)
@@ -256,7 +253,7 @@ internal sealed class InstallDestinationStateOwner
 
     private static IEnumerable<string> EnumerateRuntimeStateKeys(ChartFile chart)
     {
-        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (InstallDestinationRuntimeStateKey key in EnumerateChartRuntimeStateLookupKeys(chart))
         {
             if (seenKeys.Add(key.Key))
@@ -303,7 +300,7 @@ internal sealed class InstallDestinationStateOwner
         // Keep an owner-guarded path key so the overlay survives that owner refresh
         // without leaking to a different chart later installed at the same path.
         string pathKey = ChartFileRuntimeStateKey.CreatePathKey(chart);
-        if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, StringComparison.Ordinal))
         {
             yield return new InstallDestinationRuntimeStateKey(pathKey, requireOwnerMatch: true);
         }
@@ -393,7 +390,7 @@ internal sealed class InstallDestinationStateOwner
         }
         foreach (InstallDestinationRuntimeStateKey oldKey in oldKeys)
         {
-            if (!newKeys.Any(key => string.Equals(key.Key, oldKey.Key, StringComparison.OrdinalIgnoreCase)))
+            if (!newKeys.Any(key => string.Equals(key.Key, oldKey.Key, StringComparison.Ordinal)))
             {
                 runtimeStatesByKey.Remove(oldKey.Key);
             }

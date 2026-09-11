@@ -506,6 +506,206 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// 読込み済みの複数exact source行を実mergeで処理し、確定した物理配置とcatalogを揃えます。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(false, true, false)]
+    [DataRow(false, false, true)]
+    [DataRow(false, true, true)]
+    [DataRow(true, false, false)]
+    [DataRow(true, true, false)]
+    [DataRow(true, false, true)]
+    [DataRow(true, true, true)]
+    public void MergeChartDirectory_ConsumesEveryConfirmedExactSourceKey(bool bmson, bool caseVariant, bool destinationExists)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            string extension = bmson ? ".bmson" : ".bms";
+            string firstPath = Path.Combine(source, "chart" + extension);
+            string secondPath = Path.Combine(source, (caseVariant ? "CHART" : "other") + extension);
+            string existingPath = Path.Combine(destination, "chart" + extension);
+            string content = bmson ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"exact merge\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}"
+                : "#PLAYER 1\r\n#TITLE exact merge\r\n#00111:01\r\n";
+            File.WriteAllText(firstPath, content);
+            if (!caseVariant)
+            {
+                File.WriteAllText(secondPath, content);
+            }
+            if (destinationExists)
+            {
+                File.WriteAllText(existingPath, content);
+            }
+            string[] inputPaths = destinationExists ? [firstPath, secondPath, existingPath] : [firstPath, secondPath];
+            List<BMSFile> bmsRows = bmson ? [] : [.. inputPaths.Select(path => BMSFile.CreateBMSFileFromFile(path))];
+            List<LR2SongDBExtended.bmson_song> bmsonRows = bmson ? [.. inputPaths.Select(path => BmsonSongParser.Parse(path))] : [];
+            if (destinationExists && !bmson)
+            {
+                bmsRows.Last().favorite = 7;
+                bmsRows.Last().tag = "destination-user-tag";
+            }
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                foreach (BMSFile row in bmsRows)
+                {
+                    db.InsertOrReplace(row, typeof(LR2SongDB.song));
+                }
+                foreach (LR2SongDBExtended.bmson_song row in bmsonRows)
+                {
+                    db.InsertOrReplace(row, typeof(LR2SongDBExtended.bmson_song));
+                }
+                foreach (string path in inputPaths)
+                {
+                    db.InsertOrReplace(new BMSFileMaintenanceInfo { path = path }, typeof(LR2SongDBExtended.maintenance));
+                }
+            }
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles = bmsRows,
+                BmsonSongs = bmsonRows
+            };
+
+            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1);
+
+            Assert.IsTrue(receipt.MergeApplied, receipt.MutationReceipt?.Failure?.ToString() ?? receipt.MutationReceipt?.FinalizationFailure?.ToString());
+            Assert.IsFalse(Directory.Exists(source));
+            string[] currentPaths = Directory.GetFiles(destination, "*" + extension);
+            Assert.IsTrue(currentPaths.Length > 0);
+            foreach (string path in currentPaths)
+            {
+                Assert.AreEqual(content, File.ReadAllText(path));
+            }
+            CollectionAssert.AreEquivalent(currentPaths, bmson
+                ? library.BmsonSongs.Select(row => row.path).ToArray()
+                : library.BMSFiles.Select(row => row.path).ToArray());
+            using var readback = new LR2SongDBExtended(songDbPath);
+            CollectionAssert.AreEquivalent(currentPaths, bmson
+                ? readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray()
+                : readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+            Assert.IsNull(readback.Find<LR2SongDBExtended.maintenance>(firstPath));
+            Assert.IsNull(readback.Find<LR2SongDBExtended.maintenance>(secondPath));
+            if (destinationExists && !bmson)
+            {
+                Assert.AreEqual(7, readback.Find<LR2SongDB.song>(existingPath).favorite);
+                Assert.AreEqual("destination-user-tag", readback.Find<LR2SongDB.song>(existingPath).tag);
+            }
+        });
+    }
+
+    /// <summary>
+    /// スキャンを省略する通常起動で読んだ旧pathをmergeし、物理配置と全旧行のcleanupを確認します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(false, true, false)]
+    [DataRow(false, true, true)]
+    [DataRow(true, false, false)]
+    [DataRow(true, true, false)]
+    [DataRow(true, true, true)]
+    public void MergeChartDirectory_AfterStartupWithoutFileScanConsumesDotAliasRows(
+        bool bmson, bool includePlainRow, bool dotFirst)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            string extension = bmson ? ".bmson" : ".bms";
+            string plainPath = Path.Combine(source, "chart" + extension);
+            string dotPath = Path.Combine(source, ".", "chart" + extension);
+            string sourceSharedPath = Path.Combine(source, "shared" + extension);
+            string destinationSharedPath = Path.Combine(destination, "shared" + extension);
+            string destinationChartPath = Path.Combine(destination, "chart" + extension);
+            string content = bmson
+                ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"unique chart\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}"
+                : "#PLAYER 1\r\n#TITLE unique chart\r\n#00111:01\r\n";
+            string sharedContent = content.Replace("unique chart", "shared chart", StringComparison.Ordinal);
+            File.WriteAllText(plainPath, content);
+            File.WriteAllText(sourceSharedPath, sharedContent);
+            File.WriteAllText(destinationSharedPath, sharedContent);
+            string[] oldPaths = !includePlainRow ? [dotPath]
+                : dotFirst ? [dotPath, plainPath] : [plainPath, dotPath];
+            string[] inputPaths = [.. oldPaths, sourceSharedPath, destinationSharedPath];
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                foreach (string path in inputPaths)
+                {
+                    // parserのI/O正規化とは分けて、起動前に存在する旧DBのraw keyを保存する。
+                    if (bmson)
+                    {
+                        LR2SongDBExtended.bmson_song row = BmsonSongParser.Parse(path);
+                        row.path = path;
+                        setup.InsertOrReplace(row, typeof(LR2SongDBExtended.bmson_song));
+                    }
+                    else
+                    {
+                        BMSFile row = BMSFile.CreateBMSFileFromFile(path);
+                        row.path = path;
+                        setup.InsertOrReplace(row, typeof(LR2SongDB.song));
+                    }
+                    setup.InsertOrReplace(new BMSFileMaintenanceInfo { path = path }, typeof(LR2SongDBExtended.maintenance));
+                }
+            }
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = false,
+                ScanBmsFilesOnStartup = false,
+                PendingInstallEstimateMaxParallelPackages = 1
+            };
+            var library = new TestBmsLibrary(songDbPath, null, null,
+                new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options)
+            {
+                SearchTargets = [root],
+                StartupBackgroundTaskScheduler = (_, _, _, _) => false
+            };
+            try
+            {
+                library.InitializeStartup(null);
+                CollectionAssert.AreEquivalent(inputPaths, bmson
+                    ? library.BmsonSongs.Select(row => row.path).ToArray()
+                    : library.BMSFiles.Select(row => row.path).ToArray());
+                library.SearchDuplicateChartGroups();
+                Assert.IsTrue(library.DuplicateChartGroups.Any(group =>
+                    group.Folders.Contains(source) && group.Folders.Contains(destination)));
+
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1);
+
+                Assert.IsTrue(receipt.MergeApplied, receipt.MutationReceipt?.Failure?.ToString() ?? receipt.MutationReceipt?.FinalizationFailure?.ToString());
+                Assert.IsFalse(Directory.Exists(source));
+                string[] expectedPaths = [destinationChartPath, destinationSharedPath];
+                CollectionAssert.AreEquivalent(expectedPaths, Directory.GetFiles(destination, "*" + extension, System.IO.SearchOption.AllDirectories));
+                Assert.AreEqual(content, File.ReadAllText(destinationChartPath));
+                Assert.AreEqual(sharedContent, File.ReadAllText(destinationSharedPath));
+                CollectionAssert.AreEquivalent(expectedPaths, bmson
+                    ? library.BmsonSongs.Select(row => row.path).ToArray()
+                    : library.BMSFiles.Select(row => row.path).ToArray());
+                using var readback = new LR2SongDBExtended(songDbPath);
+                CollectionAssert.AreEquivalent(expectedPaths, bmson
+                    ? readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray()
+                    : readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                foreach (string oldPath in oldPaths.Append(sourceSharedPath))
+                {
+                    Assert.IsNull(readback.Find<LR2SongDBExtended.maintenance>(oldPath));
+                }
+            }
+            finally
+            {
+                library.RequestShutdown("dot-alias-merge-test");
+            }
+        });
+    }
+
     [TestMethod]
     public void MergeChartDirectory_BmsonOnly_ReRegistersSongAtDestination()
     {

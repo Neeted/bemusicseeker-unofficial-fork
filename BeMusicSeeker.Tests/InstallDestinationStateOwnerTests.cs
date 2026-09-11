@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class InstallDestinationStateOwnerTests
 {
     [TestMethod]
-    public void ReattachFileScanResidualInstallDestinationCharts_PrefersHashAndPreservesProjection()
+    public void ReattachFileScanResidualInstallDestinationCharts_UsesExactPathWhenAliasHashMatches()
     {
         string path = "C:\\Library\\Chart.bms";
         var pathCandidate = CreateBms(path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -27,7 +27,7 @@ public sealed class InstallDestinationStateOwnerTests
 
         ChartFile reattached = owner.ReattachFileScanResidualInstallDestinationCharts([detached]).Single();
 
-        Assert.AreSame(hashCandidate, reattached.GetBmsStorageOwner());
+        Assert.AreSame(pathCandidate, reattached.GetBmsStorageOwner());
         Assert.AreEqual("C:\\Install\\Chart", reattached.InstallDestination);
         Assert.AreEqual("Overlay title", reattached.InstallDestinationTitle);
     }
@@ -78,6 +78,55 @@ public sealed class InstallDestinationStateOwnerTests
     }
 
     [TestMethod]
+    public void OverlayRuntimeStates_UsesExactPathAndCaseInsensitiveHash()
+    {
+        string path = "C:\\Library\\Chart.bms";
+        string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var storageOwner = CreateBms(path, hash);
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        storageRowsOwner.ReplaceBmsRows([storageOwner]);
+        var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
+        var mutation = new InstallDestinationRuntimeStateMutation();
+        mutation.AppliedCharts.Add(CreateOwnedBmsChart(storageOwner, "C:\\Install\\Exact"));
+        owner.Apply(mutation);
+
+        ChartFile exactChart = ChartFileProjection.FromBmsFile(
+            CreateBms(path, hash.ToUpperInvariant()),
+            includeWarningSnapshot: false,
+            includeResourceReferences: false);
+        ChartFile aliasChart = ChartFileProjection.FromBmsFile(
+            CreateBms(path.ToLowerInvariant(), hash),
+            includeWarningSnapshot: false,
+            includeResourceReferences: false);
+
+        ChartFile exactOverlay = owner.OverlayRuntimeStates([exactChart]).Single();
+        ChartFile aliasOverlay = owner.OverlayRuntimeStates([aliasChart]).Single();
+
+        Assert.AreEqual("C:\\Install\\Exact", exactOverlay.InstallDestination);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(aliasOverlay.InstallDestination));
+    }
+
+    [TestMethod]
+    public void CreateOverlaySnapshot_PreservesCaseOnlyRowsWithSameHash()
+    {
+        string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var first = CreateBms("C:\\Library\\Chart.bms", hash);
+        var second = CreateBms("C:\\Library\\chart.bms", hash);
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        storageRowsOwner.ReplaceBmsRows([first, second]);
+        var owner = new InstallDestinationStateOwner(storageRowsOwner, () => []);
+        var mutation = new InstallDestinationRuntimeStateMutation();
+        mutation.AppliedCharts.Add(CreateOwnedBmsChart(first, "C:\\Install\\First"));
+        mutation.AppliedCharts.Add(CreateOwnedBmsChart(second, "C:\\Install\\Second"));
+        owner.Apply(mutation);
+
+        InstallDestinationOverlayChartRefSnapshot snapshot = owner.CreateOverlaySnapshot(out bool wasCached);
+
+        Assert.IsFalse(wasCached);
+        Assert.AreEqual(2, snapshot.ChartCount);
+    }
+
+    [TestMethod]
     public void ReattachFileScanResidualInstallDestinationCharts_DropsOwnerlessSnapshot()
     {
         var storageRowsOwner = new CatalogStorageRowsOwner();
@@ -91,6 +140,17 @@ public sealed class InstallDestinationStateOwnerTests
         IReadOnlyList<ChartFile> reattached = owner.ReattachFileScanResidualInstallDestinationCharts([detached]);
 
         Assert.AreEqual(0, reattached.Count);
+    }
+
+    private static ChartFile CreateOwnedBmsChart(BMSFile owner, string installDestination)
+    {
+        return ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(owner, includeWarningSnapshot: false, includeResourceReferences: false),
+            installDestination,
+            string.Empty,
+            string.Empty,
+            [],
+            []);
     }
 
     private static ChartFile CreateDetachedBmsChart(

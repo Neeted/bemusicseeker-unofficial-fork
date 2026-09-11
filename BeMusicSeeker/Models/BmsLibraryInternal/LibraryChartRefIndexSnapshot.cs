@@ -613,7 +613,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
 
     private static Dictionary<string, int> BuildStorageOrder(IEnumerable<ChartFile> charts)
     {
-        var orderByIdentity = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var orderByIdentity = new Dictionary<string, int>(StringComparer.Ordinal);
         int order = 0;
         foreach (ChartFile chart in charts ?? [])
         {
@@ -948,18 +948,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
 
     private static string CreatePathKey(string path)
     {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-        try
-        {
-            return Path.GetFullPath(path.Trim());
-        }
-        catch
-        {
-            return path.Trim();
-        }
+        return string.IsNullOrWhiteSpace(path) ? null : path;
     }
 
     private static string CreateDirectoryKey(string path)
@@ -968,7 +957,8 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         {
             return null;
         }
-        string pathKey = CreatePathKey(path);
+        // directory探索の正規化は維持し、行lookupのexact keyとは分ける。
+        string pathKey = OwnedChartCollectionState.CreateOwnedPathKey(path);
         if (string.IsNullOrWhiteSpace(pathKey))
         {
             return null;

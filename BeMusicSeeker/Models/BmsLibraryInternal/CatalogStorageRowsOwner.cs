@@ -90,6 +90,7 @@ internal sealed class CatalogStorageRowsOwner
         }
     }
 
+    /// <summary>導入が確定した行を未加工exact pathで置換し、別keyの既存ownerを保持します。</summary>
     internal StorageRowsVersionSnapshot ApplyInstalledTargets(ChartStorageTargetSet addedTargets)
     {
         if (addedTargets == null)
@@ -107,11 +108,11 @@ internal sealed class CatalogStorageRowsOwner
                 {
                     var addedBmsPathSet = new HashSet<string>(
                         addedTargets.BmsFiles
-                            .Select(file => CreateOwnedPathKey(file?.path))
+                            .Select(file => file?.path)
                             .Where(path => !string.IsNullOrWhiteSpace(path)),
-                        StringComparer.OrdinalIgnoreCase);
+                        StringComparer.Ordinal);
                     bmsRows = [.. (bmsRows ?? [])
-                        .Where(file => file != null && !addedBmsPathSet.Contains(CreateOwnedPathKey(file.path))),
+                        .Where(file => file != null && !addedBmsPathSet.Contains(file.path)),
                         .. addedTargets.BmsFiles];
                     IncrementBmsRowsVersion();
                 }
@@ -119,11 +120,11 @@ internal sealed class CatalogStorageRowsOwner
                 {
                     var nextBmsonByPath = (bmsonRows ?? [])
                         .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                        .GroupBy(song => CreateOwnedPathKey(song.path), StringComparer.OrdinalIgnoreCase)
-                        .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+                        .GroupBy(song => song.path, StringComparer.Ordinal)
+                        .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
                     foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedTargets.BmsonSongs)
                     {
-                        nextBmsonByPath[CreateOwnedPathKey(addedBmsonSong.path)] = addedBmsonSong;
+                        nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
                     }
                     bmsonRows = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
                     IncrementBmsonRowsVersion();
@@ -138,9 +139,9 @@ internal sealed class CatalogStorageRowsOwner
     }
 
     /// <summary>
-    /// Applies one catalog command's relocation and removal effects to the live storage rows.
-    /// Each storage kind advances its version at most once for the command, even when a
-    /// relocation and removal are combined.
+    /// 一つのcatalog commandの旧／新exact keyを使ってlive storage行へ反映します。
+    /// 移動先は同じexact keyのcleanupから保護し、別keyの削除は妨げません。
+    /// 移動と削除を組み合わせた場合も、各形式のversionを一回だけ進めます。
     /// </summary>
     internal StorageRowsVersionSnapshot ApplyCatalogMutation(
         bool bmsRowsRelocated,
@@ -162,7 +163,7 @@ internal sealed class CatalogStorageRowsOwner
                     removalRequest?.RemovedBmsRows ?? []);
                 var bmsPathCleanupKeys = new HashSet<string>(
                     removalRequest?.BmsPathCleanupKeys ?? [],
-                    StringComparer.OrdinalIgnoreCase);
+                    StringComparer.Ordinal);
                 bmsPathCleanupKeys.ExceptWith(CreateProtectedPathKeys(
                     protectedPathFacts,
                     ChartFileKind.Bms));
@@ -170,7 +171,7 @@ internal sealed class CatalogStorageRowsOwner
                     removalRequest?.RemovedBmsonRows ?? []);
                 var bmsonPathCleanupKeys = new HashSet<string>(
                     removalRequest?.BmsonPathCleanupKeys ?? [],
-                    StringComparer.OrdinalIgnoreCase);
+                    StringComparer.Ordinal);
                 bmsonPathCleanupKeys.ExceptWith(CreateProtectedPathKeys(
                     protectedPathFacts,
                     ChartFileKind.Bmson));
@@ -199,22 +200,22 @@ internal sealed class CatalogStorageRowsOwner
                 {
                     var addedBmsPathSet = new HashSet<string>(
                         addedBmsRows
-                            .Select(file => CreateOwnedPathKey(file.path))
+                            .Select(file => file.path)
                             .Where(path => !string.IsNullOrWhiteSpace(path)),
-                        StringComparer.OrdinalIgnoreCase);
+                        StringComparer.Ordinal);
                     bmsRows = [.. (bmsRows ?? [])
-                        .Where(file => file != null && !addedBmsPathSet.Contains(CreateOwnedPathKey(file.path))),
+                        .Where(file => file != null && !addedBmsPathSet.Contains(file.path)),
                         .. addedBmsRows];
                 }
                 if (addedBmsonRows.Count > 0)
                 {
                     var nextBmsonByPath = (bmsonRows ?? [])
                         .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                        .GroupBy(song => CreateOwnedPathKey(song.path), StringComparer.OrdinalIgnoreCase)
-                        .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+                        .GroupBy(song => song.path, StringComparer.Ordinal)
+                        .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
                     foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedBmsonRows)
                     {
-                        nextBmsonByPath[CreateOwnedPathKey(addedBmsonSong.path)] = addedBmsonSong;
+                        nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
                     }
                     bmsonRows = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
                 }
@@ -242,9 +243,9 @@ internal sealed class CatalogStorageRowsOwner
         return new HashSet<string>(
             (protectedPathFacts ?? [])
                 .Where(fact => fact?.Kind == kind)
-                .Select(fact => CreateOwnedPathKey(fact.NewPath))
+                .Select(fact => fact.NewPath)
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
     }
 
     internal StorageRowsVersionSnapshot CaptureVersionSnapshot()
@@ -318,7 +319,7 @@ internal sealed class CatalogStorageRowsOwner
         {
             return true;
         }
-        string pathKey = CreateOwnedPathKey(file.path);
+        string pathKey = file.path;
         return !string.IsNullOrWhiteSpace(pathKey)
             && pathCleanupKeys?.Contains(pathKey) == true;
     }
@@ -336,14 +337,9 @@ internal sealed class CatalogStorageRowsOwner
         {
             return true;
         }
-        string pathKey = CreateOwnedPathKey(song.path);
+        string pathKey = song.path;
         return !string.IsNullOrWhiteSpace(pathKey)
             && pathCleanupKeys?.Contains(pathKey) == true;
-    }
-
-    private static string CreateOwnedPathKey(string path)
-    {
-        return OwnedChartCollectionState.CreateOwnedPathKey(path);
     }
 }
 

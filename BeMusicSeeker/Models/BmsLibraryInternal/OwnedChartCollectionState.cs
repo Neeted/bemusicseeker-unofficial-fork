@@ -122,8 +122,9 @@ internal sealed class OwnedChartStorageOwnerView
 
     internal int Count => BmsFiles.Count + BmsonSongs.Count;
 
+    /// <summary>読込み済みの行が持つ未加工のexact pathだけを照合します。</summary>
     internal bool ContainsOwnerPath(string path)
-        => !string.IsNullOrWhiteSpace(path) && ownerPaths.Contains(OwnedChartCollectionState.CreateOwnedPathKey(path));
+        => !string.IsNullOrWhiteSpace(path) && ownerPaths.Contains(path);
 }
 
 internal readonly struct OwnedChartStorageRowFilterSummary(
@@ -195,6 +196,7 @@ internal sealed class OwnedChartCollectionState
         return FromStorageRows(bmsFiles, bmsonSongs, CancellationToken.None, out filterSummary);
     }
 
+    /// <summary>有効なstorage行をexact path単位で取り込み、除外した不正identityと重複行を報告します。</summary>
     internal static OwnedChartCollectionState FromStorageRows(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
@@ -225,7 +227,7 @@ internal sealed class OwnedChartCollectionState
                 md5lessBmsCount++;
                 continue;
             }
-            if (!ownedPathKeys.Add(CreateOwnedPathKey(file.path)))
+            if (!ownedPathKeys.Add(file.path))
             {
                 duplicatePathBmsCount++;
                 continue;
@@ -245,7 +247,7 @@ internal sealed class OwnedChartCollectionState
                 md5lessBmsonCount++;
                 continue;
             }
-            if (!ownedPathKeys.Add(CreateOwnedPathKey(song.path)))
+            if (!ownedPathKeys.Add(song.path))
             {
                 duplicatePathBmsonCount++;
                 continue;
@@ -469,12 +471,12 @@ internal sealed class OwnedChartCollectionState
     /// library chart ref index を構築せず、現在の owned chart list を直接 scan して path 一致 chart を返します。
     /// primary hash lookup だけが温まっている upsert mutation では、既存 path の置換検出に full path index を作らないために使います。
     /// </summary>
-    /// <param name="paths">検索対象 path。</param>
+    /// <param name="paths">加工しない検索対象exact path。</param>
     /// <returns>現在の owned chart に含まれる path 一致 chart refs。</returns>
     internal List<LibraryChartRef> CreateLibraryChartRefsForPathsByScan(IEnumerable<string> paths)
     {
         var pathSet = new HashSet<string>(
-            (paths ?? []).Select(CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
+            (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.Ordinal);
         if (pathSet.Count == 0)
         {
@@ -483,7 +485,7 @@ internal sealed class OwnedChartCollectionState
 
         return [.. charts
             .Where(chart => chart != null)
-            .Where(chart => pathSet.Contains(CreateOwnedPathKey(GetCurrentPath(chart))))
+            .Where(chart => pathSet.Contains(GetCurrentPath(chart)))
             .Select(CreateCurrentLibraryChartRef)
             .Where(chart => chart != null)];
     }
@@ -624,7 +626,7 @@ internal sealed class OwnedChartCollectionState
             }
         }
 
-        string pathKey = CreateOwnedPathKey(GetCurrentPath(chart));
+        string pathKey = GetCurrentPath(chart);
         if (string.IsNullOrWhiteSpace(pathKey))
         {
             return;
@@ -692,7 +694,7 @@ internal sealed class OwnedChartCollectionState
             return request.BmsonOwner != null && bmsonChartsByOwner.TryGetValue(request.BmsonOwner, out currentChart);
         }
 
-        string pathKey = CreateOwnedPathKey(request.Path);
+        string pathKey = request.Path;
         if (string.IsNullOrWhiteSpace(pathKey) || !chartsByPath.TryGetValue(pathKey, out currentChart))
         {
             currentChart = null;
@@ -1083,13 +1085,13 @@ internal sealed class OwnedChartCollectionState
     private static HashSet<string> CreatePathSet(IEnumerable<string> paths)
     {
         return new HashSet<string>(
-            (paths ?? []).Select(CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
+            (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.Ordinal);
     }
 
     private static void AddOwnerPath(ISet<string> ownerPaths, string path)
     {
-        string pathKey = CreateOwnedPathKey(path);
+        string pathKey = path;
         if (!string.IsNullOrWhiteSpace(pathKey))
         {
             ownerPaths.Add(pathKey);
@@ -1110,7 +1112,7 @@ internal sealed class OwnedChartCollectionState
 
     internal HashSet<string> CreateInstallDestinationRuntimeStateKeySnapshot()
     {
-        var keys = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        var keys = new HashSet<string>(System.StringComparer.Ordinal);
         foreach (ChartFile chart in charts.Where(chart => chart != null))
         {
             if (!HasCurrentOwnedIdentity(chart))
@@ -1125,7 +1127,7 @@ internal sealed class OwnedChartCollectionState
 
     internal HashSet<string> CreateChartRuntimeStatePrimaryKeySnapshot()
     {
-        var keys = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        var keys = new HashSet<string>(System.StringComparer.Ordinal);
         foreach (ChartFile chart in charts.Where(chart => chart != null))
         {
             if (!HasCurrentOwnedIdentity(chart))
@@ -1149,12 +1151,13 @@ internal sealed class OwnedChartCollectionState
             .Where(path => !string.IsNullOrWhiteSpace(path))];
     }
 
+    /// <summary>現在のownerへ確定した新exact pathを反映し、同じkeyの衝突を拒否します。</summary>
     internal void ApplyPathChanges(IEnumerable<LibraryChartPathChange> pathChanges)
     {
         List<LibraryChartPathChange> currentPathChanges = [.. GetPathChangesForCurrentCharts(pathChanges)];
         currentPathChanges = [.. currentPathChanges
             .GroupBy(
-                change => (CreateStorageIdentityKey(change.Chart) ?? string.Empty) + "|" + (CreateOwnedPathKey(change.NewPath) ?? string.Empty),
+                change => (CreateStorageIdentityKey(change.Chart) ?? string.Empty) + "|" + (change.NewPath ?? string.Empty),
                 StringComparer.Ordinal)
             .Select(group => group.First())];
         if (currentPathChanges.Any(change => string.IsNullOrWhiteSpace(change.NewPath)))
@@ -1170,7 +1173,7 @@ internal sealed class OwnedChartCollectionState
                 continue;
             }
             changingCharts.Add(currentChart);
-            string newPathKey = CreateOwnedPathKey(pathChange.NewPath);
+            string newPathKey = pathChange.NewPath;
             if (string.IsNullOrWhiteSpace(newPathKey))
             {
                 throw new InvalidOperationException("Owned chart path changes must keep a non-empty path.");
@@ -1266,7 +1269,7 @@ internal sealed class OwnedChartCollectionState
                 chartsByPath.Remove(oldPathKey);
             }
 
-            string newPathKey = CreateOwnedPathKey(pathChange.NewPath);
+            string newPathKey = pathChange.NewPath;
             if (string.IsNullOrWhiteSpace(newPathKey))
             {
                 pathKeyByChart.Remove(currentChart);
@@ -1277,6 +1280,7 @@ internal sealed class OwnedChartCollectionState
         }
     }
 
+    /// <summary>現在のowner参照または指定された旧exact keyだけを正本と索引から取り除きます。</summary>
     internal int RemoveChartRequests(IEnumerable<OwnedChartRemoveRequest> removeRequests)
     {
         List<ChartFile> actualRemovedCharts = [];
@@ -1408,7 +1412,7 @@ internal sealed class OwnedChartCollectionState
         var removedSet = new HashSet<ChartFile>();
         foreach (BMSFile file in bmsFiles ?? [])
         {
-            string pathKey = CreateOwnedPathKey(file?.path);
+            string pathKey = file?.path;
             if (string.IsNullOrWhiteSpace(pathKey)
                 || !chartsByPath.TryGetValue(pathKey, out ChartFile chart)
                 || chart.Kind != ChartFileKind.Bms)
@@ -1422,7 +1426,7 @@ internal sealed class OwnedChartCollectionState
         }
         foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
         {
-            string pathKey = CreateOwnedPathKey(song?.path);
+            string pathKey = song?.path;
             if (string.IsNullOrWhiteSpace(pathKey)
                 || !chartsByPath.TryGetValue(pathKey, out ChartFile chart)
                 || chart.Kind != ChartFileKind.Bmson)
@@ -1538,6 +1542,9 @@ internal sealed class OwnedChartCollectionState
         }
     }
 
+    /// <summary>
+    /// filesystem側の既存比較用にpathを正規化します。DB行・owned行のexact identityには使いません。
+    /// </summary>
     internal static string CreateOwnedPathKey(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -1561,7 +1568,7 @@ internal sealed class OwnedChartCollectionState
         var pathKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (BMSFile file in bmsFiles ?? [])
         {
-            string pathKey = CreateOwnedPathKey(file?.path);
+            string pathKey = file?.path;
             if (!string.IsNullOrWhiteSpace(pathKey) && !pathKeys.Add(pathKey))
             {
                 throw new InvalidOperationException("Owned chart storage row upserts must not contain duplicate paths.");
@@ -1569,7 +1576,7 @@ internal sealed class OwnedChartCollectionState
         }
         foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
         {
-            string pathKey = CreateOwnedPathKey(song?.path);
+            string pathKey = song?.path;
             if (!string.IsNullOrWhiteSpace(pathKey) && !pathKeys.Add(pathKey))
             {
                 throw new InvalidOperationException("Owned chart storage row upserts must not contain duplicate paths.");
@@ -1583,7 +1590,7 @@ internal sealed class OwnedChartCollectionState
     {
         foreach (BMSFile file in bmsFiles ?? [])
         {
-            string pathKey = CreateOwnedPathKey(file?.path);
+            string pathKey = file?.path;
             if (!string.IsNullOrWhiteSpace(pathKey)
                 && chartsByPath.TryGetValue(pathKey, out ChartFile existingChart)
                 && existingChart.Kind != ChartFileKind.Bms)
@@ -1593,7 +1600,7 @@ internal sealed class OwnedChartCollectionState
         }
         foreach (LR2SongDBExtended.bmson_song song in bmsonSongs ?? [])
         {
-            string pathKey = CreateOwnedPathKey(song?.path);
+            string pathKey = song?.path;
             if (!string.IsNullOrWhiteSpace(pathKey)
                 && chartsByPath.TryGetValue(pathKey, out ChartFile existingChart)
                 && existingChart.Kind != ChartFileKind.Bmson)
@@ -1830,7 +1837,7 @@ internal sealed class OwnedChartCollectionState
             {
                 return false;
             }
-            string pathKey = CreateOwnedPathKey(row.Path);
+            string pathKey = row.Path;
             if (string.IsNullOrWhiteSpace(pathKey))
             {
                 return false;
@@ -1857,7 +1864,7 @@ internal sealed class OwnedChartCollectionState
             {
                 return false;
             }
-            string pathKey = CreateOwnedPathKey(file.path);
+            string pathKey = file.path;
             return !string.IsNullOrWhiteSpace(pathKey) && bmsPaths.Contains(pathKey);
         }
 
@@ -1914,7 +1921,7 @@ internal sealed class OwnedChartCollectionState
 
         private void AddPath(ChartFileKind kind, string path)
         {
-            string pathKey = CreateOwnedPathKey(path);
+            string pathKey = path;
             if (string.IsNullOrWhiteSpace(pathKey))
             {
                 return;
