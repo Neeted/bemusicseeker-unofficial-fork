@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -12,9 +13,16 @@ namespace BeMusicSeeker.Tests;
 
 internal static class MainWindowViewModelTestFactory
 {
+    /// <summary>
+    /// 明示された設定、または他の testhost と共有しない既定値で画面 owner を構成する。
+    /// 永続化は NoOpSettingsEditSession が抑止するため、既定の専用 path にファイルは作られない。
+    /// </summary>
     internal static MainWindowViewModel Create(Settings settings = null, BeMusicSeeker.Views.Dialogs.IUiDialogService fileDbMutationDialogs = null)
     {
-        settings ??= new Settings();
+        settings ??= PortableSettingsPersistenceTests.OpenSettings(Path.Combine(
+            Path.GetTempPath(),
+            "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"),
+            "user.config"));
         return new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
