@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Tests.Helpers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -509,6 +511,256 @@ public sealed class CatalogMutationOwnerTests
                 Directory.Delete(tempRootPath, recursive: true);
             }
         }
+    }
+
+    /// <summary>
+    /// PathCleanup の対象集合だけを実接続へ渡し、背景行を managed へ返さずに
+    /// digest の所有判定と BMS／BMSON の分離を維持します。
+    /// </summary>
+    [TestMethod]
+    public void ApplyCatalogMutation_PathCleanupUsesBoundedExactSetAndPreservesDigestOwnership()
+    {
+        const int removalCount = 4;
+        const int smallBackgroundCount = 16;
+        const int largeBackgroundCount = 128;
+        // temp/schemaの固定scanの揺れだけを許容し、背景差112件のscan増加は通さない。
+        const int allowedFixedScanGrowth = 32;
+        BoundedCleanupRun smallRun = ExecuteBoundedCleanupCase(smallBackgroundCount);
+        BoundedCleanupRun largeRun = ExecuteBoundedCleanupCase(largeBackgroundCount);
+
+        Assert.AreEqual(removalCount, smallRun.RemovalCount);
+        Assert.AreEqual(removalCount, largeRun.RemovalCount);
+        Assert.AreEqual(
+            smallRun.ReturnedCatalogRows,
+            largeRun.ReturnedCatalogRows,
+            "背景行数を増やしても対象SQLの返却行数が変わりました。");
+        Assert.IsTrue(smallRun.ProfiledStatementCount > 0, "16行背景のPROFILE callbackを観測できませんでした。");
+        Assert.IsTrue(largeRun.ProfiledStatementCount > 0, "128行背景のPROFILE callbackを観測できませんでした。");
+        Assert.IsTrue(
+            largeRun.FullScanSteps <= smallRun.FullScanSteps + allowedFixedScanGrowth,
+            "背景行の増加に伴って全SQLのFULLSCAN_STEPが増えました。16="
+            + smallRun.FullScanSteps + ", 128=" + largeRun.FullScanSteps
+            + ", statements=" + largeRun.ProfiledStatementCount);
+        // VM_STEPはindex range traversalも含むため、FULLSCAN_STEPやROW callbackが不変でも
+        // 背景表を広く読む集合SQLの増加を検出できる。対象件数とtemp表の大きさは両ケースで固定する。
+        Assert.AreEqual(
+            smallRun.VmSteps,
+            largeRun.VmSteps,
+            "背景行の増加に伴って全SQLのVM_STEPが増えました。16=" + smallRun.VmSteps
+            + ", 128=" + largeRun.VmSteps + Environment.NewLine
+            + FormatStatementMetrics(largeRun.Statements));
+        Assert.IsTrue(smallRun.QueryPlans.Count > 0, "16行背景の補助query planを取得できませんでした。");
+        Assert.IsTrue(largeRun.QueryPlans.Count > 0, "128行背景の補助query planを取得できませんでした。");
+    }
+
+    private static BoundedCleanupRun ExecuteBoundedCleanupCase(int backgroundCount)
+    {
+        const string sharedMd5 = "11111111111111111111111111111111";
+        const string orphanMd5 = "22222222222222222222222222222222";
+        const string bmsonMd5 = "33333333333333333333333333333333";
+        string tempRootPath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_CatalogMutationBoundedCleanup_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string targetBmsSharedPath = Path.Combine(tempRootPath, "target-shared.bms");
+        string targetBmsOrphanPath = Path.Combine(tempRootPath, "target-orphan.bms");
+        string targetBmsonPath = Path.Combine(tempRootPath, "target.bmson");
+        string maintenanceOnlyPath = Path.Combine(tempRootPath, "maintenance-only.bms");
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            TestableBmsFile targetBmsShared = CreateBms("target-shared.bms", sharedMd5);
+            targetBmsShared.path = targetBmsSharedPath;
+            TestableBmsFile targetBmsOrphan = CreateBms("target-orphan.bms", orphanMd5);
+            targetBmsOrphan.path = targetBmsOrphanPath;
+            LR2SongDBExtended.bmson_song targetBmson = CreateBmson("target.bmson", bmsonMd5);
+            targetBmson.path = targetBmsonPath;
+            TestableBmsFile survivingShared = CreateBms("surviving-shared.bms", sharedMd5);
+            survivingShared.path = Path.Combine(tempRootPath, "surviving-shared.bms");
+            TestableBmsFile[] backgroundBmsRows = Enumerable.Range(0, backgroundCount - 1)
+                .Select(index =>
+                {
+                    TestableBmsFile row = CreateBms(
+                        "background-" + index.ToString("D3") + ".bms",
+                        (index + 100).ToString("x32"));
+                    row.path = Path.Combine(tempRootPath, row.title);
+                    return row;
+                })
+                .Append(survivingShared)
+                .ToArray();
+            LR2SongDBExtended.bmson_song[] backgroundBmsonRows = Enumerable.Range(0, backgroundCount)
+                .Select(index =>
+                {
+                    string fileName = "background-" + index.ToString("D3") + ".bmson";
+                    LR2SongDBExtended.bmson_song row = CreateBmson(
+                        fileName,
+                        (index + 500).ToString("x32"));
+                    row.path = Path.Combine(tempRootPath, fileName);
+                    return row;
+                })
+                .ToArray();
+            TestableBmsFile[] allBmsRows = [targetBmsShared, targetBmsOrphan, .. backgroundBmsRows];
+            LR2SongDBExtended.bmson_song[] allBmsonRows = [targetBmson, .. backgroundBmsonRows];
+
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                BmsLibraryDbGateway.EnsureBmsonSchema(setup);
+                BmsLibraryDbGateway.EnsureMaintenanceSchema(setup);
+                BmsLibraryDbGateway.EnsureSongLookupIndexes(setup);
+                foreach (TestableBmsFile row in allBmsRows)
+                {
+                    setup.InsertOrReplace(row.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+                foreach (LR2SongDBExtended.bmson_song row in allBmsonRows)
+                {
+                    setup.InsertOrReplace(row, typeof(LR2SongDBExtended.bmson_song));
+                }
+                foreach (string path in new[] { targetBmsSharedPath, targetBmsOrphanPath, targetBmsonPath, maintenanceOnlyPath }
+                    .Concat(backgroundBmsRows.Select(row => row.path))
+                    .Concat(backgroundBmsonRows.Select(row => row.path)))
+                {
+                    setup.InsertOrReplace(
+                        new LR2SongDBExtended.maintenance { path = path },
+                        typeof(LR2SongDBExtended.maintenance));
+                }
+                foreach ((string md5, string sha256) in new[]
+                {
+                    (sharedMd5, new string('a', 64)),
+                    (orphanMd5, new string('b', 64)),
+                    (bmsonMd5, new string('c', 64))
+                })
+                {
+                    setup.InsertOrReplace(
+                        new LR2SongDBExtended.chart_digest_map { md5 = md5, sha256 = sha256 },
+                        typeof(LR2SongDBExtended.chart_digest_map));
+                }
+            }
+
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
+                allBmsRows.Cast<BMSFile>().ToList(),
+                allBmsonRows.ToList());
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows(allBmsRows, allBmsonRows),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var removeRequests = new[]
+            {
+                OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, targetBmsSharedPath),
+                OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, targetBmsOrphanPath),
+                OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, maintenanceOnlyPath),
+                OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, targetBmsonPath)
+            };
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.AddRange(removeRequests);
+
+            using var observation = new SqliteStatementObservation();
+            var owner = new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(songDbPath, songDbFactory: observation.OpenSongDb));
+
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, removeRequests);
+            observation.ThrowIfCallbackFailed();
+
+            Assert.IsTrue(receipt.Applied);
+            CollectionAssert.AreEquivalent(
+                removeRequests.Select(request => request.Path).ToArray(),
+                receipt.RemovedCharts.Select(fact => fact.Path).ToArray());
+            string[] expectedBmsPaths = backgroundBmsRows.Select(row => row.path).ToArray();
+            string[] expectedBmsonPaths = backgroundBmsonRows.Select(row => row.path).ToArray();
+            string[] expectedOwnedPaths = expectedBmsPaths.Concat(expectedBmsonPaths).ToArray();
+            CollectionAssert.AreEquivalent(
+                expectedBmsPaths,
+                storageRowsOwner.BmsRows.Select(row => row.path).ToArray());
+            CollectionAssert.AreEquivalent(
+                expectedBmsonPaths,
+                storageRowsOwner.BmsonRows.Select(row => row.path).ToArray());
+            CollectionAssert.AreEquivalent(
+                expectedOwnedPaths,
+                ownedCollectionOwner.Collection.CreatePathSnapshot());
+            using (var verifySongDb = new LR2SongDBExtended(songDbPath))
+            {
+                List<LR2SongDB.song> remainingBmsRows = [.. verifySongDb.Table<LR2SongDB.song>()];
+                List<LR2SongDBExtended.bmson_song> remainingBmsonRows = [.. verifySongDb.Table<LR2SongDBExtended.bmson_song>()];
+                List<LR2SongDBExtended.maintenance> remainingMaintenanceRows = [.. verifySongDb.Table<LR2SongDBExtended.maintenance>()];
+                List<LR2SongDBExtended.chart_digest_map> remainingDigests = [.. verifySongDb.Table<LR2SongDBExtended.chart_digest_map>()];
+                Assert.AreEqual(backgroundCount, remainingBmsRows.Count);
+                Assert.AreEqual(backgroundCount, remainingBmsonRows.Count);
+                Assert.AreEqual(backgroundCount + backgroundCount, remainingMaintenanceRows.Count);
+                CollectionAssert.AreEquivalent(
+                    expectedBmsPaths,
+                    remainingBmsRows.Select(row => row.path).ToArray());
+                CollectionAssert.AreEquivalent(
+                    expectedBmsonPaths,
+                    remainingBmsonRows.Select(row => row.path).ToArray());
+                CollectionAssert.DoesNotContain(
+                    remainingMaintenanceRows.Select(row => row.path).ToArray(),
+                    targetBmsSharedPath);
+                CollectionAssert.DoesNotContain(
+                    remainingMaintenanceRows.Select(row => row.path).ToArray(),
+                    targetBmsOrphanPath);
+                CollectionAssert.DoesNotContain(
+                    remainingMaintenanceRows.Select(row => row.path).ToArray(),
+                    targetBmsonPath);
+                CollectionAssert.DoesNotContain(
+                    remainingMaintenanceRows.Select(row => row.path).ToArray(),
+                    maintenanceOnlyPath);
+                Assert.IsTrue(remainingDigests.Any(row => row.md5 == sharedMd5));
+                Assert.IsFalse(remainingDigests.Any(row => row.md5 == orphanMd5));
+                Assert.IsTrue(remainingDigests.Any(row => row.md5 == bmsonMd5));
+            }
+
+            IReadOnlyList<SqliteStatementObservation.SqliteObservedStatement> statements = observation.Statements;
+            int returnedCatalogRows = observation.CountReturnedRows(IsCatalogResultStatement);
+            Assert.IsTrue(
+                returnedCatalogRows <= removeRequests.Length,
+                "対象集合を超えるcatalog返却行: " + returnedCatalogRows + Environment.NewLine
+                + string.Join(
+                    Environment.NewLine,
+                    statements.Select(statement => statement.RowCount + " rows, fullscan="
+                        + statement.FullScanSteps + ", vm=" + statement.VmSteps + " " + statement.Sql)));
+            Assert.IsFalse(statements.Any(IsPerHashOrphanQuery));
+            IReadOnlyList<string> queryPlans = observation.ExplainCatalogQueryPlans(songDbPath);
+            Assert.IsTrue(queryPlans.Count > 0);
+            return new BoundedCleanupRun(
+                removeRequests.Length,
+                returnedCatalogRows,
+                observation.CountFullScanSteps(),
+                observation.CountVmSteps(),
+                statements.Count(statement => statement.ProfileCount > 0),
+                queryPlans,
+                statements);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    private sealed record BoundedCleanupRun(
+        int RemovalCount,
+        int ReturnedCatalogRows,
+        int FullScanSteps,
+        int VmSteps,
+        int ProfiledStatementCount,
+        IReadOnlyList<string> QueryPlans,
+        IReadOnlyList<SqliteStatementObservation.SqliteObservedStatement> Statements);
+
+    private static string FormatStatementMetrics(
+        IEnumerable<SqliteStatementObservation.SqliteObservedStatement> statements)
+    {
+        return string.Join(
+            Environment.NewLine,
+            statements
+                .Where(statement => statement.ProfileCount > 0)
+                .Select(statement => "fullscan=" + statement.FullScanSteps + ", vm="
+                    + statement.VmSteps + ", sql=" + statement.Sql));
     }
 
     [TestMethod]
@@ -1401,6 +1653,28 @@ public sealed class CatalogMutationOwnerTests
         file.SetTitle(fileName);
         file.SetArtist("artist");
         return file;
+    }
+
+    private static bool IsCatalogResultStatement(string sql)
+    {
+        return sql.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
+            && (ContainsCatalogTable(sql, "song")
+                || ContainsCatalogTable(sql, "bmson_song")
+                || ContainsCatalogTable(sql, "maintenance"));
+    }
+
+    private static bool IsPerHashOrphanQuery(SqliteStatementObservation.SqliteObservedStatement statement)
+    {
+        return statement.Sql.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
+            && statement.Sql.Contains("COUNT", StringComparison.OrdinalIgnoreCase)
+            && ContainsCatalogTable(statement.Sql, "song")
+            && statement.Sql.Contains("hash", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ContainsCatalogTable(string sql, string tableName)
+    {
+        return sql.Contains("FROM " + tableName, StringComparison.OrdinalIgnoreCase)
+            || sql.Contains("FROM \"" + tableName + "\"", StringComparison.OrdinalIgnoreCase);
     }
 
     private static LR2SongDBExtended.bmson_song CreateBmson(string fileName, string hash)

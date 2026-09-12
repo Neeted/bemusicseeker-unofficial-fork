@@ -45,8 +45,20 @@ internal sealed class Lr2SongUserColumns
     public string tag { get; set; }
 }
 
-internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath = null)
+/// <summary>
+/// LR2 song DBへの永続化を担当します。
+/// </summary>
+/// <param name="songDbPath">song.dbのパス。</param>
+/// <param name="scoreDbPath">score.dbのパス。</param>
+/// <param name="songDbFactory">既定接続を置き換える内部検証用の生成処理。</param>
+internal sealed class BmsLibraryDbGateway(
+    string songDbPath,
+    string scoreDbPath = null,
+    Func<string, LR2SongDBExtended> songDbFactory = null)
 {
+    private readonly Func<string, LR2SongDBExtended> _songDbFactory =
+        songDbFactory ?? (path => new LR2SongDBExtended(path));
+
     internal const string SongPathNocaseIndexName = "song_idx_path_nocase";
 
     internal const string FolderPathNocaseIndexName = "folder_idx_path_nocase";
@@ -110,9 +122,13 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
 
     public string ScoreDbPath { get; } = scoreDbPath;
 
+    /// <summary>
+    /// 書込み用 song.db 接続を生成します。
+    /// </summary>
+    /// <returns>呼出し側が dispose を所有する書込み接続。</returns>
     public LR2SongDBExtended OpenSongDb()
     {
-        return new LR2SongDBExtended(SongDbPath);
+        return _songDbFactory(SongDbPath);
     }
 
     public LR2SongDBExtended OpenSongDbReadOnly()
@@ -679,12 +695,8 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.Ordinal);
 
-        var directRemovalPaths = new HashSet<string>(StringComparer.Ordinal);
-        var pathCleanupKeys = new HashSet<string>(
-            removalRequest.BmsPathCleanupKeys ?? [],
-            StringComparer.Ordinal);
+        var removalPaths = new HashSet<string>(StringComparer.Ordinal);
         var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var maintenancePaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (BMSFile owner in removalRequest.RemovedBmsRows ?? [])
         {
             if (owner == null)
@@ -704,52 +716,18 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             }
             if (!string.IsNullOrWhiteSpace(path))
             {
-                directRemovalPaths.Add(path);
-                maintenancePaths.Add(path);
+                removalPaths.Add(path);
             }
         }
-        List<BMSFile> rows = [];
-        var selectedExactPaths = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string path in directRemovalPaths)
+        foreach (string path in removalRequest.BmsPathCleanupKeys ?? [])
         {
-            BMSFile row = LoadBmsRowByExactPath(songDb, path);
-            if (row != null && selectedExactPaths.Add(row.path))
+            if (!protectedDestinationPaths.Contains(path)
+                && !string.IsNullOrWhiteSpace(path))
             {
-                rows.Add(row);
+                removalPaths.Add(path);
             }
         }
-        if (pathCleanupKeys.Count > 0)
-        {
-            rows.AddRange(songDb.Table<BMSFile>()
-                .AsEnumerable()
-                .Where(row => row != null
-                    && pathCleanupKeys.Contains(row.path))
-                .Where(row => !protectedDestinationPaths.Contains(row.path))
-                .Where(row => selectedExactPaths.Add(row.path)));
-            foreach (string path in songDb.Table<BMSFileMaintenanceInfo>()
-                .AsEnumerable()
-                .Where(row => row != null
-                    && pathCleanupKeys.Contains(row.path))
-                .Where(row => !protectedDestinationPaths.Contains(row.path))
-                .Select(row => row.path))
-            {
-                maintenancePaths.Add(path);
-            }
-        }
-        foreach (BMSFile row in rows)
-        {
-            if (!string.IsNullOrWhiteSpace(row.hash))
-            {
-                hashes.Add(row.hash);
-            }
-            songDb.Delete<LR2SongDB.song>(row.path);
-            maintenancePaths.Add(row.path);
-        }
-        foreach (string path in maintenancePaths)
-        {
-            songDb.Delete<LR2SongDBExtended.maintenance>(path);
-        }
-        DeleteChartDigestsIfOrphaned(songDb, hashes);
+        BulkDeleteBmsPaths(songDb, removalPaths, hashes);
     }
 
     private static void DeleteBmsonMutationRows(
@@ -771,12 +749,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.Ordinal);
 
-        var directRemovalPaths = new HashSet<string>(StringComparer.Ordinal);
-        var pathCleanupKeys = new HashSet<string>(
-            removalRequest.BmsonPathCleanupKeys ?? [],
-            StringComparer.Ordinal);
-        bool hasMaintenanceTable = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
-        var maintenancePaths = new HashSet<string>(StringComparer.Ordinal);
+        var removalPaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (LR2SongDBExtended.bmson_song owner in removalRequest.RemovedBmsonRows ?? [])
         {
             if (owner == null)
@@ -789,87 +762,21 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
             if (!string.IsNullOrWhiteSpace(path)
                 && !protectedDestinationPaths.Contains(path))
             {
-                directRemovalPaths.Add(path);
-                if (hasMaintenanceTable)
-                {
-                    maintenancePaths.Add(path);
-                }
+                removalPaths.Add(path);
             }
         }
-        List<LR2SongDBExtended.bmson_song> rows = [];
-        var selectedExactPaths = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string path in directRemovalPaths)
+        foreach (string path in removalRequest.BmsonPathCleanupKeys ?? [])
         {
-            LR2SongDBExtended.bmson_song row = LoadBmsonRowByExactPath(songDb, path);
-            if (row != null && selectedExactPaths.Add(row.path))
+            if (!protectedDestinationPaths.Contains(path)
+                && !string.IsNullOrWhiteSpace(path))
             {
-                rows.Add(row);
+                removalPaths.Add(path);
             }
         }
-        if (pathCleanupKeys.Count > 0)
+        if (removalPaths.Count > 0)
         {
-            rows.AddRange(songDb.Table<LR2SongDBExtended.bmson_song>()
-                .AsEnumerable()
-                .Where(row => row != null
-                    && pathCleanupKeys.Contains(row.path))
-                .Where(row => !protectedDestinationPaths.Contains(row.path))
-                .Where(row => selectedExactPaths.Add(row.path)));
-            if (hasMaintenanceTable)
-            {
-                foreach (string path in songDb.Table<BMSFileMaintenanceInfo>()
-                    .AsEnumerable()
-                    .Where(row => row != null
-                        && pathCleanupKeys.Contains(row.path))
-                    .Where(row => !protectedDestinationPaths.Contains(row.path))
-                    .Select(row => row.path))
-                {
-                    maintenancePaths.Add(path);
-                }
-            }
+            BulkDeleteBmsonPaths(songDb, removalPaths);
         }
-        foreach (LR2SongDBExtended.bmson_song row in rows)
-        {
-            songDb.Delete<LR2SongDBExtended.bmson_song>(row.path);
-            if (hasMaintenanceTable)
-            {
-                maintenancePaths.Add(row.path);
-            }
-        }
-        if (hasMaintenanceTable)
-        {
-            foreach (string path in maintenancePaths)
-            {
-                songDb.Delete<LR2SongDBExtended.maintenance>(path);
-            }
-        }
-    }
-
-    private static BMSFile LoadBmsRowByExactPath(LR2SongDBExtended songDb, string path)
-    {
-        if (songDb == null || string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-        return songDb.Query<BMSFile>(
-            "SELECT * FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
-            + " = ? LIMIT 1;",
-            path).FirstOrDefault();
-    }
-
-    private static LR2SongDBExtended.bmson_song LoadBmsonRowByExactPath(
-        LR2SongDBExtended songDb,
-        string path)
-    {
-        if (songDb == null || string.IsNullOrWhiteSpace(path))
-        {
-            return null;
-        }
-        return songDb.Query<LR2SongDBExtended.bmson_song>(
-            "SELECT * FROM " + SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName(row => row.path)
-            + " = ? LIMIT 1;",
-            path).FirstOrDefault();
     }
 
     private static Lr2SongUserColumns ReadSongUserColumns(LR2SongDBExtended songDb, string oldPath)
@@ -2467,37 +2374,56 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         return value.HasValue ? (value.Value ? 1 : 0) : null;
     }
 
-    private static void BulkDeleteBmsPaths(LR2SongDBExtended songDb, IEnumerable<string> paths)
+    private static void BulkDeleteBmsPaths(
+        LR2SongDBExtended songDb,
+        IEnumerable<string> paths,
+        IEnumerable<string> additionalHashes = null)
     {
         List<string> sourcePaths = BuildExactLookupKeys(paths);
-        if (sourcePaths.Count == 0)
+        List<string> sourceHashes = BuildExactLookupKeys(additionalHashes);
+        if (sourcePaths.Count == 0 && sourceHashes.Count == 0)
         {
             return;
         }
-        PrepareTempLookupTable(songDb, TempDeletedBmsPathTable, "path");
-        foreach (string path in sourcePaths)
+        if (sourcePaths.Count > 0)
         {
-            songDb.Execute("INSERT OR IGNORE INTO temp." + TempDeletedBmsPathTable + " (path) VALUES (?);", path);
+            PrepareTempLookupTable(songDb, TempDeletedBmsPathTable, "path");
+            foreach (string path in sourcePaths)
+            {
+                songDb.Execute("INSERT OR IGNORE INTO temp." + TempDeletedBmsPathTable + " (path) VALUES (?);", path);
+            }
         }
         PrepareTempLookupTable(songDb, TempDeletedBmsHashTable, "md5");
-        songDb.Execute(
-            "INSERT OR IGNORE INTO temp." + TempDeletedBmsHashTable + " (md5) "
-            + "SELECT DISTINCT s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash)
-            + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName() + " s "
-            + "INNER JOIN temp." + TempDeletedBmsPathTable + " d ON d.path = s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
-            + " WHERE s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + " IS NOT NULL "
-            + "AND TRIM(s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + ") <> '';");
-        songDb.Execute(
-            "DELETE FROM " + SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path)
-            + " IN (SELECT path FROM temp." + TempDeletedBmsPathTable + ");");
-        songDb.Execute(
-            "DELETE FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
-            + " IN (SELECT path FROM temp." + TempDeletedBmsPathTable + ");");
+        foreach (string hash in sourceHashes)
+        {
+            songDb.Execute("INSERT OR IGNORE INTO temp." + TempDeletedBmsHashTable + " (md5) VALUES (?);", hash);
+        }
+        if (sourcePaths.Count > 0)
+        {
+            songDb.Execute(
+                "INSERT OR IGNORE INTO temp." + TempDeletedBmsHashTable + " (md5) "
+                + "SELECT DISTINCT s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash)
+                // temp pathを外側へ固定し、hashidx全体を走査せずpath主キーで削除前hashを対象へ限定する。
+                + " FROM temp." + TempDeletedBmsPathTable + " d "
+                + "CROSS JOIN " + SQLiteTable<LR2SongDB.song>.GetTableName() + " s "
+                + " WHERE d.path = s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
+                + " AND s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + " IS NOT NULL "
+                + "AND TRIM(s." + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.hash) + ") <> '';");
+            songDb.Execute(
+                "DELETE FROM " + SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName()
+                + " WHERE " + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName(row => row.path)
+                + " IN (SELECT path FROM temp." + TempDeletedBmsPathTable + ");");
+            songDb.Execute(
+                "DELETE FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
+                + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path)
+                + " IN (SELECT path FROM temp." + TempDeletedBmsPathTable + ");");
+        }
         DeleteChartDigestsIfOrphanedFromTemp(songDb, TempDeletedBmsHashTable);
         ClearTempLookupTable(songDb, TempDeletedBmsHashTable);
-        ClearTempLookupTable(songDb, TempDeletedBmsPathTable);
+        if (sourcePaths.Count > 0)
+        {
+            ClearTempLookupTable(songDb, TempDeletedBmsPathTable);
+        }
     }
 
     private static void BulkDeleteBmsonPaths(LR2SongDBExtended songDb, IEnumerable<string> paths)

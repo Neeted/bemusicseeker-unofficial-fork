@@ -96,7 +96,24 @@ mergeはsource scopeに含まれる旧exact keyをすべて保持する。一方
 
 whole-folder削除のようにphysical folderの成功factを起点に後続stateを更新する場合も、folder containment / deletion判定はfilesystem規則を使い、どのcatalog rowのinstall-destination stateをclearするかはexact row pathで識別する。row identityとphysical target identityを同じcomparerへ統合しない。
 
-DBの全表materialize・孤児確認の限定化はR2b、resource-healthのkey比較はR2c、storage listの全件再構築削減はR5aに残る。R2aはこれらの完了や大規模速度改善を保証しない。
+R2bではPathCleanupの全表materialize・孤児確認を対象集合へ限定した。resource-healthのkey比較はR2c、storage listの全件再構築削減はR5aに残る。R2aはこれらの完了や大規模速度改善を保証しない。
+
+## 局所 PathCleanup の対象集合（R2b）
+
+R2b の PathCleanup は、上流で確定した未加工の exact cleanup key と owner から解決した現在の削除 path だけを削除集合にする。入力順や重複は集合化しても path の大小文字・dot 成分を変えず、`COLLATE NOCASE` や filesystem alias で対象を広げない。存続する relocation owner の destination exact key は保護し、削除対象 owner の destination は保護集合へ含めない。明示された maintenance-only path も `song` 行の存在を待たずに同じ exact key で cleanup する。
+
+BMS の削除では、削除前に対象 path から得た `song.hash` と削除 owner の hash を候補集合へ集める。削除後に `song.hash` の残存 owner がある digest は保持し、最後の owner を失った候補だけ `chart_digest_map` から削除する。BMSON は `bmson_song` と共有 `maintenance` の対象 pathだけを更新し、LR2 `song`・BMS digestの処理へ混ぜない。DB gateway は既存の一時 lookup table と集合 SQLを同じ transaction 内で使い、catalog 表の全行 materialize と hash ごとの孤児確認を行わない。処理量は実接続のtrace_v2 PROFILE callbackから各statement完了時の `SQLITE_STMTSTATUS_FULLSCAN_STEP` と `SQLITE_STMTSTATUS_VM_STEP` を取得し、同じ4件のΔを背景16件・128件で比較する。FULLSCAN_STEPは全表scanだけを数え、ROW callbackが0のINSERT SELECTやindex range traversalを表さないため、VM_STEPをstatement実行仕事量のproxyとして併用する。`EXPLAIN QUERY PLAN` は実SQLの補助診断として併記するが、空の一時表を別接続へ再構成した計画であるため処理量判定には使わない。
+
+### 実装・テスト対応表 — R2b
+
+| 仕様項目 | 実装 | テスト |
+| --- | --- | --- |
+| `ExactCleanup` | [`BmsLibraryDbGateway.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の `DeleteBmsMutationRows` / `DeleteBmsonMutationRows` | [`CatalogMutationOwnerTests.cs`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の `ApplyCatalogMutation_PathCleanupUsesBoundedExactSetAndPreservesDigestOwnership`、`ApplyCatalogMutation_RemovalDeletesMaintenanceWhenSongRowIsMissing` |
+| `DestinationProtection` | [`BmsLibraryDbGateway.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の relocation destination 保護集合 | [`CatalogMutationOwnerTests.cs`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の `ApplyCatalogMutation_PathCleanupDoesNotRemoveRelocatedDestination` |
+| `DigestOwnership` | [`BmsLibraryDbGateway.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の `BulkDeleteBmsPaths` / `DeleteChartDigestsIfOrphanedFromTemp` | [`CatalogMutationOwnerTests.cs`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の `ApplyCatalogMutation_PathCleanupUsesBoundedExactSetAndPreservesDigestOwnership` |
+| `BmsonIsolation` | [`BmsLibraryDbGateway.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の `DeleteBmsonMutationRows` / `BulkDeleteBmsonPaths` | [`CatalogMutationOwnerTests.cs`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の `ApplyCatalogMutation_PathCleanupUsesBoundedExactSetAndPreservesDigestOwnership` |
+| `DbFailure` | [`BmsLibraryDbGateway.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の既存 transaction 境界 | [`CatalogMutationOwnerTests.cs`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の `ApplyCatalogMutation_WhenRemovalFailsRollsBackRelocationAndLiveVersions` |
+| `BoundedDbWork` | [`BmsLibraryDbGateway.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の exact path/hash temp set と集合 SQL | [`CatalogMutationOwnerTests.cs`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の背景16件・128件対照、および [`SqliteStatementObservation.cs`](../../BeMusicSeeker.Tests/Helpers/SqliteStatementObservation.cs) の実接続PROFILE/FULLSCAN_STEP/VM_STEP観測 |
 
 <a id="r2a-test-map"></a>
 ### Test map — R2a

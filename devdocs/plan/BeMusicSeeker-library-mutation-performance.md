@@ -97,7 +97,7 @@ SelfOwnedのみの変更でも、既存のremove→appendで候補が`[A, B] →
 | --- | --- | --- | --- |
 | R2a | PathCleanup・storage・owned・package・導入lookupのexact path統一 | merge、install、catalog変更 | 実装済み |
 | R2a-GATE | file diffによるpath収束前にもcatalog依存file mutationを受理できる | delete、merge、install、move、rename等のP0 file mutation | 実装済み(将来gateを前倒し) |
-| R2b | PathCleanupがsong / maintenance / BMSONを全件materializeし、行・hashごとに削除・孤児確認 | 主にmerge、PathCleanupを使う修正経路 | R2a後にDB処理を限定 |
+| R2b | PathCleanupの全表materialize・行ごとの削除・孤児確認を対象集合SQLへ統合 | 主にmerge、PathCleanupを使う修正経路 | 実装済み |
 | R2c | resource-healthのchart identityがpathをcase-insensitive比較 | warning表示・maintenanceを伴う変更 | R5c前に正しさを修正 |
 | RELINK-1 | file diffの一対一・同一MD5 relinkにcase-onlyだけの除外が残る | startup / file diff / 再初期化 | 採用済みの仕様統一。R2群直後の独立unit |
 | R3 | LR2同期receipt用の全BMS path取得、二重sort、全祖先lookup作成 | delete、move、rename、merge | R2のexact factsと整合させる |
@@ -163,28 +163,17 @@ Fixture候補は`BmsLibraryDuplicateServiceTests`のstartup-scan-skip merge case
 
 ### R2b — PathCleanupの全DB読込を対象限定・集合更新へ移す
 
-#### 現行コスト
+Status: Implemented（2026-09-12）。恒久契約と実装・テスト対応は[path identity](../spec/path-identity.md#局所-pathcleanup-の対象集合r2b)、[データと索引](../spec/data-and-indexes.md#consistency-updates)を正本とする。
 
-`BmsLibraryDbGateway.DeleteBmsMutationRows`と`DeleteBmsonMutationRows`は、PathCleanup時に`Table<T>().AsEnumerable()`から全表を読み、managed側でpathを絞る。BMSでは`DeleteChartDigestsIfOrphaned`からhashごとの残存件数queryも呼ぶ。小さなcleanupでも背景DB件数の費用が掛かる。
+#### 完了記録
 
-通常のowner reference削除には既にexact path queryがあり、すべてのdeleteが全件読込というわけではない。PathCleanup経路を優先する。
-
-#### 実装手順
-
-1. R2aで意味を固定したexact cleanup集合と、owner referenceから得るexact削除pathを統合する。移動後pathの扱いと、removed ownerを除外したdestination保護は既存ルールを維持する。
-2. 同じgateway transactionの中で対象pathをparameterized queryまたはexactなtemp key tableへ渡す。行情報が必要なら対象行の必要列だけ取得する。identity一致に`COLLATE NOCASE`、`LOWER(path)`、`TRIM(path)`、FS正規化関数を使わない。
-3. `BulkDeleteBmsPaths` / `BulkDeleteBmsonPaths`、`BuildExactLookupKeys`、`PrepareTempLookupTable`、`DeleteChartDigestsIfOrphanedFromTemp`を再利用できる範囲で使う（同gateway `2470–2559`付近）。既存helperはexact keyを使うが、maintenance表の存在条件やprotected destinationはcallerで揃える。
-4. 削除前に対象BMSのMD5を保持し、削除後に既存digest契約が参照する残存ownerを集合として確認する。同じhashの他配置を残す。BMSON用処理にLR2のsong / digest行を新設しない。
-5. temp tableのlifetime、chunkの必要性、既存transaction失敗の伝播を保つ。個別path単位のtransactionや、例外後の全表fallbackは追加しない。
-6. 追加の永続正規化path列・case-insensitive索引・全DBのmirror cacheは既定案にしない。まず既存exact primary keyと集合SQLを使う。必要性が示された場合だけschema案を別unitで扱う。
-
-#### 検証
-
-R2aのidentity oracleをそのまま使い、複数配置の同一hash、maintenance-only、BMS / BMSON、移動先保護、DB失敗時の非成功反映を確認する。小規模fixtureに無関係な背景行を加え、全row objectのmaterializationが発生しないことを実gatewayの観測で確かめる。query回数が減っただけで完了としない。
-
-集合SQLでもquery planが背景表を走査する場合があるため、対象DBで利用indexと必要列を確認する。「temp tableを使ったから定数時間」と断定しない。wall-clock閾値や巨大DBはFunctionalの条件にしない。
-
-**Done when:** PathCleanupの全表materializationと行ごとの孤児確認を対象集合の処理へ置換し、exact identityとDB / canonicalの結果が一致する。旧managed全件filter経路を退役する。
+- `BmsLibraryDbGateway`でexact cleanup keyとowner由来の現在削除pathを統合し、既存のpath/hash temp集合とbulk SQLへ接続した。BMS / BMSON / maintenanceの全表managed filter、行ごとの削除、hashごとの孤児確認を退役した。
+- 存続するrelocation destinationのexact保護、maintenance-only cleanup、削除前DB hashとowner hashの候補、残存BMS ownerのdigest保持、BMSON分離を維持した。relocation→cleanup→upsert、transaction失敗伝播、commit後のstorage / canonical反映、受付・lease・公開境界は変更していない。
+- reviewで見つかったhashidxの広域走査も、temp pathを外側に固定したexact path主キー検索へ変更した。file diffと同じbulk helperを使い、新schema、mirror cache、fallback、retryを追加していない。
+- 独立テスト設計後、既存`CatalogMutationOwnerTests`へ実SQLiteの小規模対照を追加した。背景BMS / BMSON各16行と128行で同じ4 pathをcleanupし、DB / storage / ownedの残存exact集合、digest保持、返却行数、実statementのFULLSCAN_STEP / VM_STEPを確認する。既存exact path・destination保護・DB failure・file diff bulk coverageを維持した。
+- 返却catalog行は両条件0、VM_STEPは両条件1,980。旧全表materializationと旧hashidx走査を一時復帰する二つの負の対照で、検証が誤実装を検出することを確認し、復元後に再成功した。条件・数値・補助query planの制限は[受入記録](../acceptance/r2b-path-cleanup-db-work-2026-09-12.md)を参照する。
+- 関連Quick 103件成功。最終Functionalは4,755件成功・11件スキップ、230.4秒（180秒目安超過・300秒以内）。共用SQL補正前のFunctionalも239.5秒で成功した。書式・静的解析・build・`git diff --check`を通過し、独立再レビューは修正必須指摘なし。
+- 約21万譜面での操作terminal wall-clockは未測定。storage / canonical listの全件仕事はR5a、resource-health identityはR2c、保存値relinkはRELINK-1へ残す。今回の小規模処理量確認を操作全体の大規模性能合格と扱わない。
 
 ### R2c — resource-healthのchart path identityをexactにする
 
