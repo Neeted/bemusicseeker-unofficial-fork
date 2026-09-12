@@ -1904,7 +1904,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             string keepChartPath = Path.Combine(lr2RootPath, "Keep", "keep.bms");
             string deletedChartPath = Path.Combine(lr2RootPath, "Deleted", "deleted.bms");
             Directory.CreateDirectory(Path.GetDirectoryName(keepChartPath)!);
-            Directory.CreateDirectory(Path.GetDirectoryName(deletedChartPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(deletedChartPath)!);
             File.WriteAllText(keepChartPath, "#PLAYER 1\r\n#TITLE Same\r\n");
             File.Copy(keepChartPath, deletedChartPath, overwrite: true);
 
@@ -2017,7 +2017,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             string keepBmsonPath = Path.Combine(lr2RootPath, "Keep", "keep.bmson");
             string addedBmsonPath = Path.Combine(lr2RootPath, "Added", "added.bmson");
             string deletedBmsonPath = Path.Combine(lr2RootPath, "Deleted", "deleted.bmson");
-            Directory.CreateDirectory(Path.GetDirectoryName(keepBmsonPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(keepBmsonPath)!);
             Directory.CreateDirectory(Path.GetDirectoryName(addedBmsonPath)!);
             File.WriteAllText(keepBmsonPath, CreateBmsonJson("Keep", "", "", "Artist", "Genre", 5, "beat-5k"));
             File.WriteAllText(addedBmsonPath, CreateBmsonJson("Added", "", "", "Artist", "Genre", 7, "beat-7k"));
@@ -2259,7 +2259,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             string bmsPath = Path.Combine(lr2RootPath, "CaseOnly", "chart.bms");
             string oldCasePath = Path.Combine(lr2RootPath, "caseonly", "CHART.BMS");
             string staleMaintenancePath = Path.Combine(lr2RootPath, "CASEONLY", "Chart.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath)!);
             File.WriteAllText(bmsPath, CreateValidBmsText("Case Only"), Encoding.ASCII);
             var timestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, timestamp);
@@ -2386,7 +2386,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsPath = Path.Combine(lr2RootPath, "Updated", "legacy-date.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath)!);
             File.WriteAllText(bmsPath, CreateValidBmsText("Legacy Date"), Encoding.ASCII);
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
@@ -2422,7 +2422,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { Path.GetDirectoryName(bmsPath), Array.Empty<string>() }
+                            { Path.GetDirectoryName(bmsPath)!, Array.Empty<string>() }
                         })
                 },
                 0L,
@@ -2536,7 +2536,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsPath = Path.Combine(lr2RootPath, "Updated", "changed-md5.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath)!);
             File.WriteAllText(bmsPath, CreateValidBmsText("Old"), Encoding.ASCII);
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             var newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
@@ -2575,7 +2575,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         [bmsPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { Path.GetDirectoryName(bmsPath), Array.Empty<string>() }
+                            { Path.GetDirectoryName(bmsPath)!, Array.Empty<string>() }
                         })
                 },
                 0L,
@@ -2693,7 +2693,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             string oldPath1 = Path.Combine(lr2RootPath, "OldA", "duplicate.bms");
             string oldPath2 = Path.Combine(lr2RootPath, "OldB", "duplicate.bms");
             string newPath = Path.Combine(lr2RootPath, "New", "duplicate.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(newPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(newPath)!);
             string bmsText = CreateValidBmsText("Ambiguous Source");
             File.WriteAllText(newPath, bmsText, Encoding.ASCII);
             var timestamp = new DateTime(2026, 5, 3, 2, 0, 0, DateTimeKind.Utc);
@@ -2739,7 +2739,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         [newPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { Path.GetDirectoryName(newPath), Array.Empty<string>() }
+                            { Path.GetDirectoryName(newPath)!, Array.Empty<string>() }
                         })
                 },
                 0L,
@@ -3100,7 +3100,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             string bmsonPath = Path.Combine(lr2RootPath, "BmsonCase", "chart.bmson");
             string oldCasePath = Path.Combine(lr2RootPath, "BmsonCase", "CHART.BMSON");
             string staleMaintenancePath = Path.Combine(lr2RootPath, "BMSONCASE", "Chart.bmson");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath)!);
             File.WriteAllText(bmsonPath, CreateBmsonJson("Case", "", "", "Artist", "Genre", 5, "beat-5k"));
             var timestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, timestamp);
@@ -3135,7 +3135,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         [bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { Path.GetDirectoryName(bmsonPath), Array.Empty<string>() }
+                            { Path.GetDirectoryName(bmsonPath)!, Array.Empty<string>() }
                         })
                 },
                 0L,
@@ -3169,7 +3169,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         {
             string bmsonPath = Path.Combine(lr2RootPath, "BmsonMtimeCase", "chart.bmson");
             string oldCasePath = Path.Combine(lr2RootPath, "bmsonmtimecase", "CHART.BMSON");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath)!);
             File.WriteAllText(bmsonPath, CreateBmsonJson("Case Mtime", "", "", "Artist", "Genre", 5, "beat-5k"));
             var timestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, timestamp);
@@ -3200,7 +3200,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                     [bmsonPath],
                     new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                     {
-                        { Path.GetDirectoryName(bmsonPath), Array.Empty<string>() }
+                        { Path.GetDirectoryName(bmsonPath)!, Array.Empty<string>() }
                     })
             };
 
@@ -3253,7 +3253,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsPath = Path.Combine(lr2RootPath, "Keep", "keep.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath)!);
             File.WriteAllText(bmsPath, CreateValidBmsText("Keep"));
             var scanTimestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsPath, scanTimestamp.AddDays(1));
@@ -3275,7 +3275,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 [bmsPath],
                 new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                 {
-                    { Path.GetDirectoryName(bmsPath), Array.Empty<string>() }
+                    { Path.GetDirectoryName(bmsPath)!, Array.Empty<string>() }
                 });
             scanResult.ChartFileEntriesByPath[bmsPath] = new RootFileEnumerationEntry(bmsPath, scanTimestamp);
 
@@ -3308,7 +3308,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "Keep", "keep.bmson");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath)!);
             File.WriteAllText(bmsonPath, CreateBmsonJson("Keep", "", "", "Artist", "Genre", 5, "beat-5k"));
             var timestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, timestamp);
@@ -3341,7 +3341,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         [bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { Path.GetDirectoryName(bmsonPath), Array.Empty<string>() }
+                            { Path.GetDirectoryName(bmsonPath)!, Array.Empty<string>() }
                         })
                 },
                 0L,
@@ -3364,7 +3364,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "Keep", "keep.bmson");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath)!);
             File.WriteAllText(bmsonPath, CreateBmsonJson("Keep", "", "", "Artist", "Genre", 5, "beat-5k"));
             var scanTimestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, scanTimestamp.AddDays(1));
@@ -3388,7 +3388,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 [bmsonPath],
                 new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                 {
-                    { Path.GetDirectoryName(bmsonPath), Array.Empty<string>() }
+                    { Path.GetDirectoryName(bmsonPath)!, Array.Empty<string>() }
                 });
             scanResult.ChartFileEntriesByPath[bmsonPath] = new RootFileEnumerationEntry(bmsonPath, scanTimestamp);
 
@@ -3422,7 +3422,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "Updated", "chart.bmson");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath)!);
             File.WriteAllText(bmsonPath, CreateBmsonJson("Old", "", "", "Artist", "Genre", 5, "beat-5k"));
             var oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(bmsonPath, oldTimestamp);
@@ -3453,7 +3453,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         [bmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { Path.GetDirectoryName(bmsonPath), Array.Empty<string>() }
+                            { Path.GetDirectoryName(bmsonPath)!, Array.Empty<string>() }
                         })
                 },
                 0L,

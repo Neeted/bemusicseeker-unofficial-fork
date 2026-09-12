@@ -109,7 +109,7 @@ public sealed class LocalizationResourceParityTests
             AssertLocalizedFormat(
                 "Resources.resx",
                 key,
-                resxValues.TryGetValue(key, out string value) ? value : null,
+                resxValues.TryGetValue(key, out string? value) ? value : null,
                 argumentCount);
         }
 
@@ -391,7 +391,7 @@ public sealed class LocalizationResourceParityTests
             }
             foreach (string key in plainKeys)
             {
-                string value = language[key]?.Value<string>();
+                string? value = language[key]?.Value<string>();
                 Assert.IsFalse(string.IsNullOrWhiteSpace(value), Path.GetFileName(languagePath) + " " + key + " must not be empty.");
             }
         }
@@ -410,13 +410,14 @@ public sealed class LocalizationResourceParityTests
     {
         var document = XDocument.Load(path);
         return document
-            .Root
+            .Root!
             .Elements("data")
             .Where(element => element.Attribute("type") == null)
             .Where(element => element.Attribute("mimetype") == null)
             .Where(element => element.Element("value") != null)
-            .Select(element => (string)element.Attribute("name"))
+            .Select(element => (string?)element.Attribute("name"))
             .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
             .ToHashSet(StringComparer.Ordinal);
     }
 
@@ -424,14 +425,14 @@ public sealed class LocalizationResourceParityTests
     {
         var document = XDocument.Load(path);
         return document
-            .Root
+            .Root!
             .Elements("data")
             .Where(element => element.Attribute("type") == null)
             .Where(element => element.Attribute("mimetype") == null)
             .Where(element => element.Element("value") != null)
             .ToDictionary(
-                element => (string)element.Attribute("name"),
-                element => (string)element.Element("value"),
+                element => ((string?)element.Attribute("name"))!,
+                element => ((string?)element.Element("value"))!,
                 StringComparer.Ordinal);
     }
 
@@ -485,7 +486,7 @@ public sealed class LocalizationResourceParityTests
     private static void AssertLocalizedFormat(
         string sourceName,
         string key,
-        string value,
+        string? value,
         int argumentCount)
     {
         Assert.IsFalse(string.IsNullOrWhiteSpace(value), sourceName + " " + key + " must not be empty.");

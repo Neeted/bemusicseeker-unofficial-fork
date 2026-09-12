@@ -87,23 +87,26 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         }
 
         using var verify = new LR2SongDBExtended(scope.SongDbPath);
-        LR2SongDB.song preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
+        LR2SongDB.song? preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preserved);
-        Assert.AreEqual("keep-b", preserved.tag);
-        Assert.AreEqual(2, preserved.favorite);
-        Assert.AreEqual(2, preserved.adddate);
-        LR2SongDBExtended.bmson_song preservedBmson = verify.Table<LR2SongDBExtended.bmson_song>()
+        LR2SongDB.song preservedSong = preserved!;
+        Assert.AreEqual("keep-b", preservedSong.tag);
+        Assert.AreEqual(2, preservedSong.favorite);
+        Assert.AreEqual(2, preservedSong.adddate);
+        LR2SongDBExtended.bmson_song? preservedBmson = verify.Table<LR2SongDBExtended.bmson_song>()
             .SingleOrDefault(row => string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preservedBmson);
-        Assert.AreEqual("keep-bmson", preservedBmson.title);
-        LR2SongDB.folder preservedFolder = verify.Table<LR2SongDB.folder>()
+        LR2SongDBExtended.bmson_song preservedBmsonRow = preservedBmson!;
+        Assert.AreEqual("keep-bmson", preservedBmsonRow.title);
+        LR2SongDB.folder? preservedFolder = verify.Table<LR2SongDB.folder>()
             .SingleOrDefault(row => string.Equals(
                 row?.path,
                 Lr2SongDbSyncTestSupport.ToFolderPath(rootDirectoryB),
                 StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preservedFolder);
-        Assert.AreEqual("keep-b-folder", preservedFolder.title);
+        LR2SongDB.folder preservedFolderRow = preservedFolder!;
+        Assert.AreEqual("keep-b-folder", preservedFolderRow.title);
         Assert.IsTrue(library.BMSFiles.Any(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase)));
     }
@@ -190,12 +193,13 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         }
 
         using var verify = new LR2SongDBExtended(scope.SongDbPath);
-        LR2SongDB.song preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
+        LR2SongDB.song? preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preserved);
-        Assert.AreEqual("keep-b", preserved.tag);
-        Assert.AreEqual(2, preserved.favorite);
-        Assert.AreEqual(2, preserved.adddate);
+        LR2SongDB.song preservedSong = preserved!;
+        Assert.AreEqual("keep-b", preservedSong.tag);
+        Assert.AreEqual(2, preservedSong.favorite);
+        Assert.AreEqual(2, preservedSong.adddate);
         Assert.IsNotNull(verify.Table<LR2SongDBExtended.bmson_song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase)));
         Assert.IsNotNull(verify.Table<LR2SongDB.folder>().SingleOrDefault(row =>
@@ -381,12 +385,13 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
         library.ReloadFileDiff();
 
         using var verify = new LR2SongDBExtended(scope.SongDbPath);
-        LR2SongDB.song preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
+        LR2SongDB.song? preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preserved);
-        Assert.AreEqual("keep-b", preserved.tag);
-        Assert.AreEqual(2, preserved.favorite);
-        Assert.AreEqual(2, preserved.adddate);
+        LR2SongDB.song preservedSong = preserved!;
+        Assert.AreEqual("keep-b", preservedSong.tag);
+        Assert.AreEqual(2, preservedSong.favorite);
+        Assert.AreEqual(2, preservedSong.adddate);
         Assert.IsTrue(library.BMSFiles.Any(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase)));
     }

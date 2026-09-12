@@ -380,7 +380,7 @@ public sealed class CustomTableColumnSettingsTests
         return [.. typeof(CustomTableColumnSettings)
             .GetProperties(BindingFlags.Instance | BindingFlags.Public)
             .Where((property) => property.PropertyType == typeof(CustomTableColumnSettings.ColumnLayout))
-            .Select((property) => (property.Name, Layout: (CustomTableColumnSettings.ColumnLayout)property.GetValue(settings)))];
+            .Select((property) => (property.Name, Layout: (CustomTableColumnSettings.ColumnLayout)property.GetValue(settings)!))];
     }
 
     private static IReadOnlyList<(string Name, CustomTableColumnSettings.ColumnLayout Layout)> GetActiveLayouts(CustomTableColumnSettings settings)

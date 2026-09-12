@@ -91,6 +91,8 @@ UI 一覧適用後に開始した required playlist readiness は、root 出力�
 
 外部同期では、再取得した header/data JSON から `BMSTable` と `BMSTableEntry` を作り、既存 DB と比較して既存ローカル状態を引き継ぐ。
 
+外部表のページ HTML は、`PlaylistExternalSyncOwner.LoadExternalTableAsync` がアプリ HTTP owner から取得した本文だけを解析する。HTML parser にネットワークや外部 DTD を取得させず、ページ本文、header JSON、data JSON をそれぞれ一回だけ取得する。相対 header URL はページ URI、相対 `data_url` は header URI を基準に、既存の呼出し側で解決する。`BmsPlaylistExternalLoadTests.LoadExternalTableAsync_UsesFetchedHtmlWithoutParserNetworkRequests` が、最初の HTML が参照する表と各基準 URI、parser の再取得が無いことを確認する。
+
 推定難度表・リコメンド表 (`bmseeker:`) の HTTP GET / form POST は、送信開始から本文の読取り完了まで、同一の要求期限と呼出し元の `CancellationToken` を適用する。`ResponseHeadersRead` のヘッダー受信で期限を終了・更新せず、本文の実 I/O を取消してから response / stream を破棄する。待ち手だけを timeout で切り離したり、途中までの本文を成功として返したりしない。既存の同期 buffered GET / form POST / text POST も同じ本文読取り境界を使う。大容量 download / multipart upload と stream を返す API の期限はこの契約の対象外とする。
 
 Walkure の取得と参照元の難易度表取得は非同期で接続し、共有取得の gate 待機にも取消しを渡す。cache の single-flight は維持し、取消された待機者は他の取得を取消さず、gate を取得した処理だけが `finally` で解放する。ネットワーク待機をまたいで Monitor / model lock を保持しない。

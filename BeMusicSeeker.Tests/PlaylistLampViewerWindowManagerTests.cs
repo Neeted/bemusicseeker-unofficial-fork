@@ -420,9 +420,9 @@ public sealed class PlaylistLampViewerWindowManagerTests
                     var presentationScope = new TestWindowPresentationScope(
                         Application.Current,
                         TestWindowPresentationScope.GetCurrentNativeThreadId());
-                    ManagerTestFixture fixture = null;
-                    ExceptionDispatchInfo bodyFailure = null;
-                    Exception cleanupFailure = null;
+                    ManagerTestFixture? fixture = null;
+                    ExceptionDispatchInfo? bodyFailure = null;
+                    Exception? cleanupFailure = null;
                     try
                     {
                         presentationScope.PrepareForOwnedPresentation(owner);
@@ -453,7 +453,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                                 fixture?.RecordPreparedWindow(window);
                             },
                             activateWindowForInitialPresentation);
-                        test(fixture);
+                        test(fixture!);
                     }
                     catch (Exception ex)
                     {
@@ -483,7 +483,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                                 ex);
                     }
 
-                    ExceptionDispatchInfo presentationFailure = presentationScope.GetPresentationFailure();
+                    ExceptionDispatchInfo? presentationFailure = presentationScope.GetPresentationFailure();
                     if (bodyFailure != null)
                     {
                         if (presentationFailure != null)

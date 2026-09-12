@@ -224,8 +224,8 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
         public DateTime GetTimestamp(string relativePath)
         {
             string key = NormalizeManifestRelativePath(relativePath);
-            Assert.IsTrue(manifestByRelativePath.TryGetValue(key, out ManifestEntry entry), "Missing manifest entry: " + key);
-            return entry.LastWriteTimeUtc;
+            Assert.IsTrue(manifestByRelativePath.TryGetValue(key, out ManifestEntry? entry), "Missing manifest entry: " + key);
+            return entry!.LastWriteTimeUtc;
         }
 
         public void Dispose()

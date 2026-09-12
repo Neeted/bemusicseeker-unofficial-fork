@@ -1179,7 +1179,7 @@ public sealed class ResilientFileMutationServiceTests
         LongPathFileSystem.DeleteDirectory(directoryPath, recursive: true);
     }
 
-    private static bool ContainsException(Exception candidate, Exception expected)
+    private static bool ContainsException(Exception? candidate, Exception expected)
     {
         if (candidate == null)
         {

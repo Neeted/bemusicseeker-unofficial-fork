@@ -142,7 +142,7 @@ public sealed class MainWindowChartPresentationWpfTests
                     Assert.AreEqual(1, beginning.Count);
                     Assert.AreEqual(1, started.Count);
                     Assert.IsNotNull(GetInstalledEditor(table));
-                    TextBox editor = GetInstalledEditor(table);
+                    TextBox editor = GetInstalledEditor(table)!;
                     editor!.Text = expectedText;
                     RaiseKey(table, Key.Return);
 
@@ -195,7 +195,7 @@ public sealed class MainWindowChartPresentationWpfTests
             int beginningCount = 0;
             int startedCount = 0;
             int previewKeyCount = 0;
-            TextBox editorSeenAtStarted = null;
+            TextBox? editorSeenAtStarted = null;
             table.AddHandler(
                 UIElement.PreviewKeyDownEvent,
                 new KeyEventHandler((_, _) => previewKeyCount++),
@@ -221,8 +221,8 @@ public sealed class MainWindowChartPresentationWpfTests
             Assert.AreEqual(1, startedCount);
             Assert.IsNotNull(editorSeenAtStarted);
             Assert.IsTrue(editorSeenAtStarted!.Width > 2d);
-            Assert.IsTrue(editorSeenAtStarted.Height > 2d);
-            Assert.AreEqual("initial", editorSeenAtStarted.Text);
+            Assert.IsTrue(editorSeenAtStarted!.Height > 2d);
+            Assert.AreEqual("initial", editorSeenAtStarted!.Text);
 
             table.RaiseEvent(new KeyEventArgs(
                 Keyboard.PrimaryDevice,

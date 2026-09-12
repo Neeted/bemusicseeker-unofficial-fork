@@ -169,7 +169,7 @@ public sealed class RootFileEnumerationTests
     [TestMethod]
     public void TrimTrailingDirectorySeparators_PreservesDriveRootAsAbsolutePath()
     {
-        string root = Path.GetPathRoot(Path.GetTempPath());
+        string root = Path.GetPathRoot(Path.GetTempPath())!;
         string trimmed = LongPathFileSystem.TrimTrailingDirectorySeparators(root);
 
         Assert.AreEqual(root.TrimEnd(Path.AltDirectorySeparatorChar), trimmed);
@@ -405,10 +405,10 @@ public sealed class RootFileEnumerationTests
             Assert.IsNull(result.ScanSource);
             Assert.IsTrue(result.DirectoryQueryHitCount >= 2UL);
             Assert.AreEqual(result.NativeBridgeMs, result.DirectoryQueryMs);
-            Assert.IsTrue(result.Result.DirectoryEntriesByPath.TryGetValue(tempRoot, out RootFileEnumerationEntry rootEntry));
-            Assert.IsTrue(result.Result.DirectoryEntriesByPath.TryGetValue(nestedDirectory, out RootFileEnumerationEntry nestedEntry));
-            Assert.AreEqual(ToUnixSeconds(rootWriteTimeUtc), rootEntry.LastWriteTimeUnixSeconds);
-            Assert.AreEqual(ToUnixSeconds(nestedWriteTimeUtc), nestedEntry.LastWriteTimeUnixSeconds);
+            Assert.IsTrue(result.Result.DirectoryEntriesByPath.TryGetValue(tempRoot, out RootFileEnumerationEntry? rootEntry));
+            Assert.IsTrue(result.Result.DirectoryEntriesByPath.TryGetValue(nestedDirectory, out RootFileEnumerationEntry? nestedEntry));
+            Assert.AreEqual(ToUnixSeconds(rootWriteTimeUtc), rootEntry!.LastWriteTimeUnixSeconds);
+            Assert.AreEqual(ToUnixSeconds(nestedWriteTimeUtc), nestedEntry!.LastWriteTimeUnixSeconds);
         }
         finally
         {

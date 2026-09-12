@@ -356,7 +356,7 @@ public sealed class AppSchemaPreflightServiceTests
         string sha256 = string.Empty;
         try
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
+            string chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath)!, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Test\r\n");
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
@@ -434,7 +434,7 @@ public sealed class AppSchemaPreflightServiceTests
             SeedLateFailureSchemaRepairDatabase(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
             SchemaRepairSnapshot before = ReadSchemaRepairSnapshot(tempDbPath);
-            Exception failure = null;
+            Exception? failure = null;
             try
             {
                 gateway.RepairAppOwnedSchema();
@@ -473,7 +473,7 @@ public sealed class AppSchemaPreflightServiceTests
         {
             SeedLateFailureSchemaRepairDatabase(tempDbPath);
             SchemaRepairSnapshot before = ReadSchemaRepairSnapshot(tempDbPath);
-            Exception failure = null;
+            Exception? failure = null;
             try
             {
                 new BmsLibraryDbGateway(tempDbPath).RepairAppOwnedSchema();
@@ -870,7 +870,7 @@ public sealed class AppSchemaPreflightServiceTests
         {
             return;
         }
-        string directoryPath = Path.GetDirectoryName(songDbPath)!;
+        string? directoryPath = Path.GetDirectoryName(songDbPath);
         if (!string.IsNullOrWhiteSpace(directoryPath) && Directory.Exists(directoryPath))
         {
             Directory.Delete(directoryPath, recursive: true);

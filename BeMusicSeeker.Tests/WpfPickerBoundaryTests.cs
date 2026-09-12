@@ -127,7 +127,7 @@ public sealed class WpfPickerBoundaryTests
 
     private static string FindRepositoryRoot()
     {
-        DirectoryInfo directory = new(AppContext.BaseDirectory);
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
         while (directory != null)
         {
             if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))

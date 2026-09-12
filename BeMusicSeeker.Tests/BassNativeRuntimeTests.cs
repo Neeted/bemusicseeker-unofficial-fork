@@ -423,9 +423,9 @@ public sealed class BassNativeRuntimeTests
         string previousEncoderDirectory = BassAudioWriter.EncoderDirectory;
         SampleRate previousFrequency = BassAudioPlayer.Frequency;
         SampleFormat previousFormat = BassAudioPlayer.Format;
-        BassAudioSession ownedSession = null;
-        FieldInfo encoderField = null;
-        ExceptionDispatchInfo failure = null;
+        BassAudioSession? ownedSession = null;
+        FieldInfo? encoderField = null;
+        ExceptionDispatchInfo? failure = null;
         void CaptureCleanup(Action cleanup)
         {
             try
@@ -441,7 +441,7 @@ public sealed class BassNativeRuntimeTests
         AudioEncoderSession GetCurrentEncoder()
         {
             Assert.IsNotNull(encoderField);
-            var currentEncoder = encoderField.GetValue(null) as AudioEncoderSession;
+            var currentEncoder = encoderField!.GetValue(null) as AudioEncoderSession;
             Assert.IsNotNull(currentEncoder);
             return currentEncoder;
         }
@@ -696,11 +696,11 @@ public sealed class BassNativeRuntimeTests
         string wavePath = CreateNativeSmokeWaveFile();
         int sourceHandle = 0;
         int mixerHandle = 0;
-        BassMixerSourceController sourceController = null;
+        BassMixerSourceController? sourceController = null;
         bool coreInitialized = false;
         string stage = "not started";
-        Exception primaryException = null;
-        Exception cleanupException = null;
+        Exception? primaryException = null;
+        Exception? cleanupException = null;
         try
         {
             stage = "BassAudioRuntime.Initialize";
@@ -952,8 +952,8 @@ public sealed class BassNativeRuntimeTests
     public void BassAudioPlayer_MemoryFileProceduresSurviveForcedFullGc()
     {
         string wavePath = CreateNativeSmokeWaveFile();
-        BassAudioSession session = null;
-        BassAudioPlayer player = null;
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
         int initialVoices = BassAudioPlayer.CurrentVoices;
         try
         {
@@ -1029,8 +1029,8 @@ public sealed class BassNativeRuntimeTests
     public void BassAudioPlayer_VerifiedMembershipRaceCountsVoiceAndLifecycleIsIdempotent()
     {
         string wavePath = CreateNativeSmokeWaveFile();
-        BassAudioSession session = null;
-        BassAudioPlayer player = null;
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
         int initialVoices = BassAudioPlayer.CurrentVoices;
         try
         {
@@ -1083,8 +1083,8 @@ public sealed class BassNativeRuntimeTests
     public void BassAudioPlayer_NaturalEndCanBeReenteredWithoutStaleCleanup()
     {
         string wavePath = CreateNativeSmokeWaveFile();
-        BassAudioSession session = null;
-        BassAudioPlayer player = null;
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
         int initialVoices = BassAudioPlayer.CurrentVoices;
         try
         {
@@ -1152,8 +1152,8 @@ public sealed class BassNativeRuntimeTests
         bool originalMute = BassAudioPlayer.IsDeviceMuted;
         SampleRate originalFrequency = BassAudioPlayer.Frequency;
         SampleFormat originalFormat = BassAudioPlayer.Format;
-        BassAudioSession session = null;
-        BassAudioPlayer player = null;
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
         try
         {
             BassAudioRuntime.Shutdown();
@@ -1431,7 +1431,7 @@ public sealed class BassNativeRuntimeTests
         float originalDefaultVolume = BassAudioPlayer.DefaultVolume;
         SampleRate originalFrequency = BassAudioPlayer.Frequency;
         SampleFormat originalFormat = BassAudioPlayer.Format;
-        BassAudioSession ownedSession = null;
+        BassAudioSession? ownedSession = null;
         try
         {
             BassAudioRuntime.Shutdown();
@@ -1508,9 +1508,9 @@ public sealed class BassNativeRuntimeTests
     [TestMethod]
     public void InitializeOwned_ActiveSessionRejectsScopedAndUnscopedReentry()
     {
-        BassAudioSession ownedSession = null;
+        BassAudioSession? ownedSession = null;
         _ = NLogWrapper.GetLogger("AudioSession");
-        LoggingConfiguration originalLoggingConfiguration = LogManager.Configuration;
+        LoggingConfiguration? originalLoggingConfiguration = LogManager.Configuration;
         var audioSessionTarget = new MemoryTarget { Layout = "${message}" };
         var testLoggingConfiguration = new LoggingConfiguration();
         testLoggingConfiguration.AddRule(LogLevel.Info, LogLevel.Fatal, audioSessionTarget, "AudioSession");

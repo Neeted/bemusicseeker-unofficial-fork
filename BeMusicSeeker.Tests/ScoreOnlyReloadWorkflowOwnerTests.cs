@@ -109,11 +109,11 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         var tokens = new List<long>();
         int reloadCount = 0;
-        MainWindowViewModel viewModel = null;
+        MainWindowViewModel? viewModel = null;
         var owner = new ScoreOnlyReloadWorkflowOwner(() =>
         {
             reloadCount++;
-            tokens.Add(viewModel.ProgressHub.StartupProgress.GetActiveStartupProgressOperationToken());
+            tokens.Add(viewModel!.ProgressHub.StartupProgress.GetActiveStartupProgressOperationToken());
             if (reloadCount == 1)
             {
                 firstEntered.SetResult();

@@ -635,8 +635,8 @@ public sealed class PlaylistUrlCompletionTests
 
         JObject json = entry.ToJsonObject();
 
-        CollectionAssert.AreEqual(Array.Empty<string>(), ((JArray)json["org_md5s"]).Values<string>().ToArray());
-        Assert.AreEqual(string.Empty, (string)json["org_md5"]);
+        CollectionAssert.AreEqual(Array.Empty<string>(), ((JArray)json["org_md5s"]!).Values<string>().ToArray());
+        Assert.AreEqual(string.Empty, (string?)json["org_md5"]);
         Assert.AreEqual(string.Empty, entry.org_md5);
     }
 
@@ -649,8 +649,8 @@ public sealed class PlaylistUrlCompletionTests
 
         JObject json = entry.ToJsonObject();
 
-        CollectionAssert.AreEqual(Array.Empty<string>(), ((JArray)json["org_md5s"]).Values<string>().ToArray());
-        Assert.AreEqual(string.Empty, (string)json["org_md5"]);
+        CollectionAssert.AreEqual(Array.Empty<string>(), ((JArray)json["org_md5s"]!).Values<string>().ToArray());
+        Assert.AreEqual(string.Empty, (string?)json["org_md5"]);
     }
 
     [TestMethod]

@@ -634,7 +634,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             Assert.AreEqual(1, extractCount);
             Assert.IsFalse(File.Exists(archivePath));
             Assert.IsTrue(File.Exists(archivedPath));
-            string[] importedEntries = Directory.GetFileSystemEntries(Path.GetDirectoryName(archivedPath));
+            string[] importedEntries = Directory.GetFileSystemEntries(Path.GetDirectoryName(archivedPath)!);
             Assert.AreEqual(1, importedEntries.Length);
             Assert.AreEqual(archivedPath, importedEntries[0]);
             Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_import skipped reason=already_imported") && message.Contains("bundleType=7z") && !message.Contains("extractedDbPath=")));

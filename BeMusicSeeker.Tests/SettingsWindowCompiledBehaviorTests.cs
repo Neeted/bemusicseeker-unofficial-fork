@@ -409,19 +409,19 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Button schemaButton = FindLogicalDescendants<Button>(page).Single(button =>
                     GetBindingPath(button, ContentControl.ContentProperty) == nameof(SettingsDialogViewModel.Lr2PlayHistorySchemaInstallOrRepairButtonText));
 
-                SettingsSection resyncSection = FindNearestSettingsSection(resyncButton);
-                SettingsSection schemaSection = FindNearestSettingsSection(schemaBanner);
+                SettingsSection? resyncSection = FindNearestSettingsSection(resyncButton);
+                SettingsSection? schemaSection = FindNearestSettingsSection(schemaBanner);
                 Assert.IsNotNull(resyncSection);
                 Assert.IsNotNull(schemaSection);
                 Assert.AreNotSame(resyncSection, schemaSection);
-                Assert.IsFalse(string.IsNullOrWhiteSpace(resyncSection.Header?.ToString()));
-                Assert.IsFalse(string.IsNullOrWhiteSpace(schemaSection.Header?.ToString()));
-                Assert.AreNotEqual(resyncSection.Header?.ToString(), schemaSection.Header?.ToString());
+                Assert.IsFalse(string.IsNullOrWhiteSpace(resyncSection!.Header?.ToString()));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(schemaSection!.Header?.ToString()));
+                Assert.AreNotEqual(resyncSection!.Header?.ToString(), schemaSection!.Header?.ToString());
                 Assert.AreSame(schemaSection, FindNearestSettingsSection(schemaButton));
                 Assert.AreEqual("Resources.Lr2_song_db_sync_data_resync",
-                    GetBindingPath(resyncSection, HeaderedContentControl.HeaderProperty));
+                    GetBindingPath(resyncSection!, HeaderedContentControl.HeaderProperty));
                 Assert.AreEqual("Resources.Lr2_play_history_schema_label",
-                    GetBindingPath(schemaSection, HeaderedContentControl.HeaderProperty));
+                    GetBindingPath(schemaSection!, HeaderedContentControl.HeaderProperty));
             }
             finally
             {
@@ -436,7 +436,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
             string previousCulture = Resources.Culture?.Name ?? "ja-JP";
-            MainWindowViewModel owner = null;
+            MainWindowViewModel? owner = null;
             try
             {
                 ResourceService.Current.ChangeCulture("ja-JP");
@@ -456,8 +456,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     GetBindingPath(field, HeaderedContentControl.HeaderProperty) == "Resources.Device_setting_latency");
                 Button testButton = FindLogicalDescendants<Button>(page).Single(button =>
                     GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Device_setting_test");
-                SettingsSection measurementSection = FindNearestSettingsSection(testButton);
-                SettingsSection latencySection = FindNearestSettingsSection(latencyField);
+                SettingsSection? measurementSection = FindNearestSettingsSection(testButton);
+                SettingsSection? latencySection = FindNearestSettingsSection(latencyField);
                 SettingsSection advancedSection = FindLogicalDescendants<SettingsSection>(page).Single(section =>
                     GetBindingPath(section, HeaderedContentControl.HeaderProperty) == "Resources.Settings_audio_advanced");
                 SettingsSection volumeSection = FindLogicalDescendants<SettingsSection>(page).Single(section =>
@@ -466,10 +466,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreSame(measurementSection, latencySection);
                 Assert.AreNotSame(advancedSection, measurementSection);
                 Assert.AreNotSame(volumeSection, measurementSection);
-                Assert.IsFalse(string.IsNullOrWhiteSpace(measurementSection.Header?.ToString()));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(measurementSection!.Header?.ToString()));
                 Assert.AreEqual("レイテンシ", latencyField.Header);
                 Assert.AreEqual("Resources.Device_setting_test",
-                    GetBindingPath(measurementSection, HeaderedContentControl.HeaderProperty));
+                    GetBindingPath(measurementSection!, HeaderedContentControl.HeaderProperty));
             }
             finally
             {
@@ -501,15 +501,15 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 ListBox presetList = (ListBox)page.FindName("playHistoryPresetList");
                 SettingsListEditor presetEditor = FindLogicalDescendants<SettingsListEditor>(page).Single(editor =>
                     FindLogicalDescendants<ListBox>(editor).Any(list => ReferenceEquals(list, presetList)));
-                SettingsSection presetSection = FindNearestSettingsSection(presetEditor);
+                SettingsSection? presetSection = FindNearestSettingsSection(presetEditor);
                 SettingsSection md5Section = FindLogicalDescendants<SettingsSection>(page).Single(section =>
                     GetBindingPath(section, HeaderedContentControl.HeaderProperty) == "Resources.Playlist_md5_url_mapping_tsv_uri");
 
                 Assert.IsNotNull(presetSection);
                 Assert.AreNotSame(md5Section, presetSection);
-                Assert.IsFalse(string.IsNullOrWhiteSpace(presetSection.Header?.ToString()));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(presetSection!.Header?.ToString()));
                 Assert.AreEqual("Resources.Play_history_folder_display_preset",
-                    GetBindingPath(presetSection, HeaderedContentControl.HeaderProperty));
+                    GetBindingPath(presetSection!, HeaderedContentControl.HeaderProperty));
                 Assert.IsTrue(string.IsNullOrWhiteSpace(presetEditor.Header?.ToString()),
                     "The preset section owns the heading; the nested list editor must not duplicate it.");
                 Assert.IsTrue(string.IsNullOrWhiteSpace(presetEditor.Description?.ToString()),
@@ -704,7 +704,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             ?? BindingOperations.GetBindingExpression(target, property)?.ParentBinding.Path?.Path;
     }
 
-    private static SettingsSection FindNearestSettingsSection(DependencyObject element)
+    private static SettingsSection? FindNearestSettingsSection(DependencyObject element)
     {
         for (DependencyObject current = element; current != null;)
         {
@@ -713,7 +713,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 return section;
             }
 
-            DependencyObject parent = current is Visual or System.Windows.Media.Media3D.Visual3D
+            DependencyObject? parent = current is Visual or System.Windows.Media.Media3D.Visual3D
                 ? VisualTreeHelper.GetParent(current)
                 : null;
             current = parent ?? LogicalTreeHelper.GetParent(current);

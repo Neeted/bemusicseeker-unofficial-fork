@@ -99,7 +99,7 @@ public sealed class OwnedChartCollectionRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "Installed");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed");
             Directory.CreateDirectory(chartDirectory);
             string overlayChartPath = Path.Combine(chartDirectory, "overlay.bms");
             string movedChartPath = Path.Combine(chartDirectory, "moved.bms");

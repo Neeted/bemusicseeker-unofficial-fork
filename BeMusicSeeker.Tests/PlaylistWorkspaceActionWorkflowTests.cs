@@ -743,7 +743,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 nameof(PlaylistWorkspaceActionWorkflowTests),
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDirectory);
-            MainWindowViewModel viewModel = null;
+            MainWindowViewModel? viewModel = null;
             try
             {
                 string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -834,7 +834,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     canUseLr2Backup: false,
                     canUseLr2IrScore: false);
                 IStartupLibraryApplicationPort applicationPort =
-                    (IStartupLibraryApplicationPort)viewModel;
+                    (IStartupLibraryApplicationPort)viewModel!;
                 applicationPort.AttachStartupLibrary(library);
                 applicationPort.AttachStartupServices(
                     new StartupLibraryServices(profile, library, playlist));
@@ -920,7 +920,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 nameof(PlaylistWorkspaceActionWorkflowTests),
                 Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempDirectory);
-            MainWindowViewModel viewModel = null;
+            MainWindowViewModel? viewModel = null;
             try
             {
                 string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -1030,7 +1030,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     canUseLr2Backup: false,
                     canUseLr2IrScore: false);
                 IStartupLibraryApplicationPort applicationPort =
-                    (IStartupLibraryApplicationPort)viewModel;
+                    (IStartupLibraryApplicationPort)viewModel!;
                 applicationPort.AttachStartupLibrary(library);
                 applicationPort.AttachStartupServices(
                     new StartupLibraryServices(profile, library, playlist));
@@ -2118,7 +2118,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         File.WriteAllText(
             dataPath,
             "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Deferred song\",\"artist\":\"Artist\",\"level\":\"1\"}]");
-        TestBmsPlaylist playlist = null;
+        TestBmsPlaylist? playlist = null;
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(databasePath);
@@ -2130,7 +2130,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             var dialogs = new BlockingConfirmationDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
-                playlistStoreProvider: () => playlist,
+                playlistStoreProvider: () => playlist!,
                 playlistLibraryProvider: () => library,
                 playlistWorkspaceDialogService: dialogs);
             workspace.RefreshPlaylistTreeTables(playlist);

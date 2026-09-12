@@ -579,7 +579,7 @@ public sealed class SettingsDialogBehaviorTests
     public async Task Lr2SettingsDraftCreatedDuringPreviewRemainsSavedAfterPreviewEnds()
     {
         string root = CreateTemporaryRoot("settings-preview-draft");
-        SettingsDialogHarness harness = null;
+        SettingsDialogHarness? harness = null;
         try
         {
             (string songDbPath, string configPath, string bmsRoot) = CreateValidLr2Layout(root);
@@ -1442,7 +1442,7 @@ public sealed class SettingsDialogBehaviorTests
 
                 _ = settings[property.Name];
                 SettingsPropertyValue propertyValue = settings.PropertyValues[property.Name];
-                object serializedValue = propertyValue?.SerializedValue;
+                object? serializedValue = propertyValue?.SerializedValue;
                 values.Add(property.Name, Canonicalize(serializedValue ?? propertyValue?.PropertyValue));
             }
 
@@ -1455,8 +1455,8 @@ public sealed class SettingsDialogBehaviorTests
             ArgumentNullException.ThrowIfNull(other);
             return values.Keys
                 .Union(other.values.Keys, StringComparer.Ordinal)
-                .Where(propertyName => !values.TryGetValue(propertyName, out string value)
-                    || !other.values.TryGetValue(propertyName, out string otherValue)
+                .Where(propertyName => !values.TryGetValue(propertyName, out string? value)
+                    || !other.values.TryGetValue(propertyName, out string? otherValue)
                     || !string.Equals(value, otherValue, StringComparison.Ordinal))
                 .OrderBy(propertyName => propertyName, StringComparer.Ordinal);
         }
@@ -1482,11 +1482,11 @@ public sealed class SettingsDialogBehaviorTests
 
         internal void AssertPropertySemanticValue(string propertyName, object expectedValue)
         {
-            Assert.IsTrue(values.TryGetValue(propertyName, out string actualValue), propertyName);
+            Assert.IsTrue(values.TryGetValue(propertyName, out string? actualValue), propertyName);
             Assert.AreEqual(Canonicalize(expectedValue), actualValue, propertyName);
         }
 
-        private static string Canonicalize(object value)
+        private static string Canonicalize(object? value)
         {
             if (value is null)
             {

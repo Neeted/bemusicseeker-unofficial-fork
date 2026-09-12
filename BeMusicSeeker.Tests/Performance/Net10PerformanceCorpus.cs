@@ -76,7 +76,7 @@ internal static class Net10PerformanceCorpus
 
     internal static int GetConfiguredSeed()
     {
-        string value = Environment.GetEnvironmentVariable("BMS_NET10_PERF_SEED");
+        string? value = Environment.GetEnvironmentVariable("BMS_NET10_PERF_SEED");
         return int.TryParse(value, out int seed)
             ? seed
             : DefaultSeed;
@@ -84,7 +84,7 @@ internal static class Net10PerformanceCorpus
 
     internal static IReadOnlyList<Net10PerformanceCorpusScale> GetConfiguredScales()
     {
-        string value = Environment.GetEnvironmentVariable("BMS_NET10_PERF_SCALES");
+        string? value = Environment.GetEnvironmentVariable("BMS_NET10_PERF_SCALES");
         if (string.IsNullOrWhiteSpace(value))
         {
             return Enum.GetValues<Net10PerformanceCorpusScale>();

@@ -40,7 +40,7 @@ public sealed class BmtTableExportServiceTests
                 """);
             using (var held = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
-                BmtTableExportService.ExportResult result = null;
+                BmtTableExportService.ExportResult? result = null;
                 switch (route)
                 {
                     case "cleanup": result = BmtTableExportService.CleanupManagedFiles(directory); break;
@@ -49,13 +49,14 @@ public sealed class BmtTableExportServiceTests
                     case "full": result = BmtTableExportService.ExportTableDataSet(directory, Array.Empty<JObject>(), true); break;
                     case "rename": BmtTableExportService.ExportTableData(directory, CreateSimpleTableData("https://example.com/new", "New"), CreateExportMetadata("1", "https://example.com/new", "New"), out result); break;
                 }
+                BmtTableExportService.ExportResult completedResult = result!;
                 Assert.IsTrue(File.Exists(manifestPath), "未削除ファイルの台帳を残す。");
                 JObject manifest = JObject.Parse(File.ReadAllText(manifestPath));
                 CollectionAssert.Contains(manifest["files"]!.Values<string>().ToArray(), "locked.bmt");
                 Assert.AreNotEqual("locked.bmt", manifest["playlists"]?["1"]?["file"]?.Value<string>());
-                Assert.AreEqual(route is "cleanup" or "full" ? 2 : 0, result.RemovedCount);
-                Assert.AreEqual(lockedPath, result.Failures.Single().Path);
-                Assert.IsFalse(string.IsNullOrWhiteSpace(result.Failures.Single().Cause));
+                Assert.AreEqual(route is "cleanup" or "full" ? 2 : 0, completedResult.RemovedCount);
+                Assert.AreEqual(lockedPath, completedResult.Failures.Single().Path);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(completedResult.Failures.Single().Cause));
                 if (route is "cleanup" or "full" or "remove")
                     Assert.IsTrue(manifest["playlists"] == null || !manifest["playlists"]!.HasValues);
                 else
@@ -140,7 +141,7 @@ public sealed class BmtTableExportServiceTests
             string manifestPath = Path.Combine(directory, BmtTableExportService.ManifestFileName);
             File.WriteAllText(manifestPath, "{\"files\":[],\"metadata\":\"original\"}");
             byte[] original = File.ReadAllBytes(manifestPath);
-            Exception failure = null;
+            Exception? failure = null;
             using (var held = new FileStream(manifestPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
                 try { BmtTableExportService.UpdateManagedPlaylistUrlOwnership(directory, CreateExportMetadata("1", "https://example.com/new", "New")); }
@@ -211,8 +212,8 @@ public sealed class BmtTableExportServiceTests
                 }
             });
 
-        Task first = null;
-        Task second = null;
+        Task? first = null;
+        Task? second = null;
         try
         {
             first = Task.Factory.StartNew(
@@ -234,8 +235,10 @@ public sealed class BmtTableExportServiceTests
             first?.Wait(TimeSpan.FromSeconds(10));
             second?.Wait(TimeSpan.FromSeconds(10));
         }
-        Assert.IsTrue(first.IsCompletedSuccessfully);
-        Assert.IsTrue(second.IsCompletedSuccessfully);
+        Task completedFirst = first!;
+        Task completedSecond = second!;
+        Assert.IsTrue(completedFirst.IsCompletedSuccessfully);
+        Assert.IsTrue(completedSecond.IsCompletedSuccessfully);
 
         CollectionAssert.AreEqual(new[] { 1, 2 }, observed);
         Assert.AreEqual(1, maximumCallbackConcurrency);
@@ -243,11 +246,12 @@ public sealed class BmtTableExportServiceTests
 
     private static void AssertBmtFailure(Action operation)
     {
-        Exception failure = null;
+        Exception? failure = null;
         try { operation(); }
         catch (Exception exception) { failure = exception; }
         Assert.IsNotNull(failure, "失敗を隠さず呼出し元へ返す。");
-        Assert.IsTrue(failure is IOException or InvalidDataException, failure.ToString());
+        Exception completedFailure = failure!;
+        Assert.IsTrue(completedFailure is IOException or InvalidDataException, completedFailure.ToString());
     }
 
     private const string Sha256A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -1346,7 +1350,7 @@ public sealed class BmtTableExportServiceTests
     {
         object targets = typeof(PlaylistWorkspaceViewModel)
             .GetMethod("BuildBeatorajaTableUrlImportTargets", BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null, [new[] { "https://EXAMPLE.com/table/%7Efull.html", "https://example.com/table/~full.html", "https://example.com/other.html" }]);
+            .Invoke(null, [new[] { "https://EXAMPLE.com/table/%7Efull.html", "https://example.com/table/~full.html", "https://example.com/other.html" }])!;
         var targetList = ((System.Collections.IEnumerable)targets).Cast<object>().ToArray();
 
         Assert.AreEqual(2, targetList.Length);
@@ -1366,8 +1370,8 @@ public sealed class BmtTableExportServiceTests
         MethodInfo method = typeof(PlaylistWorkspaceViewModel)
             .GetMethod("HasSamePersistedTableUrl", BindingFlags.Static | BindingFlags.NonPublic)!;
 
-        Assert.IsTrue((bool)method.Invoke(null, [table, rawPageUrl]));
-        Assert.IsFalse((bool)method.Invoke(null, [table, "https://example.com/table/~full.html"]));
+        Assert.IsTrue((bool)method.Invoke(null, [table, rawPageUrl])!);
+        Assert.IsFalse((bool)method.Invoke(null, [table, "https://example.com/table/~full.html"])!);
     }
 
     private static JObject ReadBmtJson(string path)
@@ -1390,7 +1394,7 @@ public sealed class BmtTableExportServiceTests
     {
         return (T)target.GetType()
             .GetProperty(propertyName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!
-            .GetValue(target);
+            .GetValue(target)!;
     }
 
     private static JObject CreateLocalTableData(string url, string name)
@@ -1512,9 +1516,13 @@ public sealed class BmtTableExportServiceTests
     {
         public BmtTableExportService.SongHashResolution Resolve(BmtSongHashResolveRequest request)
         {
-            return request != null && hashesByTitle.TryGetValue(request.Title, out Tuple<string, string> hashes)
-                ? new BmtTableExportService.SongHashResolution(hashes.Item1, hashes.Item2)
-                : new BmtTableExportService.SongHashResolution(null, null);
+            if (request == null || !hashesByTitle.TryGetValue(request.Title, out Tuple<string, string>? hashes))
+            {
+                return new BmtTableExportService.SongHashResolution(null, null);
+            }
+
+            Tuple<string, string> resolvedHashes = hashes!;
+            return new BmtTableExportService.SongHashResolution(resolvedHashes.Item1, resolvedHashes.Item2);
         }
     }
 }

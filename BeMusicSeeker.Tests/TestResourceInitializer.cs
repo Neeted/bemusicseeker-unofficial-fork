@@ -17,7 +17,7 @@ internal static class TestResourceInitializer
 
     public static void EnsureJapaneseResources()
     {
-        PropertyInfo availableCulturesProperty = typeof(App).GetProperty("AvailableCultures", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+        PropertyInfo availableCulturesProperty = typeof(App).GetProperty("AvailableCultures", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)!;
         var availableCultures = new ReadOnlyDictionary<string, string>(new Dictionary<string, string>
         {
             { "Default(日本語)", "ja-JP" }

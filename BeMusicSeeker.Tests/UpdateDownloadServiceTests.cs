@@ -209,7 +209,7 @@ public sealed class UpdateDownloadServiceTests
     [TestCategory("ReleaseAcceptance")]
     public void PreparedUpdaterPayloadStartsFromCurrentDirectory()
     {
-        string updaterPublishOutput = Environment.GetEnvironmentVariable("BMS_SCD_UPDATER_PUBLISH_ROOT");
+        string? updaterPublishOutput = Environment.GetEnvironmentVariable("BMS_SCD_UPDATER_PUBLISH_ROOT");
         if (string.IsNullOrWhiteSpace(updaterPublishOutput))
         {
             Assert.Inconclusive("Self-contained updater verification requires BMS_SCD_UPDATER_PUBLISH_ROOT.");
@@ -227,7 +227,7 @@ public sealed class UpdateDownloadServiceTests
         File.WriteAllText(packagePath, "package");
         foreach (string fileName in payloadFileNames)
         {
-            string sourcePath = Path.Combine(updaterPublishOutput, fileName);
+            string sourcePath = Path.Combine(updaterPublishOutput!, fileName);
             if (!File.Exists(sourcePath))
             {
                 Assert.Inconclusive("Self-contained updater payload is missing: " + sourcePath);
@@ -380,7 +380,7 @@ public sealed class UpdateDownloadServiceTests
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
                 new RecordingUpdaterProcessGateway());
-            Exception warning = null;
+            Exception? warning = null;
 
             service.TryDeleteDownloadedPackage(Path.Combine(downloadsDirectory, "app.zip"), exception => warning = exception);
 

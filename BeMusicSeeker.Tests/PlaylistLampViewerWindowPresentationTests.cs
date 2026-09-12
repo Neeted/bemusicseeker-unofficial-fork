@@ -202,7 +202,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             };
             windowTest.ShowAndWaitForContentRendered(owner);
             var window = new PlaylistLampViewerWindow(owner, viewModel);
-            EventHandler<PlaylistLampAggregationResultChangedEventArgs> resultHandler = null;
+            EventHandler<PlaylistLampAggregationResultChangedEventArgs>? resultHandler = null;
             try
             {
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
@@ -429,9 +429,9 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     Assert.IsTrue(segment.Count > 0 && segment.HasPositiveWidth);
                     Assert.IsTrue(button.ActualWidth > 0d,
                         $"positive segment button for {segment.CategoryKey} must have arranged width");
-                    ContentPresenter container = FindAncestor<ContentPresenter>(button);
+                    ContentPresenter? container = FindAncestor<ContentPresenter>(button);
                     Assert.IsNotNull(container, "weighted segment must be hosted by an ItemsControl ContentPresenter");
-                    Assert.IsTrue(container.ActualWidth > 0d,
+                    Assert.IsTrue(container!.ActualWidth > 0d,
                         $"positive segment container for {segment.CategoryKey} must have arranged width");
                 }
 
@@ -450,7 +450,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 Color[] visibleSegmentColors = segmentButtons
                     .Select(button => button.Background as SolidColorBrush)
                     .Where(brush => brush != null && brush.Color.A > 0)
-                    .Select(brush => brush.Color)
+                    .Select(brush => brush!.Color)
                     .Distinct()
                     .ToArray();
                 Assert.IsTrue(visibleSegmentColors.Length >= 2,
@@ -1239,10 +1239,10 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
     private static void AssertContrastForeground(DependencyObject backgroundElement, Control foregroundElement)
     {
-        Brush backgroundBrush = GetBackgroundBrush(backgroundElement);
+        Brush? backgroundBrush = GetBackgroundBrush(backgroundElement);
         Assert.IsInstanceOfType(backgroundBrush, typeof(SolidColorBrush));
         Assert.IsInstanceOfType<SolidColorBrush>(foregroundElement.Foreground);
-        var background = (SolidColorBrush)backgroundBrush;
+        var background = (SolidColorBrush)backgroundBrush!;
         var foreground = (SolidColorBrush)foregroundElement.Foreground;
         Assert.AreEqual(255, foreground.Color.A, "filled text must use an opaque foreground brush");
         Assert.IsTrue(
@@ -1258,10 +1258,10 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
     private static void AssertContrastForeground(DependencyObject backgroundElement, TextBlock foregroundElement)
     {
-        Brush backgroundBrush = GetBackgroundBrush(backgroundElement);
+        Brush? backgroundBrush = GetBackgroundBrush(backgroundElement);
         Assert.IsInstanceOfType(backgroundBrush, typeof(SolidColorBrush));
         Assert.IsInstanceOfType<SolidColorBrush>(foregroundElement.Foreground);
-        var background = (SolidColorBrush)backgroundBrush;
+        var background = (SolidColorBrush)backgroundBrush!;
         var foreground = (SolidColorBrush)foregroundElement.Foreground;
         Assert.AreEqual(255, foreground.Color.A);
         Assert.IsTrue(foreground.Color == Colors.Black || foreground.Color == Colors.White);
@@ -1307,7 +1307,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         Assert.AreEqual(expectedForeground, ((SolidColorBrush)segmentButton.Foreground).Color);
     }
 
-    private static Brush GetBackgroundBrush(DependencyObject element)
+    private static Brush? GetBackgroundBrush(DependencyObject element)
         => element switch
         {
             Border border => border.Background,
@@ -1373,14 +1373,14 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         Assert.IsTrue(wideButton.ActualWidth > 0d);
         Assert.IsTrue(narrowButton.ActualWidth > 0d);
 
-        string wideContent = wideButton.Content as string;
+        string? wideContent = wideButton.Content as string;
         Assert.IsFalse(string.IsNullOrWhiteSpace(wideContent),
             "a segment with enough width must expose an in-bar percentage");
-        Assert.IsTrue(wideContent.Contains("%", StringComparison.Ordinal),
+        Assert.IsTrue(wideContent!.Contains("%", StringComparison.Ordinal),
             "the wide in-bar text must be a visible percentage");
         Assert.IsTrue(wideContent != ((PlaylistLampViewerSegmentViewModel)wideButton.DataContext).DetailText,
             "the in-bar label must not expand to the full tooltip detail");
-        TextBlock renderedWideLabel = FindDescendants<TextBlock>(wideButton)
+        TextBlock? renderedWideLabel = FindDescendants<TextBlock>(wideButton)
             .SingleOrDefault(textBlock => textBlock.Text == wideContent);
         Assert.IsNotNull(renderedWideLabel,
             "the wide percentage must be present in the rendered button content");
@@ -1388,9 +1388,9 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         Point buttonEnd = wideButton.TranslatePoint(
             new Point(wideButton.ActualWidth, wideButton.ActualHeight),
             coordinateRoot);
-        Point labelOrigin = renderedWideLabel.TranslatePoint(new Point(0, 0), coordinateRoot);
-        Point labelEnd = renderedWideLabel.TranslatePoint(
-            new Point(renderedWideLabel.ActualWidth, renderedWideLabel.ActualHeight),
+        Point labelOrigin = renderedWideLabel!.TranslatePoint(new Point(0, 0), coordinateRoot);
+        Point labelEnd = renderedWideLabel!.TranslatePoint(
+            new Point(renderedWideLabel!.ActualWidth, renderedWideLabel!.ActualHeight),
             coordinateRoot);
         Assert.IsTrue(labelOrigin.X >= buttonOrigin.X - 1d
             && labelOrigin.Y >= buttonOrigin.Y - 1d
@@ -1432,7 +1432,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         return new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    private static T FindAncestor<T>(DependencyObject element, string automationId)
+    private static T? FindAncestor<T>(DependencyObject element, string automationId)
         where T : DependencyObject
     {
         DependencyObject current = element;
@@ -1447,7 +1447,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         return null;
     }
 
-    private static T FindAncestor<T>(DependencyObject element)
+    private static T? FindAncestor<T>(DependencyObject element)
         where T : DependencyObject
     {
         DependencyObject current = VisualTreeHelper.GetParent(element);
@@ -1772,7 +1772,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             ArgumentNullException.ThrowIfNull(query);
             cancellationToken.ThrowIfCancellationRequested();
             bool hasHistory;
-            TaskCompletionSource<PlaylistLampViewerQuery> completion = null;
+            TaskCompletionSource<PlaylistLampViewerQuery>? completion = null;
             lock (stateGate)
             {
                 hasHistory = historyAvailable;

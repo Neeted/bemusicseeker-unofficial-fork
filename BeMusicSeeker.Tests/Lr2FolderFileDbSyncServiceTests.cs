@@ -223,7 +223,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
-            string outputBase = Path.Combine(Path.GetDirectoryName(songDbPath), "Output");
+            string outputBase = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Output");
             string managedJapaneseDirectory = Path.Combine(outputBase, "管理表");
             string unmanagedJapaneseDirectory = Path.Combine(outputBase, "管理表外");
             string managedFullwidthDirectory = Path.Combine(outputBase, "Ａ表");
@@ -977,7 +977,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
-            string customFolderRoot = Path.Combine(Path.GetDirectoryName(songDbPath), "LR2files", "CustomFolder");
+            string customFolderRoot = Path.Combine(Path.GetDirectoryName(songDbPath)!, "LR2files", "CustomFolder");
             string randomDirectory = Path.Combine(customFolderRoot, "RANDOM");
             Directory.CreateDirectory(randomDirectory);
             string filePath = Path.Combine(randomDirectory, "select.lr2folder");
@@ -1302,7 +1302,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
-            string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "ROOT");
+            string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");
             Directory.CreateDirectory(tableDirectory);
             string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
@@ -1351,7 +1351,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
-            string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "ROOT");
+            string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");
             Directory.CreateDirectory(tableDirectory);
             string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
@@ -1399,7 +1399,7 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         {
             using var songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.folder>();
-            string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "ROOT");
+            string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");
             Directory.CreateDirectory(tableDirectory);
             string filePath = Path.Combine(tableDirectory, "0000.lr2folder");

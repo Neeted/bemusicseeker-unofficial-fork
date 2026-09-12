@@ -417,12 +417,12 @@ public sealed class MainWindowPlayHistoryWpfTests
                 RaiseKey(table, Key.Apps);
                 TestUiDispatcherHost.Drain();
 
-                MenuItem dateRange = playHistoryMenu.Items
+                MenuItem? dateRange = playHistoryMenu.Items
                     .OfType<MenuItem>()
                     .SingleOrDefault(item => item.Name == "playHistoryContextMenuItemAddDateRangeToSearch");
                 Assert.IsNotNull(dateRange);
-                Assert.AreEqual(Resources.Play_history_add_date_range_to_search, dateRange.Header as string);
-                Assert.IsFalse(string.IsNullOrWhiteSpace(dateRange.Header as string));
+                Assert.AreEqual(Resources.Play_history_add_date_range_to_search, dateRange!.Header as string);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(dateRange!.Header as string));
                 Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
 
                 playHistoryMenu.IsOpen = false;

@@ -115,7 +115,7 @@ public sealed class Lr2FolderDbWriterTests
     private static string Normalize(string path)
     {
         string fullPath = Path.GetFullPath(path);
-        string root = Path.GetPathRoot(fullPath);
+        string? root = Path.GetPathRoot(fullPath);
         string trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (!string.IsNullOrEmpty(root)
             && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))

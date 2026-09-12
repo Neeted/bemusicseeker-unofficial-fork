@@ -101,9 +101,9 @@ internal static class PlaylistSummaryAggregationTestSupport
 
     internal static IDisposable BeginOwnedDigestMutationWindow(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BeginOwnedDigestMutationWindow", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo? methodInfo = typeof(BMSLibrary).GetMethod("BeginOwnedDigestMutationWindow", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
-        return (IDisposable)methodInfo.Invoke(library, []);
+        return (IDisposable)methodInfo!.Invoke(library, [])!;
     }
 
     internal static void WithTemporarySongDb(System.Action<string> testAction)
@@ -180,7 +180,7 @@ internal static class PlaylistSummaryAggregationTestSupport
 
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
+            string? destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
             {
                 Directory.CreateDirectory(destinationDirectoryPath);

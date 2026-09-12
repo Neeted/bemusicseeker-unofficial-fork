@@ -171,7 +171,7 @@ internal static class OwnedChartCollectionTestSupport
     {
         foreach (string startPath in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
         {
-            DirectoryInfo current = new(startPath);
+            DirectoryInfo? current = new(startPath);
             for (int depth = 0; current != null && depth < 10; depth++, current = current.Parent)
             {
                 string fixtureDirectory = Path.Combine(current.FullName, "devdocs", "acceptance", "net10-existing-data");
@@ -275,7 +275,7 @@ internal static class OwnedChartCollectionTestSupport
 
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectory = Path.GetDirectoryName(destinationPath)!;
+            string? destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
                 Directory.CreateDirectory(destinationDirectory);
@@ -293,7 +293,7 @@ internal static class OwnedChartCollectionTestSupport
 
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationParent = Path.GetDirectoryName(destinationPath)!;
+            string? destinationParent = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationParent))
             {
                 Directory.CreateDirectory(destinationParent);
@@ -311,7 +311,7 @@ internal static class OwnedChartCollectionTestSupport
 
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            string? destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
                 Directory.CreateDirectory(destinationDirectory);

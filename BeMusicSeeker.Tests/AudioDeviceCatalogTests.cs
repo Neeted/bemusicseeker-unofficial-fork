@@ -73,8 +73,8 @@ public sealed class AudioDeviceCatalogTests
             {
                 throw new InvalidOperationException("enumeration failed");
             }
-            return Results.TryGetValue(backend, out IReadOnlyList<BassAudioEnumeratedDevice> devices)
-                ? devices
+            return Results.TryGetValue(backend, out IReadOnlyList<BassAudioEnumeratedDevice>? devices)
+                ? devices!
                 : [];
         }
     }

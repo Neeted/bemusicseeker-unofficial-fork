@@ -1481,7 +1481,7 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(2, player.Commands.Count(command => command == "PlayStart:" + firstPath));
             Action<object, EventArgs> exit = player.ExitHandler!;
             panel.BeginShutdown();
-            long prepared = panel.BeginPlayback((BMSFile)rows.Rows[0], 0);
+            long prepared = panel.BeginPlayback((BMSFile)rows.Rows[0]!, 0);
             string[] before = player.Commands.ToArray();
 
             await Task.Run(() =>
@@ -2530,9 +2530,9 @@ public sealed class PlaybackPanelViewModelTests
         {
             Commands.Enqueue(command);
             int occurrence = commandCounts.AddOrUpdate(command, 1, static (_, count) => count + 1);
-            if (commandSignals.TryGetValue((command, occurrence), out TaskCompletionSource<object?> signal))
+            if (commandSignals.TryGetValue((command, occurrence), out TaskCompletionSource<object?>? signal))
             {
-                signal.TrySetResult(null);
+                signal!.TrySetResult(null);
             }
         }
     }
@@ -2658,9 +2658,9 @@ public sealed class PlaybackPanelViewModelTests
 
         internal void RunAll()
         {
-            while (actions.TryDequeue(out Action action))
+            while (actions.TryDequeue(out Action? action))
             {
-                action();
+                action!();
             }
         }
 

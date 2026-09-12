@@ -316,7 +316,7 @@ public sealed class BMSTableLoadTests
     public void StoredDataUrlSetter_InvalidValueDoesNotThrowAndKeepsNull()
     {
         var table = new BMSTable();
-        PropertyInfo propertyInfo = typeof(BMSTable).GetProperty("data_url", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        PropertyInfo propertyInfo = typeof(BMSTable).GetProperty("data_url", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
 
         propertyInfo.SetValue(table, "http://[broken");
 

@@ -996,7 +996,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 bool effectObserved = false;
                 bool locksReleased = false;
                 bool reentryCompleted = false;
-                DuplicateMergeMaintenanceReceipt reentryReceipt = null;
+                DuplicateMergeMaintenanceReceipt? reentryReceipt = null;
                 dialogService.OnShow = () =>
                 {
                     if (effectObserved)
@@ -1020,7 +1020,8 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(locksReleased);
                 Assert.IsTrue(reentryCompleted);
                 Assert.IsNotNull(reentryReceipt);
-                Assert.IsTrue(reentryReceipt.MergeApplied);
+                DuplicateMergeMaintenanceReceipt completedReentryReceipt = reentryReceipt!;
+                Assert.IsTrue(completedReentryReceipt.MergeApplied);
                 Assert.AreEqual(1, dialogService.ShowCount);
                 Assert.IsFalse(receipt.MergeApplied);
                 Assert.IsNotNull(receipt.MutationReceipt);
@@ -1452,7 +1453,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             ThrowForConfiguredMutation();
-            string destinationDirectory = Path.GetDirectoryName(destinationPath)!;
+            string? destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
                 Directory.CreateDirectory(destinationDirectory);
@@ -1471,7 +1472,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             ThrowForConfiguredMutation();
-            string destinationParent = Path.GetDirectoryName(destinationPath)!;
+            string? destinationParent = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationParent))
             {
                 Directory.CreateDirectory(destinationParent);
@@ -1490,7 +1491,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             ThrowForConfiguredMutation();
-            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            string? destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
                 Directory.CreateDirectory(destinationDirectory);

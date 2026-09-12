@@ -97,15 +97,17 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         TestResourceInitializer.EnsureJapaneseResources();
         List<int> attempts = [];
         bool installedCollectionMutated = false;
-        BMSLibrary observedLibrary = null;
-        string observedInstalledPath = null;
+        BMSLibrary? observedLibrary = null;
+        string? observedInstalledPath = null;
         var observer = new RecordingInstallEstimationExecutionObserver(
             attemptObserver: observation =>
             {
                 attempts.Add(observation.Attempt);
                 if (observation.Attempt == 0 && !installedCollectionMutated)
                 {
-                    observedLibrary.BMSFiles = [BMSFile.CreateBMSFileFromFile(observedInstalledPath)];
+                    BMSLibrary currentLibrary = observedLibrary!;
+                    string currentInstalledPath = observedInstalledPath!;
+                    currentLibrary.BMSFiles = [BMSFile.CreateBMSFileFromFile(currentInstalledPath)];
                     installedCollectionMutated = true;
                 }
             });
@@ -1943,9 +1945,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private static void InvokeRegroupForSourceDirectories(BMSLibrary library, params string[] sourceDirectoryPaths)
     {
-        MethodInfo regroupMethod = typeof(BMSLibrary).GetMethod("TryRegroupPendingPackagesForSourceDirectoriesUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo? regroupMethod = typeof(BMSLibrary).GetMethod("TryRegroupPendingPackagesForSourceDirectoriesUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(regroupMethod);
-        regroupMethod.Invoke(library, [sourceDirectoryPaths]);
+        regroupMethod!.Invoke(library, [sourceDirectoryPaths]);
     }
 
     private static ChartPackage AssertRegroupedPendingPackage(BMSLibrary library, string expectedPackagePath, string expectedDestinationDirectory, int expectedFileCount)

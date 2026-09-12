@@ -366,10 +366,10 @@ public sealed class VerificationProcessLifecycleTests
                     residualPidSet.Add(residualId),
                     $"The lifecycle returned duplicate residual PID {residualId}.");
                 Assert.IsTrue(
-                    ledgerByPid.TryGetValue(residualId, out LedgerEntry entry),
+                    ledgerByPid.TryGetValue(residualId, out LedgerEntry? entry),
                     $"Residual PID {residualId} did not map to an exact ownership ledger entry.");
                 Assert.IsTrue(
-                    IsExactIdentityAlive(entry),
+                    IsExactIdentityAlive(entry!),
                     $"Exact residual PID {residualId} was not alive before outer ledger cleanup.");
             }
             Assert.AreEqual(residualIds.Length, residualPidSet.Count);

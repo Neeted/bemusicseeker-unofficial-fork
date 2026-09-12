@@ -30,10 +30,10 @@ public sealed class ChartDirectoryScanBuilderTests
 
             CollectionAssert.Contains(result.ChartDirectories.ToList(), chartDir);
             Assert.AreEqual(1, result.ChartFilePaths.Count);
-            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] audioRelativeHashes));
-            Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] imageRelativeHashes));
-            Assert.AreEqual(1, audioRelativeHashes.Length);
-            Assert.AreEqual(1, imageRelativeHashes.Length);
+            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[]? audioRelativeHashes));
+            Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[]? imageRelativeHashes));
+            Assert.AreEqual(1, audioRelativeHashes!.Length);
+            Assert.AreEqual(1, imageRelativeHashes!.Length);
         }
         finally
         {
@@ -59,10 +59,10 @@ public sealed class ChartDirectoryScanBuilderTests
         {
             ChartScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
 
-            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(rootChartDir, out uint[] rootRelativeHashes));
-            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(nestedChartDir, out uint[] nestedRelativeHashes));
-            CollectionAssert.Contains(rootRelativeHashes, ChartResourceKeyHash.GetLookupHash(Path.Combine("subchart", "sound", "01")));
-            CollectionAssert.Contains(nestedRelativeHashes, ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "01")));
+            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(rootChartDir, out uint[]? rootRelativeHashes));
+            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(nestedChartDir, out uint[]? nestedRelativeHashes));
+            CollectionAssert.Contains(rootRelativeHashes!, ChartResourceKeyHash.GetLookupHash(Path.Combine("subchart", "sound", "01")));
+            CollectionAssert.Contains(nestedRelativeHashes!, ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "01")));
             CollectionAssert.Contains(result.SelfOwnedAudioRelativePathHashesByChartDirectory[nestedChartDir], ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "01")));
             Assert.AreEqual(0, result.SelfOwnedAudioRelativePathHashesByChartDirectory[rootChartDir].Length);
         }
@@ -92,15 +92,15 @@ public sealed class ChartDirectoryScanBuilderTests
         {
             ChartScanResult result = ChartDirectoryScanBuilder.BuildFromRoots([tempRoot]);
 
-            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] audioRelativeHashes));
-            Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] imageRelativeHashes));
+            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[]? audioRelativeHashes));
+            Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[]? imageRelativeHashes));
 
             uint flatRelativeHash = ChartResourceKeyHash.GetLookupHash("bgm1");
             uint nestedRelativeHash = ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "bgm1"));
             uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash(Path.Combine("clock", "00_001_00"));
 
-            CollectionAssert.AreEquivalent(new[] { flatRelativeHash, nestedRelativeHash }, audioRelativeHashes);
-            CollectionAssert.Contains(imageRelativeHashes.ToList(), imageRelativeHash);
+            CollectionAssert.AreEquivalent(new[] { flatRelativeHash, nestedRelativeHash }, audioRelativeHashes!);
+            CollectionAssert.Contains(imageRelativeHashes!.ToList(), imageRelativeHash);
             Assert.AreNotEqual(flatRelativeHash, nestedRelativeHash);
         }
         finally
@@ -139,8 +139,8 @@ public sealed class ChartDirectoryScanBuilderTests
             CollectionAssert.Contains(result.FolderInfoFilePaths.ToList(), rootFolderInfo);
             CollectionAssert.Contains(result.FolderInfoFilePaths.ToList(), nestedFolderInfo);
             CollectionAssert.DoesNotContain(result.FolderInfoFilePaths.ToList(), Path.Combine(directChartDir, "readme.txt"));
-            Assert.IsTrue(result.FolderInfoFileEntriesByPath.TryGetValue(rootFolderInfo, out RootFileEnumerationEntry rootFolderInfoEntry));
-            Assert.AreEqual(rootFolderInfoTimestamp, rootFolderInfoEntry.LastWriteTimeUtc);
+            Assert.IsTrue(result.FolderInfoFileEntriesByPath.TryGetValue(rootFolderInfo, out RootFileEnumerationEntry? rootFolderInfoEntry));
+            Assert.AreEqual(rootFolderInfoTimestamp, rootFolderInfoEntry!.LastWriteTimeUtc);
         }
         finally
         {
@@ -189,10 +189,10 @@ public sealed class ChartDirectoryScanBuilderTests
             CollectionAssert.Contains(result.ChartFilePaths.ToList(), chartPath);
             CollectionAssert.Contains(result.ChartDirectories.ToList(), chartDir);
             CollectionAssert.Contains(result.ChartDirectoriesWithTextFiles.ToList(), chartDir);
-            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] audioHashes));
-            Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] imageHashes));
-            CollectionAssert.Contains(audioHashes, ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "hit")));
-            CollectionAssert.Contains(imageHashes, ChartResourceKeyHash.GetLookupHash(Path.Combine("image", "bg")));
+            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[]? audioHashes));
+            Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[]? imageHashes));
+            CollectionAssert.Contains(audioHashes!, ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "hit")));
+            CollectionAssert.Contains(imageHashes!, ChartResourceKeyHash.GetLookupHash(Path.Combine("image", "bg")));
         }
         finally
         {
@@ -225,19 +225,22 @@ public sealed class ChartDirectoryScanBuilderTests
 
         ChartScanResult result = ChartDirectoryScanBuilder.BuildFromGroupedPaths(enumerationResult);
 
-        Assert.IsTrue(result.ChartFileEntriesByPath.TryGetValue(chartPath, out RootFileEnumerationEntry chartEntry));
-        Assert.AreEqual(chartTimestamp, chartEntry.LastWriteTimeUtc);
-        Assert.AreEqual((long?)789, chartEntry.FileSize);
+        Assert.IsTrue(result.ChartFileEntriesByPath.TryGetValue(chartPath, out RootFileEnumerationEntry? chartEntry));
+        RootFileEnumerationEntry loadedChartEntry = chartEntry!;
+        Assert.AreEqual(chartTimestamp, loadedChartEntry.LastWriteTimeUtc);
+        Assert.AreEqual((long?)789, loadedChartEntry.FileSize);
         CollectionAssert.Contains(result.ChartDirectoriesWithTextFiles.ToList(), chartDirectory);
         CollectionAssert.Contains(result.FolderInfoFilePaths.ToList(), folderInfoPath);
-        Assert.IsTrue(result.TextFileEntriesByPath.TryGetValue(readmePath, out RootFileEnumerationEntry readmeEntry));
-        Assert.AreEqual(readmeTimestamp, readmeEntry.LastWriteTimeUtc);
-        Assert.AreEqual((long?)123, readmeEntry.FileSize);
-        Assert.IsTrue(result.FolderInfoFileEntriesByPath.TryGetValue(folderInfoPath, out RootFileEnumerationEntry folderInfoEntry));
-        Assert.AreEqual(folderInfoTimestamp, folderInfoEntry.LastWriteTimeUtc);
-        Assert.AreEqual((long?)456, folderInfoEntry.FileSize);
-        Assert.IsTrue(result.DirectoryEntriesByPath.TryGetValue(parentDirectory, out RootFileEnumerationEntry directoryEntry));
-        Assert.AreEqual(directoryTimestamp, directoryEntry.LastWriteTimeUtc);
+        Assert.IsTrue(result.TextFileEntriesByPath.TryGetValue(readmePath, out RootFileEnumerationEntry? readmeEntry));
+        RootFileEnumerationEntry loadedReadmeEntry = readmeEntry!;
+        Assert.AreEqual(readmeTimestamp, loadedReadmeEntry.LastWriteTimeUtc);
+        Assert.AreEqual((long?)123, loadedReadmeEntry.FileSize);
+        Assert.IsTrue(result.FolderInfoFileEntriesByPath.TryGetValue(folderInfoPath, out RootFileEnumerationEntry? folderInfoEntry));
+        RootFileEnumerationEntry loadedFolderInfoEntry = folderInfoEntry!;
+        Assert.AreEqual(folderInfoTimestamp, loadedFolderInfoEntry.LastWriteTimeUtc);
+        Assert.AreEqual((long?)456, loadedFolderInfoEntry.FileSize);
+        Assert.IsTrue(result.DirectoryEntriesByPath.TryGetValue(parentDirectory, out RootFileEnumerationEntry? directoryEntry));
+        Assert.AreEqual(directoryTimestamp, directoryEntry!.LastWriteTimeUtc);
     }
 
     [TestMethod]

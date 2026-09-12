@@ -37,7 +37,7 @@ public sealed class LibraryDirectoryPreflightTests
         string configDirectory = Path.Combine(root, "LR2files", "Config");
         string configPath = Path.Combine(configDirectory, "config.xml");
         Directory.CreateDirectory(configDirectory);
-        string driveRoot = Path.GetPathRoot(Path.GetFullPath(Environment.SystemDirectory));
+        string driveRoot = Path.GetPathRoot(Path.GetFullPath(Environment.SystemDirectory))!;
         File.WriteAllText(
             configPath,
             "<config><jukebox><path>relative\\</path><path>"
@@ -60,7 +60,7 @@ public sealed class LibraryDirectoryPreflightTests
     [TestMethod]
     public void RawAdditionalOutputDriveRootPreservesRootDuringRequestCapture()
     {
-        string driveRoot = Path.GetPathRoot(Path.GetFullPath(Environment.SystemDirectory));
+        string driveRoot = Path.GetPathRoot(Path.GetFullPath(Environment.SystemDirectory))!;
         var options = new BmsLibraryOptionsSnapshot
         {
             OperationModeLR2DB = true,
@@ -368,7 +368,7 @@ public sealed class LibraryDirectoryPreflightTests
     public void OutputCleanupFailureKeepsProbeDiagnostics()
     {
         string root = CreateTemporaryDirectory();
-        string probePath = null;
+        string? probePath = null;
         try
         {
             string outputBase = Path.Combine(root, "output");
@@ -409,7 +409,7 @@ public sealed class LibraryDirectoryPreflightTests
 
     private static BmsLibraryOptionsSnapshot CreateLinkedOptions(
         string normal,
-        string additional,
+        string? additional,
         string rootType)
     {
         return new BmsLibraryOptionsSnapshot

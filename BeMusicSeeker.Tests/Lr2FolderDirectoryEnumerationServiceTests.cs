@@ -25,8 +25,8 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
             Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(sourceEntries, [target]);
 
         Assert.AreEqual(1, entries.Count);
-        Assert.IsTrue(entries.TryGetValue(target, out RootFileEnumerationEntry entry));
-        Assert.AreEqual(timestamp, entry.LastWriteTimeUtc);
+        Assert.IsTrue(entries.TryGetValue(target, out RootFileEnumerationEntry? entry));
+        Assert.AreEqual(timestamp, entry!.LastWriteTimeUtc);
     }
 
     [TestMethod]
@@ -70,8 +70,8 @@ public sealed class Lr2FolderDirectoryEnumerationServiceTests
         string normalizedTarget = Lr2FolderPath.NormalizeDirectoryPath(target);
         Assert.AreEqual(2, entries.Count);
         Assert.IsTrue(entries.ContainsKey(normalizedRoot));
-        Assert.IsTrue(entries.TryGetValue(normalizedTarget, out RootFileEnumerationEntry targetEntry));
-        Assert.AreEqual(timestamp, targetEntry.LastWriteTimeUtc);
+        Assert.IsTrue(entries.TryGetValue(normalizedTarget, out RootFileEnumerationEntry? targetEntry));
+        Assert.AreEqual(timestamp, targetEntry!.LastWriteTimeUtc);
     }
 
     [TestMethod]

@@ -23,13 +23,13 @@ public sealed class UpdaterDeploymentBoundaryTests
 
         Assert.IsFalse(
             projectRoot.Descendants("ProjectReference").Any(reference => string.Equals(
-                (string)reference.Attribute("Include"),
+                (string?)reference.Attribute("Include"),
                 @"BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj",
                 StringComparison.OrdinalIgnoreCase)),
             "The main app publish must not inherit the updater build output.");
         Assert.IsFalse(
             projectRoot.Elements("Target").Any(target => string.Equals(
-                (string)target.Attribute("Name"),
+                (string?)target.Attribute("Name"),
                 "CopyUpdaterToAppOutput",
                 StringComparison.Ordinal)),
             "The build output must not be the updater deployment boundary.");
@@ -37,7 +37,7 @@ public sealed class UpdaterDeploymentBoundaryTests
             projectRoot
                 .Descendants("Reference")
                 .SingleOrDefault(reference => string.Equals(
-                    (string)reference.Attribute("Include"),
+                    (string?)reference.Attribute("Include"),
             "System.Deployment",
             StringComparison.OrdinalIgnoreCase)),
             "The unused System.Deployment reference must not remain in the application project.");
@@ -873,7 +873,7 @@ public sealed class UpdaterDeploymentBoundaryTests
 
     private static string ResolveSelfContainedPublishDirectory(string environmentVariableName, string childDirectoryName)
     {
-        string configuredPath = Environment.GetEnvironmentVariable(environmentVariableName);
+        string? configuredPath = Environment.GetEnvironmentVariable(environmentVariableName);
         if (string.IsNullOrWhiteSpace(configuredPath))
         {
             Assert.Inconclusive($"Self-contained publish verification requires {environmentVariableName} for {childDirectoryName}.");

@@ -405,8 +405,8 @@ public sealed class RegularChartViewBuildAndOrderingTests
             });
 
         Assert.IsTrue(result.WasCommitted);
-        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]).Title);
-        Assert.AreEqual("Beta", ((LibraryChartRow)table.Rows[1]).Title);
+        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]!).Title);
+        Assert.AreEqual("Beta", ((LibraryChartRow)table.Rows[1]!).Title);
         Assert.AreEqual(2, result.FolderCount);
         Assert.AreEqual(2, result.ModeCount);
     }
@@ -477,7 +477,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
 
         Assert.IsTrue(nestedResult.WasCommitted);
         Assert.IsFalse(outerResult.WasCommitted);
-        Assert.AreEqual("nested.bms", ((LibraryChartRow)table.Rows[0]).Title);
+        Assert.AreEqual("nested.bms", ((LibraryChartRow)table.Rows[0]!).Title);
     }
 
 
@@ -1128,8 +1128,8 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.AreEqual(RegularChartListEntryRoute.DefaultVirtual, result.Route);
         Assert.IsTrue(result.SortWasReset);
         Assert.IsNull(owner.CaptureSortParameters());
-        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]).Title);
-        Assert.AreEqual("Bravo", ((LibraryChartRow)table.Rows[1]).Title);
+        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]!).Title);
+        Assert.AreEqual("Bravo", ((LibraryChartRow)table.Rows[1]!).Title);
     }
 
 
@@ -1182,7 +1182,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
 
         Assert.IsTrue(result.WasCommitted);
         Assert.AreEqual(1, table.Rows.Count);
-        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]).Title);
+        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]!).Title);
     }
 
 
@@ -1284,7 +1284,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
 
         Assert.IsTrue(result.WasCommitted);
         Assert.AreEqual(1, table.Rows.Count);
-        Assert.AreEqual("Seven", ((LibraryChartRow)table.Rows[0]).Title);
+        Assert.AreEqual("Seven", ((LibraryChartRow)table.Rows[0]!).Title);
     }
 
 

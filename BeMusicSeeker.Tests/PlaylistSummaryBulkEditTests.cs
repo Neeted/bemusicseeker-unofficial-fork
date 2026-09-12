@@ -163,7 +163,7 @@ public sealed class PlaylistSummaryBulkEditTests
 
             PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(
                 playlist,
-                library: null,
+                library: null!,
                 settingsProvider: () => new CustomFolderOutputSettingsSnapshot
                 {
                     OperationModeLR2DB = false

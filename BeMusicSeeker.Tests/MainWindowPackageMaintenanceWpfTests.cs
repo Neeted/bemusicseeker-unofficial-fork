@@ -638,26 +638,26 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 duplicateRoot.Arrange(new Rect(0d, 0d, 900d, 700d));
                 duplicateRoot.UpdateLayout();
                 window.UpdateLayout();
-                TreeViewItem groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                TreeViewItem? groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
                 Assert.IsNotNull(
                     groupItem,
                     $"duplicate group container was not generated (items={duplicateRoot.Items.Count}, status={duplicateRoot.ItemContainerGenerator.Status}, visibility={duplicateRoot.Visibility}, expanded={duplicateRoot.IsExpanded}, parent={duplicateRoot.Parent?.GetType().Name ?? "none"})");
                 groupItem!.IsExpanded = true;
-                groupItem.UpdateLayout();
-                TreeViewItem folderItem = groupItem.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                groupItem!.UpdateLayout();
+                TreeViewItem? folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
                 Assert.IsNotNull(folderItem, "duplicate folder container was not generated");
-                Assert.IsNotNull(groupItem.ItemContainerStyle, "duplicate folder style was not loaded");
-                folderItem!.Style = groupItem.ItemContainerStyle;
-                folderItem.ContextMenu = (ContextMenu)window.FindResource("treeViewDuplicateFolderContextMenu");
-                Assert.IsInstanceOfType(folderItem.DataContext, typeof(string));
+                Assert.IsNotNull(groupItem!.ItemContainerStyle, "duplicate folder style was not loaded");
+                folderItem!.Style = groupItem!.ItemContainerStyle;
+                folderItem!.ContextMenu = (ContextMenu)window.FindResource("treeViewDuplicateFolderContextMenu");
+                Assert.IsInstanceOfType(folderItem!.DataContext, typeof(string));
                 Assert.AreEqual(2, group.Folders.Count);
                 Assert.AreEqual(
                     DuplicateFolderKeyboardActionKind.Merge,
                     viewModel.DuplicateMaintenanceWorkflow.CaptureDuplicateFolderKeyboardAction(
                         group,
-                        (string)folderItem.DataContext).Kind);
-                ContextMenu menu = folderItem.ContextMenu;
-                menu.PlacementTarget = folderItem;
+                        (string)folderItem!.DataContext).Kind);
+                ContextMenu menu = folderItem!.ContextMenu;
+                menu.PlacementTarget = folderItem!;
                 MenuItem mergeMenu = (MenuItem)menu.Items
                     .OfType<MenuItem>()
                     .Single(item => item.Name == "treeViewDuplicateFolderContextMenuItemMergeInto");
@@ -672,7 +672,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 var target = new MenuItem
                 {
                     DataContext = @"C:\wave6e-duplicate\destination",
-                    Tag = folderItem,
+                    Tag = folderItem!,
                     Style = mergeMenu.ItemContainerStyle
                 };
                 mergeMenu.Items.Add(target);
@@ -692,11 +692,11 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
                 Assert.IsNotNull(groupItem);
                 groupItem!.IsExpanded = true;
-                groupItem.UpdateLayout();
-                folderItem = groupItem.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                groupItem!.UpdateLayout();
+                folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
                 Assert.IsNotNull(folderItem);
-                folderItem!.Style = groupItem.ItemContainerStyle;
-                folderItem.ContextMenu = menu;
+                folderItem!.Style = groupItem!.ItemContainerStyle;
+                folderItem!.ContextMenu = menu;
 
                 var keyArgs = new KeyEventArgs(
                     Keyboard.PrimaryDevice,
@@ -705,13 +705,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     Key.G)
                 {
                     RoutedEvent = UIElement.KeyDownEvent,
-                    Source = folderItem
+                    Source = folderItem!
                 };
                 Assert.AreEqual(Key.G, keyArgs.Key);
                 Assert.AreSame(viewModel, window.DataContext);
-                Assert.AreEqual(@"C:\wave6e-duplicate\source", folderItem.DataContext);
+                Assert.AreEqual(@"C:\wave6e-duplicate\source", folderItem!.DataContext);
                 Assert.AreSame(group, WPFUtil.FindVisualParent<TreeViewItem>(folderItem)?.DataContext);
-                folderItem.RaiseEvent(keyArgs);
+                folderItem!.RaiseEvent(keyArgs);
                 Assert.AreEqual(1, shortcutProbe);
                 Assert.IsTrue(keyArgs.Handled);
                 Assert.IsFalse(keyboardMergeCompletion.Task.IsCompleted);
@@ -732,7 +732,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Assert.IsNotNull(groupItem);
                 groupItem!.IsExpanded = true;
                 groupItem!.UpdateLayout();
-                folderItem = groupItem.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
                 Assert.IsNotNull(folderItem);
                 folderItem!.ContextMenu = menu;
                 var cleanupArgs = new KeyEventArgs(
@@ -742,9 +742,9 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     Key.G)
                 {
                     RoutedEvent = UIElement.KeyDownEvent,
-                    Source = folderItem
+                    Source = folderItem!
                 };
-                folderItem.RaiseEvent(cleanupArgs);
+                folderItem!.RaiseEvent(cleanupArgs);
                 Assert.IsTrue(cleanupArgs.Handled);
                 Assert.IsFalse(cleanupCompletion.Task.IsCompleted);
                 Assert.AreEqual(1, cleanupCalls.Count);

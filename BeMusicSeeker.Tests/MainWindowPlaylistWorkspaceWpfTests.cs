@@ -154,7 +154,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 int nativeCloseRequestCount = 0;
                 bool closedAfterSingleNativeCloseRequest = false;
                 bool testOwnedRetryUsed = false;
-                string nameAtClosed = null;
+                string? nameAtClosed = null;
                 ModalObservation<PlaylistPropertyDialog> observation = OpenPropertyDialog(
                     fixture.Window,
                     summary,
@@ -331,8 +331,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            ActualMainWindowFixture fixture = null;
-            TaskCompletionSource<PlaylistWorkspaceMutationRejectedEventArgs> busyRejection = null;
+            ActualMainWindowFixture? fixture = null;
+            TaskCompletionSource<PlaylistWorkspaceMutationRejectedEventArgs>? busyRejection = null;
             bool closeNextMutationNotification = false;
             fixture = CreateActualMainWindowFixture(
                 windowTest,
@@ -360,8 +360,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         ref presentationThreadId,
                         Environment.CurrentManagedThreadId,
                         comparand: 0);
-                    BMSTable activeTarget = fixture.Playlist.BMSTables
-                        .FirstOrDefault(table => table?.playlist_id == fixture.Table.playlist_id);
+                    BMSTable? activeTarget = fixture!.Playlist.BMSTables
+                        .FirstOrDefault(table => table?.playlist_id == fixture!.Table.playlist_id);
                     if (activeTarget?.entries?.Any(entry => entry?.title == "Manual result") == true)
                     {
                         presentationTerminal.TrySetResult(null);
@@ -401,8 +401,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     busyRejection.Task,
                     "MainWindowPlaylistWorkspaceWpfTests.manual-busy-rejection");
-                Assert.IsTrue(busyRejection.Task.Result.IsBusy);
-                Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, busyRejection.Task.Result.Kind);
+                Assert.IsTrue(busyRejection!.Task.Result.IsBusy);
+                Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, busyRejection!.Task.Result.Kind);
                 Assert.AreEqual("Local", localTable.entries.Single().folder);
                 Assert.IsFalse(
                     localTable.entries.Any(entry => entry.folder == "Local while manual reload is active"),
@@ -422,7 +422,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TaskCompletionSource<object?> deferredPresentation = NewCompletion();
                 workspace.PlaylistTablesPresentationChanged += (_, _) =>
                 {
-                    BMSTable activeTarget = fixture.Playlist.BMSTables
+                    BMSTable? activeTarget = fixture!.Playlist.BMSTables
                         .FirstOrDefault(table => table?.playlist_id == manualTarget.playlist_id);
                     if (activeTarget?.entries?.Any(entry => entry?.title == "Deferred result") == true)
                     {
@@ -482,8 +482,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     busyRejection.Task,
                     "MainWindowPlaylistWorkspaceWpfTests.deferred-busy-rejection");
-                Assert.IsTrue(busyRejection.Task.Result.IsBusy);
-                Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, busyRejection.Task.Result.Kind);
+                Assert.IsTrue(busyRejection!.Task.Result.IsBusy);
+                Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, busyRejection!.Task.Result.Kind);
                 Assert.AreEqual("Local", localTable.entries.Single().folder);
 
                 deferredResponse.ReleaseResponse();
@@ -531,9 +531,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             finally
             {
                 closeNextMutationNotification = false;
-                ActualMainWindowFixture closingFixture = fixture;
+                ActualMainWindowFixture closingFixture = fixture!;
                 fixture = null;
-                closingFixture?.Close();
+                closingFixture.Close();
             }
 
             static void awaitOnDispatcher(Task task, string operationName)
@@ -550,7 +550,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             new Settings(),
             (viewModel, window) =>
             {
-                SettingsWindow settingsWindow = null;
+                SettingsWindow? settingsWindow = null;
                 try
                 {
                     settingsWindow = window.CreateSettingsWindowForPresentation();
@@ -917,7 +917,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     public void PlaylistEntryRemovalRoutesThroughWorkspaceOwner()
     {
         var completion = NewCompletion();
-        IReadOnlyList<object> capturedRows = null;
+        IReadOnlyList<object>? capturedRows = null;
         int callCount = 0;
         BMSTable playlistTable = new() { name = "Playlist" };
         PlaylistDetailRow firstRow = CreatePlaylistRow(
@@ -958,9 +958,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.AreEqual(1, callCount);
                     Assert.IsFalse(completion.Task.IsCompleted);
                     Assert.IsNotNull(capturedRows);
-                    Assert.AreEqual(2, capturedRows.Count);
-                    Assert.AreSame(firstRow, capturedRows[0]);
-                    Assert.AreSame(secondRow, capturedRows[1]);
+                    Assert.AreEqual(2, capturedRows!.Count);
+                    Assert.AreSame(firstRow, capturedRows![0]);
+                    Assert.AreSame(secondRow, capturedRows![1]);
 
                     completion.SetResult(null);
                     TestUiDispatcherHost.Drain();
@@ -978,7 +978,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     public void PlaylistOverwriteLevel_RoutesThroughWorkflowOwner()
     {
         var completion = NewCompletion();
-        BMSTable capturedTable = null;
+        BMSTable? capturedTable = null;
         int callCount = 0;
         BMSTable table = new() { name = "Overwrite target" };
         MainWindowPlaylistTableLevelOverwriteTerminal overwrite = new(
@@ -1068,19 +1068,19 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var foregroundOperations = new List<string>();
-            ActualMainWindowFixture fixture = null;
+            ActualMainWindowFixture? fixture = null;
             fixture = CreateActualMainWindowFixture(
                 windowTest,
                 CreateForegroundTerminal(
                     foregroundOperations,
                     () =>
                     {
-                        TreeViewItem playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
-                        TreeViewItem selectedTable = playlistRoot.ItemContainerGenerator
-                            .ContainerFromItem(fixture.Table) as TreeViewItem;
+                        TreeViewItem playlistRoot = (TreeViewItem)fixture!.Window.FindName("treeViewItemPlaylist");
+                        TreeViewItem? selectedTable = playlistRoot.ItemContainerGenerator
+                            .ContainerFromItem(fixture!.Table) as TreeViewItem;
                         Assert.IsNotNull(selectedTable);
                         Assert.IsTrue(
-                            selectedTable.IsSelected,
+                            selectedTable!.IsSelected,
                             "the playlist root selection must be applied before foreground activation");
                     }));
             try
@@ -1098,23 +1098,23 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                 TreeViewItem playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
                 MaterializeTreeItems(playlistRoot);
-                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator
+                TreeViewItem? tableItem = playlistRoot.ItemContainerGenerator
                     .ContainerFromItem(fixture.Table) as TreeViewItem;
                 Assert.IsNotNull(tableItem, "the active playlist table must be materialized in the shell tree");
-                tableItem.IsExpanded = true;
+                tableItem!.IsExpanded = true;
                 MaterializeTreeItems(tableItem);
 
-                TreeViewItem folderItem = FindDescendants<TreeViewItem>(tableItem)
+                TreeViewItem? folderItem = FindDescendants<TreeViewItem>(tableItem)
                     .FirstOrDefault(item => item.DataContext is PlaylistFolderNode);
                 Assert.IsNotNull(
                     folderItem,
                     "a playlist folder child must be materialized for the root-selection route");
-                folderItem.IsSelected = true;
+                folderItem!.IsSelected = true;
                 TestUiDispatcherHost.Drain();
-                Assert.IsTrue(folderItem.IsSelected);
+                Assert.IsTrue(folderItem!.IsSelected);
 
                 var request = PlaylistLampViewerNavigationRequest.ForOverall(
-                    fixture.Table.playlist_id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    fixture.Table.playlist_id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     PlaylistLampSegmentKind.Clear,
                     PlaylistLampClearCategory.ASSIST,
                     rankCategory: null);
@@ -1123,9 +1123,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                 tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem;
                 Assert.IsNotNull(tableItem);
-                Assert.IsTrue(tableItem.IsSelected, "overall lamp navigation must select the playlist table root");
+                Assert.IsTrue(tableItem!.IsSelected, "overall lamp navigation must select the playlist table root");
                 Assert.IsFalse(
-                    FindDescendants<TreeViewItem>(tableItem)
+                    FindDescendants<TreeViewItem>(tableItem!)
                         .Where(item => !ReferenceEquals(item, tableItem))
                         .Any(item => item.DataContext is PlaylistFolderNode && item.IsSelected),
                     "overall lamp navigation must not leave a child folder selected");
@@ -1136,7 +1136,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             }
             finally
             {
-                fixture.Close();
+                fixture!.Close();
             }
         });
     }
@@ -1147,25 +1147,25 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var foregroundOperations = new List<string>();
-            ActualMainWindowFixture fixture = null;
+            ActualMainWindowFixture? fixture = null;
             fixture = CreateActualMainWindowFixture(
                 windowTest,
                 CreateForegroundTerminal(
                     foregroundOperations,
                     () =>
                     {
-                        TreeViewItem playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
-                        TreeViewItem selectedTable = playlistRoot.ItemContainerGenerator
-                            .ContainerFromItem(fixture.Table) as TreeViewItem;
+                        TreeViewItem playlistRoot = (TreeViewItem)fixture!.Window.FindName("treeViewItemPlaylist");
+                        TreeViewItem? selectedTable = playlistRoot.ItemContainerGenerator
+                            .ContainerFromItem(fixture!.Table) as TreeViewItem;
                         Assert.IsNotNull(selectedTable);
-                        TreeViewItem selectedFolder = FindDescendants<TreeViewItem>(selectedTable)
+                        TreeViewItem? selectedFolder = FindDescendants<TreeViewItem>(selectedTable!)
                             .FirstOrDefault(item => item.DataContext is PlaylistFolderNode && item.IsSelected);
                         Assert.IsNotNull(
                             selectedFolder,
                             "the folder selection must be applied before foreground activation");
                         Assert.AreEqual(
                             "normal",
-                            ((PlaylistFolderNode)selectedFolder.DataContext).FolderName);
+                            ((PlaylistFolderNode)selectedFolder!.DataContext).FolderName);
                     }));
             try
             {
@@ -1182,24 +1182,24 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                 TreeViewItem playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
                 MaterializeTreeItems(playlistRoot);
-                TreeViewItem tableItem = playlistRoot.ItemContainerGenerator
+                TreeViewItem? tableItem = playlistRoot.ItemContainerGenerator
                     .ContainerFromItem(fixture.Table) as TreeViewItem;
                 Assert.IsNotNull(tableItem, "the active playlist table must be materialized in the shell tree");
-                tableItem.IsExpanded = true;
+                tableItem!.IsExpanded = true;
                 MaterializeTreeItems(tableItem);
 
-                TreeViewItem folderItem = FindDescendants<TreeViewItem>(tableItem)
+                TreeViewItem? folderItem = FindDescendants<TreeViewItem>(tableItem)
                     .FirstOrDefault(item => item.DataContext is PlaylistFolderNode);
                 Assert.IsNotNull(
                     folderItem,
                     "a playlist folder child must be materialized for the folder-selection route");
-                tableItem.IsSelected = true;
+                tableItem!.IsSelected = true;
                 TestUiDispatcherHost.Drain();
-                Assert.IsTrue(tableItem.IsSelected);
+                Assert.IsTrue(tableItem!.IsSelected);
 
                 var request = PlaylistLampViewerNavigationRequest.ForFolder(
                     PlaylistLampSegmentInvocationRequest.ForClear(
-                        fixture.Table.playlist_id.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        fixture.Table.playlist_id!.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
                         "normal",
                         PlaylistLampClearCategory.ASSIST));
                 Assert.IsTrue(fixture.ViewModel.PlaylistWorkspace.TryRequestPlaylistLampNavigation(request));
@@ -1207,10 +1207,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                 tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(fixture.Table) as TreeViewItem;
                 Assert.IsNotNull(tableItem);
-                TreeViewItem selectedFolder = FindDescendants<TreeViewItem>(tableItem)
+                TreeViewItem? selectedFolder = FindDescendants<TreeViewItem>(tableItem!)
                     .FirstOrDefault(item => item.DataContext is PlaylistFolderNode && item.IsSelected);
                 Assert.IsNotNull(selectedFolder, "folder lamp navigation must select the target folder");
-                Assert.AreEqual("normal", ((PlaylistFolderNode)selectedFolder.DataContext).FolderName);
+                Assert.AreEqual("normal", ((PlaylistFolderNode)selectedFolder!.DataContext).FolderName);
                 CollectionAssert.AreEqual(
                     new[] { "activate", "focus" },
                     foregroundOperations,
@@ -1218,7 +1218,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             }
             finally
             {
-                fixture.Close();
+                fixture!.Close();
             }
         });
     }
@@ -1372,7 +1372,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             MessageResult = messageResult
         };
         int callCount = 0;
-        PlaylistTreeSelectionActivatedEventArgs emptyRootSelection = null;
+        PlaylistTreeSelectionActivatedEventArgs? emptyRootSelection = null;
         MainWindowPlaylistTableRemovalTerminal removal = new(
             (table, applySelectionBeforeMutation) =>
             {
@@ -1416,9 +1416,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     TestUiDispatcherHost.Drain();
 
                     Assert.IsNotNull(emptyRootSelection);
-                    Assert.IsFalse(emptyRootSelection.IsSummary);
-                    Assert.IsNotNull(emptyRootSelection.Detail);
-                    Assert.IsNull(emptyRootSelection.Detail.Table);
+                    Assert.IsFalse(emptyRootSelection!.IsSummary);
+                    Assert.IsNotNull(emptyRootSelection!.Detail);
+                    Assert.IsNull(emptyRootSelection!.Detail.Table);
                     Assert.AreEqual(1, dialogs.MessageRequests.Count);
                     Assert.IsTrue(
                         dialogs.MessageRequests[0].MessageBoxText.Contains(
@@ -1445,7 +1445,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         var completion = NewCompletion();
         int callbackInvocationCount = 0;
         int callCount = 0;
-        BMSTable capturedTable = null;
+        BMSTable? capturedTable = null;
         MainWindowPlaylistTableRemovalTerminal removal = new(
             (table, _) =>
             {
@@ -1535,10 +1535,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Task.WhenAll(completion.Task, selectionCompletion.Task),
                         "playlist table removal sibling fallback");
 
-                    TreeViewItem sibling = playlistRoot.ItemContainerGenerator.ContainerFromItem(secondTable) as TreeViewItem;
+                    TreeViewItem? sibling = playlistRoot.ItemContainerGenerator.ContainerFromItem(secondTable) as TreeViewItem;
                     Assert.IsNotNull(sibling);
-                    Assert.IsTrue(sibling.IsSelected);
-                    Assert.AreSame(secondTable, sibling.DataContext);
+                    Assert.IsTrue(sibling!.IsSelected);
+                    Assert.AreSame(secondTable, sibling!.DataContext);
                 }
                 finally
                 {
@@ -1554,7 +1554,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         BMSTable firstTable = new() { name = "First" };
         var completion = NewCompletion();
         var selectionCompletion = NewCompletion();
-        PlaylistTreeSelectionActivatedEventArgs emptyRootSelection = null;
+        PlaylistTreeSelectionActivatedEventArgs? emptyRootSelection = null;
         int callbackInvocationCount = 0;
         var callbacks = new List<System.Action>();
         var capturedTables = new List<BMSTable>();
@@ -1603,9 +1603,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         "playlist table removal empty-root detail selection");
 
                     Assert.IsNotNull(emptyRootSelection);
-                    Assert.IsFalse(emptyRootSelection.IsSummary);
-                    Assert.IsNotNull(emptyRootSelection.Detail);
-                    Assert.IsNull(emptyRootSelection.Detail.Table);
+                    Assert.IsFalse(emptyRootSelection!.IsSummary);
+                    Assert.IsNotNull(emptyRootSelection!.Detail);
+                    Assert.IsNull(emptyRootSelection!.Detail.Table);
                     Assert.IsTrue(playlistRoot.IsSelected);
                     Assert.AreEqual(0, playlistRoot.Items.Count);
                     PlaylistDetailSelection emptyDetailSelection =
@@ -2056,13 +2056,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     dialogWindow,
                     TestWindowActivation.NonActivating);
                 modalPreparation.Record(dialogWindow);
-                RoutedEventHandler closeOnLoaded = null;
-                DispatcherOperation closeOperation = null;
+                RoutedEventHandler? closeOnLoaded = null;
+                DispatcherOperation? closeOperation = null;
                 if (closeNextMessage?.Invoke() == true)
                 {
                     closeOnLoaded = (_, _) =>
                     {
-                        dialogWindow.Loaded -= closeOnLoaded;
+                        dialogWindow.Loaded -= closeOnLoaded!;
                         closeOperation = dialogWindow.Dispatcher.BeginInvoke(
                             DispatcherPriority.ApplicationIdle,
                             new Action(() =>
@@ -2074,7 +2074,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                                 }
                             }));
                     };
-                    dialogWindow.Loaded += closeOnLoaded;
+                    dialogWindow.Loaded += closeOnLoaded!;
                 }
 
                 IDisposable activeModalScope = UiDialogOwnerResolver.PushActiveModal(dialogWindow);
@@ -2086,7 +2086,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     }
                     if (closeOnLoaded != null)
                     {
-                        dialogWindow.Loaded -= closeOnLoaded;
+                        dialogWindow.Loaded -= closeOnLoaded!;
                     }
                     activeModalScope.Dispose();
                 });
@@ -2182,11 +2182,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         viewModel.PlaylistWorkspace.SetPlaylistSummaryMode(true);
 
         bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
-        object previousViewModelResource = hadPreviousViewModelResource
+        object? previousViewModelResource = hadPreviousViewModelResource
             ? Application.Current.Resources["vm"]
             : null;
         Application.Current.Resources["vm"] = viewModel;
-        MainWindow window = null;
+        MainWindow? window = null;
         try
         {
             Task initialization = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
@@ -2219,7 +2219,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             return new ActualMainWindowFixture(
                 root,
                 viewModel,
-                window,
+                window!,
                 playlist,
                 table,
                 lifetime,
@@ -2336,7 +2336,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         ArgumentException.ThrowIfNullOrWhiteSpace(commandResourcePath);
         var opened = new TaskCompletionSource<ModalObservation<TWindow>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        ModalObservation<TWindow> observation = null;
+        ModalObservation<TWindow>? observation = null;
         var callbackGate = new DispatcherCallbackGate(owner.Dispatcher);
 
         void ObserveDialog()
@@ -2345,7 +2345,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             {
                 return;
             }
-            TWindow dialog = Application.Current.Windows
+            TWindow? dialog = Application.Current.Windows
                 .OfType<TWindow>()
                 .FirstOrDefault(candidate => candidate.IsVisible);
             if (dialog == null)
@@ -2394,7 +2394,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private static Button FindAutomationButton(DependencyObject root, string automationId)
     {
-        Button button = FindDescendants<Button>(root)
+        Button? button = FindDescendants<Button>(root)
             .FirstOrDefault(candidate => string.Equals(
                 AutomationProperties.GetAutomationId(candidate),
                 automationId,
@@ -2602,7 +2602,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         ItemsControl root,
         string expectedBindingPath)
     {
-        MenuItem command = root.Items
+        MenuItem? command = root.Items
             .OfType<MenuItem>()
             .SingleOrDefault(item => BindingOperations.GetBindingBase(
                     item,
@@ -2822,7 +2822,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         internal void Queue(DispatcherPriority priority, Action callback)
         {
             ArgumentNullException.ThrowIfNull(callback);
-            DispatcherOperation operation = null!;
+            DispatcherOperation? operation = null;
             lock (sync)
             {
                 if (!isOpen)
@@ -2832,8 +2832,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
                 operation = dispatcher.BeginInvoke(
                     priority,
-                    new Action(() => Execute(operation, callback)));
-                pendingOperations.Add(operation);
+                    new Action(() => Execute(operation!, callback)));
+                pendingOperations.Add(operation!);
             }
         }
 
@@ -2914,7 +2914,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             RecordingApplicationLifetime lifetime,
             ModalPreparationRecorder modalPreparation,
             bool hadPreviousViewModelResource,
-            object previousViewModelResource)
+            object? previousViewModelResource)
         {
             Root = root;
             ViewModel = viewModel;
@@ -2946,7 +2946,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
         private readonly bool hadPreviousViewModelResource;
 
-        private readonly object previousViewModelResource;
+        private readonly object? previousViewModelResource;
 
         internal void Close()
         {
@@ -3042,7 +3042,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private static MenuItem GetOrGenerateMenuItem(ItemsControl owner, object item)
     {
-        MenuItem generated = owner.ItemContainerGenerator.ContainerFromItem(item) as MenuItem;
+        MenuItem? generated = owner.ItemContainerGenerator.ContainerFromItem(item) as MenuItem;
         if (generated != null)
         {
             return generated;
@@ -3063,7 +3063,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             }
         }
 
-        return owner.ItemContainerGenerator.ContainerFromItem(item) as MenuItem;
+        generated = owner.ItemContainerGenerator.ContainerFromItem(item) as MenuItem;
+        return generated!;
     }
 
     private static void OpenContextMenu(ContextMenu menu)
@@ -3081,7 +3082,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private static MenuItem FindMenuItem(ItemsControl root, string name)
     {
-        MenuItem result = FindMenuItemOrNull(root, name);
+        MenuItem? result = FindMenuItemOrNull(root, name);
         if (result != null)
         {
             return result;
@@ -3089,7 +3090,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         throw new AssertFailedException($"Menu item '{name}' was not found.");
     }
 
-    private static MenuItem FindMenuItemOrNull(ItemsControl root, string name)
+    private static MenuItem? FindMenuItemOrNull(ItemsControl root, string name)
     {
         foreach (MenuItem item in root.Items.OfType<MenuItem>())
         {
@@ -3099,7 +3100,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             }
             if (item.Items.Count > 0)
             {
-                MenuItem nested = FindMenuItemOrNull(item, name);
+                MenuItem? nested = FindMenuItemOrNull(item, name);
                 if (nested != null)
                 {
                     return nested;

@@ -214,13 +214,13 @@ public sealed class PortableSettingsMigrationTests
 
     private static XElement GetSettingsSection(XDocument doc)
     {
-        return doc.Root.Element("userSettings").Element(PortableSettingsProvider.SettingsSectionName);
+        return doc.Root!.Element("userSettings")!.Element(PortableSettingsProvider.SettingsSectionName)!;
     }
 
-    private static XElement FindSetting(XElement section, string name)
+    private static XElement? FindSetting(XElement section, string name)
     {
         return section.Elements("setting")
-            .FirstOrDefault((setting) => string.Equals((string)setting.Attribute("name"), name, StringComparison.Ordinal));
+            .FirstOrDefault((setting) => string.Equals((string?)setting.Attribute("name"), name, StringComparison.Ordinal));
     }
 
     private static string GetSettingValue(XElement section, string name)

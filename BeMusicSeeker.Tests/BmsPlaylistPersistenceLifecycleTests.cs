@@ -202,7 +202,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                         + "BEGIN SELECT RAISE(ABORT, 'playlist mutation DB write failure'); END;");
                 }
 
-                Exception failure = null;
+                Exception? failure = null;
                 try
                 {
                     ApplyMutationForFailureCase(
@@ -218,7 +218,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 }
 
                 Assert.IsNotNull(failure, mutationKind);
-                StringAssert.Contains(failure.ToString(), "playlist mutation DB write failure", mutationKind);
+                StringAssert.Contains(failure!.ToString(), "playlist mutation DB write failure", mutationKind);
                 Assert.AreEqual(initialRevision, table.PlaylistEntriesRevision, mutationKind);
                 Assert.AreEqual(initialLastUpdate, table.last_update, mutationKind);
                 CollectionAssert.AreEqual(initialFolderOrder, table.Folder_order, mutationKind);
@@ -693,7 +693,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 }
             }
 
-            BMSTableEntry staleEntry = table.entries.Single();
+            BMSTableEntry staleEntry = table.entries!.Single();
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"9\",\"url\":\"https://external.example/song\"}]"));
             List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table], reason: "test_stale_detail_edit");
 
@@ -1879,13 +1879,13 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
-            Task scheduledWork = null!;
+            Task? scheduledWork = null;
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
                 scheduledWork = work();
                 return true;
             };
-            PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt receipt = null!;
+            PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt? receipt = null;
             int completedVersionAtReceipt = -1;
             playlist.PlaylistEntriesHydrationReceiptPublished += (_, eventArgs) =>
             {
@@ -1895,16 +1895,18 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             playlist.QueueDeferredPlaylistEntriesHydration("receipt_test");
             Assert.IsNotNull(scheduledWork);
-            scheduledWork.GetAwaiter().GetResult();
+            Task completedScheduledWork = scheduledWork!;
+            completedScheduledWork.GetAwaiter().GetResult();
 
             Assert.IsNotNull(receipt);
-            Assert.AreEqual(1, receipt.RequestVersion);
-            Assert.AreEqual("receipt_test", receipt.Reason);
-            Assert.AreEqual(1, receipt.Tables.Count);
-            Assert.AreSame(table, receipt.Tables[0].Table);
-            Assert.AreEqual(1, receipt.Tables[0].Entries.Count);
+            PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt completedReceipt = receipt!;
+            Assert.AreEqual(1, completedReceipt.RequestVersion);
+            Assert.AreEqual("receipt_test", completedReceipt.Reason);
+            Assert.AreEqual(1, completedReceipt.Tables.Count);
+            Assert.AreSame(table, completedReceipt.Tables[0].Table);
+            Assert.AreEqual(1, completedReceipt.Tables[0].Entries.Count);
             table.entries.Clear();
-            Assert.AreEqual(1, receipt.Tables[0].Entries.Count);
+            Assert.AreEqual(1, completedReceipt.Tables[0].Entries.Count);
             Assert.AreEqual(0, completedVersionAtReceipt);
             Assert.AreEqual(1, playlist.PlaylistEntriesHydrationCompletedVersion);
         }
@@ -1939,7 +1941,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
-            Task scheduledWork = null!;
+            Task? scheduledWork = null;
             int schedulerCalls = 0;
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
@@ -1958,7 +1960,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             Assert.IsNotNull(scheduledWork);
             Assert.ThrowsException<InvalidOperationException>(
-                () => scheduledWork.GetAwaiter().GetResult());
+                () => scheduledWork!.GetAwaiter().GetResult());
             Assert.AreEqual(1, schedulerCalls);
             Assert.AreEqual(1, consumerCalls);
             Assert.AreEqual(1, playlist.PlaylistEntriesHydrationRequestedVersion);
@@ -2049,7 +2051,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 _ => { },
                 (_, _) => { });
             int receiptCount = 0;
-            PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent secondReceiptContinuation = null!;
+            PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent? secondReceiptContinuation = null;
             owner.HydrationReceiptPublished += (_, eventArgs) =>
             {
                 if (Interlocked.Increment(ref receiptCount) == 1)
@@ -2083,8 +2085,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             scheduledWorks[1]().GetAwaiter().GetResult();
 
             Assert.IsNotNull(secondReceiptContinuation);
-            Assert.IsFalse(secondReceiptContinuation.RunExternalSyncAfterHydration);
-            Assert.IsTrue(secondReceiptContinuation.QueueBeatorajaBmtExportAfterHydration);
+            PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent completedContinuation = secondReceiptContinuation!;
+            Assert.IsFalse(completedContinuation.RunExternalSyncAfterHydration);
+            Assert.IsTrue(completedContinuation.QueueBeatorajaBmtExportAfterHydration);
         }
         finally
         {

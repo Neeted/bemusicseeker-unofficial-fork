@@ -1691,7 +1691,7 @@ public sealed class SettingDialogEditCompletionTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
-            SynchronizationContext previousSynchronizationContext = SynchronizationContext.Current;
+            SynchronizationContext? previousSynchronizationContext = SynchronizationContext.Current;
             Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
             DispatcherHelper.UIDispatcher = dispatcher;
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(dispatcher));
@@ -2260,8 +2260,8 @@ public sealed class SettingDialogEditCompletionTests
         string rootB = Path.Combine(root, "BMS-B");
         string unavailableRootB = Path.Combine(root, "BMS-B-unavailable");
         string applicationRoot = Path.Combine(root, "application");
-        MainWindowViewModel viewModel = null;
-        Exception primaryFailure = null;
+        MainWindowViewModel? viewModel = null;
+        Exception? primaryFailure = null;
         Directory.CreateDirectory(rootA);
         Directory.CreateDirectory(rootB);
         Directory.CreateDirectory(applicationRoot);
@@ -2317,7 +2317,7 @@ public sealed class SettingDialogEditCompletionTests
             bool initialized = false;
             TestUiDispatcherHost.Invoke(() =>
             {
-                Task<bool> initialization = viewModel.InitializeAsync();
+                Task<bool> initialization = viewModel!.InitializeAsync();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "late-directory-startup-initialization");
                 initialized = initialization.GetAwaiter().GetResult();
             });
@@ -2325,12 +2325,12 @@ public sealed class SettingDialogEditCompletionTests
             Directory.Move(rootB, unavailableRootB);
             try
             {
-                LibraryDirectoryPreflightException thrown = null;
+                LibraryDirectoryPreflightException? thrown = null;
                 TestUiDispatcherHost.Invoke(() =>
                 {
                     try
                     {
-                        Task reinitialize = viewModel.ReinitializeLibraryAsync();
+                        Task reinitialize = viewModel!.ReinitializeLibraryAsync();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(reinitialize, "late-directory-reinitialize");
                         Assert.Fail("A missing registered root must fail the reinitialize operation.");
                     }
@@ -2341,15 +2341,15 @@ public sealed class SettingDialogEditCompletionTests
                 });
 
                 Assert.IsNotNull(thrown);
-                Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, thrown.Use);
+                Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, thrown!.Use);
                 Assert.AreEqual(1, dialogs.MessageCount);
                 CollectionAssert.AreEqual(new[] { "warning" }, sequence);
                 StringAssert.Contains(dialogs.LastMessageText, rootB);
                 StringAssert.Contains(
                     dialogs.LastMessageText,
                     Resources.LibraryDirectoryPreflightBmsRootRole);
-                Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsFailed);
-                Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsRetryableFailure);
+                Assert.IsTrue(viewModel!.ProgressHub.StartupProgress.IsFailed);
+                Assert.IsTrue(viewModel!.ProgressHub.StartupProgress.IsRetryableFailure);
             }
             finally
             {
@@ -2374,12 +2374,12 @@ public sealed class SettingDialogEditCompletionTests
                             // InitializeAsync leaves owned deferred work alive. Completing
                             // reinitialize's failure cleanup is not the shell shutdown signal.
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                                viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                                viewModel!.ShellShutdownWorkflow.RequestWindowCloseAsync(),
                                 "late-directory-reinitialize-shutdown");
                         }
                         finally
                         {
-                            viewModel.SettingDialog.Dispose();
+                            viewModel!.SettingDialog.Dispose();
                         }
                     });
                 }
@@ -2400,8 +2400,8 @@ public sealed class SettingDialogEditCompletionTests
         string rootB = Path.Combine(root, "BMS-B");
         string unavailableRootB = Path.Combine(root, "BMS-B-unavailable");
         string applicationRoot = Path.Combine(root, "application");
-        MainWindowViewModel viewModel = null;
-        Task<bool> retryInitialization = null;
+        MainWindowViewModel? viewModel = null;
+        Task<bool>? retryInitialization = null;
         Directory.CreateDirectory(rootA);
         Directory.CreateDirectory(rootB);
         Directory.CreateDirectory(applicationRoot);
@@ -2435,36 +2435,36 @@ public sealed class SettingDialogEditCompletionTests
             bool retryCompletedDuringWarning = false;
             bool retrySucceededDuringWarning = false;
             bool retryTimedOutDuringWarning = false;
-            Exception retryFailure = null;
-            Exception retryDrainFailure = null;
+            Exception? retryFailure = null;
+            Exception? retryDrainFailure = null;
             dialogs.MessageObserved = () =>
             {
                 sequence.Add("warning");
             };
             dialogs.MessageObservedAsync = async () =>
             {
-                warningObservedWithOperationReleased = !viewModel.IsLibraryOperationInProgress;
-                warningObservedWithProgressUnblocked = !viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked;
+                warningObservedWithOperationReleased = !viewModel!.IsLibraryOperationInProgress;
+                warningObservedWithProgressUnblocked = !viewModel!.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked;
                 if (!retryRequested)
                 {
                     retryRequested = true;
                     Directory.Move(unavailableRootB, rootB);
-                    retryInitialization = viewModel.InitializeAsync();
+                    retryInitialization = viewModel!.InitializeAsync();
                 }
                 try
                 {
-                    retrySucceededDuringWarning = await retryInitialization.WaitAsync(TimeSpan.FromSeconds(2));
-                    retryCompletedDuringWarning = retryInitialization.IsCompleted;
+                    retrySucceededDuringWarning = await retryInitialization!.WaitAsync(TimeSpan.FromSeconds(2));
+                    retryCompletedDuringWarning = retryInitialization!.IsCompleted;
                 }
                 catch (TimeoutException)
                 {
                     retryTimedOutDuringWarning = true;
-                    retryCompletedDuringWarning = retryInitialization.IsCompleted;
+                    retryCompletedDuringWarning = retryInitialization!.IsCompleted;
                 }
                 catch (Exception exception)
                 {
                     retryFailure = exception;
-                    retryCompletedDuringWarning = retryInitialization.IsCompleted;
+                    retryCompletedDuringWarning = retryInitialization!.IsCompleted;
                 }
             };
 
@@ -2506,7 +2506,7 @@ public sealed class SettingDialogEditCompletionTests
             bool initialized = true;
             TestUiDispatcherHost.Invoke(() =>
             {
-                Task<bool> initialization = viewModel.InitializeAsync();
+                Task<bool> initialization = viewModel!.InitializeAsync();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "late-directory-startup-failure");
                 initialized = initialization.GetAwaiter().GetResult();
             });
@@ -2520,7 +2520,7 @@ public sealed class SettingDialogEditCompletionTests
                         try
                         {
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                                retryInitialization,
+                                retryInitialization!,
                                 "late-directory-startup-retry-drain");
                         }
                         catch (Exception exception)
@@ -2544,8 +2544,8 @@ public sealed class SettingDialogEditCompletionTests
             Assert.IsTrue(retrySucceededDuringWarning);
             Assert.IsNull(retryFailure);
             Assert.IsNull(retryDrainFailure);
-            Assert.IsTrue(viewModel.IsInitializationCompleted);
-            Assert.IsTrue(viewModel.HasActiveLibraryProfile);
+            Assert.IsTrue(viewModel!.IsInitializationCompleted);
+            Assert.IsTrue(viewModel!.HasActiveLibraryProfile);
             Assert.AreEqual(1, dialogs.MessageCount);
             CollectionAssert.AreEqual(new[] { "warning", "open" }, sequence);
             StringAssert.Contains(dialogs.LastMessageText, rootB);
@@ -2563,7 +2563,7 @@ public sealed class SettingDialogEditCompletionTests
                         try
                         {
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                                retryInitialization,
+                                retryInitialization!,
                                 "late-directory-startup-retry-cleanup");
                         }
                         catch
@@ -2571,9 +2571,9 @@ public sealed class SettingDialogEditCompletionTests
                         }
                     }
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                        viewModel!.ShellShutdownWorkflow.RequestWindowCloseAsync(),
                         "late-directory-startup-shutdown");
-                    viewModel.SettingDialog.Dispose();
+                    viewModel!.SettingDialog.Dispose();
                 });
             }
             if (Directory.Exists(unavailableRootB) && !Directory.Exists(rootB))
@@ -3215,7 +3215,7 @@ public sealed class SettingDialogEditCompletionTests
             await draft.SaveSettings();
 
             XDocument savedDocument = XDocument.Load(configPath);
-            Assert.AreEqual("external", (string)savedDocument.Root?.Element("sentinel")?.Attribute("source"));
+            Assert.AreEqual("external", (string?)savedDocument.Root?.Element("sentinel")?.Attribute("source"));
             string[] savedRoots = savedDocument.Root?.Element("jukebox")?.Elements("path")
                 .Select(element => element.Value.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
                 .ToArray() ?? [];

@@ -86,7 +86,7 @@ public sealed class ExternalPlayerProcessGatewayTests
     [TestMethod]
     public void WindowsGatewaySubscribesBeforeStartingPreparedSession()
     {
-        string commandProcessor = Environment.GetEnvironmentVariable("ComSpec");
+        string? commandProcessor = Environment.GetEnvironmentVariable("ComSpec");
         if (string.IsNullOrWhiteSpace(commandProcessor))
         {
             Assert.Inconclusive("The Windows command processor is unavailable.");
@@ -95,7 +95,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         var gateway = new WindowsExternalPlayerProcessGateway();
         IExternalPlayerProcessSession session = gateway.Prepare(
             ExternalPlayerProcessLaunchRequest.Create(
-                commandProcessor,
+                commandProcessor!,
                 "/c exit 0",
                 ProcessWindowStyle.Hidden));
         bool exitObserved = false;
@@ -425,7 +425,7 @@ public sealed class ExternalPlayerProcessGatewayTests
                 root,
                 "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster></sound><jukebox><path>RootA\\</path></jukebox></config>");
             LR2Config playerConfig = new(configPath);
-            LR2Config settingsDraft = null;
+            LR2Config? settingsDraft = null;
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
@@ -446,7 +446,8 @@ public sealed class ExternalPlayerProcessGatewayTests
             player.PlayStart(chartPath, (EventHandler)null!);
 
             Assert.IsNotNull(settingsDraft);
-            Assert.IsTrue(settingsDraft.RemoveBMSSearchDirectoriesAndSave([Path.Combine(root, "RootA")]));
+            LR2Config completedSettingsDraft = settingsDraft!;
+            Assert.IsTrue(completedSettingsDraft.RemoveBMSSearchDirectoriesAndSave([Path.Combine(root, "RootA")]));
             XDocument savedAfterRootEdit = XDocument.Load(configPath);
             Assert.IsNull(savedAfterRootEdit.Element("config")?.Element("jukebox")?.Element("path"));
             Assert.AreEqual("640", ReadLr2Value(savedAfterRootEdit, "system", "windowsize_x"));
@@ -559,7 +560,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
-            FileStream lockedConfig = null;
+            FileStream? lockedConfig = null;
             var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)))
             {
                 CompleteLr2WindowStyleApply = false,
@@ -584,7 +585,7 @@ public sealed class ExternalPlayerProcessGatewayTests
 
                 StringAssert.Contains(failure.Message, configPath);
                 StringAssert.Contains(failure.Message, "window style");
-                AggregateException aggregate = failure.InnerException as AggregateException;
+                AggregateException? aggregate = failure.InnerException as AggregateException;
                 Assert.IsNotNull(aggregate);
                 Assert.IsTrue(aggregate!.InnerExceptions.Count >= 2);
             }
@@ -604,7 +605,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         return configPath;
     }
 
-    private static string ReadLr2Value(XDocument document, string sectionName, string fieldName)
+    private static string? ReadLr2Value(XDocument document, string sectionName, string fieldName)
     {
         return document.Element("config")?.Element(sectionName)?.Element(fieldName)?.Value;
     }

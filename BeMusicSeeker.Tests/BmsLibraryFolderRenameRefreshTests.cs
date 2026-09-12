@@ -119,7 +119,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Directory.CreateDirectory(sourceDirectoryPath);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Deferred\r\n#ARTIST Artist");
             List<string> phases = [];
-            TestBmsLibrary library = null;
+            TestBmsLibrary? library = null;
             bool filesystemObservedActiveLease = false;
             bool progressObservedReleasedLease = false;
             var fileMutationService = new TestFileMutationService
@@ -127,7 +127,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 OperationObserver = phase =>
                 {
                     phases.Add(phase);
-                    using LibraryFileMutationLease probe = library?.TryBeginLibraryFileMutation(
+                    using LibraryFileMutationLease? probe = library?.TryBeginLibraryFileMutation(
                         "auto_rename_filesystem_probe");
                     filesystemObservedActiveLease |= probe == null;
                 }
@@ -1619,7 +1619,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             if (failMaintenance)
             {
                 Assert.IsNotNull(failure);
-                StringAssert.Contains(failure.ToString(), "repair-health-write-fault");
+                Exception completedFailure = failure!;
+                StringAssert.Contains(completedFailure.ToString(), "repair-health-write-fault");
             }
             else
             {
@@ -3068,7 +3069,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             OperationObserver?.Invoke("filesystem");
-            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath)!;
+            string? destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
             {
                 Directory.CreateDirectory(destinationDirectoryPath);
@@ -3092,7 +3093,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             {
                 Directory.Delete(destinationPath, recursive: true);
             }
-            string destinationParentPath = Path.GetDirectoryName(destinationPath)!;
+            string? destinationParentPath = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationParentPath))
             {
                 Directory.CreateDirectory(destinationParentPath);
@@ -3103,7 +3104,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
+            string? destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
             {
                 Directory.CreateDirectory(destinationDirectoryPath);
@@ -3167,7 +3168,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             foreach (string filePath in Directory.GetFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories))
             {
                 string destinationFilePath = filePath.Replace(sourcePath, destinationPath);
-                string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath)!;
+                string? destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath);
                 if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
                 {
                     Directory.CreateDirectory(destinationDirectoryPath);

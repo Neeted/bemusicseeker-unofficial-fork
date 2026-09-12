@@ -578,17 +578,18 @@ public sealed class ChartInfoInlineHydrationTests
             var logs = new ConcurrentQueue<string>();
             var events = new ConcurrentQueue<CatalogChartInfoOwnerEvent>();
             var completion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-            CatalogChartInfoOwner owner = null;
+            CatalogChartInfoOwner? owner = null;
             void SignalCompletion()
             {
                 try
                 {
-                    if (owner.ChartInfoHydrationRequestedVersion > 0
-                        && owner.ChartInfoHydrationCompletedVersion == owner.ChartInfoHydrationRequestedVersion
-                        && owner.ChartInfoBackfillRequestedVersion > 0
-                        && owner.ChartInfoBackfillCompletedVersion == owner.ChartInfoBackfillRequestedVersion
-                        && !owner.ChartInfoHydrationRunning
-                        && !owner.ChartInfoBackfillRunning)
+                    CatalogChartInfoOwner currentOwner = owner!;
+                    if (currentOwner.ChartInfoHydrationRequestedVersion > 0
+                        && currentOwner.ChartInfoHydrationCompletedVersion == currentOwner.ChartInfoHydrationRequestedVersion
+                        && currentOwner.ChartInfoBackfillRequestedVersion > 0
+                        && currentOwner.ChartInfoBackfillCompletedVersion == currentOwner.ChartInfoBackfillRequestedVersion
+                        && !currentOwner.ChartInfoHydrationRunning
+                        && !currentOwner.ChartInfoBackfillRunning)
                     {
                         completion.TrySetResult(null);
                     }
@@ -647,7 +648,7 @@ public sealed class ChartInfoInlineHydrationTests
             ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
             var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
             var eventKinds = new List<CatalogChartInfoOwnerEventKind>();
-            CatalogChartInfoOwner owner = null;
+            CatalogChartInfoOwner? owner = null;
             owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
             owner.ConfigureWorkflow(
                 gateway,
@@ -657,17 +658,18 @@ public sealed class ChartInfoInlineHydrationTests
                 _ => { },
                 ownerEvent =>
                 {
+                    CatalogChartInfoOwner currentOwner = owner!;
                     eventKinds.Add(ownerEvent.Kind);
                     if (ownerEvent.Kind == CatalogChartInfoOwnerEventKind.DigestIndexesPrepared)
                     {
-                        Assert.AreEqual(0, owner.ChartInfoIndexVersion);
+                        Assert.AreEqual(0, currentOwner.ChartInfoIndexVersion);
                         Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
                     }
                     if (ownerEvent.Kind is CatalogChartInfoOwnerEventKind.IndexChanged
                         or CatalogChartInfoOwnerEventKind.DigestChanges)
                     {
-                        Assert.IsTrue(owner.ChartInfoIndexVersion > 0);
-                        Assert.IsNotNull(owner.ResolveChartInfo(file.sha256, file.hash));
+                        Assert.IsTrue(currentOwner.ChartInfoIndexVersion > 0);
+                        Assert.IsNotNull(currentOwner.ResolveChartInfo(file.sha256, file.hash));
                     }
                 });
 
@@ -766,7 +768,7 @@ public sealed class ChartInfoInlineHydrationTests
     [DoNotParallelize]
     public void LoadChartInfoHydrationData_UsesRawProjectionAndPreservesCurrentness()
     {
-        string previousMode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
+        string? previousMode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
         Environment.SetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE", null);
         try
         {

@@ -48,7 +48,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 }
             };
             var library = new TestBmsLibrary(songDbPath, null, null, filesystem,
-                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null),
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
             {
                 BMSFiles = files,

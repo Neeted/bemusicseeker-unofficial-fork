@@ -272,7 +272,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             using var laneEntered = new ManualResetEventSlim();
             using var releaseLane = new ManualResetEventSlim();
             using var publicationFailed = new ManualResetEventSlim();
-            Exception observedFailure = null;
+            Exception? observedFailure = null;
             int propertyChangedCount = 0;
             var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
             scheduler.Schedule(() =>
@@ -313,7 +313,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             Assert.IsTrue(publicationFailed.Wait(TimeSpan.FromSeconds(5)));
             Assert.AreEqual(1, propertyChangedCount);
             Assert.IsInstanceOfType<InvalidOperationException>(observedFailure);
-            Assert.AreEqual("collection subscriber failed", observedFailure.Message);
+            Assert.AreEqual("collection subscriber failed", observedFailure!.Message);
         });
     }
 
@@ -322,7 +322,7 @@ public sealed class BmsLibraryPackageLifecycleTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            Exception observedFailure = null;
+            Exception? observedFailure = null;
             var owner = new PackageLifecycleOwner(
                 new BmsLibraryDbGateway(songDbPath),
                 new CanceledScheduleUiScheduler(),

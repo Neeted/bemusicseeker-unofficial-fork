@@ -138,7 +138,7 @@ public sealed class RegularChartFolderRenameTests
             stopTask.GetAwaiter().GetResult();
             if (finalizationFails)
             {
-                Exception renameFailure = null;
+                Exception? renameFailure = null;
                 try
                 {
                     renameTask.GetAwaiter().GetResult();
@@ -199,7 +199,7 @@ public sealed class RegularChartFolderRenameTests
             try
             {
                 Task renameTask = owner.RenameChartFolderAsync(request, "busy-destination");
-                Exception renameFailure = null;
+                Exception? renameFailure = null;
                 try
                 {
                     renameTask.GetAwaiter().GetResult();
@@ -479,7 +479,7 @@ public sealed class RegularChartFolderRenameTests
                 RenameChartFolderRequest request = CreateRenameRequest(file);
 
                 Task renameTask = owner.RenameChartFolderAsync(request, "PackFinalizationFailure");
-                Exception renameFailure = null;
+                Exception? renameFailure = null;
                 try
                 {
                     renameTask.GetAwaiter().GetResult();

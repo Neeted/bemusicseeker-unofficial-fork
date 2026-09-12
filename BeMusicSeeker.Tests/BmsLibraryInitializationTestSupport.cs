@@ -143,7 +143,7 @@ internal static class BmsLibraryInitializationTestSupport
     internal static string ToFolderPath(string path)
     {
         string fullPath = Path.GetFullPath(path);
-        string root = Path.GetPathRoot(fullPath);
+        string? root = Path.GetPathRoot(fullPath);
         string trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         string normalized = !string.IsNullOrEmpty(root)
             && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
@@ -277,7 +277,7 @@ internal static class BmsLibraryInitializationTestSupport
     {
         var chartPathSet = new HashSet<string>(chartPaths ?? [], StringComparer.Ordinal);
         var chartDirectories = new HashSet<string>(
-            chartPathSet.Select(Path.GetDirectoryName).Where(path => !string.IsNullOrWhiteSpace(path)),
+            chartPathSet.Select(Path.GetDirectoryName).Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path!),
             StringComparer.OrdinalIgnoreCase);
         foreach (string directoryPath in resourcesByDirectory?.Keys ?? Enumerable.Empty<string>())
         {
@@ -367,7 +367,7 @@ internal static class BmsLibraryInitializationTestSupport
         {
             return false;
         }
-        string directory = Path.GetDirectoryName(path)!;
+        string? directory = Path.GetDirectoryName(path);
         return string.IsNullOrWhiteSpace(directory);
     }
 

@@ -488,7 +488,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             songDb.CreateTable<LR2SongDBExtended.bmson_song>();
         }
 
-        Thread writerThread = null;
+        Thread writerThread = null!;
         var releaseWriterGuard = new ManualResetEventSlim(false);
         var writerGuardReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var writerThreadCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -516,7 +516,7 @@ public sealed class MainWindowViewModelStartupProgressTests
 
             writerThread = new Thread((ThreadStart)delegate
             {
-                IDisposable writerGuard = null;
+                IDisposable? writerGuard = null;
                 try
                 {
                     writerGuard = AcquireBmsFileWriterGuard(library);

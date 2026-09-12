@@ -26,13 +26,13 @@ public sealed class ManagedDependencyOutputPolicyTests
             "The application must target the Windows .NET 10 runtime.");
         Assert.IsFalse(
             projectRoot.Elements("Target").Any(target => string.Equals(
-                (string)target.Attribute("Name"),
+                (string?)target.Attribute("Name"),
                 "ApplyManagedDependencyOutputPolicy",
                 StringComparison.Ordinal)),
             "The legacy libs relocation target must not remain in the project boundary.");
         Assert.IsFalse(
             projectRoot.Elements("Target").Any(target => string.Equals(
-                (string)target.Attribute("Name"),
+                (string?)target.Attribute("Name"),
                 "RemoveLegacyManagedDependencyRootOutput",
                 StringComparison.Ordinal)),
             "The legacy managed DLL deletion target must not remain in the project boundary.");
@@ -108,7 +108,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         XElement everythingBridgeAsset = projectRoot
             .Elements("ItemGroup")
             .Elements("None")
-            .Single(item => string.Equals((string)item.Attribute("Include"), "native\\EverythingBridge_x64.dll", StringComparison.Ordinal));
+            .Single(item => string.Equals((string?)item.Attribute("Include"), "native\\EverythingBridge_x64.dll", StringComparison.Ordinal));
         Assert.IsNull(
             everythingBridgeAsset.Attribute("Condition"),
             "The bridge and SDK must be a mandatory, deterministic native ship set.");
@@ -126,12 +126,12 @@ public sealed class ManagedDependencyOutputPolicyTests
         XElement nlogReference = projectRoot
             .Elements("ItemGroup")
             .Elements("PackageReference")
-            .Single(reference => string.Equals((string)reference.Attribute("Include"), "NLog", StringComparison.Ordinal));
+            .Single(reference => string.Equals((string?)reference.Attribute("Include"), "NLog", StringComparison.Ordinal));
         Assert.IsNull(nlogReference.Attribute("Version"));
         Assert.IsFalse(
             projectRoot.Elements("ItemGroup").Elements("PackageReference").Any(reference =>
-                string.Equals((string)reference.Attribute("Include"), "NLog.Database", StringComparison.Ordinal) ||
-                string.Equals((string)reference.Attribute("Include"), "NLog.WindowsEventLog", StringComparison.Ordinal)),
+                string.Equals((string?)reference.Attribute("Include"), "NLog.Database", StringComparison.Ordinal) ||
+                string.Equals((string?)reference.Attribute("Include"), "NLog.WindowsEventLog", StringComparison.Ordinal)),
             "NLog 6 core must be the only NLog package reference.");
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "NLog.dll")),
@@ -140,7 +140,7 @@ public sealed class ManagedDependencyOutputPolicyTests
         XElement newtonsoftReference = projectRoot
             .Elements("ItemGroup")
             .Elements("PackageReference")
-            .Single(reference => string.Equals((string)reference.Attribute("Include"), "Newtonsoft.Json", StringComparison.Ordinal));
+            .Single(reference => string.Equals((string?)reference.Attribute("Include"), "Newtonsoft.Json", StringComparison.Ordinal));
         Assert.IsNull(newtonsoftReference.Attribute("Version"));
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "Newtonsoft.Json.dll")),
@@ -170,8 +170,8 @@ public sealed class ManagedDependencyOutputPolicyTests
         XElement testSdkReference = projectRoot
             .Elements("ItemGroup")
             .Elements("PackageReference")
-            .Single(reference => string.Equals((string)reference.Attribute("Include"), "Microsoft.NET.Test.Sdk", StringComparison.Ordinal));
-        Assert.IsNull(testSdkReference.Attribute("Version"));
+            .Single(reference => string.Equals((string?)reference.Attribute("Include"), "Microsoft.NET.Test.Sdk", StringComparison.Ordinal));
+        Assert.IsNull((object?)testSdkReference.Attribute("Version"));
 
         string lockPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "packages.lock.json");
         Assert.IsTrue(File.Exists(lockPath), "The test project lock file must be tracked beside its project.");
@@ -399,11 +399,11 @@ public sealed class ManagedDependencyOutputPolicyTests
                 .Root!
                 .Elements("ItemGroup")
                 .Elements("PackageReference")
-                .Single(reference => string.Equals((string)reference.Attribute("Include"), analyzerId, StringComparison.Ordinal));
-            Assert.AreEqual("all", (string)analyzerReference.Element("PrivateAssets"));
+                .Single(reference => string.Equals((string?)reference.Attribute("Include"), analyzerId, StringComparison.Ordinal));
+            Assert.AreEqual("all", (string?)analyzerReference.Element("PrivateAssets"));
             Assert.AreEqual(
                 "runtime; build; native; contentfiles; analyzers; buildtransitive",
-                (string)analyzerReference.Element("IncludeAssets"));
+                (string?)analyzerReference.Element("IncludeAssets"));
         }
 
         string releaseOutputDirectory = ResolveReleaseOutputDirectory();

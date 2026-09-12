@@ -18,7 +18,7 @@ public sealed class NLogWrapperTests
     {
         string rootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-NLog-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(rootPath);
-        LoggingConfiguration originalConfiguration = LogManager.Configuration;
+        LoggingConfiguration? originalConfiguration = LogManager.Configuration;
         try
         {
             NLogWrapper.ConfigureApplicationFileLogging(rootPath, LogLevel.Info, enableInstallPerformanceLogging: true);
@@ -42,7 +42,7 @@ public sealed class NLogWrapperTests
             Assert.AreEqual(5, NLogWrapper.FileTarget.MaxArchiveFiles);
             Assert.AreEqual(".{0}", NLogWrapper.FileTarget.ArchiveSuffixFormat);
             Assert.AreEqual(logPath, NLogWrapper.FileTarget.FileName.ToString());
-            StringAssert.EndsWith(NLogWrapper.FileTarget.ArchiveFileName.ToString(), Path.Combine("log", "archive", "application.log"));
+            StringAssert.EndsWith(NLogWrapper.FileTarget.ArchiveFileName!.ToString(), Path.Combine("log", "archive", "application.log"));
 
             NLogWrapper.FileTarget.ArchiveAboveSize = 256;
             for (int index = 0; index < 1000; index++)
@@ -67,7 +67,7 @@ public sealed class NLogWrapperTests
     [TestMethod]
     public void NetworkTargetFailureDoesNotEscapeLoggingCall()
     {
-        LoggingConfiguration originalConfiguration = LogManager.Configuration;
+        LoggingConfiguration? originalConfiguration = LogManager.Configuration;
         try
         {
             LogManager.Configuration = new LoggingConfiguration();

@@ -59,14 +59,14 @@ public sealed class CustomTablePhase6CacheTests
             CustomTableColumnLayoutSnapshot snapshot = view.GetColumnLayoutSnapshot();
             FieldInfo snapshotField = typeof(CustomTableView).GetField(
                 "columnLayoutSnapshot",
-                BindingFlags.Instance | BindingFlags.NonPublic);
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
             FieldInfo invalidationGenerationField = typeof(CustomTableView).GetField(
                 "cellValueInvalidationGeneration",
-                BindingFlags.Instance | BindingFlags.NonPublic);
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
             MethodInfo collectionChanged = typeof(CustomTableView).GetMethod(
                 "ItemsSourceCollectionChanged",
-                BindingFlags.Instance | BindingFlags.NonPublic);
-            long generationBefore = (long)invalidationGenerationField.GetValue(view);
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
+            long generationBefore = (long)invalidationGenerationField.GetValue(view)!;
             collectionChanged.Invoke(
                 view,
                 [
@@ -77,7 +77,7 @@ public sealed class CustomTablePhase6CacheTests
             Assert.AreSame(snapshot, snapshotField.GetValue(view));
             Assert.AreEqual(
                 generationBefore + 1L,
-                (long)invalidationGenerationField.GetValue(view));
+                (long)invalidationGenerationField.GetValue(view)!);
         });
     }
 
@@ -110,16 +110,16 @@ public sealed class CustomTablePhase6CacheTests
             CustomTableColumnLayoutSnapshot snapshot = view.GetColumnLayoutSnapshot();
             FieldInfo invalidationGenerationField = typeof(CustomTableView).GetField(
                 "cellValueInvalidationGeneration",
-                BindingFlags.Instance | BindingFlags.NonPublic);
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
             view.ApplyVisibilityChanged(isVisible: false);
 
             view.ItemsSource = new ObservableCollection<object> { new(), new() };
-            long generationAfterSwap = (long)invalidationGenerationField.GetValue(view);
+            long generationAfterSwap = (long)invalidationGenerationField.GetValue(view)!;
             view.ApplyVisibilityChanged(isVisible: true);
 
             Assert.AreEqual(
                 generationAfterSwap,
-                (long)invalidationGenerationField.GetValue(view));
+                (long)invalidationGenerationField.GetValue(view)!);
             Assert.AreSame(snapshot, view.GetColumnLayoutSnapshot());
         });
     }
@@ -135,15 +135,15 @@ public sealed class CustomTablePhase6CacheTests
             };
             FieldInfo invalidationGenerationField = typeof(CustomTableView).GetField(
                 "cellValueInvalidationGeneration",
-                BindingFlags.Instance | BindingFlags.NonPublic);
+                BindingFlags.Instance | BindingFlags.NonPublic)!;
             view.ApplyVisibilityChanged(isVisible: false);
-            long generationWhileHidden = (long)invalidationGenerationField.GetValue(view);
+            long generationWhileHidden = (long)invalidationGenerationField.GetValue(view)!;
 
             view.ApplyVisibilityChanged(isVisible: true);
 
             Assert.AreEqual(
                 generationWhileHidden + 1L,
-                (long)invalidationGenerationField.GetValue(view));
+                (long)invalidationGenerationField.GetValue(view)!);
         });
     }
 

@@ -527,7 +527,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             {
                 return directory;
             }
-            DirectoryInfo parent = Directory.GetParent(directory);
+            DirectoryInfo? parent = Directory.GetParent(directory);
             directory = parent == null ? string.Empty : parent.FullName;
         }
         Assert.Fail("Repository root was not found.");

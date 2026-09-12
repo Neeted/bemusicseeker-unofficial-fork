@@ -208,7 +208,7 @@ public sealed class MainWindowTreePresentationWpfTests
     public void RootFolderUnregisterUsesActualCompiledMenuRoute()
     {
         int calls = 0;
-        string requestedPath = null;
+        string? requestedPath = null;
         var terminal = new MainWindowRootFolderUnregisterTerminal(path =>
         {
             calls++;

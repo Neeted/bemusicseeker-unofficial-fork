@@ -438,20 +438,23 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             using var verify = new LR2SongDBExtended(songDbPath);
             List<LR2SongDB.folder> rows = verify.Table<LR2SongDB.folder>().ToList();
             string rowSummary = string.Join(" | ", rows.Select(row => $"{row.type}:{row.parent}:{row.path}").Take(20));
-            LR2SongDB.folder outputBaseRow = rows.SingleOrDefault(row => row.path == Lr2FolderPath.ToFolderPath(additionalOutputBaseDir));
+            LR2SongDB.folder? outputBaseRow = rows.SingleOrDefault(row => row.path == Lr2FolderPath.ToFolderPath(additionalOutputBaseDir));
             Assert.IsNotNull(outputBaseRow, rowSummary);
-            Assert.AreEqual(1, outputBaseRow.type);
-            Assert.AreEqual("Additional", outputBaseRow.title);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, outputBaseRow.parent);
-            LR2SongDB.folder tableRow = rows.SingleOrDefault(row => row.path == Lr2FolderPath.ToFolderPath(outputDirectory));
+            LR2SongDB.folder outputBaseFolder = outputBaseRow!;
+            Assert.AreEqual(1, outputBaseFolder.type);
+            Assert.AreEqual("Additional", outputBaseFolder.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, outputBaseFolder.parent);
+            LR2SongDB.folder? tableRow = rows.SingleOrDefault(row => row.path == Lr2FolderPath.ToFolderPath(outputDirectory));
             Assert.IsNotNull(tableRow, rowSummary);
-            Assert.AreEqual(1, tableRow.type);
-            Assert.AreEqual("AdditionalTable", tableRow.title);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(additionalOutputBaseDir), tableRow.parent);
-            LR2SongDB.folder folderFileRow = rows.SingleOrDefault(row => row.path == outputPath);
+            LR2SongDB.folder outputTableFolder = tableRow!;
+            Assert.AreEqual(1, outputTableFolder.type);
+            Assert.AreEqual("AdditionalTable", outputTableFolder.title);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(additionalOutputBaseDir), outputTableFolder.parent);
+            LR2SongDB.folder? folderFileRow = rows.SingleOrDefault(row => row.path == outputPath);
             Assert.IsNotNull(folderFileRow, rowSummary);
-            Assert.AreEqual(2, folderFileRow.type);
-            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputDirectory), folderFileRow.parent);
+            LR2SongDB.folder outputFileRow = folderFileRow!;
+            Assert.AreEqual(2, outputFileRow.type);
+            Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(outputDirectory), outputFileRow.parent);
         }
         finally
         {
@@ -2310,7 +2313,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => playlist,
                 () => true);
 
-            Lr2SongDbSyncPreparedDataSurface surface = null!;
+            Lr2SongDbSyncPreparedDataSurface? surface = null;
             Assert.IsTrue(runtime.TryRunDataPreparation(
                 "test_empty_snapshot",
                 includeBuiltinGeneratedData: false));
@@ -2418,7 +2421,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => library,
                 () => playlist,
                 () => true);
-            Lr2SongDbSyncPreparedDataSurface surface = null!;
+            Lr2SongDbSyncPreparedDataSurface? surface = null;
             Assert.IsTrue(runtime.TryRunDataPreparation(
                 "test_external_colocated",
                 includeBuiltinGeneratedData: false));
@@ -2702,11 +2705,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     private static string ReadCustomFolderCommand(string folderText)
     {
-        string line = folderText
+        string? line = folderText
             .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
             .FirstOrDefault(value => value.StartsWith("#COMMAND ", StringComparison.Ordinal));
         Assert.IsFalse(string.IsNullOrWhiteSpace(line));
-        return line.Substring("#COMMAND ".Length);
+        return line!.Substring("#COMMAND ".Length);
     }
 
     private async Task PlaylistPropertyDialogApplyPostSaveUpdatesCoreAsync()

@@ -2130,9 +2130,9 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 () => new CustomFolderOutputSettingsSnapshot(),
                 CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = new ObservableCollection<BMSTable>() };
-            Func<Task> scheduled = null;
+            Func<Task>? scheduled = null;
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { scheduled = work; return true; };
-            IReadOnlyList<BmtTableExportService.FileOperationFailure> reported = null;
+            IReadOnlyList<BmtTableExportService.FileOperationFailure>? reported = null;
             playlist.BmtOutput.FailureReporter = failures => reported = failures;
             using (playlist.OperationNotificationOwner.BeginSession())
                 playlist.BmtOutput.QueueBeatorajaBmtExportAll("failure_contract");
@@ -2142,17 +2142,19 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 ? new FileStream(stalePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
             {
                 Assert.IsNotNull(scheduled);
-                await scheduled();
+                Func<Task> capturedScheduled = scheduled!;
+                await capturedScheduled();
             }
             Assert.IsNotNull(reported);
-            Assert.AreEqual(1, reported.Count);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(reported[0].Cause));
+            IReadOnlyList<BmtTableExportService.FileOperationFailure> capturedReports = reported!;
+            Assert.AreEqual(1, capturedReports.Count);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(capturedReports[0].Cause));
             if (failureKind == "delete")
-                Assert.AreEqual(stalePath, reported[0].Path);
+                Assert.AreEqual(stalePath, capturedReports[0].Path);
             else
-                StringAssert.Contains(reported[0].Cause, manifestPath);
+                StringAssert.Contains(capturedReports[0].Cause, manifestPath);
             if (failureKind == "delete-and-publish")
-                StringAssert.Contains(reported[0].Cause, stalePath);
+                StringAssert.Contains(capturedReports[0].Cause, stalePath);
             Assert.IsFalse(playlist.BmtOutput.HasBlockingWork);
         }
         finally { Directory.Delete(directory, recursive: true); }
@@ -2180,13 +2182,14 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 () => new CustomFolderOutputSettingsSnapshot(),
                 CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
             { BMSTables = new ObservableCollection<BMSTable>([table]) };
-            Func<Task> scheduled = null;
+            Func<Task>? scheduled = null;
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { scheduled = work; return true; };
             var failures = new List<BmtTableExportService.FileOperationFailure>();
             playlist.BmtOutput.FailureReporter = items => failures.AddRange(items);
             playlist.BmtOutput.QueueBeatorajaBmtExportForTable(table, "url_only_contract");
             Assert.IsNotNull(scheduled);
-            await scheduled();
+            Func<Task> capturedScheduled = scheduled!;
+            await capturedScheduled();
             CollectionAssert.AreEquivalent(new[] { "https://example.com/unmanaged", "https://example.com/empty" },
                 JObject.Parse(File.ReadAllText(configPath))["tableURL"]!.Values<string>().ToArray());
             Assert.AreEqual(0, Directory.GetFiles(Path.Combine(root, "table"), "*.bmt").Length);

@@ -1618,7 +1618,7 @@ public sealed class MainWindowContextMenuResourceTests
         return matches[0];
     }
 
-    private static string GetAttributeValue(XElement element, string attributeLocalName)
+    private static string GetAttributeValue(XElement? element, string attributeLocalName)
     {
         return element?.Attributes()
             .FirstOrDefault(attribute => attribute.Name.LocalName == attributeLocalName)

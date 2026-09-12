@@ -15,7 +15,7 @@ public sealed class UpdaterProcessGatewayTests
     [TestMethod]
     public void WindowsGatewayMapsTypedRequestToUpdaterProcessStartInfo()
     {
-        ProcessStartInfo captured = null!;
+        ProcessStartInfo? captured = null;
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdaterProcessGatewayTests", Guid.NewGuid().ToString("N"));
         string readyFilePath = Path.Combine(root, "updater-ready.txt");
         string decisionFilePath = Path.Combine(root, "updater-decision.txt");
@@ -46,10 +46,11 @@ public sealed class UpdaterProcessGatewayTests
             UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
 
             Assert.IsNotNull(receipt);
-            Assert.AreEqual(request.ExecutablePath, captured.FileName);
-            Assert.AreEqual(request.WorkingDirectory, captured.WorkingDirectory);
-            Assert.IsFalse(captured.UseShellExecute);
-            Assert.IsTrue(captured.CreateNoWindow);
+            ProcessStartInfo capturedStartInfo = captured!;
+            Assert.AreEqual(request.ExecutablePath, capturedStartInfo.FileName);
+            Assert.AreEqual(request.WorkingDirectory, capturedStartInfo.WorkingDirectory);
+            Assert.IsFalse(capturedStartInfo.UseShellExecute);
+            Assert.IsTrue(capturedStartInfo.CreateNoWindow);
             int processId = Process.GetCurrentProcess().Id;
             Assert.AreEqual(
                 "\"--app-dir\" \"" + applicationDirectory + "\" "
@@ -59,7 +60,7 @@ public sealed class UpdaterProcessGatewayTests
                     + "\"--decision-file\" \"" + decisionFilePath + "\" "
                     + "\"--pid\" \"" + processId + "\" "
                     + "\"--restart-exe\" \"" + restartExecutablePath + "\"",
-                captured.Arguments);
+                capturedStartInfo.Arguments);
         }
         finally
         {
@@ -112,7 +113,7 @@ public sealed class UpdaterProcessGatewayTests
         string decisionPath = Path.Combine(root, "updater-decision.txt");
         Directory.CreateDirectory(root);
         Directory.CreateDirectory(decisionPath);
-        Process updaterProcess = null!;
+        Process? updaterProcess = null;
         var gateway = new WindowsUpdaterProcessGateway(_ =>
         {
             updaterProcess = Process.Start(new ProcessStartInfo
@@ -121,7 +122,7 @@ public sealed class UpdaterProcessGatewayTests
                 Arguments = "/c timeout /t 30 /nobreak > nul",
                 UseShellExecute = false,
                 CreateNoWindow = true
-            });
+            })!;
             File.WriteAllText(readyFilePath, "1");
             return updaterProcess;
         });
@@ -143,7 +144,7 @@ public sealed class UpdaterProcessGatewayTests
                 Assert.ThrowsException<UpdaterLaunchFailureException>(receipt.Abort);
 
             StringAssert.Contains(exception.Message, "cancel handshake");
-            Assert.IsTrue(updaterProcess.WaitForExit(5000), "Abort must stop the updater even when decision publication fails.");
+            Assert.IsTrue(updaterProcess!.WaitForExit(5000), "Abort must stop the updater even when decision publication fails.");
         }
         finally
         {
@@ -168,7 +169,7 @@ public sealed class UpdaterProcessGatewayTests
         string decisionPath = Path.Combine(root, "updater-decision.txt");
         Directory.CreateDirectory(root);
         Directory.CreateDirectory(decisionPath);
-        Process updaterProcess = null!;
+        Process? updaterProcess = null;
         var gateway = new WindowsUpdaterProcessGateway(_ =>
         {
             updaterProcess = Process.Start(new ProcessStartInfo
@@ -177,7 +178,7 @@ public sealed class UpdaterProcessGatewayTests
                 Arguments = "/c timeout /t 30 /nobreak > nul",
                 UseShellExecute = false,
                 CreateNoWindow = true
-            });
+            })!;
             File.WriteAllText(readyFilePath, "1");
             return updaterProcess;
         });
@@ -201,7 +202,7 @@ public sealed class UpdaterProcessGatewayTests
             Assert.AreEqual(2, exception.InnerExceptions.Count);
             Assert.IsTrue(exception.InnerExceptions.Any(failure => failure.Message.Contains("proceed handshake", StringComparison.Ordinal)));
             Assert.IsTrue(exception.InnerExceptions.Any(failure => failure.Message.Contains("cancel handshake", StringComparison.Ordinal)));
-            Assert.IsTrue(updaterProcess.WaitForExit(5000), "Proceed failure must stop the updater after aborting.");
+            Assert.IsTrue(updaterProcess!.WaitForExit(5000), "Proceed failure must stop the updater after aborting.");
         }
         finally
         {
@@ -295,7 +296,7 @@ public sealed class UpdaterProcessGatewayTests
     [TestMethod]
     public void WindowsGatewayRecoveryTerminatesHungProcessAndReportsVisibleFailure()
     {
-        Process recoveryProcess = null!;
+        Process? recoveryProcess = null;
         int recoveryProcessId = 0;
         var gateway = new WindowsUpdaterProcessGateway(
             _ =>
@@ -306,8 +307,8 @@ public sealed class UpdaterProcessGatewayTests
                     Arguments = "/c timeout /t 30 /nobreak > nul",
                     UseShellExecute = false,
                     CreateNoWindow = true
-                });
-                recoveryProcessId = recoveryProcess.Id;
+                })!;
+                recoveryProcessId = recoveryProcess!.Id;
                 return recoveryProcess;
             },
             recoveryTimeout: TimeSpan.FromMilliseconds(50));

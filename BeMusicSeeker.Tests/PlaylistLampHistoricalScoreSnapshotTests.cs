@@ -41,9 +41,9 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             TestToday);
 
         Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.Status);
-        Assert.IsTrue(result.ScoreSnapshot.ScoresByHash.TryGetValue(hash, out PlaylistLampScore score));
-        Assert.AreEqual(ClearType.CLEAR, score.Clear);
-        Assert.AreEqual(120, score.ExScore);
+        Assert.IsTrue(result.ScoreSnapshot.ScoresByHash.TryGetValue(hash, out PlaylistLampScore? score));
+        Assert.AreEqual(ClearType.CLEAR, score!.Clear);
+        Assert.AreEqual(120, score!.ExScore);
     }
 
     [TestMethod]
@@ -224,9 +224,9 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
             TestToday);
 
         Assert.AreEqual(PlaylistLampHistoricalSnapshotStatus.Available, result.Status);
-        Assert.IsTrue(result.ScoreSnapshot.ScoresBySha256.TryGetValue(sha256, out PlaylistLampScore score));
-        Assert.AreEqual(ClearType.NO_PLAY, score.Clear);
-        Assert.AreEqual(RankType.F, score.Rank);
+        Assert.IsTrue(result.ScoreSnapshot.ScoresBySha256.TryGetValue(sha256, out PlaylistLampScore? score));
+        Assert.AreEqual(ClearType.NO_PLAY, score!.Clear);
+        Assert.AreEqual(RankType.F, score!.Rank);
     }
 
     [DataTestMethod]

@@ -34,14 +34,14 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     public void BmtOutputFailure_PublishesIndependentNotificationReceipt()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
-        PlaylistOperationNotificationPresentationRequestedEventArgs observed = null;
+        PlaylistOperationNotificationPresentationRequestedEventArgs? observed = null;
         workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => observed = request;
         workspace.ReportBmtOutputFailures(Array.AsReadOnly(new[]
         {
             new BmtTableExportService.FileOperationFailure("owned-output/locked.bmt", "sharing-denied")
         }));
         Assert.IsNotNull(observed);
-        var notification = observed.Receipt.Notifications.Single();
+        var notification = observed!.Receipt.Notifications.Single();
         Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
         StringAssert.Contains(notification.Message, "owned-output/locked.bmt");
         StringAssert.Contains(notification.Message, "sharing-denied");
@@ -1734,7 +1734,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 [LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(droppedFile))],
                 historyTable);
 
-            BMSTableEntry activeEntry = historyTable.entries.SingleOrDefault(
+            BMSTableEntry? activeEntry = historyTable.entries.SingleOrDefault(
                 entry => entry.md5 == historyHash && !entry.is_removed);
             Assert.IsNotNull(
                 activeEntry,
@@ -2113,7 +2113,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 BMSFile.FromSongTableRawValues(CreateSongTableRow(
                     databaseFailureMd5,
                     Path.Combine(tempDirectory, "drop-database-failure-chart.bms"))));
-            Exception databaseFailure = null;
+            Exception? databaseFailure = null;
             try
             {
                 await workspace.AddRowsToFolderAsync(
@@ -2127,7 +2127,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             }
 
             Assert.IsNotNull(databaseFailure);
-            StringAssert.Contains(databaseFailure.Message, "playlist drop DB write failure");
+            StringAssert.Contains(databaseFailure!.Message, "playlist drop DB write failure");
             Assert.AreEqual(notificationCountBeforeDatabaseFailure + 1, notificationCount);
             Assert.AreEqual(notificationEffectCountBeforeDatabaseFailure + 1, notificationEffectOutsideLeaseCount);
             PlaylistOperationNotificationPresentationRequestedEventArgs databaseFailureNotification = notifications[^1];
@@ -2155,7 +2155,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             nameof(PlaylistWorkspaceViewModelTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
-        Task dropTask = null;
+        Task? dropTask = null;
         using var releaseSynchronization = new ManualResetEventSlim(false);
         try
         {
@@ -2208,7 +2208,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 playlist,
                 library,
                 () => outputSettings);
-            PlaylistWorkspaceMutationRejectedEventArgs rejected = null;
+            PlaylistWorkspaceMutationRejectedEventArgs? rejected = null;
             workspace.MutationRejected += (_, request) => rejected = request;
             ChartFile chart = ChartFileProjection.FromBmsFile(
                 BMSFile.FromSongTableRawValues(
@@ -2228,14 +2228,14 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 "Renamed");
 
             Assert.IsNotNull(rejected);
-            Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, rejected.Kind);
-            Assert.IsTrue(rejected.IsBusy);
-            Assert.IsFalse(rejected.IsStale);
+            Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, rejected!.Kind);
+            Assert.IsTrue(rejected!.IsBusy);
+            Assert.IsFalse(rejected!.IsStale);
             Assert.IsTrue(table.entries.Any(entry => entry.folder == "Imported"));
             Assert.IsFalse(table.entries.Any(entry => entry.folder == "Renamed"));
 
             releaseSynchronization.Set();
-            await dropTask.WaitAsync(TimeSpan.FromSeconds(5));
+            await dropTask!.WaitAsync(TimeSpan.FromSeconds(5));
             await workspace.RenameFolderAsync(
                 table,
                 PlaylistFolderNode.CreateFolder("Imported"),
@@ -2248,7 +2248,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             releaseSynchronization.Set();
             if (dropTask != null)
             {
-                await dropTask.WaitAsync(TimeSpan.FromSeconds(5));
+                await dropTask!.WaitAsync(TimeSpan.FromSeconds(5));
             }
             if (Directory.Exists(tempDirectory))
             {

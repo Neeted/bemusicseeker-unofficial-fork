@@ -679,7 +679,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         var player = new FakeBmsPlayer();
         FieldInfo playerField = typeof(PlaybackPanelViewModel)
-            .GetField("bmsPlayer", BindingFlags.Instance | BindingFlags.NonPublic);
+            .GetField("bmsPlayer", BindingFlags.Instance | BindingFlags.NonPublic)!;
         Assert.IsNotNull(playerField);
         playerField.SetValue(viewModel.PlaybackPanel, player);
 
@@ -1074,8 +1074,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
     private static T GetPrivateField<T>(MainWindowViewModel viewModel, string name)
     {
         return (T)typeof(MainWindowViewModel)
-            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
-            .GetValue(viewModel);
+            .GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(viewModel)!;
     }
 
     private static TaskCompletionSource<bool> PreparePendingRegularChartStop(MainWindowViewModel viewModel)
@@ -1088,7 +1088,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
     private static void SetPrivateField(object target, string name, object value)
     {
-        FieldInfo field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!;
         Assert.IsNotNull(field, name);
         field.SetValue(target, value);
     }

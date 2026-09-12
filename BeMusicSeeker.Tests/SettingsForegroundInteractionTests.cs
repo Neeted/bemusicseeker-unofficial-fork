@@ -76,8 +76,8 @@ public sealed class SettingsForegroundInteractionTests
                 PlaybackPanel = owner.PlaybackPanel,
                 PlaylistWorkspace = owner.PlaylistWorkspace
             };
-            Window confirmationWindow = null;
-            Exception confirmationFailure = null;
+            Window? confirmationWindow = null;
+            Exception? confirmationFailure = null;
 
             try
             {
@@ -103,8 +103,8 @@ public sealed class SettingsForegroundInteractionTests
                                 .Single(candidate => candidate.IsVisible
                                     && ReferenceEquals(candidate.Owner, window));
                             Assert.IsInstanceOfType<ThemedWindow>(confirmationWindow);
-                            Assert.AreEqual(Resources.Confirm, confirmationWindow.Title);
-                            Button acceptButton = FindDescendants<Button>(confirmationWindow)
+                            Assert.AreEqual(Resources.Confirm, confirmationWindow!.Title);
+                            Button acceptButton = FindDescendants<Button>(confirmationWindow!)
                                 .Single(candidate => Equals(candidate.Content, "OK"));
                             acceptButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, acceptButton));
                         }
@@ -243,7 +243,7 @@ public sealed class SettingsForegroundInteractionTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            Window window = null;
+            Window? window = null;
             try
             {
                 Grid host = CreateSettingsControlHost();
@@ -392,8 +392,8 @@ public sealed class SettingsForegroundInteractionTests
                 application.Resources[type] = sentinelStyle;
             }
 
-            Window window = null;
-            Window sectionWindow = null;
+            Window? window = null;
+            Window? sectionWindow = null;
             try
             {
                 Grid host = CreateSettingsControlHost();
@@ -583,10 +583,10 @@ public sealed class SettingsForegroundInteractionTests
                 PumpDispatcher(window.Dispatcher);
                 Assert.IsTrue(popup.IsOpen);
                 Assert.IsTrue(comboBox.IsDropDownOpen);
-                ScrollViewer popupScroller = FindDescendant<ScrollViewer>(popup.Child);
+                ScrollViewer? popupScroller = FindDescendant<ScrollViewer>(popup.Child);
                 Assert.IsNotNull(popupScroller);
-                Assert.AreNotEqual(sentinel, popupScroller.Tag);
-                AssertMaterializedScrollViewerConsumer(popupScroller, Orientation.Vertical, "ComboBox popup");
+                Assert.AreNotEqual(sentinel, popupScroller!.Tag);
+                AssertMaterializedScrollViewerConsumer(popupScroller!, Orientation.Vertical, "ComboBox popup");
                 var firstComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondComboItem = (ComboBoxItem)comboBox.ItemContainerGenerator.ContainerFromIndex(1);
                 Assert.IsNotNull(firstComboItem);
@@ -613,10 +613,10 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.AreEqual(ExpandCollapseState.Collapsed, comboExpandProvider.ExpandCollapseState);
 
                 listBox.ApplyTemplate();
-                ScrollViewer listScroller = FindDescendant<ScrollViewer>(listBox);
+                ScrollViewer? listScroller = FindDescendant<ScrollViewer>(listBox);
                 Assert.IsNotNull(listScroller);
-                Assert.AreNotEqual(sentinel, listScroller.Tag);
-                AssertMaterializedScrollViewerConsumer(listScroller, Orientation.Vertical, "ListBox content");
+                Assert.AreNotEqual(sentinel, listScroller!.Tag);
+                AssertMaterializedScrollViewerConsumer(listScroller!, Orientation.Vertical, "ListBox content");
                 Assert.AreEqual(1, listBox.SelectedIndex);
                 var firstListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(0);
                 var secondListItem = (ListBoxItem)listBox.ItemContainerGenerator.ContainerFromIndex(1);
@@ -731,7 +731,7 @@ public sealed class SettingsForegroundInteractionTests
                 Assert.AreEqual(
                     KeyboardNavigationMode.Continue,
                     KeyboardNavigation.GetDirectionalNavigation(topNavigation));
-                StackPanel topNavigationItems = FindDescendant<StackPanel>(topNavigation);
+                StackPanel topNavigationItems = FindDescendant<StackPanel>(topNavigation)!;
                 Assert.AreEqual(Orientation.Horizontal, topNavigationItems.Orientation);
                 var topNavigationItemsByIndex = topNavigation.Items
                     .Cast<object>()
@@ -867,7 +867,7 @@ public sealed class SettingsForegroundInteractionTests
                 foreach (Type type in sentinelTypes)
                 {
                     application.Resources.Remove(type);
-                    if (previousResources.TryGetValue(type, out object previous))
+                    if (previousResources.TryGetValue(type, out object? previous))
                     {
                         application.Resources[type] = previous;
                     }
@@ -1510,7 +1510,7 @@ public sealed class SettingsForegroundInteractionTests
         });
     }
 
-    private static T FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    private static T? FindDescendant<T>(DependencyObject? root) where T : DependencyObject
     {
         if (root == null)
         {
@@ -1553,9 +1553,9 @@ public sealed class SettingsForegroundInteractionTests
         return null;
     }
 
-    private static bool IsVisualDescendantOf(DependencyObject candidate, DependencyObject ancestor)
+    private static bool IsVisualDescendantOf(DependencyObject? candidate, DependencyObject? ancestor)
     {
-        for (DependencyObject current = candidate; current != null; current = VisualTreeHelper.GetParent(current))
+        for (DependencyObject? current = candidate; current != null; current = VisualTreeHelper.GetParent(current))
         {
             if (ReferenceEquals(current, ancestor))
             {

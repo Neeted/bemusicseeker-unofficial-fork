@@ -1329,9 +1329,9 @@ internal sealed class PlaylistExternalSyncOwner
         try
         {
             XDocument document;
+            // 取得済み本文だけを解析し、parserへの通信委譲でHTTP ownerの期限・取消しを迂回させない。
             using (var reader = new SgmlReader
             {
-                Href = pageUri.AbsoluteUri,
                 InputStream = new StringReader(input),
                 IgnoreDtd = true,
                 ErrorLog = new StringWriter(errorLog)

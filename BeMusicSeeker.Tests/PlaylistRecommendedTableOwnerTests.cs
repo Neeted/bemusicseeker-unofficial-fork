@@ -707,7 +707,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             NameValueCollection copy = new();
-            foreach (string key in formData.AllKeys)
+            foreach (string? key in formData.AllKeys)
             {
                 copy.Add(key, formData.Get(key));
             }

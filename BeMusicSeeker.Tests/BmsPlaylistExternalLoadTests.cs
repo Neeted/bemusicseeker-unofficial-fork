@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -10,6 +14,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Net;
 
 namespace BeMusicSeeker.Tests;
 
@@ -189,6 +194,69 @@ public sealed class BmsPlaylistExternalLoadTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
+    }
+
+    /// <summary>取得済みHTMLの参照先を読み込み、解析による再取得や外部DTD取得がないことを確認します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task LoadExternalTableAsync_UsesFetchedHtmlWithoutParserNetworkRequests()
+    {
+        string parserFallbackHtml =
+            "<html><head><meta name=\"bmstable\" content=\"../headers/alternate.json\"></head>"
+            + "<body>table B</body></html>";
+        await using var parserNetworkServer = new SingleRequestHttpServer(Encoding.UTF8.GetBytes(parserFallbackHtml));
+
+        Uri pageUri = new(parserNetworkServer.Address, "pages/start.html");
+        Uri headerUri = new(parserNetworkServer.Address, "headers/main.json");
+        Uri dataUri = new(parserNetworkServer.Address, "data/rows.json");
+        Uri alternateHeaderUri = new(parserNetworkServer.Address, "headers/alternate.json");
+        Uri alternateDataUri = new(parserNetworkServer.Address, "data/alternate.json");
+        Uri externalDtdUri = new(parserNetworkServer.Address, "doctype/table.dtd");
+
+        string pageHtml = "<!DOCTYPE html SYSTEM \"" + externalDtdUri.AbsoluteUri + "\">"
+            + "<html><head><meta content=\"../headers/main.json\" name=\"bmstable\"></head>"
+            + "<body>table A</body></html>";
+        var responses = new Dictionary<Uri, string>
+        {
+            [pageUri] = pageHtml,
+            [headerUri] = "{\"name\":\"Table A\",\"symbol\":\"A\",\"data_url\":\"../data/rows.json\"}",
+            [dataUri] = "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song A\",\"artist\":\"Artist A\",\"level\":\"1\"}]",
+            [alternateHeaderUri] = "{\"name\":\"Table B\",\"symbol\":\"B\",\"data_url\":\"../data/alternate.json\"}",
+            [alternateDataUri] = "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song B\",\"artist\":\"Artist B\",\"level\":\"2\"}]"
+        };
+        using var handler = new RecordedExternalTableHttpMessageHandler(responses);
+        using var transport = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
+        var appHttpClient = new AppHttpClient(transport, TimeProvider.System);
+        var recommendedTableOwner = new PlaylistRecommendedTableOwner(
+            string.Empty,
+            static () => [],
+            static (_, _) => Task.FromException<BMSTable>(new InvalidOperationException("The bmseeker route is not part of this fixture.")),
+            new AppPlaylistRecommendedTableHttpClient(appHttpClient),
+            new PlaylistOperationNotificationOwner(),
+            static () => new CustomFolderOutputSettingsSnapshot());
+        var externalOwner = new PlaylistExternalSyncOwner(
+            appHttpClient,
+            recommendedTableOwner,
+            (_, _) => { },
+            static () => false,
+            static _ => { },
+            customFolderOutputSettingsProvider: static () => new CustomFolderOutputSettingsSnapshot());
+
+        BMSTable table = await externalOwner.LoadExternalTableAsync(pageUri);
+
+        Assert.AreEqual("Table A", table.name);
+        Assert.AreEqual("A", table.symbol);
+        Assert.AreEqual(1, table.entries.Count);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", table.entries.Single().md5);
+        Assert.AreEqual("Song A", table.entries.Single().title);
+        Assert.AreEqual(pageUri, table.Page_url);
+        Assert.AreEqual(headerUri, table.GetAbsoluteHeaderUrl());
+        Assert.AreEqual(dataUri, table.GetAbsoluteDataUrl());
+        Assert.AreEqual(1, handler.GetRequestCount(pageUri));
+        Assert.AreEqual(1, handler.GetRequestCount(headerUri));
+        Assert.AreEqual(1, handler.GetRequestCount(dataUri));
+        Assert.AreEqual(3, handler.RequestUris.Count);
+        Assert.AreEqual(string.Empty, parserNetworkServer.RequestMethod, parserNetworkServer.Diagnostics);
     }
 
     [TestMethod]
@@ -678,5 +746,42 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         PlaylistPersistenceRepository.EnsureSchema(tempSongDbPath);
         return tempSongDbPath;
+    }
+
+    private sealed class RecordedExternalTableHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly IReadOnlyDictionary<Uri, string> responses;
+        private readonly List<Uri> requestUris = [];
+
+        /// <summary>要求先ごとの合成応答を設定し、アプリ側の取得を記録します。</summary>
+        internal RecordedExternalTableHttpMessageHandler(IReadOnlyDictionary<Uri, string> responses)
+        {
+            this.responses = responses ?? throw new ArgumentNullException(nameof(responses));
+        }
+
+        /// <summary>アプリのHTTP経路が取得したURIの記録です。</summary>
+        internal IReadOnlyList<Uri> RequestUris => requestUris;
+
+        /// <summary>指定URIがアプリ側で取得された回数を返します。</summary>
+        internal int GetRequestCount(Uri uri)
+        {
+            return requestUris.Count(requestUri => requestUri == uri);
+        }
+
+        /// <summary>実通信せず合成応答を返し、未定義の取得先と取消しを失敗として伝えます。</summary>
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Uri requestUri = request.RequestUri ?? throw new InvalidOperationException("HTTP request URI is missing.");
+            requestUris.Add(requestUri);
+            if (!responses.TryGetValue(requestUri, out string? responseBody) || responseBody is null)
+            {
+                throw new HttpRequestException("Unexpected external table request: " + requestUri);
+            }
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseBody, Encoding.UTF8, "application/json")
+            });
+        }
     }
 }

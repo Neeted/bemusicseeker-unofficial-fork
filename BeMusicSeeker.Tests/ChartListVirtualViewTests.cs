@@ -3493,8 +3493,8 @@ public sealed class ChartListVirtualViewTests
         ChartFileTransientState ResolveTransientState(ChartFile chart, bool includeWarningSnapshot)
         {
             return chart != null
-                && bmsInstallDestinationStates.TryGetValue(chart.Path ?? string.Empty, out ChartFileTransientState state)
-                    ? state
+                && bmsInstallDestinationStates.TryGetValue(chart.Path ?? string.Empty, out ChartFileTransientState? state)
+                    ? state!
                     : ChartFileTransientState.Empty;
         }
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files, bmsons, chartTransientStateProvider: ResolveTransientState);
@@ -4275,7 +4275,7 @@ public sealed class ChartListVirtualViewTests
         Action<PlaylistWorkspaceViewModel> configureWorkspace)
     {
         var workflowOwner = new PlayHistoryWorkflowOwner();
-        workflowOwner.PropertyChanged += (_, e) => publishPropertyChanged(e.PropertyName);
+        workflowOwner.PropertyChanged += (_, e) => publishPropertyChanged(e.PropertyName!);
         state = workflowOwner.PresentationState;
         table = new MainChartListViewModel();
         var playlistBuildState = new PlaylistDetailBuildState();

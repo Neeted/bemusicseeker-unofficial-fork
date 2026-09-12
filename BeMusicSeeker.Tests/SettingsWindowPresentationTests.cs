@@ -332,7 +332,7 @@ public sealed class SettingsWindowPresentationTests
             Directory.CreateDirectory(searchRoot);
             Directory.CreateDirectory(additionalOutputBase);
 
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 Settings settings = new Settings { OperationModeLR2DB = false };
@@ -418,8 +418,8 @@ public sealed class SettingsWindowPresentationTests
             {
             }
 
-            SettingsWindow window = null;
-            MainWindowViewModel owner = null;
+            SettingsWindow? window = null;
+            MainWindowViewModel? owner = null;
             try
             {
                 owner = MainWindowViewModelTestFactory.Create(new Settings
@@ -496,7 +496,7 @@ public sealed class SettingsWindowPresentationTests
             Directory.CreateDirectory(firstPath);
             Directory.CreateDirectory(secondPath);
 
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 Settings settings = new Settings
@@ -572,8 +572,8 @@ public sealed class SettingsWindowPresentationTests
             Directory.CreateDirectory(firstPath);
             Directory.CreateDirectory(secondPath);
 
-            SettingsWindow window = null;
-            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SettingsWindow? window = null;
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
             try
             {
                 Settings settings = new Settings
@@ -648,7 +648,7 @@ public sealed class SettingsWindowPresentationTests
             var dialogs = new PendingLr2AdvancedPathsDialogService();
             var window = new SettingsWindow(dialogs) { DataContext = settings };
             dialogs.ExpectedOwner = window;
-            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(window.Dispatcher));
             try
             {
@@ -684,7 +684,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousCulture = BeMusicSeeker.Properties.Resources.Culture?.Name ?? "ja-JP";
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
@@ -736,7 +736,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousCulture = BeMusicSeeker.Properties.Resources.Culture?.Name ?? "ja-JP";
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 ResourceService.Current.ChangeCulture("ja-JP");
@@ -780,7 +780,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 Lr2PlayHistorySchemaCheckResult resetResult = new Lr2PlayHistorySchemaService().Uninstall(
@@ -874,7 +874,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 var dialogs = new DangerDialogService();
@@ -926,7 +926,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 var dialogs = new DangerDialogService();
@@ -1062,10 +1062,10 @@ public sealed class SettingsWindowPresentationTests
                 schemaDialog,
                 store,
                 applicationLifetime: lifetime);
-            SettingsWindow window = null;
-            MainWindow owner = null;
+            SettingsWindow? window = null;
+            MainWindow? owner = null;
             bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
-            object previousViewModelResource = hadPreviousViewModelResource
+            object? previousViewModelResource = hadPreviousViewModelResource
                 ? Application.Current.Resources["vm"]
                 : null;
             try
@@ -1177,7 +1177,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousCulture = BeMusicSeeker.Properties.Resources.Culture?.Name ?? "ja-JP";
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
@@ -1323,11 +1323,11 @@ public sealed class SettingsWindowPresentationTests
                 {
                     SettingsStatusBanner banner = FindDescendants<SettingsStatusBanner>(page).Single(candidate =>
                         candidate.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path?.Path == statusProperty);
-                    string message = banner.Content as string;
+                    string? message = banner.Content as string;
                     Assert.IsFalse(string.IsNullOrWhiteSpace(message), statusProperty);
-                    Assert.IsFalse(message.StartsWith("✓", StringComparison.Ordinal),
+                    Assert.IsFalse(message!.StartsWith("✓", StringComparison.Ordinal),
                         statusProperty + " must leave the visual success glyph to the banner icon.");
-                    Assert.IsFalse(message.StartsWith("!", StringComparison.Ordinal),
+                    Assert.IsFalse(message!.StartsWith("!", StringComparison.Ordinal),
                         statusProperty + " must leave the visual warning glyph to the banner icon.");
 
                     SettingsStatusIcon icon = FindDescendants<SettingsStatusIcon>(banner).Single();
@@ -1360,13 +1360,13 @@ public sealed class SettingsWindowPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            SchemaPresentationContext context = null;
-            Settings values = null;
-            string scope = null;
-            string scoreDbPath = null;
-            SettingsWindow window = null;
-            ExceptionDispatchInfo bodyFailure = null;
-            Exception cleanupFailure = null;
+            SchemaPresentationContext? context = null;
+            Settings? values = null;
+            string? scope = null;
+            string? scoreDbPath = null;
+            SettingsWindow? window = null;
+            ExceptionDispatchInfo? bodyFailure = null;
+            Exception? cleanupFailure = null;
             try
             {
                 // Keep the temporary database scope owned by this outer operation. The
@@ -1580,7 +1580,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousTheme = Settings.Default.AppearanceTheme;
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 Settings.Default.AppearanceTheme = AppThemeService.Light;
@@ -1650,9 +1650,9 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string previousTheme = Settings.Default.AppearanceTheme;
-            ReleaseNotesWindow releaseNotes = null;
-            ReleaseNotesWindow darkReleaseNotes = null;
-            Lr2AdvancedPathsDialog advancedPaths = null;
+            ReleaseNotesWindow? releaseNotes = null;
+            ReleaseNotesWindow? darkReleaseNotes = null;
+            Lr2AdvancedPathsDialog? advancedPaths = null;
             try
             {
                 Settings.Default.AppearanceTheme = AppThemeService.Light;
@@ -1723,7 +1723,7 @@ public sealed class SettingsWindowPresentationTests
         {
             string resourceKey = $"{nameof(NativeTitleBarThemeSource_MissingOrNonSolidSemanticResource_Propagates)}.{Guid.NewGuid():N}";
             ResourceDictionary resources = Application.Current.Resources;
-            MethodInfo resolverMethod = typeof(AppNativeWindowTitleBarThemeSource).GetMethod(
+            MethodInfo? resolverMethod = typeof(AppNativeWindowTitleBarThemeSource).GetMethod(
                 "GetRequiredSolidColorBrush",
                 BindingFlags.NonPublic | BindingFlags.Static,
                 binder: null,
@@ -1731,7 +1731,7 @@ public sealed class SettingsWindowPresentationTests
                 modifiers: null);
             Assert.IsNotNull(resolverMethod);
             Func<string, SolidColorBrush> resolveRequiredBrush =
-                resolverMethod.CreateDelegate<Func<string, SolidColorBrush>>();
+                resolverMethod!.CreateDelegate<Func<string, SolidColorBrush>>();
             Assert.IsFalse(resources.Contains(resourceKey));
             try
             {
@@ -1762,16 +1762,16 @@ public sealed class SettingsWindowPresentationTests
             double previousFontSize = Settings.Default.CustomTableFontSize;
             double previousRowHeight = Settings.Default.CustomTableRowHeight;
             double previousHeaderHeight = Settings.Default.CustomTableHeaderHeight;
-            SettingsWindow window = null;
-            MainWindow mainWindow = null;
-            MainWindowViewModel owner = null;
-            CustomTableView mainTable = null;
-            CustomTableView playlistSummaryTable = null;
+            SettingsWindow? window = null;
+            MainWindow? mainWindow = null;
+            MainWindowViewModel? owner = null;
+            CustomTableView? mainTable = null;
+            CustomTableView? playlistSummaryTable = null;
             bool hadPreviousVmResource = Application.Current.Resources.Contains("vm");
-            object previousVmResource = hadPreviousVmResource ? Application.Current.Resources["vm"] : null;
-            ExceptionDispatchInfo bodyFailure = null;
-            Exception cleanupFailure = null;
-            DangerApplicationLifetime startupLifetime = null;
+            object? previousVmResource = hadPreviousVmResource ? Application.Current.Resources["vm"] : null;
+            ExceptionDispatchInfo? bodyFailure = null;
+            Exception? cleanupFailure = null;
+            DangerApplicationLifetime? startupLifetime = null;
             try
             {
                 var startupEvents = new List<string>();
@@ -1822,12 +1822,12 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(14d, owner.ViewSettings.CustomTableFontSize);
                 Assert.AreEqual(31d, owner.ViewSettings.CustomTableRowHeight);
                 Assert.AreEqual(37d, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(14d, mainTable.TextFontSize);
-                Assert.AreEqual(31d, mainTable.RowHeight);
-                Assert.AreEqual(37d, mainTable.HeaderHeight);
-                Assert.AreEqual(14d, playlistSummaryTable.TextFontSize);
-                Assert.AreEqual(31d, playlistSummaryTable.RowHeight);
-                Assert.AreEqual(37d, playlistSummaryTable.HeaderHeight);
+                Assert.AreEqual(14d, mainTable!.TextFontSize);
+                Assert.AreEqual(31d, mainTable!.RowHeight);
+                Assert.AreEqual(37d, mainTable!.HeaderHeight);
+                Assert.AreEqual(14d, playlistSummaryTable!.TextFontSize);
+                Assert.AreEqual(31d, playlistSummaryTable!.RowHeight);
+                Assert.AreEqual(37d, playlistSummaryTable!.HeaderHeight);
 
                 Button reset = FindDescendants<Button>(page)
                     .Single(button => Equals(button.Content, Resources.Appearance_table_reset_defaults));
@@ -1836,24 +1836,24 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(Settings.DefaultCustomTableFontSize, owner.ViewSettings.CustomTableFontSize);
                 Assert.AreEqual(Settings.DefaultCustomTableRowHeight, owner.ViewSettings.CustomTableRowHeight);
                 Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, mainTable.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, mainTable.HeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, playlistSummaryTable.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, playlistSummaryTable.HeaderHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable!.TextFontSize);
+                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, mainTable!.RowHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, mainTable!.HeaderHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable!.TextFontSize);
+                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, playlistSummaryTable!.RowHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, playlistSummaryTable!.HeaderHeight);
 
                 ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpDispatcher(window.Dispatcher);
                 Assert.AreEqual(savedFontSize, owner.ViewSettings.CustomTableFontSize);
                 Assert.AreEqual(savedRowHeight, owner.ViewSettings.CustomTableRowHeight);
                 Assert.AreEqual(savedHeaderHeight, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(savedFontSize, mainTable.TextFontSize);
-                Assert.AreEqual(savedRowHeight, mainTable.RowHeight);
-                Assert.AreEqual(savedHeaderHeight, mainTable.HeaderHeight);
-                Assert.AreEqual(savedFontSize, playlistSummaryTable.TextFontSize);
-                Assert.AreEqual(savedRowHeight, playlistSummaryTable.RowHeight);
-                Assert.AreEqual(savedHeaderHeight, playlistSummaryTable.HeaderHeight);
+                Assert.AreEqual(savedFontSize, mainTable!.TextFontSize);
+                Assert.AreEqual(savedRowHeight, mainTable!.RowHeight);
+                Assert.AreEqual(savedHeaderHeight, mainTable!.HeaderHeight);
+                Assert.AreEqual(savedFontSize, playlistSummaryTable!.TextFontSize);
+                Assert.AreEqual(savedRowHeight, playlistSummaryTable!.RowHeight);
+                Assert.AreEqual(savedHeaderHeight, playlistSummaryTable!.HeaderHeight);
 
             }
             catch (Exception exception)
@@ -1901,7 +1901,7 @@ public sealed class SettingsWindowPresentationTests
                 {
                     try
                     {
-                        CloseMainWindowThroughShutdownWorkflow(mainWindow, startupLifetime);
+                        CloseMainWindowThroughShutdownWorkflow(mainWindow, startupLifetime!);
                     }
                     catch (Exception exception)
                     {
@@ -2008,8 +2008,8 @@ public sealed class SettingsWindowPresentationTests
         {
             string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsRootReselect_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(scope);
-            SettingsDialogViewModel settings = null;
-            SettingsWindow window = null;
+            SettingsDialogViewModel? settings = null;
+            SettingsWindow? window = null;
             try
             {
                 string root = Path.Combine(scope, "root");
@@ -2262,8 +2262,8 @@ public sealed class SettingsWindowPresentationTests
         {
             string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsAdvancedRoute_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(scope);
-            SettingsWindow window = null;
-            SettingsDialogViewModel settings = null;
+            SettingsWindow? window = null;
+            SettingsDialogViewModel? settings = null;
             try
             {
                 string root = Path.Combine(scope, "root");
@@ -2359,12 +2359,12 @@ public sealed class SettingsWindowPresentationTests
         {
             UiDialogStatus windowStatus = Enum.Parse<UiDialogStatus>(windowStatusName);
             UiDialogStatus notificationStatus = Enum.Parse<UiDialogStatus>(notificationStatusName);
-            LoggingConfiguration originalConfiguration = LogManager.Configuration;
+            LoggingConfiguration? originalConfiguration = LogManager.Configuration;
             var logTarget = new MemoryTarget { Layout = "${message}|${exception:format=message}" };
             var configuration = new LoggingConfiguration();
             configuration.AddRule(LogLevel.Error, LogLevel.Fatal, logTarget);
             LogManager.Configuration = configuration;
-            SettingsWindow window = null;
+            SettingsWindow? window = null;
             try
             {
                 MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
@@ -2435,8 +2435,8 @@ public sealed class SettingsWindowPresentationTests
         {
             string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsAdvancedMalformed_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(scope);
-            SettingsWindow window = null;
-            SettingsDialogViewModel settings = null;
+            SettingsWindow? window = null;
+            SettingsDialogViewModel? settings = null;
             try
             {
                 string root = Path.Combine(scope, "root");
@@ -2834,48 +2834,48 @@ public sealed class SettingsWindowPresentationTests
             settings.AttachPresentationPort(presentationPort);
             Uri tableListUriBefore = settings.TableListURL;
             string mappingUriBefore = settings.PlaylistMd5UrlMappingTsvUri;
-            SettingsWindow firstPresentation = null;
-            SettingsWindow reopenedPresentation = null;
+            SettingsWindow? firstPresentation = null;
+            SettingsWindow? reopenedPresentation = null;
             try
             {
                 firstPresentation = new SettingsWindow { DataContext = settings };
-                presentationPort.CloseAction = firstPresentation.CloseFromPresentation;
-                windowTest.ShowAndWaitForContentRendered(firstPresentation);
+                presentationPort.CloseAction = firstPresentation!.CloseFromPresentation;
+                windowTest.ShowAndWaitForContentRendered(firstPresentation!);
                 SeedTransientPlaylistUriValidation(settings);
 
                 Assert.IsFalse(settings.HasPendingSettingChanges(),
                     "Invalid URI input must not mutate the settings draft.");
-                var navigation = (ListBox)firstPresentation.FindName("settingsNavigation");
+                var navigation = (ListBox)firstPresentation!.FindName("settingsNavigation");
                 navigation.SelectedIndex = 5;
-                PumpDispatcher(firstPresentation.Dispatcher);
+                PumpDispatcher(firstPresentation!.Dispatcher);
                 navigation.SelectedIndex = 0;
-                PumpDispatcher(firstPresentation.Dispatcher);
+                PumpDispatcher(firstPresentation!.Dispatcher);
                 navigation.SelectedIndex = 5;
-                PumpDispatcher(firstPresentation.Dispatcher);
-                PumpDispatcher(firstPresentation.Dispatcher);
+                PumpDispatcher(firstPresentation!.Dispatcher);
+                PumpDispatcher(firstPresentation!.Dispatcher);
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage));
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
 
                 switch (completionRoute)
                 {
                     case PlaylistUriCompletionRoute.CancelButton:
-                        ((Button)firstPresentation.FindName("buttonCancel"))
+                        ((Button)firstPresentation!.FindName("buttonCancel"))
                             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         break;
                     case PlaylistUriCompletionRoute.SaveButton:
-                        ((Button)firstPresentation.FindName("buttonOK"))
+                        ((Button)firstPresentation!.FindName("buttonOK"))
                             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         break;
                     case PlaylistUriCompletionRoute.NativeClose:
-                        firstPresentation.Close();
+                        firstPresentation!.Close();
                         break;
                     default:
                         Assert.Fail("Unsupported URI completion route: " + completionRoute);
                         break;
                 }
                 PumpUntil(
-                    firstPresentation,
-                    () => !firstPresentation.IsVisible,
+                    firstPresentation!,
+                    () => !firstPresentation!.IsVisible,
                     completionRoute + " did not close the actual SettingsWindow route.");
                 Assert.IsFalse(settings.IsEditCompletionInProgress);
                 Assert.IsFalse(settings.HasPendingSettingChanges());
@@ -2884,8 +2884,8 @@ public sealed class SettingsWindowPresentationTests
                     completionRoute == PlaylistUriCompletionRoute.SaveButton
                         ? SettingsWindowCloseReason.Apply
                         : SettingsWindowCloseReason.Cancel,
-                    firstPresentation.CloseReason);
-                Assert.IsNull(firstPresentation.DataContext);
+                    firstPresentation!.CloseReason);
+                Assert.IsNull(firstPresentation!.DataContext);
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage),
                     "Closing a presentation must not hide the transient message before the next activation.");
                 firstPresentation = null;
@@ -2896,8 +2896,8 @@ public sealed class SettingsWindowPresentationTests
                 try
                 {
                     reopenedPresentation = new SettingsWindow { DataContext = settings };
-                    presentationPort.CloseAction = reopenedPresentation.CloseFromPresentation;
-                    windowTest.ShowAndWaitForContentRendered(reopenedPresentation);
+                    presentationPort.CloseAction = reopenedPresentation!.CloseFromPresentation;
+                    windowTest.ShowAndWaitForContentRendered(reopenedPresentation!);
                 }
                 finally
                 {
@@ -2911,15 +2911,15 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(tableListUriBefore, settings.TableListURL);
                 Assert.AreEqual(mappingUriBefore, settings.PlaylistMd5UrlMappingTsvUri);
                 Assert.IsFalse(settings.HasPendingSettingChanges());
-                ((Button)reopenedPresentation.FindName("buttonCancel"))
+                ((Button)reopenedPresentation!.FindName("buttonCancel"))
                     .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 PumpUntil(
-                    reopenedPresentation,
-                    () => !reopenedPresentation.IsVisible,
+                    reopenedPresentation!,
+                    () => !reopenedPresentation!.IsVisible,
                     "Reopened SettingsWindow did not close through the actual Cancel route.");
                 Assert.AreEqual(2, presentationPort.CloseRequestCount);
-                Assert.AreEqual(SettingsWindowCloseReason.Cancel, reopenedPresentation.CloseReason);
-                Assert.IsNull(reopenedPresentation.DataContext);
+                Assert.AreEqual(SettingsWindowCloseReason.Cancel, reopenedPresentation!.CloseReason);
+                Assert.IsNull(reopenedPresentation!.DataContext);
                 reopenedPresentation = null;
             }
             finally
@@ -2989,7 +2989,7 @@ public sealed class SettingsWindowPresentationTests
             .Single(value => value != null
                 && (value.StartsWith("/Themes/", StringComparison.OrdinalIgnoreCase)
                     || value.StartsWith("/BeMusicSeeker;component/Themes/", StringComparison.OrdinalIgnoreCase))
-                && value.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase));
+                && value.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))!;
         return Path.GetFileNameWithoutExtension(source);
     }
 
@@ -3236,33 +3236,33 @@ public sealed class SettingsWindowPresentationTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
             bool hadPreviousVmResource = Application.Current.Resources.Contains("vm");
-            object previousVmResource = hadPreviousVmResource
+            object? previousVmResource = hadPreviousVmResource
                 ? Application.Current.Resources["vm"]
                 : null;
             Application.Current.Resources["vm"] = viewModel;
-            MainWindow owner = null;
+            MainWindow? owner = null;
             var settingsWindows = new List<SettingsWindow>();
-            Exception interactionFailure = null;
+            Exception? interactionFailure = null;
             bool settingsPresented = false;
-            ExceptionDispatchInfo bodyFailure = null;
-            Exception cleanupFailure = null;
+            ExceptionDispatchInfo? bodyFailure = null;
+            Exception? cleanupFailure = null;
 
             void QueueSettingsPresentationAndClose()
             {
-                owner.Dispatcher.BeginInvoke(
+                owner!.Dispatcher.BeginInvoke(
                     DispatcherPriority.ApplicationIdle,
                     (Action)(() =>
                     {
-                        SettingsWindow settingsWindow = settingsWindows.LastOrDefault();
+                        SettingsWindow? settingsWindow = settingsWindows.LastOrDefault();
                         try
                         {
                             Assert.IsNotNull(settingsWindow, "The settings window factory did not create a window before the modal dispatcher turn.");
-                            Assert.IsTrue(settingsWindow.IsVisible);
-                            Assert.AreSame(owner, settingsWindow.Owner);
-                            Assert.AreSame(viewModel.SettingDialog, settingsWindow.DataContext);
-                            Assert.AreSame(viewModel.PlaybackPanel, settingsWindow.PlaybackPanel);
-                            Assert.AreSame(viewModel.PlaylistWorkspace, settingsWindow.PlaylistWorkspace);
-                            Assert.AreEqual(Visibility.Visible, owner.PlaybackOverlayVisibility);
+                            Assert.IsTrue(settingsWindow!.IsVisible);
+                            Assert.AreSame(owner, settingsWindow!.Owner);
+                            Assert.AreSame(viewModel.SettingDialog, settingsWindow!.DataContext);
+                            Assert.AreSame(viewModel.PlaybackPanel, settingsWindow!.PlaybackPanel);
+                            Assert.AreSame(viewModel.PlaylistWorkspace, settingsWindow!.PlaylistWorkspace);
+                            Assert.AreEqual(Visibility.Visible, owner!.PlaybackOverlayVisibility);
                             settingsPresented = true;
                         }
                         catch (Exception exception)
@@ -3291,10 +3291,10 @@ public sealed class SettingsWindowPresentationTests
                 // MainWindow restores its persisted placement during SourceInitialized,
                 // so the shell itself is only a coordinator owner here; the settings
                 // modal is the presentation whose non-activating policy is asserted.
-                windowTest.PrepareForOwnedPresentation(owner);
-                owner.Show();
-                owner.UpdateLayout();
-                Visibility previousOverlayVisibility = owner.PlaybackOverlayVisibility;
+                windowTest.PrepareForOwnedPresentation(owner!);
+                owner!.Show();
+                owner!.UpdateLayout();
+                Visibility previousOverlayVisibility = owner!.PlaybackOverlayVisibility;
 
                 QueueSettingsPresentationAndClose();
                 viewModel.SettingDialog.OpenCommand.Execute();
@@ -3303,7 +3303,7 @@ public sealed class SettingsWindowPresentationTests
                     throw new AssertFailedException("The first composed settings modal interaction failed.", interactionFailure);
                 }
                 Assert.IsTrue(settingsPresented);
-                Assert.AreEqual(previousOverlayVisibility, owner.PlaybackOverlayVisibility);
+                Assert.AreEqual(previousOverlayVisibility, owner!.PlaybackOverlayVisibility);
 
                 settingsPresented = false;
                 QueueSettingsPresentationAndClose();
@@ -3313,7 +3313,7 @@ public sealed class SettingsWindowPresentationTests
                     throw new AssertFailedException("The second composed settings modal interaction failed.", interactionFailure);
                 }
                 Assert.IsTrue(settingsPresented);
-                Assert.AreEqual(previousOverlayVisibility, owner.PlaybackOverlayVisibility);
+                Assert.AreEqual(previousOverlayVisibility, owner!.PlaybackOverlayVisibility);
                 Assert.AreEqual(2, settingsWindows.Count);
                 Assert.AreNotSame(settingsWindows[0], settingsWindows[1]);
                 Assert.IsTrue(settingsWindows.All(window => window.CloseReason == SettingsWindowCloseReason.Presentation));
@@ -3392,19 +3392,19 @@ public sealed class SettingsWindowPresentationTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
             bool hadPreviousVmResource = Application.Current.Resources.Contains("vm");
-            object previousVmResource = hadPreviousVmResource
+            object? previousVmResource = hadPreviousVmResource
                 ? Application.Current.Resources["vm"]
                 : null;
             Application.Current.Resources["vm"] = viewModel;
-            MainWindow owner = null;
-            SettingsWindow createdSettingsWindow = null;
-            SettingsWindow presentedSettingsWindow = null;
-            Exception interactionFailure = null;
+            MainWindow? owner = null;
+            SettingsWindow? createdSettingsWindow = null;
+            SettingsWindow? presentedSettingsWindow = null;
+            Exception? interactionFailure = null;
             bool secondPresentationObserved = false;
             int settingsWindowCreationCount = 0;
             var sentinel = new InvalidOperationException("settings presentation sentinel");
-            ExceptionDispatchInfo bodyFailure = null;
-            Exception cleanupFailure = null;
+            ExceptionDispatchInfo? bodyFailure = null;
+            Exception? cleanupFailure = null;
 
             try
             {
@@ -3421,7 +3421,7 @@ public sealed class SettingsWindowPresentationTests
 
                         presentedSettingsWindow = settingsWindow;
                         windowTest.PrepareForOwnedPresentation(settingsWindow);
-                        owner.Dispatcher.BeginInvoke(
+                        owner!.Dispatcher.BeginInvoke(
                             DispatcherPriority.ApplicationIdle,
                             (Action)(() =>
                             {
@@ -3430,7 +3430,7 @@ public sealed class SettingsWindowPresentationTests
                                     Assert.IsTrue(settingsWindow.IsVisible);
                                     Assert.AreSame(owner, settingsWindow.Owner);
                                     Assert.AreSame(viewModel.SettingDialog, settingsWindow.DataContext);
-                                    Assert.AreEqual(Visibility.Visible, owner.PlaybackOverlayVisibility);
+                                    Assert.AreEqual(Visibility.Visible, owner!.PlaybackOverlayVisibility);
                                     secondPresentationObserved = true;
                                 }
                                 catch (Exception exception)
@@ -3446,19 +3446,19 @@ public sealed class SettingsWindowPresentationTests
                                 }
                             }));
                     });
-                windowTest.PrepareForOwnedPresentation(owner);
-                owner.Show();
-                owner.UpdateLayout();
-                Visibility previousOverlayVisibility = owner.PlaybackOverlayVisibility;
+                windowTest.PrepareForOwnedPresentation(owner!);
+                owner!.Show();
+                owner!.UpdateLayout();
+                Visibility previousOverlayVisibility = owner!.PlaybackOverlayVisibility;
 
                 InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
                     () => viewModel.SettingDialog.OpenCommand.Execute());
 
                 StringAssert.Contains(failure.Message, "Settings window failed: Failed");
                 Assert.AreSame(sentinel, failure.InnerException);
-                Assert.AreEqual(previousOverlayVisibility, owner.PlaybackOverlayVisibility);
+                Assert.AreEqual(previousOverlayVisibility, owner!.PlaybackOverlayVisibility);
                 Assert.IsNotNull(createdSettingsWindow);
-                Assert.IsFalse(createdSettingsWindow.IsVisible);
+                Assert.IsFalse(createdSettingsWindow!.IsVisible);
 
                 viewModel.SettingDialog.OpenCommand.Execute();
                 if (interactionFailure != null)
@@ -3469,9 +3469,9 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsTrue(secondPresentationObserved);
                 Assert.IsNotNull(presentedSettingsWindow);
                 Assert.AreNotSame(createdSettingsWindow, presentedSettingsWindow);
-                Assert.AreEqual(SettingsWindowCloseReason.Presentation, presentedSettingsWindow.CloseReason);
-                Assert.IsNull(presentedSettingsWindow.DataContext);
-                Assert.AreEqual(previousOverlayVisibility, owner.PlaybackOverlayVisibility);
+                Assert.AreEqual(SettingsWindowCloseReason.Presentation, presentedSettingsWindow!.CloseReason);
+                Assert.IsNull(presentedSettingsWindow!.DataContext);
+                Assert.AreEqual(previousOverlayVisibility, owner!.PlaybackOverlayVisibility);
             }
             catch (Exception exception)
             {
@@ -3578,7 +3578,7 @@ public sealed class SettingsWindowPresentationTests
             var presentation = new RecordingPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
             var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
-            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(window.Dispatcher));
             try
             {
@@ -3612,7 +3612,7 @@ public sealed class SettingsWindowPresentationTests
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             SettingsDialogViewModel settings = viewModel.SettingDialog;
             var window = new SettingsWindow { DataContext = settings };
-            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(window.Dispatcher));
             try
             {
@@ -3659,7 +3659,7 @@ public sealed class SettingsWindowPresentationTests
 
     private static string FindRepositoryRoot()
     {
-        DirectoryInfo current = new(AppContext.BaseDirectory);
+        DirectoryInfo? current = new(AppContext.BaseDirectory);
         while (current != null && !File.Exists(Path.Combine(current.FullName, "BeMusicSeeker.sln")))
         {
             current = current.Parent;
@@ -3718,7 +3718,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    private static T FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    private static T? FindDescendant<T>(DependencyObject? root) where T : DependencyObject
     {
         if (root == null)
         {
@@ -3892,7 +3892,7 @@ public sealed class SettingsWindowPresentationTests
         return XName.Get(localName, "http://schemas.microsoft.com/winfx/2006/xaml");
     }
 
-    private static string ExtractResourcePath(string binding)
+    private static string ExtractResourcePath(string? binding)
     {
         const string marker = "Path=";
         int start = binding?.IndexOf(marker, StringComparison.Ordinal) ?? -1;
@@ -3901,7 +3901,7 @@ public sealed class SettingsWindowPresentationTests
             return string.Empty;
         }
         start += marker.Length;
-        int end = binding.IndexOf(',', start);
+        int end = binding!.IndexOf(',', start);
         return end < 0 ? binding[start..].TrimEnd('}') : binding[start..end];
     }
 
@@ -4463,7 +4463,7 @@ public sealed class SettingsWindowPresentationTests
         {
             Assert.AreSame(ExpectedOwner, request.Owner);
             WindowRequestCount++;
-            Exception error = windowStatus == UiDialogStatus.Failed
+            Exception? error = windowStatus == UiDialogStatus.Failed
                 ? new InvalidOperationException("advanced modal failed")
                 : null;
             return Task.FromResult(new UiWindowDialogResult<TResult>(windowStatus, error: error));

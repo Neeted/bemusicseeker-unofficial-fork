@@ -94,7 +94,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         await WithTemporarySongDb(async delegate (string songDbPath)
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
             var file = new TestableBmsFile
@@ -213,9 +213,9 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
     private static void InvokeDeferredChartInfoHydration(BMSLibrary library, string reason, bool queueFullBackfillAfterHydration)
     {
-        MethodInfo method = typeof(BMSLibrary).GetMethod("QueueDeferredChartInfoHydration", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo? method = typeof(BMSLibrary).GetMethod("QueueDeferredChartInfoHydration", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(method, "QueueDeferredChartInfoHydration method was not found.");
-        method.Invoke(library, [reason, queueFullBackfillAfterHydration]);
+        method!.Invoke(library, [reason, queueFullBackfillAfterHydration]);
     }
 
     private static async Task AwaitChartInfoHydrationAsync(BMSLibrary library, Action queueHydration)

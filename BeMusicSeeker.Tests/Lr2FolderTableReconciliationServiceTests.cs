@@ -284,7 +284,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         string thirdDirectory,
         string chart,
         string folderInfo,
-        string lr2Folder,
+        string? lr2Folder,
         IReadOnlyDictionary<string, DateTime> directoryTimes,
         DateTime? lr2Time,
         DateTime generatedAtUtc)

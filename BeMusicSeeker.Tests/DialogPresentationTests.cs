@@ -643,7 +643,7 @@ public sealed class DialogPresentationTests
             Border[] contentBorders = contentBorderCandidates
                 .Where(border =>
                 {
-                    Style contentStyle = border.TryFindResource("App.Canonical.DialogContentStyle") as Style;
+                    Style? contentStyle = border.TryFindResource("App.Canonical.DialogContentStyle") as Style;
                     return contentStyle != null && StyleChainContains(border.Style, contentStyle);
                 })
                 .ToArray();
@@ -740,7 +740,7 @@ public sealed class DialogPresentationTests
                 : Array.Empty<Border>())
             .Concat(FindVisualDescendants<Border>(presentationRoot))
             .ToArray();
-        Style dialogContentStyle = presentationRoot.TryFindResource("App.Canonical.DialogContentStyle") as Style;
+        Style? dialogContentStyle = presentationRoot.TryFindResource("App.Canonical.DialogContentStyle") as Style;
         if (dialogContentStyle != null)
         {
             Assert.IsFalse(
@@ -885,10 +885,10 @@ public sealed class DialogPresentationTests
                 "An unadopted application control must not inherit the canonical Button role implicitly.");
             Assert.IsNotNull(probeButton.Template, "The unadopted probe Button must still materialize a runtime template.");
 
-            ControlTemplate canonicalTemplate = GetEffectiveStyleValue<ControlTemplate>(
+            ControlTemplate? canonicalTemplate = GetEffectiveStyleValue<ControlTemplate>(
                 canonicalButtonStyle,
                 Control.TemplateProperty);
-            ControlTemplate actualTemplate = GetEffectiveStyleValue<ControlTemplate>(
+            ControlTemplate? actualTemplate = GetEffectiveStyleValue<ControlTemplate>(
                 probeButton.Style,
                 Control.TemplateProperty);
             Assert.IsNotNull(canonicalTemplate, "The canonical Button role must define an effective template.");
@@ -928,10 +928,10 @@ public sealed class DialogPresentationTests
             directRole || settingsAliasRole,
             $"Dialog Button '{expectation.Description}' must resolve to its authority-owned '{roleKey}' role (name='{button.Name}', target='{button.Style?.TargetType}', basedOn='{button.Style?.BasedOn?.TargetType}').");
 
-        ControlTemplate expectedTemplate = GetEffectiveStyleValue<ControlTemplate>(
+        ControlTemplate? expectedTemplate = GetEffectiveStyleValue<ControlTemplate>(
             directRole ? roleStyle : baseRoleStyle,
             Control.TemplateProperty);
-        ControlTemplate actualTemplate = GetEffectiveStyleValue<ControlTemplate>(button.Style, Control.TemplateProperty);
+        ControlTemplate? actualTemplate = GetEffectiveStyleValue<ControlTemplate>(button.Style, Control.TemplateProperty);
         Assert.IsNotNull(expectedTemplate, "Canonical Button action roles must define an effective template.");
         Assert.AreSame(expectedTemplate, actualTemplate, "The Button must use the canonical effective template.");
     }
@@ -980,13 +980,13 @@ public sealed class DialogPresentationTests
     {
         const string listBoxStyleKey = "App.Canonical.ListBoxStyle";
         const string topNavigationStyleKey = "App.Canonical.TopNavigationStyle";
-        FrameworkElement propertyNavigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
+        FrameworkElement? propertyNavigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
         ListBox[] listBoxes = FindVisualDescendants<ListBox>(presentationRoot)
             .Where(item => item.TemplatedParent == null)
             .ToArray();
         foreach (ListBox listBox in listBoxes.Where(item => !ReferenceEquals(item, propertyNavigation)))
         {
-            Style topNavigationStyle = listBox.TryFindResource(topNavigationStyleKey) as Style;
+            Style? topNavigationStyle = listBox.TryFindResource(topNavigationStyleKey) as Style;
             bool isTopNavigation = topNavigationStyle != null && StyleChainContains(listBox.Style, topNavigationStyle);
             string canonicalStyleKey = isTopNavigation ? topNavigationStyleKey : listBoxStyleKey;
             Style resolvedStyle = RequireStyle(listBox, canonicalStyleKey);
@@ -1128,7 +1128,7 @@ public sealed class DialogPresentationTests
 
     private static void AssertPropertyNavigationRole(FrameworkElement presentationRoot)
     {
-        FrameworkElement navigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
+        FrameworkElement? navigation = presentationRoot.FindName("propertyNavigation") as FrameworkElement;
         if (navigation == null)
         {
             return;
@@ -1360,8 +1360,8 @@ public sealed class DialogPresentationTests
         Assert.IsTrue(
             StyleChainContains(control.Style, resolvedStyle),
             $"{controlName} must derive from {canonicalStyleKey}.");
-        ControlTemplate expectedTemplate = GetEffectiveStyleValue<ControlTemplate>(resolvedStyle, Control.TemplateProperty);
-        ControlTemplate actualTemplate = GetEffectiveStyleValue<ControlTemplate>(control.Style, Control.TemplateProperty);
+        ControlTemplate? expectedTemplate = GetEffectiveStyleValue<ControlTemplate>(resolvedStyle, Control.TemplateProperty);
+        ControlTemplate? actualTemplate = GetEffectiveStyleValue<ControlTemplate>(control.Style, Control.TemplateProperty);
         Assert.IsNotNull(expectedTemplate, $"{canonicalStyleKey} must define an effective template.");
         Assert.AreSame(expectedTemplate, actualTemplate, $"{controlName} must use its canonical effective template.");
     }
@@ -1392,9 +1392,9 @@ public sealed class DialogPresentationTests
         return null;
     }
 
-    private static bool StyleChainContains(Style actual, Style expected)
+    private static bool StyleChainContains(Style? actual, Style? expected)
     {
-        for (Style candidate = actual; candidate != null; candidate = candidate.BasedOn)
+        for (Style? candidate = actual; candidate != null; candidate = candidate.BasedOn)
         {
             if (ReferenceEquals(candidate, expected))
             {
@@ -1405,12 +1405,12 @@ public sealed class DialogPresentationTests
         return false;
     }
 
-    private static T GetEffectiveStyleValue<T>(Style style, DependencyProperty property)
+    private static T? GetEffectiveStyleValue<T>(Style? style, DependencyProperty property)
         where T : class
     {
-        for (Style candidate = style; candidate != null; candidate = candidate.BasedOn)
+        for (Style? candidate = style; candidate != null; candidate = candidate.BasedOn)
         {
-            Setter setter = candidate.Setters.OfType<Setter>().FirstOrDefault(item => item.Property == property);
+            Setter? setter = candidate.Setters.OfType<Setter>().FirstOrDefault(item => item.Property == property);
             if (setter?.Value is T value)
             {
                 return value;

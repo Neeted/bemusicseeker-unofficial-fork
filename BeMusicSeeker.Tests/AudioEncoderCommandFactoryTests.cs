@@ -228,7 +228,7 @@ public sealed class AudioEncoderCommandFactoryTests
     private static AudioEncoderCommandRequest CreateRequest(
         EncoderType encoderType,
         string outputFile,
-        AudioTagInfo tags,
+        AudioTagInfo? tags,
         SampleFormat sampleFormat = SampleFormat.SAMPLE_INT_16BIT,
         float quality = 0.4f,
         SampleFormat requestedOutputFormat = SampleFormat.UNKNOWN)
@@ -241,7 +241,7 @@ public sealed class AudioEncoderCommandFactoryTests
             2,
             sampleFormat,
             quality,
-            tags,
+            tags!,
             requestedOutputFormat);
     }
 }

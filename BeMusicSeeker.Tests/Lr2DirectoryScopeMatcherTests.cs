@@ -44,7 +44,7 @@ public sealed class Lr2DirectoryScopeMatcherTests
     [TestMethod]
     public void ContainsDirectory_MatchesDriveRootDescendant()
     {
-        string root = Path.GetPathRoot(Path.GetTempPath());
+        string root = Path.GetPathRoot(Path.GetTempPath())!;
         Assert.IsFalse(string.IsNullOrWhiteSpace(root));
         Lr2DirectoryScopeMatcher matcher = Lr2DirectoryScopeMatcher.Create([root]);
 

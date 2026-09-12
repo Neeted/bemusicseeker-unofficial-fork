@@ -188,7 +188,8 @@ public sealed class BassAudioWriterTests
     {
         internal Queue<int> DataResults { get; } = new();
 
-        internal Queue<float[]> LevelResults { get; } = new();
+        /// <summary>レベル取得の応答を順に返します。nullはネイティブ側の取得終了・失敗を再現します。</summary>
+        internal Queue<float[]?> LevelResults { get; } = new();
 
         internal List<int> DataRequests { get; } = new();
 
@@ -222,7 +223,7 @@ public sealed class BassAudioWriterTests
         public float[] ChannelGetLevel(int channel, float seconds, LevelRetrievalFlags flags)
         {
             Calls.Add("level:" + seconds + ":" + flags);
-            return LevelResults.Count == 0 ? [1f] : LevelResults.Dequeue();
+            return LevelResults.Count == 0 ? [1f] : LevelResults.Dequeue()!;
         }
     }
 

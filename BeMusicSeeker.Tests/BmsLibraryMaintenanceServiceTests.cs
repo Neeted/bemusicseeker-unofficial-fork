@@ -1034,7 +1034,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string root = Path.GetDirectoryName(songDbPath);
+            string root = Path.GetDirectoryName(songDbPath)!;
             string firstPath = Path.Combine(root, "first.bms");
             string secondPath = Path.Combine(root, "second.bms");
             File.WriteAllText(
@@ -1128,7 +1128,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string root = Path.GetDirectoryName(songDbPath);
+            string root = Path.GetDirectoryName(songDbPath)!;
             string targetPath = Path.Combine(root, "target-missing.bms");
             string unrelatedPath = Path.Combine(root, "unrelated-missing.bms");
             File.WriteAllText(targetPath, "#PLAYER 1\r\n#TITLE target\r\n#WAV01 missing.wav\r\n#00111:01\r\n", Encoding.ASCII);
@@ -1213,11 +1213,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 return true;
             };
 
-            MethodInfo queueMethod = typeof(BMSLibrary).GetMethod(
+            MethodInfo? queueMethod = typeof(BMSLibrary).GetMethod(
                 "QueueDeferredMaintenanceHydration",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.IsNotNull(queueMethod);
-            queueMethod.Invoke(library, ["test_scheduler"]);
+            queueMethod!.Invoke(library, ["test_scheduler"]);
 
             Assert.IsTrue(schedulerInvoked);
             Assert.AreEqual(1, library.MaintenanceHydrationRequestedVersion);
@@ -1235,7 +1235,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string root = Path.GetDirectoryName(songDbPath);
+            string root = Path.GetDirectoryName(songDbPath)!;
             string chartPath = Path.Combine(root, "hydrated.bms");
             string stalePath = Path.Combine(root, "stale.bms");
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -1274,11 +1274,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 work().GetAwaiter().GetResult();
                 return true;
             };
-            MethodInfo queueMethod = typeof(BMSLibrary).GetMethod(
+            MethodInfo? queueMethod = typeof(BMSLibrary).GetMethod(
                 "QueueDeferredMaintenanceHydration",
                 BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.IsNotNull(queueMethod);
-            queueMethod.Invoke(library, ["test_hydration"]);
+            queueMethod!.Invoke(library, ["test_hydration"]);
 
             Assert.AreEqual(2, file.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(1, file.maintenanceInfo.wav_files_existing);
@@ -3275,16 +3275,16 @@ public sealed class BmsLibraryMaintenanceServiceTests
         IEnumerable<LibraryChartDigestChange> digestChanges,
         string reason)
     {
-        MethodInfo prepareMethod = typeof(BMSLibrary).GetMethod(
+        MethodInfo? prepareMethod = typeof(BMSLibrary).GetMethod(
             "PrepareOwnedChartDigestIndexes",
             BindingFlags.Instance | BindingFlags.NonPublic);
-        MethodInfo dispatchMethod = typeof(BMSLibrary).GetMethod(
+        MethodInfo? dispatchMethod = typeof(BMSLibrary).GetMethod(
             "DispatchPreparedOwnedChartDigestChanges",
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(prepareMethod);
         Assert.IsNotNull(dispatchMethod);
-        prepareMethod.Invoke(library, [digestChanges, reason]);
-        dispatchMethod.Invoke(library, [digestChanges, reason]);
+        prepareMethod!.Invoke(library, [digestChanges, reason]);
+        dispatchMethod!.Invoke(library, [digestChanges, reason]);
     }
 
     private static void EnsureCurrentResourceHealthIndex(BMSLibrary library)
@@ -3330,16 +3330,16 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
     private static bool GetBoolProperty(object target, string propertyName)
     {
-        PropertyInfo propertyInfo = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+        PropertyInfo? propertyInfo = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
         Assert.IsNotNull(propertyInfo);
-        return (bool)propertyInfo.GetValue(target);
+        return (bool)propertyInfo!.GetValue(target)!;
     }
 
     private static int GetListCountProperty(object target, string propertyName)
     {
-        PropertyInfo propertyInfo = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+        PropertyInfo? propertyInfo = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
         Assert.IsNotNull(propertyInfo);
-        var value = (System.Collections.ICollection)propertyInfo.GetValue(target);
+        var value = (System.Collections.ICollection)propertyInfo!.GetValue(target)!;
         return value?.Count ?? 0;
     }
 

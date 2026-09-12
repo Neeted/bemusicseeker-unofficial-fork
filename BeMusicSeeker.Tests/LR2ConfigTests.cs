@@ -107,7 +107,7 @@ public sealed class LR2ConfigTests
         WithConfig("<config><system /><jukebox><path>Managed\\</path></jukebox></config>", delegate (string configPath, LR2Config config)
         {
             byte[] previousBytes = File.ReadAllBytes(configPath);
-            string[] siblingPathsBefore = Directory.GetFiles(Path.GetDirectoryName(configPath));
+            string[] siblingPathsBefore = Directory.GetFiles(Path.GetDirectoryName(configPath)!);
 
             using (var lockedDestination = new FileStream(
                 configPath,
@@ -119,7 +119,7 @@ public sealed class LR2ConfigTests
                     config.RemoveBMSSearchDirectoriesAndSave(["Managed"]));
                 Assert.IsNotNull(failure.InnerException);
                 StringAssert.Contains(failure.Message, Path.GetDirectoryName(configPath));
-                CollectionAssert.AreEquivalent(siblingPathsBefore, Directory.GetFiles(Path.GetDirectoryName(configPath)));
+                CollectionAssert.AreEquivalent(siblingPathsBefore, Directory.GetFiles(Path.GetDirectoryName(configPath)!));
             }
 
             CollectionAssert.AreEqual(previousBytes, File.ReadAllBytes(configPath));
@@ -164,7 +164,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string existingRoot = Path.Combine(tempRoot, "ExistingBmsRoot");
             string defaultOutputBase = Path.Combine(tempRoot, "DefaultOutput");
             string additionalOutputBase1 = Path.Combine(tempRoot, "AdditionalOutput1");
@@ -196,7 +196,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string defaultOutputBase = Path.Combine(tempRoot, "DefaultOutput");
             string additionalOutputBase = Path.Combine(tempRoot, "AdditionalOutput");
             Directory.CreateDirectory(defaultOutputBase);
@@ -221,7 +221,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string bmsRoot = Path.Combine(tempRoot, "BMS");
             string defaultOutputBase = Path.Combine(bmsRoot, "DefaultOutput");
             Directory.CreateDirectory(defaultOutputBase);
@@ -243,7 +243,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string bmsRoot = Path.Combine(tempRoot, "BMS");
             string defaultOutputBase = Path.Combine(bmsRoot, "DefaultOutput");
             string nestedAdditionalOutputBase = Path.Combine(defaultOutputBase, "AdditionalOutput");
@@ -267,7 +267,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string bmsRoot = Path.Combine(tempRoot, "BMS");
             string outputBase = Path.Combine(bmsRoot, "Output");
             Directory.CreateDirectory(outputBase);
@@ -289,7 +289,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string bmsRoot = Path.Combine(tempRoot, "BMS");
             string defaultOutputBase = Path.Combine(bmsRoot, "DefaultOutput");
             string additionalOutputBase = Path.Combine(bmsRoot, "AdditionalOutput");
@@ -317,7 +317,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string bmsRoot = Path.Combine(tempRoot, "BMS");
             string defaultOutputBase = Path.Combine(bmsRoot, "DefaultOutput");
             string protectedAdditionalOutputBase = Path.Combine(bmsRoot, "AdditionalOutput");
@@ -353,7 +353,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string defaultOutputBase = Path.Combine(tempRoot, "DefaultOutput");
             Directory.CreateDirectory(defaultOutputBase);
 
@@ -367,7 +367,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string additionalBase = Path.Combine(tempRoot, "Additional");
             Directory.CreateDirectory(additionalBase);
             string serializedAdditionalBase = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalBase]);
@@ -393,7 +393,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string bmsRoot = Path.Combine(tempRoot, "BMS");
             string additionalBase = Path.Combine(bmsRoot, "Additional");
             Directory.CreateDirectory(additionalBase);
@@ -416,7 +416,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string outputBase = Path.Combine(tempRoot, "FormerAdditional");
             Directory.CreateDirectory(outputBase);
             string previousAdditionalBase = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([outputBase]);
@@ -439,7 +439,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string oldDefaultBase = Path.Combine(tempRoot, "OldDefault");
             string newDefaultBase = Path.Combine(tempRoot, "NewDefault");
             Directory.CreateDirectory(oldDefaultBase);
@@ -474,7 +474,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string oldDefaultBase = Path.Combine(tempRoot, "OldDefault");
             string promotedBase = Path.Combine(tempRoot, "Promoted");
             Directory.CreateDirectory(oldDefaultBase);
@@ -501,7 +501,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string oldAdditionalBase = Path.Combine(tempRoot, "OldAdditional");
             string newAdditionalBase = Path.Combine(tempRoot, "NewAdditional");
             Directory.CreateDirectory(oldAdditionalBase);
@@ -534,7 +534,7 @@ public sealed class LR2ConfigTests
         Directory.CreateDirectory(configDirectoryPath);
         string configPath = Path.Combine(configDirectoryPath, "config.xml");
         File.WriteAllText(configPath, xml, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        Exception primaryFailure = null;
+        Exception? primaryFailure = null;
         try
         {
             action(configPath, new LR2Config(configPath));

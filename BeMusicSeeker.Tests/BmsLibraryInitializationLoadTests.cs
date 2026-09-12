@@ -99,7 +99,7 @@ public sealed class BmsLibraryInitializationLoadTests
     public void LoadMaintenanceTable_LoadsMaintenanceMapAfterCatalogLoad()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        string previousMode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
+        string? previousMode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
         Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", null);
         try
         {
@@ -149,25 +149,26 @@ public sealed class BmsLibraryInitializationLoadTests
                 Assert.AreEqual(1, result.MaintenanceMap.Count);
                 Assert.IsTrue(result.ReadOnly);
                 Assert.AreEqual(0L, result.DbLockWaitMs);
-                Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out BMSFileMaintenanceInfo info));
-                Assert.AreEqual("shift_jis", info.encoding);
-                Assert.IsTrue(info.is_encoding_fixed);
-                Assert.AreEqual(10, info.wav_files_existing);
-                Assert.AreEqual(12, info.wav_files_defined);
-                Assert.AreEqual(3, info.bga_files_existing);
-                Assert.AreEqual(4, info.bga_files_defined);
-                Assert.AreEqual(1, info.movie_files_existing);
-                Assert.AreEqual(2, info.movie_files_defined);
-                Assert.AreEqual(true, info.is_stagefile_existing);
-                Assert.AreEqual(true, info.is_stagefile_defined);
-                Assert.AreEqual(false, info.is_banner_existing);
-                Assert.AreEqual(true, info.is_banner_defined);
-                Assert.AreEqual(true, info.is_backbmp_existing);
-                Assert.AreEqual(false, info.is_backbmp_defined);
-                Assert.IsTrue(info.is_files_warning_ignored);
-                Assert.AreEqual(11, info.lr2_warning_flags);
-                Assert.AreEqual(55, info.lr2_resource_max_relative_cp932_bytes);
-                Assert.AreEqual(true, info.lr2_resource_has_parent_traversal);
+                Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out BMSFileMaintenanceInfo? info));
+                BMSFileMaintenanceInfo loadedInfo = info!;
+                Assert.AreEqual("shift_jis", loadedInfo.encoding);
+                Assert.IsTrue(loadedInfo.is_encoding_fixed);
+                Assert.AreEqual(10, loadedInfo.wav_files_existing);
+                Assert.AreEqual(12, loadedInfo.wav_files_defined);
+                Assert.AreEqual(3, loadedInfo.bga_files_existing);
+                Assert.AreEqual(4, loadedInfo.bga_files_defined);
+                Assert.AreEqual(1, loadedInfo.movie_files_existing);
+                Assert.AreEqual(2, loadedInfo.movie_files_defined);
+                Assert.AreEqual(true, loadedInfo.is_stagefile_existing);
+                Assert.AreEqual(true, loadedInfo.is_stagefile_defined);
+                Assert.AreEqual(false, loadedInfo.is_banner_existing);
+                Assert.AreEqual(true, loadedInfo.is_banner_defined);
+                Assert.AreEqual(true, loadedInfo.is_backbmp_existing);
+                Assert.AreEqual(false, loadedInfo.is_backbmp_defined);
+                Assert.IsTrue(loadedInfo.is_files_warning_ignored);
+                Assert.AreEqual(11, loadedInfo.lr2_warning_flags);
+                Assert.AreEqual(55, loadedInfo.lr2_resource_max_relative_cp932_bytes);
+                Assert.AreEqual(true, loadedInfo.lr2_resource_has_parent_traversal);
             });
         }
         finally
@@ -181,14 +182,14 @@ public sealed class BmsLibraryInitializationLoadTests
     public void LoadMaintenanceTable_CanUseSqliteNetFallback()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        string previousMode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
+        string? previousMode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
         Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", "sqlite_net");
         try
         {
             WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
             {
                 string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
-                Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+                Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath)!);
                 File.WriteAllText(rootedChartPath, "#PLAYER 1");
 
                 using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -213,11 +214,12 @@ public sealed class BmsLibraryInitializationLoadTests
                 Assert.AreEqual(1L, result.MaintenanceTableCount);
                 Assert.AreEqual("sqlite_net", result.MaintenanceMaterializeMode);
                 Assert.AreEqual(0, result.MaintenanceRawRows);
-                Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out BMSFileMaintenanceInfo info));
-                Assert.AreEqual("utf-8", info.encoding);
-                Assert.IsFalse(info.is_encoding_fixed);
-                Assert.AreEqual(false, info.is_stagefile_existing);
-                Assert.AreEqual(true, info.is_stagefile_defined);
+                Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out BMSFileMaintenanceInfo? info));
+                BMSFileMaintenanceInfo loadedInfo = info!;
+                Assert.AreEqual("utf-8", loadedInfo.encoding);
+                Assert.IsFalse(loadedInfo.is_encoding_fixed);
+                Assert.AreEqual(false, loadedInfo.is_stagefile_existing);
+                Assert.AreEqual(true, loadedInfo.is_stagefile_defined);
             });
         }
         finally
@@ -231,7 +233,7 @@ public sealed class BmsLibraryInitializationLoadTests
     public void LoadSongTable_RawCatalogLoaderPreservesSongColumns()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        string previousMode = Environment.GetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE");
+        string? previousMode = Environment.GetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE");
         Environment.SetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE", null);
         try
         {
@@ -340,7 +342,7 @@ public sealed class BmsLibraryInitializationLoadTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath)!);
             File.WriteAllText(rootedChartPath, "#PLAYER 1");
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -392,7 +394,7 @@ public sealed class BmsLibraryInitializationLoadTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath)!);
             File.WriteAllText(rootedChartPath, "#PLAYER 1");
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -535,7 +537,7 @@ public sealed class BmsLibraryInitializationLoadTests
         {
             string relativePath = Path.Combine("Songs😀", "chart.bms");
             string chartPath = Path.Combine(lr2RootPath, relativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(chartPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
             File.WriteAllText(chartPath, CreateValidBmsText("Relative Emoji Path"), Encoding.ASCII);
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -617,7 +619,7 @@ public sealed class BmsLibraryInitializationLoadTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(chartPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n");
             string md5 = BMSFile.CreateBMSFileFromFile(chartPath).hash;
             string sha256 = new('1', 64);

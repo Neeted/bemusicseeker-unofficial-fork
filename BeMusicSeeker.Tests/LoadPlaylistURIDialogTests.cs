@@ -232,7 +232,7 @@ public sealed class LoadPlaylistURIDialogTests
                 Width = 640,
                 Height = 320
             };
-            SynchronizationContext previousContext = SynchronizationContext.Current;
+            SynchronizationContext? previousContext = SynchronizationContext.Current;
             try
             {
                 Materialize(host);

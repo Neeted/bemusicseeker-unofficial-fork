@@ -21,8 +21,8 @@ public sealed class FileDiffReloadWorkflowOwnerTests
     {
         var events = new List<string>();
         var runtime = new RecordingRuntime(events);
-        FileDiffReloadRequest reloadRequest = null;
-        PlaylistReferenceApplyQueueRequest playlistRequest = null;
+        FileDiffReloadRequest? reloadRequest = null;
+        PlaylistReferenceApplyQueueRequest? playlistRequest = null;
         var owner = new FileDiffReloadWorkflowOwner(
             request =>
             {
@@ -46,8 +46,9 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         Assert.AreSame(request, result.Lr2QueueResult.Request);
         Assert.AreEqual(Lr2SongDbSyncQueueStatus.Queued, result.Lr2QueueResult.Status);
         Assert.AreSame(playlistRequest, result.PlaylistReferenceQueueRequest);
-        Assert.AreEqual(request.Reason, playlistRequest.Reason);
-        Assert.AreEqual(request.OperationToken, playlistRequest.OperationToken);
+        PlaylistReferenceApplyQueueRequest completedPlaylistRequest = playlistRequest!;
+        Assert.AreEqual(request.Reason, completedPlaylistRequest.Reason);
+        Assert.AreEqual(request.OperationToken, completedPlaylistRequest.OperationToken);
         Assert.AreEqual(request.Reason, runtime.LastQueueReason);
         Assert.IsTrue(runtime.LastAllowCommittedPathReceipt);
     }
@@ -60,7 +61,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         {
             IsLr2ModeEnabledValue = false
         };
-        PlaylistReferenceApplyQueueRequest playlistRequest = null;
+        PlaylistReferenceApplyQueueRequest? playlistRequest = null;
         var owner = new FileDiffReloadWorkflowOwner(
             request =>
             {
@@ -82,7 +83,8 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         Assert.IsTrue(result.Lr2QueueResult.WasSkippedUnavailable);
         Assert.AreSame(request, result.Lr2QueueResult.Request);
         Assert.AreSame(playlistRequest, result.PlaylistReferenceQueueRequest);
-        Assert.AreEqual(42L, playlistRequest.OperationToken);
+        PlaylistReferenceApplyQueueRequest completedPlaylistRequest = playlistRequest!;
+        Assert.AreEqual(42L, completedPlaylistRequest.OperationToken);
     }
 
     [TestMethod]
@@ -347,7 +349,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             "missing");
         int reloadCount = 0;
         var warningSequence = new List<string>();
-        Task retryReload = null;
+        Task? retryReload = null;
         bool warningObservedWithOperationReleased = false;
         bool warningObservedWithProgressUnblocked = false;
         bool warningObservedWithFailureState = false;
@@ -355,8 +357,8 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         bool retryCompletedDuringWarning = false;
         bool retrySucceededDuringWarning = false;
         bool retryTimedOutDuringWarning = false;
-        Exception retryFailure = null;
-        Exception retryDrainFailure = null;
+        Exception? retryFailure = null;
+        Exception? retryDrainFailure = null;
         var dialogs = new DirectoryWarningDialogService();
         var runtime = new RecordingRuntime(new List<string>());
         var owner = new FileDiffReloadWorkflowOwner(

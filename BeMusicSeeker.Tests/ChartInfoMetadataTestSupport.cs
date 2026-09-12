@@ -396,9 +396,9 @@ internal static class ChartInfoMetadataTestSupport
 
     internal static void InvokeDeferredChartInfoHydration(BMSLibrary library, string reason, bool queueFullBackfillAfterHydration)
     {
-        MethodInfo method = typeof(BMSLibrary).GetMethod("QueueDeferredChartInfoHydration", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo? method = typeof(BMSLibrary).GetMethod("QueueDeferredChartInfoHydration", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(method, "QueueDeferredChartInfoHydration method was not found.");
-        method.Invoke(library, [reason, queueFullBackfillAfterHydration]);
+        method!.Invoke(library, [reason, queueFullBackfillAfterHydration]);
     }
 
     internal static Task AwaitChartInfoHydrationAsync(BMSLibrary library)
@@ -457,7 +457,7 @@ internal static class ChartInfoMetadataTestSupport
 
     internal static int ReadPositiveIntEnvironmentVariable(string name, int defaultValue)
     {
-        string value = Environment.GetEnvironmentVariable(name);
+        string? value = Environment.GetEnvironmentVariable(name);
         if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) && parsed > 0)
         {
             return parsed;
@@ -904,7 +904,7 @@ internal static class ChartInfoMetadataTestSupport
 
         public static string GetReportDirectory()
         {
-            string configured = Environment.GetEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_REPORT_DIR");
+            string? configured = Environment.GetEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_REPORT_DIR");
             if (!string.IsNullOrWhiteSpace(configured))
             {
                 return configured;

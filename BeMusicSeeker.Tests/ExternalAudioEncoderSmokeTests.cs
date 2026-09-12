@@ -103,7 +103,7 @@ public sealed class ExternalAudioEncoderSmokeTests
 
     private static IReadOnlyList<EncoderType> ReadRequestedEncoderTypes()
     {
-        string value = GetOptionalEnvironmentValue(EncoderTypesEnvironmentVariable);
+        string? value = GetOptionalEnvironmentValue(EncoderTypesEnvironmentVariable);
         if (value == null)
         {
             return Array.Empty<EncoderType>();
@@ -182,6 +182,7 @@ public sealed class ExternalAudioEncoderSmokeTests
 
         return directories
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Select(directory => directory!)
             .Distinct(StringComparer.OrdinalIgnoreCase);
     }
 

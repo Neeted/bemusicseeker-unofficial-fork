@@ -1028,7 +1028,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public Action PublishCatalogReplacement(FileScanCatalogReplacementEvent replacementEvent)
         {
             LastCatalogReplacement = replacementEvent;
-            return null;
+            return null!;
         }
 
         public Action PublishCatalogResidual(FileScanCatalogResidualEvent residualEvent)

@@ -26,8 +26,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         MainWindowScoreViewerTerminal scoreViewer = new(
             _ => true,
             _ => true,
-            (_, _) => Task.FromResult<ScoreViewerRegistrationResult>(null),
-            (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null));
+            (_, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!),
+            (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!));
         MainWindowSelectedChartContextMenuTerminals terminals = CreateTerminals(scoreViewer: scoreViewer);
         LibraryChartRow bmsRow = CreateChartRow(ChartFileKind.Bms, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", @"C:\wave6e-state\row.bms");
         LibraryChartRow bmsonRow = CreateChartRow(ChartFileKind.Bmson, "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", @"C:\wave6e-state\row.bmson");
@@ -67,13 +67,13 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         var deleteCompletion = NewCompletion<SelectedChartMutationResult>();
         var rescanCompletion = NewCompletion<SelectedChartResourceHealthWorkflowResult>();
         var audioCompletion = NewCompletion<SelectedChartAudioConversionResult>();
-        SelectedInvalidExtensionRenameRequest renameRequest = null;
-        SelectedChartDeleteRequest deleteRequest = null;
-        SelectedChartEncodingRequest encodingRequest = null;
-        ChartResourceHealthRequest rescanRequest = null;
-        ChartResourceHealthRequest ignoredRequest = null;
-        ChartResourceHealthRequest unignoredRequest = null;
-        SelectedChartAudioConversionRequest audioRequest = null;
+        SelectedInvalidExtensionRenameRequest? renameRequest = null;
+        SelectedChartDeleteRequest? deleteRequest = null;
+        SelectedChartEncodingRequest? encodingRequest = null;
+        ChartResourceHealthRequest? rescanRequest = null;
+        ChartResourceHealthRequest? ignoredRequest = null;
+        ChartResourceHealthRequest? unignoredRequest = null;
+        SelectedChartAudioConversionRequest? audioRequest = null;
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", typeof(MainWindow).Assembly.Location);
 
         MainWindowSelectedChartMutationTerminal mutation = new(
@@ -133,9 +133,9 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 RoutedEventArgs renameArgs = RaiseMenuClick(rename);
                 Assert.IsTrue(renameArgs.Handled);
                 Assert.IsFalse(renameCompletion.Task.IsCompleted);
-                Assert.AreEqual(1, renameRequest.Targets.Count);
-                Assert.AreSame(row.Chart, renameRequest.Targets[0].Chart);
-                Assert.IsFalse(renameRequest.IsPendingSelected);
+                Assert.AreEqual(1, renameRequest!.Targets.Count);
+                Assert.AreSame(row.Chart, renameRequest!.Targets[0].Chart);
+                Assert.IsFalse(renameRequest!.IsPendingSelected);
                 renameCompletion.SetResult(SelectedChartMutationResult.Completed);
                 TestUiDispatcherHost.Drain();
 
@@ -143,19 +143,19 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 RoutedEventArgs deleteArgs = RaiseMenuClick((MenuItem)deleteGroup.Items[1]);
                 Assert.IsTrue(deleteArgs.Handled);
                 Assert.IsFalse(deleteCompletion.Task.IsCompleted);
-                Assert.AreEqual(MainViewOperationSection.Library, deleteRequest.Section);
-                Assert.AreEqual(1, deleteRequest.SelectedTargets.Count);
-                Assert.AreSame(row.Chart, deleteRequest.SelectedTargets[0].Chart);
-                Assert.AreSame(row.Chart, deleteRequest.ContextTarget.Chart);
+                Assert.AreEqual(MainViewOperationSection.Library, deleteRequest!.Section);
+                Assert.AreEqual(1, deleteRequest!.SelectedTargets.Count);
+                Assert.AreSame(row.Chart, deleteRequest!.SelectedTargets[0].Chart);
+                Assert.AreSame(row.Chart, deleteRequest!.ContextTarget.Chart);
                 deleteCompletion.SetResult(SelectedChartMutationResult.Completed);
                 TestUiDispatcherHost.Drain();
 
                 MenuItem encoding = FindMenuItem(menu, "tableContextMenuItemFixEncoding").Items.OfType<MenuItem>().First();
                 RoutedEventArgs encodingArgs = RaiseMenuClick(encoding);
                 Assert.IsTrue(encodingArgs.Handled);
-                Assert.AreEqual("shift_jis", encodingRequest.Encoding);
-                Assert.AreEqual(1, encodingRequest.BmsFiles.Count);
-                Assert.AreSame(row.Chart.GetBmsStorageOwner(), encodingRequest.BmsFiles[0]);
+                Assert.AreEqual("shift_jis", encodingRequest!.Encoding);
+                Assert.AreEqual(1, encodingRequest!.BmsFiles.Count);
+                Assert.AreSame(row.Chart.GetBmsStorageOwner(), encodingRequest!.BmsFiles[0]);
 
                 MenuItem rescan = FindMenuItem(menu, "tableContextMenuItemFullScanCheck").Items
                     .OfType<MenuItem>()
@@ -163,26 +163,26 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 RoutedEventArgs rescanArgs = RaiseMenuClick(rescan);
                 Assert.IsTrue(rescanArgs.Handled);
                 Assert.IsFalse(rescanCompletion.Task.IsCompleted);
-                Assert.AreEqual(1, rescanRequest.Charts.Count);
-                Assert.AreSame(row.Chart, rescanRequest.Charts[0]);
+                Assert.AreEqual(1, rescanRequest!.Charts.Count);
+                Assert.AreSame(row.Chart, rescanRequest!.Charts[0]);
                 rescanCompletion.SetResult(SelectedChartResourceHealthWorkflowResult.Completed);
                 TestUiDispatcherHost.Drain();
 
                 RoutedEventArgs ignoreArgs = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemIgnoreFileScanCheck"));
                 Assert.IsTrue(ignoreArgs.Handled);
-                Assert.AreEqual(1, ignoredRequest.Charts.Count);
-                Assert.AreSame(row.Chart, ignoredRequest.Charts[0]);
+                Assert.AreEqual(1, ignoredRequest!.Charts.Count);
+                Assert.AreSame(row.Chart, ignoredRequest!.Charts[0]);
 
                 RoutedEventArgs unignoreArgs = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemNotIgnoreFileScanCheck"));
                 Assert.IsTrue(unignoreArgs.Handled);
-                Assert.AreEqual(1, unignoredRequest.Charts.Count);
-                Assert.AreSame(row.Chart, unignoredRequest.Charts[0]);
+                Assert.AreEqual(1, unignoredRequest!.Charts.Count);
+                Assert.AreSame(row.Chart, unignoredRequest!.Charts[0]);
 
                 RoutedEventArgs audioArgs = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemConvertToAudioFile"));
                 Assert.IsTrue(audioArgs.Handled);
                 Assert.IsFalse(audioCompletion.Task.IsCompleted);
-                Assert.AreEqual(1, audioRequest.Targets.Count);
-                Assert.AreSame(row.Chart, audioRequest.Targets[0].Chart);
+                Assert.AreEqual(1, audioRequest!.Targets.Count);
+                Assert.AreSame(row.Chart, audioRequest!.Targets[0].Chart);
                 audioCompletion.SetResult(SelectedChartAudioConversionResult.Empty);
                 TestUiDispatcherHost.Drain();
             },
@@ -197,7 +197,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     {
         var acceptance = NewCompletion<ChartInfoParseFailureRemovalAcceptance>();
         var completion = NewCompletion<ChartInfoParseFailureRemovalResult>();
-        ChartInfoParseFailureRemovalRequest request = null;
+        ChartInfoParseFailureRemovalRequest? request = null;
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", @"C:\wave6e-parse\chart.bms");
         MainWindowChartInfoParseFailureRemovalTerminal parseTerminal = new(
             capturedRequest =>
@@ -221,7 +221,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 Assert.IsFalse(args.Handled);
                 CollectionAssert.AreEqual(
                     new[] { "dddddddddddddddddddddddddddddddd" },
-                    request.Md5s.ToArray());
+                    request!.Md5s.ToArray());
                 Assert.IsFalse(completion.Task.IsCompleted);
 
                 acceptance.SetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: true));
@@ -330,7 +330,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 calls.Add(targets);
                 return completion.Task;
             },
-            (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null));
+            (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!));
         LibraryChartRow normalRow = CreateChartRow(ChartFileKind.Bms, "11111111111111111111111111111111", @"C:\wave6e-score\chart.bms");
         PlaylistDetailRow missingRow = CreateMissingPlaylistRow("22222222222222222222222222222222");
 
@@ -356,7 +356,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 Assert.AreEqual(1, calls.Count);
                 Assert.AreEqual(1, calls[0].Count);
                 Assert.AreSame(normalRow.Chart, calls[0][0].Chart);
-                completion.SetResult(null);
+                completion.SetResult(null!);
                 TestUiDispatcherHost.Drain();
 
                 table.ItemsSource = new List<object> { missingRow };
@@ -550,7 +550,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 document.Measure(new Size(400d, 200d));
                 document.Arrange(new Rect(0d, 0d, 400d, 200d));
                 document.UpdateLayout();
-                MenuItem generated = document.ItemContainerGenerator.ContainerFromIndex(0) as MenuItem;
+                MenuItem? generated = document.ItemContainerGenerator.ContainerFromIndex(0) as MenuItem;
                 if (generated == null)
                 {
                     IItemContainerGenerator generator = document.ItemContainerGenerator;
@@ -570,7 +570,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 Assert.IsNotNull(
                     generated,
                     $"The related-document item must be generated by the compiled ItemsSource route (items={document.Items.Count}, status={document.ItemContainerGenerator.Status}, style={document.ItemContainerStyle != null}, parent={document.Parent?.GetType().Name ?? "none"}).");
-                RoutedEventArgs generatedArgs = RaiseMenuClick(generated);
+                RoutedEventArgs generatedArgs = RaiseMenuClick(generated!);
                 Assert.IsTrue(generatedArgs.Handled);
                 CollectionAssert.AreEqual(new[] { "current.txt" }, openedPaths);
 
@@ -623,8 +623,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             scoreViewer ?? new MainWindowScoreViewerTerminal(
                 _ => false,
                 _ => false,
-                (_, _) => Task.FromResult<ScoreViewerRegistrationResult>(null),
-                (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null)),
+                (_, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!),
+                (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!)),
             selectedChartExternalActions ?? new MainWindowSelectedChartExternalActionsTerminal(
                 (_, _) => false,
                 (_, _) => { },
@@ -651,7 +651,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
 
     private static MenuItem FindMenuItem(ItemsControl root, string name)
     {
-        MenuItem item = EnumerateMenuItems(root).FirstOrDefault(candidate => candidate.Name == name);
+        MenuItem? item = EnumerateMenuItems(root).FirstOrDefault(candidate => candidate.Name == name);
         if (item != null)
         {
             return item;
@@ -674,7 +674,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
 
     private static LibraryChartRow CreateChartRow(ChartFileKind kind, string md5, string path)
     {
-        BMSFile bmsFile = kind == ChartFileKind.Bms
+        BMSFile? bmsFile = kind == ChartFileKind.Bms
             ? new BMSFile
             {
                 path = path,
@@ -682,7 +682,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 title = "Context chart"
             }
             : null;
-        LR2SongDBExtended.bmson_song bmsonSong = kind == ChartFileKind.Bmson
+        LR2SongDBExtended.bmson_song? bmsonSong = kind == ChartFileKind.Bmson
             ? new LR2SongDBExtended.bmson_song { path = path }
             : null;
         ChartFile chart = new(

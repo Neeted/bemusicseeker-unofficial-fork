@@ -400,7 +400,7 @@ public sealed class CustomTableColumnFactoryTests
         PlaylistSummaryColumnSettings restored;
         using (var reader = new StringReader(doc.ToString()))
         {
-            restored = (PlaylistSummaryColumnSettings)serializer.Deserialize(reader);
+            restored = (PlaylistSummaryColumnSettings)serializer.Deserialize(reader)!;
         }
 
         Assert.IsFalse(restored.HasAllLayouts());

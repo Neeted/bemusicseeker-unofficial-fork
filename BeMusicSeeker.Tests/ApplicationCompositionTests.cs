@@ -792,8 +792,8 @@ public sealed class ApplicationCompositionTests
     {
         return (ChartMutationActivityOwner)workflowOwner
             .GetType()
-            .GetField("chartMutationActivity", BindingFlags.Instance | BindingFlags.NonPublic)
-            .GetValue(workflowOwner);
+            .GetField("chartMutationActivity", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(workflowOwner)!;
     }
 
     [TestMethod]

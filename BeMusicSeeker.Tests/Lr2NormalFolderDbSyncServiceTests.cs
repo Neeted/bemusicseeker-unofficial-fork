@@ -563,11 +563,11 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
                 _ => throw new AssertFailedException("directory metadata reader must not run for a complete snapshot"));
 
         Assert.AreEqual(2, entries.Count);
-        Assert.IsTrue(entries.TryGetValue(Normalize(rootDirectory), out RootFileEnumerationEntry rootEntry));
-        Assert.IsTrue(entries.TryGetValue(Normalize(packDirectory), out RootFileEnumerationEntry packEntry));
+        Assert.IsTrue(entries.TryGetValue(Normalize(rootDirectory), out RootFileEnumerationEntry? rootEntry));
+        Assert.IsTrue(entries.TryGetValue(Normalize(packDirectory), out RootFileEnumerationEntry? packEntry));
         Assert.IsFalse(entries.ContainsKey(Normalize(outsideDirectory)));
-        Assert.AreEqual(rootTimestamp, rootEntry.LastWriteTimeUtc);
-        Assert.AreEqual(packTimestamp, packEntry.LastWriteTimeUtc);
+        Assert.AreEqual(rootTimestamp, rootEntry!.LastWriteTimeUtc);
+        Assert.AreEqual(packTimestamp, packEntry!.LastWriteTimeUtc);
     }
 
     [TestMethod]
@@ -594,15 +594,15 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
                 _ => null);
 
         Assert.AreEqual(1, entries.Count);
-        Assert.IsTrue(entries.TryGetValue(Normalize(existingDirectory), out RootFileEnumerationEntry entry));
-        Assert.AreEqual(timestamp, entry.LastWriteTimeUtc);
+        Assert.IsTrue(entries.TryGetValue(Normalize(existingDirectory), out RootFileEnumerationEntry? entry));
+        Assert.AreEqual(timestamp, entry!.LastWriteTimeUtc);
         Assert.IsFalse(entries.ContainsKey(Normalize(outsideDirectory)));
     }
 
     private static string Normalize(string path)
     {
         string fullPath = Path.GetFullPath(path);
-        string root = Path.GetPathRoot(fullPath);
+        string? root = Path.GetPathRoot(fullPath);
         string trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (!string.IsNullOrEmpty(root)
             && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))

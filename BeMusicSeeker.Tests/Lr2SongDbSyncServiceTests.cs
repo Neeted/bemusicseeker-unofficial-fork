@@ -1382,12 +1382,12 @@ public sealed class Lr2SongDbSyncServiceTests
             }
             if (!string.IsNullOrWhiteSpace(row.md5) && !string.IsNullOrWhiteSpace(row.sha256))
             {
-                if (!md5Candidates.TryGetValue(row.md5, out SortedDictionary<string, LR2SongDBExtended.chart_info> candidates))
+                if (!md5Candidates.TryGetValue(row.md5, out SortedDictionary<string, LR2SongDBExtended.chart_info>? candidates))
                 {
                     candidates = new SortedDictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
                     md5Candidates[row.md5] = candidates;
                 }
-                candidates[row.sha256] = row;
+                candidates![row.sha256] = row;
             }
         }
 
@@ -1401,14 +1401,14 @@ public sealed class Lr2SongDbSyncServiceTests
                 return null!;
             }
             if (!string.IsNullOrWhiteSpace(row.sha256)
-                && bySha256.TryGetValue(row.sha256, out LR2SongDBExtended.chart_info bySha256Row))
+                && bySha256.TryGetValue(row.sha256, out LR2SongDBExtended.chart_info? bySha256Row))
             {
-                return bySha256Row;
+                return bySha256Row!;
             }
             if (!string.IsNullOrWhiteSpace(row.hash)
-                && byMd5.TryGetValue(row.hash, out LR2SongDBExtended.chart_info byMd5Row))
+                && byMd5.TryGetValue(row.hash, out LR2SongDBExtended.chart_info? byMd5Row))
             {
-                return byMd5Row;
+                return byMd5Row!;
             }
             return null!;
         };

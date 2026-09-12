@@ -29,7 +29,7 @@ public sealed class Lr2FolderRowGeneratorTests
         {
             RootDirectories = [@"D:\BMS"],
             ChartPaths = [@"D:\BMS\Pack\Song\chart.bms"],
-            DirectoryMetadataResolver = path => metadata.TryGetValue(Normalize(path), out Lr2FolderDirectoryMetadata value) ? value : null,
+            DirectoryMetadataResolver = path => metadata.TryGetValue(Normalize(path), out Lr2FolderDirectoryMetadata? value) ? value! : null!,
             GeneratedAtUtc = timestamp.AddDays(1)
         });
 
@@ -525,7 +525,7 @@ public sealed class Lr2FolderRowGeneratorTests
     private static string Normalize(string path)
     {
         string fullPath = Path.GetFullPath(path);
-        string root = Path.GetPathRoot(fullPath);
+        string? root = Path.GetPathRoot(fullPath);
         string trimmed = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (!string.IsNullOrEmpty(root)
             && string.Equals(trimmed, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))

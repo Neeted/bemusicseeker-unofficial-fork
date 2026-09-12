@@ -183,10 +183,10 @@ public sealed class Lr2SynchronizationArchitectureTests
         Assert.IsNull(typeof(ILr2SynchronizationDataPort).GetMethod("ApplyLr2StartupScanBlockerCleanup"));
         Assert.IsNotNull(typeof(ILr2SynchronizationDataPort).GetMethod("ApplyLr2SongDbSyncStatusMutation"));
 
-        PropertyInfo chartInfoWriter = typeof(Lr2SongDbSyncRequest).GetProperty("ChartInfoChunkWriter");
+        PropertyInfo? chartInfoWriter = typeof(Lr2SongDbSyncRequest).GetProperty("ChartInfoChunkWriter");
         Assert.IsNotNull(chartInfoWriter);
-        Assert.IsFalse(ContainsType(chartInfoWriter.PropertyType, typeof(LR2SongDBExtended)));
-        PropertyInfo songRowsVerifier = typeof(Lr2SongDbSyncRequest).GetProperty("SongRowsSkipVerifier");
+        Assert.IsFalse(ContainsType(chartInfoWriter!.PropertyType, typeof(LR2SongDBExtended)));
+        PropertyInfo? songRowsVerifier = typeof(Lr2SongDbSyncRequest).GetProperty("SongRowsSkipVerifier");
         Assert.IsNull(songRowsVerifier);
     }
 
@@ -237,11 +237,11 @@ public sealed class Lr2SynchronizationArchitectureTests
     public void MutationWarningUsesScopedOperationDialogCapability()
     {
         Assert.IsTrue(typeof(IBmsLibraryDialogService).IsAssignableFrom(typeof(ScopedOperationDialogCoordinator)));
-        MethodInfo showMethod = typeof(Lr2SynchronizationRuntimePort).GetMethod(
+        MethodInfo? showMethod = typeof(Lr2SynchronizationRuntimePort).GetMethod(
             "ShowOperationDialog",
             BindingFlags.Instance | BindingFlags.Public);
         Assert.IsNotNull(showMethod);
-        Assert.AreEqual(typeof(UiDialogDefaultResult), showMethod.ReturnType);
+        Assert.AreEqual(typeof(UiDialogDefaultResult), showMethod!.ReturnType);
 
         var dialogs = new RecordingDialogService();
         var coordinator = new ScopedOperationDialogCoordinator(dialogs);
@@ -409,7 +409,7 @@ public sealed class Lr2SynchronizationArchitectureTests
         }
         if (candidate.IsArray || candidate.IsByRef || candidate.IsPointer)
         {
-            return ContainsType(candidate.GetElementType(), expected);
+            return ContainsType(candidate.GetElementType()!, expected);
         }
         return candidate.IsGenericType
             && candidate.GetGenericArguments().Any(argument => ContainsType(argument, expected));

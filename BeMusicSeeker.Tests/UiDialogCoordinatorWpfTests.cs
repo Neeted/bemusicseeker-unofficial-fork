@@ -22,7 +22,7 @@ public sealed class UiDialogCoordinatorWpfTests
         {
             var owner = CreateTestWindow("owner");
             windowTest.ShowAndWaitForContentRendered(owner);
-            ProbeWindow created = null;
+            ProbeWindow? created = null;
 
             UiWindowDialogResult<string> result = CreateTestCoordinator(windowTest).ShowWindowAsync(
                 new UiWindowDialogRequest<ProbeWindow, string>(
@@ -40,8 +40,8 @@ public sealed class UiDialogCoordinatorWpfTests
             Assert.IsTrue(result.DialogResult.GetValueOrDefault());
             Assert.AreEqual("accepted-by-owner", result.Value);
             Assert.IsNotNull(created);
-            Assert.AreSame(owner, created.Owner);
-            Assert.IsFalse(created.IsVisible);
+            Assert.AreSame(owner, created!.Owner);
+            Assert.IsFalse(created!.IsVisible);
         });
     }
 
@@ -56,7 +56,7 @@ public sealed class UiDialogCoordinatorWpfTests
 
             UiWindowDialogResult<string> nullFactory = coordinator.ShowWindowAsync(
                 new UiWindowDialogRequest<ProbeWindow, string>(
-                    () => null,
+                    () => null!,
                     _ => "unused",
                     owner)).GetAwaiter().GetResult();
             Assert.AreEqual(UiDialogStatus.Failed, nullFactory.Status);
@@ -95,8 +95,8 @@ public sealed class UiDialogCoordinatorWpfTests
             var requestedOwner = CreateTestWindow("requested");
             windowTest.ShowAndWaitForContentRendered(requestedOwner);
             var resolver = new UiDialogOwnerResolver(() => Application.Current);
-            ProbeWindow created = null;
-            Window observedActiveOwner = null;
+            ProbeWindow? created = null;
+            Window? observedActiveOwner = null;
 
             UiWindowDialogResult<string> result = CreateTestCoordinator(windowTest, resolver).ShowWindowAsync(
                 new UiWindowDialogRequest<ProbeWindow, string>(

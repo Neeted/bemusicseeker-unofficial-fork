@@ -21,7 +21,7 @@ public sealed class MainWindowPlaybackWpfTests
     [TestMethod]
     public void PlaybackControls_BindPanelStateAndCapabilitiesThroughPlaybackOwner()
     {
-        object selectedRow = null;
+        object? selectedRow = null;
         var activatedRows = new List<(int RowIndex, object Row)>();
         var playbackTerminal = new MainWindowPlaybackTerminal(
             row => selectedRow = row,

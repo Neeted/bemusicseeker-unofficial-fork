@@ -63,7 +63,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
             : FileAttributes.Normal;
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(configPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
             if (File.Exists(configPath))
             {
                 File.SetAttributes(configPath, FileAttributes.Normal);
@@ -116,7 +116,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
             }
             else
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(configPath));
+                Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
                 File.WriteAllBytes(configPath, originalConfig);
                 File.SetAttributes(configPath, originalAttributes);
             }
@@ -142,7 +142,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
         string persistedValue,
         PlayerPanelState expected)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(configPath));
+        Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
         CreateConfig(persistedValue).Save(configPath);
 
         var loaded = new Settings();

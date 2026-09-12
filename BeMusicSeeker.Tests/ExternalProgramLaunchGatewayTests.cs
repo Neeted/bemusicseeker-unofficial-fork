@@ -13,7 +13,7 @@ public sealed class ExternalProgramLaunchGatewayTests
     [TestMethod]
     public void Launch_UsesAbsoluteExecutableWorkingDirectoryAndExactArgumentTokens()
     {
-        ProcessStartInfo captured = null;
+        ProcessStartInfo? captured = null;
         WindowsExternalProgramLaunchGateway gateway = new(
             fileExists: _ => true,
             starter: startInfo =>
@@ -30,12 +30,13 @@ public sealed class ExternalProgramLaunchGatewayTests
 
         Assert.IsTrue(result.Succeeded);
         Assert.IsNotNull(captured);
-        Assert.AreEqual(@"C:\Tools\Player\player.exe", captured.FileName);
-        Assert.IsFalse(captured.UseShellExecute);
-        Assert.AreEqual(@"C:\Tools\Player", captured.WorkingDirectory);
+        ProcessStartInfo capturedStartInfo = captured!;
+        Assert.AreEqual(@"C:\Tools\Player\player.exe", capturedStartInfo.FileName);
+        Assert.IsFalse(capturedStartInfo.UseShellExecute);
+        Assert.AreEqual(@"C:\Tools\Player", capturedStartInfo.WorkingDirectory);
         CollectionAssert.AreEqual(
             new[] { "--chart", @"C:\Songs\folder name\chart.bms", "", "日本語" },
-            captured.ArgumentList.ToArray());
+            capturedStartInfo.ArgumentList.ToArray());
     }
 
     [TestMethod]

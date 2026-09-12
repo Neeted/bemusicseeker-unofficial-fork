@@ -2709,8 +2709,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     null,
                     delegate (string directoryPath)
                     {
-                        return metadataProfiles.TryGetValue(directoryPath, out InstallEstimationMetadataProfile profile)
-                            ? profile
+                        return metadataProfiles.TryGetValue(directoryPath, out InstallEstimationMetadataProfile? profile)
+                            ? profile!
                             : InstallEstimationMetadataProfile.Empty;
                     });
 
@@ -2837,8 +2837,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 null,
                 delegate (string directoryPath)
                 {
-                    return metadataProfiles.TryGetValue(directoryPath, out InstallEstimationMetadataProfile profile)
-                        ? profile
+                    return metadataProfiles.TryGetValue(directoryPath, out InstallEstimationMetadataProfile? profile)
+                        ? profile!
                         : InstallEstimationMetadataProfile.Empty;
                 });
 
@@ -3739,7 +3739,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         var result = new List<PackageChartEntry>();
         foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
         {
-            PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
+            PackageChartEntry? packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
             result.Add(packageEntry ?? PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(targetFile)));
         }
         return [.. result.Where(entry => entry?.Chart != null)];

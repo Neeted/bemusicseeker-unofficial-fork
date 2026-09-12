@@ -132,7 +132,7 @@ public sealed class BackupTests
     {
         WithBackupTree((root, source) =>
         {
-            foreach (string[] sources in new string[][] { null, [] })
+            foreach (string[] sources in new string[][] { null!, [] })
             {
                 Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(root, TimeSpan.Zero, 1, sources);
                 Assert.IsFalse(result.Saved);
@@ -196,7 +196,7 @@ public sealed class BackupTests
         {
             string[] old = CreateOldGenerations(root);
             File.SetAttributes(source, FileAttributes.ReadOnly);
-            string locked = Path.Combine(Path.GetDirectoryName(source), "locked.db");
+            string locked = Path.Combine(Path.GetDirectoryName(source)!, "locked.db");
             WriteAllText(locked, "locked-source");
             Backup.BackupSaveResult failed;
             using (FileStream fileLock = LongPathFileSystem.Open(locked, FileMode.Open, FileAccess.ReadWrite, FileShare.None))

@@ -86,7 +86,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             }
             var fileMutations = new RealFileMutationService();
             var library = new TestBmsLibrary(songDbPath, null, null, fileMutations,
-                new RecordingDialogService(), new TestUiScheduler(() => null),
+                new RecordingDialogService(), new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -589,7 +589,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new RealFileMutationService(),
                 new RecordingDialogService(),
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -651,7 +651,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             IFileMutationService files = cleanupFails ? new FailingDestinationDeleteFileMutationService(secondSource)
                 : new RealFileMutationService();
             var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -718,7 +718,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new RealFileMutationService(),
                 new RecordingDialogService(),
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -818,7 +818,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new FailingDestinationDeleteFileMutationService(secondDestinationChartPath),
                 new RecordingDialogService(),
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -941,7 +941,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new RealFileMutationService(),
                 new RecordingDialogService(),
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -1298,7 +1298,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
             bool packageEntryNotificationObserved = false;
-            Exception packageEntryInspectionFailure = null;
+            Exception? packageEntryInspectionFailure = null;
             pendingEntry.PropertyChanged += (_, _) =>
             {
                 packageEntryNotificationObserved = true;
@@ -1380,7 +1380,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 BmsonSongParser.Parse(firstBmsonPath),
                 includeWarningSnapshot: false,
                 includeResourceReferences: false);
-            ChartFile uniqueSourceChart = includeUniqueChart
+            ChartFile? uniqueSourceChart = includeUniqueChart
                 ? ChartFileProjection.FromBmsonSong(
                     BmsonSongParser.Parse(secondUniqueBmsonPath),
                     includeWarningSnapshot: false,
@@ -1454,7 +1454,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new FailingDestinationDeleteFileMutationService(firstBmsonPath),
                 new RecordingDialogService(),
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -1723,7 +1723,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 ChartPackagesPending = CreatePackageCollection([pendingPackage]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
-            Exception packageEntryInspectionFailure = null;
+            Exception? packageEntryInspectionFailure = null;
             pendingEntry.PropertyChanged += (_, _) =>
             {
                 try
@@ -1946,7 +1946,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new RealFileMutationService(),
                 dialogService,
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -2193,7 +2193,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             [pendingPackage],
             CreateInstalledChartLookup([installedFile]));
 
-        PendingInstallBatchItem capturedItem = null;
+        PendingInstallBatchItem? capturedItem = null;
         PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
             plan,
             deletePendingPackageSourceAfterInstall: false,
@@ -2206,8 +2206,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             cleanupPendingPackageSource: null);
 
         Assert.IsNotNull(capturedItem);
-        Assert.AreEqual(1, capturedItem.InstallWorkPackage.GetBmsOwnersForTest().Count);
-        Assert.AreSame(pendingFile, capturedItem.InstallWorkPackage.GetBmsOwnersForTest()[0]);
+        PendingInstallBatchItem capturedInstallItem = capturedItem!;
+        Assert.AreEqual(1, capturedInstallItem.InstallWorkPackage.GetBmsOwnersForTest().Count);
+        Assert.AreSame(pendingFile, capturedInstallItem.InstallWorkPackage.GetBmsOwnersForTest()[0]);
         Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
         Assert.AreEqual(string.Empty, pendingFile.Warnings.BuildDigestText());
     }
@@ -2229,7 +2230,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             [package],
             [package],
             CreateInstalledChartLookup([]));
-        PendingInstallBatchItem capturedItem = null;
+        PendingInstallBatchItem? capturedItem = null;
         PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
             plan,
             deletePendingPackageSourceAfterInstall: false,
@@ -2242,9 +2243,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             cleanupPendingPackageSource: null);
 
         Assert.IsNotNull(capturedItem);
-        Assert.AreEqual(1, capturedItem.InstallWorkPackage.ChartEntries.Count);
-        Assert.AreSame(firstFile, capturedItem.InstallWorkPackage.GetBmsOwnersForTest().Single());
-        Assert.IsTrue(capturedItem.ExcludedComponentPaths.Contains(duplicateFile.path));
+        PendingInstallBatchItem capturedInstallItem = capturedItem!;
+        Assert.AreEqual(1, capturedInstallItem.InstallWorkPackage.ChartEntries.Count);
+        Assert.AreSame(firstFile, capturedInstallItem.InstallWorkPackage.GetBmsOwnersForTest().Single());
+        Assert.IsTrue(capturedInstallItem.ExcludedComponentPaths.Contains(duplicateFile.path));
         Assert.IsFalse(package.ChartEntries[1].Chart.Warnings.Any(
             warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
         Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
@@ -2304,7 +2306,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             [package],
             [package],
             CreateInstalledChartLookup([installedFile]));
-        PendingInstallBatchItem capturedItem = null;
+        PendingInstallBatchItem? capturedItem = null;
         PendingInstallBatchResult result = service.ExecuteEstimatedInstallBatchPlan(
             plan,
             deletePendingPackageSourceAfterInstall: false,
@@ -2317,10 +2319,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
             cleanupPendingPackageSource: null);
 
         Assert.IsNotNull(capturedItem);
-        Assert.AreSame(pendingFile, capturedItem.InstallWorkPackage.GetBmsOwnersForTest().Single());
-        Assert.IsTrue(capturedItem.ExcludedComponentPaths.Contains(installedFile.path));
+        PendingInstallBatchItem capturedInstallItem = capturedItem!;
+        Assert.AreSame(pendingFile, capturedInstallItem.InstallWorkPackage.GetBmsOwnersForTest().Single());
+        Assert.IsTrue(capturedInstallItem.ExcludedComponentPaths.Contains(installedFile.path));
         Assert.AreEqual(1, result.PendingPackagesToRemove.Count);
-        Assert.IsTrue(capturedItem.DestinationDirectory.Equals(destinationDirectory, StringComparison.OrdinalIgnoreCase));
+        Assert.IsTrue(capturedInstallItem.DestinationDirectory.Equals(destinationDirectory, StringComparison.OrdinalIgnoreCase));
     }
 
     [TestMethod]
@@ -4292,7 +4295,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new RealFileMutationService(),
                 new RecordingDialogService(),
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -4582,7 +4585,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new RealFileMutationService(),
                 new RecordingDialogService(),
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -4597,7 +4600,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             int secondNotificationCount = 0;
             bool firstNotificationAcquiredLease = false;
             bool secondNotificationAcquiredLease = false;
-            Exception callbackFailure = null;
+            Exception? callbackFailure = null;
             package.ChartEntries[0].PropertyChanged += (_, _) =>
             {
                 firstNotificationCount++;
@@ -4713,7 +4716,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new FailingDestinationDeleteFileMutationService(secondDestinationDirectoryPath),
                 new RecordingDialogService(),
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -4842,7 +4845,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 null,
                 new FailingDestinationDeleteFileMutationService(secondDestinationDirectoryPath),
                 dialogs,
-                new TestUiScheduler(() => null),
+                new TestUiScheduler(() => null!),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -5247,7 +5250,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             int maintenanceInvocationCount = 0;
             int scoreInvocationCount = 0;
             int stateInvocationCount = 0;
-            string persistedInstallPath = null;
+            string? persistedInstallPath = null;
 
             PackageInstallExecutionResult result = service.InstallPackagesWithFileMutationReceipts(
                 [package],
@@ -5305,7 +5308,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM install WHERE path = ?;",
-                persistedInstallPath));
+                persistedInstallPath!));
         });
     }
 
@@ -6265,7 +6268,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         var result = new List<PackageChartEntry>();
         foreach (BMSFile targetFile in (targetFiles ?? []).Where(file => file != null))
         {
-            PackageChartEntry packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
+            PackageChartEntry? packageEntry = packageEntries.FirstOrDefault(entry => IsSamePackageChartTarget(entry, targetFile));
             result.Add(packageEntry ?? PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(targetFile)));
         }
         return [.. result.Where(entry => entry?.Chart != null)];
@@ -6440,13 +6443,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
         BMSLibrary library,
         string fieldName)
     {
-        FieldInfo field = typeof(BMSLibrary).GetField(
+        FieldInfo? field = typeof(BMSLibrary).GetField(
             fieldName,
             BindingFlags.Instance | BindingFlags.NonPublic);
-        PropertyInfo property = typeof(BMSLibrary).GetProperty(
+        PropertyInfo? property = typeof(BMSLibrary).GetProperty(
             fieldName,
             BindingFlags.Instance | BindingFlags.NonPublic);
-        object gateValue = field != null
+        object? gateValue = field != null
             ? field.GetValue(library)
             : property?.GetValue(library);
         Assert.IsNotNull(gateValue, fieldName + " was not found.");
@@ -7108,7 +7111,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath)!;
+            string? destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
             {
                 Directory.CreateDirectory(destinationDirectoryPath);
@@ -7126,7 +7129,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 Directory.Delete(destinationPath, recursive: true);
             }
-            string destinationParentDirectoryPath = Path.GetDirectoryName(destinationPath)!;
+            string? destinationParentDirectoryPath = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationParentDirectoryPath))
             {
                 Directory.CreateDirectory(destinationParentDirectoryPath);
@@ -7137,7 +7140,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             BeforeCopy?.Invoke(sourcePath);
-            string destinationParent = Path.GetDirectoryName(destinationPath)!;
+            string? destinationParent = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationParent))
             {
                 Directory.CreateDirectory(destinationParent);

@@ -359,18 +359,20 @@ public sealed class BmsLibraryIrServiceTests
             Dictionary<string, BMSScore> scores = loader.LoadModeZeroScores(scoreDbPath);
 
             Assert.AreEqual(2, scores.Count);
-            Assert.IsTrue(scores.TryGetValue("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", out BMSScore score));
-            Assert.AreEqual(ClearType.INVALID, score.clear);
-            Assert.AreEqual(120, score.perfect);
-            Assert.AreEqual(40, score.great);
-            Assert.AreEqual(200, score.totalnotes);
-            Assert.AreEqual(180, score.maxcombo);
-            Assert.AreEqual(5, score.minbp);
-            Assert.AreEqual(280, score.score);
-            Assert.AreEqual(70, score.rate);
-            Assert.AreEqual(RankType.A, score.rank);
-            Assert.IsTrue(scores.TryGetValue("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", out BMSScore easyScore));
-            Assert.AreEqual(ClearType.EASY, easyScore.clear);
+            Assert.IsTrue(scores.TryGetValue("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", out BMSScore? score));
+            BMSScore loadedScore = score!;
+            Assert.AreEqual(ClearType.INVALID, loadedScore.clear);
+            Assert.AreEqual(120, loadedScore.perfect);
+            Assert.AreEqual(40, loadedScore.great);
+            Assert.AreEqual(200, loadedScore.totalnotes);
+            Assert.AreEqual(180, loadedScore.maxcombo);
+            Assert.AreEqual(5, loadedScore.minbp);
+            Assert.AreEqual(280, loadedScore.score);
+            Assert.AreEqual(70, loadedScore.rate);
+            Assert.AreEqual(RankType.A, loadedScore.rank);
+            Assert.IsTrue(scores.TryGetValue("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", out BMSScore? easyScore));
+            BMSScore loadedEasyScore = easyScore!;
+            Assert.AreEqual(ClearType.EASY, loadedEasyScore.clear);
         }
         finally
         {
@@ -1344,7 +1346,7 @@ public sealed class BmsLibraryIrServiceTests
 
     private static void CreateBeatorajaScoreDb(string scoreDbPath)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath));
+        Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath)!);
         using var connection = new SQLiteConnection(scoreDbPath);
         connection.Execute(
             "CREATE TABLE score (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER, PRIMARY KEY(sha256, mode));");
@@ -1482,11 +1484,11 @@ public sealed class BmsLibraryIrServiceTests
 
         public void DownloadRankingData(Uri rankingDataUrl, string md5, string destinationPath)
         {
-            if (!rankingXmlByHash.TryGetValue(md5, out string xml))
+            if (!rankingXmlByHash.TryGetValue(md5, out string? xml))
             {
                 throw new InvalidOperationException("ranking xml is not registered.");
             }
-            File.WriteAllText(destinationPath, xml, Encoding.GetEncoding("shift_jis"));
+            File.WriteAllText(destinationPath, xml!, Encoding.GetEncoding("shift_jis"));
         }
 
     }

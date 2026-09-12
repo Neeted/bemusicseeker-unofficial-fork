@@ -14,8 +14,8 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
     public async Task ReloadAsync_QueuesExactSyncOnlyAfterReloadAndUsesFalseBmtExportFlag()
     {
         var events = new List<string>();
-        PlaylistTablesReloadRequest capturedReloadRequest = null;
-        PlaylistTablesExternalSyncRequest capturedSyncRequest = null;
+        PlaylistTablesReloadRequest? capturedReloadRequest = null;
+        PlaylistTablesExternalSyncRequest? capturedSyncRequest = null;
         var reloadEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseReload = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         PlaylistTablesReloadWorkflowOwner owner = new(
@@ -45,13 +45,13 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
         PlaylistTablesReloadWorkflowResult result = await operation;
 
         Assert.IsNotNull(capturedReloadRequest);
-        Assert.AreEqual(17L, capturedReloadRequest.OperationToken);
-        Assert.IsFalse(capturedReloadRequest.QueueBeatorajaBmtExportAfterHydration);
+        Assert.AreEqual(17L, capturedReloadRequest!.OperationToken);
+        Assert.IsFalse(capturedReloadRequest!.QueueBeatorajaBmtExportAfterHydration);
         Assert.IsNotNull(capturedSyncRequest);
-        Assert.AreEqual("ReloadTables", capturedSyncRequest.Reason);
-        Assert.IsTrue(capturedSyncRequest.FromReloadTables);
-        Assert.IsTrue(capturedSyncRequest.PublishReferenceReceipt);
-        Assert.AreEqual(17L, capturedSyncRequest.OperationToken);
+        Assert.AreEqual("ReloadTables", capturedSyncRequest!.Reason);
+        Assert.IsTrue(capturedSyncRequest!.FromReloadTables);
+        Assert.IsTrue(capturedSyncRequest!.PublishReferenceReceipt);
+        Assert.AreEqual(17L, capturedSyncRequest!.OperationToken);
         Assert.AreSame(capturedReloadRequest, result.ReloadRequest);
         Assert.AreSame(capturedSyncRequest, result.ExternalSyncRequest);
         CollectionAssert.AreEqual(new[] { "reload", "queue" }, events);
