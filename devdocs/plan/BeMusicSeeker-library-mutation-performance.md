@@ -95,7 +95,8 @@ SelfOwnedのみの変更でも、既存のremove→appendで候補が`[A, B] →
 
 | ID | 現行の問題 | 対象操作 | 種別・順序 |
 | --- | --- | --- | --- |
-| R2a | PathCleanup・storage・owned・package・導入lookupのexact path統一 | merge、install、catalog変更 | 実装済み、最終検証・review中 |
+| R2a | PathCleanup・storage・owned・package・導入lookupのexact path統一 | merge、install、catalog変更 | 実装済み |
+| R2a-GATE | file diffによるpath収束前にもcatalog依存file mutationを受理できる | delete、merge、install、move、rename等のP0 file mutation | 実装済み(将来gateを前倒し) |
 | R2b | PathCleanupがsong / maintenance / BMSONを全件materializeし、行・hashごとに削除・孤児確認 | 主にmerge、PathCleanupを使う修正経路 | R2a後にDB処理を限定 |
 | R2c | resource-healthのchart identityがpathをcase-insensitive比較 | warning表示・maintenanceを伴う変更 | R5c前に正しさを修正 |
 | RELINK-1 | file diffの一対一・同一MD5 relinkにcase-onlyだけの除外が残る | startup / file diff / 再初期化 | 採用済みの仕様統一。R2群直後の独立unit |
@@ -121,9 +122,44 @@ Status: Implemented. 恒久的なpath identity契約とテスト対応表は[pat
 - row identityとphysical filesystem target identityを分離した。複数の選択済みexact rowが同じ物理fileへ解決される場合、filesystem操作は既存の正規化・case-insensitive identityで一回にまとめ、その結果を選択済みexact targetへだけ反映する。未選択rowを物理alias一致だけでcatalog mutation対象へ追加しない。
 - mergeのdetached packageでは、旧exact keyをcatalog mutation集合に保持したまま、物理source / owner copy / package rootを既存FS規則へ揃えて同じ物理sourceの二重予約を避けるようにした。
 - whole-folder削除後のinstall-destination clearは、削除folderの判定をfilesystem規則のまま維持しつつ、clear対象のcatalog row bindingとclear済み集合をexact pathで識別する。
-- 現行では起動時file diffを設定で省略してもmutationを禁止していないため、未収束rowが局所mutationへ到達し得る前提を維持する。この状態でもrowはexactに扱い、physical I/Oは同一実体としてまとめてよい。将来はfile diffを省略・未完了の状態ではfile mutationを禁止する方針とするが、その受付gate変更はR2aに含めない。
+- R2a単体では起動時file diffを省略した未収束rowが局所mutationへ到達し得る既存境界を維持した。後続のR2a-GATEで採用済みの将来境界を前倒しし、現在読み込んだcatalog generationのpath収束が確認されるまでcatalog依存file mutationを受付拒否する。R2aのexact row identityとphysical I/O identityの分離はgate導入後も維持する。
 - file diffの保存値relinkはRELINK-1、PathCleanupの全表materialize削減はR2b、resource-health keyはR2c、storage list再構築削減はR5aへ残した。schema、新しいretry / replay / persistent state、lease / publication境界は追加していない。
 - R2aでは新しい全catalog走査・全件copyを追加していない。既存のcleanup時全表materialize、孤児hash確認、storage list再作成、package走査の費用は後続unitの対象とする。
+
+### R2a-GATE — file diff path収束前のcatalog依存file mutationを拒否する
+
+Status: Implemented. 採用済みだった将来の受付境界をR2a直後の独立unitとして前倒しする。恒久契約は[path identity](../spec/path-identity.md#r2a-test-map)、[library mutation boundary](../spec/library-mutation-boundary.md)、[chart file read pipeline](../spec/chart-file-read-pipeline.md)を正本とする。
+
+#### Goal・decision
+
+起動時file diffを省略した、またはauthoritativeなpath収束を完了できなかったcatalog generationでは、DB上のcase-only / dot alias等が実在fileとの対応を一意に表さないことがある。その状態でexact rowだけを削除・mergeすると、利用者が選んだ実在fileを消して別のstale rowだけ残す結果を作り得る。個別mutationごとの全catalog ambiguity走査は追加せず、現在generationについてauthoritative file diffとcanonical catalog replacementが完了したというprocess-local factを受付条件にする。
+
+- process開始時は未確認とし、Startup / FullReinitialize / ReloadFileDiffでcatalog/file-diff収束を開始すると未確認へ戻す。ScoreOnlyはcatalog path membershipを再構成しないため既存factを維持する。
+- authoritative scan surfaceからexact path diffを適用し、canonical catalog/storage replacementと必要なpublication handoffまで正常に完了したときだけConvergedへ進める。startup scan省略、non-authoritative / incomplete scan、empty-scan-with-existing-db保護、diff / apply失敗では開かない。
+- 個別譜面のrecoverable read / lightweight parse failureはpath surfaceのauthoritativenessを失わせない。読めずcatalogへ追加されなかった譜面の存在を理由にgateを閉じず、`FileScanFailures.Count == 0`をreadiness条件にしない。directory enumeration自体が不完全なscanとは区別する。
+- 現在のlibrary catalog pathをauthorityとして実library BMS fileまたはcatalog membershipを変更するcatalog依存file mutationは、既存exclusive mutation leaseを先に取得し、そのlease内でprocess-local readinessをO(1)で確認する。未確認ならleaseを解放してFS / catalog DB / owned stateを変更せず受付拒否する。少数操作のたびの全catalog走査・case-insensitive group作成は行わない。playlist / pending-only処理のshared mutation lane自体はgateせず、auto-install ingressはdiscoveryとpending投入を許可して、未収束時は実libraryへのinstallだけを抑止する。
+- Startup / ReloadFileDiff / FullReinitializeはgateを開く側なので、従来のraw LR2/exclusive mutation leaseを使い、readiness gate自身では止めない。
+- schema、永続readiness列、retry / replay / recovery queue、別generation tokenは追加しない。R2aのexact catalog row identityとphysical filesystem identityの分離は変更しない。
+
+#### Test Contract Packet — `CATALOG-FILE-MUTATION-GATE-20260912`
+
+Authority: 利用者要件と`path-identity.md`で採用済みだった「必要なfile diff収束前はfile mutationを受付しない」境界。現在実装や既存出力をoracleにしない。
+
+| Contract ID | Production ingress / setup | 完了時に観測する結果 | 検出する誤実装 |
+| --- | --- | --- | --- |
+| CFG-01 / R2-MUTATION-GATE | Startupでfile scanを省略し、DBに未収束のphysical alias表記row（case-only / dot aliasを含み得る）、FSに実在fileを残した状態からmergeを要求 | merge未適用、FS / SQLite / owned row不変 | readiness既定Ready、FS mutation後の遅いgate、未収束rowの局所mutation継続 |
+| CFG-02 | CFG-01の状態からauthoritative `ReloadFileDiff`を完了し、同じmergeを再要求 | reloadでcatalog pathが収束し、その後のmergeは通常どおり受理・完了 | gateが一度閉じると開かない、StartupだけでReadyにする、収束operation自身をgateする |
+| CFG-03 | authoritative startup scanに個別のrecoverable chart read / parse failureを含める | 読めないchartをcatalogへ追加しなくてもpath convergenceはReadyとなり、mutation leaseを取得できる | `FileScanFailures.Count == 0`等をreadiness条件にする |
+| CFG-04 | Startupでfile scanを省略した未収束状態からplaylist shared lease、pending clear/remove、auto-install ingressを要求 | playlist leaseとpending-only操作は通常どおり利用でき、auto-install ingressは実libraryへinstallせず候補をpendingへ保持する | shared mutation lane全体をgateする、pending-only stateまで止める、package投入自体を拒否する |
+
+Fixture候補は`BmsLibraryDuplicateServiceTests`のstartup-scan-skip merge case、`BmsLibraryInitializationFileScanTests`のinvalid BMSON / playlist lease case、`BmsLibraryPackageInstallServiceTests`のpending clear / auto-install case。completion signalは同期的なInitialize / ReloadFileDiff返却、mutation admission結果、FS状態、SQLite row、owned / pending状態とする。
+
+#### 完了記録
+
+- `CatalogFileMutationReadinessOwner`をprocess-localなreadiness factとして追加し、catalog依存file mutation用admission ownerで既存LR2/exclusive lease取得後に確認する。block reasonは設定OFF起動とその他の未収束だけを区別し、警告文言の種類を増やしすぎない。hot pathの追加費用はreadinessのatomic readだけで、catalog件数に比例する処理を追加しない。
+- folder move / rename / chart delete / merge / actual library install / installed-resource overwrite等、current library catalog pathを実fileまたはcatalog membershipのauthorityとして使うP0 mutationだけをcatalog-path admissionへ接続した。playlist reload / playlist DB / LR2 custom-folder生成と、pending packageの追加・remove・clear・source rename/deleteはraw exclusive mutation laneのままとした。auto-install ingressは未収束でもpackage discoveryとpending投入を許可し、実libraryへのauto install candidateだけをpendingへ保持する。
+- production Startup / FullReinitialize / ReloadFileDiffは収束開始時にfactをresetし、authoritative pipeline成功時だけpublishする。unit fixtureがproduction initializationを通さず直接catalogを構成する場合は、そのfixture前提として明示的にConvergedを設定する。
+- CFG-01〜04を恒久testへ反映した。標準test実行は本レビュー依頼の条件に従い別途扱い、実装時にはstatic contract reviewを行う。
 
 ### R2b — PathCleanupの全DB読込を対象限定・集合更新へ移す
 
@@ -347,13 +383,15 @@ resource reverse mapは世代chainではないが、baselineと変更済みdisti
 
 ## 7. 推奨順序・分割・実装開始条件
 
-推奨順は`R2a → R2b → R2c → RELINK-1 → R3 → R4a → R4b → R4c → R5a → R5b → R5c → R6`。RELINK-1はR2群の直後に配置するが、R2の受入条件やコミットへ混ぜず、それぞれ独立に完了・検証する。R2cとRELINK-1は相互に実装依存せず、R2a完了後の近接unitとして順序を調整してよい。R2cは少なくともR5cより先に完了する。R7の必要な観測は各unitへ添え、測定基盤全体の新設を先行条件にしない。resource-health deltaが実際の主因と確認できた場合は、R2c後にR5cを前倒ししてよい。
+推奨順は`R2a → R2a-GATE → R2b → R2c → RELINK-1 → R3 → R4a → R4b → R4c → R5a → R5b → R5c → R6`。R2a-GATEは採用済みだった将来の受付境界を前倒しした独立unitであり、R2aのexact identity修正とは分けて完了・reviewする。RELINK-1はR2群の直後に配置するが、R2の受入条件やコミットへ混ぜず、それぞれ独立に完了・検証する。R2cとRELINK-1は相互に実装依存せず、R2a完了後の近接unitとして順序を調整してよい。R2cは少なくともR5cより先に完了する。R7の必要な観測は各unitへ添え、測定基盤全体の新設を先行条件にしない。resource-health deltaが実際の主因と確認できた場合は、R2c後にR5cを前倒ししてよい。
 
 R2aをR2bと同じ巨大変更に埋めず、identity修正と速度改善の根拠を分ける。RELINK-1も別unit・別レビュー・別コミットにし、file diff保存値の期待値変更をR2の単なるcomparer修正に便乗させない。R3とR5aは`BMSLibrary.cs`やowned collectionを共有するため並行編集しない。R4各unitも同じcache / ownerを触るため原則直列とする。
 
 | unit群 | 主な書込対象 | 読取・維持対象 | 恒久テストの扱い |
 | --- | --- | --- | --- |
-| R2a / R2b | merge delta、catalog request、storage owner、DB gateway、必要なpackage反映 | path spec、file diff、通常move、DB transaction | 既存fixtureへexact identity・集合反映の不足caseを追加／更新 |
+| R2a | merge delta、catalog request、storage owner、DB gateway、必要なpackage反映 | path spec、file diff、通常move、DB transaction | 既存fixtureへexact identity・集合反映の不足caseを追加／更新 |
+| R2a-GATE | file-scan readiness、catalog依存file mutation admission、対象P0 ingress、warning resource | path / mutation / read-pipeline spec、raw shared/convergence lease、playlist / pending-only ingress、ScoreOnly | scan-skip拒否→reload許可、個別parse/read failureでもReady、playlist / pending-only非gate、auto-install→pending退避のcontractを追加／更新 |
+| R2b | PathCleanup gateway、対象集合SQL、必要なdigest cleanup | R2a exact集合、DB transaction、R2a-GATE admission | R2a identity oracleを維持し、対象外背景rowを含むgateway観測を追加／更新 |
 | R2c / R5c | resource-health snapshot / keyと必要なowner入力整形 | R1の取得・version契約、warning仕様 | 既存health fixtureへ独立identity・処理量caseを追加／更新 |
 | RELINK-1 | file diff relink判定、file-scan test、path / pipeline / LR2 specの実装状態 | R2のexact集合、旧保存値snapshot、DB復元境界、maintenance生成 | case-only BMS既存testの期待値を置換し、通常／曖昧／既存destinationとの対になるcoverageを補う |
 | R3 | LR2 receipt、scope builder、composition、必要なowned query | DB writer / prune契約、登録root | 既存scope / DB / relocation fixtureを拡張 |

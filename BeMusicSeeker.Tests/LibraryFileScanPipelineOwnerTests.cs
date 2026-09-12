@@ -864,6 +864,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             callbacks.LogEverythingScan,
             callbacks.LogStartupMemoryCheckpoint,
             callbacks.GetDisplayedExceptionMessage,
+            () => { },
             callbacks.QueueEverythingFallbackWarning,
             callbacks.QueueFileScanSkippedIncompleteWarning,
             callbacks.QueueEmptyScanWithExistingDbWarning,

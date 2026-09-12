@@ -153,6 +153,117 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     [TestMethod]
+    public void Initialize_StartupParseFailureStillOpensCatalogFileMutationAdmission()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+            Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        string chartDirectoryPath = Path.Combine(scope.DirectoryPath, "InvalidBmson");
+        Directory.CreateDirectory(chartDirectoryPath);
+        string invalidBmsonPath = Path.Combine(chartDirectoryPath, "invalid.bmson");
+        File.WriteAllText(invalidBmsonPath, "{\"version\":\"1.0.0\",\"info\":");
+        BmsLibraryOptionsSnapshot options = new()
+        {
+            OperationModeLR2DB = false,
+            ScanBmsFilesOnStartup = true,
+            UpdateLr2IrRankingCacheOnStartup = false,
+            EnableDownloadLr2IrScoreAndDetectUnsent = false,
+            UseBeatorajaScoreDb = false,
+            EnableReadOptimizedPragmas = false,
+            PendingInstallEstimateMaxParallelPackages = 1
+        };
+        IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
+            [invalidBmsonPath],
+            new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                [chartDirectoryPath] = []
+            },
+            [chartDirectoryPath]);
+        var dialogService = new RecordingDialogService();
+        var library = new TestBmsLibrary(
+            scope.SongDbPath,
+            getLR2Config: null,
+            _lr2ScoreDB: null,
+            startupRequiredFileScanReason: null,
+            optionsSnapshotProvider: () => options,
+            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+            chartFileScanner: chartFileScanner,
+            dialogService: dialogService)
+        {
+            SearchTargets = [chartDirectoryPath],
+            StartupBackgroundTaskScheduler = (_, _, _, _) => false
+        };
+
+        try
+        {
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+
+            Assert.AreEqual(0, library.BmsonSongs.Count);
+            int dialogCountBeforeMutation = dialogService.Calls.Count;
+            library.RenameBMSFilesExtensions([], ".invalid");
+            Assert.AreEqual(dialogCountBeforeMutation, dialogService.Calls.Count);
+        }
+        finally
+        {
+            library.RequestShutdown("parse-failure-convergence-test");
+        }
+    }
+
+    [TestMethod]
+    public void Initialize_StartupWithoutFileScanKeepsPlaylistLeaseAvailableAndUsesSettingWarningForCatalogMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        using Lr2SongDbSyncTestSupport.TestDatabaseScope scope =
+            Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        BmsLibraryOptionsSnapshot options = new()
+        {
+            OperationModeLR2DB = false,
+            ScanBmsFilesOnStartup = false,
+            UpdateLr2IrRankingCacheOnStartup = false,
+            EnableDownloadLr2IrScoreAndDetectUnsent = false,
+            UseBeatorajaScoreDb = false,
+            EnableReadOptimizedPragmas = false,
+            PendingInstallEstimateMaxParallelPackages = 1
+        };
+        var dialogService = new RecordingDialogService();
+        var library = new TestBmsLibrary(
+            scope.SongDbPath,
+            getLR2Config: null,
+            _lr2ScoreDB: null,
+            startupRequiredFileScanReason: null,
+            optionsSnapshotProvider: () => options,
+            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+            dialogService: dialogService)
+        {
+            StartupBackgroundTaskScheduler = (_, _, _, _) => false
+        };
+
+        try
+        {
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+
+            using (LibraryFileMutationLease mutationLease = library.TryBeginLibraryFileMutation(
+                "test_playlist_owned_mutation_after_scan_skip",
+                showMessage: false))
+            {
+                Assert.IsNotNull(mutationLease);
+            }
+
+            int dialogCountBeforeCatalogMutation = dialogService.Calls.Count;
+            library.RenameBMSFilesExtensions([], ".invalid");
+
+            Assert.AreEqual(dialogCountBeforeCatalogMutation + 1, dialogService.Calls.Count);
+            Assert.AreEqual(
+                BeMusicSeeker.Properties.Resources.Warn_CatalogFileMutationRequiresStartupScan,
+                dialogService.Calls[^1].Message);
+        }
+        finally
+        {
+            library.RequestShutdown("playlist-mutation-after-scan-skip-test");
+        }
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_UsesPrefetchedScanAndClearsStaleInstallDestination()
     {
         TestResourceInitializer.EnsureJapaneseResources();

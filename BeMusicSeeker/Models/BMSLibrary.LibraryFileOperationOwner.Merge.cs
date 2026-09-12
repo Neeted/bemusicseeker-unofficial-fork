@@ -31,7 +31,7 @@ internal sealed partial class LibraryFileOperationOwner
         {
             throw new ArgumentNullException(nameof(destinationDirectory));
         }
-        if (TryBlockMutation(nameof(BMSLibrary.MergeChartDirectory), showMessage: true))
+        if (TryBlockCatalogMutation(nameof(BMSLibrary.MergeChartDirectory), showMessage: true))
         {
             return DuplicateMergeMaintenanceReceipt.NotApplied;
         }

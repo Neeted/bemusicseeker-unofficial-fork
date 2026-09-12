@@ -107,6 +107,8 @@ internal sealed class LibraryFileOperationSynchronization
 {
     private readonly ILibraryFileOperationMutationBoundary mutationBoundary;
 
+    private readonly CatalogFileOperationMutationBoundary catalogMutationBoundary;
+
     private readonly ReaderWriterLockSlimWrapper bmsFilesInitializedAll;
 
     private readonly ReaderWriterLockSlimWrapper bmsFilesInitializedMin;
@@ -115,14 +117,27 @@ internal sealed class LibraryFileOperationSynchronization
 
     private readonly ReaderWriterLockSlimWrapper bmsFiles;
 
+    /// <summary>
+    /// Creates the file-operation synchronization owner with separate raw and
+    /// catalog-gated mutation admission. The catalog boundary defaults to the
+    /// raw boundary for isolated fixtures that do not compose readiness gating.
+    /// </summary>
+    /// <param name="mutationBoundary">Raw exclusive mutation boundary used by convergence, playlist, and pending-only flows.</param>
+    /// <param name="bmsFilesInitializedAll">Lock protecting the fully initialized chart catalog.</param>
+    /// <param name="bmsFilesInitializedMin">Lock protecting the minimal initialized chart catalog.</param>
+    /// <param name="pendingInstallCharts">Lock protecting pending installation charts.</param>
+    /// <param name="bmsFiles">Lock protecting the canonical chart collection.</param>
+    /// <param name="catalogMutationBoundary">Catalog-dependent mutation boundary; omitted only by fixtures that intentionally use raw admission.</param>
     internal LibraryFileOperationSynchronization(
         ILibraryFileOperationMutationBoundary mutationBoundary,
         ReaderWriterLockSlimWrapper bmsFilesInitializedAll,
         ReaderWriterLockSlimWrapper bmsFilesInitializedMin,
         ReaderWriterLockSlimWrapper pendingInstallCharts,
-        ReaderWriterLockSlimWrapper bmsFiles)
+        ReaderWriterLockSlimWrapper bmsFiles,
+        CatalogFileOperationMutationBoundary catalogMutationBoundary = null)
     {
         this.mutationBoundary = mutationBoundary ?? throw new ArgumentNullException(nameof(mutationBoundary));
+        this.catalogMutationBoundary = catalogMutationBoundary;
         this.bmsFilesInitializedAll = bmsFilesInitializedAll ?? throw new ArgumentNullException(nameof(bmsFilesInitializedAll));
         this.bmsFilesInitializedMin = bmsFilesInitializedMin ?? throw new ArgumentNullException(nameof(bmsFilesInitializedMin));
         this.pendingInstallCharts = pendingInstallCharts ?? throw new ArgumentNullException(nameof(pendingInstallCharts));
@@ -135,7 +150,7 @@ internal sealed class LibraryFileOperationSynchronization
         // model snapshot scope.  Filesystem staging, the DB callback,
         // finalize cleanup, and notifications must never retain collection or
         // model locks.
-        return EnterMutationReservation("library_folder_move", showMessage: true);
+        return EnterCatalogMutationReservation("library_folder_move", showMessage: true);
     }
 
     internal IDisposable EnterFolderMoveSnapshotScope()
@@ -155,7 +170,7 @@ internal sealed class LibraryFileOperationSynchronization
 
     internal LibraryFileMutationLease EnterNormalInvalidExtensionRenameWriteScope()
     {
-        return EnterWriteScope("library_invalid_extension_rename");
+        return EnterCatalogWriteScope("library_invalid_extension_rename");
     }
 
     internal IDisposable EnterNormalInvalidExtensionRenameSnapshotScope()
@@ -180,7 +195,7 @@ internal sealed class LibraryFileOperationSynchronization
 
     internal LibraryFileMutationLease EnterLibraryChartRemovalWriteScope()
     {
-        return EnterWriteScope("library_chart_removal");
+        return EnterCatalogWriteScope("library_chart_removal");
     }
 
     internal IDisposable EnterLibraryChartRemovalSnapshotScope()
@@ -193,7 +208,9 @@ internal sealed class LibraryFileOperationSynchronization
 
     internal LibraryFileMutationLease EnterFixInstallationDirectoryWriteScope()
     {
-        return EnterWriteScope(nameof(BMSLibrary.FixInstallationDirectoryCharts));
+        return EnterCatalogMutationReservationPreservingBusyNull(
+            nameof(BMSLibrary.FixInstallationDirectoryCharts),
+            showMessage: true);
     }
 
     internal IDisposable EnterFixInstallationDirectorySnapshotScope()
@@ -209,7 +226,9 @@ internal sealed class LibraryFileOperationSynchronization
     /// </summary>
     internal LibraryFileMutationLease EnterMergeWriteScope()
     {
-        return EnterMutationReservation("duplicate_merge_catalog_transition", showMessage: true);
+        return EnterCatalogMutationReservationPreservingBusyNull(
+            "duplicate_merge_catalog_transition",
+            showMessage: true);
     }
 
     internal IDisposable EnterMergeSnapshotScope()
@@ -220,8 +239,18 @@ internal sealed class LibraryFileOperationSynchronization
             () => bmsFiles.GetWriterGuard());
     }
 
-    internal bool TryBlockMutation(string operation, bool showMessage)
-        => mutationBoundary.TryBlockMutation(operation, showMessage);
+    /// <summary>
+    /// Performs the cheap catalog-dependent mutation preflight without reserving
+    /// the exclusive lease. The authoritative readiness check is repeated by the
+    /// catalog boundary after reservation to close the preflight race.
+    /// </summary>
+    /// <param name="operation">Operation name used by mutation diagnostics.</param>
+    /// <param name="showMessage">Whether a rejection should show its warning.</param>
+    /// <returns><see langword="true"/> when the operation must be blocked.</returns>
+    internal bool TryBlockCatalogMutation(string operation, bool showMessage)
+        => catalogMutationBoundary != null
+            ? catalogMutationBoundary.TryBlockMutation(operation, showMessage)
+            : mutationBoundary.TryBlockMutation(operation, showMessage);
 
     internal LibraryFileMutationLease EnterWriteScope(string operation)
     {
@@ -235,6 +264,27 @@ internal sealed class LibraryFileOperationSynchronization
     private LibraryFileMutationLease EnterMutationReservation(string operation, bool showMessage)
     {
         return mutationBoundary.TryBeginMutation(operation, showMessage);
+    }
+
+    private LibraryFileMutationLease EnterCatalogWriteScope(string operation)
+    {
+        return EnterCatalogMutationReservation(operation, showMessage: true);
+    }
+
+    private LibraryFileMutationLease EnterCatalogMutationReservation(string operation, bool showMessage)
+    {
+        return catalogMutationBoundary != null
+            ? catalogMutationBoundary.TryBeginMutation(operation, showMessage)
+            : mutationBoundary.TryBeginMutation(operation, showMessage);
+    }
+
+    private LibraryFileMutationLease EnterCatalogMutationReservationPreservingBusyNull(
+        string operation,
+        bool showMessage)
+    {
+        return catalogMutationBoundary != null
+            ? catalogMutationBoundary.TryBeginMutationPreservingBusyNull(operation, showMessage)
+            : mutationBoundary.TryBeginMutation(operation, showMessage);
     }
 
     private static IDisposable AcquireScopes(

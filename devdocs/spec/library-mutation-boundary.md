@@ -59,6 +59,10 @@ P0 として次の操作は共通境界を通す。
 
 これらはファイル操作の意味上も P0 長パス対応範囲であり、実際の存在確認、コピー、移動、削除、タイムスタンプ更新は `LongPathFileSystem` / `IFileMutationService` を使う。
 
+現在のlibrary catalog pathをauthorityとして実library BMS fileまたはcatalog membershipを変更する操作は、現在のcatalog generationがauthoritativeなfile diffでpath収束済みであることを必須とする。UI向けのnon-reserving preflightは未収束を先に拒否してよいが、authoritativeな受付判定は既存のexclusive `LibraryFileMutationLease`を先に取得し、そのleaseを保持したままprocess-localなreadinessをO(1)で再確認する。未確認ならleaseを直ちに解放して拒否し、filesystem、catalog DB、owned stateを変更しない。mutationごとの全catalog再走査は行わない。
+
+この追加gateはshared mutation laneそのものには掛けない。playlist reload / playlist DB編集 / LR2 custom-folder生成・再出力、pending packageの追加・選択削除・全clear・pending sourceのrename / delete等、current library catalog pathを物理BMS targetのauthorityとして使わない処理は従来のraw exclusive mutation admissionだけを使う。auto install ingressもpackage discoveryとpendingへの投入は許可し、path未収束時は実libraryへのauto installだけを行わずinstallable candidateをpendingへ保持する。明示的なpending install、library chart delete / merge / move / rename、installation-directory repair等、実library BMS fileまたはcatalog membershipを変更する段階でgateを要求する。Startup file scan / `ReloadFileDiff` / `FullReinitialize`はreadinessを作る側なのでこの追加gateを通さず、従来のraw mutation leaseを使う。ScoreOnly initializationはreadinessを変更しない。scan / parse failureの扱いは[chart file read pipeline](chart-file-read-pipeline.md)と[path identity](path-identity.md#r2a-test-map)を正本とする。
+
 ## Dialog と Report
 
 操作前に確認が必要な例は次のとおりである。

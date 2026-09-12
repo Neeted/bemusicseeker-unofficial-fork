@@ -600,7 +600,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// スキャンを省略する通常起動で読んだ旧pathをmergeし、物理配置と全旧行のcleanupを確認します。
+    /// スキャンを省略した通常起動ではmergeを拒否し、file diff収束後だけ同じ操作を受理します。
     /// </summary>
     [DataTestMethod]
     [DataRow(false, false, false)]
@@ -609,7 +609,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [DataRow(true, false, false)]
     [DataRow(true, true, false)]
     [DataRow(true, true, true)]
-    public void MergeChartDirectory_AfterStartupWithoutFileScanConsumesDotAliasRows(
+    public void MergeChartDirectory_AfterStartupWithoutFileScanRejectsUntilReloadFileDiffConverges(
         bool bmson, bool includePlainRow, bool dotFirst)
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -662,9 +662,18 @@ public sealed class BmsLibraryDuplicateServiceTests
                 ScanBmsFilesOnStartup = false,
                 PendingInstallEstimateMaxParallelPackages = 1
             };
+            IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
+                [plainPath, sourceSharedPath, destinationSharedPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [source] = [],
+                    [destination] = []
+                },
+                [root]);
             var library = new TestBmsLibrary(songDbPath, null, null,
                 new TestFileMutationService(), new RecordingDialogService(),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options)
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options,
+                chartFileScanner)
             {
                 SearchTargets = [root],
                 StartupBackgroundTaskScheduler = (_, _, _, _) => false
@@ -679,7 +688,40 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(library.DuplicateChartGroups.Any(group =>
                     group.Folders.Contains(source) && group.Folders.Contains(destination)));
 
-                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1);
+                DuplicateMergeMaintenanceReceipt blockedReceipt = library.MergeChartDirectory(source, destination, operationId: 1);
+
+                Assert.IsFalse(blockedReceipt.MergeApplied);
+                Assert.IsTrue(Directory.Exists(source));
+                CollectionAssert.AreEquivalent(
+                    new[] { plainPath, sourceSharedPath },
+                    Directory.GetFiles(source, "*" + extension, System.IO.SearchOption.AllDirectories));
+                CollectionAssert.AreEquivalent(
+                    new[] { destinationSharedPath },
+                    Directory.GetFiles(destination, "*" + extension, System.IO.SearchOption.AllDirectories));
+                CollectionAssert.AreEquivalent(inputPaths, bmson
+                    ? library.BmsonSongs.Select(row => row.path).ToArray()
+                    : library.BMSFiles.Select(row => row.path).ToArray());
+                using (var blockedReadback = new LR2SongDBExtended(songDbPath))
+                {
+                    CollectionAssert.AreEquivalent(inputPaths, bmson
+                        ? blockedReadback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray()
+                        : blockedReadback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+                    foreach (string path in inputPaths)
+                    {
+                        Assert.IsNotNull(blockedReadback.Find<LR2SongDBExtended.maintenance>(path));
+                    }
+                }
+
+                library.ReloadFileDiff();
+                string[] convergedPaths = [plainPath, sourceSharedPath, destinationSharedPath];
+                CollectionAssert.AreEquivalent(convergedPaths, bmson
+                    ? library.BmsonSongs.Select(row => row.path).ToArray()
+                    : library.BMSFiles.Select(row => row.path).ToArray());
+                library.SearchDuplicateChartGroups();
+                Assert.IsTrue(library.DuplicateChartGroups.Any(group =>
+                    group.Folders.Contains(source) && group.Folders.Contains(destination)));
+
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 2);
 
                 Assert.IsTrue(receipt.MergeApplied, receipt.MutationReceipt?.Failure?.ToString() ?? receipt.MutationReceipt?.FinalizationFailure?.ToString());
                 Assert.IsFalse(Directory.Exists(source));

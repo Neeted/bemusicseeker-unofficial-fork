@@ -278,9 +278,9 @@ internal sealed partial class LibraryFileOperationOwner
         action();
     }
 
-    private bool TryBlockMutation(string operation, bool showMessage)
+    private bool TryBlockCatalogMutation(string operation, bool showMessage)
     {
-        return synchronization.TryBlockMutation(operation, showMessage);
+        return synchronization.TryBlockCatalogMutation(operation, showMessage);
     }
 
     private void InvalidateInstalledDirectoryIndex()
@@ -299,7 +299,7 @@ internal sealed partial class LibraryFileOperationOwner
         using LibraryFileMutationLease mutationLease = EnterFolderMoveWriteScope();
         if (mutationLease == null)
         {
-            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+            return;
         }
         using LibraryFileMutationCapability capability = mutationLease.CreateMutationCapability();
         capability.Validate(lr2SynchronizationOwner);
@@ -330,7 +330,7 @@ internal sealed partial class LibraryFileOperationOwner
         {
             if (mutationLease == null)
             {
-                throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                return;
             }
             using LibraryFileMutationCapability capability = mutationLease.CreateMutationCapability();
             capability.Validate(lr2SynchronizationOwner);
@@ -371,7 +371,7 @@ internal sealed partial class LibraryFileOperationOwner
         {
             if (mutationLease == null)
             {
-                throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                return;
             }
             using LibraryFileMutationCapability capability = mutationLease.CreateMutationCapability();
             capability.Validate(lr2SynchronizationOwner);
@@ -1784,7 +1784,7 @@ internal sealed partial class LibraryFileOperationOwner
         bool sendToRecycleBin,
         IEnumerable<string> approvedWholeFolderDeletePaths)
     {
-        if (TryBlockMutation(nameof(BMSLibrary.RemoveLibraryCharts), showMessage: true))
+        if (TryBlockCatalogMutation(nameof(BMSLibrary.RemoveLibraryCharts), showMessage: true))
         {
             return null;
         }
@@ -1880,7 +1880,7 @@ internal sealed partial class LibraryFileOperationOwner
         {
             throw new ArgumentNullException(nameof(charts));
         }
-        if (TryBlockMutation(nameof(BMSLibrary.FixInstallationDirectoryCharts), showMessage: true))
+        if (TryBlockCatalogMutation(nameof(BMSLibrary.FixInstallationDirectoryCharts), showMessage: true))
         {
             return null;
         }

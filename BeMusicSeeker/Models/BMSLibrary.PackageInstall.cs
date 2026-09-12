@@ -44,7 +44,7 @@ public partial class BMSLibrary
             throw new ArgumentNullException(nameof(chartFiles));
         }
         ArgumentNullException.ThrowIfNull(progressWriter);
-        if (TryBlockLr2SongDbSyncMutation(nameof(AutoRenameChartFolders)))
+        if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFolders)))
         {
             return new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
         }
@@ -98,7 +98,7 @@ public partial class BMSLibrary
         bool reportAtTerminal = false)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
-        if (TryBlockLr2SongDbSyncMutation(nameof(AutoRenameAllChartFolders)))
+        if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFolders)))
         {
             return new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
         }
@@ -272,10 +272,22 @@ public partial class BMSLibrary
                     QueuePackageEntryNotificationPublication(packageEntryNotificationDeferrals);
                 });
 
+                bool canAutoInstallToLibrary = SearchTargets != null
+                    && SearchTargets.Count() > 0
+                    && LongPathFileSystem.DirectoryExists(SearchTargets[0]);
+                bool catalogPathConverged = catalogFileMutationAdmissionOwner.IsConverged;
+                if (!catalogPathConverged
+                    && !options.KeepInstallablePackagesPending
+                    && canAutoInstallToLibrary
+                    && workflow.AutoInstallCandidates.Count > 0)
+                {
+                    CatalogPathConvergenceBlockReason blockReason = catalogFileMutationAdmissionOwner.BlockReason;
+                    diagnosticEffects.Add(() => ShowCatalogFileMutationRequiresFileDiffWarning(blockReason));
+                }
                 AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflowWithFileMutationReceipts(
                     workflow,
                     options.KeepInstallablePackagesPending,
-                    SearchTargets != null && SearchTargets.Count() > 0 && LongPathFileSystem.DirectoryExists(SearchTargets[0]),
+                    canAutoInstallToLibrary && catalogPathConverged,
                     packagesToInstall =>
                     {
                         List<ChartPackage> packageList = [.. (packagesToInstall ?? []).Where(package => package != null)];
@@ -1581,6 +1593,10 @@ public partial class BMSLibrary
         {
             throw new ArgumentNullException(nameof(packages));
         }
+        if (TryBlockCatalogFileMutation(nameof(ForceInstallPendingPackages)))
+        {
+            return new FileDbMutationBatchReceipt([]);
+        }
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool hasInitializedBmsFiles;
         List<ChartPackage> pendingPackageSnapshot;
@@ -1634,17 +1650,12 @@ public partial class BMSLibrary
                 approvedNormalInstallPackages.Add(pendingPackage);
             }
         }
-        if (TryBlockLr2SongDbSyncMutation(nameof(ForceInstallPendingPackages)))
-        {
-            return new FileDbMutationBatchReceipt([]);
-        }
-
-        LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
+        LibraryFileMutationLease mutationReservation = TryBeginCatalogFileMutationPreservingBusyFailure(
             nameof(ForceInstallPendingPackages),
-            showMessage: false);
+            showMessage: true);
         if (mutationReservation == null)
         {
-            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+            return new FileDbMutationBatchReceipt([]);
         }
         List<Action> postLeaseEffects = [];
         List<Action> diagnosticEffects = [];
@@ -2379,7 +2390,7 @@ public partial class BMSLibrary
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        if (TryBlockLr2SongDbSyncMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
+        if (TryBlockCatalogFileMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
         {
             return new PendingInstallBatchResult();
         }
@@ -2390,13 +2401,13 @@ public partial class BMSLibrary
         try
         {
             using (LibraryFileMutationLease mutationReservation =
-                TryBeginLr2SongDbSyncBlockedMutation(
+                TryBeginCatalogFileMutationPreservingBusyFailure(
                     nameof(InstallPendingPackagesToEstimatedDestinations),
-                    showMessage: false))
+                    showMessage: true))
             {
                 if (mutationReservation == null)
                 {
-                    throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                    return new PendingInstallBatchResult();
                 }
                 using LibraryFileMutationCapability mutationCapability =
                     mutationReservation.CreateMutationCapability();
@@ -2957,7 +2968,7 @@ public partial class BMSLibrary
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        if (TryBlockLr2SongDbSyncMutation(nameof(OverwritePendingInstalledOnlyPackagesResources)))
+        if (TryBlockCatalogFileMutation(nameof(OverwritePendingInstalledOnlyPackagesResources)))
         {
             return new PendingInstalledOnlyResourceOverwriteResult();
         }
@@ -2976,13 +2987,13 @@ public partial class BMSLibrary
         };
         try
         {
-            using (LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
+            using (LibraryFileMutationLease mutationReservation = TryBeginCatalogFileMutationPreservingBusyFailure(
                 nameof(OverwritePendingInstalledOnlyPackagesResources),
-                showMessage: false))
+                showMessage: true))
             {
                 if (mutationReservation == null)
                 {
-                    throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                    return new PendingInstalledOnlyResourceOverwriteResult();
                 }
                 using LibraryFileMutationCapability mutationCapability =
                     mutationReservation.CreateMutationCapability();

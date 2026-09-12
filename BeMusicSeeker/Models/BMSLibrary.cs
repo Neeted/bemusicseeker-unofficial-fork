@@ -841,6 +841,10 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly Lr2SynchronizationOwner lr2SynchronizationOwner;
 
+    private readonly CatalogFileMutationReadinessOwner catalogFileMutationReadinessOwner = new();
+
+    private readonly CatalogFileMutationAdmissionOwner catalogFileMutationAdmissionOwner;
+
     internal Lr2SynchronizationOwner Lr2Synchronization => lr2SynchronizationOwner;
 
     internal ILr2PlaylistFolderSynchronizationPort Lr2PlaylistFolderSynchronization => lr2SynchronizationOwner;
@@ -2797,6 +2801,10 @@ public partial class BMSLibrary : ObservableObject
             lr2SynchronizationRuntimePort,
             lr2SynchronizationProjectionPort,
             QueueLr2ObservablePropertyChange);
+        catalogFileMutationAdmissionOwner = new(
+            lr2SynchronizationOwner,
+            catalogFileMutationReadinessOwner,
+            ShowCatalogFileMutationRequiresFileDiffWarning);
         catalogWriteFailureSubscription = new(catalogMutationOwner, lr2SynchronizationOwner);
         catalogChartInfoOwner.ConfigureWorkflow(
             dbGateway,
@@ -2845,6 +2853,7 @@ public partial class BMSLibrary : ObservableObject
             LogEverythingScan,
             LogStartupMemoryCheckpoint,
             GetDisplayedExceptionMessage,
+            MarkCatalogPathConvergenceCompleted,
             reason => { QueueEverythingFallbackWarning(reason); },
             reason => { QueueFileScanSkippedIncompleteWarning(reason); },
             reason => { QueueEmptyScanWithExistingDbWarning(reason); },
@@ -2875,7 +2884,8 @@ public partial class BMSLibrary : ObservableObject
             rwlockBMSFilesInitializedAll,
             rwlockBMSFilesInitializedMin,
             rwlockPendingInstallCharts,
-            rwlockBMSFiles);
+            rwlockBMSFiles,
+            new CatalogFileOperationMutationBoundary(catalogFileMutationAdmissionOwner));
         libraryFileOperationOwner = new(
             libraryFileOperationSynchronization,
             libraryFileOperationsService,
@@ -5313,6 +5323,13 @@ public partial class BMSLibrary : ObservableObject
         bool songTblLoad = !isScoreOnly;
         bool startupFileScanRequired = isStartup && !string.IsNullOrWhiteSpace(startupRequiredFileScanReason);
         bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && (options.ScanBmsFilesOnStartup || startupFileScanRequired));
+        if (!isScoreOnly)
+        {
+            ResetCatalogPathConvergence(
+                isStartup && !songTblFileCheck && !options.ScanBmsFilesOnStartup
+                    ? CatalogPathConvergenceBlockReason.StartupFileScanDisabled
+                    : CatalogPathConvergenceBlockReason.Other);
+        }
         bool setMaintenanceInfo = !isScoreOnly;
         bool flag = !isScoreOnly;
         bool fileScanLifecycleStarted = false;
@@ -6046,6 +6063,7 @@ public partial class BMSLibrary : ObservableObject
             using (LibraryFileMutationCapability mutationCapability = mutationReservation.CreateMutationCapability())
             {
                 mutationCapability.Validate(lr2SynchronizationOwner);
+                ResetCatalogPathConvergence();
                 options = CurrentOptionsSnapshot;
                 directoryPreflightRequest = CaptureDirectoryPreflightRequest(options);
                 directoryPreflightService.EnsureAvailable(
@@ -6174,6 +6192,24 @@ public partial class BMSLibrary : ObservableObject
         string reason = string.IsNullOrWhiteSpace(failureReason) ? "unknown" : failureReason;
         ShowOperationDialog(
             string.Format(Resources.Warn_FileScanSkippedIncomplete, reason),
+            Resources.MessageBoxTitle_Warning,
+            MessageBoxButton.OK,
+            MessageBoxImage.Exclamation,
+            MessageBoxResult.OK);
+    }
+
+    /// <summary>
+    /// Warns that catalog-dependent file mutation is unavailable until an
+    /// authoritative file diff has converged the current catalog generation.
+    /// </summary>
+    internal void ShowCatalogFileMutationRequiresFileDiffWarning(
+        CatalogPathConvergenceBlockReason reason)
+    {
+        string message = reason == CatalogPathConvergenceBlockReason.StartupFileScanDisabled
+            ? Resources.Warn_CatalogFileMutationRequiresStartupScan
+            : Resources.Warn_CatalogFileMutationRequiresFileDiff;
+        ShowOperationDialog(
+            message,
             Resources.MessageBoxTitle_Warning,
             MessageBoxButton.OK,
             MessageBoxImage.Exclamation,
@@ -6446,6 +6482,21 @@ public partial class BMSLibrary : ObservableObject
         return lr2SynchronizationOwner.TryBeginMutation(operation, showMessage);
     }
 
+    private bool TryBlockCatalogFileMutation(string operation, bool showMessage = true)
+    {
+        return catalogFileMutationAdmissionOwner.TryBlockMutation(operation, showMessage);
+    }
+
+    private LibraryFileMutationLease TryBeginCatalogFileMutationPreservingBusyFailure(
+        string operation,
+        bool showMessage = true)
+    {
+        return catalogFileMutationAdmissionOwner.TryBeginFileOperationMutation(
+            operation,
+            showMessage,
+            showBusyMessage: false);
+    }
+
     /// <summary>
     /// Reserves the library mutation lease for a playlist-owned file/DB command.
     /// The playlist receives the resulting lease and creates its explicit nested
@@ -6455,6 +6506,25 @@ public partial class BMSLibrary : ObservableObject
     internal LibraryFileMutationLease TryBeginLibraryFileMutation(string operation, bool showMessage = true)
     {
         return TryBeginLr2SongDbSyncBlockedMutation(operation, showMessage);
+    }
+
+    /// <summary>
+    /// Invalidates the current catalog-path convergence fact before catalog
+    /// reload or file-diff work starts.
+    /// </summary>
+    internal void ResetCatalogPathConvergence(
+        CatalogPathConvergenceBlockReason reason = CatalogPathConvergenceBlockReason.Other)
+    {
+        catalogFileMutationReadinessOwner.Reset(reason);
+    }
+
+    /// <summary>
+    /// Marks the current catalog generation as path-converged after an
+    /// authoritative scan diff and canonical catalog replacement succeed.
+    /// </summary>
+    internal void MarkCatalogPathConvergenceCompleted()
+    {
+        catalogFileMutationReadinessOwner.MarkConverged();
     }
 
     private void RunLr2SongDbSync(string reason, string signature, int requestVersion, bool allowCommittedPathReceipt)
@@ -12765,7 +12835,7 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new ArgumentNullException("chartFiles");
         }
-        if (TryBlockLr2SongDbSyncMutation(nameof(AutoRenameChartFolders)))
+        if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFolders)))
         {
             return new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
         }
@@ -12834,7 +12904,7 @@ public partial class BMSLibrary : ObservableObject
         Action<int, int, string> progressReporter = null,
         bool reportAtTerminal = false)
     {
-        if (TryBlockLr2SongDbSyncMutation(nameof(AutoRenameAllChartFolders)))
+        if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFolders)))
         {
             return new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
         }
@@ -13186,7 +13256,7 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new ArgumentNullException(nameof(newName));
         }
-        if (TryBlockLr2SongDbSyncMutation(nameof(RenameChartFolder)))
+        if (TryBlockCatalogFileMutation(nameof(RenameChartFolder)))
         {
             return null;
         }
@@ -13219,7 +13289,7 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new ArgumentNullException(nameof(dstDir));
         }
-        if (TryBlockLr2SongDbSyncMutation(nameof(MoveLibraryRootFolder)))
+        if (TryBlockCatalogFileMutation(nameof(MoveLibraryRootFolder)))
         {
             return new FileDbMutationBatchReceipt([]);
         }
@@ -13264,7 +13334,7 @@ public partial class BMSLibrary : ObservableObject
 
     internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt, bool? unregister = false)
     {
-        if (TryBlockLr2SongDbSyncMutation(nameof(RenameBMSFilesExtensions)))
+        if (TryBlockCatalogFileMutation(nameof(RenameBMSFilesExtensions)))
         {
             return;
         }

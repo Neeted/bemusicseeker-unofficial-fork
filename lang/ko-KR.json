@@ -151,6 +151,8 @@
   "Play_history_add_date_range_to_search": "검색에 기간 추가",
   "Warn_EverythingFallbackScanUsed": "Everything 연동에 실패했기 때문에 일반 파일 열거로 전환합니다.\n대규모 라이브러리에서는 초기화나 리로드에 시간이 걸릴 수 있습니다.\n\nEverything 1.5 (x64)가 실행 중인지, BMS 폴더의 인덱스 생성이 완료되었는지, Everything에서 검색 가능한 상태인지 확인해 주세요.\n\n상세: {0}",
   "Warn_FileScanSkippedIncomplete": "채보 파일 열거를 완료할 수 없어 이번 파일 스캔으로는 song.db를 업데이트하지 않았습니다.\n기존 DB를 로드한 상태로 계속합니다.\n\n상세: {0}",
+  "Warn_CatalogFileMutationRequiresFileDiff": "BMS 파일 변경 확인이 완료되지 않아 안전을 위해 BMS 파일 또는 라이브러리 등록 내용을 변경하는 작업을 실행할 수 없습니다.\n라이브러리 트리의 「폴더」를 오른쪽 클릭한 뒤 「다시 불러오기」 또는 「초기화 다시 실행」을 완료하고 다시 시도해 주세요.",
+  "Warn_CatalogFileMutationRequiresStartupScan": "BeMusicSeeker가 설정 창 > 고급 설정 > 「시작할 때 BMS 파일과 구성 파일을 스캔」을 끈 상태로 시작되어, 시작 시 BMS 파일 변경을 확인하지 못했습니다.\n\n안전을 위해 실제 BMS 파일 상태가 라이브러리 DB에 반영될 때까지 BMS 파일 또는 라이브러리 등록 내용을 변경하는 작업을 실행할 수 없습니다.\n\n설정을 켜고 BeMusicSeeker를 다시 시작하거나, 라이브러리 트리의 「폴더」를 오른쪽 클릭한 뒤 「다시 불러오기」 또는 「초기화 다시 실행」을 실행해 주세요.",
   "Warn_EmptyScanWithExistingDbSkipped": "채보 파일 스캔 결과가 0건이었지만, 기존 song.db에는 등록된 곡이 있습니다.\n실수로 song.db를 빈 라이브러리로 업데이트하지 않도록 이번 song.db 업데이트를 건너뛰었습니다.\n\nBMS 디렉터리 설정이 실제 곡이 있는 위치를 가리키는지 확인해 주세요.\nEverything을 사용하는 경우 곡 폴더를 Everything 1.5에서 검색할 수 있는지, 인덱스 생성이 완료되었는지 확인해 주세요.\n\n상세: {0}",
   "Msg_failed_remove_playlist_entry": "재생 목록에서 채보를 제거하지 못했습니다.\n해당 재생 목록이 외부 동기화 모드로 설정되어 있습니다.",
   "Record_setting_encoder_dir": "실행 파일 경로: ",

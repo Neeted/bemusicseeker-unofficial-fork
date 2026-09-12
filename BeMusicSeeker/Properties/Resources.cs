@@ -1653,6 +1653,10 @@ public class Resources
 
     public static string Warn_FileScanSkippedIncomplete => ResourceManager.GetString("Warn_FileScanSkippedIncomplete", resourceCulture);
 
+    public static string Warn_CatalogFileMutationRequiresFileDiff => ResourceManager.GetString("Warn_CatalogFileMutationRequiresFileDiff", resourceCulture);
+
+    public static string Warn_CatalogFileMutationRequiresStartupScan => ResourceManager.GetString("Warn_CatalogFileMutationRequiresStartupScan", resourceCulture);
+
     public static string Warn_EmptyScanWithExistingDbSkipped => ResourceManager.GetString("Warn_EmptyScanWithExistingDbSkipped", resourceCulture);
 
     public static string Warn_no_pending_installed_only_packages => ResourceManager.GetString("Warn_no_pending_installed_only_packages", resourceCulture);

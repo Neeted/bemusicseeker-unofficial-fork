@@ -198,15 +198,50 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 path = packageDirectoryPath
             };
-            var library = new TestBmsLibrary(songDbPath)
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                dialogService)
             {
                 ChartPackagesPending = CreatePackageCollection([pendingPackage])
             };
+            library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
 
             library.RemovePendingPackages([pendingPackage]);
 
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
+            Assert.AreEqual(0, dialogService.Messages.Count);
+        });
+    }
+
+    [TestMethod]
+    public void RemovePendingPackagesAll_UnconvergedCatalogStillClearsPendingWithoutWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                dialogService)
+            {
+                ChartPackagesPending = CreatePackageCollection([
+                    new ChartPackage { path = Path.Combine(tempRootPath, "pending-clear-first") },
+                    new ChartPackage { path = Path.Combine(tempRootPath, "pending-clear-second") }])
+            };
+            library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
+
+            library.RemovePendingPackagesAll();
+
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(0, dialogService.Messages.Count);
         });
     }
 
@@ -1891,6 +1926,51 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, new BmsLibraryDbGateway(songDbPath).LoadInstallPackages().Count);
             Assert.IsTrue(File.Exists(rootChartPath));
             Assert.IsTrue(File.Exists(nestedChartPath));
+        });
+    }
+
+    [TestMethod]
+    public void InstallChartPackagesAuto_UnconvergedCatalogKeepsDiscoveredPackagePendingInsteadOfInstalling()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string installRoot = Path.Combine(tempRootPath, "Library");
+            string sourceDirectory = Path.Combine(tempRootPath, "Incoming");
+            Directory.CreateDirectory(installRoot);
+            string sourceChartPath = CreateBmsFile(sourceDirectory, "chart.bms", "#TITLE Pending until file diff");
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                dialogService,
+                new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installRoot,
+                    FolderNameFormat = "%TITLE%",
+                    KeepInstallablePackagesPending = false,
+                    PendingInstallEstimateMaxParallelPackages = 1
+                })
+            {
+                BMSFiles = [],
+                BmsonSongs = [],
+                SearchTargets = [installRoot],
+                ChartPackagesPending = CreatePackageCollection([]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
+
+            List<ChartPackage> installed = library.InstallChartPackagesAuto([sourceDirectory]);
+
+            Assert.AreEqual(0, installed.Count);
+            Assert.AreEqual(1, library.ChartPackagesPending.Count);
+            Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
+            Assert.IsTrue(File.Exists(sourceChartPath));
+            Assert.AreEqual(1, dialogService.Messages.Count);
         });
     }
 

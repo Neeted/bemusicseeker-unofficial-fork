@@ -50,6 +50,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string startupRequiredFileScanReason = null)
         : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
     {
+        MarkCatalogPathConvergenceCompleted();
     }
 
     internal TestBmsLibrary(
@@ -59,6 +60,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IFileMutationService fileMutationService)
         : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
     {
+        MarkCatalogPathConvergenceCompleted();
     }
 
     internal TestBmsLibrary(
@@ -69,6 +71,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IBmsLibraryDialogService dialogService)
         : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
     {
+        MarkCatalogPathConvergenceCompleted();
     }
 
     /// <summary>
@@ -93,6 +96,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
             TestBmsFactory.MissingEverythingBridge,
             installEstimationExecutionObserver)
     {
+        MarkCatalogPathConvergenceCompleted();
     }
 
     internal TestBmsLibrary(
@@ -104,6 +108,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IUiScheduler uiScheduler)
         : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, uiScheduler, TestBmsFactory.MissingEverythingBridge)
     {
+        MarkCatalogPathConvergenceCompleted();
     }
 
     /// <summary>
@@ -111,6 +116,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// and UI scheduler, so cleanup and publication tests do not mutate the
     /// process-wide settings singleton.
     /// </summary>
+    /// <param name="chartFileScanner">Optional captured scanner for tests that exercise the production file-diff ingress.</param>
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config,
@@ -118,7 +124,8 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
         IUiScheduler uiScheduler,
-        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
+        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
+        IChartFileScanner chartFileScanner = null)
         : base(
             songDbPath,
             getLR2Config,
@@ -128,8 +135,11 @@ internal sealed class TestBmsLibrary : BMSLibrary
             null,
             optionsSnapshotProvider ?? CurrentOptions,
             uiScheduler,
-            TestBmsFactory.MissingEverythingBridge)
+            TestBmsFactory.MissingEverythingBridge,
+            installEstimationExecutionObserver: null,
+            chartFileScanner: chartFileScanner)
     {
+        MarkCatalogPathConvergenceCompleted();
     }
 
     internal TestBmsLibrary(
@@ -140,6 +150,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
         : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
     {
+        MarkCatalogPathConvergenceCompleted();
     }
 
     /// <summary>
@@ -152,6 +163,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// <param name="uiScheduler">Optional scheduler for deterministic progress publication in route tests.</param>
     /// <param name="rootFileEnumerator">Optional captured grouped enumerator for deterministic LR2 file candidates.</param>
     /// <param name="irClient">startup から終了までの IR 通信を所有する明示的な境界。</param>
+    /// <param name="dialogService">Optional dialog recorder for production-ingress warning tests.</param>
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config,
@@ -162,9 +174,24 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IChartFileScanner chartFileScanner = null,
         IUiScheduler uiScheduler = null,
         IRootFileEnumerator rootFileEnumerator = null,
-        IBmsLibraryIrClient irClient = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler ?? new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot, chartFileScanner, rootFileEnumerator, irClient)
+        IBmsLibraryIrClient irClient = null,
+        IBmsLibraryDialogService dialogService = null)
+        : base(
+            _lr2SongDB: songDbPath,
+            getLR2Config: getLR2Config,
+            _lr2ScoreDB: _lr2ScoreDB,
+            fileMutationService: null,
+            dialogService: dialogService,
+            startupRequiredFileScanReason: startupRequiredFileScanReason,
+            optionsSnapshotProvider: optionsSnapshotProvider,
+            uiScheduler: uiScheduler ?? new TestUiScheduler(() => Dispatcher.CurrentDispatcher),
+            applicationPathSnapshot: applicationPathSnapshot,
+            installEstimationExecutionObserver: null,
+            chartFileScanner: chartFileScanner,
+            rootFileEnumerator: rootFileEnumerator,
+            irClient: irClient)
     {
+        MarkCatalogPathConvergenceCompleted();
     }
 
     /// <summary>
@@ -175,6 +202,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         ApplicationPathSnapshot applicationPathSnapshot)
         : base(songDbPath, null, null, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot)
     {
+        MarkCatalogPathConvergenceCompleted();
     }
 }
 

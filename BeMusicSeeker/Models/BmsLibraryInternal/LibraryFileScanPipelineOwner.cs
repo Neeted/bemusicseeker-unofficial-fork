@@ -65,6 +65,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly Func<Exception, string> getDisplayedExceptionMessage;
 
+    private readonly Action markCatalogPathConvergenceCompleted;
+
     private readonly Action<string> queueEverythingFallbackWarning;
 
     private readonly Action<string> queueFileScanSkippedIncompleteWarning;
@@ -107,6 +109,7 @@ internal sealed class LibraryFileScanPipelineOwner
     /// <param name="chartFileScanner">Optional captured chart scanner; null selects the normal Everything scanner.</param>
     /// <param name="rootFileEnumerator">Optional captured grouped enumerator; null selects the normal LR2 file enumeration path.</param>
     /// <param name="directoryPreflightService">更新前検査を共有する service。null の場合は通常構成を作成します。</param>
+    /// <param name="markCatalogPathConvergenceCompleted">Publishes the process-local readiness fact after authoritative path diff and canonical replacement complete.</param>
     internal LibraryFileScanPipelineOwner(
         BmsLibraryDbGateway dbGateway,
         CatalogStorageRowsOwner catalogStorageRowsOwner,
@@ -120,6 +123,7 @@ internal sealed class LibraryFileScanPipelineOwner
         Action<string> logEverythingScan,
         Action<string, string> logStartupMemoryCheckpoint,
         Func<Exception, string> getDisplayedExceptionMessage,
+        Action markCatalogPathConvergenceCompleted,
         Action<string> queueEverythingFallbackWarning,
         Action<string> queueFileScanSkippedIncompleteWarning,
         Action<string> queueEmptyScanWithExistingDbWarning,
@@ -147,6 +151,7 @@ internal sealed class LibraryFileScanPipelineOwner
         this.logEverythingScan = logEverythingScan ?? throw new ArgumentNullException(nameof(logEverythingScan));
         this.logStartupMemoryCheckpoint = logStartupMemoryCheckpoint ?? throw new ArgumentNullException(nameof(logStartupMemoryCheckpoint));
         this.getDisplayedExceptionMessage = getDisplayedExceptionMessage ?? throw new ArgumentNullException(nameof(getDisplayedExceptionMessage));
+        this.markCatalogPathConvergenceCompleted = markCatalogPathConvergenceCompleted ?? throw new ArgumentNullException(nameof(markCatalogPathConvergenceCompleted));
         this.queueEverythingFallbackWarning = queueEverythingFallbackWarning ?? throw new ArgumentNullException(nameof(queueEverythingFallbackWarning));
         this.queueFileScanSkippedIncompleteWarning = queueFileScanSkippedIncompleteWarning ?? throw new ArgumentNullException(nameof(queueFileScanSkippedIncompleteWarning));
         this.queueEmptyScanWithExistingDbWarning = queueEmptyScanWithExistingDbWarning ?? throw new ArgumentNullException(nameof(queueEmptyScanWithExistingDbWarning));
@@ -861,6 +866,11 @@ internal sealed class LibraryFileScanPipelineOwner
         try
         {
             PublishPostLeaseEffects();
+            // Individual chart read/parse failures do not make the path surface
+            // non-authoritative. Once the authoritative scan diff, canonical
+            // storage replacement, and required publication complete,
+            // file-mutation admission may open for this catalog generation.
+            markCatalogPathConvergenceCompleted();
         }
         catch
         {

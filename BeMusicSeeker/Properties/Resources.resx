@@ -2577,6 +2577,17 @@ Everything 1.5 (x64) が起動しているか、BMS フォルダのインデッ�
 
 詳細: {0}</value>
   </data>
+  <data name="Warn_CatalogFileMutationRequiresFileDiff" xml:space="preserve">
+    <value>BMSファイルの変更確認が完了していないため、安全のためBMSファイルやライブラリの登録内容を変更する操作は実行できません。
+ライブラリツリーの「フォルダ」を右クリックして「リロード」または「初期化再実行」を完了してから、もう一度実行してください。</value>
+  </data>
+  <data name="Warn_CatalogFileMutationRequiresStartupScan" xml:space="preserve">
+    <value>「設定ウィンドウ &gt; 詳細設定 &gt; 起動時にBMSファイルと構成ファイルのスキャンを行う」がOFFの状態で起動したため、起動時にBMSファイルの変更を確認できていません。
+
+安全のため、実在するBMSファイルの状態がライブラリDBに反映されるまで、BMSファイルやライブラリの登録内容を変更する操作は実行できません。
+
+設定をONにしてBeMusicSeekerを再起動するか、ライブラリツリーの「フォルダ」を右クリックして「リロード」または「初期化再実行」を行ってください。</value>
+  </data>
   <data name="Warn_EmptyScanWithExistingDbSkipped" xml:space="preserve">
     <value>譜面ファイルのスキャン結果が 0 件でしたが、既存の song.db には楽曲が登録されています。
 誤って song.db を空として更新しないよう、今回の song.db 更新はスキップしました。
