@@ -894,6 +894,65 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>R2C-FULL-LOOKUP: case-only path rows keep independent resource-health projections.</summary>
+    [TestMethod]
+    public void GetChartsNeedResourceFix_CaseOnlyExactPathsKeepIndependentResourceHealthProjections()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            const string sharedHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            TestableBmsFile upperCasePath = CreateFile(sharedHash);
+            upperCasePath.path = @"C:\Library\Case.bms";
+            upperCasePath.SetMaintenanceInfo(new BMSFileMaintenanceInfo(upperCasePath)
+            {
+                hash = sharedHash,
+                wav_files_defined = 2,
+                wav_files_existing = 1
+            }, suppressPropertyChanged: true);
+            TestableBmsFile lowerCasePath = CreateFile(sharedHash);
+            lowerCasePath.path = @"c:\library\case.bms";
+            lowerCasePath.SetMaintenanceInfo(new BMSFileMaintenanceInfo(lowerCasePath)
+            {
+                hash = sharedHash,
+                bga_files_defined = 3,
+                bga_files_existing = 1
+            }, suppressPropertyChanged: true);
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                BMSFiles = [upperCasePath, lowerCasePath],
+                BmsonSongs = []
+            };
+
+            ResourceHealthIndexSnapshot snapshot = library.GetResourceHealthIndexSnapshotForView("r2c_exact_full");
+            List<ChartFile> result = library.GetChartsNeedResourceFix(null);
+            ResourceHealthWarningProjection upperProjection = snapshot.GetProjection(
+                ChartFileKind.Bms,
+                upperCasePath.path,
+                sharedHash);
+            ResourceHealthWarningProjection lowerProjection = snapshot.GetProjection(
+                ChartFileKind.Bms,
+                lowerCasePath.path,
+                sharedHash);
+
+            Assert.AreEqual(2, snapshot.TargetCount);
+            Assert.IsTrue(new HashSet<string>(result.Select(chart => chart.Path), StringComparer.Ordinal).SetEquals(
+                [upperCasePath.path, lowerCasePath.path]));
+            Assert.IsTrue(upperProjection.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse(upperProjection.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+            Assert.IsTrue(lowerProjection.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+            Assert.IsFalse(lowerProjection.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(snapshot.GetProjection(
+                ChartFileKind.Bms,
+                upperCasePath.path,
+                sharedHash.ToUpperInvariant()).Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse(snapshot.GetProjection(
+                ChartFileKind.Bms,
+                @"C:\Library\CASE.bms",
+                sharedHash).HasIssues);
+        });
+    }
+
     [TestMethod]
     public void RescanResourceHealthCharts_PublishesMaintenanceRefreshThroughOwnedDispatcher()
     {
@@ -1449,6 +1508,112 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsFalse(afterRemove.GetProjection(ignoredChart).HasIssues);
         CollectionAssert.AreEqual(new[] { addedChart }, afterRemove.ActiveTargets.ToArray());
         CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterRemove.IgnoredTargets.ToArray());
+    }
+
+    /// <summary>R2C-DELTA-REHASH: case-only rows remain independent across delta, rehash, and removal.</summary>
+    [TestMethod]
+    public void ResourceHealthIndexSnapshot_CaseOnlyExactPathsRemainIndependentAcrossDeltaAndRehash()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        TestableBmsFile upperInitial = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        upperInitial.path = @"C:\Library\Delta.bms";
+        upperInitial.SetMaintenanceInfo(new BMSFileMaintenanceInfo(upperInitial)
+        {
+            hash = upperInitial.hash,
+            wav_files_defined = 2,
+            wav_files_existing = 1
+        }, suppressPropertyChanged: true);
+        TestableBmsFile lowerInitial = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        lowerInitial.path = @"c:\library\delta.bms";
+        lowerInitial.SetMaintenanceInfo(new BMSFileMaintenanceInfo(lowerInitial)
+        {
+            hash = lowerInitial.hash,
+            bga_files_defined = 2,
+            bga_files_existing = 1
+        }, suppressPropertyChanged: true);
+        ChartFile upperInitialChart = ChartFileProjection.FromBmsFile(upperInitial);
+        ChartFile lowerInitialChart = ChartFileProjection.FromBmsFile(lowerInitial);
+        ResourceHealthIndexSnapshot initial = ResourceHealthIndexSnapshot.Build(
+            [upperInitialChart, lowerInitialChart],
+            service,
+            version: 1);
+
+        const string sharedRehash = "cccccccccccccccccccccccccccccccc";
+        TestableBmsFile upperShared = CreateFile(sharedRehash);
+        upperShared.path = upperInitial.path;
+        upperShared.SetMaintenanceInfo(new BMSFileMaintenanceInfo(upperShared)
+        {
+            hash = sharedRehash,
+            movie_files_defined = 2,
+            movie_files_existing = 1
+        }, suppressPropertyChanged: true);
+        TestableBmsFile lowerShared = CreateFile(sharedRehash);
+        lowerShared.path = lowerInitial.path;
+        lowerShared.SetMaintenanceInfo(new BMSFileMaintenanceInfo(lowerShared)
+        {
+            hash = sharedRehash,
+            bga_files_defined = 4,
+            bga_files_existing = 2
+        }, suppressPropertyChanged: true);
+        ChartFile upperSharedChart = ChartFileProjection.FromBmsFile(upperShared);
+        ChartFile lowerSharedChart = ChartFileProjection.FromBmsFile(lowerShared);
+
+        ResourceHealthIndexSnapshot bothRehashed = initial.ApplyDelta(
+            [upperSharedChart, lowerSharedChart],
+            null,
+            service,
+            version: 2);
+
+        Assert.AreEqual(2, bothRehashed.TargetCount);
+        Assert.IsTrue(bothRehashed.GetProjection(upperSharedChart).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceMovieMissing));
+        Assert.IsTrue(bothRehashed.GetProjection(lowerSharedChart).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+        Assert.IsFalse(bothRehashed.GetProjection(upperInitialChart).HasIssues);
+        Assert.IsFalse(bothRehashed.GetProjection(lowerInitialChart).HasIssues);
+        Assert.IsTrue(initial.GetProjection(upperInitialChart).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        Assert.IsTrue(initial.GetProjection(lowerInitialChart).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+
+        TestableBmsFile upperRehashedAgain = CreateFile("dddddddddddddddddddddddddddddddd");
+        upperRehashedAgain.path = upperInitial.path;
+        upperRehashedAgain.SetMaintenanceInfo(new BMSFileMaintenanceInfo(upperRehashedAgain)
+        {
+            hash = upperRehashedAgain.hash,
+            wav_files_defined = 3,
+            wav_files_existing = 1
+        }, suppressPropertyChanged: true);
+        ChartFile upperRehashedAgainChart = ChartFileProjection.FromBmsFile(upperRehashedAgain);
+
+        ResourceHealthIndexSnapshot upperUpdated = bothRehashed.ApplyDelta(
+            [upperRehashedAgainChart],
+            null,
+            service,
+            version: 3);
+
+        Assert.AreEqual(2, upperUpdated.TargetCount);
+        Assert.IsFalse(upperUpdated.GetProjection(upperSharedChart).HasIssues);
+        Assert.IsTrue(upperUpdated.GetProjection(upperRehashedAgainChart).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        Assert.IsTrue(upperUpdated.GetProjection(lowerSharedChart).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+        Assert.IsTrue(bothRehashed.GetProjection(upperSharedChart).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceMovieMissing));
+
+        ResourceHealthIndexSnapshot upperRemoved = upperUpdated.ApplyDelta(
+            null,
+            [upperRehashedAgainChart],
+            service,
+            version: 4);
+
+        Assert.AreEqual(1, upperRemoved.TargetCount);
+        Assert.IsFalse(upperRemoved.GetProjection(upperRehashedAgainChart).HasIssues);
+        Assert.IsTrue(upperRemoved.GetProjection(lowerSharedChart).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+        Assert.IsTrue(upperUpdated.GetProjection(upperRehashedAgainChart).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
     }
 
     [TestMethod]

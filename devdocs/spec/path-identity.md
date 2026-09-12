@@ -96,7 +96,7 @@ mergeはsource scopeに含まれる旧exact keyをすべて保持する。一方
 
 whole-folder削除のようにphysical folderの成功factを起点に後続stateを更新する場合も、folder containment / deletion判定はfilesystem規則を使い、どのcatalog rowのinstall-destination stateをclearするかはexact row pathで識別する。row identityとphysical target identityを同じcomparerへ統合しない。
 
-R2bではPathCleanupの全表materialize・孤児確認を対象集合へ限定した。resource-healthのkey比較はR2c、storage listの全件再構築削減はR5aに残る。R2aはこれらの完了や大規模速度改善を保証しない。
+R2bではPathCleanupの全表materialize・孤児確認を対象集合へ限定し、R2cではresource-health indexのchart path keyをexact identityへ揃えた。storage listの全件再構築削減はR5aに残る。R2a単体はこれらの完了や大規模速度改善を保証しない。
 
 ## 局所 PathCleanup の対象集合（R2b）
 
@@ -114,6 +114,26 @@ BMS の削除では、削除前に対象 path から得た `song.hash` と削除
 | `BmsonIsolation` | [`BmsLibraryDbGateway.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の `DeleteBmsonMutationRows` / `BulkDeleteBmsonPaths` | [`CatalogMutationOwnerTests.cs`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の `ApplyCatalogMutation_PathCleanupUsesBoundedExactSetAndPreservesDigestOwnership` |
 | `DbFailure` | [`BmsLibraryDbGateway.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の既存 transaction 境界 | [`CatalogMutationOwnerTests.cs`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の `ApplyCatalogMutation_WhenRemovalFailsRollsBackRelocationAndLiveVersions` |
 | `BoundedDbWork` | [`BmsLibraryDbGateway.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の exact path/hash temp set と集合 SQL | [`CatalogMutationOwnerTests.cs`](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の背景16件・128件対照、および [`SqliteStatementObservation.cs`](../../BeMusicSeeker.Tests/Helpers/SqliteStatementObservation.cs) の実接続PROFILE/FULLSCAN_STEP/VM_STEP観測 |
+
+## Resource-health index の chart path identity（R2c）
+
+`ResourceHealthIndexSnapshot`のchart keyは、catalog rowと同じくpath成分を未加工のexact identityとして扱う。Windows上の物理file identityやdirectory探索用のcase-insensitive比較を、warning projectionのrow keyへ流用しない。
+
+- keyのkindとMD5は既存どおりcase-insensitiveに比較し、pathだけをordinal exactに比較する。hash codeも同じ比較規則と一致させる。
+- full buildでは、同じkind / MD5でもcase-onlyに異なるpathは別targetとして保持し、それぞれのmaintenanceから独立したwarning projectionを作る。projection lookupもexact pathで解決する。
+- deltaの「同じchart」はkind + exact pathで判定する。同じexact pathのrehashでは旧hashのtarget / projectionを除いて新hashへ置換するが、case-onlyの別pathを削除・更新対象へ広げない。
+- delta入力の重複排除はfull buildと同じkeyを使うため、case-onlyの別exact pathを一件へ畳まない。`ResourceHealthIndexOwner`のtarget normalizationもnull除外だけとし、case-insensitive dedupeを追加しない。
+- snapshotはdelta適用時に新しいdictionary / set / target listを構築し、更新前snapshotのtarget countとprojectionを変化させない。
+
+この変更はkey比較の是正だけであり、新しいcatalog走査、DB query、全件copy、fallback、retryを追加しない。約21万譜面規模でのterminal wall-clock改善はR2c単独の受入条件ではなく、R2cは誤ったcase-foldによるtarget欠落と巻添え更新を除く正しさの修正である。
+
+### 実装・テスト対応表 — R2c
+
+| 仕様項目 | 実装 | テスト |
+| --- | --- | --- |
+| `ExactResourceHealthPathKey` | [`ResourceHealthWarningProjection.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealthWarningProjection.cs) の `ResourceHealthChartKey.Equals` / `GetHashCode` | [`BmsLibraryMaintenanceServiceTests.cs`](../../BeMusicSeeker.Tests/BmsLibraryMaintenanceServiceTests.cs) の `GetChartsNeedResourceFix_CaseOnlyExactPathsKeepIndependentResourceHealthProjections` |
+| `ExactResourceHealthDeltaIdentity` | 同 `ResourceHealthChartKey.HasSameChartIdentity`、`DistinctValidTargets`、`RemoveMatchingChartIdentity` | [`BmsLibraryMaintenanceServiceTests.cs`](../../BeMusicSeeker.Tests/BmsLibraryMaintenanceServiceTests.cs) の `ResourceHealthIndexSnapshot_CaseOnlyExactPathsRemainIndependentAcrossDeltaAndRehash` |
+| `ResourceHealthHashRule` | 同 `ResourceHealthChartKey.Equals` / `GetHashCode` のMD5比較 | `GetChartsNeedResourceFix_CaseOnlyExactPathsKeepIndependentResourceHealthProjections` のhash case対照、`ResourceHealthIndexSnapshot_CaseOnlyExactPathsRemainIndependentAcrossDeltaAndRehash` のexact path rehash対照 |
 
 <a id="r2a-test-map"></a>
 ### Test map — R2a

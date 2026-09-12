@@ -261,14 +261,14 @@ internal sealed class ResourceHealthIndexSnapshot
         public bool Equals(ResourceHealthChartKey other)
         {
             return string.Equals(kind, other.kind, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(path, other.path, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(path, other.path, StringComparison.Ordinal)
                 && string.Equals(hash, other.hash, StringComparison.OrdinalIgnoreCase);
         }
 
         internal bool HasSameChartIdentity(ResourceHealthChartKey other)
         {
             return string.Equals(kind, other.kind, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(path, other.path, StringComparison.OrdinalIgnoreCase);
+                && string.Equals(path, other.path, StringComparison.Ordinal);
         }
 
         public override bool Equals(object obj)
@@ -281,7 +281,8 @@ internal sealed class ResourceHealthIndexSnapshot
             unchecked
             {
                 int hashCode = StringComparer.OrdinalIgnoreCase.GetHashCode(kind ?? string.Empty);
-                hashCode = (hashCode * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(path ?? string.Empty);
+                // Catalog chart paths are exact row identities even on case-insensitive filesystems.
+                hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(path ?? string.Empty);
                 hashCode = (hashCode * 397) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(hash ?? string.Empty);
                 return hashCode;
             }

@@ -98,7 +98,7 @@ SelfOwnedのみの変更でも、既存のremove→appendで候補が`[A, B] →
 | R2a | PathCleanup・storage・owned・package・導入lookupのexact path統一 | merge、install、catalog変更 | 実装済み |
 | R2a-GATE | file diffによるpath収束前にもcatalog依存file mutationを受理できる | delete、merge、install、move、rename等のP0 file mutation | 実装済み(将来gateを前倒し) |
 | R2b | PathCleanupの全表materialize・行ごとの削除・孤児確認を対象集合SQLへ統合 | 主にmerge、PathCleanupを使う修正経路 | 実装済み |
-| R2c | resource-healthのchart identityがpathをcase-insensitive比較 | warning表示・maintenanceを伴う変更 | R5c前に正しさを修正 |
+| R2c | resource-healthのchart identityがpathをcase-insensitive比較 | warning表示・maintenanceを伴う変更 | 実装済み |
 | RELINK-1 | file diffの一対一・同一MD5 relinkにcase-onlyだけの除外が残る | startup / file diff / 再初期化 | 採用済みの仕様統一。R2群直後の独立unit |
 | R3 | LR2同期receipt用の全BMS path取得、二重sort、全祖先lookup作成 | delete、move、rename、merge | R2のexact factsと整合させる |
 | R4a | move / renameで全reverse key・候補配列を走査・一時確保 | move、rename | 対象bucket更新へ |
@@ -177,13 +177,37 @@ Status: Implemented（2026-09-12）。恒久契約と実装・テスト対応は
 
 ### R2c — resource-healthのchart path identityをexactにする
 
-`ResourceHealthWarningProjection.cs`内の`ResourceHealthIndexSnapshot.ResourceHealthChartKey`は、`Equals`、`HasSameChartIdentity`、`GetHashCode`のpath部分に`OrdinalIgnoreCase`を使う（`261–285`）。そのため、同じkind / MD5でcase-only pathが二行あるとfull buildで同一keyになり、MD5が異なる場合もdelta時の同一chart判定が相手variantを巻き込める。
+Status: Implemented（2026-09-12）。multi-agent機能を利用せず、同一セッション内でoracle-firstのテスト設計、実装、検証、fresh reviewを順に分離した。
+
+修正前の`ResourceHealthWarningProjection.cs`内の`ResourceHealthIndexSnapshot.ResourceHealthChartKey`は、`Equals`、`HasSameChartIdentity`、`GetHashCode`のpath部分に`OrdinalIgnoreCase`を使っていた。そのため、同じkind / MD5でcase-only pathが二行あるとfull buildで同一keyになり、MD5が異なる場合もdelta時の同一chart判定が相手variantを巻き込める。
 
 これはDB操作そのものではないが、DB上で別である譜面のwarning lookupと対象件数を混同する残件である。R1の入力取得制御とは別の修正とする。
 
-path成分だけをexact identityへ合わせ、hashの既存比較規則と、同じexact pathのrehashで古いhashのprojectionを除く契約は維持する。`DistinctValidTargets`も同じkeyを使うため、full build・delta・projection lookupを一緒に確認する。`ResourceHealthIndexOwner.NormalizeTargets:517–520`は現在null除外のみであり、新たなcase-insensitive重複排除を追加しない。必要な変更箇所はこのproduction経路へ限定する。
+R2cではpath成分だけをexact identityへ合わせ、hashの既存比較規則と、同じexact pathのrehashで古いhashのprojectionを除く契約を維持する。`DistinctValidTargets`も同じkeyを使うため、full build・delta・projection lookupを一緒に確認する。`ResourceHealthIndexOwner.NormalizeTargets:517–520`は現在null除外のみであり、新たなcase-insensitive重複排除を追加しない。必要な変更箇所はこのproduction経路へ限定する。
 
 受入条件は、case-only二行に異なるmaintenanceを与えたときの独立したwarning、target count、一方の更新・削除で他方が不変、同じexact pathのrehash、旧snapshotの不変。配置候補は`BmsLibraryMaintenanceServiceTests`のresource-health snapshot / deltaケースと`ResourceHealthIndexOwnerTests`。期待値の根拠はpath identityとwarning仕様であり、現在のcase-insensitive出力を正解として固定しない。
+
+#### Test Contract Packet — `RESOURCE-HEALTH-EXACT-PATH-20260912`
+
+Authority: 本R2cを実装するという利用者指示、[path identity](../spec/path-identity.md)の永続chart path exact identity、[WARNINGモデル](../spec/warning-model.md)のresource-health projection契約。current implementation、current output、既存test expectedはoracleにしない。
+
+Production route: startup / maintenance hydrationまたはmanual resource-health rescan → `BMSLibrary`のfull / delta resource-health dispatch → `ResourceHealthIndexOwner` → `ResourceHealthIndexSnapshot` → 通常一覧warning projection / `GetChartsNeedResourceFix`。入口前提は、owned collection上でcase-only pathが別exact chart rowとして成立していること。
+
+| Contract ID | 入力・観測する結果 | 許容差分 | 検出する誤実装 |
+| --- | --- | --- | --- |
+| `R2C-FULL-LOOKUP` | 同kind・同MD5でpathだけがcase-onlyに異なる二chartへ異なるresource maintenanceを与える。full snapshotの`TargetCount`は2、各exact path lookupは各chart固有のwarningを返し、第三のcase表記は一致しない。通常一覧のfix対象も二exact rowを保持する | target列挙順、warning message文言 | pathの`OrdinalIgnoreCase` key、case-fold dedupe、projection lookupだけNOCASEのまま残す |
+| `R2C-DELTA-REHASH` | case-only二chartを保持したsnapshotへ、一方または双方のdeltaを適用する。同じexact pathのrehashは旧hash projectionだけを除き、相手variantを保持する。一方の削除でも相手variantは不変。更新前snapshotと各中間snapshotは後続deltaで変化しない | snapshot version / build time | `HasSameChartIdentity`のNOCASE残存、`DistinctValidTargets`のcase-fold、rehashで相手variantを除去、snapshotのin-place mutation |
+| `R2C-HASH-RULE` | case-only path以外のkind / hash比較規則は既存契約を維持し、同じexact pathのhash違いはdelta rehashとして置換する | 内部key表現 | path修正と同時にhash比較をcase-sensitive化、同じexact pathの旧hashを残す |
+
+配置は`BmsLibraryMaintenanceServiceTests`へ`R2C-FULL-LOOKUP`と`R2C-DELTA-REHASH`をextendする。`ResourceHealthIndexOwner.NormalizeTargets`はnull除外だけの現行責務を維持し、新たなcase-insensitive dedupeを追加しない。修正前redは上記二caseを既存実装で実行して確認する。
+
+#### 完了記録
+
+- `ResourceHealthChartKey.Equals` / `HasSameChartIdentity` / `GetHashCode`のpath成分だけをordinal exactへ変更した。kindとMD5のcase-insensitive比較、同じexact pathのrehashで旧hash projectionを除く既存契約は維持した。`ResourceHealthIndexOwner.NormalizeTargets`には変更を加えていない。
+- `BmsLibraryMaintenanceServiceTests`へfull owned index / lookup対照とsnapshot delta / rehash / removal / immutability対照を追加した。同kind・同MD5のcase-only二行、hash case、第三のcase表記、同一delta batch内のcase-only同hash、後続rehashと削除を観測し、current outputをoracleにはしていない。
+- 旧`OrdinalIgnoreCase` path規則へ同じ入力を当てる静的識別確認では、full keyとdelta chart identityの双方がcase-only二行を同一扱いする一方、exact規則では別扱いになることを確認した。したがって追加testは対象誤実装を区別する。修正前red / runtime negative-controlは未取得だが、適用後の`scripts/verify-refactor.ps1`は利用者側で成功済みである。本記録では実行mode・件数・elapsedは未取得のため断定しない。
+- `git diff --check`は成功し、production ingressからsnapshot build / delta / projection lookup / fix対象列挙までを再追跡したfresh static reviewでは修正必須指摘なし。新しいcatalog走査、DB query、全件copy、fallback、retryは追加していない。
+- 約21万譜面規模のterminal wall-clockはR2cの受入条件ではなく未測定。storage listの全件再構築削減はR5a、保存値relinkはRELINK-1の独立unitとして残す。
 
 <a id="relink-1"></a>
 ### RELINK-1 — file diffの保存値relinkをpath差分の種類によらない規則へ統一する
