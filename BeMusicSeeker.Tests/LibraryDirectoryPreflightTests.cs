@@ -451,11 +451,11 @@ public sealed class LibraryDirectoryPreflightTests
 
         internal List<string> DeletedPaths { get; } = [];
 
-        internal Exception EnumerationFailure { get; init; }
+        internal Exception? EnumerationFailure { get; init; }
 
-        internal Exception OpenFailure { get; init; }
+        internal Exception? OpenFailure { get; init; }
 
-        internal Exception DeleteFailure { get; init; }
+        internal Exception? DeleteFailure { get; init; }
 
         public FileAttributes GetAttributes(string path)
         {

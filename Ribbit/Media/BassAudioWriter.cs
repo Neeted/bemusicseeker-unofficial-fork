@@ -381,6 +381,7 @@ internal sealed class AudioWriterRenderException : Exception
         NativeError = nativeError;
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private AudioWriterRenderException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

@@ -265,8 +265,8 @@ public sealed class UiDialogCoordinatorWpfTests
 
     private static UiDialogCoordinator CreateTestCoordinator(
         TestWindowPresentationScope windowTest,
-        UiDialogOwnerResolver ownerResolver = null,
-        Func<Window, UiMessageRequest, ThemedMessageBoxResponse> messagePresenter = null)
+        UiDialogOwnerResolver? ownerResolver = null,
+        Func<Window, UiMessageRequest, ThemedMessageBoxResponse>? messagePresenter = null)
     {
         return new UiDialogCoordinator(
             ownerResolver ?? new UiDialogOwnerResolver(),

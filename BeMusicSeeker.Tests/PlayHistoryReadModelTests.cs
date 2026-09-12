@@ -1748,7 +1748,7 @@ public sealed class PlayHistoryReadModelTests
         var propertyNames = new List<string>();
         int refreshRequests = 0;
         bool selectedWhenRefreshRequested = false;
-        owner.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        owner.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
         owner.SummaryFilterRefreshRequested += (_, _) =>
         {
             refreshRequests++;
@@ -2773,7 +2773,7 @@ public sealed class PlayHistoryReadModelTests
         WithBeatorajaPlayerDb(delegate (string scoreDbPath, string scoreLogDbPath)
         {
             CreateBeatorajaPlayerDb(scoreDbPath);
-            string scoreDataLogDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath), "scoredatalog.db");
+            string scoreDataLogDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath)!, "scoredatalog.db");
             CreateBeatorajaScoreDataLogLatestDb(scoreDataLogDbPath);
             using (var db = new SQLiteConnection(scoreDataLogDbPath))
             {

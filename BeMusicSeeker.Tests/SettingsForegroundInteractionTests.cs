@@ -1395,7 +1395,7 @@ public sealed class SettingsForegroundInteractionTests
         public bool TryRunDataPreparation(
             string reason,
             bool includeBuiltinGeneratedData = false,
-            Action queueAfterPreparation = null)
+            Action? queueAfterPreparation = null)
         {
             queueAfterPreparation?.Invoke();
             return true;

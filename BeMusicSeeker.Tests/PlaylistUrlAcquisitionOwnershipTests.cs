@@ -1431,7 +1431,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
     private static PlaylistDetailRow CreatePlaylistUrlRow(string? url, string? diffUrl)
     {
-        var row = (PlaylistDetailRow)FormatterServices.GetUninitializedObject(typeof(PlaylistDetailRow));
+        var row = (PlaylistDetailRow)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(PlaylistDetailRow));
         SetPrivateField(row, "url", string.IsNullOrWhiteSpace(url) ? null : new Uri(url));
         SetPrivateField(row, "urlDiff", string.IsNullOrWhiteSpace(diffUrl) ? null : new Uri(diffUrl));
         return row;
@@ -1439,7 +1439,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
     private static PlaylistDetailRow CreatePlaylistExternalPackageRow(string md5)
     {
-        var row = (PlaylistDetailRow)FormatterServices.GetUninitializedObject(typeof(PlaylistDetailRow));
+        var row = (PlaylistDetailRow)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(PlaylistDetailRow));
         SetPrivateField(row, "<Entry>k__BackingField", CreatePlaylistEntry(md5));
         SetPrivateField(row, "<IsOwned>k__BackingField", false);
         return row;

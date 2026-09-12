@@ -199,7 +199,7 @@ public sealed class CustomTableRowChangeTrackerTests
 
     private sealed class TestRow : INotifyPropertyChanged
     {
-        public event PropertyChangedEventHandler PropertyChanged = delegate { };
+        public event PropertyChangedEventHandler? PropertyChanged = delegate { };
 
         internal void RaiseChanged()
         {

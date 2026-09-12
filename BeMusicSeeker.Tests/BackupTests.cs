@@ -74,7 +74,7 @@ public sealed class BackupTests
         WithBackupTree((root, source) =>
         {
             string[] old = CreateOldGenerations(root);
-            string locked = Path.Combine(Path.GetDirectoryName(source), "locked.db");
+            string locked = Path.Combine(Path.GetDirectoryName(source)!, "locked.db");
             WriteAllText(locked, "locked-source");
             using FileStream fileLock = LongPathFileSystem.Open(locked, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
 
@@ -115,7 +115,7 @@ public sealed class BackupTests
         WithBackupTree((root, source) =>
         {
             string[] old = CreateOldGenerations(root);
-            string missing = Path.Combine(Path.GetDirectoryName(source), "missing.db");
+            string missing = Path.Combine(Path.GetDirectoryName(source)!, "missing.db");
             string[] sources = includeValidSource ? [source, missing] : [missing];
 
             Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(root, TimeSpan.Zero, 1, sources);
@@ -487,7 +487,7 @@ public sealed class BackupTests
     {
         WithBackupTree((root, songDbPath) =>
         {
-            string tree = Path.GetDirectoryName(songDbPath);
+            string tree = Path.GetDirectoryName(songDbPath)!;
             string configPath = Path.Combine(tree, "config.xml");
             string scoreDirectoryPath = Path.Combine(tree, "Score");
             Directory.CreateDirectory(scoreDirectoryPath);

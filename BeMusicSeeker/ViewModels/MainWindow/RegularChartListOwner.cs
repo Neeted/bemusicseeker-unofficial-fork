@@ -5149,6 +5149,7 @@ internal sealed class RegularChartListTerminalPublishException : Exception
     {
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private RegularChartListTerminalPublishException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

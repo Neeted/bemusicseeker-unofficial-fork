@@ -1629,6 +1629,7 @@ internal sealed class MainChartListPresentationPublishException : Exception
     {
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private MainChartListPresentationPublishException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

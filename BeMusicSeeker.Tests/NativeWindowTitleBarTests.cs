@@ -189,7 +189,7 @@ public sealed class NativeWindowTitleBarTests
 
     private sealed class RecordingThemeSource : INativeWindowTitleBarThemeSource
     {
-        private EventHandler themeChanged;
+        private EventHandler? themeChanged;
         private readonly NativeWindowTitleBarAppearance appearance;
 
         internal RecordingThemeSource(NativeWindowTitleBarAppearance appearance)

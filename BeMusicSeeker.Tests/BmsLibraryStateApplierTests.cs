@@ -832,7 +832,7 @@ internal static class BmsLibraryStateApplierTestSupport
             new CatalogStorageRowsOwner(),
             new CatalogOwnedCollectionOwner(),
             new BmsLibraryDbGateway(songDbPath));
-        owner.CatalogWriteFailurePublished += delegate (object sender, CatalogWriteFailureFact fact)
+        owner.CatalogWriteFailurePublished += delegate (object? sender, CatalogWriteFailureFact fact)
         {
             callbacks.SongDbWriteFailureCount++;
             callbacks.LastSongDbWriteFailureStage = fact.Stage;

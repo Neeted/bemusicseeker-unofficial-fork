@@ -77,6 +77,14 @@ Everythingが使える場合、通常起動のfile enumerationは`EBridge_ScanCh
 
 main appは`win-x64` Self-contained、managed bundle + ReadyToRunを正本とする。native self-extract、all-content extraction、single-file compression、trimmingは使わない。BASS / 7zは`libs/x64`、Everything bridgeは`native`、language catalogは`lang`を使う。
 
+WindowsDesktop runtime packが `System.Resources.Extensions` と `System.Configuration.ConfigurationManager` のアセンブリを供給する。アプリの依存宣言へこの2つを直接追加せず、中央バージョンやlock entryを構成の契約として固定しない。設定の型・保存形式は [settings-change-impact-and-startup-operations.md](settings-change-impact-and-startup-operations.md)、埋込みアイコンは [appearance-theme.md](appearance-theme.md)、build / publishの配置は [testing-strategy.md](testing-strategy.md) と [portable-auto-update.md](portable-auto-update.md) の既存検証で確認する。
+
+| 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 設定の保存形式と互換性 | [Settings.cs](../../BeMusicSeeker/Properties/Settings.cs)、[PortableSettingsProvider.cs](../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [PortableSettingsPersistenceTests](../../BeMusicSeeker.Tests/PortableSettingsPersistenceTests.cs) の `SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys` ほかで保存・再読込み・失敗時のデータ保持を確認。 |
+| 埋込みアイコンとリソース解決 | [Images.cs](../../BeMusicSeeker/Properties/Images.cs) の `ResourceManager` と型付きアクセサー | [ResourceIconContractTests](../../BeMusicSeeker.Tests/ResourceIconContractTests.cs) の `EmbeddedImagesExposeStableKeysTypesAndPayloads`、`XamlIconConverterPreservesResourceDimensions`。 |
+| WindowsDesktop供給、managed bundle、旧DLL混入防止 | [BeMusicSeeker.csproj](../../BeMusicSeeker.csproj)、[publish.ps1](../../scripts/publish.ps1) の `Invoke-SelfContainedPublish` | [ManagedDependencyOutputPolicyTests](../../BeMusicSeeker.Tests/ManagedDependencyOutputPolicyTests.cs) の `ApplicationProjectUsesHostManagedDependencyLayout` と [Full](testing-strategy.md) の実配布物による起動・更新受入。直接参照の存在だけを保証にしない。 |
+
 ## Documentation priority
 
 `spec/`配下を現行仕様の正本とする。計画・履歴は`../plan/`、受入れevidenceは`../acceptance/`を参照する。

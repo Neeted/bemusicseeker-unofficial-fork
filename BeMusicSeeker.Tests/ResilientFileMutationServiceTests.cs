@@ -1014,10 +1014,10 @@ public sealed class ResilientFileMutationServiceTests
     private sealed class InterleavingFileMutationService : IFileMutationService
     {
         private readonly ResilientFileMutationService inner = new();
-        private readonly string promotionDestinationPath;
-        private readonly Action afterFirstCopy;
-        private readonly Action afterFirstPromotion;
-        private readonly string compensationFailurePath;
+        private readonly string? promotionDestinationPath;
+        private readonly Action? afterFirstCopy;
+        private readonly Action? afterFirstPromotion;
+        private readonly string? compensationFailurePath;
         private bool copyCallbackInvoked;
         private bool promotionCallbackInvoked;
 
@@ -1025,10 +1025,10 @@ public sealed class ResilientFileMutationServiceTests
         internal List<string> MutationOperations { get; } = [];
 
         public InterleavingFileMutationService(
-            string promotionDestinationPath = null,
-            Action afterFirstCopy = null,
-            Action afterFirstPromotion = null,
-            string compensationFailurePath = null)
+            string? promotionDestinationPath = null,
+            Action? afterFirstCopy = null,
+            Action? afterFirstPromotion = null,
+            string? compensationFailurePath = null)
         {
             this.promotionDestinationPath = promotionDestinationPath;
             this.afterFirstCopy = afterFirstCopy;
@@ -1036,13 +1036,13 @@ public sealed class ResilientFileMutationServiceTests
             this.compensationFailurePath = compensationFailurePath;
         }
 
-        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null)
+        public void EnsureDirectory(string directoryPath, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(EnsureDirectory));
             inner.EnsureDirectory(directoryPath, options);
         }
 
-        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(MoveFile));
             inner.MoveFile(sourcePath, destinationPath, overwrite, options);
@@ -1055,13 +1055,13 @@ public sealed class ResilientFileMutationServiceTests
             }
         }
 
-        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(MoveDirectory));
             inner.MoveDirectory(sourcePath, destinationPath, overwrite, options);
         }
 
-        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(CopyFile));
             inner.CopyFile(sourcePath, destinationPath, overwrite, options);
@@ -1072,13 +1072,13 @@ public sealed class ResilientFileMutationServiceTests
             }
         }
 
-        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(CopyDirectory));
             inner.CopyDirectory(sourcePath, destinationPath, overwrite, options);
         }
 
-        public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
+        public void DeleteFileDirect(string filePath, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(DeleteFileDirect));
             if (!string.IsNullOrWhiteSpace(compensationFailurePath)
@@ -1089,25 +1089,25 @@ public sealed class ResilientFileMutationServiceTests
             inner.DeleteFileDirect(filePath, options);
         }
 
-        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(DeleteFileShell));
             inner.DeleteFileShell(filePath, uiOption, recycleOption, options);
         }
 
-        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null)
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(DeleteDirectoryDirect));
             inner.DeleteDirectoryDirect(directoryPath, recursive, options);
         }
 
-        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(DeleteDirectoryShell));
             inner.DeleteDirectoryShell(directoryPath, uiOption, recycleOption, options);
         }
 
-        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions? options = null)
         {
             MutationOperations.Add(nameof(SetTimestamps));
             inner.SetTimestamps(path, isDirectory, creationTime, lastWriteTime, options);
@@ -1201,22 +1201,22 @@ public sealed class ResilientFileMutationServiceTests
     {
         private readonly ResilientFileMutationService inner = new();
 
-        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null)
+        public void EnsureDirectory(string directoryPath, FileMutationOptions? options = null)
             => inner.EnsureDirectory(directoryPath, options);
 
-        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
             => inner.MoveFile(sourcePath, destinationPath, overwrite, options);
 
-        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
             => inner.MoveDirectory(sourcePath, destinationPath, overwrite, options);
 
-        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
             => inner.CopyFile(sourcePath, destinationPath, overwrite, options);
 
-        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
             => inner.CopyDirectory(sourcePath, destinationPath, overwrite, options);
 
-        public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
+        public void DeleteFileDirect(string filePath, FileMutationOptions? options = null)
         {
             if (string.Equals(filePath, failurePath, StringComparison.OrdinalIgnoreCase))
             {
@@ -1225,16 +1225,16 @@ public sealed class ResilientFileMutationServiceTests
             inner.DeleteFileDirect(filePath, options);
         }
 
-        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions? options = null)
             => inner.DeleteFileShell(filePath, uiOption, recycleOption, options);
 
-        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null)
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions? options = null)
             => inner.DeleteDirectoryDirect(directoryPath, recursive, options);
 
-        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions? options = null)
             => inner.DeleteDirectoryShell(directoryPath, uiOption, recycleOption, options);
 
-        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions? options = null)
             => inner.SetTimestamps(path, isDirectory, creationTime, lastWriteTime, options);
     }
 }

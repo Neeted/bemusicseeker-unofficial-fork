@@ -88,6 +88,7 @@ internal sealed class Lr2FolderTableProjectionConflictException : InvalidOperati
     {
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private Lr2FolderTableProjectionConflictException(
         System.Runtime.Serialization.SerializationInfo info,
         System.Runtime.Serialization.StreamingContext context)
@@ -113,6 +114,7 @@ internal sealed class Lr2FolderTableProjectionIncompleteException : InvalidOpera
     {
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private Lr2FolderTableProjectionIncompleteException(
         System.Runtime.Serialization.SerializationInfo info,
         System.Runtime.Serialization.StreamingContext context)

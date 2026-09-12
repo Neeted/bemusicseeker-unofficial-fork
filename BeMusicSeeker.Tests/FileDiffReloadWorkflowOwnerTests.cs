@@ -506,7 +506,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
 
     private static MainWindowViewModel CreateMainWindowViewModel(
         FileDiffReloadWorkflowOwner owner,
-        IUiDialogService dialogs = null)
+        IUiDialogService? dialogs = null)
     {
         var composition = new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(new Settings()),
@@ -525,9 +525,9 @@ public sealed class FileDiffReloadWorkflowOwnerTests
     {
         internal int MessageCount { get; private set; }
 
-        internal Action MessageObserved { get; set; }
+        internal Action? MessageObserved { get; set; }
 
-        internal Func<Task> MessageObservedAsync { get; set; }
+        internal Func<Task>? MessageObservedAsync { get; set; }
 
         public async Task<UiDialogResult> ShowMessageAsync(
             UiMessageRequest request,
@@ -601,11 +601,11 @@ public sealed class FileDiffReloadWorkflowOwnerTests
 
         internal bool IsLibraryAvailableValue { get; set; } = true;
 
-        internal Exception QueueFailure { get; set; }
+        internal Exception? QueueFailure { get; set; }
 
         internal int QueueCount { get; private set; }
 
-        internal string LastQueueReason { get; private set; }
+        internal string? LastQueueReason { get; private set; }
 
         internal bool LastAllowCommittedPathReceipt { get; private set; }
 
@@ -637,7 +637,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         public bool TryRunDataPreparation(
             string reason,
             bool includeBuiltinGeneratedData = false,
-            Action queueAfterPreparation = null)
+            Action? queueAfterPreparation = null)
         {
             queueAfterPreparation?.Invoke();
             return true;

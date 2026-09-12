@@ -554,7 +554,7 @@ public sealed class BMSTableLoadTests
         };
         int revisionBefore = table.PlaylistEntriesRevision;
         var changedProperties = new List<string>();
-        table.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName);
+        table.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
 
         bool changed = table.RewriteCompatibleFolderPrefix("LEVEL ", "★");
 

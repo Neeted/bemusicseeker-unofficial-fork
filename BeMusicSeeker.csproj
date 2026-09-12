@@ -100,8 +100,6 @@
     <PackageReference Include="NVorbis" />
     <PackageReference Include="Newtonsoft.Json" />
     <PackageReference Include="NLog" />
-    <PackageReference Include="System.Resources.Extensions" />
-    <PackageReference Include="System.Configuration.ConfigurationManager" />
     <PackageReference Include="ManagedBass" />
     <PackageReference Include="ManagedBass.Mix" />
     <PackageReference Include="ManagedBass.Fx" />

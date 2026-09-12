@@ -1407,7 +1407,7 @@ public sealed class UpdaterPackageSyncTests
         Assert.AreSame(startFailure, failure.InnerException, "Successful rollback must preserve the original launch failure.");
     }
 
-    private static void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string restartExecutablePath = null, string processId = null)
+    private static void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null)
     {
         string effectiveRestartExecutablePath = restartExecutablePath ?? Path.Combine(appDirectoryPath, "restart.exe");
         using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
@@ -1505,7 +1505,7 @@ public sealed class UpdaterPackageSyncTests
         }
     }
 
-    private static void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath, string restartExecutablePath = null, string processId = null)
+    private static void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null)
     {
         string effectiveRestartExecutablePath = restartExecutablePath ?? Path.Combine(appDirectoryPath, "restart.exe");
         using Process process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
@@ -1529,7 +1529,7 @@ public sealed class UpdaterPackageSyncTests
         }
     }
 
-    private static Process StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string restartExecutablePath = null, string processId = null, bool publishProceed = true)
+    private static Process StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null, bool publishProceed = true)
     {
         restartExecutablePath ??= Path.Combine(appDirectoryPath, "restart.exe");
         processId ??= GetExitedProcessId().ToString();
@@ -1579,8 +1579,8 @@ public sealed class UpdaterPackageSyncTests
         string appDirectoryPath,
         string packagePath,
         string backupDirectoryPath,
-        string restartExecutablePath = null,
-        string processId = null)
+        string? restartExecutablePath = null,
+        string? processId = null)
     {
         string updaterPath = FindUpdaterExecutable();
         restartExecutablePath ??= Path.Combine(appDirectoryPath, "restart.exe");

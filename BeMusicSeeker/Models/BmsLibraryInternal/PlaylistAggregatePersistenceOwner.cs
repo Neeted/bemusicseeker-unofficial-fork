@@ -141,6 +141,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
         }
 
+        [System.Obsolete(DiagnosticId = "SYSLIB0051")]
         private PlaylistReloadApplyException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context)
             : base(info, context)
         {

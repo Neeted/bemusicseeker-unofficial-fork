@@ -657,7 +657,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsFalse(route.IsCompleted);
                 Assert.AreEqual(1, dialogs.WindowCount);
                 Assert.AreSame(window, dialogs.LastOwner);
-                Assert.AreSame(settings, dialogs.CreatedWindow.DataContext);
+                Assert.AreSame(settings, dialogs.CreatedWindow!.DataContext);
 
                 bool dispatcherWorkCompleted = false;
                 window.Dispatcher.BeginInvoke(
@@ -2636,7 +2636,7 @@ public sealed class SettingsWindowPresentationTests
         DangerDialogService dialogs,
         DangerSchemaDialogPort schemaDialog,
         DangerApplicationDataStore store,
-        IApplicationLifetimePort applicationLifetime = null)
+        IApplicationLifetimePort? applicationLifetime = null)
     {
         int reloadCount = 0;
         var statePort = new DangerStatePort(
@@ -3940,7 +3940,7 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class StatusBannerBindingSource : INotifyPropertyChanged
     {
-        private string message;
+        private string message = null!;
 
         public string Message
         {
@@ -3957,12 +3957,12 @@ public sealed class SettingsWindowPresentationTests
             }
         }
 
-        public event PropertyChangedEventHandler PropertyChanged;
+        public event PropertyChangedEventHandler? PropertyChanged;
     }
 
     private sealed class SchemaPresentationStatePort : ISettingsDialogStatePort
     {
-        internal SettingsDialogViewModel LastSettingsDialog { get; set; }
+        internal SettingsDialogViewModel LastSettingsDialog { get; set; } = null!;
 
         public bool HasActiveLibraryProfile => false;
 
@@ -3980,7 +3980,7 @@ public sealed class SettingsWindowPresentationTests
             remove { }
         }
 
-        public event Action<Lr2PlayHistorySchemaStatusSnapshot> Lr2PlayHistorySchemaStatusChanged;
+        public event Action<Lr2PlayHistorySchemaStatusSnapshot>? Lr2PlayHistorySchemaStatusChanged;
 
         internal void NotifyLr2PlayHistorySchemaStatusChanged(Lr2PlayHistorySchemaStatusSnapshot snapshot)
             => Lr2PlayHistorySchemaStatusChanged?.Invoke(snapshot);
@@ -4125,7 +4125,7 @@ public sealed class SettingsWindowPresentationTests
     {
         internal int InvalidationCount { get; private set; }
 
-        internal string LastInvalidationReason { get; private set; }
+        internal string LastInvalidationReason { get; private set; } = null!;
 
         public void InvalidateReadCache(string reason)
         {
@@ -4179,16 +4179,16 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class DangerApplicationDataStore : IApplicationDataUninstallStore
     {
-        private readonly List<string> events;
+        private readonly List<string>? events;
 
-        internal DangerApplicationDataStore(List<string> events = null)
+        internal DangerApplicationDataStore(List<string>? events = null)
         {
             this.events = events;
         }
 
         internal int CallCount { get; private set; }
 
-        internal Exception Failure { get; set; }
+        internal Exception? Failure { get; set; }
 
         public void Uninstall(string songDbPath)
         {
@@ -4203,11 +4203,11 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class DangerDialogService : IUiDialogService
     {
-        private readonly List<string> events;
+        private readonly List<string>? events;
         private readonly TaskCompletionSource<UiDialogResult> confirmationCompletion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal DangerDialogService(List<string> events = null)
+        internal DangerDialogService(List<string>? events = null)
         {
             this.events = events;
         }
@@ -4220,7 +4220,7 @@ public sealed class SettingsWindowPresentationTests
 
         internal int ConfirmationCount { get; private set; }
 
-        internal UiConfirmationRequest LastConfirmationRequest { get; private set; }
+        internal UiConfirmationRequest LastConfirmationRequest { get; private set; } = null!;
 
         internal List<UiMessageRequest> Messages { get; } = [];
 
@@ -4285,7 +4285,7 @@ public sealed class SettingsWindowPresentationTests
     {
         internal int CloseRequestCount { get; private set; }
 
-        internal Action CloseAction { get; set; }
+        internal Action? CloseAction { get; set; }
 
         public void OpenSettingsDialog()
         {
@@ -4354,12 +4354,12 @@ public sealed class SettingsWindowPresentationTests
             this.configPickerStatus = configPickerStatus;
         }
 
-        internal Window ExpectedOwner { get; set; }
-        internal Window LastModalOwner { get; private set; }
+        internal Window ExpectedOwner { get; set; } = null!;
+        internal Window LastModalOwner { get; private set; } = null!;
         internal bool LastModalShowInTaskbar { get; private set; }
         internal List<UiFilePickerRequest> FileRequests { get; } = [];
-        internal string ConfigPathAfterBrowse { get; private set; }
-        internal string ValidationErrorAfterConfigBrowse { get; private set; }
+        internal string ConfigPathAfterBrowse { get; private set; } = null!;
+        internal string ValidationErrorAfterConfigBrowse { get; private set; } = null!;
 
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
             UiWindowDialogRequest<TWindow, TResult> request,
@@ -4451,10 +4451,10 @@ public sealed class SettingsWindowPresentationTests
             this.notificationStatus = notificationStatus;
         }
 
-        internal Window ExpectedOwner { get; set; }
+        internal Window ExpectedOwner { get; set; } = null!;
         internal int WindowRequestCount { get; private set; }
         internal int MessageRequestCount { get; private set; }
-        internal UiMessageRequest LastMessageRequest { get; private set; }
+        internal UiMessageRequest LastMessageRequest { get; private set; } = null!;
 
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
             UiWindowDialogRequest<TWindow, TResult> request,
@@ -4494,7 +4494,7 @@ public sealed class SettingsWindowPresentationTests
             this.folderPaths = new Queue<string>(folderPaths);
         }
 
-        internal Window ExpectedOwner { get; set; }
+        internal Window ExpectedOwner { get; set; } = null!;
 
         internal List<UiFolderPickerRequest> FolderRequests { get; } = [];
 
@@ -4514,11 +4514,11 @@ public sealed class SettingsWindowPresentationTests
 
         internal UiFilePickerResult FileResult { get; set; } = new(UiDialogStatus.CancelledByUser);
 
-        internal Type LastWindowType { get; private set; }
+        internal Type LastWindowType { get; private set; } = null!;
 
-        internal Window LastCreatedWindow { get; private set; }
+        internal Window LastCreatedWindow { get; private set; } = null!;
 
-        internal Window LastWindowOwner { get; private set; }
+        internal Window LastWindowOwner { get; private set; } = null!;
 
         public Task<UiDialogResult> ShowMessageAsync(
             UiMessageRequest request,
@@ -4594,9 +4594,9 @@ public sealed class SettingsWindowPresentationTests
         private readonly TaskCompletionSource<UiDialogStatus> completion =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal Window ExpectedOwner { get; set; }
-        internal Window LastOwner { get; private set; }
-        internal Lr2AdvancedPathsDialog CreatedWindow { get; private set; }
+        internal Window ExpectedOwner { get; set; } = null!;
+        internal Window LastOwner { get; private set; } = null!;
+        internal Lr2AdvancedPathsDialog? CreatedWindow { get; private set; }
         internal int WindowCount { get; private set; }
 
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
@@ -4649,8 +4649,8 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class RecordingReleaseNotesDialogService : IUiDialogService
     {
-        internal Window ExpectedOwner { get; set; }
-        internal ReleaseNotesWindow CreatedWindow { get; private set; }
+        internal Window ExpectedOwner { get; set; } = null!;
+        internal ReleaseNotesWindow? CreatedWindow { get; private set; }
         internal int WindowCount { get; private set; }
 
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default) where TWindow : Window

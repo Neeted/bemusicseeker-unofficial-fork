@@ -579,7 +579,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
 
     private sealed class RecordingExternalShellGateway : IExternalShellGateway
     {
-        internal ExternalShellRequest LastRequest { get; private set; }
+        internal ExternalShellRequest LastRequest { get; private set; } = null!;
 
         public void Open(ExternalShellRequest request) => LastRequest = request;
 

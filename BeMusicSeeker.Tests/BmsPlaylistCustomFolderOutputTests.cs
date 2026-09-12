@@ -2795,7 +2795,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Folder_order = ["Folder D"]
             };
             string oldOutputPath = Path.Combine(initialNormalOutputBaseDir, table.Output_dir, "0000.lr2folder");
-            Directory.CreateDirectory(Path.GetDirectoryName(oldOutputPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(oldOutputPath)!);
             File.WriteAllText(oldOutputPath, "#TITLE stale normal output", Encoding.GetEncoding("shift_jis"));
             LR2Config config = CreateLr2Config(tempDirectory, Path.Combine(tempDirectory, "ManualBmsRoot"));
             var playlist = new TestBmsPlaylist(

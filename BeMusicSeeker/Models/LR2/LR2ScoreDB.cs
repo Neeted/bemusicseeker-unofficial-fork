@@ -1,3 +1,5 @@
+#pragma warning disable CS8981 // LR2 SQLiteモデルの型名はテーブル名と意図的に一致させている。
+
 using System.IO;
 using SQLite;
 

@@ -69,7 +69,7 @@ public sealed class MaintenanceTreeViewModelTests
         Assert.IsNull(owner.DuplicateChartGroups);
 
         var propertyNames = new List<string>();
-        owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+        owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName!);
         owner.ApplyDuplicateGroupsPresentation();
         CollectionAssert.AreEqual(
             new[] { nameof(MaintenanceTreeViewModel.DuplicateChartGroups) },
@@ -83,7 +83,7 @@ public sealed class MaintenanceTreeViewModelTests
         var owner = new MaintenanceTreeViewModel();
         owner.AttachPresentationState(state);
         var propertyNames = new List<string>();
-        owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+        owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName!);
 
         state.SetHealthStatusWriteLockHeld(false);
         CollectionAssert.AreEqual(
@@ -118,7 +118,7 @@ public sealed class MaintenanceTreeViewModelTests
         var propertyNames = new List<string>();
         owner.DuplicatePresentationChanged += (_, args) => reasons.Add(args.Reason);
         owner.AttachPresentationState(state);
-        owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+        owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName!);
         reasons.Clear();
         propertyNames.Clear();
 

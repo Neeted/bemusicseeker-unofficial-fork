@@ -146,18 +146,6 @@
           "SourceGear.sqlite3": "3.53.3"
         }
       },
-      "System.Configuration.ConfigurationManager": {
-        "type": "Direct",
-        "requested": "[10.0.10, )",
-        "resolved": "10.0.10",
-        "contentHash": "64jtHt9yLYi6VHMF5AwDj6BGM/MZrygv55SXl0MOIkFsFjGwRuxV3/QgEm7NTp3TQIx+YNX4S6dNpY08fJ3+3g=="
-      },
-      "System.Resources.Extensions": {
-        "type": "Direct",
-        "requested": "[10.0.10, )",
-        "resolved": "10.0.10",
-        "contentHash": "xUBGLR+HPujL5k3LmHIJSS6xFsKECOGO52nurXMDADkLRFNVVUxCH4ng2WBD1YTxGHkE/s2kJs1I2B89DJJyLA=="
-      },
       "LivetCask.Messaging": {
         "type": "Transitive",
         "resolved": "4.0.2",

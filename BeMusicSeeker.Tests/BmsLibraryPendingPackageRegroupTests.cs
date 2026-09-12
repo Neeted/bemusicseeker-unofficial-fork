@@ -2133,7 +2133,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private static void WithTemporaryLibrary(
         Action<string, string, BMSLibrary> testAction,
-        IInstallEstimationExecutionObserver installEstimationExecutionObserver = null)
+        IInstallEstimationExecutionObserver? installEstimationExecutionObserver = null)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PendingRegroupTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
@@ -2172,14 +2172,14 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     private sealed class RecordingInstallEstimationExecutionObserver : IInstallEstimationExecutionObserver
     {
         private readonly object gate = new();
-        private readonly Barrier workItemBarrier;
-        private readonly Action<InstallEstimationAttemptEvaluatedObservation> attemptObserver;
+        private readonly Barrier? workItemBarrier;
+        private readonly Action<InstallEstimationAttemptEvaluatedObservation>? attemptObserver;
         private int activeWorkItems;
         private int maxActive;
 
         internal RecordingInstallEstimationExecutionObserver(
             int expectedMaxActive = 0,
-            Action<InstallEstimationAttemptEvaluatedObservation> attemptObserver = null)
+            Action<InstallEstimationAttemptEvaluatedObservation>? attemptObserver = null)
         {
             this.attemptObserver = attemptObserver;
             if (expectedMaxActive > 1)
@@ -2245,7 +2245,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
         private sealed class WorkItemScope(RecordingInstallEstimationExecutionObserver owner) : IDisposable
         {
-            private RecordingInstallEstimationExecutionObserver owner = owner;
+            private RecordingInstallEstimationExecutionObserver? owner = owner;
 
             public void Dispose()
             {

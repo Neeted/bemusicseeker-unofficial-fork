@@ -151,7 +151,7 @@ internal static class PlaylistSummaryAggregationTestSupport
 
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
+            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
             {
                 Directory.CreateDirectory(destinationDirectoryPath);
@@ -169,7 +169,7 @@ internal static class PlaylistSummaryAggregationTestSupport
             {
                 Directory.Delete(destinationPath, recursive: true);
             }
-            string destinationParentPath = Path.GetDirectoryName(destinationPath);
+            string destinationParentPath = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationParentPath))
             {
                 Directory.CreateDirectory(destinationParentPath);
@@ -243,7 +243,7 @@ internal static class PlaylistSummaryAggregationTestSupport
             foreach (string filePath in Directory.GetFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories))
             {
                 string destinationFilePath = filePath.Replace(sourcePath, destinationPath);
-                string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath);
+                string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath)!;
                 if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
                 {
                     Directory.CreateDirectory(destinationDirectoryPath);

@@ -93,7 +93,7 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
         {
             var library = new TestBmsLibrary(songDbPath);
             int parentFolderCacheVersionChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "BMSParentFolderListCacheVersion")
                 {

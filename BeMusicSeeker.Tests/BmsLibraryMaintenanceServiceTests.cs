@@ -959,7 +959,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE maintenance\r\n", Encoding.ASCII);
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             file.path = chartPath;
@@ -967,7 +967,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             SetStorageRows(library, [file], []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                 {
@@ -992,7 +992,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string root = Path.GetDirectoryName(songDbPath);
+            string root = Path.GetDirectoryName(songDbPath)!;
             string targetPath = Path.Combine(root, "target.bms");
             string unrelatedPath = Path.Combine(root, "unrelated.bms");
             File.WriteAllText(targetPath, "#PLAYER 1\r\n#TITLE target\r\n", Encoding.ASCII);
@@ -1093,7 +1093,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             SetStorageRows(library, [first, second], []);
             int firstNotificationCount = 0;
             int secondNotificationCount = 0;
-            first.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            first.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSFile.maintenanceInfo))
                 {
@@ -1101,7 +1101,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                     throw new InvalidOperationException("first maintenance subscriber failure");
                 }
             };
-            second.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            second.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSFile.maintenanceInfo))
                 {
@@ -1172,7 +1172,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                 {
@@ -1201,9 +1201,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             var library = new TestBmsLibrary(songDbPath);
             var changedProperties = new List<string>();
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
-                changedProperties.Add(args.PropertyName);
+                changedProperties.Add(args.PropertyName!);
             };
             bool schedulerInvoked = false;
             library.StartupBackgroundTaskScheduler = delegate (string _, string _, string _, Func<System.Threading.Tasks.Task> work)
@@ -2127,9 +2127,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             };
             file.SetMaintenanceInfo(info, suppressPropertyChanged: true);
             List<string> propertyNames = [];
-            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            file.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
-                propertyNames.Add(e.PropertyName);
+                propertyNames.Add(e.PropertyName!);
             };
 
             MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
@@ -2217,9 +2217,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             string originalHash = file.hash;
             BMSFileMaintenanceInfo originalMaintenanceInfo = file.TryGetMaintenanceInfoWithoutCreating();
             List<string> propertyNames = [];
-            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            file.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
-                propertyNames.Add(e.PropertyName);
+                propertyNames.Add(e.PropertyName!);
             };
 
             Assert.ThrowsException<InvalidOperationException>(() =>
@@ -2264,9 +2264,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 hash = file.hash
             }, suppressPropertyChanged: true);
             List<string> propertyNames = [];
-            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            file.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
-                propertyNames.Add(e.PropertyName);
+                propertyNames.Add(e.PropertyName!);
             };
 
             using (var songDb = new LR2SongDBExtended(songDbPath))

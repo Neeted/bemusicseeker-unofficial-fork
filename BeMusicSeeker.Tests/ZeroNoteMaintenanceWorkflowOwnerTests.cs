@@ -31,7 +31,7 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
     public async Task RecheckAsync_FailsFastWhileSharedChartFileGateIsBusyThenRunsAfterRelease()
     {
         var synchronizer = new ChartFileOperationSynchronizer();
-        var library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         int recheckCount = 0;
         var owner = new ZeroNoteMaintenanceWorkflowOwner(
             () => library,
@@ -59,7 +59,7 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
     [TestMethod]
     public async Task RecheckAsync_PropagatesLibraryFailure()
     {
-        var library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         var owner = new ZeroNoteMaintenanceWorkflowOwner(
             () => library,
             new ChartFileOperationSynchronizer(),

@@ -1702,8 +1702,8 @@ public sealed class RegularChartCommitAndLifecycleTests
             var workspace = CreateWorkspaceForOwner();
             var owner = CreateOwner(table, workspace);
             var notifications = new List<string>();
-            table.PropertyChanged += (_, e) => notifications.Add("table:" + e.PropertyName);
-            workspace.PropertyChanged += (_, e) => notifications.Add("workspace:" + e.PropertyName);
+            table.PropertyChanged += (_, e) => notifications.Add("table:" + e.PropertyName!);
+            workspace.PropertyChanged += (_, e) => notifications.Add("workspace:" + e.PropertyName!);
 
             owner.InitializeColumnPresentation(MainViewUpdateMode.PlayHistorySelected);
             Settings.Default.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);

@@ -231,7 +231,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             ISettingsDialogWorkspacePort settingsPort = workspace;
             var settingNotifications = new List<string>();
             dialog.PropertyChanged += (_, eventArgs) =>
-                settingNotifications.Add(eventArgs.PropertyName);
+                settingNotifications.Add(eventArgs.PropertyName!);
             dialog.SetPresentationActive(active: true);
             settingNotifications.Clear();
             int catalogEventCount = 0;

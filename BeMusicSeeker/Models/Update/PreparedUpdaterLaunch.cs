@@ -116,6 +116,7 @@ internal sealed class UpdaterLaunchFailureException : InvalidOperationException
     {
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private UpdaterLaunchFailureException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

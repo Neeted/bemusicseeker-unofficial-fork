@@ -61,7 +61,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     {
         StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
         var changedProperties = new List<string>();
-        owner.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+        owner.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
 
         owner.SetStartupUiInteractionBlocked(true);
         owner.SetStartupUiInteractionBlocked(true);

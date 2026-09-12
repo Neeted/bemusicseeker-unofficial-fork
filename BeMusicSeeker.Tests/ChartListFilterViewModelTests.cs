@@ -16,7 +16,7 @@ public sealed class ChartListFilterViewModelTests
         int changeCount = 0;
         List<string> propertyNames = [];
         filters.ModeFilterChanged += (_, _) => changeCount++;
-        filters.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+        filters.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName!);
 
         filters.ModeFilter = ChartModeFilter._7KEYS;
         filters.ModeFilter = ChartModeFilter.None;
@@ -120,7 +120,7 @@ public sealed class ChartListFilterViewModelTests
     {
         var filters = CreateFilters();
         List<string> propertyNames = [];
-        filters.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+        filters.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName!);
 
         filters.UpdateKeywordSearchContext(GridKeywordSearchContext.PlayHistory, []);
         filters.KeywordFilter = "memo:alpha";

@@ -348,8 +348,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
         ShellShutdownWorkflowCompletionReceipt receipt = await owner.RequestWindowCloseAsync();
         Assert.IsTrue(receipt.PreparationSucceeded);
 
-        BMSLibrary library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
-        BMSPlaylist playlist = (BMSPlaylist)FormatterServices.GetUninitializedObject(typeof(BMSPlaylist));
+        BMSLibrary library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        BMSPlaylist playlist = (BMSPlaylist)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSPlaylist));
         SetPrivateField(
             playlist,
             "shutdownCoordinator",
@@ -393,8 +393,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
-        BMSLibrary library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
-        BMSPlaylist playlist = (BMSPlaylist)FormatterServices.GetUninitializedObject(typeof(BMSPlaylist));
+        BMSLibrary library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        BMSPlaylist playlist = (BMSPlaylist)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSPlaylist));
         SetPrivateField(
             playlist,
             "shutdownCoordinator",

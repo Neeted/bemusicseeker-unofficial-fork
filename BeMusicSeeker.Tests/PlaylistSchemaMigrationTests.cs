@@ -250,7 +250,7 @@ public sealed class PlaylistSchemaMigrationTests
         {
             return;
         }
-        string directoryPath = Path.GetDirectoryName(songDbPath);
+        string directoryPath = Path.GetDirectoryName(songDbPath)!;
         if (!string.IsNullOrWhiteSpace(directoryPath) && Directory.Exists(directoryPath))
         {
             Directory.Delete(directoryPath, recursive: true);

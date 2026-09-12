@@ -632,7 +632,7 @@ public sealed class SettingsDialogBehaviorTests
                     .ToArray(),
                 preStartAddedRoot);
 
-            player.PlayStart(chartPath, (EventHandler)null!);
+            _ = player.PlayStart(chartPath, (EventHandler)null!);
 
             XDocument savedAfterStart = XDocument.Load(configPath);
             CollectionAssert.Contains(
@@ -1938,9 +1938,11 @@ public sealed class SettingsDialogBehaviorTests
             return ReloadFileDiffHandler?.Invoke() ?? Task.CompletedTask;
         }
 
+#pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。
         public event EventHandler? LibraryOperationAvailabilityChanged;
 
         public event Action<Lr2PlayHistorySchemaStatusSnapshot>? Lr2PlayHistorySchemaStatusChanged;
+#pragma warning restore CS0067
     }
 
     private sealed class RecordingApplicationLifetime : IApplicationLifetimePort
@@ -2148,7 +2150,9 @@ public sealed class SettingsDialogBehaviorTests
             return operation();
         }
 
+#pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。
         public event EventHandler<PlaylistCatalogChangedEventArgs>? PlaylistCatalogChanged;
+#pragma warning restore CS0067
     }
 
     private sealed class RecordingCustomFolderOutputPort : ISettingsDialogCustomFolderOutputPort

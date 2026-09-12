@@ -17,7 +17,7 @@ internal static class MainWindowViewModelTestFactory
     /// 明示された設定、または他の testhost と共有しない既定値で画面 owner を構成する。
     /// 永続化は NoOpSettingsEditSession が抑止するため、既定の専用 path にファイルは作られない。
     /// </summary>
-    internal static MainWindowViewModel Create(Settings settings = null, BeMusicSeeker.Views.Dialogs.IUiDialogService fileDbMutationDialogs = null)
+    internal static MainWindowViewModel Create(Settings? settings = null, BeMusicSeeker.Views.Dialogs.IUiDialogService? fileDbMutationDialogs = null)
     {
         settings ??= PortableSettingsPersistenceTests.OpenSettings(Path.Combine(
             Path.GetTempPath(),

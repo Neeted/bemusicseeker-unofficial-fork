@@ -100,7 +100,7 @@ public sealed class LibraryFolderTreeViewModelTests
         int refreshCompletions = 0;
         owner.CacheRefreshRequested += (_, _) => Interlocked.Increment(ref refreshRequests);
         owner.DeferredRefreshCompleted += (_, _) => Interlocked.Increment(ref refreshCompletions);
-        dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
+        _ = dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
         {
             blockerEntered.TrySetResult(null);
             releaseBlocker.Wait();
@@ -123,7 +123,7 @@ public sealed class LibraryFolderTreeViewModelTests
         await refreshOperationPosted.Task;
         Assert.IsFalse(refreshIdle.IsCompleted);
         dispatcher.Hooks.OperationPosted -= operationPosted;
-        dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
+        _ = dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
         releaseBlocker.Set();
 
         Assert.IsTrue(dispatcherThread.Join(TimeSpan.FromSeconds(5)));
@@ -180,7 +180,7 @@ public sealed class LibraryFolderTreeViewModelTests
             latestRefreshCompleted.TrySetResult(null);
         };
 
-        dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
+        _ = dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)(() =>
         {
             blockerEntered.TrySetResult(null);
             releaseBlocker.Wait();
@@ -214,7 +214,7 @@ public sealed class LibraryFolderTreeViewModelTests
         {
             dispatcher.Hooks.OperationPosted -= operationPosted;
             releaseBlocker.Set();
-            dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
+            _ = dispatcher.BeginInvoke(DispatcherPriority.Send, (Action)dispatcher.InvokeShutdown);
             Assert.IsTrue(dispatcherThread.Join(TimeSpan.FromSeconds(5)));
         }
     }

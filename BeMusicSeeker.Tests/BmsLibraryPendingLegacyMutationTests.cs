@@ -531,12 +531,12 @@ public sealed class BmsLibraryPendingLegacyMutationTests
 
     private sealed class RecordingDeleteFileMutationService : IFileMutationService
     {
-        private readonly string failurePath;
+        private readonly string? failurePath;
 
-        private readonly string directoryFailurePath;
+        private readonly string? directoryFailurePath;
 
         /// <summary>Records mutations and optionally fails one file or directory before modifying it.</summary>
-        internal RecordingDeleteFileMutationService(string failurePath = null, string directoryFailurePath = null)
+        internal RecordingDeleteFileMutationService(string? failurePath = null, string? directoryFailurePath = null)
         {
             this.failurePath = failurePath;
             this.directoryFailurePath = directoryFailurePath;
@@ -558,7 +558,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
 
         internal List<string> MoveFilePaths { get; } = [];
 
-        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null)
+        public void EnsureDirectory(string directoryPath, FileMutationOptions? options = null)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
             {
@@ -566,28 +566,28 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             }
         }
 
-        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
         {
             MoveFilePaths.Add(sourcePath);
             throw new NotSupportedException();
         }
 
-        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
         {
             throw new NotSupportedException();
         }
 
-        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
         {
             throw new NotSupportedException();
         }
 
-        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions? options = null)
         {
             throw new NotSupportedException();
         }
 
-        public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
+        public void DeleteFileDirect(string filePath, FileMutationOptions? options = null)
         {
             DeleteFileDirectPaths.Add(filePath);
             if (File.Exists(filePath))
@@ -596,7 +596,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             }
         }
 
-        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions? options = null)
         {
             DeleteFileShellPaths.Add(filePath);
             if (string.Equals(filePath, failurePath, StringComparison.OrdinalIgnoreCase))
@@ -606,7 +606,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             DeleteFileDirect(filePath, options);
         }
 
-        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null)
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions? options = null)
         {
             DeleteDirectoryDirectPaths.Add(directoryPath);
             if (Directory.Exists(directoryPath))
@@ -615,7 +615,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             }
         }
 
-        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions? options = null)
         {
             DeleteDirectoryShellPaths.Add(directoryPath);
             DeleteDirectoryRecycleOptions.Add(recycleOption);
@@ -627,7 +627,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             DeleteDirectoryDirect(directoryPath, recursive: true, options);
         }
 
-        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions? options = null)
         {
         }
     }

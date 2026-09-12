@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Tests.Performance;
 [TestCategory("Net10Performance")]
 public sealed class Net10ScanParserPerformanceTests
 {
-    public TestContext TestContext { get; set; }
+    public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
     [TestCategory("parser")]

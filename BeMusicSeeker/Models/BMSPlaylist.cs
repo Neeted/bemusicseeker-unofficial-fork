@@ -5980,6 +5980,7 @@ internal sealed class PlaylistMutationPostCommitException : Exception
         Operation = operation ?? string.Empty;
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private PlaylistMutationPostCommitException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
@@ -5992,6 +5993,7 @@ internal sealed class PlaylistMutationPostCommitException : Exception
     internal string Operation { get; }
 
     /// <summary>例外情報とともに、DB確定済みの操作名を保存します。</summary>
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
         base.GetObjectData(info, context);

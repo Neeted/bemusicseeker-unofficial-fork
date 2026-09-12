@@ -125,7 +125,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         RecordingDialogService dialogs)
     {
         return new SelectedChartResourceHealthWorkflowOwner(
-            () => (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary)),
+            () => (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary)),
             dialogs,
             store);
     }

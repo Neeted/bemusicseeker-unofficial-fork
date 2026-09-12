@@ -35,7 +35,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             library.BMSFiles = [file];
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs e)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 if (e.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                 {
@@ -59,7 +59,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         await WithTemporarySongDb(async delegate (string songDbPath)
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
             File.WriteAllText(chartPath, "#00111:01\r\n");
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
             var file = new TestableBmsFile
@@ -71,7 +71,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             library.BMSFiles = [file];
             await SeedChartInfoIndexAsync(songDbPath, library, CreateChartInfo(file.hash, notes: 0));
             int refreshNotificationChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs e)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 if (e.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                 {

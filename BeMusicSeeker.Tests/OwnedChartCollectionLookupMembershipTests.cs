@@ -377,7 +377,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     {
         TestResourceInitializer.EnsureJapaneseResources();
         string oldPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
-        string oldDirectory = Path.GetDirectoryName(oldPath);
+        string oldDirectory = Path.GetDirectoryName(oldPath)!;
         var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
         OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile], []);
         LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();

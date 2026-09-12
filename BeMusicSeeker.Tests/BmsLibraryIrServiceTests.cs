@@ -1321,7 +1321,7 @@ public sealed class BmsLibraryIrServiceTests
 
     private static void CreateLr2ScoreDb(string scoreDbPath)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath));
+        Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath)!);
         using var connection = new SQLiteConnection(scoreDbPath);
         connection.CreateTable<BMSScore>();
         connection.CreateTable<LR2ScoreDB.player>();
@@ -1461,7 +1461,7 @@ public sealed class BmsLibraryIrServiceTests
 
         public int PlayerScoreXmlRequestCount { get; private set; }
 
-        public Exception FetchFailure { get; set; }
+        public Exception? FetchFailure { get; set; }
 
         public string GetPlayerScoresXml(int lr2Id, CancellationToken cancellationToken = default)
         {
@@ -1512,7 +1512,7 @@ public sealed class BmsLibraryIrServiceTests
             SongDbPath = Path.Combine(rootDirectoryPath, "song.db");
             ScoreDbPath = Path.Combine(rootDirectoryPath, "LR2files", "Database", "score.db");
             IrDirectoryPath = Path.Combine(rootDirectoryPath, "Ir");
-            Directory.CreateDirectory(Path.GetDirectoryName(ScoreDbPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(ScoreDbPath)!);
             Directory.CreateDirectory(IrDirectoryPath);
             using var songDb = new LR2SongDBExtended(SongDbPath);
             BmsLibraryDbGateway.EnsureIrDataSchema(songDb);

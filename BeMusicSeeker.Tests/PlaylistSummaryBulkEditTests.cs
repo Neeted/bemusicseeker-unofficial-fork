@@ -1514,7 +1514,7 @@ public sealed class PlaylistSummaryBulkEditTests
     private static void AssertSelectedPropertyCategory(
         PropertyNavigationObservation navigation,
         PropertyNavigationCategory expectedCategory,
-        string message = null)
+        string? message = null)
     {
         string assertionMessage = message ?? $"Property navigation category {expectedCategory} must be selected.";
         Assert.AreEqual(1, navigation.SelectionProvider.GetSelection().Length, assertionMessage);

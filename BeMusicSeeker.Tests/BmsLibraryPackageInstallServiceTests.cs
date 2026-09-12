@@ -6617,14 +6617,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
     private sealed class ReentrantEstimateFileMutationService : IFileMutationService
     {
         private readonly RealFileMutationService inner = new();
-        private BMSLibrary library;
-        private ChartPackage reentryPackage;
-        private Task reentryTask;
+        private BMSLibrary library = null!;
+        private ChartPackage reentryPackage = null!;
+        private Task reentryTask = null!;
         private int executorEntryObserved;
 
         internal bool ReentryCompletedDuringFilesystem { get; private set; }
 
-        internal Exception ReentryFailure { get; private set; }
+        internal Exception? ReentryFailure { get; private set; }
 
         internal void Configure(BMSLibrary library, ChartPackage reentryPackage)
         {
@@ -6724,16 +6724,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
     private sealed class ReentrantCleanupFileMutationService : IFileMutationService
     {
         private readonly RealFileMutationService inner = new();
-        private BMSLibrary library;
-        private ChartPackage reentryPackage;
-        private Task reentryTask;
+        private BMSLibrary library = null!;
+        private ChartPackage reentryPackage = null!;
+        private Task reentryTask = null!;
         private int cleanupEntryObserved;
 
         internal bool ReentryCompletedDuringCleanup { get; private set; }
 
-        internal Exception ReentryFailure { get; private set; }
+        internal Exception? ReentryFailure { get; private set; }
 
-        internal PendingInstalledOnlyResourceOverwriteResult ReentryResult { get; private set; }
+        internal PendingInstalledOnlyResourceOverwriteResult ReentryResult { get; private set; } = null!;
 
         internal void Configure(BMSLibrary library, ChartPackage reentryPackage)
         {
@@ -6979,7 +6979,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
     private sealed class CallbackDisposable(Action dispose) : IDisposable
     {
-        private Action dispose = dispose;
+        private Action? dispose = dispose;
 
         public void Dispose()
         {
@@ -7108,7 +7108,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
+            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
             {
                 Directory.CreateDirectory(destinationDirectoryPath);
@@ -7126,7 +7126,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             {
                 Directory.Delete(destinationPath, recursive: true);
             }
-            string destinationParentDirectoryPath = Path.GetDirectoryName(destinationPath);
+            string destinationParentDirectoryPath = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationParentDirectoryPath))
             {
                 Directory.CreateDirectory(destinationParentDirectoryPath);
@@ -7137,7 +7137,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             BeforeCopy?.Invoke(sourcePath);
-            string destinationParent = Path.GetDirectoryName(destinationPath);
+            string destinationParent = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationParent))
             {
                 Directory.CreateDirectory(destinationParent);

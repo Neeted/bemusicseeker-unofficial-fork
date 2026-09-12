@@ -80,7 +80,7 @@ public sealed class LR2ConfigTests
         WithConfig("<config><system><autoreload>2</autoreload></system><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
             byte[] previousBytes = File.ReadAllBytes(configPath);
-            string[] siblingPathsBefore = Directory.GetFiles(Path.GetDirectoryName(configPath));
+            string[] siblingPathsBefore = Directory.GetFiles(Path.GetDirectoryName(configPath)!);
             config.EnsureDatabaseAutoReloadManualOnly();
 
             using (var lockedDestination = new FileStream(
@@ -93,7 +93,7 @@ public sealed class LR2ConfigTests
 
                 Assert.IsNotNull(failure.InnerException);
                 StringAssert.Contains(failure.Message, Path.GetDirectoryName(configPath));
-                CollectionAssert.AreEquivalent(siblingPathsBefore, Directory.GetFiles(Path.GetDirectoryName(configPath)));
+                CollectionAssert.AreEquivalent(siblingPathsBefore, Directory.GetFiles(Path.GetDirectoryName(configPath)!));
             }
 
             CollectionAssert.AreEqual(previousBytes, File.ReadAllBytes(configPath));
@@ -134,7 +134,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox /></config>", delegate (string configPath, LR2Config config)
         {
-            string rootPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath))), "BMS");
+            string rootPath = Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!, "BMS");
             string childPath = Path.Combine(rootPath, "Child");
             Directory.CreateDirectory(childPath);
 
@@ -147,7 +147,7 @@ public sealed class LR2ConfigTests
     {
         WithConfig("<config><system /><jukebox><path>BMS\\</path><path>Missing\\</path></jukebox></config>", delegate (string configPath, LR2Config config)
         {
-            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)));
+            string tempRoot = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(configPath)))!;
             string bmsRoot = Path.Combine(tempRoot, "BMS");
             Directory.CreateDirectory(bmsRoot);
             string before = File.ReadAllText(configPath);

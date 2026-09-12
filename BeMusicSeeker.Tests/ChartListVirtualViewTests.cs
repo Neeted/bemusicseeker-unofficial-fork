@@ -414,7 +414,7 @@ public sealed class ChartListVirtualViewTests
         var mainChartList = new MainChartListViewModel();
         var rows = CreateSummaryRows();
         var propertyNames = new List<string>();
-        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
         mainChartList.SetRows(rows, updateSummary: true);
 
@@ -430,7 +430,7 @@ public sealed class ChartListVirtualViewTests
     {
         var mainChartList = new MainChartListViewModel();
         var propertyNames = new List<string>();
-        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
         mainChartList.SelectedIndex = 3;
 
@@ -444,7 +444,7 @@ public sealed class ChartListVirtualViewTests
         var mainChartList = new MainChartListViewModel();
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         var propertyNames = new List<string>();
-        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
         mainChartList.ColumnsSettings = settings;
 
@@ -462,7 +462,7 @@ public sealed class ChartListVirtualViewTests
             ListSortDirection.Descending);
         MainChartListSortRequestedEventArgs? request = null;
         var propertyNames = new List<string>();
-        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
         mainChartList.SortRequested += (_, e) => request = e;
 
         mainChartList.SetSortPresentation(sort, MainChartListSortTarget.PlayHistory);
@@ -607,7 +607,7 @@ public sealed class ChartListVirtualViewTests
         mainChartList.RowsReplacing += (_, _) => calls.Add("prepare");
         mainChartList.PropertyChanged += (_, e) =>
         {
-            calls.Add(e.PropertyName);
+            calls.Add(e.PropertyName!);
             Assert.AreSame(view, mainChartList.Rows);
             Assert.AreSame(settings, mainChartList.ColumnsSettings);
             Assert.AreEqual(-1, mainChartList.SelectedIndex);
@@ -656,7 +656,7 @@ public sealed class ChartListVirtualViewTests
         int operationContextNotifications = 0;
         mainChartList.PropertyChanged += (_, e) =>
         {
-            calls.Add(e.PropertyName);
+            calls.Add(e.PropertyName!);
             if (e.PropertyName == nameof(MainChartListViewModel.ColumnsSettings))
             {
                 throw new InvalidOperationException("column binding failed");
@@ -736,7 +736,7 @@ public sealed class ChartListVirtualViewTests
             SummaryText = "old"
         };
         var propertyNames = new List<string>();
-        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
         Assert.ThrowsException<InvalidOperationException>(() => mainChartList.ApplyRows(new MainChartListRowsApplyRequest
         {
@@ -795,7 +795,7 @@ public sealed class ChartListVirtualViewTests
             ColumnsSettings = settings
         };
         var propertyNames = new List<string>();
-        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
         MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(
             new MainChartListRowsApplyRequest
             {
@@ -1577,7 +1577,7 @@ public sealed class ChartListVirtualViewTests
         table.RowsReplacing += (_, _) => preparingCount++;
         table.PropertyChanged += (_, e) =>
         {
-            propertyNames.Add(e.PropertyName);
+            propertyNames.Add(e.PropertyName!);
             Assert.AreSame(candidateRows, table.Rows);
             Assert.AreEqual("play-history explicit summary", table.SummaryText);
             Assert.AreEqual(-1, table.SelectedIndex);
@@ -2396,7 +2396,7 @@ public sealed class ChartListVirtualViewTests
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
         LibraryChartRow row = new MainChartRowProjectionOwner().CreatePackageRow(null, entry);
         var propertyNames = new List<string>();
-        row.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        row.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
         entry.SetSearchingStatus(isSearching: true);
 

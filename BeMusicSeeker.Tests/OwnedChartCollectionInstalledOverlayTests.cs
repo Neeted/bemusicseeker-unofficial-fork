@@ -44,7 +44,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             int bmsFilesChanged = 0;
             int bmsonSongsChanged = 0;
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "OwnedChartCollectionVersion")
                 {
@@ -196,7 +196,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath), "LibraryRoot");
+            string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "LibraryRoot");
             Directory.CreateDirectory(rootPath);
             string chartPath = Path.Combine(rootPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
@@ -234,7 +234,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             SetDuplicateChartGroupsWithoutNotification(library, []);
             int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
             int parentFolderVersionChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "BMSParentFolderListCacheVersion")
                 {
@@ -423,7 +423,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "Installed");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed");
             Directory.CreateDirectory(chartDirectory);
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
@@ -437,7 +437,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             int bmsFilesChanged = 0;
             int normalLibraryRefreshNotifications = 0;
             int ownedCollectionVersionChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "BMSFiles")
                 {
@@ -487,7 +487,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string tempRootPath = Path.GetDirectoryName(songDbPath);
+            string tempRootPath = Path.GetDirectoryName(songDbPath)!;
             string libraryRootPath = ResolveExistingDataFixtureDirectory();
             string candidateDirectoryPath = libraryRootPath;
             string candidatePath = Path.Combine(candidateDirectoryPath, "fixture.bms");

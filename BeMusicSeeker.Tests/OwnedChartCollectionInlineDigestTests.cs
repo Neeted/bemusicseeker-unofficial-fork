@@ -24,7 +24,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "InlineDigest");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineDigest");
             Directory.CreateDirectory(chartDirectory);
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE hash update\r\n#BPM 120\r\n#00111:01\r\n", System.Text.Encoding.ASCII);
@@ -40,7 +40,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int bmsFilesChanged = 0;
             int ownedCollectionVersionChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "BMSFiles")
                 {
@@ -89,7 +89,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "InlineShaOnly");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineShaOnly");
             Directory.CreateDirectory(chartDirectory);
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(
@@ -141,7 +141,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "InlineFailure");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineFailure");
             Directory.CreateDirectory(chartDirectory);
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(
@@ -194,7 +194,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "InlineChartInfo");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineChartInfo");
             Directory.CreateDirectory(chartDirectory);
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(

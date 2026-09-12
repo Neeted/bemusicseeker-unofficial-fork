@@ -2,11 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Security;
-using System.Security.Permissions;
 
 namespace Ribbit.Windows;
 
-[SecurityPermission(SecurityAction.Demand, UnmanagedCode = true)]
 public sealed class TopLevelWindowHandles : WindowHandles
 {
     [SuppressUnmanagedCodeSecurity]

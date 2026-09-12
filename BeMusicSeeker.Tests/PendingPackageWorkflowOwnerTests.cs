@@ -1754,7 +1754,7 @@ public sealed class PendingPackageWorkflowOwnerTests
 
     private static BMSLibrary CreateLibrary()
     {
-        return (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        return (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
     }
 
     private static ChartFile CreateChart(
@@ -1812,9 +1812,9 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal Exception? StartRefreshSuppressionFailure { get; set; }
 
-        internal void OnActivityChanged(object sender, EventArgs e)
+        internal void OnActivityChanged(object? sender, EventArgs e)
         {
-            var activity = (ChartMutationActivityOwner)sender;
+            var activity = (ChartMutationActivityOwner)sender!;
             events.Add(activity.IsActive ? "activity-start" : "activity-end");
             if (!activity.IsActive && EndActivityFailure != null)
             {
@@ -1825,7 +1825,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         internal PendingPackageRefreshScope LastRefreshScope { get; private set; }
 
         internal void OnWorkflowChanged(
-            object sender,
+            object? sender,
             PendingPackageWorkflowChangedEventArgs e)
         {
             switch (e)

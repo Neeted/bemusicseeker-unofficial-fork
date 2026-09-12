@@ -202,7 +202,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 var bmsFilesPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var folderChanged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var pathChanged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
                     {
@@ -220,7 +220,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int ownedCollectionVersionChangedCount = 0;
                 int parentFolderVersionChangedCount = 0;
                 bool stateAvailableAtOwnedCollectionNotification = false;
-                library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
                     {
@@ -233,7 +233,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref parentFolderVersionChangedCount);
                     }
                 };
-                file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                file.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSFile.Folder))
                     {
@@ -301,7 +301,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int publicationCount = 0;
                 bool publicationObservedFinalizedFilesystem = false;
                 bool publicationObservedReleasedLease = false;
-                library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+                library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
                     if (args.PropertyName != nameof(BMSLibrary.OwnedChartCollectionVersion))
                     {
@@ -469,7 +469,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 resourceIndexOwner.Replace(replacementIndex);
                 List<(int Total, int Processed, string Path)> progress = [];
                 int refreshCount = 0;
-                library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+                library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
                     if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                     {
@@ -809,7 +809,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 secondFile.SetArtist("Second Artist");
                 library.BMSFiles = [firstFile, secondFile];
                 int refreshCount = 0;
-                library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+                library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
                     if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                     {
@@ -887,7 +887,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int publicationCount = 0;
                 int postReleasePublicationCount = 0;
                 int refreshCount = 0;
-                library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+                library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
                     if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                     {
@@ -1012,7 +1012,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int bmsFilesChangedCount = 0;
                 int normalLibraryRefreshCount = 0;
                 var bmsFilesPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
                     {
@@ -1074,7 +1074,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int bmsFilesChangedCount = 0;
                 int bmsonSongsChangedCount = 0;
                 var bmsonSongsPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
                     {
@@ -1224,7 +1224,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int bmsonSongsChangedCount = 0;
                 int normalLibraryRefreshCount = 0;
                 var bmsonSongsPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
                     {
@@ -1719,7 +1719,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             library.BMSFiles = [file];
             int baselineNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationsChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                 {
@@ -1811,7 +1811,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "Committed", "chart.bms");
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Committed", "chart.bms");
             var library = new TestBmsLibrary(songDbPath);
             var file = new TestableBmsFile
             {
@@ -1826,7 +1826,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             bool rowStillExistsWhenNotificationWasPublished = false;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                 {
@@ -1855,7 +1855,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "CommittedNotificationFailure", "chart.bms");
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "CommittedNotificationFailure", "chart.bms");
             var library = new TestBmsLibrary(songDbPath);
             var file = new TestableBmsFile
             {
@@ -1869,7 +1869,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             }
 
             bool notificationAttempted = false;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
                 {
@@ -2380,7 +2380,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int garbledChangedCount = 0;
                 int garbledFixedChangedCount = 0;
                 int encodingChangedCount = 0;
-                library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSLibrary.ChartFilesGarbled))
                     {
@@ -2391,7 +2391,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref garbledFixedChangedCount);
                     }
                 };
-                file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                file.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
                     if (e.PropertyName == nameof(BMSFile.maintenanceInfo))
                     {
@@ -2455,7 +2455,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             };
             int bmsFilesChangedCount = 0;
             int filePropertyChangedCount = 0;
-            library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
                 {
@@ -3068,7 +3068,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             OperationObserver?.Invoke("filesystem");
-            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
+            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
             {
                 Directory.CreateDirectory(destinationDirectoryPath);
@@ -3092,7 +3092,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             {
                 Directory.Delete(destinationPath, recursive: true);
             }
-            string destinationParentPath = Path.GetDirectoryName(destinationPath);
+            string destinationParentPath = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationParentPath))
             {
                 Directory.CreateDirectory(destinationParentPath);
@@ -3167,7 +3167,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             foreach (string filePath in Directory.GetFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories))
             {
                 string destinationFilePath = filePath.Replace(sourcePath, destinationPath);
-                string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath);
+                string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath)!;
                 if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
                 {
                     Directory.CreateDirectory(destinationDirectoryPath);

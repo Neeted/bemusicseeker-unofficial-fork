@@ -25,6 +25,7 @@ internal class ProgressDialogCancellationExcpetion : Exception
     {
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     protected ProgressDialogCancellationExcpetion(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

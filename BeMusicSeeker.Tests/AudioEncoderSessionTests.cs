@@ -234,7 +234,7 @@ public sealed class AudioEncoderSessionTests
 
         internal int EncodeIsActiveCalls { get; private set; }
 
-        internal EncodeNotifyProcedure NotifyProcedure { get; private set; }
+        internal EncodeNotifyProcedure NotifyProcedure { get; private set; } = null!;
 
         internal PlaybackState ActiveState { get; init; } = PlaybackState.Playing;
 

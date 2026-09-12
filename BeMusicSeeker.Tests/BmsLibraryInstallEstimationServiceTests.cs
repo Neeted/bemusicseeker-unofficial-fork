@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = new();
-    public TestContext TestContext { get; set; }
+    public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
     public void InstallEstimationDegreeResolvers_UseProcessorCountMinusOneAndDoNotClampConfiguredPackages()

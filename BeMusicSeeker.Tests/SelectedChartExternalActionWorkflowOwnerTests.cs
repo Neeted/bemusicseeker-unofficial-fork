@@ -538,7 +538,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
 
     private sealed class TestExternalProgramLaunchGateway : IExternalProgramLaunchGateway
     {
-        internal ExternalProgramLaunchRequest Request { get; private set; }
+        internal ExternalProgramLaunchRequest Request { get; private set; } = null!;
 
         internal ExternalProgramLaunchResult Result { get; set; } = ExternalProgramLaunchResult.Success;
 

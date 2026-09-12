@@ -42,8 +42,8 @@ public sealed class PlaylistWorkspacePresentationStateTests
         var columns = new PlaylistSummaryColumnSettings();
         var propertyNames = new List<string>();
         var rootPropertyNames = new List<string>();
-        viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
-        viewModel.PropertyChanged += (_, e) => rootPropertyNames.Add(e.PropertyName);
+        viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
+        viewModel.PropertyChanged += (_, e) => rootPropertyNames.Add(e.PropertyName!);
 
         PlaylistColumnPresentationCommit columnCommit =
             viewModel.PlaylistWorkspace.CommitColumnPresentationWithoutNotification(
@@ -132,7 +132,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             Visibility.Visible,
             summaryColumns);
         var propertyNames = new List<string>();
-        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
         PlaylistMainTablePresentationCommit commit = workspace.CommitMainTablePresentationWithoutNotification(
             selection,
@@ -709,7 +709,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         var propertyNames = new List<string>();
-        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
         workspace.PlaylistSummaryKeywordFilter = "memo:warning";
 
@@ -759,7 +759,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         var propertyNames = new List<string>();
-        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
         workspace.GridHeaderText = "stale header";
         workspace.PlaylistSummaryText = "stale summary";
 
@@ -803,7 +803,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
         var rows = new ObservableCollection<PlaylistSummaryRow> { new() { TotalCharts = 3 } };
         var notifications = new List<string>();
-        workspace.PropertyChanged += (_, e) => notifications.Add(e.PropertyName);
+        workspace.PropertyChanged += (_, e) => notifications.Add(e.PropertyName!);
 
         bool applied = workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
         {

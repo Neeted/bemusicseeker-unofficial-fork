@@ -254,7 +254,7 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
             {
                 string relative = file.Substring(sourceDirectory.Length).TrimStart(Path.DirectorySeparatorChar);
                 string destination = Path.Combine(destinationDirectory, relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(destination));
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                 File.Copy(file, destination, overwrite: true);
             }
         }

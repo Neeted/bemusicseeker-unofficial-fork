@@ -888,7 +888,7 @@ public sealed class ExternalPlayerProcessGatewayTests
     {
         private readonly PlayerSettingsSnapshot snapshot;
 
-        internal RecordingPlayerSettingsGateway(PlayerSettingsSnapshot snapshot = null)
+        internal RecordingPlayerSettingsGateway(PlayerSettingsSnapshot? snapshot = null)
         {
             this.snapshot = snapshot ?? new PlayerSettingsSnapshot(
                 AudioDriver.Invalid,
@@ -955,9 +955,9 @@ public sealed class ExternalPlayerProcessGatewayTests
 
         internal bool KeepRunning { get; set; }
 
-        internal Exception StartException { get; set; }
+        internal Exception? StartException { get; set; }
 
-        internal Action BeforeStart { get; set; }
+        internal Action? BeforeStart { get; set; }
 
         internal int HasExitedReadCount { get; private set; }
 

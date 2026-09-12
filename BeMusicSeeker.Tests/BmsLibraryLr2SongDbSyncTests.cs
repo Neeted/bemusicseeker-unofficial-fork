@@ -5075,7 +5075,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             scheduler);
         BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
         var publishedPropertyNames = new List<string>();
-        library.PropertyChanged += (_, args) => publishedPropertyNames.Add(args.PropertyName);
+        library.PropertyChanged += (_, args) => publishedPropertyNames.Add(args.PropertyName!);
         string[] expectedPropertyNames =
         [
             nameof(BMSLibrary.Lr2SongDbSyncStage),
@@ -5127,7 +5127,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         bool refilled = false;
         library.PropertyChanged += (_, args) =>
         {
-            publishedPropertyNames.Add(args.PropertyName);
+            publishedPropertyNames.Add(args.PropertyName!);
             if (!refilled && args.PropertyName == firstPropertyName)
             {
                 refilled = true;
@@ -6202,7 +6202,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings();
             string oldAdditionalBase = Path.Combine(scope.DirectoryPath, "OldAdditional");
             string oldExternalPath = Path.Combine(oldAdditionalBase, "ExternalTable", "external.lr2folder");
-            Directory.CreateDirectory(Path.GetDirectoryName(oldExternalPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(oldExternalPath)!);
             File.WriteAllText(oldExternalPath, "#TITLE Old External", Encoding.GetEncoding("shift_jis"));
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {

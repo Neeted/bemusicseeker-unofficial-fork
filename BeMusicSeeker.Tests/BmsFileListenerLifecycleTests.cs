@@ -14,7 +14,7 @@ public sealed class BmsFileListenerLifecycleTests
         TestableBmsFile? file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         BMSFileMaintenanceInfo info = CreateMaintenanceInfo(file, "shift_jis");
         int maintenanceChangedCount = 0;
-        file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        file.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(BMSFile.maintenanceInfo))
             {
@@ -39,7 +39,7 @@ public sealed class BmsFileListenerLifecycleTests
         BMSScore score1 = CreateScore(file.hash);
         BMSScore score2 = CreateScore(file.hash);
         int scoreChangedCount = 0;
-        file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        file.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(BMSFile.bmsScore))
             {

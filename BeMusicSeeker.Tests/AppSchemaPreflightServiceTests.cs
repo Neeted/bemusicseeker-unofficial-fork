@@ -244,7 +244,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
+            string chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath)!, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Test\r\n");
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
@@ -870,7 +870,7 @@ public sealed class AppSchemaPreflightServiceTests
         {
             return;
         }
-        string directoryPath = Path.GetDirectoryName(songDbPath);
+        string directoryPath = Path.GetDirectoryName(songDbPath)!;
         if (!string.IsNullOrWhiteSpace(directoryPath) && Directory.Exists(directoryPath))
         {
             Directory.Delete(directoryPath, recursive: true);

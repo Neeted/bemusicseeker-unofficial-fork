@@ -1203,7 +1203,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            string destinationDirectory = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
                 Directory.CreateDirectory(destinationDirectory);
@@ -1221,7 +1221,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             {
                 Directory.Delete(destinationPath, recursive: true);
             }
-            string destinationParentPath = Path.GetDirectoryName(destinationPath);
+            string destinationParentPath = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationParentPath))
             {
                 Directory.CreateDirectory(destinationParentPath);
@@ -1232,7 +1232,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
+            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
             {
                 Directory.CreateDirectory(destinationDirectoryPath);
@@ -1285,7 +1285,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             foreach (string filePath in Directory.GetFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories))
             {
                 string destinationFilePath = filePath.Replace(sourcePath, destinationPath);
-                string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath);
+                string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath)!;
                 if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
                 {
                     Directory.CreateDirectory(destinationDirectoryPath);

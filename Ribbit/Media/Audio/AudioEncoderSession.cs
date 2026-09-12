@@ -78,6 +78,7 @@ internal sealed class AudioEncoderException : Exception
         NotifyStatus = notifyStatus;
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private AudioEncoderException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

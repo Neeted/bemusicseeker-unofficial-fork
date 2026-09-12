@@ -2325,7 +2325,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         List<string> propertyNames = [];
-        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
         Assert.IsTrue(workspace.IsPlaylistTreeExpanded);
         workspace.IsPlaylistTreeExpanded = true;

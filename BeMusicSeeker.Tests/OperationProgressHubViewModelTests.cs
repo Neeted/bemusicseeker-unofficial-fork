@@ -218,7 +218,7 @@ public sealed class OperationProgressHubViewModelTests
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub);
         var changedProperties = new List<string>();
-        hub.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+        hub.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
 
         workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
@@ -333,7 +333,7 @@ public sealed class OperationProgressHubViewModelTests
     {
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         var changedProperties = new List<string>();
-        hub.StartupProgress.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+        hub.StartupProgress.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
 
         hub.StartupProgress.ApplyPresentation(true, "running", "phase", 2.0, 5.0);
 

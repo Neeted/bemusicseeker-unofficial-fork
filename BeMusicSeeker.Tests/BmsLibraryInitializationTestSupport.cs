@@ -367,7 +367,7 @@ internal static class BmsLibraryInitializationTestSupport
         {
             return false;
         }
-        string directory = Path.GetDirectoryName(path);
+        string directory = Path.GetDirectoryName(path)!;
         return string.IsNullOrWhiteSpace(directory);
     }
 
@@ -459,7 +459,7 @@ internal static class BmsLibraryInitializationTestSupport
     {
         public List<TimestampCall> TimestampCalls { get; } = [];
 
-        public Action<TimestampCall> OnSetTimestamps { get; set; }
+        public Action<TimestampCall>? OnSetTimestamps { get; set; }
 
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
@@ -540,7 +540,7 @@ internal static class BmsLibraryInitializationTestSupport
 
         public MessageBoxResult ResultToReturn { get; set; } = MessageBoxResult.OK;
 
-        public Action<DialogCall> OnShow { get; set; }
+        public Action<DialogCall>? OnShow { get; set; }
 
         public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {

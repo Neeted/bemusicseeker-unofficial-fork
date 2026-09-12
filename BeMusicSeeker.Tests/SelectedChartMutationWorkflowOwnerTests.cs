@@ -603,7 +603,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     {
         activity ??= new();
         var owner = new SelectedChartMutationWorkflowOwner(
-            () => (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary)),
+            () => (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary)),
             gate ?? new ChartFileOperationSynchronizer(),
             activity,
             presentation,
@@ -679,14 +679,14 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal int EncodingRefreshCalls { get; private set; }
 
-        internal void OnActivityChanged(object sender, EventArgs e)
+        internal void OnActivityChanged(object? sender, EventArgs e)
         {
-            var activity = (ChartMutationActivityOwner)sender;
+            var activity = (ChartMutationActivityOwner)sender!;
             Events.Add(activity.IsActive ? "activity-start" : "activity-end");
         }
 
         internal void OnWorkflowChanged(
-            object sender,
+            object? sender,
             SelectedChartMutationWorkflowChangedEventArgs e)
         {
             switch (e)

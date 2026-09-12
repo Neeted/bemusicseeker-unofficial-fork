@@ -507,7 +507,7 @@ public sealed class DialogPresentationTests
         Window window,
         IReadOnlyList<ButtonExpectation> buttonExpectations,
         bool allowsSettingsControlAliases = false,
-        Action cleanup = null)
+        Action? cleanup = null)
     {
         FrameworkElement presentationRoot = window.Content as FrameworkElement
             ?? throw new InvalidOperationException("Native dialog content must be a FrameworkElement.");
@@ -1243,7 +1243,7 @@ public sealed class DialogPresentationTests
     private static void AssertSelectedPropertyCategory(
         PropertyNavigationObservation navigation,
         PropertyNavigationCategory expectedCategory,
-        string message = null)
+        string? message = null)
     {
         string assertionMessage = message ?? $"Property navigation category {expectedCategory} must be selected.";
         Assert.AreEqual(1, navigation.SelectionProvider.GetSelection().Length, assertionMessage);

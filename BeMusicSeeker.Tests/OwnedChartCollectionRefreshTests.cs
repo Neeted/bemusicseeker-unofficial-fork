@@ -17,7 +17,7 @@ public sealed class OwnedChartCollectionRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "Installed");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed");
             Directory.CreateDirectory(chartDirectory);
             string overlayChartPath = Path.Combine(chartDirectory, "overlay.bms");
             string unregisterChartPath = Path.Combine(chartDirectory, "unregister.bms");
@@ -55,8 +55,8 @@ public sealed class OwnedChartCollectionRefreshTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "Installed", "scan-residual.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(chartPath));
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "scan-residual.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
             File.WriteAllText(chartPath, "#PLAYER 1");
             BMSFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             var library = new TestBmsLibrary(songDbPath);
@@ -75,7 +75,7 @@ public sealed class OwnedChartCollectionRefreshTests
                     bmsFile,
                     includeWarningSnapshot: false,
                     includeResourceReferences: false),
-                NewInstallDestination = Path.Combine(Path.GetDirectoryName(chartPath), "Overlay")
+                NewInstallDestination = Path.Combine(Path.GetDirectoryName(chartPath)!, "Overlay")
             });
 
             library.ApplyFileScanCatalogResidual(

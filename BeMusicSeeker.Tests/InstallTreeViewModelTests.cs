@@ -89,7 +89,7 @@ public sealed class InstallTreeViewModelTests
             var owner = new InstallTreeViewModel();
             owner.AttachLibrary(library);
             var propertyNames = new List<string>();
-            owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName);
+            owner.PropertyChanged += (_, args) => propertyNames.Add(args.PropertyName!);
 
             owner.ApplyPresentation(InstallTreePresentationSection.Installed);
             CollectionAssert.AreEqual(

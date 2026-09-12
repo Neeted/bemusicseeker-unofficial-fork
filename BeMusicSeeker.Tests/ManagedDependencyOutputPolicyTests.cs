@@ -151,24 +151,9 @@ public sealed class ManagedDependencyOutputPolicyTests
             File.Exists(Path.Combine(repositoryRoot, "libs", "System.Collections.Immutable.dll")),
             "Legacy helper binaries must be supplied by the package/runtime graph or removed, not tracked beside the SDK project.");
 
-        XElement resourcesReference = projectRoot
-            .Elements("ItemGroup")
-            .Elements("PackageReference")
-            .Single(reference => string.Equals((string)reference.Attribute("Include"), "System.Resources.Extensions", StringComparison.Ordinal));
-        Assert.IsNull(resourcesReference.Attribute("Version"));
         Assert.IsFalse(
             File.Exists(Path.Combine(repositoryRoot, "libs", "System.Resources.Extensions.dll")),
             "System.Resources.Extensions must not be supplied by a tracked HintPath binary; the .NET 10 WindowsDesktop runtime pack supplies the publish asset.");
-
-        XElement configurationReference = projectRoot
-            .Elements("ItemGroup")
-            .Elements("PackageReference")
-            .Single(reference => string.Equals((string)reference.Attribute("Include"), "System.Configuration.ConfigurationManager", StringComparison.Ordinal));
-        Assert.IsNull(configurationReference.Attribute("Version"));
-
-        string lockFile = File.ReadAllText(Path.Combine(repositoryRoot, "packages.lock.json"));
-        StringAssert.Contains(lockFile, "\"System.Configuration.ConfigurationManager\":");
-        StringAssert.Contains(lockFile, "\"requested\": \"[10.0.10, )\"");
     }
 
     [TestMethod]
@@ -291,8 +276,6 @@ public sealed class ManagedDependencyOutputPolicyTests
             new { Id = "Roslynator.Analyzers", Version = "4.15.0" },
             new { Id = "Roslynator.CodeAnalysis.Analyzers", Version = "4.15.0" },
             new { Id = "Roslynator.Formatting.Analyzers", Version = "4.15.0" },
-            new { Id = "System.Configuration.ConfigurationManager", Version = "10.0.10" },
-            new { Id = "System.Resources.Extensions", Version = "10.0.10" },
             new { Id = "sqlite-net-pcl", Version = "1.11.285" },
             new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" },
             new { Id = "SevenZipExtractor", Version = "1.0.19" },
@@ -339,8 +322,6 @@ public sealed class ManagedDependencyOutputPolicyTests
                     "Roslynator.Analyzers",
                     "Roslynator.CodeAnalysis.Analyzers",
                     "Roslynator.Formatting.Analyzers",
-                    "System.Configuration.ConfigurationManager",
-                    "System.Resources.Extensions",
                     "sqlite-net-pcl",
                     "SQLitePCLRaw.bundle_e_sqlite3",
                     "SevenZipExtractor",

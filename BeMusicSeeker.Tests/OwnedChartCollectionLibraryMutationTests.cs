@@ -791,7 +791,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             var second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Second", "chart.bms"));
             var library = new TestBmsLibrary(songDbPath);
             using var initialBmsFilesNotification = new ManualResetEventSlim(false);
-            System.ComponentModel.PropertyChangedEventHandler initialHandler = delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            System.ComponentModel.PropertyChangedEventHandler initialHandler = delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSLibrary.BMSFiles))
                 {
@@ -811,7 +811,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int parentFolderVersionChanged = 0;
             int bmsFilesChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "BMSParentFolderListCacheVersion")
                 {
@@ -967,7 +967,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(2, initialSnapshot.Count);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int bmsonSongsChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSLibrary.BmsonSongs))
                 {
@@ -1026,7 +1026,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath), "DeleteTarget");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "DeleteTarget");
             Directory.CreateDirectory(chartDirectory);
             string chartPath = Path.Combine(chartDirectory, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
@@ -1176,7 +1176,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
                 int baselineDuplicateInvalidationVersion = library.DuplicateChartGroupsInvalidationVersion;
                 int parentFolderVersionChanged = 0;
-                library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+                library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
                     if (args.PropertyName == "OwnedChartCollectionVersion")
                     {

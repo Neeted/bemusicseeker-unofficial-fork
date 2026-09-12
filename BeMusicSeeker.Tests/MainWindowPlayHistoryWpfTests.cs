@@ -673,7 +673,7 @@ public sealed class MainWindowPlayHistoryWpfTests
             .Single(item => string.Equals(item.Name, name, StringComparison.Ordinal));
     }
 
-    private static PlayHistoryRow CreateResolvedPlayHistoryRow(string path = null, long playedAt = 1000)
+    private static PlayHistoryRow CreateResolvedPlayHistoryRow(string? path = null, long playedAt = 1000)
     {
         const string hash = "cccccccccccccccccccccccccccccccc";
         string sha256 = new string('d', 64);

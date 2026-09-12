@@ -106,7 +106,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
         {
             PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = owner.CreateProjection(table);
             string filePath = projection.Files[0].FilePath;
-            Directory.CreateDirectory(Path.GetDirectoryName(filePath));
+            Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
             File.WriteAllText(filePath, "stale content", System.Text.Encoding.GetEncoding("shift_jis"));
             PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult first = owner.MaterializeBatch([projection]);
             DateTime expectedTimestamp = new(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);

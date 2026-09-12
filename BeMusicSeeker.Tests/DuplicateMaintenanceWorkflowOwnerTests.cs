@@ -429,7 +429,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
     private static BMSLibrary CreateLibrary()
     {
-        return (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        return (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
     }
 
     private static ChartFile CreateChart(string path, string hash)
@@ -472,9 +472,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         internal Exception? EndActivityFailure { get; set; }
 
-        internal void OnActivityChanged(object sender, EventArgs e)
+        internal void OnActivityChanged(object? sender, EventArgs e)
         {
-            var activity = (ChartMutationActivityOwner)sender;
+            var activity = (ChartMutationActivityOwner)sender!;
             events.Add(activity.IsActive ? "activity-start" : "activity-end");
             if (!activity.IsActive && EndActivityFailure != null)
             {
@@ -483,7 +483,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         }
 
         internal void OnWorkflowChanged(
-            object sender,
+            object? sender,
             DuplicateMaintenanceWorkflowChangedEventArgs e)
         {
             switch (e)

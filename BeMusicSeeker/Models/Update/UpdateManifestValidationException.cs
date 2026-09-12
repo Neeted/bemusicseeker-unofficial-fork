@@ -20,6 +20,7 @@ internal sealed class UpdateManifestValidationException : Exception
     {
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private UpdateManifestValidationException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

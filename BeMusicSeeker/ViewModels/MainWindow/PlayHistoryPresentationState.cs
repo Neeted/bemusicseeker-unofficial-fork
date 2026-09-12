@@ -478,6 +478,7 @@ internal sealed class PlayHistoryTerminalPublishException : Exception
         TerminalCommitResult = terminalCommitResult;
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private PlayHistoryTerminalPublishException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
@@ -488,6 +489,7 @@ internal sealed class PlayHistoryTerminalPublishException : Exception
 
     internal PlayHistoryTerminalCommitResult TerminalCommitResult { get; }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
         base.GetObjectData(info, context);

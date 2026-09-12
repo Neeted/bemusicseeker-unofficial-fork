@@ -1640,7 +1640,7 @@ public sealed class SettingDialogEditCompletionTests
             SetActiveLibraryProfile(viewModel, true);
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             var changedProperties = new List<string>();
-            dialog.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+            dialog.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
 
             Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
 
@@ -3132,7 +3132,7 @@ public sealed class SettingDialogEditCompletionTests
             var session = new CountingSettingsEditSession(values);
             SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
             var changedProperties = new List<string>();
-            draft.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+            draft.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
 
             draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), Path.Combine(scope, "invalid"));
             Assert.IsTrue(draft.HasLr2PathSelectionError);
@@ -3860,12 +3860,12 @@ public sealed class SettingDialogEditCompletionTests
     {
         private readonly BMSLibrary library;
         private readonly BMSPlaylist playlist;
-        private readonly Action beforeCreateBmsLibrary;
+        private readonly Action? beforeCreateBmsLibrary;
 
         internal LateFailureStartupLibraryFactory(
             BMSLibrary library,
             BMSPlaylist playlist,
-            Action beforeCreateBmsLibrary = null)
+            Action? beforeCreateBmsLibrary = null)
         {
             this.library = library ?? throw new ArgumentNullException(nameof(library));
             this.playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
@@ -3975,9 +3975,11 @@ public sealed class SettingDialogEditCompletionTests
 
         public Task ReloadFileDiffAsync() => Task.CompletedTask;
 
+#pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。
         public event EventHandler? LibraryOperationAvailabilityChanged;
 
         public event Action<Lr2PlayHistorySchemaStatusSnapshot>? Lr2PlayHistorySchemaStatusChanged;
+#pragma warning restore CS0067
     }
 
     private sealed class ComposedSettingsDialogWorkspacePort :
@@ -4038,7 +4040,9 @@ public sealed class SettingDialogEditCompletionTests
             IReadOnlyDictionary<string, string> pendingRenames,
             CustomFolderOutputSettingsSnapshot settings) => 0;
 
+#pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。
         public event EventHandler<PlaylistCatalogChangedEventArgs>? PlaylistCatalogChanged;
+#pragma warning restore CS0067
     }
 
     private sealed class CountingSettingsEditSession : ISettingsEditSession

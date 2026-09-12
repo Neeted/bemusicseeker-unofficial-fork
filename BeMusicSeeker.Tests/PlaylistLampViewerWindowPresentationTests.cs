@@ -1728,13 +1728,13 @@ public sealed class PlaylistLampViewerWindowPresentationTests
     {
         private readonly object stateGate = new();
 
-        private EventHandler<PlaylistLampViewerSourceChangedEventArgs> changed;
+        private EventHandler<PlaylistLampViewerSourceChangedEventArgs>? changed;
 
         private bool historyAvailable;
 
         private DateTime? expectedSelectedDate;
 
-        private TaskCompletionSource<PlaylistLampViewerQuery> expectedQuery;
+        private TaskCompletionSource<PlaylistLampViewerQuery>? expectedQuery;
 
         public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed
         {
@@ -1837,7 +1837,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
     {
         private PlaylistLampAggregationRequest request;
 
-        private EventHandler<PlaylistLampViewerSourceChangedEventArgs> changed;
+        private EventHandler<PlaylistLampViewerSourceChangedEventArgs>? changed;
 
         internal FixedLampSource(PlaylistLampAggregationRequest request)
         {

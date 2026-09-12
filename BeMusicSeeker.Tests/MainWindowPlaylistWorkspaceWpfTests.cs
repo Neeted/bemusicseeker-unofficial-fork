@@ -278,7 +278,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         fixture.Window.Close();
                         observation.OwnerCloseWasCanceled = fixture.Window.IsVisible;
                         observation.ShutdownCountBeforeApplyCompletion = fixture.Lifetime.RequestShutdownCount;
-                        void ReleaseApplyAfterOwnerShutdownClose(object sender, EventArgs args)
+                        void ReleaseApplyAfterOwnerShutdownClose(object? sender, EventArgs args)
                         {
                             dialog.Closed -= ReleaseApplyAfterOwnerShutdownClose;
                             Assert.IsTrue(
@@ -1657,14 +1657,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     private static MainWindowPlaylistWorkspaceTerminals CreateTerminals(
-        MainWindowPlaylistEntryRemovalTerminal entryRemoval = null,
-        MainWindowPlaylistTableLevelOverwriteTerminal tableLevelOverwrite = null,
-        MainWindowPlaylistTableRemovalTerminal tableRemoval = null,
-        MainWindowPlaylistCollectionImportTerminal collectionImport = null,
-        MainWindowPlaylistUrlAcquisitionTerminal urlAcquisition = null,
-        IMainWindowPlaylistUrlInstallTreeExpansionEventSource urlInstallTreeExpansionEventSource = null,
-        MainWindowPlaylistUrlInstallTreeExpansionTerminal urlInstallTreeExpansion = null,
-        MainWindowPlaylistTablesReloadTerminal tablesReload = null)
+        MainWindowPlaylistEntryRemovalTerminal? entryRemoval = null,
+        MainWindowPlaylistTableLevelOverwriteTerminal? tableLevelOverwrite = null,
+        MainWindowPlaylistTableRemovalTerminal? tableRemoval = null,
+        MainWindowPlaylistCollectionImportTerminal? collectionImport = null,
+        MainWindowPlaylistUrlAcquisitionTerminal? urlAcquisition = null,
+        IMainWindowPlaylistUrlInstallTreeExpansionEventSource? urlInstallTreeExpansionEventSource = null,
+        MainWindowPlaylistUrlInstallTreeExpansionTerminal? urlInstallTreeExpansion = null,
+        MainWindowPlaylistTablesReloadTerminal? tablesReload = null)
     {
         return new MainWindowPlaylistWorkspaceTerminals(
             entryRemoval ?? new MainWindowPlaylistEntryRemovalTerminal(_ => Task.CompletedTask),
@@ -1716,7 +1716,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     private sealed class PlaylistUrlInstallTreeExpansionEventSourceFake
         : IMainWindowPlaylistUrlInstallTreeExpansionEventSource
     {
-        private Action handlers;
+        private Action? handlers;
 
         internal int SubscriberCount => handlers?.GetInvocationList().Length ?? 0;
 
@@ -1822,8 +1822,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         private readonly object responseSync = new();
         private readonly List<ResponseStage> responseStages = [];
         private readonly Task serverTask;
-        private TcpClient acceptedClient;
-        private ResponseStage currentResponseStage;
+        private TcpClient? acceptedClient;
+        private ResponseStage? currentResponseStage;
         private int nextResponseStageIndex;
         private int disposed;
 
@@ -2041,7 +2041,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     private static UiDialogCoordinator CreateActualRouteDialogService(
         TestWindowPresentationScope windowTest,
         ModalPreparationRecorder modalPreparation,
-        Func<bool> closeNextMessage = null)
+        Func<bool>? closeNextMessage = null)
     {
         ArgumentNullException.ThrowIfNull(windowTest);
         ArgumentNullException.ThrowIfNull(modalPreparation);
@@ -2095,7 +2095,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private static MainWindowForegroundTerminal CreateForegroundTerminal(
         ICollection<string> operations,
-        Action activationObserved = null)
+        Action? activationObserved = null)
     {
         ArgumentNullException.ThrowIfNull(operations);
         return new MainWindowForegroundTerminal(
@@ -2116,8 +2116,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private static ActualMainWindowFixture CreateActualMainWindowFixture(
         TestWindowPresentationScope windowTest,
-        MainWindowForegroundTerminal foregroundTerminal = null,
-        Func<bool> closeNextMessage = null)
+        MainWindowForegroundTerminal? foregroundTerminal = null,
+        Func<bool>? closeNextMessage = null)
     {
         string root = Path.Combine(
             Path.GetTempPath(),
@@ -2276,7 +2276,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         CustomTableView summary,
         PlaylistSummaryRow row,
         string operationName,
-        Action<PlaylistPropertyDialog, ModalObservation<PlaylistPropertyDialog>> drive = null)
+        Action<PlaylistPropertyDialog, ModalObservation<PlaylistPropertyDialog>>? drive = null)
     {
         drive ??= (dialog, _) =>
         {
@@ -2297,7 +2297,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         CustomTableView summary,
         PlaylistSummaryRow row,
         string operationName,
-        Action<PlaylistSummaryBulkEditDialog, ModalObservation<PlaylistSummaryBulkEditDialog>> drive = null)
+        Action<PlaylistSummaryBulkEditDialog, ModalObservation<PlaylistSummaryBulkEditDialog>>? drive = null)
     {
         drive ??= (dialog, observation) =>
         {
@@ -2494,7 +2494,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     private static void AssertSelectedPropertyCategory(
         PropertyNavigationObservation navigation,
         PropertyNavigationCategory expectedCategory,
-        string message = null)
+        string? message = null)
     {
         string assertionMessage = message ?? $"Property navigation category {expectedCategory} must be selected.";
         Assert.AreEqual(1, navigation.SelectionProvider.GetSelection().Length, assertionMessage);
@@ -2895,7 +2895,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private sealed class CallbackDisposable(Action dispose) : IDisposable
     {
-        private Action dispose = dispose ?? throw new ArgumentNullException(nameof(dispose));
+        private Action? dispose = dispose ?? throw new ArgumentNullException(nameof(dispose));
 
         public void Dispose()
         {
@@ -3000,7 +3000,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
         internal int RequestShutdownCount { get; private set; }
 
-        internal Action RequestShutdownAction { get; set; }
+        internal Action? RequestShutdownAction { get; set; }
 
         public bool IsFirstStartup => false;
 

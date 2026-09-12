@@ -34,7 +34,7 @@ public sealed class RegularChartNavigationTests
         var table = new MainChartListViewModel(action => action());
         PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner(table);
         var store = new PendingPackageWorkflowOwnerTests.RecordingStore([]);
-        BMSLibrary library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        BMSLibrary library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         var pendingOwner = new PendingPackageWorkflowOwner(
             () => library,
             new ChartFileOperationSynchronizer(),

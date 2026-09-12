@@ -796,8 +796,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
     private static LibraryFileScanPipelineOwner CreateOwner(
         RecordingLibraryFileScanPipelineCallbacks callbacks,
         bool lr2ModeEnabled = false,
-        IChartFileScanner chartFileScanner = null,
-        LibraryDirectoryPreflightService directoryPreflightService = null)
+        IChartFileScanner? chartFileScanner = null,
+        LibraryDirectoryPreflightService? directoryPreflightService = null)
     {
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);

@@ -683,8 +683,8 @@ public sealed class RegularChartViewBuildAndOrderingTests
             () => { },
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
-        var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
-        var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var firstLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        var secondLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         List<ChartListSourceRow> rows = [CreateSourceRow("Folder A", "a.bms")];
         Assert.IsTrue(owner.TryBeginVirtualRequest(firstLibrary, out RegularChartListRequestLease firstLease));
         RegularVirtualSourceRowsLookup firstLookup = owner.LookupVirtualSourceRows(firstLibrary, includeBmsonRows: false);
@@ -751,8 +751,8 @@ public sealed class RegularChartViewBuildAndOrderingTests
             () => { },
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
-        var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
-        var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var firstLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        var secondLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         Assert.IsTrue(owner.TryBeginVirtualRequest(firstLibrary, out RegularChartListRequestLease firstLease));
         RegularVirtualSourceRowsLookup firstLookup = owner.LookupVirtualSourceRows(firstLibrary, includeBmsonRows: false);
 
@@ -810,8 +810,8 @@ public sealed class RegularChartViewBuildAndOrderingTests
             () => { },
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
-        var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
-        var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var firstLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        var secondLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(firstLibrary, out RegularChartListPrewarmLease firstLease));
 
         Assert.IsFalse(owner.TryBeginVirtualOrderPrewarm(secondLibrary, out _));
@@ -1330,7 +1330,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
         ChartFile bravo = CreateSourceRow("Folder B", "Bravo").Chart;
         ChartFile alpha = CreateSourceRow("Folder A", "Alpha").Chart;
-        var library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         typeof(BMSLibrary)
             .GetField("catalogChartInfoOwner", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .SetValue(library, new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, () => null, _ => { }));

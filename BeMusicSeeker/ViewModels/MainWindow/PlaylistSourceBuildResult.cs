@@ -182,6 +182,7 @@ internal sealed class PlaylistDetailTerminalPublishException : Exception
     {
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private PlaylistDetailTerminalPublishException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
@@ -192,6 +193,7 @@ internal sealed class PlaylistDetailTerminalPublishException : Exception
 
     internal PlaylistDetailTerminalCommitResult TerminalCommitResult { get; }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
         base.GetObjectData(info, context);

@@ -29,7 +29,7 @@ public sealed class BmsLibraryInitializationLoadTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath)!);
             File.WriteAllText(rootedChartPath, "#PLAYER 1");
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -106,7 +106,7 @@ public sealed class BmsLibraryInitializationLoadTests
             WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
             {
                 string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
-                Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+                Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath)!);
                 File.WriteAllText(rootedChartPath, "#PLAYER 1");
 
                 using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -238,7 +238,7 @@ public sealed class BmsLibraryInitializationLoadTests
             WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
             {
                 string chartPath = Path.Combine(lr2RootPath, "Songs", "full-columns.bms");
-                Directory.CreateDirectory(Path.GetDirectoryName(chartPath));
+                Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
                 File.WriteAllText(chartPath, "#PLAYER 1");
 
                 var expectedCrc = new TestableBmsFile
@@ -374,9 +374,9 @@ public sealed class BmsLibraryInitializationLoadTests
                 null,
                 ex => ex.Message);
             List<string> propertyNames = [];
-            result.LoadedFiles[0].PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            result.LoadedFiles[0].PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
-                propertyNames.Add(e.PropertyName);
+                propertyNames.Add(e.PropertyName!);
             };
 
             result.LoadedFiles[0].maintenanceInfo.encoding = "utf-8";
@@ -581,7 +581,7 @@ public sealed class BmsLibraryInitializationLoadTests
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "Songs", "chart.bmson");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath)!);
             File.WriteAllText(bmsonPath, CreateBmsonJson("Title", "Sub", "Chart", "Artist", "Genre", 12, "beat-7k"));
 
             LR2SongDBExtended.bmson_song row = BmsonSongParser.Parse(bmsonPath);

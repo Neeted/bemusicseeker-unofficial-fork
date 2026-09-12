@@ -1417,7 +1417,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService
     {
-        public Action OnShow { get; set; }
+        public Action? OnShow { get; set; }
 
         public bool ThrowOnShow { get; set; }
 
@@ -1439,7 +1439,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     {
         public int FailNextMutationCount { get; set; }
 
-        public Action<string> AfterDeleteDirectory { get; set; }
+        public Action<string>? AfterDeleteDirectory { get; set; }
 
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
@@ -1452,7 +1452,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             ThrowForConfiguredMutation();
-            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            string destinationDirectory = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
                 Directory.CreateDirectory(destinationDirectory);
@@ -1471,7 +1471,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             ThrowForConfiguredMutation();
-            string destinationParent = Path.GetDirectoryName(destinationPath);
+            string destinationParent = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationParent))
             {
                 Directory.CreateDirectory(destinationParent);

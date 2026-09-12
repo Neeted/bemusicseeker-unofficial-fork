@@ -387,7 +387,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
         Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> sourceFactory,
         Action<ManagerTestFixture> test,
         bool prepareWindowPresentation = true,
-        Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation = null)
+        Action<PlaylistLampViewerWindow>? activateWindowForInitialPresentation = null)
     {
         string settingsRoot = Path.Combine(
             Path.GetTempPath(),
@@ -577,12 +577,13 @@ public sealed class PlaylistLampViewerWindowManagerTests
 
         private readonly PlaylistWorkspaceViewModel workspace;
 
+        /// <summary>設定とプレイリストを分離し、省略可能な初回表示処理を持つウィンドウ管理テストを構成します。</summary>
         internal ManagerTestFixture(
             MainWindow owner,
             IUiDialogService dialogs,
             Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> sourceFactory,
             Action<PlaylistLampViewerWindow> prepareWindowForShow,
-            Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation)
+        Action<PlaylistLampViewerWindow>? activateWindowForInitialPresentation)
         {
             Owner = owner ?? throw new ArgumentNullException(nameof(owner));
             root = Path.Combine(
@@ -691,7 +692,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
 
         private PlaylistLampAggregationRequest request;
 
-        private EventHandler<PlaylistLampViewerSourceChangedEventArgs> changed;
+        private EventHandler<PlaylistLampViewerSourceChangedEventArgs>? changed;
 
         private int disposed;
 
@@ -752,7 +753,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
 
         internal void Raise(string playlistId, long sequence)
         {
-            EventHandler<PlaylistLampViewerSourceChangedEventArgs> handler;
+            EventHandler<PlaylistLampViewerSourceChangedEventArgs>? handler;
             lock (gate)
             {
                 handler = changed;
@@ -793,7 +794,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
 
         internal int DisposeCount { get; private set; }
 
-        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed;
+        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs>? Changed;
 
         public async ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
             PlaylistLampViewerQuery requestedQuery,
@@ -819,7 +820,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             Changed = null;
         }
 
-        private void InnerChanged(object sender, PlaylistLampViewerSourceChangedEventArgs e)
+        private void InnerChanged(object? sender, PlaylistLampViewerSourceChangedEventArgs e)
         {
             Changed?.Invoke(this, e);
         }
@@ -834,7 +835,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
         internal TaskCompletionSource<UiMessageRequest> FirstMessage { get; } =
             Completion<UiMessageRequest>();
 
-        internal TaskCompletionSource<UiDialogResult> BlockedMessageResult { get; set; }
+        internal TaskCompletionSource<UiDialogResult> BlockedMessageResult { get; set; } = null!;
 
         internal int MessageCount
         {

@@ -31,6 +31,7 @@ internal sealed class UpdateFailureReceiptException : InvalidOperationException
         this.acknowledge = acknowledge ?? throw new ArgumentNullException(nameof(acknowledge));
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private UpdateFailureReceiptException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

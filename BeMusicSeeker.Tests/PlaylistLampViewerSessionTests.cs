@@ -504,7 +504,9 @@ public sealed class PlaylistLampViewerSessionTests
     {
         internal List<PlaylistLampViewerQuery> CapturedQueries { get; } = [];
 
-        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed;
+#pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。
+        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs>? Changed;
+#pragma warning restore CS0067
 
         public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
             PlaylistLampViewerQuery query,

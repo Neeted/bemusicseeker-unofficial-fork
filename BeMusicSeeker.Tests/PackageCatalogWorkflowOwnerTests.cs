@@ -383,12 +383,12 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
     private static BMSLibrary CreateLibrary()
     {
-        return (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        return (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
     }
 
     private static ChartOperationTarget CreateTarget()
     {
-        var chart = (ChartFile)FormatterServices.GetUninitializedObject(typeof(ChartFile));
+        var chart = (ChartFile)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(ChartFile));
         return new ChartOperationTarget(
             chart,
             null,
@@ -413,9 +413,9 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
         internal Task ActivityStarted => activityStarted.Task;
 
-        internal void OnActivityChanged(object sender, EventArgs e)
+        internal void OnActivityChanged(object? sender, EventArgs e)
         {
-            var activity = (ChartMutationActivityOwner)sender;
+            var activity = (ChartMutationActivityOwner)sender!;
             events.Add(activity.IsActive ? "activity-start" : "activity-end");
             if (activity.IsActive)
             {
@@ -427,7 +427,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             }
         }
 
-        internal void OnPhasePublished(object sender, PackageCatalogMutationPhaseEventArgs e)
+        internal void OnPhasePublished(object? sender, PackageCatalogMutationPhaseEventArgs e)
         {
             events.Add(e.Phase switch
             {

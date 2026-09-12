@@ -1,11 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Security;
-using System.Security.Permissions;
 
 namespace Ribbit.Windows;
 
-[SecurityPermission(SecurityAction.Demand, UnmanagedCode = true)]
 public sealed class ChildWindowHandles : WindowHandles
 {
     [SuppressUnmanagedCodeSecurity]

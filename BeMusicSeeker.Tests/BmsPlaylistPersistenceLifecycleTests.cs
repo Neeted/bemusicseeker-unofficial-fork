@@ -620,7 +620,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             var viewModel = MainWindowViewModelTestFactory.Create();
             List<string> workspacePropertyNames = [];
             int playlistTablesPresentationChangedCount = 0;
-            viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => workspacePropertyNames.Add(e.PropertyName);
+            viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => workspacePropertyNames.Add(e.PropertyName!);
             viewModel.PlaylistWorkspace.PlaylistTablesPresentationChanged += (_, _) => playlistTablesPresentationChangedCount++;
 
             Assert.AreEqual(0, viewModel.PlaylistWorkspace.PlaylistTreeTables.Count);

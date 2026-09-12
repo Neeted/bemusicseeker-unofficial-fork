@@ -354,7 +354,7 @@ public sealed class LoadPlaylistURIDialogTests
 
         internal List<UiFilePickerRequest> FileRequests { get; } = [];
 
-        internal Task<UiFilePickerResult> FileTask { get; set; }
+        internal Task<UiFilePickerResult>? FileTask { get; set; }
 
         internal int MessageRequestCount { get; private set; }
 

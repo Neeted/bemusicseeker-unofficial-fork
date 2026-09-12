@@ -14,9 +14,9 @@ internal static class TestStartupProgressOwnerFactory
     /// <param name="completionHideDelay">Controls when a completed operation may be hidden.</param>
     /// <returns>A startup-progress owner configured for isolated tests.</returns>
     internal static StartupProgressWorkflowOwner Create(
-        Func<Task> completionHideDelay = null,
-        Func<bool> backgroundTasksIdle = null,
-        Func<bool> requiredInitializationSchedulingComplete = null)
+        Func<Task>? completionHideDelay = null,
+        Func<bool>? backgroundTasksIdle = null,
+        Func<bool>? requiredInitializationSchedulingComplete = null)
     {
         backgroundTasksIdle ??= () => false;
         requiredInitializationSchedulingComplete ??= () => true;

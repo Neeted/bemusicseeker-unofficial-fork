@@ -52,7 +52,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         BMSScore score = new();
         List<string> changedProperties = [];
-        score.PropertyChanged += (_, eventArgs) => changedProperties.Add(eventArgs.PropertyName);
+        score.PropertyChanged += (_, eventArgs) => changedProperties.Add(eventArgs.PropertyName!);
 
         score.ranking = 7;
         score.ranking = 7;
@@ -65,7 +65,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         ReaderWriterLockSlimWrapper readerWriterLock = new();
         List<string> changedProperties = [];
-        readerWriterLock.PropertyChanged += (_, eventArgs) => changedProperties.Add(eventArgs.PropertyName);
+        readerWriterLock.PropertyChanged += (_, eventArgs) => changedProperties.Add(eventArgs.PropertyName!);
 
         readerWriterLock.EnterReadLock();
         readerWriterLock.ExitReadLock();

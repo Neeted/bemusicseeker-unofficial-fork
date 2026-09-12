@@ -2027,6 +2027,7 @@ internal sealed class PlaylistSummaryPublishException : Exception
     {
     }
 
+    [System.Obsolete(DiagnosticId = "SYSLIB0051")]
     private PlaylistSummaryPublishException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {

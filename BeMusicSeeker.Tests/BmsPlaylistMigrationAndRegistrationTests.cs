@@ -267,7 +267,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             string nestedOldPath = Path.Combine(parentOldOutputDir, "CLEAR FOLDER", "0 NO PLAY", "0000.lr2folder");
             string unmanagedOldPath = Path.Combine(parentOldOutputDir, "manual-note.txt");
             Directory.CreateDirectory(parentOldOutputDir);
-            Directory.CreateDirectory(Path.GetDirectoryName(nestedOldPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(nestedOldPath)!);
             File.WriteAllText(parentOldPath, "#TITLE stale parent", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(nestedOldPath, "#TITLE nested stale", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(unmanagedOldPath, "old custom folder note", Encoding.UTF8);
@@ -553,7 +553,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             string parentOldUnmanagedPath = Path.Combine(parentOldOutputDir, "manual-note.txt");
             string childOldPath = Path.Combine(childOldOutputDir, "0000.lr2folder");
             Directory.CreateDirectory(parentOldOutputDir);
-            Directory.CreateDirectory(Path.GetDirectoryName(parentOldNestedPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(parentOldNestedPath)!);
             Directory.CreateDirectory(childOldOutputDir);
             File.WriteAllText(parentOldPath, "#TITLE stale parent", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(parentOldNestedPath, "#TITLE nested stale parent", Encoding.GetEncoding("shift_jis"));
@@ -1427,7 +1427,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
             };
             string stalePath = Path.Combine(outputBaseDir, "EmptyTable", "0000.lr2folder");
-            string outputDir = Path.GetDirectoryName(stalePath);
+            string outputDir = Path.GetDirectoryName(stalePath)!;
             Directory.CreateDirectory(outputDir);
             string preservedPath = Path.Combine(outputDir, "keep.txt");
             File.WriteAllText(preservedPath, "not managed by BeMusicSeeker");
@@ -1494,7 +1494,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             string oldUnmanagedPath = Path.Combine(oldOutputDir, "manual-note.txt");
             string newPath = Path.Combine(newOutputDir, "0000.lr2folder");
             Directory.CreateDirectory(oldOutputDir);
-            Directory.CreateDirectory(Path.GetDirectoryName(oldNestedPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(oldNestedPath)!);
             File.WriteAllText(oldPath, "#TITLE stale", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(oldNestedPath, "#TITLE nested stale", Encoding.GetEncoding("shift_jis"));
             File.WriteAllText(oldUnmanagedPath, "old custom folder note", Encoding.UTF8);

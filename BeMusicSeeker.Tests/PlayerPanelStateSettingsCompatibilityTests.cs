@@ -47,7 +47,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
             }
             else
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(configPath));
+                Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
                 File.WriteAllBytes(configPath, originalConfig);
             }
         }

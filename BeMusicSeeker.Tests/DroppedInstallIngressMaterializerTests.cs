@@ -290,9 +290,9 @@ public sealed class DroppedInstallIngressMaterializerTests
 
         internal string SystemTempRoot { get; }
 
-        internal string LastIngressRoot { get; private set; }
+        internal string LastIngressRoot { get; private set; } = null!;
 
-        internal string DestinationAncestor { get; set; }
+        internal string DestinationAncestor { get; set; } = null!;
 
         internal string? ReportedReparsePath { get; set; }
 

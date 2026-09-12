@@ -268,7 +268,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             };
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
-            library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs args)
+            library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
                 {

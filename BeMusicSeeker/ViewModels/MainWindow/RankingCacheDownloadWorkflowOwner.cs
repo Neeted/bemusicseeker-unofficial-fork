@@ -276,6 +276,7 @@ internal sealed class RankingCacheDownloadWorkflowOwner
         {
         }
 
+        [System.Obsolete(DiagnosticId = "SYSLIB0051")]
         internal RankingCacheDialogDisplayException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {

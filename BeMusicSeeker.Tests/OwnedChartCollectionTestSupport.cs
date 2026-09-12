@@ -275,7 +275,7 @@ internal static class OwnedChartCollectionTestSupport
 
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            string destinationDirectory = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationDirectory))
             {
                 Directory.CreateDirectory(destinationDirectory);
@@ -293,7 +293,7 @@ internal static class OwnedChartCollectionTestSupport
 
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            string destinationParent = Path.GetDirectoryName(destinationPath);
+            string destinationParent = Path.GetDirectoryName(destinationPath)!;
             if (!string.IsNullOrWhiteSpace(destinationParent))
             {
                 Directory.CreateDirectory(destinationParent);

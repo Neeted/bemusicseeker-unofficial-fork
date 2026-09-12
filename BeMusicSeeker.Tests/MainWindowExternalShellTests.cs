@@ -158,7 +158,7 @@ public sealed class MainWindowExternalShellTests
                     {
                         if (args.PropertyName == nameof(MainWindowViewModel.IsLibraryOperationInProgress))
                         {
-                            operationNotifications.Add(args.PropertyName);
+                            operationNotifications.Add(args.PropertyName!);
                         }
                     };
 

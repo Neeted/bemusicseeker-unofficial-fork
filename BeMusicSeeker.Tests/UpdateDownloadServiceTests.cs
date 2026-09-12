@@ -400,9 +400,9 @@ public sealed class UpdateDownloadServiceTests
     {
         internal UpdaterProcessLaunchRequest Request { get; private set; } = null!;
 
-        internal string RecoveryExecutablePath { get; private set; }
+        internal string RecoveryExecutablePath { get; private set; } = null!;
 
-        internal string RecoveryApplicationDirectory { get; private set; }
+        internal string RecoveryApplicationDirectory { get; private set; } = null!;
 
         internal FakePreparedUpdaterLaunch PreparedLaunch { get; } = new();
 

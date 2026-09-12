@@ -435,7 +435,7 @@ internal static class ChartInfoMetadataTestSupport
             }
         }
 
-        PropertyChangedEventHandler propertyChangedHandler = delegate (object sender, PropertyChangedEventArgs args)
+        PropertyChangedEventHandler propertyChangedHandler = delegate (object? sender, PropertyChangedEventArgs args)
         {
             if (args.PropertyName is null || Array.IndexOf(observedPropertyNames, args.PropertyName) >= 0)
             {

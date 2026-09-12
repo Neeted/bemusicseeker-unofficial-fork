@@ -442,7 +442,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             string md5 = new('a', 32);
             string sha = new('1', 64);
             string chartPath = Path.Combine(tempRootPath, "Songs", "chart.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(chartPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
             File.WriteAllText(chartPath, "#PLAYER 1", Encoding.ASCII);
             string bundlePath = CreateChartInfoMetadataBundle(
                 tempRootPath,
@@ -542,7 +542,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
 
             Assert.IsFalse(File.Exists(appDbPath));
             Assert.IsTrue(File.Exists(archivedPath));
-            string[] importedEntries = Directory.GetFileSystemEntries(Path.GetDirectoryName(archivedPath));
+            string[] importedEntries = Directory.GetFileSystemEntries(Path.GetDirectoryName(archivedPath)!);
             Assert.AreEqual(1, importedEntries.Length);
             Assert.AreEqual(archivedPath, importedEntries[0]);
             Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_import skipped reason=already_imported") && message.Contains("bundleType=db")));
