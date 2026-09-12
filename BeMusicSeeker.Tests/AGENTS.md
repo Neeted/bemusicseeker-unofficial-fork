@@ -13,12 +13,12 @@
 - exact localized copy、docs prose、source text、private symbol、method body、broad snapshot を固定する test は、detail 自体が contract である理由、owner、退役条件が packet に明示されている場合だけ追加する。通常は key parity、placeholder / plural / fallback、schema、public behavior、generated artifact consistency を検証する。
 - characterization test は正しさの証明と混ぜず、packet で凍結対象、current behavior を authority にする root decision、退役条件を明記する。
 
-## Before editing
+## 編集前の確認
 
-- 恒久テストの追加・assertion semantics の変更・置換を必要と判断した場合だけ、対象 Contract ID ごとに production owner / symbol、candidate existing fixture、必要な追加・置換の配置、shared resource / lane、completion signal、退役 test を表にする。
+- 恒久テストの追加・判定内容の意味変更・置換を必要と判断した場合は、[テスト作成契約 section 2・3](../devdocs/spec/test-authoring-contract.md#2-仕様の根拠とテスト設計書) の設計書と配置表を使う。作業番号の意味と有効範囲も同契約に従う。
 - feature spec、production symbol の test 参照、feature 用語、failure 文言の順で候補を絞り、canonical fixture と共通 helper を先に確認する。既存 test は coverage placement の evidence であり、packet の oracle を上書きする authority ではない。
-- 必要性判断でテストを追加・意味変更・置換するとした final plan に承認済み packet / Contract ID、coverage ledger、shared resource / completion signal がない場合は、編集前に `NEEDS_ROOT_INPUT` を返す。テスト不要、または削除のみの判断では新しい ledger や packet を要求しない。repository で確認できる candidate fixture と helper は自分で調べる。
-- canonical fixture を新設、移動、分割する場合は、対象 feature spec の `Verification map` を同じ unit で更新する。
+- テストを追加・意味変更・置換する作業の入力に、必要な承認済み設計書・対象項目・配置表・共有資源・完了の待ち方が不足する場合は、編集前に `NEEDS_ROOT_INPUT` を返す。テスト不要または削除のみの場合は必要性の判断に従う。リポジトリで確認できる既存テストや補助処理の候補は自分で調べる。
+- 仕様と実装・テストの対応が変わる場合は、[仕様書の書式](../devdocs/spec/README.md#仕様書の書式) に従って対象項目の対応表を同じ変更で更新する。
 - 必要性判断で回帰テストを追加・更新するとした bugfix が承認済み production ingress から再現できる場合、red は原則有用である。base 実行が構造上不可能なことだけでは targeted mutant / negative control を要求しない。bugfix の red の代替、またはテストの識別力に具体的なリスクがあり計画で必要と判断した場合だけ、packet の targeted mutant / negative control を使う。通常の不正入力・failure test と、テストの識別力を確かめる mutant 実行を混同しない。
 
 ## Local safety boundaries
@@ -30,10 +30,10 @@
 - 正常完了は対象の `Task`、event、state transition に結び付く signal で待ち、local timeout は failure watchdog として使う。`DoNotParallelize` は分離不能な shared resource、owner、復元処理を説明できる場合だけ使う。
 - process test は bounded wait / stream drain、owned PID lineage cleanup、diagnostics、primary failure precedence を一つの lifecycle owner へ閉じる。process 名だけの global kill は禁止する。
 
-## Verification and handoff
+## 検証と引継ぎ
 
 - 反復中は変更 behavior に対応する filtered `Quick` を使う。Functional / Full と timeout 時の扱いは `testing-strategy.md` に従い、統合 owner へ引き渡す。
-- 必要性判断でテストを追加・意味変更・置換した場合は、完了時に通常の worker handoff に加えて、`TEST CONTRACT`、`TEST COVERAGE`、`TEST SAFETY` を返す。実装した Contract ID、必要に応じた red / negative-control evidence、packet からの deviation または `none`、検索した candidate fixture、必要な追加・置換の配置、退役 test、shared resource、lane / shard、completion signal、例外 seam、実行 filter を含める。テスト不要または削除のみなら `not applicable` とし、判断と適切な検証を記録する。
+- 完了時は [運用契約の完了報告](../devdocs/spec/codex-agent-workflow.md#実装担当の完了報告) に従い、実施内容、該当するテスト設計・配置、検証結果、残課題を要約する。
 
 ## Code Review Rules
 

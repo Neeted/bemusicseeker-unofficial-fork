@@ -1,8 +1,8 @@
 # テスト運用方針
 
-最終更新: 2026-09-10
+最終更新: 2026-09-12
 
-この文書は BeMusicSeeker のテスト lane、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、publish / update の受入検証を分離し、テスト追加によって通常検証が際限なく長時間化しないようにする。個々の test の設計、既存 coverage 調査、共通 infrastructure、Codex handoff は [test-authoring-contract.md](test-authoring-contract.md) を正本とする。
+この文書は BeMusicSeeker のテスト実行区分、標準コマンド、時間予算の正本である。機能回帰を短時間で検出する通常検証と、性能測定、大容量データ、外部プロセス、配布・更新の受入検証を分離する。テスト設計と既存テストの利用は [テスト作成契約](test-authoring-contract.md)、担当間の引継ぎと文書へ残す範囲は [運用契約 section 4](codex-agent-workflow.md#4-最終計画と記録の使い分け) に従う。実行ログと診断用ファイルは、実行プログラムによる結果判定と作業中の原因調査に用いる。
 
 ## 運用目標
 
@@ -12,7 +12,7 @@
 - Functional は、追跡対象ファイルを変更せず、実行順序や並列度によらず決定的に成功する。
 - CPU と I/O は、安定性を維持できる範囲で十分に利用して wall-clock time を短縮する。マシン負荷を抑えることだけを理由に並列度を制限しない。
 - リソース競合で不安定になる場合は、共有 state、fixture ownership、固定待ち、process / file / port の競合を修正する。
-- timeout 時は process tree を停止し、active または last observed test、経過時間、標準出力・標準エラー、console progress / TRX / blame artifact の場所を残す。残留 process がないことを確認し、同一 command・filter・budget・snapshot・条件で一度だけ再実行する。retry が budget 内で成功し、同じ症状の再発や決定的 artifact がなければ一過性の machine load として両結果を記録する。それ以外は原因を調査する。
+- 時間超過時はプロセスツリーを停止し、実行中または最後に確認したテスト、経過時間、標準出力・標準エラー、進捗・TRX・停止診断の場所を調査用に引き継ぐ。残留プロセスがないことを確認し、同一コマンド・フィルター・時間予算・版・条件で一度だけ再実行する。再実行が予算内で成功し、同じ症状の再発や決定的な診断結果がなければ一過性のマシン負荷として両結果を報告する。それ以外は原因を調査する。
 - Functional の最終 acceptance は変更種別にかかわらず、同一の最終 snapshot で一回を原則とする。timeout 時の retry は前項に従い、timeout 以外の deterministic failure は初回から調査する。
 
 ## 標準コマンド

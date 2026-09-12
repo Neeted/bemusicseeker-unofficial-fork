@@ -22,19 +22,18 @@ runtime / contract blocker では、最初に `canonical production ingress -> p
 - 変更は blocker と指定 path に限定する。stage、commit、push、tag、version 更新、追加サブエージェントの起動は行わない。
 - 修正後は、必要性判断に応じて blocker に直接対応する focused test または適切な check だけを行う。統合 Functional、Full、static review はルートへ任せる。
 
-完了時は次を簡潔に返してください。
+完了時は次を日本語で簡潔に返してください。調査中の詳細と文書へ残す範囲は `codex-agent-workflow.md` section 4・7 に従います。
 
-## ROOT CAUSE
-- condition、failure path、なぜ plan 内の通常修正では閉じなかったか
-- runtime / contract blocker: canonical ingress から observable / durable impact までの reachability evidence
-- operational blocker: deterministic verification failure / timeout または ownership / diff conflict evidence
+## 原因
+- 発生条件、失敗経路、計画内の通常修正で解消できなかった理由
+- 実行時の障害なら本番の入口から利用者・永続データへの影響までの経路。運用上の障害なら検証失敗・時間超過・担当範囲の競合を示す判断材料
 
-## FIX
-- 変更 path / symbol と維持した invariant
+## 修正
+- 変更ファイル・識別子と維持した条件
 
-## VERIFICATION
-- 実行した focused check と結果
+## 検証結果
+- 実行した関連検証と結果
 
-## PLAN IMPACT
-- worker が続行できるか、root の再計画・packet 更新・判断が必要か
+## 計画への影響
+- 実装担当が続行できるか、ルートの再計画・テスト設計書の更新・判断が必要か
 """

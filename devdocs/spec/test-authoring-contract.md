@@ -1,8 +1,8 @@
-# テスト実装・既存 coverage 確認契約
+# テスト設計と既存テストの利用
 
-最終更新: 2026-09-06
+最終更新: 2026-09-12
 
-この文書は、BeMusicSeeker でテストを追加・変更・削除するときの実装契約である。`testing-strategy.md` は lane、時間予算、shard、共有 resource の正本、この文書は test oracle の authority、独立設計、既存 coverage の調べ方、テストの形、例外的 seam、Codex handoff の正本とする。機能固有の observable behavior は各 feature spec を正とする。
+この文書は、BeMusicSeeker でテストを追加・変更・削除するときの設計契約である。実行区分・時間予算・共有資源は [テスト運用方針](testing-strategy.md)、委譲と報告は [エージェント運用契約](codex-agent-workflow.md) を正本とし、この文書は判定基準の根拠、独立設計、既存テストの調査と配置を定める。機能の挙動は各仕様を正とする。共通語は [運用契約の用語表](codex-agent-workflow.md#用語) を参照する。
 
 目的はテスト数を増やすことではなく、実装から独立した contract を、既存 coverage と重複しない最小の決定的なテストで保証することである。
 
@@ -18,13 +18,11 @@
 
 回帰テストは、実在する不具合の再発または確立した契約の再破壊を防ぐテストを指す。意図的な仕様変更で旧仕様を否定するためだけに恒久テストを追加しない。今回新しく決めた仕様を旧実装が満たさないことは、それだけでは不具合や回帰の証拠にならない。旧 route が存在しないことも、廃止した事実だけでは固定せず、再導入が具体的な契約違反になる場合に限って扱う。
 
-旧実装が新仕様に合わないだけでは、bug または regression の evidence としない。
-
 必要性判断の結果、テストが不要でも検証が不要になるわけではない。既存の関連 test、適切な実行確認、静的検査から変更に合う手段を選ぶ。この判断自体に新しい巨大な packet、台帳、ユーザー承認手続きを追加しない。削除のみの判断では代替を要求せず、保持すべき契約への影響を確認する。
 
 必要性の再評価は、追加・意味変更・置換が必要になった部分に限る。
 
-## 2. Source of authority と Test Contract Packet
+## 2. 仕様の根拠とテスト設計書
 
 必要性判断で恒久テストの追加、assertion semantics の変更、または置換が必要になった unit では、実装前に `test-contract-designer` が作成し、ルートが承認した `Test Contract Packet` を用意する。削除のみで代替不要と判断済みの場合は、その理由を記録して packet 不要とする。名前変更、移動、format、生成物更新などの mechanical change で assertion semantics が変わらない場合も packet 不要である。
 
@@ -43,14 +41,16 @@
 - `Resources.resx`、`lang/*.json`、docs prose の現在の文字列
 - current source text、symbol placement、private call order
 
-`Test Contract Packet` は、implementation body や current output を読む前に oracle を凍結し、少なくとも次を含む。
+テスト設計書（`Test Contract Packet`）では、実装本体や現在の出力を読む前に判定基準を確定する。作業名・変更分類と、項目ごとの次の内容を揃える。
 
-| Contract ID | User-observable behavior / failure | Authority | Production ingress / reachability evidence | Required invariant / outcome | Allowed variation | Plausible wrong implementation | Evidence strategy |
+| 項目 | 挙動・失敗 | 仕様の根拠 | 本番の入口・到達経路・入口の前提 | 必須の条件・結果 | 許容差分 | 検出すべき誤実装 | 確認方法 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | | | | | | | | |
 
-- `Allowed variation` には、翻訳文言、順序、format、内部構造、timing など、変更してよいものを明記する。
-- `Evidence strategy` は、必要性判断で回帰 test を追加・更新するとした bugfix で、承認済み production ingress から再現可能なら red を原則有用とする。base で test を構造上実行できないことだけでは targeted mutant / negative control を要求しない。red の代替、または test の識別力を確認する具体的な必要性が計画で判断された場合だけ、その理由と targeted mutant / negative control を示す。
+`Packet ID` は作業名、`Contract ID` はその設計書内の項目を指す参照名であり、意味の分かる名前を基本とする。番号を使う場合も有効範囲はその設計書内で、作業外から参照する際は計画ファイルと見出しを添える。保証の根拠は各項目が参照する要件・仕様・承認済み判断にある。完了時は [仕様書の書式](README.md#仕様書の書式) に従い、恒久化する内容を仕様項目名と実装・テストの対応へ統合する。
+
+- 「許容差分」には、翻訳文言、順序、書式、内部構造、タイミングなど、変更してよいものを明記する。
+- 「確認方法」では、必要性判断で回帰テストを追加・更新するとした不具合修正について、本番の入口から再現できるなら修正前の失敗確認（red）を原則有用とする。変更前の版で実行できないことだけでは代替確認を必須にせず、失敗再現の代替または識別力に具体的な懸念がある場合に、その理由と確認方法を示す。
 - `characterization` は正しさの証明ではない。current behavior を authority にする root decision、凍結対象、利用目的、退役条件を packet に明記する。
 - exact string、snapshot、source artifact、private reflection は detail 自体が contract である authority、owner、退役条件が packet にある場合だけ使う。
 
@@ -60,11 +60,11 @@ process-exclusive DB、single writer、外部 filesystem / index の out-of-proc
 
 packet 承認後、worker は fixture、helper、data setup、assertion API などの mechanics を repository に適合させてよいが、authority、expected outcome、allowed variation、wrong implementation を current implementation に合わせて変更してはいけない。packet を保ったまま解消できる可能性がある技術的な seam / ownership 不足は workflow の resolver trigger に従う。authority や expected semantics の変更が必要なら `NEEDS_ROOT_INPUT` を返す。
 
-## 3. 編集前の coverage reconnaissance
+## 3. 既存テストの調査と配置
 
-必要性判断で恒久テストの追加、assertion semantics の変更、または置換を行う場合、新しい fixture や test method を書く前に、packet の Contract ID ごとに次の ledger を plan または worker notes へ作る。
+恒久テストの追加・判定内容の意味変更・置換が必要な場合、実装前に設計書の項目ごとに次の配置表を作る。進行中の計画、テスト設計書、担当間の引継ぎのいずれかで共有する。
 
-| Contract ID | Production owner / symbol | Candidate existing coverage | 必要な追加・置換の配置 | Shared resource / lane | Completion signal | Retired test |
+| 設計書の項目 | 実装の管理主体・識別子 | 既存テストの候補 | 追加・置換の配置 | 共有資源・実行区分 | 完了の待ち方 | 退役するテスト・補助処理・経路 |
 | --- | --- | --- | --- | --- | --- | --- |
 | | | | `extend` / `replace` / `new` | | | |
 
@@ -72,19 +72,19 @@ packet 承認後、worker は fixture、helper、data setup、assertion API な�
 
 - `extend`: canonical な既存 fixture へ case を追加する。
 - `replace`: 脆い、または重複した旧テストを、同じ Contract ID を守る behavior / semantic test へ置換し、旧テストを同じ unit で削除する。
-- `new`: 既存 fixture へ置くと owner、resource、lane、failure contract が混ざるため、新しい fixture を作る。理由を ledger に残す。
+- `new`: 既存のテスト構成に置くと管理主体、共有資源、実行区分、失敗時の契約が混ざるため、新しい構成を作る。配置表に理由を添える。
 
 調査順は次を既定とし、最初から test project 全体を通読しない。
 
-1. 対象 feature の `devdocs/spec` と、その `Verification map` があれば読む。
+1. 対象機能の仕様と「実装とテストの対応」（既存の `Verification map` を含む）を読む。
 2. production owner、public contract、result 型、event 名を `rg` で `BeMusicSeeker.Tests` から検索する。
 3. feature 用語、既知の failure 文言、旧 route 名で候補を絞る。
 4. candidate fixture と、直接利用する共通 helper だけを読む。
 5. candidate が見つからない、または ownership が横断的な場合だけ検索範囲を広げる。
 
-既存 test は coverage / placement の evidence であり、packet の oracle を上書きする authority ではない。広域読み取りが必要になった場合は、何を検索して不足したかを handoff へ一行残す。単に「既存テストが多い」ことを理由に新しい fixture を作らない。
+既存テストは検証範囲と配置の判断材料であり、期待値を上書きする根拠にはしない。検索で不足した範囲と採用した配置の理由を、引継ぎで簡潔に伝える。
 
-canonical fixture を新設、移動、分割した場合は、対象 feature spec へ短い `## Verification map` を追加または更新し、Contract ID、behavior、fixture、lane、例外的 shared resource を記録する。巨大な global 一覧を人手で重複管理せず、feature spec を入口にして近傍 coverage へ到達できる状態を保つ。
+仕様とコード・テストの対応が変わった場合は、[仕様書の書式](README.md#仕様書の書式) に従って、対象機能の対応表を同じ変更で更新する。機能仕様から実装とテストメソッドへ辿れる状態を保ち、実行区分や共有資源の詳細はその正本を参照する。
 
 ## 4. Test shape の優先順位
 
@@ -153,7 +153,7 @@ process 名だけでマシン全体の `dotnet` / `testhost` / `vstest` を停�
 
 runner、lane、parallelization、fixture placement、shared WPF / process infrastructure を変更した場合は、変更の検証に用いる focused Quick または適切な実行確認と acceptance lane を handoff へ明示する。Functional の実行回数、300秒 hard budget、180秒 reporting target、timeout retry、failure classification は `testing-strategy.md` に従う。180秒を超えて成功した場合は actual elapsed をユーザーへの報告に含める。
 
-規定の retry 後も同じ症状が再発する flake は、active / last observed test、shared state、process / window / pipe handle、settings、temp resource、worker topology を failure ledger へ残し、対象 filter を実際の shard context で調査する。
+規定の再実行後も同じ症状が再発する場合は、実行中または最後に確認できたテスト、共有状態、プロセス・ウィンドウ・パイプ、設定、一時資源、並列構成を調査担当へ引き継ぎ、実際の分割実行と同じ条件で調査する。
 
 ## 7. Red evidence と negative control
 
@@ -163,48 +163,13 @@ runner、lane、parallelization、fixture placement、shared WPF / process infra
 - 必要性判断で behavior-preserving replacement や characterization test を行う場合は、base で green でもよい。packet が定める wrong variant / invariant violation を検出する evidence は、計画で必要とした場合だけ残す。
 - mutation score や coverage は診断値であり、それだけを completion signal にしない。changed decision logic に対応する少数の targeted negative control を優先する。
 
-## 8. Plan and worker handoff
+## 8. 計画と引継ぎ
 
-必要性判断でテストの追加・意味変更・置換を行う unit の final plan には、次を含める。テスト不要または削除のみの場合は、判断理由と適切な検証手段だけを記録し、以下の test artifact 項目を作らない。
-
-- 継続して保証する契約、既存 coverage の不足、保守負担に見合う効果、および `変更なし` / `既存更新` / `追加` / `削除` の判断
-- 承認済み `Test Contract Packet` と対象 Contract ID
-- coverage ledger と、必要な追加・置換の配置（`extend / replace / new`）
-- 削除する旧 test / helper / route と replacement
-- shared mutable resource、lane / shard、`DoNotParallelize` 判断
-- normal completion signal と failure watchdog
-- 必要性判断で実施するとした場合の base-fail / head-pass、または targeted negative control の確認方法
-- focused Quick filter、Functional / Full / opt-in lane
-- source text、private reflection、exact string / snapshot、raw WPF / process primitive を使う場合の例外理由
-
-worker は完了時に、少なくとも次を handoff する。
-
-```text
-## TEST CONTRACT
-- packet ID and implemented Contract IDs
-- 必要性判断で実施した red / head-pass or negative-control evidence。該当しなければ `not applicable`
-- deviations from packet or none
-
-## TEST COVERAGE
-- searched symbols / candidate fixtures
-- 必要な追加・置換の配置と理由
-- retired tests and replacements
-
-## TEST SAFETY
-- shared resources, lane / shard, DoNotParallelize decision
-- completion signal and failure watchdog
-- exceptional source / reflection / exactness / WPF / process seams or none
-- anti-pattern scan result
-
-## VERIFICATION
-- exact commands / filters / lanes
-- elapsed, artifacts, timeout retry evidence
-- not-run items and reason
-```
+計画の内容と保存範囲は [運用契約 section 4](codex-agent-workflow.md#4-最終計画と記録の使い分け)、完了報告は [実装担当の完了報告](codex-agent-workflow.md#実装担当の完了報告) に従う。テスト設計が必要な場合は、section 2・3 の設計書と配置表を参照し、実装したメソッド、置換関係、共有資源と完了の待ち方、必要と判断した識別力の確認結果を引き継ぐ。テスト不要または削除のみの場合は、必要性の判断と適切な検証結果を伝える。
 
 packet からの deviation が必要になった場合は、worker が独自に採用せず、authority、observable impact、推奨変更を `NEEDS_ROOT_INPUT` として返す。packet が適用されない変更で red / negative-control がないことだけを理由に追加作業を要求しない。
 
-## 9. Review contract
+## 9. レビュー
 
 reviewer は、必要性判断でテストを追加・意味変更・置換した場合、green result だけでなく次を確認する。テスト不要または削除のみの判断を、packet や代替 test がないことだけで覆さない。
 
@@ -217,6 +182,14 @@ reviewer は、必要性判断でテストを追加・意味変更・置換し�
 - raw dispatcher pump、visible HWND、physical cursor、process、settings、filesystem などの shared resource が documented policy に従うか
 - fixed wait、追加 DNP、worker 低下、timeout 延長で不安定性を隠していないか
 - exact string / snapshot / source-artifact / reflection / characterization / legacy-absence test に authority、owner、退役条件があるか
-- test 移動後に旧 coverage が重複して残らず、feature spec の Verification map が current か
+- 変更した仕様項目と、実装・テストメソッドの対応が現行仕様へ反映され、置換した旧テストが重複して残っていないか
 
 必要性判断で test semantics を変更するのに packet がない場合、または packet と diff が矛盾する場合は、明示された受入条件に対する test-design gap として扱う。red / negative-control の未実施だけでは finding にせず、変更分類、必要性判断、具体的な識別力リスクに照らして判断する。finding の evidence と分類は `codex-agent-workflow.md` の reachability / impact gate に従う。production reachability または observable impact を示せない事項は recommendation / theoretical / out-of-scope とし、現在の bounded unit に production seam、persistent state、retry / replay、rollback、recovery abstraction、追加 test を要求しない。
+
+## 実装とテストの対応
+
+| 仕様項目 | 適用する指示 | 確認方法 |
+| --- | --- | --- |
+| 必要性判断・独立した判定基準・作業内の参照名 | [テスト設計担当](../../.codex/agents/test-contract-designer.toml) の `developer_instructions` | 自動テストなし。設計書の項目が要件に基づき、配置調査で期待値を変更しない手順かを点検する。 |
+| 既存テストの利用・配置・引継ぎ | [テスト指示](../../BeMusicSeeker.Tests/AGENTS.md)、[実装担当](../../.codex/agents/implementation-worker.toml) の `developer_instructions` | 自動テストなし。配置表と完了報告が正本を参照し、仕様から実装とテストへ辿れるかを点検する。 |
+| レビュー | [レビュー担当](../../.codex/agents/repo-static-review.toml) の `developer_instructions` | 自動テストなし。根拠・到達可能性・識別力の判断が本契約と一致するかを点検する。 |

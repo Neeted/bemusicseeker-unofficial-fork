@@ -19,27 +19,19 @@
 
 複数段階の変更、実装の委譲、並列 worker、static review を伴う作業では、`devdocs\spec\codex-agent-workflow.md` を運用の正本として先に確認する。単純な質問や軽微な文書修正まで機械的にサブエージェントへ渡さない。
 
-### durable な運用契約
+### 責務と判断
 
-- ルートはユーザー要件を Goal、Context、Constraints、Done when、対象外、互換性条件、decision list、unit ごとの ownership と verification へ整理し、設計・最終計画・統合に責任を持つ。生の会話や未決 semantics を worker へ委ねない。
-- runtime state、failure、invariant を対象にする前に、workflow の reachability / impact gate に従い、canonical production ingress から production owner までの route、入口 assumption、user-observable または durable / external-data impact を立証する。private API、reflection、fake、code representability だけを根拠にしない。
-- 実装委譲前に `plan-clarifier` を原則一度だけ使い、repo で解けた事実、必要な質問、test-design gate、並列境界、replan trigger を計画へ反映する。先に `devdocs/spec/test-authoring-contract.md` に従って変更分類と恒久テストの必要性を判断し、workflow section 3 の適用対象だけで `test-contract-designer` と承認済み `Test Contract Packet` を使う。テスト不要・代替不要の削除のみ・assertion semantics 不変の機械的変更には packet を要求しない。
-- bounded implementation は `implementation-worker` へ任せる。書込み worker の既定は1つ、writable path、生成物、schema / migration、shared fixture、依存順が重ならない独立した unit に限り同時実行は最大2つとし、同じ unit の比較、shadow 評価、二重実装を行わない。
-- worker は指定 path と unit だけを変更し、UI、persisted data、file / protocol compatibility、threading、shutdown、failure invariant と packet semantics を維持する。worker が起動できる nested agent は `issue-resolver` だけで、対象 blocker に限り一度、編集を止めて呼び、resolver から再帰しない。commit 等は禁止する。
-- worker の開始確認、packet 不足時の `NEEDS_ROOT_INPUT`、red / negative-control、filtered Quick、verification failure の分類、完了時の `IMPLEMENTED` / `FILES` / `TEST CONTRACT` / `TEST COVERAGE` / `TEST SAFETY` / `VERIFICATION` / `HANDOFF` は workflow の共通契約に従う。root は handoff、path / Contract ID ownership、旧 route の退役を統合時に確認する。
-- 実装と標準検証後は implementation agent を閉じ、凍結 snapshot を `repo-static-review` へ渡す。review 中は root の read / search / edit / build / test / format / stage / commit と重複 review を停止する。blocking finding は classification、authority、reachability、assumption、observable impact、evidence を揃え、修正後は影響範囲を検証して fresh review を行う。2回の修正 review 後も新しい P1 が続けば、finding を継ぎ足さず再計画する。
-- custom agent が利用できない場合は、同じ model、permission、role contract を明示した built-in / generic agent へ代替する。multi-agent 機能自体が使えない場合も、planning、独立 oracle、implementation、verification、fresh review の境界を順番に再現し、代替と未実施 evidence を明記する。
-- 各 role の model / reasoning effort の正本は `.codex/agents/*.toml` の設定 field、`/review` の model の正本は `.codex/config.toml` とする。具体的なモデル名をこの文書、workflow、description へ重複記載しない。
+- ルートは目的、制約、完了条件、決定事項、作業単位ごとの担当範囲と検証方法を整理し、設計・最終計画・統合に責任を持つ。委譲前に、実装担当が推測せず着手できる状態まで判断を閉じる。
+- 実行時の状態や失敗を扱う場合は、運用契約 section 1 の到達可能性と影響の確認に従い、本番の入口から管理主体までの経路、入口の前提、利用者・永続データ・外部データへの影響を示す。
+- 恒久テストの必要性は `devdocs/spec/test-authoring-contract.md` に従って先に判断する。計画点検、必要な独立テスト設計、実装担当への割当、障害解決、統合検証、凍結した変更への静的レビューは運用契約の順序と役割分担に従う。
+- 担当範囲、並列度、入力不足、完了時の引継ぎ、再計画、エージェントを利用できない場合の代替も運用契約を正本とする。統合時には担当の重複、承認済みのテスト設計との一致、旧処理の退役を確認する。
+- 各役割のモデルと推論強度は `.codex/agents/*.toml` の設定値、`/review` のモデルは `.codex/config.toml` を正本とする。
 
 ## ドキュメント配置
 
-- `docs\` は利用者向け資料の正本とする。README の補足、導入・操作手順、画面説明、公開時に利用者が読む資料を置く。内部実装契約、開発手順、設計判断履歴の正本は置かない。
-- `devdocs\` は開発者・保守者向け資料の正本とする。
-  - `devdocs\spec\`: 現行仕様と採用済みの設計・性能要件、契約、受入条件、テスト戦略。現行挙動と未達の要件・目標を区別し、採用済みでも未検証の要件を実装済み保証として書かない。
-  - `devdocs\decisions\`: ADR、採用理由、検討した代替案、判断履歴。
-  - `devdocs\plan\`: 実行中の移行・作業計画と、固有の検証証跡を残す完了記録。完了後の恒久契約は現行仕様へ統合し、重複する本文は削除または履歴として整理する。
-- 設計判断が現行の実装契約になった場合、正本を `devdocs\spec\` に統合し、旧配置には移動案内だけを残す。内容を複数箇所で重複管理しない。
-- 仕様を変えるコード変更では、対応する `devdocs\spec\` を更新する。テストは目的と影響から恒久的な保証の必要性を判断し、`変更なし`、必要な既存テストの更新、追加、削除を選ぶ。
+- `docs/` は利用者向け資料、`devdocs/` は開発者・保守者向け資料の正本とする。配置と日本語・用語の書き方は [開発資料の案内](devdocs/README.md) に従う。
+- 現行仕様は [仕様書の書式](devdocs/spec/README.md#仕様書の書式) に従い、仕様項目ごとに実装とテストの対応を示す。仕様、対応するコード、テストの変更に合わせて更新する。
+- 計画は [計画の運用](devdocs/plan/README.md#運用) に従い、現在の進捗と再開に必要な判断を示す。完了時は恒久的な契約を仕様へ統合し、実施内容の要約、残課題、反映先を残す。
 
 ## アーキテクチャ上の注意
 
