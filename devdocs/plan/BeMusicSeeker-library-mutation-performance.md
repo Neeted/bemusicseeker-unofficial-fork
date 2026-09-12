@@ -99,7 +99,7 @@ SelfOwnedのみの変更でも、既存のremove→appendで候補が`[A, B] →
 | R2a-GATE | file diffによるpath収束前にもcatalog依存file mutationを受理できる | delete、merge、install、move、rename等のP0 file mutation | 実装済み(将来gateを前倒し) |
 | R2b | PathCleanupの全表materialize・行ごとの削除・孤児確認を対象集合SQLへ統合 | 主にmerge、PathCleanupを使う修正経路 | 実装済み |
 | R2c | resource-healthのchart identityがpathをcase-insensitive比較 | warning表示・maintenanceを伴う変更 | 実装済み |
-| RELINK-1 | file diffの一対一・同一MD5 relinkにcase-onlyだけの除外が残る | startup / file diff / 再初期化 | 採用済みの仕様統一。R2群直後の独立unit |
+| RELINK-1 | file diffの一対一・同一MD5 relinkをpath差分の種類によらず適用 | startup / file diff / 再初期化 | 完了。R2群とは独立した仕様統一 |
 | R3 | LR2同期receipt用の全BMS path取得、二重sort、全祖先lookup作成 | delete、move、rename、merge | R2のexact factsと整合させる |
 | R4a | move / renameで全reverse key・候補配列を走査・一時確保 | move、rename | 対象bucket更新へ |
 | R4b | 削除sourceごとに全directory keysを複製・走査 | delete、merge | subtree検索を集約 |
@@ -212,62 +212,18 @@ Production route: startup / maintenance hydrationまたはmanual resource-health
 <a id="relink-1"></a>
 ### RELINK-1 — file diffの保存値relinkをpath差分の種類によらない規則へ統一する
 
-**Status: Planned / 方針採用済み・未実装。** R2a / R2b / R2cの近接後続unitとするが、R2には実装・テスト期待値変更を混ぜない。これはcase-onlyの保存値引継ぎを変える仕様統一であり、速度改善や既存仕様への回帰修正と同一視しない。
+**Status: Done（2026-09-13）。** 基準commitは`9add27c51b03a5b653c6042024e22745a8aa6076`（開始時clean）。R2群から独立した仕様統一として実施した。
 
-#### Goal・採用済みdecision
+- `FileScanParseCommitOwner.PrepareMovedBmsUserColumnRestores`のcase-only除外と専用helperを退役し、同一MD5の削除候補・新規候補が一対一で旧exact keyの保存値snapshotがある場合に、`favorite` / `tag` / `adddate`をDBとmemoryへ引き継ぐ共通処理へ統一した。
+- exact membership、既存destinationの保護、file diff全体での候補数判定、削除前snapshot、writer barrier後のexact復元、既存failure伝播を維持した。現在のpath・mtime・CRC・metadata・maintenanceは現在入力を使用し、BMSONへのrelinkや新しいscan・query経路・persistent state・retryは追加していない。
+- 利用者の追加指示に従い、通常移動とcase-onlyを同じ機能テストの入力例とした。旧case-only仕様そのものを誤実装として狙うテスト、source上の除外不在のassertion、旧実装のred・除外復活mutantは作っていない。
+- 独立designerのPhase Aで利用者指示と採用済みpath仕様から判定基準を固定し、Phase Bで到達経路と配置を確認した`RELINK-1-UNIFIED-MOVE`をrootが承認した。PAIR / GENERATED / REAPPLYを一般移動data testへ統合し、EXISTINGとAMBIGUOUSを同じfixtureで確認する。期待は入力した三保存列と現在譜面・resource surfaceから定め、内部構造・順序・ログ文言は固定しない。通常移動と旧case-onlyの重複test body、旧非引継ぎexpected、復元ログ文字列assertionを退役した。
+- 本番経路はstartup / `FullReinitialize` / `ReloadFileDiff` → `LibraryFileScanPipelineOwner` → `BmsLibraryInitializationService.ApplyFileScanDiff` → `FileScanParseCommitOwner.ApplyFileDiff`。外部DB内容はstartup / reinitでcurrent集合へ読込済みとし、既存exclusive DB / single writerと完全scanの前提を維持する。テストは既存の一時SQLite、captured scan、同期service完了とproduction projectionを用い、DB・memory双方を観測する。
+- filtered Quick（`FullyQualifiedName~BmsLibraryInitializationFileScanTests`）は57/57成功。統合Functionalは一回で成功（4,762件成功・11件skip・失敗0件）し、test executionは216.9秒（180秒目標超過、300秒制限内）だった。事前analyzerは指摘なし、buildは警告・エラーなし。独立静的レビューは修正必須の指摘なし。
+- 未変更のINPUT / ORDER / FAILURE / BMSONは既存coverageと静的確認の範囲。snapshot欠落・空hash・実restore transaction failureの専用relink testは追加していない。既存writer failure testはログcallback例外によるもので、実restore transaction failureの直接検証とは扱わない。
+- 約21万譜面規模のterminal wall-clockは未測定。新しい全catalog走査・コピーはなく、新たに成立する組を既存復元処理へ渡す。小規模機能テスト成功を大規模性能合格とは扱わない。
 
-正本は[path identityのrelink規則](../spec/path-identity.md#relink-policy)。既存の通常BMS moved-hash relinkを残し、一対一・同一MD5での保存値引継ぎをcase-onlyの組にも適用する。relinkの全面廃止、case-insensitiveなrow統合、新規の物理rename機能は行わない。
-
-判定を次の二層に分ける。
-
-- membership: 全pathをexactに扱い、旧keyの削除と現在pathの維持・追加・更新で収束させる。relinkに失敗・不成立でもこの規則を変えない。
-- 保存列: そのfile diffの削除候補と新規追加候補をMD5で照合し、旧一件・新一件かつ旧保存値snapshotありの場合だけ`favorite` / `tag` / `adddate`を引き継ぐ。大小文字の関係を追加条件・優先順位にしない。
-
-新pathの既存行は新規候補に含めない。`DB={A,B}` / `scan={B}`ではAの保存値で既存Bを上書きしない。旧二件・新一件、旧一件・新二件などは、case-onlyの候補が混ざっても曖昧として引き継がない。candidateのcase foldや保存値欠落行の除外で、一対一を作り出さない。
-
-保存列は`Lr2SongUserColumns`の三列だけである。新path、mtime、folder / parent CRC、生成metadata、maintenanceは現在の入力を使う。maintenanceの自動移植もBMSONの新しいuser-column relinkも追加しない。通常のmove / merge receiptによる情報維持をfile diff推定へ置き換えない。
-
-#### 現行コード・production到達
-
-startup / `FullReinitialize` / `ReloadFileDiff` → `LibraryFileScanPipelineOwner` → `BmsLibraryInitializationService.ApplyFileScanDiff` → `FileScanParseCommitOwner.ApplyFileDiff`が対象経路である。外部アプリ由来のcase-only DB行は、DBを取り込む入口でin-memory current集合へ載った状態を使う。軽量reloadの途中で外部DB編集を再読込する新契約は作らない。
-
-- `FileScanParseCommitOwner.cs:134–141`: exactな削除候補からMD5別の旧候補を作り、`CreateSongUserColumnSnapshot`で旧exact pathの保存値を取得する。
-- 同`PrepareMovedBmsUserColumnRestores:1256–1317`: 旧一件・新一件を判定した後、`IsCaseOnlyPathPair`でcase-onlyだけを除外している。
-- 同`TrackBmsRelinkDestinationCandidate:2878–2886,2957–2963`: 新規候補は`ExistingFile == null`のBMS。既存exact destinationへの引継ぎ防止を維持する。
-- 同`ApplyFileDiff:270–274`、`FileScanDiffCommitContext.RestoreSongUserColumns:1973–2025`: DB writer barrier後にexact destinationへ保存値を復元する。復元のtransaction failureを伝播する。
-- `BmsLibraryDbGateway.cs`: `Lr2SongUserColumns`、`CreateSongUserColumnSnapshot:269–289`、`ApplySongUserColumns`のmodel / DB両経路、`ReadSongUserColumns`は改修時に維持する境界である。
-
-上記のファイル名のみの参照は`BeMusicSeeker/Models/BmsLibraryInternal/`配下。利用者に見える差分はfile diff後のfavorite / tag / adddateとDB保存値であり、private helperだけの到達を根拠にしない。
-
-#### 実装手順・所有範囲
-
-1. path specの採用済み規則からrelinkのoracleを固定し、既存の通常relink・case-only・曖昧候補testのcoverageを分ける。R2のrow集合oracleは再定義しない。
-2. case-onlyを不適格にする条件を除去する。他にcallerがなければ専用`IsCaseOnlyPathPair`も退役する。path比較をNOCASEへ戻したり、候補数の判定・既存destination除外・旧snapshot取得を緩めたりしない。
-3. file diff全体で候補の一意性を確定する既存collector / writerの順序を維持する。先着一件・chunkごとの一件を一意と誤認しない。旧snapshotは削除前に取得し、DB復元は確定後のexact destinationに適用する。新しい全catalog列挙、FS同一実体照会、別のscanを追加しない。
-4. DBとmemoryで同じ三列を反映し、現在pathから作る生成列とmaintenanceを保持する。read / parse / DB / restore failureを成功のrelinkとして報告しない。既存の部分commitや失敗伝播を変更せず、全rollback・自動retry・永続recovery queueを追加しない。
-5. `BmsLibraryInitializationFileScanTests`のcase-only BMS testを新契約に合わせて更新し、通常relink・曖昧候補・既存destination・BMSON maintenance非移植のcoverageを維持／補強する。既存testの名前だけを変更して期待値を残さない。
-6. `path-identity.md`の実装状態と`chart-file-read-pipeline.md` / `lr2-song-db-generation.md`の未実装参照を更新し、本unitの検証結果を記録する。新旧方針を恒久的に併記しない。
-
-主な書込対象は`FileScanParseCommitOwner.cs`、`BeMusicSeeker.Tests/BmsLibraryInitializationFileScanTests.cs`と上記spec。本体のgateway変更は、現行のexact read / restoreを保ったまま必要性が確認できた場合だけに限定する。R2a / R2bとの同時編集は避ける。
-
-#### 受入条件・test placement
-
-| Contract ID | 入力・観測する結果 | 検出する誤実装 |
-| --- | --- | --- |
-| RELINK-PAIR | `DB={A}` / `scan={B}`、同一MD5の旧一件・新一件をcase-onlyと通常差分で対にする。どちらも行集合は`{B}`、三保存列は旧A由来でDBとmemoryが一致する | case-only除外の残存、通常relinkまで廃止、DBまたはmemoryだけの反映 |
-| RELINK-EXISTING | `DB={A,B}` / `scan={B}`、同一MD5でも既存Bの保存値を保持し、Aだけを除く。両種のpath差分で同じ | Bを新規候補とする、NOCASEによるkey変更・巻添え削除 |
-| RELINK-AMBIGUOUS | 旧二件・新一件、および旧一件・新二件。同一MD5でcase-only候補と通常候補を混在させても引継がない | case-only優先、case fold、first-win、保存値のない候補を除いて一意化 |
-| RELINK-INPUT | 異なるMD5、空hash、旧保存値snapshotなし、不成立の登録候補では引継がない。単なる同一FS解決を根拠にしない | 大小文字一致だけで引継ぐ、別行から保存値を補う |
-| RELINK-GENERATED | 三保存列以外は現在入力を使い、path・mtime・CRC・maintenanceが旧Aの値にならない。BMSONは通常差分・case-onlyともmaintenanceを移植しない | 旧row全体のコピー、hash一致によるresource再評価の省略 |
-| RELINK-ORDER | 複数chunk・異なるworker完了順でもfile diff全体の候補数で判定し、exactなDB復元とmemory結果が同じ | chunk単位・先着順で一意と判定、復元値を後続upsertで上書き |
-| RELINK-FAILURE | 到達可能な既存read / parse / DB / restore失敗で、未確定の復元を成功扱いせず既存failureを伝播する | 復元失敗の握りつぶし、durable成功と推定候補の混同 |
-| RELINK-REAPPLY | 同じ正常scanを再適用しても追加・削除・relinkが再発せず、既存Bの保存値を保つ | 毎回case補正・relinkを繰り返す |
-
-主な既存coverageは`ApplyFileScanDiff_CaseOnlyBmsPathMismatchReplacesExactPathWithoutMigratingUserColumns`、`ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns`、`ApplyFileScanDiff_MovedBmsWithAmbiguousSourceMd5DoesNotPreserveUserSongColumns`、`ApplyFileScanDiff_MovedBmsWithAmbiguousDestinationMd5DoesNotPreserveUserSongColumns`。case-only BMS testはmembership・CRC・maintenance・二回目scanのassertionを残し、relink countと三保存列の期待値を置換する。
-
-一時DBにexact別行を入れ、既存scan seamと実file-diff入口を使う。case-onlyの物理ファイル二つの同時作成、live Everything、本番DBを必要条件にしない。failure / 並列順の検証は既存の到達可能なseamを再利用し、private helperへの直接入力だけで新しいruntime保証を作らない。case-only除外が消えたことのsource文字列assertionは追加しない。
-
-**Done when:** case-onlyと通常差分が同じrelink規則・保護条件を使い、現行の除外と旧期待値が退役し、上記の結果を小規模fixtureで確認できる。RELINK-1単独でレビュー・コミットでき、R2の完了や大規模速度向上と混同しない。
+恒久仕様と実装・テスト対応は[path identityのrelink規則](../spec/path-identity.md#relink-policy)、[file read pipeline](../spec/chart-file-read-pipeline.md)、[LR2 song DB生成](../spec/lr2-song-db-generation.md)へ反映した。後続の性能unitとリリース操作は別作業とする。
 
 ### R3 — LR2同期に必要な範囲のfactsだけを作る
 

@@ -2251,135 +2251,6 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_CaseOnlyBmsPathMismatchReplacesExactPathWithoutMigratingUserColumns()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
-        {
-            string bmsPath = Path.Combine(lr2RootPath, "CaseOnly", "chart.bms");
-            string oldCasePath = Path.Combine(lr2RootPath, "caseonly", "CHART.BMS");
-            string staleMaintenancePath = Path.Combine(lr2RootPath, "CASEONLY", "Chart.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(bmsPath)!);
-            File.WriteAllText(bmsPath, CreateValidBmsText("Case Only"), Encoding.ASCII);
-            var timestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
-            File.SetLastWriteTimeUtc(bmsPath, timestamp);
-            BMSFile parsed = BMSFile.CreateBMSFileFromFile(bmsPath);
-            var existingFile = new TestableBmsFile
-            {
-                path = oldCasePath,
-                date = ToUnixSeconds(timestamp.AddDays(-1)),
-                adddate = 12345,
-                tag = "keep"
-            };
-            existingFile.SetHash(parsed.hash);
-            existingFile.SetFavorite(1);
-            existingFile.SetTextGroupFlagForTest(0);
-
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
-                {
-                    path = staleMaintenancePath,
-                    hash = parsed.hash,
-                    encoding = "shift_jis"
-                }, typeof(LR2SongDBExtended.maintenance));
-            }
-
-            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: 1);
-            ChartScanExecutionResult scanResult = new()
-            {
-                Success = true,
-                Result = CreateScanResult(
-                    [bmsPath],
-                    new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        { Path.GetDirectoryName(bmsPath)!, ["readme.txt"] }
-                    })
-            };
-
-            SongTableFileCheckResult first = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
-                new EverythingNative(ApplicationPathPolicy.Current),
-                new BmsLibraryOptionsSnapshot
-                {
-                    OperationModeLR2DB = true,
-                },
-                [existingFile],
-                scanResult,
-                0L,
-                () => null,
-                null);
-            ProjectCatalogState(first, [existingFile]);
-
-            Assert.AreEqual(1, first.BmsAddedTargetCount);
-            Assert.AreEqual(1, first.BmsDeletedTargetCount);
-            Assert.AreEqual(0, first.BmsDateOnlyUpdateCount);
-            Assert.AreEqual(0, first.BmsTextOnlyUpdateCount);
-            Assert.AreEqual(0, first.BmsMovedHashRelinkCount);
-            Assert.AreEqual(1, first.AddedFiles.Count);
-            Assert.IsTrue(first.HasDbDiff);
-            Assert.AreEqual(oldCasePath, existingFile.path);
-            Assert.AreEqual(ToUnixSeconds(timestamp.AddDays(-1)), existingFile.date);
-            Assert.AreEqual(0, existingFile.txt);
-            BMSFile addedFile = first.AddedFiles.Single();
-            Assert.AreEqual(bmsPath, addedFile.path);
-            Assert.AreEqual(ToUnixSeconds(timestamp), addedFile.date);
-            Assert.AreEqual(1, addedFile.txt);
-            Assert.AreEqual(
-                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(bmsPath)),
-                addedFile.folder);
-            Assert.AreEqual(
-                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath),
-                addedFile.parent);
-            Assert.AreEqual(12345, existingFile.adddate);
-            Assert.AreEqual("keep", existingFile.tag);
-            Assert.AreEqual(1, first.NextFiles.Count);
-            Assert.AreEqual(bmsPath, first.NextFiles.Single().path);
-
-            using (var verify = new LR2SongDBExtended(songDbPath))
-            {
-                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldCasePath));
-                LR2SongDB.song row = verify.Find<LR2SongDB.song>(bmsPath);
-                Assert.IsNotNull(row);
-                Assert.AreEqual(bmsPath, row.path);
-                Assert.AreEqual(
-                    Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(bmsPath)),
-                    row.folder);
-                Assert.AreEqual(
-                    Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath),
-                    row.parent);
-                Assert.AreEqual(ToUnixSeconds(timestamp), row.date);
-                Assert.AreEqual(1, row.txt);
-                Assert.AreNotEqual(1, row.favorite);
-                Assert.AreNotEqual("keep", row.tag);
-                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", oldCasePath));
-                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", staleMaintenancePath));
-                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", bmsPath));
-            }
-
-            SongTableFileCheckResult second = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
-                new EverythingNative(ApplicationPathPolicy.Current),
-                new BmsLibraryOptionsSnapshot
-                {
-                    OperationModeLR2DB = true,
-                },
-                first.NextFiles,
-                scanResult,
-                0L,
-                () => null,
-                null);
-
-            Assert.AreEqual(0, second.BmsAddedTargetCount);
-            Assert.IsFalse(second.HasDbDiff);
-        });
-    }
-
-    [TestMethod]
     public void ApplyFileScanDiff_ProtectedLegacyMigrationSkipsExistingBmsMetadataRefresh()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2603,22 +2474,42 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
-    [TestMethod]
-    public void ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns()
+    /// <summary>
+    /// 同一 MD5 の一対一移動では、通常差分と case-only 差分のどちらでも
+    /// 現在の生成値を保ったまま、旧行の三つの保存列を DB と memory へ引き継ぎます。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns(bool caseOnlyPathChange)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            string oldPath = Path.Combine(lr2RootPath, "Old", "moved.bms");
-            string newPath = Path.Combine(lr2RootPath, "New", "moved.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(oldPath)!);
+            string oldPath = caseOnlyPathChange
+                ? Path.Combine(lr2RootPath, "caseonly", "CHART.BMS")
+                : Path.Combine(lr2RootPath, "Old", "moved.bms");
+            string newPath = caseOnlyPathChange
+                ? Path.Combine(lr2RootPath, "CaseOnly", "chart.bms")
+                : Path.Combine(lr2RootPath, "New", "moved.bms");
+            string staleMaintenancePath = caseOnlyPathChange
+                ? Path.Combine(lr2RootPath, "CASEONLY", "Chart.bms")
+                : Path.Combine(lr2RootPath, "Stale", "stale.bms");
             Directory.CreateDirectory(Path.GetDirectoryName(newPath)!);
+            if (!caseOnlyPathChange)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(oldPath)!);
+            }
+
             string bmsText = CreateValidBmsText("Moved Same Md5");
-            File.WriteAllText(oldPath, bmsText, Encoding.ASCII);
             File.WriteAllText(newPath, bmsText, Encoding.ASCII);
+            if (!caseOnlyPathChange)
+            {
+                File.WriteAllText(oldPath, bmsText, Encoding.ASCII);
+            }
             var timestamp = new DateTime(2026, 5, 3, 1, 0, 0, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(newPath, timestamp);
-            BMSFile oldParsed = BMSFile.CreateBMSFileFromFile(oldPath);
+            BMSFile parsed = BMSFile.CreateBMSFileFromFile(newPath);
             var existingFile = new TestableBmsFile
             {
                 path = oldPath,
@@ -2626,71 +2517,287 @@ public sealed class BmsLibraryInitializationFileScanTests
                 adddate = 34567,
                 tag = "moved-tag"
             };
-            existingFile.SetHash(oldParsed.hash);
+            existingFile.SetHash(parsed.hash);
             existingFile.SetFavorite(3);
+            existingFile.SetTextGroupFlagForTest(0);
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.InsertOrReplace(existingFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+                {
+                    path = oldPath,
+                    hash = parsed.hash,
+                    encoding = "shift_jis",
+                    wav_files_defined = 1,
+                    wav_files_existing = 1
+                }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+                {
+                    path = staleMaintenancePath,
+                    hash = parsed.hash,
+                    encoding = "shift_jis"
+                }, typeof(LR2SongDBExtended.maintenance));
             }
 
-            List<string> logs = [];
-            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: 1);
-            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+            };
+            ChartScanExecutionResult scanResult = new()
+            {
+                Success = true,
+                Result = CreateScanResult(
+                    [newPath],
+                    new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { Path.GetDirectoryName(newPath)!, ["readme.txt"] }
+                    })
+            };
+            var service = new BmsLibraryInitializationService(
+                fileDiffParserDegreeOverride: 1,
+                fileDiffCommitChunkSizeOverride: 1);
+            SongTableFileCheckResult first = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new EverythingNative(ApplicationPathPolicy.Current),
-                new BmsLibraryOptionsSnapshot(),
+                options,
                 [existingFile],
-                new ChartScanExecutionResult
-                {
-                    Success = true,
-                    Result = CreateScanResult(
-                        [newPath],
-                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { Path.GetDirectoryName(newPath)!, Array.Empty<string>() }
-                        })
-                },
+                scanResult,
                 0L,
                 () => null,
-                null,
-                logInstallPerformance: logs.Add);
-            ProjectCatalogState(result, [existingFile]);
+                null);
+            ProjectCatalogState(first, [existingFile]);
 
-            CollectionAssert.Contains(result.DeletedPaths, oldPath);
-            Assert.AreEqual(1, result.BmsMovedHashRelinkCount);
-            Assert.AreEqual(0, result.BmsMovedHashRelinkAmbiguousCount);
-            Assert.AreEqual(1, result.AddedFiles.Count);
-            Assert.AreEqual(1, result.NextFiles.Count);
-            BMSFile moved = result.NextFiles[0];
+            Assert.AreEqual(1, first.BmsAddedTargetCount);
+            Assert.AreEqual(1, first.BmsDeletedTargetCount);
+            Assert.AreEqual(0, first.BmsDateOnlyUpdateCount);
+            Assert.AreEqual(0, first.BmsTextOnlyUpdateCount);
+            Assert.AreEqual(1, first.BmsMovedHashRelinkCount);
+            Assert.AreEqual(0, first.BmsMovedHashRelinkAmbiguousCount);
+            Assert.AreEqual(1, first.AddedFiles.Count);
+            Assert.IsTrue(first.HasDbDiff);
+            CollectionAssert.Contains(first.DeletedPaths, oldPath);
+            Assert.AreEqual(oldPath, existingFile.path);
+            Assert.AreEqual(ToUnixSeconds(timestamp.AddDays(-1)), existingFile.date);
+            Assert.AreEqual(0, existingFile.txt);
+            Assert.AreEqual(34567, existingFile.adddate);
+            Assert.AreEqual("moved-tag", existingFile.tag);
+
+            BMSFile moved = first.NextFiles.Single();
             Assert.AreEqual(newPath, moved.path);
-            Assert.AreEqual(oldParsed.hash, moved.hash);
+            Assert.AreEqual(parsed.hash, moved.hash);
+            Assert.AreEqual("Moved Same Md5", moved.title);
+            Assert.AreEqual(ToUnixSeconds(timestamp), moved.date);
+            BMSFileMaintenanceInfo movedMaintenance = moved.TryGetMaintenanceInfoWithoutCreating();
+            Assert.IsNotNull(movedMaintenance);
+            Assert.AreEqual(1, movedMaintenance.wav_files_defined);
+            Assert.AreEqual(0, movedMaintenance.wav_files_existing);
+            Assert.AreEqual(1, moved.txt);
+            Assert.AreEqual(
+                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(newPath)),
+                moved.folder);
+            Assert.AreEqual(
+                Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath),
+                moved.parent);
             Assert.AreEqual(3, moved.favorite);
             Assert.AreEqual(34567, moved.adddate);
             Assert.AreEqual("moved-tag", moved.tag);
 
-            using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", oldPath));
-            LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
-            Assert.AreEqual(newPath, row.path);
-            Assert.AreEqual(oldParsed.hash, row.hash);
-            Assert.AreEqual(3, row.favorite);
-            Assert.AreEqual(34567, row.adddate);
-            Assert.AreEqual("moved-tag", row.tag);
-            Assert.IsTrue(logs.Any(message => message.Contains("user_column_restore_done")
-                && message.Contains("rows=1")));
+            using (var verify = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath));
+                LR2SongDB.song row = verify.Find<LR2SongDB.song>(newPath);
+                Assert.IsNotNull(row);
+                Assert.AreEqual(newPath, row.path);
+                Assert.AreEqual(parsed.hash, row.hash);
+                Assert.AreEqual("Moved Same Md5", row.title);
+                Assert.AreEqual(ToUnixSeconds(timestamp), row.date);
+                Assert.AreEqual(
+                    Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(newPath)),
+                    row.folder);
+                Assert.AreEqual(
+                    Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath),
+                    row.parent);
+                Assert.AreEqual(1, row.txt);
+                Assert.AreEqual(3, row.favorite);
+                Assert.AreEqual(34567, row.adddate);
+                Assert.AreEqual("moved-tag", row.tag);
+                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", oldPath));
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", staleMaintenancePath));
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", newPath));
+                Assert.AreEqual(parsed.hash, verify.ExecuteScalar<string>("SELECT hash FROM maintenance WHERE path = ?;", newPath));
+                LR2SongDBExtended.maintenance currentMaintenance = verify.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == newPath);
+                Assert.AreEqual(1, currentMaintenance.wav_files_defined);
+                Assert.AreEqual(0, currentMaintenance.wav_files_existing);
+            }
+
+            SongTableFileCheckResult second = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
+                options,
+                first.NextFiles,
+                scanResult,
+                0L,
+                () => null,
+                null);
+            ProjectCatalogState(second, first.NextFiles);
+
+            Assert.AreEqual(0, second.BmsAddedTargetCount);
+            Assert.AreEqual(0, second.BmsDeletedTargetCount);
+            Assert.AreEqual(0, second.BmsMovedHashRelinkCount);
+            Assert.AreEqual(0, second.BmsMovedHashRelinkAmbiguousCount);
+            Assert.IsFalse(second.HasDbDiff);
+            BMSFile reapplied = second.NextFiles.Single();
+            Assert.AreEqual(newPath, reapplied.path);
+            Assert.AreEqual(ToUnixSeconds(timestamp), reapplied.date);
+            BMSFileMaintenanceInfo reappliedMaintenance = reapplied.TryGetMaintenanceInfoWithoutCreating();
+            Assert.IsNotNull(reappliedMaintenance);
+            Assert.AreEqual(1, reappliedMaintenance.wav_files_defined);
+            Assert.AreEqual(0, reappliedMaintenance.wav_files_existing);
+            Assert.AreEqual(1, reapplied.txt);
+            Assert.AreEqual(3, reapplied.favorite);
+            Assert.AreEqual(34567, reapplied.adddate);
+            Assert.AreEqual("moved-tag", reapplied.tag);
+
+            using var verifyAfterReapply = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0, verifyAfterReapply.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath));
+            LR2SongDB.song rowAfterReapply = verifyAfterReapply.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(newPath, rowAfterReapply.path);
+            Assert.AreEqual(3, rowAfterReapply.favorite);
+            Assert.AreEqual(34567, rowAfterReapply.adddate);
+            Assert.AreEqual("moved-tag", rowAfterReapply.tag);
         });
     }
 
-    [TestMethod]
-    public void ApplyFileScanDiff_MovedBmsWithAmbiguousSourceMd5DoesNotPreserveUserSongColumns()
+    /// <summary>
+    /// 同一 MD5 の既存 destination は、通常差分と case-only 差分のどちらでも
+    /// stale source の保存値による上書きを受けず、exact path の行を維持します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ApplyFileScanDiff_MovedBmsWithExistingDestinationPreservesDestinationUserColumns(bool caseOnlyPathChange)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            string oldPath1 = Path.Combine(lr2RootPath, "OldA", "duplicate.bms");
+            string oldPath = caseOnlyPathChange
+                ? Path.Combine(lr2RootPath, "existing-destination", "OLD.BMS")
+                : Path.Combine(lr2RootPath, "Old", "moved.bms");
+            string currentPath = caseOnlyPathChange
+                ? Path.Combine(lr2RootPath, "Existing-Destination", "old.bms")
+                : Path.Combine(lr2RootPath, "New", "moved.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(currentPath)!);
+            string bmsText = CreateValidBmsText("Existing Destination");
+            File.WriteAllText(currentPath, bmsText, Encoding.ASCII);
+            var timestamp = new DateTime(2026, 5, 3, 1, 30, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(currentPath, timestamp);
+            BMSFile parsed = BMSFile.CreateBMSFileFromFile(currentPath);
+            var staleSource = new TestableBmsFile
+            {
+                path = oldPath,
+                date = ToUnixSeconds(timestamp.AddDays(-1)),
+                adddate = 34567,
+                tag = "stale-source"
+            };
+            staleSource.SetHash(parsed.hash);
+            staleSource.SetFavorite(3);
+            var currentDestination = new TestableBmsFile
+            {
+                path = currentPath,
+                date = ToUnixSeconds(timestamp),
+                adddate = 76543,
+                tag = "current-destination",
+                txt = 1,
+                folder = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(Path.GetDirectoryName(currentPath)),
+                parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(lr2RootPath)
+            };
+            currentDestination.SetHash(parsed.hash);
+            currentDestination.SetFavorite(9);
+
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(staleSource, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(currentDestination, typeof(LR2SongDB.song));
+            }
+
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+            };
+            ChartScanExecutionResult scanResult = new()
+            {
+                Success = true,
+                Result = CreateScanResult(
+                    [currentPath],
+                    new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        { Path.GetDirectoryName(currentPath)!, ["readme.txt"] }
+                    })
+            };
+            var service = new BmsLibraryInitializationService(
+                fileDiffParserDegreeOverride: 1,
+                fileDiffCommitChunkSizeOverride: 1);
+            SongTableFileCheckResult first = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new EverythingNative(ApplicationPathPolicy.Current),
+                options,
+                [staleSource, currentDestination],
+                scanResult,
+                0L,
+                () => null,
+                null);
+            ProjectCatalogState(first, [staleSource, currentDestination]);
+
+            Assert.AreEqual(0, first.BmsAddedTargetCount);
+            Assert.AreEqual(1, first.BmsDeletedTargetCount);
+            Assert.AreEqual(0, first.BmsMovedHashRelinkCount);
+            Assert.AreEqual(0, first.BmsMovedHashRelinkAmbiguousCount);
+            Assert.IsTrue(first.HasDbDiff);
+            CollectionAssert.Contains(first.DeletedPaths, oldPath);
+            Assert.AreEqual(1, first.NextFiles.Count);
+            BMSFile firstDestination = first.NextFiles.Single();
+            Assert.AreEqual(currentPath, firstDestination.path);
+            Assert.AreEqual(parsed.hash, firstDestination.hash);
+            Assert.AreEqual(9, firstDestination.favorite);
+            Assert.AreEqual(76543, firstDestination.adddate);
+            Assert.AreEqual("current-destination", firstDestination.tag);
+
+            using (var verify = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath));
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", currentPath));
+                LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
+                Assert.AreEqual(currentPath, row.path);
+                Assert.AreEqual(parsed.hash, row.hash);
+                Assert.AreEqual(9, row.favorite);
+                Assert.AreEqual(76543, row.adddate);
+                Assert.AreEqual("current-destination", row.tag);
+            }
+
+        });
+    }
+
+    /// <summary>
+    /// 同一 MD5 の旧候補が複数ある場合は、通常 path と case-only path が混在しても
+    /// 保存列を移植せず、現在の exact membership だけを反映します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ApplyFileScanDiff_MovedBmsWithAmbiguousSourceMd5DoesNotPreserveUserSongColumns(bool includeCaseOnlySourceCandidate)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string oldPath1 = includeCaseOnlySourceCandidate
+                ? Path.Combine(lr2RootPath, "new", "DUPLICATE.BMS")
+                : Path.Combine(lr2RootPath, "OldA", "duplicate.bms");
             string oldPath2 = Path.Combine(lr2RootPath, "OldB", "duplicate.bms");
             string newPath = Path.Combine(lr2RootPath, "New", "duplicate.bms");
             Directory.CreateDirectory(Path.GetDirectoryName(newPath)!);
@@ -2747,11 +2854,15 @@ public sealed class BmsLibraryInitializationFileScanTests
                 null);
             ProjectCatalogState(result, [existingFile1, existingFile2]);
 
+            Assert.AreEqual(1, result.BmsAddedTargetCount);
+            Assert.AreEqual(2, result.BmsDeletedTargetCount);
             Assert.AreEqual(0, result.BmsMovedHashRelinkCount);
             Assert.AreEqual(1, result.BmsMovedHashRelinkAmbiguousCount);
             BMSFile moved = result.NextFiles.Single();
             Assert.AreEqual(newPath, moved.path);
             Assert.IsNull(moved.favorite);
+            Assert.AreNotEqual(34567, moved.adddate);
+            Assert.AreNotEqual(45678, moved.adddate);
             Assert.AreNotEqual("source-a", moved.tag);
             Assert.AreNotEqual("source-b", moved.tag);
 
@@ -2759,19 +2870,31 @@ public sealed class BmsLibraryInitializationFileScanTests
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(newPath, row.path);
             Assert.IsNull(row.favorite);
+            Assert.AreNotEqual(34567, row.adddate);
+            Assert.AreNotEqual(45678, row.adddate);
             Assert.AreNotEqual("source-a", row.tag);
             Assert.AreNotEqual("source-b", row.tag);
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath1));
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath2));
         });
     }
 
-    [TestMethod]
-    public void ApplyFileScanDiff_MovedBmsWithAmbiguousDestinationMd5DoesNotPreserveUserSongColumns()
+    /// <summary>
+    /// 同一 MD5 の新規候補が複数ある場合は、通常 path と case-only path が混在しても
+    /// 旧行の保存列を選択的に移植せず、全候補を exact membership として反映します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ApplyFileScanDiff_MovedBmsWithAmbiguousDestinationMd5DoesNotPreserveUserSongColumns(bool includeCaseOnlyDestinationCandidate)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string oldPath = Path.Combine(lr2RootPath, "Old", "duplicate.bms");
-            string newPath1 = Path.Combine(lr2RootPath, "NewA", "duplicate.bms");
+            string newPath1 = includeCaseOnlyDestinationCandidate
+                ? Path.Combine(lr2RootPath, "old", "DUPLICATE.BMS")
+                : Path.Combine(lr2RootPath, "NewA", "duplicate.bms");
             string newPath2 = Path.Combine(lr2RootPath, "NewB", "duplicate.bms");
             Directory.CreateDirectory(Path.GetDirectoryName(newPath1)!);
             Directory.CreateDirectory(Path.GetDirectoryName(newPath2)!);
@@ -2821,21 +2944,32 @@ public sealed class BmsLibraryInitializationFileScanTests
                 null);
             ProjectCatalogState(result, [existingFile]);
 
+            Assert.AreEqual(2, result.BmsAddedTargetCount);
+            Assert.AreEqual(1, result.BmsDeletedTargetCount);
             Assert.AreEqual(0, result.BmsMovedHashRelinkCount);
             Assert.AreEqual(2, result.BmsMovedHashRelinkAmbiguousCount);
             Assert.AreEqual(2, result.NextFiles.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { newPath1, newPath2 },
+                result.NextFiles.Select(file => file.path).ToList());
             foreach (BMSFile moved in result.NextFiles)
             {
                 Assert.IsNull(moved.favorite);
+                Assert.AreNotEqual(34567, moved.adddate);
                 Assert.AreNotEqual("moved-tag", moved.tag);
             }
 
             using var verify = new LR2SongDBExtended(songDbPath);
             List<LR2SongDB.song> rows = [.. verify.Table<LR2SongDB.song>()];
             Assert.AreEqual(2, rows.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { newPath1, newPath2 },
+                rows.Select(row => row.path).ToList());
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM song WHERE path = ?;", oldPath));
             foreach (LR2SongDB.song row in rows)
             {
                 Assert.IsNull(row.favorite);
+                Assert.AreNotEqual(34567, row.adddate);
                 Assert.AreNotEqual("moved-tag", row.tag);
             }
         });

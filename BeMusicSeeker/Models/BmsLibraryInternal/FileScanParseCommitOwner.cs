@@ -1288,7 +1288,6 @@ internal sealed class FileScanParseCommitOwner
                     || string.IsNullOrWhiteSpace(source.path)
                     || destination?.File == null
                     || string.IsNullOrWhiteSpace(destination.File.path)
-                    || IsCaseOnlyPathPair(source.path, destination.File.path)
                     || movedBmsUserColumnsByDeletedPath == null
                     || !movedBmsUserColumnsByDeletedPath.TryGetValue(source.path, out Lr2SongUserColumns userColumns)
                     || userColumns == null)
@@ -1306,14 +1305,6 @@ internal sealed class FileScanParseCommitOwner
                 + " sourceCount=" + sourceCount
                 + " destinationCount=" + destinations.Count);
         }
-    }
-
-    private static bool IsCaseOnlyPathPair(string left, string right)
-    {
-        return !string.IsNullOrWhiteSpace(left)
-            && !string.IsNullOrWhiteSpace(right)
-            && !string.Equals(left, right, StringComparison.Ordinal)
-            && string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
     }
 
     private static InlineMaintenanceItemResult[] BuildInlineBmsMaintenanceBatch(

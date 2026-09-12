@@ -2,7 +2,7 @@
 
 本アプリは Windows / NTFS を主なターゲット環境とするが、永続化された `path` の同一性はファイルシステムの一般的な大文字小文字規則へ暗黙に寄せない。
 
-パス長や実ファイル I/O の長パス対応は [path-length-and-io.md](path-length-and-io.md) を参照する。本資料は DB 行の path identity、現在の path 集合への収束、および異なる path 間の保存値引継ぎを区別して定める。実装済みの保証と採用済み・未実装の要件は分けて記載する。
+パス長や実ファイル I/O の長パス対応は [path-length-and-io.md](path-length-and-io.md) を参照する。本資料は DB 行の path identity、現在の path 集合への収束、および異なる path 間の保存値引継ぎを区別して定める。実装済みの保証と採用済みの要件を記載する。
 
 ## 目的
 
@@ -151,8 +151,8 @@ BMS の削除では、削除前に対象 path から得た `song.hash` と削除
 | `R2-MUTATION-GATE` | path収束未確認ではcatalog依存file mutationをFS / catalog DB変更前に拒否し、authoritative ReloadFileDiff後は受付を再開する。playlist / pending-onlyのshared mutation laneは止めず、auto-install ingressはcandidateをpendingへ保持する。譜面単位のrecoverable parse failureだけでは受付を閉じない | `BmsLibraryDuplicateServiceTests.MergeChartDirectory_AfterStartupWithoutFileScanRejectsUntilReloadFileDiffConverges`; `BmsLibraryInitializationFileScanTests.Initialize_StartupParseFailureStillOpensCatalogFileMutationAdmission`; `BmsLibraryInitializationFileScanTests.Initialize_StartupWithoutFileScanKeepsPlaylistLeaseAvailableAndUsesSettingWarningForCatalogMutation`; `BmsLibraryPackageInstallServiceTests.RemovePendingPackagesAll_UnconvergedCatalogStillClearsPendingWithoutWarning`; `BmsLibraryPackageInstallServiceTests.InstallChartPackagesAuto_UnconvergedCatalogKeepsDiscoveredPackagePendingInsteadOfInstalling` |
 | `R2-EXACT-LOOKUP` | path-only / owner lookupはexact row keyで解決し、directory探索用のFS identityをrow認可へ流用しない | `OwnedChartCollectionReferenceIndexTests.CreateSnapshotForPaths_ProjectsOnlyRequestedPaths`; `OwnedChartCollectionReferenceIndexTests.CreateLibraryChartRefIndexSnapshot_ResolvesPathOnlyAndCountsRealPathSubtree`; `OwnedChartCollectionLookupMembershipTests.ContainsKnownChart_UsesOwnedReferenceAndKindPathExactLookup`; `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_ResolvesSelectionThroughProductionOwner`; `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_UnresolvedSelectionKeepsFilesystemAndDatabase` |
 | `R2-INSTALL-STATE` | file-scan residual、runtime overlay、row projection、whole-folder後clearでinstall-destination stateをexact row pathへ結び、hash比較規則は維持する | `InstallDestinationStateOwnerTests.ReattachFileScanResidualInstallDestinationCharts_UsesExactPathWhenAliasHashMatches`; `InstallDestinationStateOwnerTests.OverlayRuntimeStates_UsesExactPathAndCaseInsensitiveHash`; `InstallDestinationStateOwnerTests.CreateOverlaySnapshot_PreservesCaseOnlyRowsWithSameHash`; `ChartListVirtualViewTests.RowProjectionTransientState_UsesExactPathAndCaseInsensitiveHash`; `OwnedChartCollectionLibraryMutationTests.RemoveLibraryCharts_WholeFolderClearsCaseOnlyExactInstallDestinationsIndependently` |
-| `R2-CONVERGE` | 正常file diffでは既存/currentのexact集合差分へ収束し、case-onlyも通常差分と同じrow規則で扱う | `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsPathMismatchReplacesExactPathWithoutMigratingUserColumns`; `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsonPathMismatchAddsExactPathWithoutMigratingMaintenance`; `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsonPathMismatchReplacesExactPathAndConverges`; `BmsLibraryInitializationInlineChartInfoTests.ApplyFileScanDiff_BulkDeleteKeepsExactPathKeys`; `Lr2SongDbWriterTests.UpsertGeneratedSongs_TreatsCaseOnlyPathAsDistinct` |
-| `R2-REAPPLY` | 同じ正常scanの再適用では不要なrow追加・削除を繰り返さない | `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsPathMismatchReplacesExactPathWithoutMigratingUserColumns`; `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsonPathMismatchReplacesExactPathAndConverges` |
+| `R2-CONVERGE` | 正常file diffでは既存/currentのexact集合差分へ収束し、case-onlyも通常差分と同じrow規則で扱う | `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns`; `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsonPathMismatchAddsExactPathWithoutMigratingMaintenance`; `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsonPathMismatchReplacesExactPathAndConverges`; `BmsLibraryInitializationInlineChartInfoTests.ApplyFileScanDiff_BulkDeleteKeepsExactPathKeys`; `Lr2SongDbWriterTests.UpsertGeneratedSongs_TreatsCaseOnlyPathAsDistinct` |
+| `R2-REAPPLY` | 同じ正常scanの再適用では不要なrow追加・削除を繰り返さない | `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns`; `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_CaseOnlyBmsonPathMismatchReplacesExactPathAndConverges` |
 
 source文字列assertionやprivate workflowの直接呼出しをこの契約の正本にはしない。file diffの保存値relink期待値は[Relink](#relink-policy)の実装状態に従い、R2aのSpec IDへ混ぜない。
 
@@ -175,6 +175,19 @@ source文字列assertionやprivate workflowの直接呼出しをこの契約の�
 
 ### 実装状態と作業境界
 
-現行の `FileScanParseCommitOwner.PrepareMovedBmsUserColumnRestores` は通常の一対一 relink を持つが、`IsCaseOnlyPathPair` で case-only の組を除外している。したがって **上記の統一化は採用済み・未実装**であり、この文書変更だけで挙動や既存テストの期待値が変わったとは扱わない。
+`FileScanParseCommitOwner.PrepareMovedBmsUserColumnRestores` は、通常差分と case-only 差分を区別せず、同一 MD5 の旧一件・新一件で旧 exact key の snapshot が取得できた場合に三保存列を復元する。候補一意性、既存 destination の保護、DB commit 後の exact destination 復元、memory 反映、復元失敗の伝播は同じ経路で維持する。
 
-[ライブラリ変更計画](../plan/BeMusicSeeker-library-mutation-performance.md) の **RELINK-1** で、この除外と対応するテストを独立して変更する。R2aの局所行identity修正には含めず、DB処理の限定化はR2b、resource-health keyのexact identityはR2cで管理する。通常スキャンの行集合の規則は維持し、RELINK-1の完了時にこの実装状態を更新する。
+[ライブラリ変更計画](../plan/BeMusicSeeker-library-mutation-performance.md) の **RELINK-1** で、この統一規則と対応するテストを実装した。R2aの局所行identity修正には含めず、DB処理の限定化はR2b、resource-health keyのexact identityはR2cで管理する。通常スキャンの行集合、maintenance の再評価、旧保存値 snapshot、writer barrier は変更しない。
+
+<a id="relink-implementation-map"></a>
+### 実装・テスト対応表 — RELINK-1
+
+| 仕様項目 | 実装 | テスト |
+| --- | --- | --- |
+| `RELINK-PAIR` | [`FileScanParseCommitOwner.cs`](../../BeMusicSeeker/Models/BmsLibraryInternal/FileScanParseCommitOwner.cs) の `PrepareMovedBmsUserColumnRestores` が同一 MD5 の旧一件・新一件を exact destination へ relink | [`BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns`](../../BeMusicSeeker.Tests/BmsLibraryInitializationFileScanTests.cs) の通常差分・case-only data row |
+| `RELINK-GENERATED` | 同 method が三保存列だけを復元し、path・mtime・CRC・生成 metadata・maintenance を現在入力から保持 | 同 `ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns` の memory / DB / maintenance 確認 |
+| `RELINK-EXISTING` | 同 method の新規候補限定と exact membership により既存 destination を relink 候補にせず保護 | [`BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_MovedBmsWithExistingDestinationPreservesDestinationUserColumns`](../../BeMusicSeeker.Tests/BmsLibraryInitializationFileScanTests.cs) の通常差分・case-only data row |
+| `RELINK-AMBIGUOUS` | 同 method が旧候補数・新候補数の一意性を file diff 全体で判定し、曖昧な組を復元しない | [`BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_MovedBmsWithAmbiguousSourceMd5DoesNotPreserveUserSongColumns`](../../BeMusicSeeker.Tests/BmsLibraryInitializationFileScanTests.cs)、[`BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_MovedBmsWithAmbiguousDestinationMd5DoesNotPreserveUserSongColumns`](../../BeMusicSeeker.Tests/BmsLibraryInitializationFileScanTests.cs) の通常・case-only混在 data row |
+| `RELINK-REAPPLY` | file diff の exact current 集合と既存 writer 経路を再利用し、同じ正常 scan の再適用で relink を繰り返さない | `ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns` の二回目 scan 確認 |
+
+INPUT / ORDER / FAILURE / BMSON は既存の file diff 入力保護、全体候補集約、writer failure、BMSON exact maintenance の coverage と静的確認を維持し、この unit では専用テストを追加しない。
