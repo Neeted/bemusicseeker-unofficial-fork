@@ -222,6 +222,14 @@ LR2 custom-folder 出力を伴うローカル playlist 編集は、entry hydrati
 
 `FileDbMutationExecutor` は live outer session 内で durable DB apply を終えた後、session-local な one-shot `DurableFinalizer` をちょうど一度だけ実行する。receipt は callback-free の immutable な terminal fact であり、receipt 自身の callback、replay、retry を持たない。内部 finalizer が throw した場合は `DurableFinalizationFailed` として `Failed` / `ManualRecoveryRequired` と同じく成功 publication を付けず、command owner は canonical finalization 後に plain な one-shot publication action を command-owned の post-lease list へ記録する。lease と全 model lock を解放した後、その list を best-effort で実行し、subscriber / dialog / UI scheduler の失敗は durable / cleanup terminal state、compensation、retry、既存の primary failure を変更せず、後続 publication を中断しない。dialog、UI scheduler / Dispatcher、PropertyChanged / public subscriber、terminal progress / terminal publication、通常 refresh / index warmup、task start、別 owner callback はこの post-lease phase に遅延する。失敗・manual・durable-finalization-failure receipt の対象 item は成功 publication されない。中間 progress だけは feature-local の narrow writer へ immutable fact を nonblocking に送れるが、owner 側 consumer は latest-wins の pending / draining を各1以下に制限し、model / package / collection lock を保持せずに配信する。writer は terminalization 開始時に seal し、同一 generation の late progress を捨てる。中間 progress や診断通知の失敗は durable / cleanup terminal state、compensation、retry、既存の primary failure を変更しない。
 
+### 導入targetの確定と共通反映
+
+自動・推定先・強制・resource-only導入は、確定destinationとstorage ownerを同じtargetとしてcatalogへ渡す。DB用rowはdetached projectionで作り、DB durable後にlive ownerのpath/folderとstorage/canonicalを更新する。入力を作るための一時的なlive path差替え・復元は行わない。通常変更とupsertの反映結果はstorage factsを起点とする共通組立を使い、upsert固有のexact replacementとpackageごとの確定境界を保つ。
+
+resource-onlyで譜面targetが空ならowned collection versionを進めない。必要なinstall row削除、resource移動、package表示のdestination health/warningは反映する。移動後にも未充足の参照が残れば警告は保持する。操作内target再利用は同じchart集合のときだけ行い、追加対象を古いtargetで隠さない。
+
+実装は ChartStorageTargetSet、CatalogMutationOwner、BMSLibrary.PackageInstallと共通反映。BmsLibraryPackageInstallServiceTestsの通常3入口 UsesPreflightDestinationAndWarmDelta と OverwritePendingInstalledOnlyPackagesResources_UsesWarmCatalogWithoutChartDelta が、背景16/128・同libraryの独立2操作・実FS/SQLite・通知後readback・旧snapshot・実work observerを確認する。DB失敗/先行prefix/inline metadataは既存関連fixtureと併せて検証する。
+
 ### package install destination coherence
 
 `BmsLibraryPackageInstallService.MovePackageFilesWithReceipt` は、filesystem mutation plan の preflight 中に source path ごとの actual destination を一度だけ確定する。collision resolution や directory-relative projection を完了した後で、basename、source root、または destination root から chart path を再計算してはならない。receipt の destination、detached DB / storage projection、live package entry、installed package registration、duplicate merge の catalog delta は、同じ preflight map の destination value を使う。

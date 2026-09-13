@@ -9581,8 +9581,7 @@ public partial class BMSLibrary : ObservableObject
                     : null)
                 {
                     installedTargetReceipt = catalogMutationOwner.ApplyInstalledTargetUpsertWithDeferredFailurePublication(
-                        addedTargets.BmsFiles,
-                        addedTargets.BmsonSongs,
+                        addedTargets,
                         out deferredFailureFact,
                         () => catalogValidationPassed = true,
                         installPathToDelete);
@@ -9654,22 +9653,16 @@ public partial class BMSLibrary : ObservableObject
                     receipt.MutationResult.OwnedCollectionVersion),
                 receipt.LookupReason ?? "install_package",
                 mutationCapability);
-            ApplyInstalledChartStorageTargetsSemanticStateUnderGuard(receipt);
+            ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
+                receipt.MutationResult,
+                receipt.LookupReason,
+                receipt.LogOverride);
         }
         catch (Exception exception)
         {
             receipt.RecordCompletionFailure(exception);
             throw;
         }
-    }
-
-    private void ApplyInstalledChartStorageTargetsSemanticStateUnderGuard(
-        InstalledChartStorageTargetsApplyReceipt receipt)
-    {
-        ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
-            receipt.MutationResult,
-            receipt.LookupReason,
-            receipt.LogOverride);
     }
 
     private void ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
@@ -9925,52 +9918,48 @@ public partial class BMSLibrary : ObservableObject
         bool? resourceHealthIndexCurrentAtBase = null)
     {
         OwnedChartCollectionStorageMutation storageMutation = BuildOwnedChartCollectionStorageMutation(delta);
-        bool hasStorageMutation = storageMutation.HasChanges;
-        bool hasInstallDestinationChanges = delta?.UpdatedInstallDestinations?.Count > 0;
-        bool hasFolderPathChanges = delta?.FolderPathChanges?.Count > 0;
-        bool hasInstalledPackagePathChanges = delta?.UpdatedInstalledPackagePaths?.Count > 0;
-        var result = new OwnedChartCollectionMutationResult
-        {
-            InstalledLookupMutation = BuildInstalledChartLookupMutation(storageMutation, delta?.FolderPathChanges),
-            InstallEstimationMetadataProfileCacheInvalidated = hasStorageMutation
-                || hasInstallDestinationChanges
-                || hasInstalledPackagePathChanges,
-            AddedCount = storageMutation.AddedCount,
-            RemovedCount = storageMutation.RemovedCount,
-            MovedCount = storageMutation.MovedCount,
-            InstallDestinationChangedCount = delta?.UpdatedInstallDestinations.Count ?? 0,
-            InstalledPackagePathChangedCount = delta?.UpdatedInstalledPackagePaths.Count ?? 0,
-            ParentFolderInvalidated = hasStorageMutation || hasFolderPathChanges,
-            DuplicateCacheInvalidated = hasStorageMutation
-                || hasInstallDestinationChanges
-                || hasInstalledPackagePathChanges,
-            OwnedCollectionChanged = hasStorageMutation,
-            WarningPresentationChanged = hasStorageMutation
-                || hasInstallDestinationChanges
-                || hasInstalledPackagePathChanges,
-            BmsFilesStorageRowsChanged = HasBmsStorageRowCollectionChange(storageMutation)
-                || (delta?.NotifyStorageRowPathChanges == true && HasBmsStorageRowPathChange(storageMutation)),
-            BmsonSongsStorageRowsChanged = HasBmsonStorageRowCollectionChange(storageMutation)
-                || (delta?.NotifyStorageRowPathChanges == true && HasBmsonStorageRowPathChange(storageMutation)),
-            StorageRowsRemoveDeltaComplete = storageMutation.RemovedCount > 0
-                && storageMutation.AddedCount == 0
-                && storageMutation.MovedCount == 0
-        };
-        result.StorageMutation.AddedBmsFiles.AddRange(storageMutation.AddedBmsFiles);
-        result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
-        result.StorageMutation.AddedCharts.AddRange(storageMutation.AddedCharts);
-        result.StorageMutation.RemoveRequests.AddRange(storageMutation.RemoveRequests);
-        result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
-        result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = storageMutation.RemovedCount > 0;
-        result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
-        result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(installDestinationStateOwner.CreateChangedChartSnapshots(delta, storageMutation.PathChanges));
-        ConfigureResourceHealthMutationForStorageMutation(
-            result,
+        var result = CreateOwnedChartCollectionMutationResult(
             storageMutation,
+            BuildInstalledChartLookupMutation(storageMutation, delta?.FolderPathChanges),
             deltaBaseResourceHealthInputVersion,
             deltaTargetResourceHealthInputVersion,
             resourceHealthIndexCurrentAtBase);
+        ApplyNormalMutationFacts(result, delta);
+        result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
+        result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(installDestinationStateOwner.CreateChangedChartSnapshots(delta, storageMutation.PathChanges));
         return result;
+    }
+
+    /// <summary>
+    /// 通常のdeltaにだけ含まれるfolder、install overlay、package pathの事実を、
+    /// storage mutationから導出した共通結果へ補足します。
+    /// </summary>
+    private static void ApplyNormalMutationFacts(
+        OwnedChartCollectionMutationResult result,
+        LibraryMutationDelta delta)
+    {
+        if (result == null || delta == null)
+        {
+            return;
+        }
+
+        bool hasInstallDestinationChanges = delta.UpdatedInstallDestinations.Count > 0;
+        bool hasFolderPathChanges = delta.FolderPathChanges.Count > 0;
+        bool hasInstalledPackagePathChanges = delta.UpdatedInstalledPackagePaths.Count > 0;
+        result.InstallEstimationMetadataProfileCacheInvalidated |= hasInstallDestinationChanges
+            || hasInstalledPackagePathChanges;
+        result.InstallDestinationChangedCount = delta.UpdatedInstallDestinations.Count;
+        result.InstalledPackagePathChangedCount = delta.UpdatedInstalledPackagePaths.Count;
+        result.ParentFolderInvalidated |= hasFolderPathChanges;
+        result.DuplicateCacheInvalidated |= hasInstallDestinationChanges
+            || hasInstalledPackagePathChanges;
+        result.WarningPresentationChanged |= hasInstallDestinationChanges
+            || hasInstalledPackagePathChanges;
+        if (delta.NotifyStorageRowPathChanges)
+        {
+            result.BmsFilesStorageRowsChanged |= HasBmsStorageRowPathChange(result.StorageMutation);
+            result.BmsonSongsStorageRowsChanged |= HasBmsonStorageRowPathChange(result.StorageMutation);
+        }
     }
 
     private OwnedChartCollectionStorageMutation BuildOwnedChartCollectionStorageMutation(LibraryMutationDelta delta)
@@ -10060,21 +10049,57 @@ public partial class BMSLibrary : ObservableObject
         int? deltaTargetResourceHealthInputVersion = null,
         bool? resourceHealthIndexCurrentAtBase = null)
     {
-        var result = new OwnedChartCollectionMutationResult();
-        result.StorageMutation.AddAddedTargets(addedTargets);
-        result.InstalledLookupMutation = BuildInstalledChartLookupUpsertMutation(result.StorageMutation);
-        result.InstallEstimationMetadataProfileCacheInvalidated = result.StorageMutation.AddedCount > 0;
-        result.AddedCount = result.StorageMutation.AddedCount;
-        result.ParentFolderInvalidated = result.StorageMutation.AddedCount > 0;
-        result.DuplicateCacheInvalidated = result.StorageMutation.AddedCount > 0;
-        result.OwnedCollectionChanged = result.StorageMutation.HasChanges;
-        result.WarningPresentationChanged = result.StorageMutation.HasChanges;
-        result.BmsFilesStorageRowsChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
-        result.BmsonSongsStorageRowsChanged = result.StorageMutation.AddedBmsonSongs.Count > 0;
-        result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = result.StorageMutation.AddedCount > 0;
+        var storageMutation = new OwnedChartCollectionStorageMutation();
+        storageMutation.AddAddedTargets(addedTargets);
+        var result = CreateOwnedChartCollectionMutationResult(
+            storageMutation,
+            BuildInstalledChartLookupUpsertMutation(storageMutation),
+            deltaBaseResourceHealthInputVersion,
+            deltaTargetResourceHealthInputVersion,
+            resourceHealthIndexCurrentAtBase);
+        // upsertは既存exact行のreplacementを含むため、通常deltaの除去起点とは
+        // 異なり、追加対象を反映したinstall destination stateだけをpruneします。
+        result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = storageMutation.AddedCount > 0;
+        return result;
+    }
+
+    private OwnedChartCollectionMutationResult CreateOwnedChartCollectionMutationResult(
+        OwnedChartCollectionStorageMutation storageMutation,
+        InstalledChartLookupMutation installedLookupMutation,
+        int? deltaBaseResourceHealthInputVersion = null,
+        int? deltaTargetResourceHealthInputVersion = null,
+        bool? resourceHealthIndexCurrentAtBase = null)
+    {
+        storageMutation ??= new OwnedChartCollectionStorageMutation();
+        installedLookupMutation ??= new InstalledChartLookupMutation();
+        bool hasStorageMutation = storageMutation.HasChanges;
+        var result = new OwnedChartCollectionMutationResult
+        {
+            InstalledLookupMutation = installedLookupMutation,
+            InstallEstimationMetadataProfileCacheInvalidated = hasStorageMutation
+                || installedLookupMutation.HasChanges,
+            AddedCount = storageMutation.AddedCount,
+            RemovedCount = storageMutation.RemovedCount,
+            MovedCount = storageMutation.MovedCount,
+            ParentFolderInvalidated = hasStorageMutation,
+            DuplicateCacheInvalidated = hasStorageMutation,
+            OwnedCollectionChanged = hasStorageMutation,
+            WarningPresentationChanged = hasStorageMutation,
+            BmsFilesStorageRowsChanged = HasBmsStorageRowCollectionChange(storageMutation),
+            BmsonSongsStorageRowsChanged = HasBmsonStorageRowCollectionChange(storageMutation),
+            StorageRowsRemoveDeltaComplete = storageMutation.RemovedCount > 0
+                && storageMutation.AddedCount == 0
+                && storageMutation.MovedCount == 0
+        };
+        result.StorageMutation.AddedBmsFiles.AddRange(storageMutation.AddedBmsFiles);
+        result.StorageMutation.AddedBmsonSongs.AddRange(storageMutation.AddedBmsonSongs);
+        result.StorageMutation.AddedCharts.AddRange(storageMutation.AddedCharts);
+        result.StorageMutation.RemoveRequests.AddRange(storageMutation.RemoveRequests);
+        result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
+        result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = storageMutation.RemovedCount > 0;
         ConfigureResourceHealthMutationForStorageMutation(
             result,
-            result.StorageMutation,
+            storageMutation,
             deltaBaseResourceHealthInputVersion,
             deltaTargetResourceHealthInputVersion,
             resourceHealthIndexCurrentAtBase);

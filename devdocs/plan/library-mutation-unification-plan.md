@@ -1,6 +1,6 @@
 # ライブラリ変更要求の統合と操作全体の性能改善計画
 
-状態: 利用者がU1～U5の実装・単位ごとの必要なcommitを承認。U1完了commit e6b58ffc。U2実装・検証・独立レビュー完了（修正必須指摘なし）。U3の独立テスト設計承認済み（2026-09-13）。調査基準は `6d35c789`、計画記録commitは `007b3216`。
+状態: 利用者がU1～U5の実装・単位ごとの必要なcommitを承認。U1完了commit e6b58ffc。U2完了commit 6c25bbc1。U3実装・検証・独立レビュー完了（P2対照不足を修正後、指摘なし）（2026-09-13）。調査基準は `6d35c789`、計画記録commitは `007b3216`。
 
 ## 1. 目的と結論
 
@@ -246,3 +246,38 @@ U5を口実に各単位で使わなくなった実装を温存しない。一方
 - 六fixture Quickは163成功・3skip。通常拡張子の登録解除caseを補完し、package install fixtureは153成功。補完前Functionalは4,808成功・11skip、268.8秒。
 - 補完後Functionalは4,809成功・11skip、256.5秒。事前format/analyzer/build成功。いずれも300秒内、180秒target超過。
 - Functional後にcallerゼロのcallback field/ctor/forwardingを機械的に退役し六fixture Quick（163成功・3skip）で補完した。受付・実行経路・検証前提を変更しないため、この削除だけを理由にFunctionalを再実行しない。凍結レビューで確認する。
+
+### U4a metadataの開始条件
+
+- [U4a Test Contract Packet](library-mutation-u4a-test-contract.md) を独立設計後に承認済み。U3完了後、metadata→走査全置換の順に別単位で進める。
+- digestは同じ確定factsからprepareとpublication用の反映結果を二重に作らず、操作内のreceipt/既存deferred effectを引き継ぐ。DB/正本digest→依存索引→session index→公開の順序は維持する。新しいpersistent stateや広いcallback hostは不要。
+- maintenanceは既存receiptの共通反映へ通常/estimatedの組立を寄せ、限定保存・resource input境界・既存通知と失敗分類を保持する。型上残るだけのPotentialDigest event等は本番producerを確認して退役する。
+- 生産所有はCatalogChartInfoOwner/CatalogChartInfoState、CatalogMaintenanceOwner、BMSLibraryの対象bridge/common effectと必要な既存receipt。走査producer/索引state移動は含めない。関連fixtureはpacketで限定する。
+
+### U3の統合時確認
+
+- 初回handoffはdetached入力の移行とowner直接テストのみで、U3完了条件を満たさないと判定した。通常3入口/resource-onlyの実model連続操作、共通反映組立への統合、使わなくなったoverloadの退役を同単位で継続する。
+- CatalogMutationOwnerTestsの書込みをrootが追加許可。既存request/version/DB契約は維持し、本番deferredまたは既存request経路へ移す。同義の新tests-only APIやrow compatibility routeを増やす根拠にはしない。
+- 操作内target再利用は許可するが、後からAddedChartsが増えるresultの変化を隠したり、maintenance後に必要なprojectionを古いsnapshotで置換しない。必要な確定factsを一度渡すために用い、永続cache/追加世代stateは作らない。
+
+### U4b scanの開始条件
+
+- [U4b Test Contract Packet](library-mutation-u4b-test-contract.md) を独立設計・root到達性判断後に承認。U4a完了後に直列実装する。
+- 全置換のtyped request/receiptは維持。residualは確定した解除chart listだけを渡し、generic deltaのunsupported-field adapterとproducer失効指定を退役する。空residualはreplacementに追加の失効/通知/構築を起こさない。
+- current-owned非空overlayの新規生成経路は未確認。既存exact cleanup内部契約を保持し、新runtime保証や新setter/reflectionを作らない。実scan受入はreplacement/empty residual/readiness/publicationを対象とする。
+- 生産所有はLibraryFileScanPipelineOwner/FileScanCatalogReplacementEvents、file-check result、BMSLibraryの対応bridge/common反映、不要fieldを除くLibraryMutationDelta、必要な既存InstallDestinationStateOwner。full scan自体の必要走査と、residual各対象の全row再走査を区別し、後者は既存exact lookupで解決できる範囲へ寄せる。
+
+### U3の補完後検証
+
+- 独立2操作と実source/root observerへ補完し、通常3入口/resource-onlyを各16/128で確認。関連Quick286件成功（23.934秒）。架空markerや2chartを2操作と数える判定は不合格として置換した。
+- resource-onlyは実BMSON bytesとmetadataを一致させ、destinationに移ったresourceと未充足参照を操作後に確認。表示用packageのhealth/warning projectionも実destinationから反映する。新解析/回復やmembership追加は行わない。
+- CatalogMutationOwnerの本番入口はtarget付きdeferred upsertに統合。request/version/failureの既存focused APIと本番非使用root内部applyの残件はU5で整理する。
+- SQL/resource全仕事量、21万譜面wall-clockは未測定。これらを実work observerの0結果で代用しない。
+
+- U3最終Functional: 4,817成功・11skip、261.1秒。format/analyzer/build成功、300秒内・180秒target超過。docsのlocal参照/UTF-8/LFとdiffcheckも成功。独立レビューへ渡す。
+
+- U3独立レビューはproduction指摘なし、resource-only testのsource/destination検査を識別する対照不足をP2指摘。source不足→destination既存resourceと移動分で充足する対照を、未充足警告維持ケースと並べて補完する。packetの既存oracleを実現する修正であり意味変更ではない。production/runner前提を変えず対象/同fixture Quickで補完し、fresh reviewする。
+
+- U3 review修正: Firstはsource不足→destination既存WAV+移動分でhealth100/警告解消、Secondは未充足0/警告維持。対象Quick2件・同fixture161件成功。production変更なし。既存FunctionalにこのQuickを補完しfresh reviewへ渡す。
+
+- U3 fresh reviewでP2解消・修正必須指摘なしを確認。U4a→U4b→U5を継続する。

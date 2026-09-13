@@ -620,7 +620,7 @@ public partial class BMSLibrary
 
         void UpdateInstalledChartMaintenance(PackageInstallExecutionResult installResult)
         {
-            List<ChartFile> addedCharts = CreateAddedStorageTargets(installResult).Charts;
+            IReadOnlyList<ChartFile> addedCharts = CreateAddedStorageTargets(installResult).Charts;
             if (deferredMaintenanceCharts != null)
             {
                 deferredMaintenanceCharts.AddRange(addedCharts);
@@ -665,7 +665,7 @@ public partial class BMSLibrary
         void ApplyInstalledChartState(PackageInstallExecutionResult installResult)
         {
             ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
-            List<ChartFile> addedCharts = addedTargets.Charts;
+            IReadOnlyList<ChartFile> addedCharts = addedTargets.Charts;
             addedChartsForChartInfo.AddRange(addedCharts);
             AddReverseLookupDirectoriesForInstall(addedTargets.GetDistinctChartDirectories());
             estimatedInstallBatchApplyContext?.AddInstalledTargets(addedTargets, installationDirectory);
@@ -754,53 +754,12 @@ public partial class BMSLibrary
             return FileDbMutationCommitResult.Durable();
         }
 
-        var originalBmsPaths = new Dictionary<BMSFile, string>();
-        var originalBmsonPaths = new Dictionary<LR2SongDBExtended.bmson_song, (string Path, string Folder)>();
         InstalledChartStorageTargetsApplyReceipt storageReceipt;
-        using (BMSFile.SuppressPropertyChangedScope())
-        {
-            try
-            {
-                foreach (ChartFile chart in addedTargets.Charts ?? [])
-                {
-                    if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
-                    {
-                        continue;
-                    }
-
-                    BMSFile bmsFile = chart.GetBmsStorageOwner();
-                    if (bmsFile != null && !originalBmsPaths.ContainsKey(bmsFile))
-                    {
-                        originalBmsPaths[bmsFile] = bmsFile.path;
-                        bmsFile.path = chart.Path;
-                        continue;
-                    }
-
-                    LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-                    if (bmsonSong != null && !originalBmsonPaths.ContainsKey(bmsonSong))
-                    {
-                        originalBmsonPaths[bmsonSong] = (bmsonSong.path, bmsonSong.folder);
-                        bmsonSong.path = chart.Path;
-                        bmsonSong.folder = Path.GetDirectoryName(chart.Path) ?? string.Empty;
-                    }
-                }
-
-                storageReceipt = ApplyInstalledChartStorageTargetsForDeferredDispatch(
-                    addedTargets,
-                    lookupReason,
-                    installPathToDelete: installResult?.InstallPathToDelete,
-                    mutationCapability: mutationCapability);
-                if (storageReceipt.Failure != null)
-                {
-                    RestoreInstalledStorageOwnerPaths(originalBmsPaths, originalBmsonPaths);
-                }
-            }
-            catch
-            {
-                RestoreInstalledStorageOwnerPaths(originalBmsPaths, originalBmsonPaths);
-                throw;
-            }
-        }
+        storageReceipt = ApplyInstalledChartStorageTargetsForDeferredDispatch(
+            addedTargets,
+            lookupReason,
+            installPathToDelete: installResult?.InstallPathToDelete,
+            mutationCapability: mutationCapability);
         if (storageReceipt.Failure != null)
         {
             postLeaseNotificationObserver?.Invoke(
@@ -831,93 +790,25 @@ public partial class BMSLibrary
         return FileDbMutationCommitResult.Durable(durableFailure: completionFailure);
     }
 
-    private static void RestoreInstalledStorageOwnerPaths(
-        IReadOnlyDictionary<BMSFile, string> originalBmsPaths,
-        IReadOnlyDictionary<LR2SongDBExtended.bmson_song, (string Path, string Folder)> originalBmsonPaths)
-    {
-        if (originalBmsPaths != null)
-        {
-            foreach ((BMSFile bmsFile, string path) in originalBmsPaths)
-            {
-                bmsFile.path = path;
-            }
-        }
-        if (originalBmsonPaths != null)
-        {
-            foreach ((LR2SongDBExtended.bmson_song bmsonSong, (string Path, string Folder) state) in originalBmsonPaths)
-            {
-                bmsonSong.path = state.Path;
-                bmsonSong.folder = state.Folder;
-            }
-        }
-    }
-
     private static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)
     {
         List<ChartFile> charts = [.. (installResult?.AddedCharts ?? [])
             .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
-        using IDisposable destinationOwnerPaths = new InstalledTargetOwnerPathScope(charts);
-        return ChartStorageTargetSet.FromCharts(charts);
-    }
-
-    private sealed class InstalledTargetOwnerPathScope : IDisposable
-    {
-        private readonly Dictionary<BMSFile, string> bmsPaths = [];
-        private readonly Dictionary<LR2SongDBExtended.bmson_song, (string Path, string Folder)> bmsonPaths = [];
-        private bool disposed;
-
-        internal InstalledTargetOwnerPathScope(IEnumerable<ChartFile> charts)
+        if (installResult?.InstalledTargetSet is ChartStorageTargetSet existingTargets
+            && existingTargets.Charts.Count == charts.Count
+            && existingTargets.Charts
+                .Select((chart, index) => ReferenceEquals(chart, charts[index]))
+                .All(isSameChart => isSameChart))
         {
-            try
-            {
-                foreach (ChartFile chart in charts ?? [])
-                {
-                    if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
-                    {
-                        continue;
-                    }
-
-                    BMSFile bmsFile = chart.GetBmsStorageOwner();
-                    if (bmsFile != null && bmsPaths.TryAdd(bmsFile, bmsFile.path))
-                    {
-                        bmsFile.path = chart.Path;
-                        continue;
-                    }
-
-                    LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-                    if (bmsonSong != null && bmsonPaths.TryAdd(
-                        bmsonSong,
-                        (bmsonSong.path, bmsonSong.folder)))
-                    {
-                        bmsonSong.path = chart.Path;
-                        bmsonSong.folder = Path.GetDirectoryName(chart.Path) ?? string.Empty;
-                    }
-                }
-            }
-            catch
-            {
-                Dispose();
-                throw;
-            }
+            return existingTargets;
         }
 
-        public void Dispose()
+        ChartStorageTargetSet targets = ChartStorageTargetSet.FromInstalledCharts(charts);
+        if (installResult != null)
         {
-            if (disposed)
-            {
-                return;
-            }
-            disposed = true;
-            foreach ((BMSFile bmsFile, string path) in bmsPaths)
-            {
-                bmsFile.path = path;
-            }
-            foreach ((LR2SongDBExtended.bmson_song bmsonSong, (string Path, string Folder) state) in bmsonPaths)
-            {
-                bmsonSong.path = state.Path;
-                bmsonSong.folder = state.Folder;
-            }
+            installResult.InstalledTargetSet = targets;
         }
+        return targets;
     }
 
     private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallReverseLookupPreparationUnderGuard(
@@ -2005,6 +1896,9 @@ public partial class BMSLibrary
         {
             return null;
         }
+        // resource-only導入でも、destinationへ実際に移ったresourceを基準に
+        // installed表示のhealth/warning projectionを確定する。
+        BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries(entries);
         ChartPackage displayPackage = ChartPackage.FromChartEntries(entries);
         displayPackage.path = destinationDirectory;
         displayPackage.delete_parent = false;

@@ -34,6 +34,12 @@ internal sealed class PackageInstallExecutionResult
 
     public List<ChartFile> AddedCharts { get; } = [];
 
+    /// <summary>
+    /// 同一packageのdurable callbackと後続semantic callbackで共有する導入targetです。
+    /// DB用detached rowの再構築を繰り返さないための操作内cacheで、永続化されません。
+    /// </summary>
+    internal ChartStorageTargetSet InstalledTargetSet { get; set; }
+
     public List<ChartPackage> FailedPackages { get; } = [];
 
     public List<ChartPackage> InstalledPackagesToRegister { get; } = [];

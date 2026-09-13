@@ -1152,7 +1152,9 @@ public sealed class CatalogMutationOwnerTests
             }
             else
             {
-                Assert.IsTrue(owner.ApplyInstalledTargetUpsert(bmsInput, bmsonInput).Applied);
+                CatalogInstalledTargetUpsertRequest request =
+                    owner.CreateInstalledTargetUpsertRequest(bmsInput, bmsonInput);
+                Assert.IsTrue(owner.ApplyInstalledTargetUpsert(request).Applied);
             }
 
             CollectionAssert.AreEquivalent(new[] { addedBms, keptBms }, storage.BmsRows.ToArray());
@@ -1209,7 +1211,8 @@ public sealed class CatalogMutationOwnerTests
                 ownedCollectionOwner,
                 new BmsLibraryDbGateway(tempRootPath));
 
-            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyInstalledTargetUpsert([replacement], []));
+            CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([replacement], []);
+            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyInstalledTargetUpsert(request));
 
             Assert.AreEqual(initialRows.BmsRowsVersion, storageRowsOwner.BmsRowsVersion);
             Assert.AreSame(original, storageRowsOwner.BmsRows.Single());
