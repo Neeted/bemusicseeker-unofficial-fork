@@ -1,6 +1,6 @@
 # ライブラリ変更要求の統合と操作全体の性能改善計画
 
-状態: 利用者がU1～U5の実装・単位ごとの必要なcommitを承認。U1完了commit e6b58ffc。U2完了commit 6c25bbc1。U3実装・検証・独立レビュー完了（P2対照不足を修正後、指摘なし）（2026-09-13）。調査基準は `6d35c789`、計画記録commitは `007b3216`。
+状態: 利用者がU1～U5の実装・単位ごとの必要なcommitを承認。U1 `e6b58ffc`、U2 `6c25bbc1`、U3 `e54edd94`、U4a `9d4ae7ee`、U4b `0dd2c478` 完了。U5の状態所有・残存入口整理を進行中（2026-09-13）。調査基準は `6d35c789`、計画記録commitは `007b3216`。
 
 ## 1. 目的と結論
 
@@ -284,6 +284,10 @@ U5を口実に各単位で使わなくなった実装を温存しない。一方
 
 ### U5の具体的な直列分割
 
+U5a独立レビューは修正必須指摘なし。U5bへ進む。
+
+U5aはprimary/fullのstate/lock/initialized/generation/observer/read/build/apply/invalidateを既存CatalogOwnedCollectionOwnerのpartialへ移した。rootにcurrentness gateとmetadata cache、薄いfacadeを残す。Quick570件成功、Functional `tests-functional-20260913-224256` は239秒成功。後続の未使用bridge削除と元のgate外ログ出力への機械整理は同Quick570件で再確認し、runtime/runner前提を変えないためFunctionalは繰り返さない。独立レビューへ進む。
+
 U4bの独立レビューは修正必須指摘なし。U4までのproducer移行を完了し、U5a→U5b→U5cへ進む。
 
 U4bはresidualを確定済みchart factsへ変更し、generic adapterと失効3field、test-only root wrapperを削除した。再接続は既存kind別exact-path索引を使用する。実ReloadFileDiffの通知内索引/lease解放/後続getter/旧snapshotとtyped残余反映を確認し、関連Quick298件成功。Functional `tests-functional-20260913-221236` は249.4秒で成功。full replacementのresource世代・readiness・部分失敗は維持。非空current-owned導入先の生成経路は未確認という既存の制限を維持する。
@@ -296,3 +300,12 @@ U4a実装はdigestの単一反映結果と解放後公開Action、通常/estimat
 - U5a/bは同じ実入口のU1～U4受入を再利用し、mechanicalなhelper/署名変更で済む場合はassertion semanticsを変えない。新しい境界coverageが必要な部分だけ独立packetに従って補完する。rootは実装割当前に各所有範囲と最終旧caller一覧を確定する。
 - U5aは[独立確認記録](library-mutation-u5a-test-contract.md)を承認。新規恒久テストは不要で、既存実操作・currentness検証を再利用する。
 - U5bも独立Phase A/Bで新規テスト不要と判断。U1～U4本番入口coverage、PlaylistSummaryResolveIndexTests、PlaylistViewPipelineTests、PlaylistWorkspaceDetailRefreshTestsのresolve/prewarmを再利用する。全read/write・observer・version/lockを同時に移す。playlistだけwarmの場合の旧facts捕捉、BMT/play history/lamp consumer、全置換・失敗失効・公開前rebaseを含む。scheduler/Task共有は変更しない。既存内部apply helperの退役はU5cで行う。U4aの通知時playlist readback完成を前提とし、既存case名だけを公開順序の根拠にしない。
+
+### U5cの境界判断
+
+- 計画差分点検を実施。U5c1は変更factsの型と全producer/consumerを一人のworkerで直列移行し、U5c2は共通組立て・dispatch・compositionの実管理主体への移動と改名を行う。型を作るworkerとconsumerを変えるworkerは並列にしない。約15 production filesを同一契約が横断するため、testを含む機械的移行の範囲は割当前に列挙する。
+- 確定factsと操作summaryを分離する。削除の旧kind/exact/digest、譜面/フォルダの旧新path、導入先/installed package参照の変更は、呼出時に固定したread-only factsとして渡す。件数・failure・timingは既存操作結果の報告用に保持し、共通索引の方針入力にしない。mutableな作業中listはproducer内部に限定し、外向きDeltaの同義置換を作らない。
+- Deltaの追加BMS/BMSON行は本番producerが使わない。導入はU3の確定target、走査はU4bのreplacementを使い、test専用の任意追加入口を新factsへ保存しない。該当testは実際の導入/走査または既存target ownerの同じ契約へ移す。
+- 通知/失効の要否は実factsで決める。既存batch末尾の通知、LR2同期、lease解放後の公開という操作固有の順序は管理主体内の明示的な経路で維持する。全producerへ多数booleanを渡す契約は退役する。
+- catalog transaction/正本はCatalogMutationOwner、索引read/writeはCatalogOwnedCollectionOwner、resource/package/playlist固有計算は各既存ownerのまま。これらを順序付ける共通変更処理は既存LibraryFileOperationOwnerを再編したLibraryMutationOwnerが所有する。BMSLibraryにはcomposition・公開facade・表示通知接続を残すが、domain組立てをcallbackへ押し戻さない。新bus/queue/gate/cache/broad hostは作らない。
+- standalone root ApplyLibraryMutationDeltaと本番非使用target applyは退役する。本番shapeの既存共通owner/実入口へtestを移し、同じ永続データ・結果・failure契約を維持する。test入口の置換に意味変更が必要な範囲は独立設計を先に承認する。

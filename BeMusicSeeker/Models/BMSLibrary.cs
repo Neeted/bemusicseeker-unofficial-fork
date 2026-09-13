@@ -703,16 +703,6 @@ public partial class BMSLibrary : ObservableObject
 
     private bool duplicateWarningFullClearPending = true;
 
-    private readonly object lockInstalledChartLookupIndex = new();
-
-    private InstalledChartLookupIndexState installedChartLookupIndex = new();
-
-    private bool installedChartLookupIndexInitialized;
-
-    private long installedChartLookupGeneration;
-
-    private Action<string> installedChartLookupStoreWorkObserver;
-
     // Pending estimate snapshots and installed lookup publications must cross the
     // same boundary so a digest update cannot become visible between validation
     // and applying the corresponding package result.
@@ -723,12 +713,6 @@ public partial class BMSLibrary : ObservableObject
     private readonly IInstallEstimationExecutionObserver installEstimationExecutionObserver;
 
     private long ownedDigestMutationGeneration;
-
-    private readonly object lockInstalledPrimaryHashLookup = new();
-
-    private PrimaryHashLookupState installedPrimaryHashLookup = new();
-
-    private bool installedPrimaryHashLookupInitialized;
 
     private readonly object lockInstallEstimationMetadataProfileCache = new();
 
@@ -3457,7 +3441,8 @@ public partial class BMSLibrary : ObservableObject
     {
         return libraryResourceIndexOwner.CaptureSnapshot().Generation == stamp.ResourceIndexGeneration
             && catalogOwnedCollectionOwner.CollectionVersion == stamp.OwnedCollectionVersion
-            && installedChartLookupGeneration == stamp.InstalledLookupGeneration
+            && catalogOwnedCollectionOwner.IsInstalledChartLookupGenerationCurrent(
+                stamp.InstalledLookupGeneration)
             && ownedDigestMutationGeneration == stamp.DigestMutationGeneration
             && !IsOwnedDigestMutationWindowActive();
     }
@@ -7937,18 +7922,7 @@ public partial class BMSLibrary : ObservableObject
         InvalidateInstallEstimationMetadataProfileCache();
         lock (pendingInstallEstimateCurrentnessGate)
         {
-            lock (lockInstalledPrimaryHashLookup)
-            {
-                installedPrimaryHashLookup = new PrimaryHashLookupState();
-                installedPrimaryHashLookupInitialized = false;
-            }
-            lock (lockInstalledChartLookupIndex)
-            {
-                installedChartLookupIndex = new InstalledChartLookupIndexState();
-                installedChartLookupIndex.StoreWorkObserver = InstalledChartLookupStoreWorkObserver;
-                installedChartLookupIndexInitialized = false;
-                installedChartLookupGeneration++;
-            }
+            catalogOwnedCollectionOwner.InvalidateInstalledChartLookup();
         }
     }
 
@@ -7958,19 +7932,6 @@ public partial class BMSLibrary : ObservableObject
         {
             installEstimationMetadataProfileCache.Clear();
         }
-    }
-
-    private sealed class InstalledChartLookupMutation
-    {
-        public List<InstalledChartLookupMutationEntry> Removed { get; } = [];
-
-        public List<InstalledChartLookupMutationEntry> Added { get; } = [];
-
-        public List<InstalledChartLookupPathMutationEntry> Moved { get; } = [];
-
-        public bool RequiresFullInvalidate { get; set; }
-
-        public bool HasChanges => RequiresFullInvalidate || Removed.Count > 0 || Added.Count > 0 || Moved.Count > 0;
     }
 
     private sealed class OwnedChartCollectionMutationResult
@@ -8463,39 +8424,6 @@ public partial class BMSLibrary : ObservableObject
         return kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms;
     }
 
-    private readonly struct InstalledChartLookupMutationEntry(
-        string path,
-        string md5,
-        string sha256,
-        ChartFileKind kind = ChartFileKind.Bms)
-    {
-        public string Path { get; } = path;
-
-        public string Md5 { get; } = md5;
-
-        public string Sha256 { get; } = sha256;
-
-        public ChartFileKind Kind { get; } = kind;
-    }
-
-    private readonly struct InstalledChartLookupPathMutationEntry(
-        string oldPath,
-        string newPath,
-        string md5,
-        string sha256,
-        ChartFileKind kind = ChartFileKind.Bms)
-    {
-        public string OldPath { get; } = oldPath;
-
-        public string NewPath { get; } = newPath;
-
-        public string Md5 { get; } = md5;
-
-        public string Sha256 { get; } = sha256;
-
-        public ChartFileKind Kind { get; } = kind;
-    }
-
     internal OwnedChartHashIndexVersionedSnapshot GetOwnedChartHashIndexSnapshot()
     {
         return GetOwnedChartHashIndexSnapshot(CancellationToken.None);
@@ -8532,15 +8460,8 @@ public partial class BMSLibrary : ObservableObject
     /// </summary>
     internal Action<string> InstalledChartLookupStoreWorkObserver
     {
-        get => installedChartLookupStoreWorkObserver;
-        set
-        {
-            installedChartLookupStoreWorkObserver = value;
-            lock (lockInstalledChartLookupIndex)
-            {
-                installedChartLookupIndex.StoreWorkObserver = value;
-            }
-        }
+        get => catalogOwnedCollectionOwner.InstalledChartLookupStoreWorkObserver;
+        set => catalogOwnedCollectionOwner.InstalledChartLookupStoreWorkObserver = value;
     }
 
     internal OwnedHashIndexWarmupResult WarmOwnedChartHashIndexSnapshot(string reason)
@@ -8969,12 +8890,11 @@ public partial class BMSLibrary : ObservableObject
     internal InstalledPrimaryHashWarmupResult WarmInstalledPrimaryHashLookup(string reason)
     {
         var stopwatch = Stopwatch.StartNew();
-        bool built = EnsureInstalledPrimaryHashLookupBuiltUnsafe(out long buildMs, out int bmsCount, out int bmsonCount);
-        int primaryHashCount;
-        lock (lockInstalledPrimaryHashLookup)
-        {
-            primaryHashCount = installedPrimaryHashLookup?.DistinctPrimaryHashCount ?? 0;
-        }
+        bool built = EnsureInstalledPrimaryHashLookupBuiltUnsafe(
+            out long buildMs,
+            out int bmsCount,
+            out int bmsonCount);
+        int primaryHashCount = catalogOwnedCollectionOwner.GetInstalledPrimaryHashCount();
         bool fullDirectoryLookupInitialized = IsInstalledChartLookupIndexInitializedUnsafe();
         stopwatch.Stop();
         var result = new InstalledPrimaryHashWarmupResult
@@ -9245,28 +9165,6 @@ public partial class BMSLibrary : ObservableObject
             {
                 return catalogOwnedCollectionOwner.Collection.CreateNormalLibrarySourceStorageOwnerView();
             }
-        }
-    }
-
-    private InstalledChartLookupIndexState CreateOwnedInstalledChartLookupIndexStateUnsafe(out int bmsCount, out int bmsonCount)
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
-        {
-            InstalledChartLookupIndexState state = catalogOwnedCollectionOwner.Collection.CreateInstalledChartLookupIndexState(
-                out bmsCount,
-                out bmsonCount,
-                InstalledChartLookupStoreWorkObserver);
-            return state;
-        }
-    }
-
-    private PrimaryHashLookupState CreateOwnedInstalledPrimaryHashLookupStateUnsafe(out int bmsCount, out int bmsonCount)
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
-        {
-            return catalogOwnedCollectionOwner.Collection.CreatePrimaryHashLookupState(out bmsCount, out bmsonCount);
         }
     }
 
@@ -10688,18 +10586,12 @@ public partial class BMSLibrary : ObservableObject
 
     private bool IsInstalledChartLookupIndexInitializedUnsafe()
     {
-        lock (lockInstalledChartLookupIndex)
-        {
-            return installedChartLookupIndexInitialized;
-        }
+        return catalogOwnedCollectionOwner.IsInstalledChartLookupIndexInitialized();
     }
 
     private bool IsInstalledPrimaryHashLookupInitializedUnsafe()
     {
-        lock (lockInstalledPrimaryHashLookup)
-        {
-            return installedPrimaryHashLookupInitialized;
-        }
+        return catalogOwnedCollectionOwner.IsInstalledPrimaryHashLookupInitialized();
     }
 
     private bool IsPlaylistLibraryResolveIndexWarmUnsafe()
@@ -10774,108 +10666,16 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
-        var logMessages = new List<string>();
+        IReadOnlyList<string> logMessages;
         lock (pendingInstallEstimateCurrentnessGate)
         {
-            ApplyInstalledPrimaryHashLookupMutation(mutation, reason, logMessages.Add);
-            lock (lockInstalledChartLookupIndex)
-            {
-                if (installedChartLookupIndexInitialized)
-                {
-                    if (mutation.RequiresFullInvalidate)
-                    {
-                        installedChartLookupIndex = new InstalledChartLookupIndexState();
-                        installedChartLookupIndex.StoreWorkObserver = InstalledChartLookupStoreWorkObserver;
-                        installedChartLookupIndexInitialized = false;
-                        logMessages.Add("installed_chart_lookup_index update mode=full_invalidate reason=" + reason);
-                    }
-                    else
-                    {
-                        var stopwatch = Stopwatch.StartNew();
-                        foreach (InstalledChartLookupMutationEntry entry in mutation.Removed)
-                        {
-                            installedChartLookupIndex.RemoveChart(entry.Path, entry.Md5, entry.Sha256);
-                        }
-                        foreach (InstalledChartLookupPathMutationEntry entry in mutation.Moved)
-                        {
-                            installedChartLookupIndex.MoveChart(entry.OldPath, entry.NewPath, entry.Md5, entry.Sha256);
-                        }
-                        foreach (InstalledChartLookupMutationEntry entry in mutation.Added)
-                        {
-                            installedChartLookupIndex.AddChart(entry.Path, entry.Md5, entry.Sha256);
-                        }
-                        stopwatch.Stop();
-                        logMessages.Add("installed_chart_lookup_index update mode=incremental reason=" + reason + " removed=" + mutation.Removed.Count + " moved=" + mutation.Moved.Count + " added=" + mutation.Added.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + installedChartLookupIndex.HashCount + " primaryHashes=" + installedChartLookupIndex.DistinctPrimaryHashCount + " dirRefs=" + installedChartLookupIndex.DirectoryReferenceCount);
-                    }
-                }
-                installedChartLookupGeneration++;
-            }
+            logMessages = catalogOwnedCollectionOwner.ApplyInstalledChartLookupMutation(
+                mutation,
+                reason);
         }
         foreach (string logMessage in logMessages)
         {
             (logOverride ?? LogInstallPerformance)(logMessage);
-        }
-    }
-
-    private void ApplyInstalledPrimaryHashLookupMutation(
-        InstalledChartLookupMutation mutation,
-        string reason,
-        Action<string> logOverride = null)
-    {
-        if (mutation == null || !mutation.HasChanges)
-        {
-            return;
-        }
-        lock (lockInstalledPrimaryHashLookup)
-        {
-            if (!installedPrimaryHashLookupInitialized)
-            {
-                return;
-            }
-            if (mutation.RequiresFullInvalidate)
-            {
-                installedPrimaryHashLookup = new PrimaryHashLookupState();
-                installedPrimaryHashLookupInitialized = false;
-                (logOverride ?? LogInstallPerformance)("installed_primary_hash_lookup update mode=full_invalidate reason=" + reason);
-                return;
-            }
-            var stopwatch = Stopwatch.StartNew();
-            foreach (InstalledChartLookupMutationEntry entry in mutation.Removed)
-            {
-                installedPrimaryHashLookup.RemovePrimaryHash(entry.Md5);
-            }
-            foreach (InstalledChartLookupMutationEntry entry in mutation.Added)
-            {
-                installedPrimaryHashLookup.AddPrimaryHash(entry.Md5);
-            }
-            stopwatch.Stop();
-            (logOverride ?? LogInstallPerformance)("installed_primary_hash_lookup update mode=incremental reason=" + reason + " removed=" + mutation.Removed.Count + " moved=" + mutation.Moved.Count + " added=" + mutation.Added.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " primaryHashes=" + installedPrimaryHashLookup.DistinctPrimaryHashCount);
-        }
-    }
-
-    private void RebuildInstalledChartLookupIndexCoreUnsafe(InstalledChartLookupIndexState state)
-    {
-        installedChartLookupIndex = state ?? new InstalledChartLookupIndexState();
-        installedChartLookupIndex.StoreWorkObserver = InstalledChartLookupStoreWorkObserver;
-        installedChartLookupIndexInitialized = true;
-    }
-
-    /// <summary>
-    /// インストール済み chart lookup index が未構築の場合にビルドします。
-    /// </summary>
-    private void EnsureInstalledChartLookupIndexBuiltUnsafe()
-    {
-        lock (lockInstalledChartLookupIndex)
-        {
-            if (installedChartLookupIndexInitialized)
-            {
-                return;
-            }
-            var stopwatch = Stopwatch.StartNew();
-            InstalledChartLookupIndexState state = CreateOwnedInstalledChartLookupIndexStateUnsafe(out int bmsCount, out int bmsonCount);
-            RebuildInstalledChartLookupIndexCoreUnsafe(state);
-            stopwatch.Stop();
-            LogInstallPerformance("installed_chart_lookup_index build mode=full buildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + state.HashCount + " primaryHashes=" + state.DistinctPrimaryHashCount + " dirRefs=" + state.DirectoryReferenceCount + " files=" + bmsCount + " bmson=" + bmsonCount + " rows=" + (bmsCount + bmsonCount) + " source=owned_collection_lightweight singleFlight=true");
         }
     }
 
@@ -10885,24 +10685,12 @@ public partial class BMSLibrary : ObservableObject
         out int bmsonCount,
         Action<string> logOverride = null)
     {
-        lock (lockInstalledPrimaryHashLookup)
-        {
-            if (installedPrimaryHashLookupInitialized)
-            {
-                buildMs = 0L;
-                bmsCount = 0;
-                bmsonCount = 0;
-                return false;
-            }
-            var stopwatch = Stopwatch.StartNew();
-            PrimaryHashLookupState state = CreateOwnedInstalledPrimaryHashLookupStateUnsafe(out bmsCount, out bmsonCount);
-            installedPrimaryHashLookup = state ?? new PrimaryHashLookupState();
-            installedPrimaryHashLookupInitialized = true;
-            stopwatch.Stop();
-            buildMs = stopwatch.ElapsedMilliseconds;
-            (logOverride ?? LogInstallPerformance)("installed_primary_hash_lookup build mode=full buildMs=" + buildMs + " primaryHashes=" + installedPrimaryHashLookup.DistinctPrimaryHashCount + " files=" + bmsCount + " bmson=" + bmsonCount + " rows=" + (bmsCount + bmsonCount) + " source=owned_collection_primary singleFlight=true");
-            return true;
-        }
+        return catalogOwnedCollectionOwner.EnsureInstalledPrimaryHashLookupBuilt(
+            catalogStorageRowsOwner,
+            out buildMs,
+            out bmsCount,
+            out bmsonCount,
+            logOverride ?? LogInstallPerformance);
     }
 
     /// <summary>
@@ -10925,13 +10713,9 @@ public partial class BMSLibrary : ObservableObject
     private (InstalledChartLookupIndexSnapshot Snapshot, long Generation)
         CreateInstalledChartLookupVersionedSnapshotUnderCurrentnessGateUnsafe()
     {
-        EnsureInstalledChartLookupIndexBuiltUnsafe();
-        lock (lockInstalledChartLookupIndex)
-        {
-            return (
-                installedChartLookupIndex.CreateSnapshot(),
-                installedChartLookupGeneration);
-        }
+        return catalogOwnedCollectionOwner.CreateInstalledChartLookupVersionedSnapshot(
+            catalogStorageRowsOwner,
+            LogInstallPerformance);
     }
 
     /// <summary>
@@ -10945,16 +10729,10 @@ public partial class BMSLibrary : ObservableObject
 
     private bool ContainsInstalledChartUnsafe(ChartFile chart)
     {
-        string lookupKey = ChartLookupKey.GetPrimaryHash(chart);
-        if (string.IsNullOrWhiteSpace(lookupKey))
-        {
-            return false;
-        }
-        EnsureInstalledPrimaryHashLookupBuiltUnsafe(out _, out _, out _);
-        lock (lockInstalledPrimaryHashLookup)
-        {
-            return installedPrimaryHashLookup.ContainsPrimaryHash(lookupKey);
-        }
+        return catalogOwnedCollectionOwner.ContainsInstalledChart(
+            chart,
+            catalogStorageRowsOwner,
+            LogInstallPerformance);
     }
 
     private HashSet<string> CreateKnownChartDirectorySnapshotUnsafe()
@@ -10973,11 +10751,9 @@ public partial class BMSLibrary : ObservableObject
 
     private IReadOnlyCollection<string> CreateInstalledChartKnownDirectorySnapshotUnsafe()
     {
-        EnsureInstalledChartLookupIndexBuiltUnsafe();
-        lock (lockInstalledChartLookupIndex)
-        {
-            return installedChartLookupIndex.CreateKnownChartDirectorySnapshot();
-        }
+        return catalogOwnedCollectionOwner.CreateInstalledChartKnownDirectorySnapshot(
+            catalogStorageRowsOwner,
+            LogInstallPerformance);
     }
 
     private List<string> GetDistinctInstalledDirectoriesForChartUnsafe(ChartFile chart)
@@ -10987,85 +10763,21 @@ public partial class BMSLibrary : ObservableObject
 
     private List<string> GetDistinctInstalledDirectoriesByPrimaryHashUnsafe(string lookupHash)
     {
-        if (string.IsNullOrWhiteSpace(lookupHash))
-        {
-            return [];
-        }
-        EnsureInstalledChartLookupIndexBuiltUnsafe();
-        lock (lockInstalledChartLookupIndex)
-        {
-            return [.. installedChartLookupIndex.GetDistinctDirectoriesByPrimaryHash(lookupHash)];
-        }
+        return catalogOwnedCollectionOwner.GetDistinctInstalledDirectoriesByPrimaryHash(
+            lookupHash,
+            catalogStorageRowsOwner,
+            LogInstallPerformance);
     }
 
     private List<string> GetInstalledDirectChildPathsByPrimaryHashesUnsafe(
         IEnumerable<string> primaryHashes,
         string destinationDirectory)
     {
-        var hashes = new HashSet<string>(
-            (primaryHashes ?? []).Where(hash => !string.IsNullOrWhiteSpace(hash)),
-            StringComparer.OrdinalIgnoreCase);
-        string destinationDirectoryKey = CreateDirectChildDirectoryComparisonKey(destinationDirectory);
-        if (hashes.Count == 0 || string.IsNullOrWhiteSpace(destinationDirectoryKey))
-        {
-            return [];
-        }
-
-        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        EnsureInstalledChartLookupIndexBuiltUnsafe();
-        lock (lockInstalledChartLookupIndex)
-        {
-            foreach (string hash in hashes)
-            {
-                foreach (string path in installedChartLookupIndex.GetPathsByPrimaryHash(hash))
-                {
-                    if (IsDirectChildPathOfDirectory(path, destinationDirectoryKey))
-                    {
-                        paths.Add(path);
-                    }
-                }
-            }
-        }
-
-        return [.. paths.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static bool IsDirectChildPathOfDirectory(string path, string destinationDirectoryKey)
-    {
-        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(destinationDirectoryKey))
-        {
-            return false;
-        }
-
-        string directory;
-        try
-        {
-            directory = DirectoryExt.GetDirectoryNameSimple(path);
-        }
-        catch
-        {
-            return false;
-        }
-        string directoryKey = CreateDirectChildDirectoryComparisonKey(directory);
-        return !string.IsNullOrWhiteSpace(directoryKey)
-            && string.Equals(directoryKey, destinationDirectoryKey, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string CreateDirectChildDirectoryComparisonKey(string directory)
-    {
-        if (string.IsNullOrWhiteSpace(directory))
-        {
-            return null;
-        }
-
-        try
-        {
-            return LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(directory.Trim()));
-        }
-        catch
-        {
-            return directory.Trim().TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
+        return catalogOwnedCollectionOwner.GetInstalledDirectChildPathsByPrimaryHashes(
+            primaryHashes,
+            destinationDirectory,
+            catalogStorageRowsOwner,
+            LogInstallPerformance);
     }
 
     private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
@@ -11101,46 +10813,12 @@ public partial class BMSLibrary : ObservableObject
         long operationId,
         Action<string> logOverride)
     {
-        var stopwatch = Stopwatch.StartNew();
-        var excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        int excludedChartCount = 0;
-        if (excluded != null)
-        {
-            foreach (ChartFile item in excluded.Where(chart => chart != null))
-            {
-                excludedChartCount++;
-                string key = ChartLookupKey.GetPrimaryHash(item);
-                if (!string.IsNullOrWhiteSpace(key))
-                {
-                    excludedKeyCount[key] = excludedKeyCount.TryGetValue(key, out int value) ? value + 1 : 1;
-                }
-            }
-        }
-        bool coldBuild = EnsureInstalledPrimaryHashLookupBuiltUnsafe(
-            out long buildMs,
-            out int bmsCount,
-            out int bmsonCount,
-            logOverride);
-        IPrimaryHashLookup result;
-        lock (lockInstalledPrimaryHashLookup)
-        {
-            result = installedPrimaryHashLookup.CreateExcludingLookup(excludedKeyCount);
-        }
-        stopwatch.Stop();
-        if (!string.IsNullOrWhiteSpace(reason))
-        {
-            (logOverride ?? LogInstallPerformance)("installed_primary_hash_lookup excluding_snapshot reason=" + reason
-                + " op=" + operationId
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                + " coldBuild=" + coldBuild
-                + " buildMs=" + buildMs
-                + " excludedCharts=" + excludedChartCount
-                + " excludedHashes=" + excludedKeyCount.Count
-                + " primaryHashes=" + result.DistinctPrimaryHashCount
-                + " files=" + bmsCount
-                + " bmson=" + bmsonCount);
-        }
-        return result;
+        return catalogOwnedCollectionOwner.CreateInstalledChartKeySnapshotExcludingCharts(
+            excluded,
+            catalogStorageRowsOwner,
+            reason,
+            operationId,
+            logOverride ?? LogInstallPerformance);
     }
 
     /// <summary>
@@ -13368,19 +13046,10 @@ public partial class BMSLibrary : ObservableObject
 
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)
     {
-        string lookupHash = ChartLookupKey.GetPrimaryHash(chart);
-        if (string.IsNullOrWhiteSpace(lookupHash))
-        {
-            return [];
-        }
-        EnsureInstalledChartLookupIndexBuiltUnsafe();
-        lock (lockInstalledChartLookupIndex)
-        {
-            return installedChartLookupIndex.GetPathsByPrimaryHash(lookupHash)
-                .Where(path => !string.Equals(path, chart.Path, StringComparison.OrdinalIgnoreCase))
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .ToArray();
-        }
+        return catalogOwnedCollectionOwner.GetDuplicateInstallRepairPaths(
+            chart,
+            catalogStorageRowsOwner,
+            LogInstallPerformance);
     }
 
     internal List<DuplicateInstallRepairConfirmation> GetDuplicateInstallRepairConfirmations(IEnumerable<ChartFile> charts)

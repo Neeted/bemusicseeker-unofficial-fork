@@ -9,9 +9,10 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
 /// Owns the catalog's derived owned-chart collection and its storage-row/version coupling.
-/// Consumer-specific projections remain composed by <see cref="BMSLibrary"/>.
+/// Installed-chart lookup state is kept with this owned collection; other consumer-specific
+/// projections remain composed by <see cref="BMSLibrary"/>.
 /// </summary>
-internal sealed class CatalogOwnedCollectionOwner
+internal sealed partial class CatalogOwnedCollectionOwner
 {
     private readonly object gate = new();
 
