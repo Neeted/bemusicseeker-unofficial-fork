@@ -711,6 +711,8 @@ public partial class BMSLibrary : ObservableObject
 
     private long installedChartLookupGeneration;
 
+    private Action<string> installedChartLookupStoreWorkObserver;
+
     // Pending estimate snapshots and installed lookup publications must cross the
     // same boundary so a digest update cannot become visible between validation
     // and applying the corresponding package result.
@@ -7942,6 +7944,7 @@ public partial class BMSLibrary : ObservableObject
             lock (lockInstalledChartLookupIndex)
             {
                 installedChartLookupIndex = new InstalledChartLookupIndexState();
+                installedChartLookupIndex.StoreWorkObserver = InstalledChartLookupStoreWorkObserver;
                 installedChartLookupIndexInitialized = false;
                 installedChartLookupGeneration++;
             }
@@ -8207,12 +8210,11 @@ public partial class BMSLibrary : ObservableObject
             {
                 continue;
             }
-            if (request.Mode == OwnedChartRemoveMode.PathCleanup)
+            if (!request.HasCapturedFacts)
             {
                 return true;
             }
-            string md5 = request.BmsOwner?.hash ?? request.BmsonOwner?.md5;
-            if (string.IsNullOrWhiteSpace(md5))
+            if (string.IsNullOrWhiteSpace(request.CapturedMd5))
             {
                 return true;
             }
@@ -8522,6 +8524,23 @@ public partial class BMSLibrary : ObservableObject
     /// 通常運用では未設定で、cold build と局所差分更新の列挙範囲をテストで確認する場合だけ使用します。
     /// </summary>
     internal Action<string> PlaylistLibraryResolveIndexStoreWorkObserver { get; set; }
+
+    /// <summary>
+    /// installed lookup root の実格納処理を観測する内部 hook です。
+    /// 通常運用では未設定で、cold build と局所差分更新の列挙範囲をテストで確認する場合だけ使用します。
+    /// </summary>
+    internal Action<string> InstalledChartLookupStoreWorkObserver
+    {
+        get => installedChartLookupStoreWorkObserver;
+        set
+        {
+            installedChartLookupStoreWorkObserver = value;
+            lock (lockInstalledChartLookupIndex)
+            {
+                installedChartLookupIndex.StoreWorkObserver = value;
+            }
+        }
+    }
 
     internal OwnedHashIndexWarmupResult WarmOwnedChartHashIndexSnapshot(string reason)
     {
@@ -9233,7 +9252,11 @@ public partial class BMSLibrary : ObservableObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return catalogOwnedCollectionOwner.Collection.CreateInstalledChartLookupIndexState(out bmsCount, out bmsonCount);
+            InstalledChartLookupIndexState state = catalogOwnedCollectionOwner.Collection.CreateInstalledChartLookupIndexState(
+                out bmsCount,
+                out bmsonCount,
+                InstalledChartLookupStoreWorkObserver);
+            return state;
         }
     }
 
@@ -9907,19 +9930,28 @@ public partial class BMSLibrary : ObservableObject
         bool? resourceHealthIndexCurrentAtBase = null)
     {
         OwnedChartCollectionStorageMutation storageMutation = BuildOwnedChartCollectionStorageMutation(delta);
+        bool hasStorageMutation = storageMutation.HasChanges;
+        bool hasInstallDestinationChanges = delta?.UpdatedInstallDestinations?.Count > 0;
         var result = new OwnedChartCollectionMutationResult
         {
             InstalledLookupMutation = BuildInstalledChartLookupMutation(storageMutation, delta?.FolderPathChanges),
-            InstallEstimationMetadataProfileCacheInvalidated = delta?.InvalidateInstalledDirectoryIndex == true,
+            InstallEstimationMetadataProfileCacheInvalidated = delta?.InvalidateInstalledDirectoryIndex == true
+                || hasStorageMutation
+                || hasInstallDestinationChanges,
             AddedCount = storageMutation.AddedCount,
             RemovedCount = storageMutation.RemovedCount,
             MovedCount = storageMutation.MovedCount,
             InstallDestinationChangedCount = delta?.UpdatedInstallDestinations.Count ?? 0,
             InstalledPackagePathChangedCount = delta?.UpdatedInstalledPackagePaths.Count ?? 0,
-            ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true,
-            DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true,
-            OwnedCollectionChanged = storageMutation.HasChanges,
-            WarningPresentationChanged = delta?.ClearDuplicatedCache == true || storageMutation.HasChanges,
+            ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true
+                || hasStorageMutation,
+            DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true
+                || hasStorageMutation
+                || hasInstallDestinationChanges,
+            OwnedCollectionChanged = hasStorageMutation,
+            WarningPresentationChanged = delta?.ClearDuplicatedCache == true
+                || hasStorageMutation
+                || hasInstallDestinationChanges,
             BmsFilesStorageRowsChanged = HasBmsStorageRowCollectionChange(storageMutation)
                 || (delta?.NotifyStorageRowPathChanges == true && HasBmsStorageRowPathChange(storageMutation)),
             BmsonSongsStorageRowsChanged = HasBmsonStorageRowCollectionChange(storageMutation)
@@ -10775,6 +10807,7 @@ public partial class BMSLibrary : ObservableObject
                     if (mutation.RequiresFullInvalidate)
                     {
                         installedChartLookupIndex = new InstalledChartLookupIndexState();
+                        installedChartLookupIndex.StoreWorkObserver = InstalledChartLookupStoreWorkObserver;
                         installedChartLookupIndexInitialized = false;
                         logMessages.Add("installed_chart_lookup_index update mode=full_invalidate reason=" + reason);
                     }
@@ -10845,6 +10878,7 @@ public partial class BMSLibrary : ObservableObject
     private void RebuildInstalledChartLookupIndexCoreUnsafe(InstalledChartLookupIndexState state)
     {
         installedChartLookupIndex = state ?? new InstalledChartLookupIndexState();
+        installedChartLookupIndex.StoreWorkObserver = InstalledChartLookupStoreWorkObserver;
         installedChartLookupIndexInitialized = true;
     }
 

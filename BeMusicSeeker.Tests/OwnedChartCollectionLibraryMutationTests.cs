@@ -1020,6 +1020,216 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
+    /// <summary>
+    /// 実削除を同じ library で二回続けても、warm な各 lookup は
+    /// 旧snapshotを保ったまま対象差分だけを反映します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public void RemoveLibraryCharts_TwoWarmOperationsPreserveRemainingOwnersWithoutFullRebuild(int backgroundCount)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string sharedHash = new string('a', 32);
+            string uniqueHash = new string('b', 32);
+            List<TestableBmsFile> files = [];
+            for (int index = 0; index < backgroundCount; index++)
+            {
+                files.Add(CreateFile(
+                    (index + 100).ToString("x32"),
+                    Path.Combine(root, "Background", index.ToString("D3") + ".bms")));
+            }
+            string remainingPath = Path.Combine(root, "Remaining", "shared.bms");
+            string firstFolder = Path.Combine(root, "Remove1");
+            string secondFolder = Path.Combine(root, "Remove2");
+            string firstPath = Path.Combine(firstFolder, "shared.bms");
+            string secondPath = Path.Combine(secondFolder, "unique.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(remainingPath)!);
+            Directory.CreateDirectory(firstFolder);
+            Directory.CreateDirectory(secondFolder);
+            File.WriteAllText(remainingPath, "#PLAYER 1");
+            File.WriteAllText(firstPath, "#PLAYER 1");
+            File.WriteAllText(secondPath, "#PLAYER 1");
+            TestableBmsFile remaining = CreateFile(sharedHash, remainingPath);
+            TestableBmsFile first = CreateFile(sharedHash, firstPath);
+            TestableBmsFile second = CreateFile(uniqueHash, secondPath);
+            files.Add(remaining);
+            files.Add(first);
+            files.Add(second);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs())
+            {
+                BMSFiles = files,
+                BmsonSongs = []
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                foreach (TestableBmsFile file in files)
+                {
+                    db.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+            }
+
+            BMSLibrary.InstalledPrimaryHashWarmupResult initialPrimary = library.WarmInstalledPrimaryHashLookup("u1_warm_remove");
+            Assert.IsFalse(initialPrimary.FullDirectoryLookupInitialized);
+            OwnedChartHashIndexVersionedSnapshot initialHash = library.GetOwnedChartHashIndexSnapshot();
+            InstalledChartLookupIndexSnapshot initialInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
+            PlaylistLibraryResolveIndexSnapshot initialPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool initialPlaylistCacheHit,
+                out int initialPlaylistStaleRetries);
+            Assert.IsFalse(initialPlaylistCacheHit);
+            Assert.AreEqual(0, initialPlaylistStaleRetries);
+            Assert.IsTrue(initialHash.ContainsMd5(sharedHash));
+            Assert.IsTrue(initialHash.ContainsMd5(uniqueHash));
+            (LibraryChartKind Kind, string Path, string Md5, string Sha256)[] initialSharedCandidates =
+                CapturePlaylistCandidateFacts(initialPlaylist.GetMd5Candidates(sharedHash));
+            (LibraryChartKind Kind, string Path, string Md5, string Sha256)[] initialUniqueCandidates =
+                CapturePlaylistCandidateFacts(initialPlaylist.GetMd5Candidates(uniqueHash));
+            Assert.IsTrue(initialSharedCandidates.Length > 0);
+            Assert.IsTrue(initialUniqueCandidates.Length > 0);
+            Assert.IsTrue(initialSharedCandidates.Any(candidate =>
+                string.Equals(candidate.Path, remainingPath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(candidate.Md5, sharedHash, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(initialSharedCandidates.Any(candidate =>
+                string.Equals(candidate.Path, firstPath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(candidate.Md5, sharedHash, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(initialUniqueCandidates.Any(candidate =>
+                string.Equals(candidate.Path, secondPath, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(candidate.Md5, uniqueHash, StringComparison.OrdinalIgnoreCase)));
+            LibraryChartRef initialSharedRepresentative = initialPlaylist.ResolveChartForPlaylistHash(sharedHash, null);
+            LibraryChartRef initialUniqueRepresentative = initialPlaylist.ResolveChartForPlaylistHash(uniqueHash, null);
+            Assert.IsNotNull(initialSharedRepresentative);
+            Assert.IsNotNull(initialUniqueRepresentative);
+            string initialSharedRepresentativePath = initialSharedRepresentative!.Path;
+            string initialSharedRepresentativeMd5 = initialSharedRepresentative.Md5;
+            string initialSharedRepresentativeSha256 = initialSharedRepresentative.Sha256;
+            string initialUniqueRepresentativePath = initialUniqueRepresentative!.Path;
+            string initialUniqueRepresentativeMd5 = initialUniqueRepresentative.Md5;
+            string initialUniqueRepresentativeSha256 = initialUniqueRepresentative.Sha256;
+
+            List<string> hashWork = [];
+            List<string> playlistWork = [];
+            List<string> installedWork = [];
+            library.OwnedChartHashIndexStoreWorkObserver = hashWork.Add;
+            library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
+            library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
+            (TestableBmsFile File, string Folder)[] removals =
+            [
+                (first, firstFolder),
+                (second, secondFolder)
+            ];
+            for (int removalIndex = 0; removalIndex < removals.Length; removalIndex++)
+            {
+                (TestableBmsFile file, string folder) = removals[removalIndex];
+                string oldPath = file.path;
+                string oldHash = file.hash;
+                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
+                    [LibraryChartRef.FromBmsFile(file)],
+                    sendToRecycleBin: false,
+                    approvedWholeFolderDeletePaths: [folder]);
+
+                Assert.IsFalse(outcome.HasError);
+                Assert.IsTrue(outcome.CatalogDurable);
+                Assert.IsFalse(File.Exists(oldPath));
+                Assert.IsFalse(Directory.Exists(folder));
+                using (var verifyDb = new LR2SongDBExtended(songDbPath))
+                {
+                    string[] dbPaths = verifyDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
+                    Assert.IsFalse(dbPaths.Contains(oldPath, StringComparer.OrdinalIgnoreCase));
+                    Assert.IsTrue(dbPaths.Contains(remainingPath, StringComparer.OrdinalIgnoreCase));
+                    Assert.AreEqual(
+                        removalIndex == 0,
+                        dbPaths.Contains(secondPath, StringComparer.OrdinalIgnoreCase));
+                    foreach (TestableBmsFile backgroundFile in files.Take(backgroundCount))
+                    {
+                        Assert.IsTrue(
+                            dbPaths.Contains(backgroundFile.path, StringComparer.OrdinalIgnoreCase),
+                            "削除後も未対象のbackground rowを保持します。");
+                    }
+                }
+                OwnedChartHashIndexVersionedSnapshot updatedHash = library.GetOwnedChartHashIndexSnapshot();
+                OwnedChartHashIndexVersionedSnapshot cachedHash = library.GetOwnedChartHashIndexSnapshot();
+                InstalledChartLookupIndexSnapshot updatedInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
+                InstalledChartLookupIndexSnapshot cachedInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
+                BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary = library.WarmInstalledPrimaryHashLookup("u1_warm_remove");
+                PlaylistLibraryResolveIndexSnapshot updatedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool updatedPlaylistCacheHit,
+                    out int updatedPlaylistStaleRetries);
+                PlaylistLibraryResolveIndexSnapshot cachedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool cachedPlaylistCacheHit,
+                    out int cachedPlaylistStaleRetries);
+
+                Assert.AreSame(updatedHash, cachedHash);
+                Assert.AreSame(updatedInstalled, cachedInstalled);
+                Assert.AreEqual("cached", updatedPrimary.Status);
+                Assert.AreEqual(0L, updatedPrimary.BuildMs);
+                Assert.IsTrue(updatedPlaylistCacheHit);
+                Assert.AreEqual(0, updatedPlaylistStaleRetries);
+                Assert.IsTrue(cachedPlaylistCacheHit);
+                Assert.AreEqual(0, cachedPlaylistStaleRetries);
+                Assert.AreSame(updatedPlaylist, cachedPlaylist);
+                Assert.IsFalse(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, oldPath));
+                Assert.IsTrue(CapturePlaylistCandidateFacts(updatedPlaylist.GetMd5Candidates(sharedHash))
+                    .Any(candidate =>
+                        candidate.Kind == LibraryChartKind.Bms
+                        && string.Equals(candidate.Path, remainingPath, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(candidate.Md5, sharedHash, StringComparison.OrdinalIgnoreCase)));
+                Assert.AreEqual(
+                    removalIndex == 0,
+                    CapturePlaylistCandidateFacts(updatedPlaylist.GetMd5Candidates(uniqueHash)).Any(candidate =>
+                        string.Equals(candidate.Path, secondPath, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(candidate.Md5, uniqueHash, StringComparison.OrdinalIgnoreCase)));
+                Assert.IsTrue(updatedHash.ContainsMd5(sharedHash));
+                Assert.AreEqual(removalIndex == 0, updatedHash.ContainsMd5(uniqueHash));
+                Assert.IsTrue(initialHash.ContainsMd5(oldHash));
+                Assert.IsNotNull(initialPlaylist.ResolveChartForPlaylistHash(oldHash, null));
+                Assert.AreEqual(
+                    initialSharedRepresentativePath,
+                    initialPlaylist.ResolveChartForPlaylistHash(sharedHash, null)!.Path);
+                Assert.AreEqual(
+                    initialSharedRepresentativeMd5,
+                    initialPlaylist.ResolveChartForPlaylistHash(sharedHash, null)!.Md5);
+                Assert.AreEqual(
+                    initialSharedRepresentativeSha256,
+                    initialPlaylist.ResolveChartForPlaylistHash(sharedHash, null)!.Sha256);
+                Assert.AreEqual(
+                    initialUniqueRepresentativePath,
+                    initialPlaylist.ResolveChartForPlaylistHash(uniqueHash, null)!.Path);
+                Assert.AreEqual(
+                    initialUniqueRepresentativeMd5,
+                    initialPlaylist.ResolveChartForPlaylistHash(uniqueHash, null)!.Md5);
+                Assert.AreEqual(
+                    initialUniqueRepresentativeSha256,
+                    initialPlaylist.ResolveChartForPlaylistHash(uniqueHash, null)!.Sha256);
+                CollectionAssert.AreEqual(
+                    initialSharedCandidates,
+                    CapturePlaylistCandidateFacts(initialPlaylist.GetMd5Candidates(sharedHash)));
+                CollectionAssert.AreEqual(
+                    initialUniqueCandidates,
+                    CapturePlaylistCandidateFacts(initialPlaylist.GetMd5Candidates(uniqueHash)));
+            }
+
+            Assert.IsTrue(library.BMSFiles.Contains(remaining));
+            Assert.IsTrue(library.GetOwnedChartHashIndexSnapshot().ContainsMd5(sharedHash));
+            Assert.IsFalse(library.GetOwnedChartHashIndexSnapshot().ContainsMd5(uniqueHash));
+            Assert.AreEqual(0, hashWork.Count(operation => operation == "owned_hash_source_enumeration"));
+            Assert.AreEqual(
+                0,
+                playlistWork.Count(operation => operation == "playlist_resolve_source_enumeration" || operation == "playlist_resolve_full_root_enumeration"));
+            Assert.IsTrue(
+                installedWork.Count(operation => operation == "installed_primary_hash_count_update") <= 4,
+                "warm削除後にinstalled lookupを全件再構築しました。");
+            Assert.IsTrue(
+                installedWork.Count(operation => operation == "installed_primary_hash_count_update") > 0,
+                "実削除のinstalled lookup差分更新を観測できませんでした。");
+        });
+    }
+
     [TestMethod]
     public void RemoveLibraryCharts_RoutesUnregisterThroughOwnedMutationAndInstalledLookupDelta()
     {
@@ -1250,6 +1460,15 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             }
         });
     }
+
+    private static (LibraryChartKind Kind, string Path, string Md5, string Sha256)[] CapturePlaylistCandidateFacts(
+        IEnumerable<LibraryChartRef> candidates)
+    {
+        return [.. (candidates ?? [])
+            .Where(candidate => candidate != null)
+            .Select(candidate => (candidate.Kind, candidate.Path, candidate.Md5, candidate.Sha256))];
+    }
+
     /// <summary>Local confirmation terminal; it never opens a window or inspects translated copy.</summary>
     private sealed class ConfirmingRemovalDialogs(bool deleteWholeFolder) : IBmsLibraryDialogService
     {

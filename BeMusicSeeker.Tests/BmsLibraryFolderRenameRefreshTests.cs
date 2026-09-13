@@ -1861,7 +1861,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_DurableCatalogFailureLeavesConsumerStateUnchanged()
+    public void RemoveLibraryCharts_DurableCatalogFailureLeavesConsumerStateUnchanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1869,6 +1869,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogFailure_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempRootPath);
             string chartPath = Path.Combine(tempRootPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
             try
             {
                 var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -1891,13 +1892,18 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 int notificationVersion = library.NormalLibraryRefreshNotificationVersion;
                 int ownedCollectionVersion = library.OwnedChartCollectionVersion;
                 ResourceHealthIndexSnapshot resourceHealthSnapshot = library.GetResourceHealthIndexSnapshotForView("failure_baseline");
-                var delta = new LibraryMutationDelta();
-                delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
-
-                Assert.ThrowsException<SQLite.SQLiteException>(() => InvokeApplyLibraryMutationDelta(library, delta));
+                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
+                    [LibraryChartRef.FromBmsFile(file)],
+                    sendToRecycleBin: false,
+                    approvedWholeFolderDeletePaths: []);
 
                 Assert.AreEqual(notificationVersion, library.NormalLibraryRefreshNotificationVersion);
                 Assert.AreEqual(ownedCollectionVersion, library.OwnedChartCollectionVersion);
+                Assert.IsTrue(outcome.HasError);
+                Assert.IsTrue(outcome.CatalogApplyAttempted);
+                Assert.IsFalse(outcome.CatalogDurable);
+                Assert.IsNotNull(outcome.CatalogFailure);
+                Assert.IsFalse(File.Exists(chartPath));
                 ResourceHealthIndexSnapshot resourceHealthAfterFailure = library.TryGetCurrentResourceHealthIndexSnapshotForView();
                 Assert.AreSame(resourceHealthSnapshot, resourceHealthAfterFailure);
                 Assert.AreEqual(resourceHealthSnapshot.Version, resourceHealthAfterFailure.Version);
@@ -1919,12 +1925,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_CommitsCatalogBeforePublishingOwnedCollectionChange()
+    public void RemoveLibraryCharts_CommitsCatalogBeforePublishingOwnedCollectionChange()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Committed", "chart.bms");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Committed");
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            Directory.CreateDirectory(chartDirectory);
+            File.WriteAllText(chartPath, "#PLAYER 1");
             var library = new TestBmsLibrary(songDbPath);
             var file = new TestableBmsFile
             {
@@ -1948,11 +1957,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 using var notificationSongDb = new LR2SongDBExtended(songDbPath);
                 rowStillExistsWhenNotificationWasPublished = notificationSongDb.Table<BMSFile>().Any(row => row.path == chartPath);
             };
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(file)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: [chartDirectory]);
 
-            InvokeApplyLibraryMutationDelta(library, delta);
-
+            Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(0, library.BMSFiles.Count);
             NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue(notificationBatch.NotifiesStorageRows);
@@ -1963,12 +1973,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_PublicNotificationFailureKeepsCatalogCommit()
+    public void RemoveLibraryCharts_PublicNotificationFailureKeepsCatalogCommit()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "CommittedNotificationFailure", "chart.bms");
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "CommittedNotificationFailure");
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            Directory.CreateDirectory(chartDirectory);
+            File.WriteAllText(chartPath, "#PLAYER 1");
             var library = new TestBmsLibrary(songDbPath);
             var file = new TestableBmsFile
             {
@@ -1990,12 +2003,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     throw new InvalidOperationException("public notification failure");
                 }
             };
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
-
-            InvokeApplyLibraryMutationDelta(library, delta);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(file)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: [chartDirectory]);
 
             Assert.IsTrue(notificationAttempted);
+            Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(0, library.BMSFiles.Count);
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(row => row.path == chartPath));

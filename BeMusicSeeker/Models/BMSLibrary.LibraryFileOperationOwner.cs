@@ -677,11 +677,6 @@ internal sealed partial class LibraryFileOperationOwner
                 });
             }
         }
-        delta.InvalidateInstalledDirectoryIndex = delta.ChartRemoveRequests.Count > 0
-            || delta.UpdatedInstallDestinations.Count > 0;
-        delta.InvalidateParentFolderCache = delta.ChartRemoveRequests.Count > 0;
-        delta.ClearDuplicatedCache = delta.ChartRemoveRequests.Count > 0
-            || delta.UpdatedInstallDestinations.Count > 0;
         // Filesystem results are already complete. Publish their successful subtrees together;
         // failed or merely planned folders must remain in the index.
         resourceIndexMutation = resourceIndexOwner
@@ -1317,7 +1312,9 @@ internal sealed partial class LibraryFileOperationOwner
             installDestinationOverlayCharts,
             packageLifecycleOwner.PendingPackages,
             packageLifecycleOwner.InstalledPackages,
-            excluded => CreateInstalledChartKeySnapshotExcludingChartsUnsafe(excluded, hashSnapshotReason, operationId));
+            excluded => (excluded ?? []).Any()
+                ? CreateInstalledChartKeySnapshotExcludingChartsUnsafe(excluded, hashSnapshotReason, operationId)
+                : EmptyPrimaryHashLookup.Instance);
         success = sourceResult.Success;
         preparedSourceCharts = [.. (sourceResult.SourceCharts ?? [])
             .Select(chart => chart?.ToChartFile())
@@ -1420,8 +1417,8 @@ internal sealed partial class LibraryFileOperationOwner
             return;
         }
         OwnedChartRemoveRequest request = target.BmsOwner != null
-            ? OwnedChartRemoveRequest.FromOwnerReference(target.BmsOwner)
-            : OwnedChartRemoveRequest.FromOwnerReference(target.BmsonOwner);
+            ? OwnedChartRemoveRequest.FromOwnerReference(target.BmsOwner, target.ChartSnapshot)
+            : OwnedChartRemoveRequest.FromOwnerReference(target.BmsonOwner, target.ChartSnapshot);
         if (request != null)
         {
             delta.ChartRemoveRequests.Add(request);

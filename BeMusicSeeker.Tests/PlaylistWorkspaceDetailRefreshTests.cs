@@ -1186,6 +1186,127 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     }
 
     [TestMethod]
+    public async Task PlaylistLibraryIndexPrewarm_RealDataSourceReusesWarmResolveIndexAfterTwoRemovals()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceDetailRefreshTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDB.folder>();
+                db.CreateTable<LR2SongDBExtended.maintenance>();
+                db.CreateTable<LR2SongDBExtended.bmson_song>();
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+
+            string firstDirectory = Path.Combine(tempDirectory, "RemoveFirst");
+            string secondDirectory = Path.Combine(tempDirectory, "RemoveSecond");
+            string firstPath = Path.Combine(firstDirectory, "first.bms");
+            string secondPath = Path.Combine(secondDirectory, "second.bms");
+            Directory.CreateDirectory(firstDirectory);
+            Directory.CreateDirectory(secondDirectory);
+            File.WriteAllText(firstPath, "#PLAYER 1");
+            File.WriteAllText(secondPath, "#PLAYER 1");
+            var first = new BMSFile
+            {
+                path = firstPath,
+                hash = new string('a', 32)
+            };
+            var second = new BMSFile
+            {
+                path = secondPath,
+                hash = new string('b', 32)
+            };
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new OwnedChartCollectionTestSupport.TestFileMutationService(),
+                new FileDbReportRecordingDialogs())
+            {
+                BMSFiles = [first, second],
+                BmsonSongs = []
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(first.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                db.InsertOrReplace(second.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+            }
+
+            library.GetOwnedChartHashIndexSnapshot();
+            library.WarmInstalledPrimaryHashLookup("playlist_prewarm_two_removals");
+            library.CreateInstalledChartLookupSnapshotForDiagnostics();
+            PlaylistLibraryResolveIndexSnapshot initialResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool initialCacheHit,
+                out int initialStaleRetries);
+            Assert.IsFalse(initialCacheHit);
+            Assert.AreEqual(0, initialStaleRetries);
+
+            List<string> playlistWork = [];
+            library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
+            LibraryChartRemovalOutcome firstOutcome = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(first)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: [firstDirectory]);
+            LibraryChartRemovalOutcome secondOutcome = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(second)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: [secondDirectory]);
+            Assert.IsFalse(firstOutcome.HasError);
+            Assert.IsFalse(secondOutcome.HasError);
+
+            var playlist = new TestBmsPlaylist(songDbPath)
+            {
+                BMSTables = new ObservableCollection<BMSTable>()
+            };
+            var queuedWork = new List<Func<Task>>();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                prewarmScheduler: (_, work) =>
+                {
+                    queuedWork.Add(work);
+                    return true;
+                });
+            workspace.SetDetailDataSource(new PlaylistDetailDataSource(
+                library,
+                playlist,
+                new MainChartRowProjectionOwner()));
+
+            workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+            Assert.AreEqual(1, queuedWork.Count);
+            await queuedWork[0]().ConfigureAwait(false);
+
+            PlaylistLibraryIndexReadinessSnapshot readiness = workspace.CapturePlaylistLibraryIndexReadinessSnapshot();
+            Assert.AreEqual("cached", readiness.State);
+            Assert.AreEqual(0, playlistWork.Count(operation =>
+                operation == "playlist_resolve_source_enumeration"
+                || operation == "playlist_resolve_full_root_enumeration"));
+            PlaylistLibraryResolveIndexSnapshot finalResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool finalCacheHit,
+                out int finalStaleRetries);
+            Assert.AreNotSame(initialResolve, finalResolve);
+            Assert.IsTrue(finalCacheHit);
+            Assert.AreEqual(0, finalStaleRetries);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task PlaylistLibraryIndexPrewarm_DuplicateRefreshDefersUntilUiPriorityEnds()
     {
         var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource, (_, _) => true);

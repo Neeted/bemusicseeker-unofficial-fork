@@ -1216,9 +1216,22 @@ internal sealed class OwnedChartCollectionState
         return state;
     }
 
-    internal InstalledChartLookupIndexState CreateInstalledChartLookupIndexState(out int bmsCount, out int bmsonCount)
+    /// <summary>
+    /// 現在のcanonical collectionからinstalled chart lookupの初期stateを構築します。
+    /// </summary>
+    /// <param name="bmsCount">取り込んだBMS chart数。</param>
+    /// <param name="bmsonCount">取り込んだBMSON chart数。</param>
+    /// <param name="storeWorkObserver">実際のchart格納単位を観測する内部observer。指定しない場合は観測しません。</param>
+    /// <returns>現在のcollectionを反映したinstalled lookup state。</returns>
+    internal InstalledChartLookupIndexState CreateInstalledChartLookupIndexState(
+        out int bmsCount,
+        out int bmsonCount,
+        Action<string> storeWorkObserver = null)
     {
-        var state = new InstalledChartLookupIndexState();
+        var state = new InstalledChartLookupIndexState
+        {
+            StoreWorkObserver = storeWorkObserver
+        };
         bmsCount = 0;
         bmsonCount = 0;
         foreach (ChartFile chart in charts.Where(chart => chart != null))
@@ -1651,6 +1664,11 @@ internal sealed class OwnedChartCollectionState
         return removed;
     }
 
+    /// <summary>
+    /// 削除要求を現在のcanonical chartへ解決し、反映用の不変identity factsを確定します。
+    /// </summary>
+    /// <param name="removeRequests">owner参照またはDB exact pathを指定する削除要求。</param>
+    /// <returns>現在のcollectionで解決できたowner要求と、解決できないDB-only path cleanup。</returns>
     internal List<OwnedChartRemoveRequest> ResolveCurrentRemoveRequests(IEnumerable<OwnedChartRemoveRequest> removeRequests)
     {
         var resolvedRequests = new List<OwnedChartRemoveRequest>();
@@ -1659,7 +1677,21 @@ internal sealed class OwnedChartCollectionState
         {
             if (request?.Mode == OwnedChartRemoveMode.PathCleanup)
             {
-                resolvedRequests.Add(request);
+                if (TryResolveRemoveRequest(request, out ChartFile resolvedPathChart))
+                {
+                    OwnedChartRemoveRequest resolvedRequest =
+                        OwnedChartRemoveRequest.FromResolvedPathCleanup(resolvedPathChart);
+                    if (resolvedRequest != null && resolvedCharts.Add(resolvedPathChart))
+                    {
+                        resolvedRequests.Add(resolvedRequest);
+                    }
+                }
+                else
+                {
+                    // DB-only cleanup keeps its original exact path when the
+                    // current owned collection cannot resolve a chart.
+                    resolvedRequests.Add(request);
+                }
                 continue;
             }
             if (!TryResolveRemoveRequest(request, out ChartFile currentChart) || !resolvedCharts.Add(currentChart))
@@ -1670,14 +1702,22 @@ internal sealed class OwnedChartCollectionState
             BMSFile bmsOwner = currentChart.GetBmsStorageOwner();
             if (bmsOwner != null)
             {
-                resolvedRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsOwner));
+                OwnedChartRemoveRequest resolvedRequest = OwnedChartRemoveRequest.FromOwnerReference(
+                    bmsOwner,
+                    request.CreateChartSnapshot());
+                // pathless owner要求はchart snapshotを持たないが、
+                // ownerと捕捉済みfactsは元の要求に保持されている。
+                resolvedRequests.Add(resolvedRequest ?? request);
                 continue;
             }
 
             LR2SongDBExtended.bmson_song bmsonOwner = currentChart.GetBmsonStorageOwner();
             if (bmsonOwner != null)
             {
-                resolvedRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsonOwner));
+                OwnedChartRemoveRequest resolvedRequest = OwnedChartRemoveRequest.FromOwnerReference(
+                    bmsonOwner,
+                    request.CreateChartSnapshot());
+                resolvedRequests.Add(resolvedRequest ?? request);
             }
         }
         return resolvedRequests;

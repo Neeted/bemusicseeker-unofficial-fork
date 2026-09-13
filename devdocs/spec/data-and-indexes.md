@@ -63,12 +63,15 @@ canonical BMSONのupsertは、生成時に捕捉した`ChartFile.Path`の大小�
 
 保持済みsnapshotとexcluding lookupは後の変更で変わらない。cold build、影響bucket内の候補操作、全known-directoryを要求するconsumerの列挙は必要な仕事として残る。primary-only lookupも不変count rootを共有してsnapshotを作成する。同MD5の置換やSHA-only変更ではMD5差分を相殺し、不要なprimary snapshot更新を行わない。primary-only利用のためにfull directory lookupやoptional ref indexを構築しない。
 
+通常削除とmergeは、共通のcanonical除去解決でkind・exact path・変更前MD5/SHAを不変に捕捉し、同じfactsを索引とcatalog receiptへ渡す。DBの `PathCleanup` 指定を理由に、解決できた旧hashを捨てて全失効させない。DBだけのcleanup指定と正本に実在する対象は区別する。sourceに所持譜面がないmergeは、primary/full lookupの取得前に未適用終了する。
+
 | 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 所属数とlast-owner、候補順、旧snapshot/excluding | `InstalledChartLookupIndexState` / [InstalledChartLookupIndexSnapshot](../../BeMusicSeeker/Models/BmsLibraryInternal/InstalledChartLookupIndexSnapshot.cs) | [BmsLibraryInstallEstimationServiceTests.InstalledChartLookupIndexState_KeepsDigestBucketsAndCountsConsistentAcrossLastOwnerRemoval](../../BeMusicSeeker.Tests/BmsLibraryInstallEstimationServiceTests.cs) と既存count/move/excluding各case |
 | 対象bucketだけの更新、O(1) snapshot/count取得 | 同 projected map・`CreateSnapshot` / `DirectoryReferenceCount` | `InstalledChartLookupIndexState_ObservesOnlyAffectedBucketWork`。背景16/128の実map列挙・key訪問とbucket処理を確認 |
 | overlay/inline digestとの接続 | 既存installed lookup mutation dispatch | [OwnedChartCollectionInstalledOverlayTests](../../BeMusicSeeker.Tests/OwnedChartCollectionInstalledOverlayTests.cs)、[OwnedChartCollectionInlineDigestTests](../../BeMusicSeeker.Tests/OwnedChartCollectionInlineDigestTests.cs)。MD5変更・SHA-only変更、旧候補・各countを確認 |
 | primary-only snapshotと同MD5差分の相殺 | `PrimaryHashLookupState.CreateSnapshot`、[BMSLibrary.ApplyInstalledChartLookupMutation](../../BeMusicSeeker/Models/BMSLibrary.cs) | [OwnedChartCollectionInstalledOverlayTests.CreateInstalledChartKeySnapshotExcludingCharts_ExcludesOnlyPrimaryHashCounts](../../BeMusicSeeker.Tests/OwnedChartCollectionInstalledOverlayTests.cs) / `ApplyInstalledChartStorageTargets_UpdatesPrimaryLookupWithoutBuildingOwnedRefIndex`、上記inline digest coverage |
+| 通常削除・実mergeの連続操作、sourceなし、旧lookup保持 | `OwnedChartRemoveRequest`、`OwnedChartCollectionState.ResolveCurrentRemoveRequests`、共通mutation dispatch | [BmsLibraryDuplicateServiceTests](../../BeMusicSeeker.Tests/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_TwoWarmOperationsKeepIndexesCurrentWithoutFullRebuild` / `MergeChartDirectory_NoSourceChartsDoesNotBuildLookups`、[OwnedChartCollectionLibraryMutationTests](../../BeMusicSeeker.Tests/OwnedChartCollectionLibraryMutationTests.cs) の `RemoveLibraryCharts_TwoWarmOperationsPreserveRemainingOwnersWithoutFullRebuild`。実入口と後続getterの仕事量・結果を照合 |
 
 親フォルダ候補のserviceは捕捉済みpath listを再利用し、custom output baseの正規化を一buildにつき一回行う。既存のraw path prefix照合、登録rootの表記・順序、`.lr2folder`の探索と失敗時除外を維持する。path捕捉とroot×path照合は残る。実装は`BmsLibraryParentFolderCacheService`、検証は`BmsLibraryParentFolderCacheServiceTests`。
 

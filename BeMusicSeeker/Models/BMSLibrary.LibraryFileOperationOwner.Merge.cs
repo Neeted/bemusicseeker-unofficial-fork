@@ -63,9 +63,9 @@ internal sealed partial class LibraryFileOperationOwner
                         out mergePrepared,
                         out preparedSourceCharts,
                         out existingHashes);
-                    independentOwnershipLookup = createInstalledChartLookupSnapshotUnsafe();
                     if (mergePrepared)
                     {
+                        independentOwnershipLookup = createInstalledChartLookupSnapshotUnsafe();
                         detachedPackage = CreateDetachedMergePackage(preparedSourceCharts, sourceDirectory);
                     }
                 });
@@ -471,9 +471,6 @@ internal sealed partial class LibraryFileOperationOwner
         {
             catalogDelta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, sourcePath));
         }
-        catalogDelta.InvalidateInstalledDirectoryIndex = true;
-        catalogDelta.InvalidateParentFolderCache = true;
-        catalogDelta.ClearDuplicatedCache = true;
     }
 
     private void ShowFolderMergeFailed(string sourceDirectory, string destinationDirectory)

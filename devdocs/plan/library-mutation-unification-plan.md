@@ -1,6 +1,6 @@
 # ライブラリ変更要求の統合と操作全体の性能改善計画
 
-状態: 現状整理・計画案作成済み、実装未着手（2026-09-13）。調査基準は `6d35c789`。
+状態: 利用者がU1～U5の実装・単位ごとの必要なcommitを承認。U1実装・Quick・Functional・独立レビュー完了。U2の独立テスト設計承認済み（2026-09-13）。調査基準は `6d35c789`、計画記録commitは `007b3216`。
 
 ## 1. 目的と結論
 
@@ -46,7 +46,7 @@
 | 重複フォルダのマージ | `DuplicateMaintenanceWorkflowOwner` | `MergeChartDirectory` → `LibraryFileOperationOwner` → package executor → `BuildMergeCatalogDelta` → 同generic delta apply | 移動先が既存ならsource除去が主体になる。除去を `PathCleanup` に縮退させ、hashを失う。lease解放後にresource再走査・maintenanceを行う。 |
 | フォルダの別ルート移動・手動rename | `SelectedChartMutationWorkflowOwner` / `RegularChartListOwner` | `MoveLibraryRootFolderWithReceipt` / `RenameChartFolderWithReceipt` → file owner / folder move coordinator → generic delta apply | FS、exact行path、package/overlay、LR2、索引・通知。 |
 | フォルダ自動rename | `FolderAutoRenameWorkflowOwner` | `AutoRenameChartFoldersWithProgress` → `AutoRenameBatchCoordinator` → `ApplyLibraryMutationDeltaForFileMutationWithoutLr2NormalFolderSync` | 同じpath変更だがLR2 normal folder同期等をbatch終端へ集約する別callbackがある。集約自体は必要。 |
-| 所持譜面の無効拡張子修正 | `SelectedChartMutationWorkflowOwner` | `RenameLibraryFileExtensionsAfterAdmission` → `InvalidExtensionRenameCoordinator` → generic delta apply | FSとexact行pathを更新。保留側の同種操作はpending/package行の変更として扱う。 |
+| 所持譜面の無効拡張子修正 | `SelectedChartMutationWorkflowOwner` | `RenameBMSFilesExtensions(..., unregister: true)` → coordinator / `RenameLibraryFileExtensionsAfterAdmission` → generic delta apply | 通常UIはFS拡張子変更後に成功対象を登録解除する。単なるpath変更と異なりmembershipも変わる。保留側はpending/package行の変更。 |
 | 導入先修正 | `PendingPackageWorkflowOwner` | `FixInstallationDirectoryCharts` → file owner → 移動、`RemoveLibraryChartsCore`、既存予約内maintenance | 複合操作。移動、重複除去、再検査を別の新規要求として再受付しない。 |
 | resource再検査・警告の無視/解除・encoding指定 | 選択譜面の各workflow | `RescanResourceHealthCharts` / `RescanAllOwnedChartMaintenance` / `SetChartResourceWarningsIgnored` / `SetBMSFilesEncoding` → `CatalogMaintenanceOwner` → catalog writer | maintenance等の保存後に専用のmutation resultを組み立てる。全再検査は利用者が要求した全件処理。 |
 | inline解析・background chart-info補完 | 導入処理 / `CatalogChartInfoOwner` | `ApplyChartInfoStorageWrite` → durable receipt → digest/index準備 → chart-info owner event | DB writerは共通。digestの準備・公開は一般の行変更と別の組立て。parse-failureだけの変更にはnarrow writeがある。 |
@@ -204,5 +204,31 @@ U5を口実に各単位で使わなくなった実装を温存しない。一方
 
 - 現行の操作→管理主体→更新対象を整理し、マージで事実が欠ける位置、旧入口の残存、検証の不足を特定した。
 - 独立した計画点検を実施し、U1での暫定的なstate所有、全単位の直列実施、pure pending/package操作の対象外、既存ownerの再編と改名、callerごとの退役担当を明記した。追加の利用者判断は不要。各単位の具体的なTest Contract Packetは実装開始前に作成する。
-- 次はU1の独立テスト設計と具体的な書込み範囲の確定から始める。U1だけの修正で統合計画全体を完了扱いにしない。
+- U1の実装・関連QuickとU2の独立テスト設計を完了。U1の統合検証・レビュー後にU2へ進む。U1だけの修正で統合計画全体を完了扱いにしない。
 - 完了時は現行の境界・索引仕様へ採用した契約と実装/テストの対応を統合し、本書には実施要約・残件・参照先を残す。
+
+## 7. 実装時の決定・進捗
+
+### U1の実装範囲
+
+- 共通の除去要求解決で、DBのexact cleanup指定と、現在の正本に実在する対象の変更前factsを捕捉する。マージだけでowner参照削除へ置き換えない。通常削除とマージから同じ処理を使用する。
+- DBだけに残る行のcleanupは維持する。存在しない正本を削除したという索引差分を作らず、package等の残留path整理に必要な情報は失わない。
+- U1で連続操作の全失効・再構築を防ぐ索引は、primary/full installed、所持hash、playlist解決とする。resource-healthは対象除去factsを利用するが、merge後再検査の既存defer・予約解放後の実行契約を変更しない。各索引のstate所有移動はU5。
+- `BuildMergeCatalogDelta` と通常削除のcaller指定失効は、実際の共通factsに基づく反映判断へ移す。未移行の配置変更・導入のcaller用fieldは当該単位まで残し、U1の入口からは使用しない。
+- 対象がないmergeではprimary/full lookupを取得しない。coldで必要な所有判定の初回構築は許容し、同世代の再利用・2回目以降を確認する。
+- productionの書込み対象は `BMSLibrary.cs`、`BMSLibrary.LibraryFileOperationOwner.cs` / `.Merge.cs`、`BmsLibraryInternal/OwnedChartRemoveRequest.cs`、`OwnedChartCollectionState.cs`、`CatalogOwnedCollectionOwner.cs`、`CatalogMutationOwner.cs`、`CatalogRelocationRequest.cs` と同じ除去requestの定義・利用箇所に限定する。追加pathが必要なら到達経路と理由をrootへ返す。
+- testの書込み対象と判定は [承認済みU1 Test Contract Packet](library-mutation-u1-test-contract.md) に従う。rootは計画・仕様、統合検証・レビュー・commitを担当し、workerは指定production/testと関連Quickを担当する。
+
+### U2の実装範囲
+
+- 独立 [U2 Test Contract Packet](library-mutation-u2-test-contract.md) を承認済み。U1完了後に直列実装する。
+- 配置変更のcaller失効指定を共通facts判断へ移し、auto renameのcapability無し専用callbackを廃止する。外側のlive capabilityをcoordinatorへ伝播し既存のcommon applyへ接続する。batch終端でのLR2同期/normal refreshとFS/DBのitem確定境界は維持する。
+- 通常拡張子修正は既存UIの登録解除を維持する。moveのhash集合不変条件を流用しない。pending-onlyを所持catalog変更へ変換しない。
+- production所有は `BMSLibrary.cs`、`BMSLibrary.LibraryFileOperationOwner.cs`、`BMSLibrary.PackageInstall.cs`、`BmsLibraryInternal/BmsLibraryLibraryFileOperationsService.cs`、`AutoRenameBatchCoordinator.cs`、必要な既存配置coordinator。対応fixtureはpacketで限定する。U1と同時編集しない。
+
+### U1の検証記録
+
+- 関連4fixtureのQuick: 195件成功。実mergeの修正前比較でwarm索引の失効を検出した（比較版は計画記録commit）。
+- Functional: 4,808件成功・11件skip、テスト実行257.5秒。事前format/analyzer・build成功。180秒のreporting target超過、300秒の上限内。
+- 背景16/128件で固定差分の2操作、後続lookup、旧snapshot、実FS/DBを確認。21万譜面のwall-clockや実gatewayのSQL仕事量は未測定。
+- 独立レビューは修正必須の指摘なし。U1をcommitし、U2～U5を直列で継続する。

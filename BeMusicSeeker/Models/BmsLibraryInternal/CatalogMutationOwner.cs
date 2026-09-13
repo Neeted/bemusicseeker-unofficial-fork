@@ -1848,6 +1848,11 @@ internal sealed class CatalogChartMutationFact(
             .ToArray());
     }
 
+    /// <summary>
+    /// 削除要求が破壊前に保持したkind、path、digestをcatalog mutation factへ変換します。
+    /// </summary>
+    /// <param name="request">不変identity factsを保持する削除要求。</param>
+    /// <returns>削除要求のmutation fact。要求がnullの場合はnull。</returns>
     internal static CatalogChartMutationFact FromRemovalRequest(OwnedChartRemoveRequest request)
     {
         if (request == null)
@@ -1855,13 +1860,11 @@ internal sealed class CatalogChartMutationFact(
             return null;
         }
 
-        BMSFile bmsOwner = request.BmsOwner;
-        LR2SongDBExtended.bmson_song bmsonOwner = request.BmsonOwner;
         return new CatalogChartMutationFact(
             request.Kind,
             request.Path,
-            bmsOwner?.hash ?? bmsonOwner?.md5,
-            bmsOwner?.sha256 ?? bmsonOwner?.sha256,
+            request.CapturedMd5,
+            request.CapturedSha256,
             request.Mode);
     }
 
