@@ -18,6 +18,7 @@ using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Tests.Helpers;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
@@ -31,6 +32,102 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoInlineHydrationTests
 {
+    [TestMethod]
+    public void LoadCurrentChartInfoParseFailuresByMd5_QueriesOnlyRequestedRows()
+    {
+        TargetedFailureQueryRun smallRun = ExecuteTargetedFailureQueryCase(backgroundCount: 16);
+        TargetedFailureQueryRun largeRun = ExecuteTargetedFailureQueryCase(backgroundCount: 128);
+
+        Assert.AreEqual(1, smallRun.ReturnedRows);
+        Assert.AreEqual(1, largeRun.ReturnedRows);
+        Assert.IsTrue(smallRun.ProfileCount > 0, "16行背景の対象 failure query のPROFILE callbackを観測できませんでした。");
+        Assert.IsTrue(largeRun.ProfileCount > 0, "128行背景の対象 failure query のPROFILE callbackを観測できませんでした。");
+        Assert.AreEqual(
+            smallRun.FullScanSteps,
+            largeRun.FullScanSteps,
+            "対象 failure query の FULLSCAN_STEP が背景行数に依存しました。16="
+            + smallRun.FullScanSteps + ", 128=" + largeRun.FullScanSteps);
+        Assert.AreEqual(
+            smallRun.VmSteps,
+            largeRun.VmSteps,
+            "対象 failure query の VM_STEP が背景行数に依存しました。16="
+            + smallRun.VmSteps + ", 128=" + largeRun.VmSteps);
+    }
+
+    [TestMethod]
+    public void LoadCurrentChartInfoParseFailuresByMd5_EmptyInputDoesNotReadFailureTable()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            using var observation = new SqliteStatementObservation();
+            var gateway = new BmsLibraryDbGateway(songDbPath, songDbFactory: observation.OpenSongDb);
+
+            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
+                [],
+                TimeSpan.FromSeconds(60));
+            observation.ThrowIfCallbackFailed();
+
+            Assert.AreEqual(0, result.Count);
+            Assert.IsFalse(
+                observation.Statements.Any(statement => statement.Sql.Contains(
+                    "chart_info_parse_failure",
+                    StringComparison.OrdinalIgnoreCase)),
+                "空の対象集合で failure table への SQL が実行されました。");
+        });
+    }
+
+    [TestMethod]
+    public void LoadCurrentChartInfoParseFailuresByMd5_PreservesParserAndTimeoutCurrentness()
+    {
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string currentMd5 = new('a', 32);
+            string staleParserMd5 = new('b', 32);
+            string shortTimeoutMd5 = new('c', 32);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoSchema();
+            gateway.UpsertChartInfoParseFailures(
+            [
+                CreateChartInfoParseFailureRow(
+                    currentMd5,
+                    new string('1', 64),
+                    Path.Combine(tempRootPath, "current.bms"),
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                    "parse_failed",
+                    "InvalidDataException",
+                    "current",
+                    null),
+                CreateChartInfoParseFailureRow(
+                    staleParserMd5,
+                    new string('2', 64),
+                    Path.Combine(tempRootPath, "stale-parser.bms"),
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1,
+                    "parse_failed",
+                    "InvalidDataException",
+                    "stale parser",
+                    null),
+                CreateChartInfoParseFailureRow(
+                    shortTimeoutMd5,
+                    new string('3', 64),
+                    Path.Combine(tempRootPath, "short-timeout.bms"),
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                    "timeout",
+                    "ChartInfoParseTimeoutException",
+                    "short timeout",
+                    500)
+            ]);
+
+            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
+                [currentMd5, staleParserMd5, shortTimeoutMd5],
+                TimeSpan.FromSeconds(1));
+
+            Assert.AreEqual(1, result.Count);
+            Assert.IsTrue(result.ContainsKey(currentMd5));
+            Assert.IsFalse(result.ContainsKey(staleParserMd5));
+            Assert.IsFalse(result.ContainsKey(shortTimeoutMd5));
+        });
+    }
+
     [TestMethod]
     public void LoadChartInfosByHash_LoadsRequestedRowsAndUsesStableMd5Representative()
     {
@@ -884,5 +981,88 @@ public sealed class ChartInfoInlineHydrationTests
             Assert.AreEqual(2, summary.CandidateOwnerCount);
         });
     }
+
+    private static TargetedFailureQueryRun ExecuteTargetedFailureQueryCase(int backgroundCount)
+    {
+        const string targetMd5 = "ffffffffffffffffffffffffffffffff";
+        string tempRootPath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeeker_ChartInfoTargetedFailureQuery_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            var setupGateway = new BmsLibraryDbGateway(songDbPath);
+            setupGateway.EnsureChartInfoSchema();
+            setupGateway.UpsertChartInfoParseFailures(
+                Enumerable.Range(0, backgroundCount)
+                    .Select(index => CreateChartInfoParseFailureRow(
+                        index.ToString("x32", CultureInfo.InvariantCulture),
+                        index.ToString("x64", CultureInfo.InvariantCulture),
+                        Path.Combine(tempRootPath, "background-" + index.ToString(CultureInfo.InvariantCulture) + ".bms"),
+                        BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                        "parse_failed",
+                        "InvalidDataException",
+                        "background",
+                        null))
+                    .Append(CreateChartInfoParseFailureRow(
+                        targetMd5,
+                        new string('e', 64),
+                        Path.Combine(tempRootPath, "target.bms"),
+                        BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                        "parse_failed",
+                        "InvalidDataException",
+                        "target",
+                        null)));
+
+            using var observation = new SqliteStatementObservation();
+            var gateway = new BmsLibraryDbGateway(songDbPath, songDbFactory: observation.OpenSongDb);
+            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> result = gateway.LoadCurrentChartInfoParseFailuresByMd5(
+                [targetMd5],
+                TimeSpan.FromSeconds(60));
+            observation.ThrowIfCallbackFailed();
+
+            IReadOnlyList<SqliteStatementObservation.SqliteObservedStatement> statements = observation.Statements;
+            SqliteStatementObservation.SqliteObservedStatement[] targetedStatements = statements
+                .Where(IsTargetedFailureStatement)
+                .ToArray();
+            Assert.AreEqual(1, targetedStatements.Length, "対象 failure query が一つにまとまりませんでした。");
+            SqliteStatementObservation.SqliteObservedStatement targetedStatement = targetedStatements[0];
+            Assert.AreEqual(1, targetedStatement.RowCount);
+            Assert.IsTrue(targetedStatement.ProfileCount > 0, "対象 failure query の PROFILE callback を観測できませんでした。");
+            Assert.IsTrue(targetedStatement.VmSteps > 0, "対象 failure query の VM_STEP を観測できませんでした。");
+            Assert.AreEqual(0, targetedStatement.FullScanSteps, "対象 failure query が全表走査になりました。");
+            Assert.AreEqual(1, result.Count);
+            Assert.IsTrue(result.ContainsKey(targetMd5));
+            return new TargetedFailureQueryRun(
+                targetedStatement.RowCount,
+                targetedStatement.FullScanSteps,
+                targetedStatement.VmSteps,
+                targetedStatement.ProfileCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    private static bool IsTargetedFailureStatement(SqliteStatementObservation.SqliteObservedStatement statement)
+    {
+        return statement != null
+            && statement.Sql.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
+            && statement.Sql.Contains(
+                "FROM chart_info_parse_failure",
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed record TargetedFailureQueryRun(
+        int ReturnedRows,
+        int FullScanSteps,
+        int VmSteps,
+        int ProfileCount);
 
 }

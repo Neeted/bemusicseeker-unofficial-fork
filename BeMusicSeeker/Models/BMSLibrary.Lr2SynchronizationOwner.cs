@@ -864,6 +864,10 @@ public partial class BMSLibrary
                                 + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
                                 + " exactPrunes=" + syncInput.PruneExactDirectories.Count
                                 + " roots=" + roots.Count
+                                + " bmsCountQueries=" + (receipt.CurrentBmsFacts?.QueryDiagnostics?.SubtreeCountQueryCount ?? 0)
+                                + " bmsRangeQueries=" + (receipt.CurrentBmsFacts?.QueryDiagnostics?.RangeQueryCount ?? 0)
+                                + " bmsRangeVisitedRefs=" + (receipt.CurrentBmsFacts?.QueryDiagnostics?.RangeVisitedReferenceCount ?? 0)
+                                + " bmsRangeReturnedPaths=" + (receipt.CurrentBmsFacts?.QueryDiagnostics?.RangeReturnedPathCount ?? 0)
                                 + " generated=" + syncResult.GeneratedCount
                                 + " upserted=" + syncResult.UpsertedCount
                                 + " deleted=" + syncResult.DeletedCount
@@ -898,6 +902,10 @@ public partial class BMSLibrary
                     + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
                     + " exactPrunes=" + syncInput.PruneExactDirectories.Count
                     + " roots=" + roots.Count
+                    + " bmsCountQueries=" + (receipt.CurrentBmsFacts?.QueryDiagnostics?.SubtreeCountQueryCount ?? 0)
+                    + " bmsRangeQueries=" + (receipt.CurrentBmsFacts?.QueryDiagnostics?.RangeQueryCount ?? 0)
+                    + " bmsRangeVisitedRefs=" + (receipt.CurrentBmsFacts?.QueryDiagnostics?.RangeVisitedReferenceCount ?? 0)
+                    + " bmsRangeReturnedPaths=" + (receipt.CurrentBmsFacts?.QueryDiagnostics?.RangeReturnedPathCount ?? 0)
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                     + " exception=" + failure.GetType().Name
                     + " message=" + failureDetail.Replace(Environment.NewLine, " | "));

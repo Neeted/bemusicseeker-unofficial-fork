@@ -35,6 +35,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             SetLibraryFilesWithoutNotification(library, [keptBms, replacedBms]);
             SetLibraryBmsonSongsWithoutNotification(library, [replacedBmson, keptBmson]);
             InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             EnsureCurrentResourceHealthIndex(library);
             Assert.AreEqual(4, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
@@ -66,6 +67,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             SetDuplicateChartGroupsWithoutNotification(library, []);
 
             InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newBms], [newBmson]));
+            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             List<ChartFile> snapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
@@ -81,6 +83,18 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             Assert.IsNull(library.DuplicateChartGroups);
             Assert.AreEqual(4, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             Assert.IsFalse(HasNoCurrentResourceHealthIndex(library));
+            Assert.AreEqual(1, initialLookup.GetPrimaryHashCount(replacedBms.hash));
+            Assert.AreEqual(1, initialLookup.GetPrimaryHashCount(replacedBmson.md5));
+            Assert.AreEqual(0, updatedLookup.GetPrimaryHashCount(replacedBms.hash));
+            Assert.AreEqual(0, updatedLookup.GetPrimaryHashCount(replacedBmson.md5));
+            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(newBms.hash));
+            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(newBmson.md5));
+            CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(replacedBmsPath)! }, initialLookup.Md5Directories[replacedBms.hash].ToArray());
+            CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(replacedBmsonPath)! }, initialLookup.Md5Directories[replacedBmson.md5].ToArray());
+            CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(replacedBmsPath)! }, updatedLookup.Md5Directories[newBms.hash].ToArray());
+            CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(replacedBmsonPath)! }, updatedLookup.Md5Directories[newBmson.md5].ToArray());
+            Assert.AreEqual(4, initialLookup.DirectoryReferenceCount);
+            Assert.AreEqual(4, updatedLookup.DirectoryReferenceCount);
             Assert.AreEqual(4, snapshot.Count);
             Assert.AreSame(keptBms, snapshot[0].GetBmsStorageOwner());
             Assert.AreSame(newBms, snapshot[1].GetBmsStorageOwner());

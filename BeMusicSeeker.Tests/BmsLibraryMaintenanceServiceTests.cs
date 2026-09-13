@@ -1017,6 +1017,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [target, unrelated], []);
             EnsureCurrentResourceHealthIndex(library);
+            ResourceHealthIndexSnapshot beforeSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            Assert.AreEqual(2, beforeSnapshot.TargetCount);
+            Assert.IsTrue(beforeSnapshot.GetProjection(targetChart).HasIssues);
+            List<string> storeWork = [];
+            beforeSnapshot.StoreWorkObserver = operation => storeWork.Add(operation);
 
             MaintenanceWorkflowResult result = library.RescanResourceHealthCharts([targetChart]);
             ResourceHealthIndexSnapshot updatedSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
@@ -1025,6 +1030,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(2, updatedSnapshot.TargetCount);
             Assert.IsFalse(updatedSnapshot.GetProjection(targetChart).HasIssues);
             Assert.AreEqual(1, updatedSnapshot.ActiveTargets.Count);
+            Assert.AreEqual(2, beforeSnapshot.TargetCount);
+            Assert.IsTrue(beforeSnapshot.GetProjection(targetChart).HasIssues);
+            Assert.IsTrue(storeWork.Contains("entry_lookup"));
         });
     }
 
@@ -1465,6 +1473,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         CollectionAssert.AreEqual(new[] { rehashedChart }, afterRehash.ActiveTargets.ToArray());
         CollectionAssert.AreEqual(new[] { ignoredChart }, afterRehash.IgnoredTargets.ToArray());
 
+        ChartFile initialActiveChart = activeChart;
         active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
         {
             hash = active.hash,
@@ -1478,6 +1487,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsFalse(afterFix.GetProjection(activeChart).HasIssues);
         CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterFix.ActiveTargets.ToArray());
         CollectionAssert.AreEqual(new[] { ignoredChart }, afterFix.IgnoredTargets.ToArray());
+
+        ResourceHealthIndexSnapshot afterHealthyRemove = afterFix.ApplyDelta(null, [activeChart], service, version: 3);
+
+        Assert.AreEqual(1, afterHealthyRemove.TargetCount);
+        Assert.IsFalse(afterHealthyRemove.GetProjection(activeChart).HasIssues);
+        CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterHealthyRemove.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart }, afterHealthyRemove.IgnoredTargets.ToArray());
 
         TestableBmsFile added = CreateFile("cccccccccccccccccccccccccccccccc");
         added.path = @"C:\Library\added.bms";
@@ -1508,6 +1524,268 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsFalse(afterRemove.GetProjection(ignoredChart).HasIssues);
         CollectionAssert.AreEqual(new[] { addedChart }, afterRemove.ActiveTargets.ToArray());
         CollectionAssert.AreEqual(Array.Empty<ChartFile>(), afterRemove.IgnoredTargets.ToArray());
+
+        Assert.AreEqual(2, snapshot.TargetCount);
+        CollectionAssert.AreEqual(new[] { initialActiveChart }, snapshot.ActiveTargets.ToArray());
+        CollectionAssert.AreEqual(new[] { ignoredChart }, snapshot.IgnoredTargets.ToArray());
+        Assert.IsTrue(snapshot.GetProjection(initialActiveChart).HasIssues);
+        Assert.IsTrue(snapshot.GetProjection(ignoredChart).HasIssues);
+    }
+
+    /// <summary>R5c-WarningOrder / OldSnapshot: 更新群の順序と旧 snapshot を保持する。</summary>
+    [TestMethod]
+    public void ResourceHealthIndexSnapshot_PreservesWarningOrderAndOldSnapshotAcrossLocalDelta()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        const string activeAPath = @"C:\Library\active-a.bms";
+        const string activeUnchangedPath = @"C:\Library\active-unchanged.bms";
+        const string activeBPath = @"C:\Library\active-b.bms";
+        const string activeCPath = @"C:\Library\active-c.bms";
+        const string ignoredAPath = @"C:\Library\ignored-a.bms";
+        const string ignoredUnchangedPath = @"C:\Library\ignored-unchanged.bms";
+        const string ignoredBPath = @"C:\Library\ignored-b.bms";
+
+        ChartFile activeA = CreateResourceHealthChart(
+            activeAPath,
+            new string('a', 32),
+            wavFilesDefined: 2,
+            wavFilesExisting: 1);
+        ChartFile activeUnchanged = CreateResourceHealthChart(
+            activeUnchangedPath,
+            new string('b', 32),
+            wavFilesDefined: 2,
+            wavFilesExisting: 1);
+        ChartFile activeB = CreateResourceHealthChart(
+            activeBPath,
+            new string('c', 32),
+            bgaFilesDefined: 2,
+            bgaFilesExisting: 1);
+        ChartFile activeC = CreateResourceHealthChart(
+            activeCPath,
+            new string('d', 32),
+            movieFilesDefined: 2,
+            movieFilesExisting: 1);
+        ChartFile ignoredA = CreateResourceHealthChart(
+            ignoredAPath,
+            new string('e', 32),
+            wavFilesDefined: 2,
+            wavFilesExisting: 1,
+            isIgnored: true);
+        ChartFile ignoredUnchanged = CreateResourceHealthChart(
+            ignoredUnchangedPath,
+            new string('f', 32),
+            bgaFilesDefined: 2,
+            bgaFilesExisting: 1,
+            isIgnored: true);
+        ChartFile ignoredB = CreateResourceHealthChart(
+            ignoredBPath,
+            new string('1', 32),
+            bgaFilesDefined: 2,
+            bgaFilesExisting: 1,
+            isIgnored: true);
+
+        ResourceHealthIndexSnapshot initial = ResourceHealthIndexSnapshot.Build(
+            [activeA, activeUnchanged, activeB, activeC, ignoredA, ignoredUnchanged, ignoredB],
+            service,
+            version: 10);
+
+        ChartFile activeCUpdated = CreateResourceHealthChart(
+            activeCPath,
+            new string('d', 32),
+            movieFilesDefined: 3,
+            movieFilesExisting: 1);
+        ChartFile ignoredAUpdated = CreateResourceHealthChart(
+            ignoredAPath,
+            new string('e', 32),
+            wavFilesDefined: 3,
+            wavFilesExisting: 1);
+        ChartFile ignoredBHealthy = CreateResourceHealthChart(
+            ignoredBPath,
+            new string('1', 32),
+            bgaFilesDefined: 2,
+            bgaFilesExisting: 2,
+            isIgnored: true);
+        ChartFile activeBUpdated = CreateResourceHealthChart(
+            activeBPath,
+            new string('c', 32),
+            bgaFilesDefined: 3,
+            bgaFilesExisting: 1,
+            isIgnored: true);
+        ChartFile added = CreateResourceHealthChart(
+            @"C:\Library\added.bms",
+            new string('2', 32),
+            wavFilesDefined: 2,
+            wavFilesExisting: 1);
+
+        ResourceHealthIndexSnapshot updated = initial.ApplyDelta(
+            [activeCUpdated, ignoredAUpdated, ignoredBHealthy, activeBUpdated, added],
+            null,
+            service,
+            version: 11);
+
+        CollectionAssert.AreEqual(
+            new[] { activeAPath, activeUnchangedPath, activeCPath, ignoredAPath, @"C:\Library\added.bms" },
+            updated.ActiveTargets.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { ignoredUnchangedPath, activeBPath },
+            updated.IgnoredTargets.Select(chart => chart.Path).ToArray());
+        Assert.AreEqual(8, updated.TargetCount);
+        Assert.IsFalse(updated.GetProjection(ignoredBHealthy).HasIssues);
+        Assert.IsTrue(updated.GetProjection(activeCUpdated).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceMovieMissing));
+        Assert.IsTrue(updated.GetProjection(ignoredAUpdated).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        Assert.IsTrue(updated.GetProjection(activeBUpdated).IsIgnored);
+
+        CollectionAssert.AreEqual(
+            new[] { activeAPath, activeUnchangedPath, activeBPath, activeCPath },
+            initial.ActiveTargets.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { ignoredAPath, ignoredUnchangedPath, ignoredBPath },
+            initial.IgnoredTargets.Select(chart => chart.Path).ToArray());
+        Assert.AreEqual(7, initial.TargetCount);
+        Assert.IsTrue(initial.GetProjection(activeC).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceMovieMissing));
+        Assert.IsTrue(initial.GetProjection(ignoredA).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+        Assert.IsTrue(initial.GetProjection(activeB).Warnings.Any(
+            warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+    }
+
+    /// <summary>R5c-LocalWork: 差分 lookup・sequence 操作と cold full enumeration を観測する。</summary>
+    [TestMethod]
+    public void ResourceHealthIndexSnapshot_LocalDeltaSharesUnchangedSequenceAndProjectionStorage()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var service = new BmsLibraryMaintenanceService();
+        (int HealthyBackground, int WarningBackground)[] backgrounds =
+        [
+            (16, 16),
+            (128, 16),
+            (16, 128)
+        ];
+        List<(
+            int HealthyBackground,
+            int WarningBackground,
+            int EntryLookups,
+            int Comparisons,
+            int EntryVisits)> observations = [];
+
+        foreach ((int healthyBackgroundCount, int warningBackgroundCount) in backgrounds)
+        {
+            List<ChartFile> targets = [];
+            for (int index = 0; index < warningBackgroundCount; index++)
+            {
+                targets.Add(CreateResourceHealthChart(
+                    $@"C:\Library\warning-background-{warningBackgroundCount}-{index}.bms",
+                    index.ToString("x8") + new string('0', 24),
+                    wavFilesDefined: 2,
+                    wavFilesExisting: 1,
+                    isIgnored: index % 2 == 0));
+            }
+            ChartFile updated = CreateResourceHealthChart(
+                $@"C:\Library\updated-{healthyBackgroundCount}-{warningBackgroundCount}.bms",
+                new string('a', 32),
+                wavFilesDefined: 2,
+                wavFilesExisting: 1);
+            ChartFile unchanged = CreateResourceHealthChart(
+                $@"C:\Library\unchanged-{healthyBackgroundCount}-{warningBackgroundCount}.bms",
+                new string('b', 32),
+                bgaFilesDefined: 2,
+                bgaFilesExisting: 1);
+            targets.Add(updated);
+            targets.Add(unchanged);
+            for (int index = 0; index < healthyBackgroundCount; index++)
+            {
+                targets.Add(CreateResourceHealthChart(
+                    $@"C:\Library\healthy-background-{healthyBackgroundCount}-{index}.bms",
+                    index.ToString("x8") + new string('f', 24)));
+            }
+
+            ResourceHealthIndexSnapshot initial = ResourceHealthIndexSnapshot.Build(targets, service, version: 20);
+            List<string> storeWork = [];
+            initial.StoreWorkObserver = operation => storeWork.Add(operation);
+            ChartFile updatedHealthy = CreateResourceHealthChart(
+                updated.Path,
+                updated.Md5,
+                wavFilesDefined: 2,
+                wavFilesExisting: 2);
+            ResourceHealthIndexSnapshot after = initial.ApplyDelta(
+                [updatedHealthy],
+                null,
+                service,
+                version: 21);
+
+            ResourceHealthWarningProjection unchangedProjection = after.GetProjection(unchanged);
+            ResourceHealthWarningProjection updatedProjection = after.GetProjection(updatedHealthy);
+            int activeCount = after.ActiveTargets.Count;
+            int ignoredCount = after.IgnoredTargets.Count;
+            string activeFirstPath = activeCount == 0 ? string.Empty : after.ActiveTargets[0].Path;
+            string ignoredFirstPath = ignoredCount == 0 ? string.Empty : after.IgnoredTargets[0].Path;
+            after.StoreWorkObserver = null;
+            initial.StoreWorkObserver = null;
+
+            Assert.AreEqual(targets.Count, initial.TargetCount);
+            Assert.AreEqual(initial.TargetCount, after.TargetCount);
+            Assert.IsTrue(unchangedProjection.HasIssues);
+            Assert.IsFalse(updatedProjection.HasIssues);
+            Assert.IsTrue(activeCount > 0);
+            Assert.IsTrue(ignoredCount > 0);
+            Assert.IsFalse(string.IsNullOrEmpty(activeFirstPath));
+            Assert.IsFalse(string.IsNullOrEmpty(ignoredFirstPath));
+
+            int entryLookups = storeWork.Count(operation => operation == "entry_lookup");
+            int enumerations = storeWork.Count(operation => operation == "warning_sequence_enumeration");
+            int comparisons = storeWork.Count(operation => operation == "warning_sequence_index_comparison");
+            int entryVisits = storeWork.Count(operation => operation == "warning_sequence_entry_visited");
+            Assert.AreEqual(3, entryLookups);
+            Assert.AreEqual(0, enumerations);
+            Assert.AreEqual(1, storeWork.Count(operation => operation == "warning_sequence_remove"));
+            Assert.IsTrue(comparisons > 0);
+            Assert.IsTrue(comparisons < warningBackgroundCount);
+            Assert.AreEqual(0, entryVisits);
+            observations.Add((
+                healthyBackgroundCount,
+                warningBackgroundCount,
+                entryLookups,
+                comparisons,
+                entryVisits));
+        }
+
+        Assert.IsTrue(observations.All(result => result.EntryLookups == observations[0].EntryLookups));
+        Assert.IsTrue(observations.All(result => result.EntryVisits == 0));
+
+        ChartFile coldActive = CreateResourceHealthChart(
+            @"C:\Library\cold-active.bms",
+            new string('c', 32),
+            bgaFilesDefined: 2,
+            bgaFilesExisting: 1);
+        ChartFile coldIgnored = CreateResourceHealthChart(
+            @"C:\Library\cold-ignored.bms",
+            new string('d', 32),
+            movieFilesDefined: 2,
+            movieFilesExisting: 1,
+            isIgnored: true);
+        ChartFile coldHealthy = CreateResourceHealthChart(
+            @"C:\Library\cold-healthy.bms",
+            new string('e', 32));
+        ResourceHealthIndexSnapshot cold = ResourceHealthIndexSnapshot.Build(
+            [coldActive, coldIgnored, coldHealthy],
+            service,
+            version: 22);
+        List<string> coldWork = [];
+        cold.StoreWorkObserver = operation => coldWork.Add(operation);
+        int coldActiveCount = cold.ActiveTargets.Count;
+        int coldIgnoredCount = cold.IgnoredTargets.Count;
+        ChartFile[] coldActiveMaterialized = cold.ActiveTargets.ToArray();
+        ChartFile[] coldIgnoredMaterialized = cold.IgnoredTargets.ToArray();
+        cold.StoreWorkObserver = null;
+
+        Assert.AreEqual(coldActiveCount, coldActiveMaterialized.Length);
+        Assert.AreEqual(coldIgnoredCount, coldIgnoredMaterialized.Length);
+        Assert.IsTrue(coldWork.Count(operation => operation == "warning_sequence_enumeration") > 0);
+        Assert.IsTrue(coldWork.Count(operation => operation == "warning_sequence_entry_visited") > 0);
     }
 
     /// <summary>R2C-DELTA-REHASH: case-only rows remain independent across delta, rehash, and removal.</summary>
@@ -3216,6 +3494,33 @@ public sealed class BmsLibraryMaintenanceServiceTests
         var file = new TestableBmsFile();
         file.SetHash(hash);
         return file;
+    }
+
+    private static ChartFile CreateResourceHealthChart(
+        string path,
+        string hash,
+        int wavFilesDefined = 0,
+        int wavFilesExisting = 0,
+        int bgaFilesDefined = 0,
+        int bgaFilesExisting = 0,
+        int movieFilesDefined = 0,
+        int movieFilesExisting = 0,
+        bool isIgnored = false)
+    {
+        TestableBmsFile file = CreateFile(hash);
+        file.path = path;
+        file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash,
+            wav_files_defined = wavFilesDefined,
+            wav_files_existing = wavFilesExisting,
+            bga_files_defined = bgaFilesDefined,
+            bga_files_existing = bgaFilesExisting,
+            movie_files_defined = movieFilesDefined,
+            movie_files_existing = movieFilesExisting,
+            is_files_warning_ignored = isIgnored
+        }, suppressPropertyChanged: true);
+        return ChartFileProjection.FromBmsFile(file);
     }
 
     private static LR2SongDBExtended.bmson_song CreateBmsonSong(string path, string md5)

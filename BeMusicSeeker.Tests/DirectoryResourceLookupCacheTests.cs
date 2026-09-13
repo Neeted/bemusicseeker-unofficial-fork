@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -175,6 +176,54 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.IsNull(cache.GetEntryOrNull("C:\\Songs\\B"));
         Assert.IsNotNull(cache.GetEntryOrNull("C:\\Renamed\\A"));
         Assert.IsNotNull(cache.GetEntryOrNull("C:\\Renamed\\B"));
+    }
+
+    [TestMethod]
+    public void ReplaceDirsWithResult_RewritesOnlyBucketsForMovedEntryHashes()
+    {
+        const string first = @"C:\Songs\First";
+        const string second = @"C:\Songs\Second";
+        const string moved = @"C:\Renamed\First";
+        var cache = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
+            [first, second],
+            [[11u], [12u]],
+            [[21u], []],
+            [[31u], []],
+            [[11u], [12u]],
+            [[21u], []],
+            [[31u], []],
+            new NonEnumerableReverseBaseline(new Dictionary<uint, string[]>
+            {
+                [11u] = [first],
+                [12u] = [second],
+                [99u] = [@"C:\Songs\Unrelated"]
+            }),
+            new Dictionary<uint, string[]> { [21u] = [first] },
+            new Dictionary<uint, string[]> { [31u] = [first] });
+        var writes = new List<(ChartResourceKind Kind, uint Hash)>();
+        cache.ReverseBucketWrittenObserver = (kind, hash) => writes.Add((kind, hash));
+
+        DirectoryResourceLookupCache next = cache.CloneForMutation();
+        DirectoryResourceLookupCache.ReverseLookupMutationResult result = next.ReplaceDirsWithResult(
+        [
+            new KeyValuePair<string, string>(first, moved)
+        ]);
+
+        Assert.IsTrue(result.Changed);
+        CollectionAssert.AreEquivalent(
+            new[]
+            {
+                (ChartResourceKind.Audio, 11u),
+                (ChartResourceKind.Image, 21u),
+                (ChartResourceKind.Movie, 31u)
+            },
+            writes);
+        Assert.IsFalse(writes.Contains((ChartResourceKind.Audio, 99u)));
+        CollectionAssert.AreEqual(new[] { moved }, next.GetDirectoriesByAudioRelativeHash(11u).ToArray());
+        CollectionAssert.AreEqual(new[] { moved }, next.GetDirectoriesByImageRelativeHash(21u).ToArray());
+        CollectionAssert.AreEqual(new[] { moved }, next.GetDirectoriesByMovieRelativeHash(31u).ToArray());
+        CollectionAssert.AreEqual(new[] { @"C:\Songs\Unrelated" }, next.GetDirectoriesByAudioRelativeHash(99u).ToArray());
+        CollectionAssert.AreEqual(new[] { first }, cache.GetDirectoriesByAudioRelativeHash(11u).ToArray());
     }
 
     [TestMethod]
@@ -375,13 +424,15 @@ public sealed class DirectoryResourceLookupCacheTests
     }
 
     [TestMethod]
-    public void CloneForMutation_EmptyResourceEntryChangesOnlyTheDirectoryMap()
+    public void CloneForMutation_EmptyResourceEntryChangesOnlyTheEntryStore()
     {
         DirectoryResourceLookupCache original = CreateNativeCanonicalCache();
         var writes = new List<(ChartResourceKind Kind, uint Hash)>();
-        var entryCopies = new List<int>();
+        var entryMutations = new List<string>();
+        var entryVisits = new List<string>();
         original.ReverseBucketWrittenObserver = (kind, hash) => writes.Add((kind, hash));
-        original.EntriesRootCopiedObserver = count => entryCopies.Add(count);
+        original.EntryStoreMutationObserver = path => entryMutations.Add(path);
+        original.EntryStoreEntryVisitedObserver = path => entryVisits.Add(path);
         DirectoryResourceLookupCache next = original.CloneForMutation();
 
         DirectoryResourceLookupCache.ReverseLookupMutationResult result = next.AddDir(
@@ -391,11 +442,16 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.IsTrue(result.Changed);
         Assert.AreEqual(0, result.UpdatedHashCount);
         Assert.AreEqual(0, writes.Count);
-        CollectionAssert.AreEqual(new[] { 2 }, entryCopies);
+        CollectionAssert.AreEqual(
+            new[] { @"C:\Songs\NoResources", @"C:\Songs\AlsoEmpty" },
+            entryMutations);
+        Assert.AreEqual(0, entryVisits.Count);
         Assert.AreEqual(2, original.Count);
         Assert.AreEqual(4, next.Count);
         Assert.IsNull(original.GetEntryOrNull(@"C:\Songs\NoResources"));
         Assert.IsNotNull(next.GetEntryOrNull(@"C:\Songs\NoResources"));
+        Assert.IsNotNull(next.GetEntryOrNull(@"C:\Songs\AlsoEmpty"));
+        Assert.AreEqual(0, entryVisits.Count);
     }
 
     [DataTestMethod]
@@ -674,8 +730,8 @@ public sealed class DirectoryResourceLookupCacheTests
                 { 2u, new[] { dirA, dirB } },
                 { 3u, new[] { dirB } }
             },
-            [],
-            []);
+            new Dictionary<uint, string[]>(),
+            new Dictionary<uint, string[]>());
     }
 
     private static void AssertEntriesEqual(DirectoryResourceLookupCache.Entry expected, DirectoryResourceLookupCache.Entry actual)
@@ -688,5 +744,21 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEquivalent(expected.SelfOwnedAudioRelativePathHashArray, actual.SelfOwnedAudioRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.SelfOwnedImageRelativePathHashArray, actual.SelfOwnedImageRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.SelfOwnedMovieRelativePathHashArray, actual.SelfOwnedMovieRelativePathHashArray);
+    }
+
+    // 所有済みread-only baseを本番factoryへ渡し、移動時に関連bucketだけを参照することを確認する。
+    // reverse map全体の列挙が行われた場合はここで失敗する。
+    private sealed class NonEnumerableReverseBaseline(IReadOnlyDictionary<uint, string[]> values)
+        : IReadOnlyDictionary<uint, string[]>
+    {
+        public int Count => values.Count;
+        public string[] this[uint key] => values[key];
+        public IEnumerable<uint> Keys => throw new AssertFailedException("reverse base keys were enumerated");
+        public IEnumerable<string[]> Values => throw new AssertFailedException("reverse base values were enumerated");
+        public bool ContainsKey(uint key) => values.ContainsKey(key);
+        public bool TryGetValue(uint key, out string[] value) => values.TryGetValue(key, out value!);
+        public IEnumerator<KeyValuePair<uint, string[]>> GetEnumerator() =>
+            throw new AssertFailedException("reverse base entries were enumerated");
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
     }
 }

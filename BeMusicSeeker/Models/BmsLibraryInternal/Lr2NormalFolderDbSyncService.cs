@@ -148,7 +148,7 @@ internal static class Lr2NormalFolderDbSyncService
                 ? []
                 : null;
         IReadOnlyCollection<string> pruneExactDirectories = request.PruneExactDirectories?.Count > 0
-            ? NormalizePruneScopeDirectories(request.PruneExactDirectories, rootDirectories)
+            ? NormalizePruneExactDirectories(request.PruneExactDirectories, rootDirectories)
             : [];
         Lr2FolderGenerationSyncPlan plan = Lr2FolderGenerationScopePlanner.PlanNormalDirectorySync(
             generation,
@@ -472,6 +472,28 @@ internal static class Lr2NormalFolderDbSyncService
         return [.. NormalizeRootDirectories(pruneScopeDirectories)
             .Where(path => rootDirectories.Any(root => Lr2FolderPath.IsSameOrDescendant(path, root)))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static List<string> NormalizePruneExactDirectories(
+        IEnumerable<string> pruneExactDirectories,
+        IReadOnlyCollection<string> rootDirectories)
+    {
+        if (rootDirectories == null || rootDirectories.Count == 0)
+        {
+            return [];
+        }
+
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string directory in pruneExactDirectories ?? [])
+        {
+            string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
+            if (!string.IsNullOrWhiteSpace(normalized)
+                && rootDirectories.Any(root => Lr2FolderPath.IsSameOrDescendant(normalized, root)))
+            {
+                result.Add(normalized);
+            }
+        }
+        return [.. result];
     }
 
     private static IEnumerable<string> EnumerateDirectoriesFromRoot(string root, string targetDirectory)

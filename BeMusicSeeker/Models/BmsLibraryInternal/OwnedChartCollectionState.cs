@@ -155,13 +155,78 @@ internal readonly struct OwnedChartStorageRowFilterSummary(
         || DuplicatePathBmsonCount > 0;
 }
 
+/// <summary>
+/// canonical sequenceでrefを比較する不変の順序keyです。
+/// </summary>
+internal readonly struct OwnedChartCanonicalOrderKey : IComparable<OwnedChartCanonicalOrderKey>
+{
+    /// <summary>query対象が存在しないことを表すkey。</summary>
+    internal static OwnedChartCanonicalOrderKey Missing { get; } = new(ChartFileKind.Bmson, null, long.MaxValue, false);
+
+    /// <summary>canonical sequenceの比較に必要な値を保持します。</summary>
+    /// <param name="kind">chart kind。</param>
+    /// <param name="capturedPath">entry作成時のpath。</param>
+    /// <param name="ordinal">同一pathの安定tie順。</param>
+    /// <param name="usesCapturedPathOrder">BMSONのcaptured path順を使うか。</param>
+    internal OwnedChartCanonicalOrderKey(
+        ChartFileKind kind,
+        string capturedPath,
+        long ordinal,
+        bool usesCapturedPathOrder = true)
+    {
+        Kind = kind;
+        CapturedPath = capturedPath;
+        Ordinal = ordinal;
+        UsesCapturedPathOrder = usesCapturedPathOrder;
+    }
+
+    /// <summary>chart kind。</summary>
+    internal ChartFileKind Kind { get; }
+
+    /// <summary>entry作成時に捕捉したpath。</summary>
+    internal string CapturedPath { get; }
+
+    /// <summary>同一kind/pathの安定tie順。</summary>
+    internal long Ordinal { get; }
+
+    /// <summary>BMSONのcaptured path順を使用するか。</summary>
+    internal bool UsesCapturedPathOrder { get; }
+
+    /// <summary>canonical sequenceの順序でこのkeyと比較します。</summary>
+    public int CompareTo(OwnedChartCanonicalOrderKey other)
+    {
+        int kindCompare = (Kind == ChartFileKind.Bmson ? 1 : 0)
+            .CompareTo(other.Kind == ChartFileKind.Bmson ? 1 : 0);
+        if (kindCompare != 0)
+        {
+            return kindCompare;
+        }
+        if (UsesCapturedPathOrder && Kind == ChartFileKind.Bmson)
+        {
+            int pathCompare = StringComparer.OrdinalIgnoreCase.Compare(CapturedPath, other.CapturedPath);
+            if (pathCompare != 0)
+            {
+                return pathCompare;
+            }
+        }
+        return Ordinal.CompareTo(other.Ordinal);
+    }
+}
+
 internal sealed class OwnedChartCollectionState
 {
-    private readonly List<ChartFile> charts;
+    private CatalogStorageIndexedSequence<ChartFile> chartSequence;
+    private CatalogStorageReadOnlyView<ChartFile> charts;
+    private readonly Dictionary<ChartFile, CatalogStorageSequenceEntry<ChartFile>> chartEntriesByChart = [];
     private readonly Dictionary<BMSFile, ChartFile> bmsChartsByOwner = [];
     private readonly Dictionary<LR2SongDBExtended.bmson_song, ChartFile> bmsonChartsByOwner = [];
     private readonly Dictionary<string, ChartFile> chartsByPath = new(StringComparer.Ordinal);
     private readonly Dictionary<ChartFile, string> pathKeyByChart = [];
+    private readonly ICatalogStorageSequenceWorkObserver sequenceWorkObserver;
+    private long nextCanonicalOrdinal;
+    private int bmsonChartCount;
+    private bool bmsonNeedsCanonicalNormalization;
+    private bool sequenceUsesCanonicalComparer;
     private LibraryChartRefIndexSnapshot libraryChartRefIndexSnapshot;
     private OwnedDuplicateChartRowSnapshot duplicateChartRowSnapshot;
 
@@ -176,9 +241,90 @@ internal sealed class OwnedChartCollectionState
     }
 
     private OwnedChartCollectionState(List<ChartFile> charts, CancellationToken cancellationToken)
+        : this(charts, cancellationToken, null)
     {
-        this.charts = charts ?? [];
+    }
+
+    private OwnedChartCollectionState(
+        List<ChartFile> charts,
+        CancellationToken cancellationToken,
+        ICatalogStorageSequenceWorkObserver sequenceWorkObserver)
+    {
+        this.sequenceWorkObserver = sequenceWorkObserver;
+        InitializeCanonicalSequence(charts, cancellationToken);
         RebuildCurrentIndexes(cancellationToken);
+    }
+
+    private void InitializeCanonicalSequence(
+        IEnumerable<ChartFile> initialCharts,
+        CancellationToken cancellationToken)
+    {
+        var entries = new List<CatalogStorageSequenceEntry<ChartFile>>();
+        foreach (ChartFile chart in initialCharts ?? [])
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (chart == null)
+            {
+                continue;
+            }
+
+            entries.Add(CreateCanonicalEntry(chart));
+        }
+
+        chartSequence = CatalogStorageIndexedSequence<ChartFile>.FromEntries(
+            entries,
+            CompareRawCanonicalEntries,
+            sequenceWorkObserver);
+        chartEntriesByChart.Clear();
+        foreach (CatalogStorageSequenceEntry<ChartFile> entry in entries)
+        {
+            chartEntriesByChart[entry.Value] = entry;
+        }
+        bmsonNeedsCanonicalNormalization = entries.Any(entry => entry.Value?.Kind == ChartFileKind.Bmson);
+        bmsonChartCount = entries.Count(entry => entry.Value?.Kind == ChartFileKind.Bmson);
+        sequenceUsesCanonicalComparer = false;
+        RefreshCanonicalSequenceView();
+    }
+
+    private void RefreshCanonicalSequenceView()
+    {
+        charts = new CatalogStorageReadOnlyView<ChartFile>(chartSequence);
+    }
+
+    private CatalogStorageSequenceEntry<ChartFile> CreateCanonicalEntry(ChartFile chart)
+    {
+        return new CatalogStorageSequenceEntry<ChartFile>(
+            chart,
+            chart?.Path,
+            chart?.Path,
+            nextCanonicalOrdinal++);
+    }
+
+    private static int CompareCanonicalEntries(
+        CatalogStorageSequenceEntry<ChartFile> left,
+        CatalogStorageSequenceEntry<ChartFile> right)
+    {
+        return CreateCanonicalOrderKey(left).CompareTo(CreateCanonicalOrderKey(right));
+    }
+
+    private static int CompareRawCanonicalEntries(
+        CatalogStorageSequenceEntry<ChartFile> left,
+        CatalogStorageSequenceEntry<ChartFile> right)
+    {
+        int kindCompare = GetCanonicalKindOrder(left?.Value).CompareTo(GetCanonicalKindOrder(right?.Value));
+        return kindCompare != 0 ? kindCompare : left.Ordinal.CompareTo(right.Ordinal);
+    }
+
+    private static int GetCanonicalKindOrder(ChartFile chart)
+        => chart?.Kind == ChartFileKind.Bmson ? 1 : 0;
+
+    private static OwnedChartCanonicalOrderKey CreateCanonicalOrderKey(
+        CatalogStorageSequenceEntry<ChartFile> entry)
+    {
+        return new OwnedChartCanonicalOrderKey(
+            entry?.Value?.Kind ?? ChartFileKind.Bms,
+            entry?.SortKey,
+            entry?.Ordinal ?? long.MaxValue);
     }
 
     internal static OwnedChartCollectionState FromStorageRows(
@@ -201,6 +347,29 @@ internal sealed class OwnedChartCollectionState
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
         CancellationToken cancellationToken,
+        out OwnedChartStorageRowFilterSummary filterSummary)
+    {
+        return FromStorageRows(
+            bmsFiles,
+            bmsonSongs,
+            cancellationToken,
+            null,
+            out filterSummary);
+    }
+
+    /// <summary>
+    /// 有効なstorage行を取り込み、sequenceの実アクセスを任意の内部observerへ伝えます。
+    /// </summary>
+    /// <param name="bmsFiles">入力順を保持するBMS storage行。</param>
+    /// <param name="bmsonSongs">入力順を保持するBMSON storage行。</param>
+    /// <param name="cancellationToken">取り込みを中断するtoken。</param>
+    /// <param name="sequenceWorkObserver">sequenceの実処理を観測する内部observer。</param>
+    /// <param name="filterSummary">除外したrowの集計。</param>
+    internal static OwnedChartCollectionState FromStorageRows(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        CancellationToken cancellationToken,
+        ICatalogStorageSequenceWorkObserver sequenceWorkObserver,
         out OwnedChartStorageRowFilterSummary filterSummary)
     {
         List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
@@ -266,7 +435,7 @@ internal sealed class OwnedChartCollectionState
         cancellationToken.ThrowIfCancellationRequested();
         charts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(ownedBmsonSongs, cancellationToken));
         cancellationToken.ThrowIfCancellationRequested();
-        return new OwnedChartCollectionState(charts, cancellationToken);
+        return new OwnedChartCollectionState(charts, cancellationToken, sequenceWorkObserver);
     }
 
     internal List<ChartFile> CreateSnapshot(
@@ -468,26 +637,165 @@ internal sealed class OwnedChartCollectionState
     }
 
     /// <summary>
-    /// library chart ref index を構築せず、現在の owned chart list を直接 scan して path 一致 chart を返します。
-    /// primary hash lookup だけが温まっている upsert mutation では、既存 path の置換検出に full path index を作らないために使います。
+    /// canonical ref indexを構築せず、exact path索引から既存chartを取得してcanonical順に返します。
     /// </summary>
     /// <param name="paths">加工しない検索対象exact path。</param>
     /// <returns>現在の owned chart に含まれる path 一致 chart refs。</returns>
-    internal List<LibraryChartRef> CreateLibraryChartRefsForPathsByScan(IEnumerable<string> paths)
+    internal List<LibraryChartRef> CreateLibraryChartRefsForCanonicalPaths(IEnumerable<string> paths)
     {
-        var pathSet = new HashSet<string>(
-            (paths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.Ordinal);
+        HashSet<string> pathSet = CreatePathSet(paths);
         if (pathSet.Count == 0)
         {
             return [];
         }
 
-        return [.. charts
-            .Where(chart => chart != null)
-            .Where(chart => pathSet.Contains(GetCurrentPath(chart)))
-            .Select(CreateCurrentLibraryChartRef)
-            .Where(chart => chart != null)];
+        var refs = new List<LibraryChartRef>(pathSet.Count);
+        foreach (string path in pathSet)
+        {
+            if (!chartsByPath.TryGetValue(path, out ChartFile chart))
+            {
+                continue;
+            }
+
+            LibraryChartKind kind = chart.Kind == ChartFileKind.Bmson
+                ? LibraryChartKind.Bmson
+                : LibraryChartKind.Bms;
+            if (TryGetCanonicalChartRefForExactPath(kind, path, out LibraryChartRef chartRef, out _))
+            {
+                refs.Add(chartRef);
+            }
+        }
+        refs.Sort(CompareCanonicalChartRefs);
+        return refs;
+    }
+
+    /// <summary>
+    /// kindとexact pathから、現在のowner refとcanonical sequenceの安定順を取得します。
+    /// </summary>
+    /// <param name="kind">照合するchart kind。</param>
+    /// <param name="exactPath">加工しないexact path。</param>
+    /// <param name="currentChartRef">現在のlive ownerを持つref。</param>
+    /// <param name="stableOrder">canonical sequence内の安定順。</param>
+    /// <returns>一致する有効なchartが存在する場合はtrue。</returns>
+    internal bool TryGetCanonicalChartRefForExactPath(
+        LibraryChartKind kind,
+        string exactPath,
+        out LibraryChartRef currentChartRef,
+        out OwnedChartCanonicalOrderKey stableOrder)
+    {
+        currentChartRef = null;
+        stableOrder = OwnedChartCanonicalOrderKey.Missing;
+        if (string.IsNullOrWhiteSpace(exactPath)
+            || !chartsByPath.TryGetValue(exactPath, out ChartFile chart)
+            || (chart.Kind == ChartFileKind.Bmson) != (kind == LibraryChartKind.Bmson))
+        {
+            return false;
+        }
+
+        return TryGetCanonicalChartRef(chart, out currentChartRef, out stableOrder);
+    }
+
+    /// <summary>
+    /// ownerまたはexact pathを使って、現在のrefとcanonical sequenceの安定順を取得します。
+    /// </summary>
+    /// <param name="inputChartRef">owner refまたはpath ref。</param>
+    /// <param name="currentChartRef">現在のlive ownerを持つref。</param>
+    /// <param name="stableOrder">canonical sequence内の安定順。</param>
+    /// <returns>一致する有効なchartが存在する場合はtrue。</returns>
+    internal bool TryGetCanonicalChartRef(
+        LibraryChartRef inputChartRef,
+        out LibraryChartRef currentChartRef,
+        out OwnedChartCanonicalOrderKey stableOrder)
+    {
+        currentChartRef = null;
+        stableOrder = OwnedChartCanonicalOrderKey.Missing;
+        TryResolveCanonicalChartRef(inputChartRef, out ChartFile chart);
+        return chart != null && TryGetCanonicalChartRef(chart, out currentChartRef, out stableOrder);
+    }
+
+    private bool TryResolveCanonicalChartRef(LibraryChartRef inputChartRef, out ChartFile chart)
+    {
+        chart = null;
+        BMSFile bmsOwner = inputChartRef?.GetBmsStorageOwner();
+        if (bmsOwner != null)
+        {
+            bmsChartsByOwner.TryGetValue(bmsOwner, out chart);
+        }
+        else
+        {
+            LR2SongDBExtended.bmson_song bmsonOwner = inputChartRef?.GetBmsonStorageOwner();
+            if (bmsonOwner != null)
+            {
+                bmsonChartsByOwner.TryGetValue(bmsonOwner, out chart);
+            }
+        }
+
+        if (chart == null
+            && !string.IsNullOrWhiteSpace(inputChartRef?.Path)
+            && chartsByPath.TryGetValue(inputChartRef.Path, out ChartFile pathChart)
+            && (pathChart.Kind == ChartFileKind.Bmson) == (inputChartRef.Kind == LibraryChartKind.Bmson))
+        {
+            chart = pathChart;
+        }
+        return chart != null;
+    }
+
+    private bool TryGetCanonicalChartRef(
+        ChartFile chart,
+        out LibraryChartRef currentChartRef,
+        out OwnedChartCanonicalOrderKey stableOrder)
+    {
+        currentChartRef = null;
+        stableOrder = OwnedChartCanonicalOrderKey.Missing;
+        if (chart == null || !chartEntriesByChart.TryGetValue(chart, out CatalogStorageSequenceEntry<ChartFile> entry))
+        {
+            return false;
+        }
+
+        currentChartRef = CreateCurrentLibraryChartRef(chart);
+        if (currentChartRef == null)
+        {
+            return false;
+        }
+        stableOrder = CreateCurrentOrderKey(entry);
+        return true;
+    }
+
+    private OwnedChartCanonicalOrderKey CreateCurrentOrderKey(
+        CatalogStorageSequenceEntry<ChartFile> entry)
+    {
+        return new OwnedChartCanonicalOrderKey(
+            entry?.Value?.Kind ?? ChartFileKind.Bms,
+            entry?.SortKey,
+            entry?.Ordinal ?? long.MaxValue,
+            sequenceUsesCanonicalComparer);
+    }
+
+    private int CompareCanonicalChartRefs(LibraryChartRef left, LibraryChartRef right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return 0;
+        }
+        if (left == null)
+        {
+            return 1;
+        }
+        if (right == null)
+        {
+            return -1;
+        }
+
+        if (TryResolveCanonicalChartRef(left, out ChartFile leftChart)
+            && TryResolveCanonicalChartRef(right, out ChartFile rightChart)
+            && chartEntriesByChart.TryGetValue(leftChart, out CatalogStorageSequenceEntry<ChartFile> leftEntry)
+            && chartEntriesByChart.TryGetValue(rightChart, out CatalogStorageSequenceEntry<ChartFile> rightEntry))
+        {
+            return sequenceUsesCanonicalComparer
+                ? CompareCanonicalEntries(leftEntry, rightEntry)
+                : CompareRawCanonicalEntries(leftEntry, rightEntry);
+        }
+        return StringComparer.OrdinalIgnoreCase.Compare(left.Path, right.Path);
     }
 
     internal bool ContainsKnownChart(ChartFile chart)
@@ -510,29 +818,40 @@ internal sealed class OwnedChartCollectionState
 
 
     /// <summary>
-    /// playlist detail の entry hash 解決に使う軽量 chart ref snapshot を作成します。
-    /// hash map 構築は owned collection lock の外で行います。
+    /// playlist detail の hash 解決に使う chart fact snapshot を作成します。
+    /// ref と canonical 順序を同じ走査で捕捉し、後続の差分更新へ live owner を渡しません。
     /// </summary>
     /// <param name="cancellationCheck">構築中に呼び出す cancellation callback。</param>
-    /// <returns>playlist detail 用 resolve ref snapshot。</returns>
-    internal List<LibraryChartRef> CreatePlaylistLibraryResolveRefSnapshot(Action cancellationCheck = null)
+    /// <param name="storeWorkObserver">実格納の列挙とentry訪問を記録する任意の内部observer。</param>
+    /// <returns>playlist detail 用 resolve fact snapshot。</returns>
+    internal List<PlaylistLibraryResolveChartFact> CreatePlaylistLibraryResolveChartFactSnapshot(
+        Action cancellationCheck = null,
+        Action<string> storeWorkObserver = null)
     {
-        var refs = new List<LibraryChartRef>(charts.Count);
+        var facts = new List<PlaylistLibraryResolveChartFact>(charts.Count);
+        storeWorkObserver?.Invoke("playlist_resolve_source_enumeration");
         foreach (ChartFile chart in charts)
         {
             cancellationCheck?.Invoke();
-            if (!HasCurrentOwnedIdentity(chart))
+            storeWorkObserver?.Invoke("playlist_resolve_source_entry_visited");
+            if (!HasCurrentOwnedIdentity(chart)
+                || !TryGetCanonicalChartRef(
+                    chart,
+                    out LibraryChartRef chartRef,
+                    out OwnedChartCanonicalOrderKey stableOrder))
             {
                 continue;
             }
 
-            LibraryChartRef chartRef = CreateCurrentLibraryChartRef(chart);
-            if (chartRef != null)
+            PlaylistLibraryResolveChartFact fact = PlaylistLibraryResolveChartFact.FromChart(
+                chartRef,
+                stableOrder);
+            if (fact != null)
             {
-                refs.Add(chartRef);
+                facts.Add(fact);
             }
         }
-        return refs;
+        return facts;
     }
 
     internal List<LibraryChartRef> CreateLibraryChartRefsForHashes(
@@ -806,10 +1125,25 @@ internal sealed class OwnedChartCollectionState
 
     internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot(CancellationToken cancellationToken)
     {
+        return CreateOwnedHashIndexSnapshot(cancellationToken, null);
+    }
+
+    /// <summary>
+    /// 現在の owned chart を一度だけ走査して hash build projection を作成します。
+    /// </summary>
+    /// <param name="cancellationToken">構築を中断する token。</param>
+    /// <param name="storeWorkObserver">実際の source 列挙を記録する任意の内部 observer。</param>
+    /// <returns>MD5/SHA-256 owner count を含む build projection。</returns>
+    internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot(
+        CancellationToken cancellationToken,
+        Action<string> storeWorkObserver)
+    {
         var snapshot = new OwnedChartHashIndexSnapshot();
+        storeWorkObserver?.Invoke("owned_hash_source_enumeration");
         foreach (ChartFile chart in charts.Where(chart => chart != null))
         {
             cancellationToken.ThrowIfCancellationRequested();
+            storeWorkObserver?.Invoke("owned_hash_source_entry_visited");
             if (!HasCurrentOwnedIdentity(chart))
             {
                 continue;
@@ -1202,8 +1536,8 @@ internal sealed class OwnedChartCollectionState
 
         libraryChartRefIndexSnapshot.MoveCharts(currentPathChanges);
         libraryChartRefIndexSnapshot.ReorderAffectedPathsByStorageOrder(
-            charts,
-            currentPathChanges.Select(change => change.OldPath).Concat(currentPathChanges.Select(change => change.NewPath)));
+            currentPathChanges.Select(change => change.OldPath).Concat(currentPathChanges.Select(change => change.NewPath)),
+            CompareCanonicalChartRefs);
         ApplyCurrentPathIndexChanges(currentPathChanges);
     }
 
@@ -1297,16 +1631,22 @@ internal sealed class OwnedChartCollectionState
             return 0;
         }
 
-        int removed = charts.RemoveAll(actualRemovedSet.Contains);
+        var removedCharts = new List<ChartFile>(actualRemovedCharts.Count);
+        foreach (ChartFile chart in actualRemovedCharts)
+        {
+            if (!RemoveCanonicalChart(chart))
+            {
+                continue;
+            }
+            UnregisterCurrentChartIndex(chart);
+            removedCharts.Add(chart);
+        }
+        int removed = removedCharts.Count;
         if (removed > 0)
         {
-            foreach (ChartFile chart in actualRemovedCharts)
-            {
-                UnregisterCurrentChartIndex(chart);
-            }
-            RemovedChartKeySet actualRemovedKeys = RemovedChartKeySet.FromCharts(actualRemovedCharts, includePaths: false);
+            RemovedChartKeySet actualRemovedKeys = RemovedChartKeySet.FromCharts(removedCharts, includePaths: false);
             RemoveDuplicateRows(actualRemovedKeys);
-            libraryChartRefIndexSnapshot?.RemoveCharts(actualRemovedCharts);
+            libraryChartRefIndexSnapshot?.RemoveCharts(removedCharts);
         }
         return removed;
     }
@@ -1343,7 +1683,13 @@ internal sealed class OwnedChartCollectionState
         return resolvedRequests;
     }
 
-    internal void UpsertStorageRows(
+    /// <summary>
+    /// storage rowを局所的に置換し、今回の操作で初回BMSON canonical順序正規化が起きたかを返します。
+    /// </summary>
+    /// <param name="bmsFiles">追加または置換するBMS storage row。</param>
+    /// <param name="bmsonSongs">追加または置換するBMSON storage row。</param>
+    /// <returns>既存BMSON suffixの初回canonical正規化を実施した場合は<see langword="true"/>。</returns>
+    internal bool UpsertStorageRows(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
@@ -1352,17 +1698,24 @@ internal sealed class OwnedChartCollectionState
         ValidateStorageRows(bmsFileList, bmsonSongList);
         if (bmsFileList.Count == 0 && bmsonSongList.Count == 0)
         {
-            return;
+            return false;
         }
 
+        bool bmsonCanonicalOrderNormalized = false;
+        List<string> normalizedPaths = [];
+        if (bmsonSongList.Count > 0 || bmsonNeedsCanonicalNormalization)
+        {
+            bmsonCanonicalOrderNormalized = EnsureCanonicalBmsonOrder(out normalizedPaths);
+        }
+        List<string> affectedPaths = [.. normalizedPaths
+            .Concat(bmsFileList.Select(file => file.path))
+            .Concat(bmsonSongList.Select(song => song.path))];
         List<ChartFile> removedCharts = RemoveMatchingStorageRows(bmsFileList, bmsonSongList);
         List<ChartFile> addedBmsCharts = ChartFileProjection.FromBmsStorageOwnerIdentities(bmsFileList);
         List<ChartFile> addedBmsonCharts = ChartFileProjection.FromBmsonStorageOwnerIdentities(bmsonSongList);
-        InsertBmsChartsBeforeBmson(addedBmsCharts);
-        charts.AddRange(addedBmsonCharts);
-        SortBmsonChartsByPath();
         foreach (ChartFile chart in addedBmsCharts.Concat(addedBmsonCharts))
         {
+            InsertCanonicalChart(chart);
             RegisterCurrentChartIndex(chart);
         }
         if (duplicateChartRowSnapshot != null)
@@ -1376,11 +1729,10 @@ internal sealed class OwnedChartCollectionState
             libraryChartRefIndexSnapshot.AddCharts(addedBmsCharts);
             libraryChartRefIndexSnapshot.AddCharts(addedBmsonCharts);
             libraryChartRefIndexSnapshot.ReorderAffectedPathsByStorageOrder(
-                charts,
-                removedCharts.Select(GetCurrentPath)
-                    .Concat(addedBmsCharts.Select(GetCurrentPath))
-                    .Concat(addedBmsonCharts.Select(GetCurrentPath)));
+                affectedPaths,
+                CompareCanonicalChartRefs);
         }
+        return bmsonCanonicalOrderNormalized;
     }
 
     internal void ValidateStorageRows(
@@ -1392,6 +1744,100 @@ internal sealed class OwnedChartCollectionState
         ThrowIfInvalidStorageRows(bmsFileList, bmsonSongList);
         ThrowIfDuplicateStorageRowPaths(bmsFileList, bmsonSongList);
         ThrowIfCrossKindUpsertPathCollision(bmsFileList, bmsonSongList);
+    }
+
+    private bool EnsureCanonicalBmsonOrder(out List<string> normalizedPaths)
+    {
+        normalizedPaths = [];
+        if (sequenceUsesCanonicalComparer && !bmsonNeedsCanonicalNormalization)
+        {
+            return false;
+        }
+
+        if (bmsonChartCount == 0)
+        {
+            chartSequence = chartSequence.WithComparison(CompareCanonicalEntries);
+            sequenceUsesCanonicalComparer = true;
+            bmsonNeedsCanonicalNormalization = false;
+            RefreshCanonicalSequenceView();
+            return false;
+        }
+
+        int bmsonStartIndex = chartSequence.Count - bmsonChartCount;
+        IReadOnlyList<CatalogStorageSequenceEntry<ChartFile>> currentBmsonEntries =
+            chartSequence.CaptureRange(bmsonStartIndex, bmsonChartCount);
+        var normalizedBmsonEntries = new List<CatalogStorageSequenceEntry<ChartFile>>(bmsonChartCount);
+        normalizedPaths = new List<string>(bmsonChartCount);
+        foreach (CatalogStorageSequenceEntry<ChartFile> entry in currentBmsonEntries)
+        {
+            if (entry?.Value == null)
+            {
+                continue;
+            }
+
+            normalizedBmsonEntries.Add(CreateCanonicalEntry(entry.Value));
+            string currentPath = GetCurrentPath(entry.Value);
+            if (!string.IsNullOrWhiteSpace(currentPath))
+            {
+                normalizedPaths.Add(currentPath);
+            }
+        }
+        normalizedBmsonEntries.Sort(CompareCanonicalEntries);
+        chartSequence = chartSequence
+            .ReplaceRange(bmsonStartIndex, bmsonChartCount, normalizedBmsonEntries)
+            .WithComparison(CompareCanonicalEntries);
+        foreach (CatalogStorageSequenceEntry<ChartFile> entry in normalizedBmsonEntries)
+        {
+            chartEntriesByChart[entry.Value] = entry;
+        }
+        bmsonNeedsCanonicalNormalization = false;
+        sequenceUsesCanonicalComparer = true;
+        RefreshCanonicalSequenceView();
+        return true;
+    }
+
+    private void InsertCanonicalChart(ChartFile chart)
+    {
+        if (chart == null)
+        {
+            return;
+        }
+
+        CatalogStorageSequenceEntry<ChartFile> entry = CreateCanonicalEntry(chart);
+        int insertionIndex = chartSequence.FindInsertionIndex(entry);
+        chartSequence = chartSequence.InsertAt(insertionIndex, entry);
+        chartEntriesByChart[chart] = entry;
+        if (chart.Kind == ChartFileKind.Bmson)
+        {
+            bmsonChartCount++;
+        }
+        RefreshCanonicalSequenceView();
+    }
+
+    private bool RemoveCanonicalChart(ChartFile chart)
+    {
+        if (chart == null || !chartEntriesByChart.TryGetValue(chart, out CatalogStorageSequenceEntry<ChartFile> entry))
+        {
+            return false;
+        }
+
+        int index = chartSequence.FindIndex(entry);
+        if (index < 0)
+        {
+            throw new InvalidOperationException("Owned chart canonical sequence entry is missing.");
+        }
+        chartSequence = chartSequence.RemoveAt(index);
+        chartEntriesByChart.Remove(chart);
+        if (chart.Kind == ChartFileKind.Bmson)
+        {
+            bmsonChartCount--;
+            if (bmsonChartCount == 0)
+            {
+                bmsonNeedsCanonicalNormalization = false;
+            }
+        }
+        RefreshCanonicalSequenceView();
+        return true;
     }
 
     internal static void ValidateStorageRowsWithoutExistingCollection(
@@ -1440,48 +1886,15 @@ internal sealed class OwnedChartCollectionState
         }
         if (removedSet.Count > 0)
         {
-            charts.RemoveAll(removedSet.Contains);
             foreach (ChartFile chart in removedCharts)
             {
-                UnregisterCurrentChartIndex(chart);
+                if (RemoveCanonicalChart(chart))
+                {
+                    UnregisterCurrentChartIndex(chart);
+                }
             }
         }
         return removedCharts;
-    }
-
-    private void InsertBmsChartsBeforeBmson(IEnumerable<ChartFile> bmsCharts)
-    {
-        List<ChartFile> bmsChartList = [.. (bmsCharts ?? []).Where(chart => chart != null)];
-        if (bmsChartList.Count == 0)
-        {
-            return;
-        }
-
-        int firstBmsonIndex = charts.FindIndex(chart => chart?.Kind == ChartFileKind.Bmson);
-        if (firstBmsonIndex >= 0)
-        {
-            charts.InsertRange(firstBmsonIndex, bmsChartList);
-        }
-        else
-        {
-            charts.AddRange(bmsChartList);
-        }
-    }
-
-    private void SortBmsonChartsByPath()
-    {
-        int firstBmsonIndex = charts.FindIndex(chart => chart?.Kind == ChartFileKind.Bmson);
-        if (firstBmsonIndex < 0)
-        {
-            return;
-        }
-
-        List<ChartFile> sortedBmsonCharts = [.. charts
-            .Skip(firstBmsonIndex)
-            .Where(chart => chart != null)
-            .OrderBy(chart => chart.Path, System.StringComparer.OrdinalIgnoreCase)];
-        charts.RemoveRange(firstBmsonIndex, charts.Count - firstBmsonIndex);
-        charts.AddRange(sortedBmsonCharts);
     }
 
     private static string GetCurrentDirectory(ChartFile chart)
@@ -1963,11 +2376,11 @@ internal sealed class OwnedChartCollectionState
     {
         if (!string.IsNullOrWhiteSpace(md5))
         {
-            snapshot.Md5Hashes.Add(md5);
+            snapshot.AddMd5(md5);
         }
         if (!string.IsNullOrWhiteSpace(sha256))
         {
-            snapshot.Sha256Hashes.Add(sha256);
+            snapshot.AddSha256(sha256);
         }
     }
 }

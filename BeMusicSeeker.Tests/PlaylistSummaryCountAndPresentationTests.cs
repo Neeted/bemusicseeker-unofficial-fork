@@ -84,7 +84,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
     public void PlaylistCatalogSummaryOwner_DoesNotReuseCountForReplacedTableInstance()
     {
         var ownedHashes = new OwnedChartHashIndexSnapshot();
-        ownedHashes.Md5Hashes.Add("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        ownedHashes.AddMd5("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var ownedSnapshot = new OwnedChartHashIndexVersionedSnapshot(
             ownedHashes,
             version: 1,
@@ -130,7 +130,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
     public void PlaylistCatalogSummaryOwner_DoesNotPublishCountAfterTableRevisionChanges()
     {
         var ownedHashes = new OwnedChartHashIndexSnapshot();
-        ownedHashes.Md5Hashes.Add("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        ownedHashes.AddMd5("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var ownedSnapshot = new OwnedChartHashIndexVersionedSnapshot(
             ownedHashes,
             version: 1,
@@ -316,6 +316,57 @@ public sealed class PlaylistSummaryCountAndPresentationTests
 
         Assert.AreEqual(1, result.FilteredCount);
         Assert.AreEqual(10, result.Rows[0].PlaylistId);
+    }
+
+    [TestMethod]
+    public void PlaylistCatalogSummaryOwner_ReusesCountWhenSameDigestReplacementKeepsOwnedHashVersion()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            const string chartPath = @"C:\Songs\same-digest.bms";
+            const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            BMSFile initialFile = CreateLibraryFile(chartPath, md5, sha256);
+            BMSFile replacementFile = CreateLibraryFile(chartPath, md5, sha256);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles = [initialFile]
+            };
+            OwnedChartHashIndexVersionedSnapshot initialHashes = library.GetOwnedChartHashIndexSnapshot();
+            var table = new BMSTable { playlist_id = 42 };
+            table.entries = [CreateEntry(md5, sha256)];
+            var summaryOwner = new PlaylistCatalogSummaryOwner();
+
+            PlaylistSummaryCountResult first = summaryOwner.GetOrBuildTableCount(
+                table,
+                initialHashes,
+                CancellationToken.None,
+                out bool firstCacheHit);
+            PlaylistSummaryCountResult cached = summaryOwner.GetOrBuildTableCount(
+                table,
+                initialHashes,
+                CancellationToken.None,
+                out bool cachedHit);
+            Assert.IsFalse(firstCacheHit);
+            Assert.IsTrue(cachedHit);
+            Assert.AreEqual(1, first.OwnedCharts);
+            Assert.AreEqual(1, cached.OwnedCharts);
+
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([replacementFile], []));
+            OwnedChartHashIndexVersionedSnapshot updatedHashes = library.GetOwnedChartHashIndexSnapshot();
+            PlaylistSummaryCountResult afterReplacement = summaryOwner.GetOrBuildTableCount(
+                table,
+                updatedHashes,
+                CancellationToken.None,
+                out bool replacementCacheHit);
+
+            Assert.AreEqual(initialHashes.Version, updatedHashes.Version);
+            Assert.AreEqual(1, updatedHashes.GetMd5OwnerCount(md5));
+            Assert.AreEqual(1, updatedHashes.GetSha256OwnerCount(sha256));
+            Assert.IsTrue(replacementCacheHit);
+            Assert.AreEqual(1, afterReplacement.TotalCharts);
+            Assert.AreEqual(1, afterReplacement.OwnedCharts);
+        });
     }
 
 

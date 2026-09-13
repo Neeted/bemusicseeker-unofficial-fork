@@ -45,6 +45,9 @@ internal sealed class LibraryResourceIndex
         return index;
     }
 
+    /// <summary>
+    /// ネイティブの正規化済み配列と所有権を移す逆引き基底からresource indexを作成する。
+    /// </summary>
     public static LibraryResourceIndex CreateFromNativeCanonicalArrays(
         string[] chartDirectories,
         uint[][] audioRelativePathHashesByDirectoryIndex,
@@ -53,9 +56,9 @@ internal sealed class LibraryResourceIndex
         uint[][] selfOwnedAudioRelativePathHashesByDirectoryIndex,
         uint[][] selfOwnedImageRelativePathHashesByDirectoryIndex,
         uint[][] selfOwnedMovieRelativePathHashesByDirectoryIndex,
-        Dictionary<uint, string[]> audioRelativeReverseDirectories,
-        Dictionary<uint, string[]> imageRelativeReverseDirectories,
-        Dictionary<uint, string[]> movieRelativeReverseDirectories)
+        IReadOnlyDictionary<uint, string[]> audioRelativeReverseDirectories,
+        IReadOnlyDictionary<uint, string[]> imageRelativeReverseDirectories,
+        IReadOnlyDictionary<uint, string[]> movieRelativeReverseDirectories)
     {
         var index = new LibraryResourceIndex();
         var stopwatch = Stopwatch.StartNew();

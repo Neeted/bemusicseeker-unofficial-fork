@@ -63,12 +63,19 @@ public partial class BMSLibrary
                             chartFiles.Where(chart => chart != null),
                             getBMSDirectories(),
                             renameRootFolder));
+                    Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
+                        HasActionableAutoRenamePlan(plans)
+                            ? TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans)
+                            : null;
                     result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
                         plans,
                         (total, processed, currentPath) => progressWriter.TryWrite(
                             new FolderAutoRenameProgressUpdate(total, processed, currentPath)),
                         postLeaseNotifications);
-                    SyncAutoRenameLr2NormalFoldersUnderExistingLease(result, mutationCapability);
+                    SyncAutoRenameLr2NormalFoldersUnderExistingLease(
+                        result,
+                        currentBmsCapture,
+                        mutationCapability);
                 });
         }
         catch (Exception exception)
@@ -116,12 +123,17 @@ public partial class BMSLibrary
                         () => plans = libraryFileOperationOwner.BuildAutoRenamePlansForSourceFolders(parentDir));
                     if (HasActionableAutoRenamePlan(plans))
                     {
+                        Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
+                            TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans);
                         result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
                             plans,
                             (total, processed, currentPath) => progressWriter.TryWrite(
                                 new FolderAutoRenameProgressUpdate(total, processed, currentPath)),
                             postLeaseNotifications);
-                        SyncAutoRenameLr2NormalFoldersUnderExistingLease(result, mutationCapability);
+                        SyncAutoRenameLr2NormalFoldersUnderExistingLease(
+                            result,
+                            currentBmsCapture,
+                            mutationCapability);
                     }
                 });
         }

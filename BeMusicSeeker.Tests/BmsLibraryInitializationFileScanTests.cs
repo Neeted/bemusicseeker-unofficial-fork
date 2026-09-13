@@ -1805,7 +1805,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 [[]],
                 [[movieRelativeHash]],
                 new Dictionary<uint, string[]> { { audioRelativeHash, new[] { chartDirectoryPath } } },
-                [],
+                new Dictionary<uint, string[]>(),
                 new Dictionary<uint, string[]> { { movieRelativeHash, new[] { chartDirectoryPath } } });
 
             var service = new BmsLibraryInitializationService();

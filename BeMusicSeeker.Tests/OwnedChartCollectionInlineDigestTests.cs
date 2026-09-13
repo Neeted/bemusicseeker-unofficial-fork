@@ -40,6 +40,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int bmsFilesChanged = 0;
             int ownedCollectionVersionChanged = 0;
+            bool digestVisibleAtOwnedCollectionNotification = false;
             library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
                 if (args.PropertyName == "BMSFiles")
@@ -49,6 +50,9 @@ public sealed class OwnedChartCollectionInlineDigestTests
                 if (args.PropertyName == "OwnedChartCollectionVersion")
                 {
                     ownedCollectionVersionChanged++;
+                    digestVisibleAtOwnedCollectionNotification = library
+                        .GetOwnedChartHashIndexSnapshot()
+                        .ContainsMd5(snapshot.Md5);
                 }
             };
 
@@ -68,9 +72,22 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.IsTrue(initialLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
             Assert.IsFalse(updatedLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
             Assert.IsTrue(updatedLookup.ContainsPrimaryHash(snapshot.Md5));
+            CollectionAssert.AreEqual(
+                new[] { chartDirectory },
+                initialLookup.Md5Directories["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"].ToArray());
+            CollectionAssert.AreEqual(
+                new[] { chartDirectory },
+                updatedLookup.Md5Directories[snapshot.Md5].ToArray());
+            Assert.AreEqual(1, initialLookup.GetPrimaryHashCount("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(snapshot.Md5));
+            Assert.AreEqual(1, initialLookup.DirectoryReferenceCount);
+            Assert.AreEqual(2, updatedLookup.DirectoryReferenceCount);
             Assert.IsTrue(initialSummary.Md5Hashes.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
             Assert.IsFalse(updatedSummary.Md5Hashes.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
             Assert.IsTrue(updatedSummary.Md5Hashes.Contains(snapshot.Md5));
+            Assert.AreEqual(1, initialSummary.GetMd5OwnerCount("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual(0, updatedSummary.GetMd5OwnerCount("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual(1, updatedSummary.GetMd5OwnerCount(snapshot.Md5));
             Assert.AreNotEqual(initialSummary.Version, updatedSummary.Version);
             Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             Assert.IsNull(library.DuplicateChartGroups);
@@ -79,6 +96,74 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.IsFalse(batch.NotifiesBmsonSongs);
             Assert.AreEqual(0, bmsFilesChanged);
             Assert.AreEqual(1, ownedCollectionVersionChanged);
+            Assert.IsTrue(digestVisibleAtOwnedCollectionNotification);
+        });
+    }
+
+    [TestMethod]
+    public void BuildInlineChartInfo_UpdatesWarmPlaylistResolveIndexBeforeNotification()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "InlineResolve");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE warm resolve update\r\n#BPM 120\r\n#00111:01\r\n",
+                System.Text.Encoding.ASCII);
+            ChartFileSnapshot content = ChartFileContentReader.ReadSnapshot(chartPath);
+            const string oldMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            var bmsFile = CreateFile(oldMd5, chartPath, null);
+            var library = new TestBmsLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            List<string> resolveWork = [];
+            library.PlaylistLibraryResolveIndexStoreWorkObserver = resolveWork.Add;
+
+            PlaylistLibraryResolveIndexSnapshot initialResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool initialCacheHit,
+                out int initialStaleRetries);
+            Assert.IsFalse(initialCacheHit);
+            Assert.AreEqual(0, initialStaleRetries);
+            Assert.AreEqual(chartPath, initialResolve.ResolveChartForPlaylistHash(oldMd5, null).Path);
+            resolveWork.Clear();
+
+            InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                library,
+                "test_inline_playlist_resolve",
+                [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
+
+            PlaylistLibraryResolveIndexSnapshot updatedResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool updatedCacheHit,
+                out int updatedStaleRetries);
+            PlaylistLibraryResolveIndexSnapshot cachedResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool cachedCacheHit,
+                out int cachedStaleRetries);
+
+            Assert.IsTrue(updatedCacheHit);
+            Assert.IsTrue(cachedCacheHit);
+            Assert.AreEqual(0, updatedStaleRetries);
+            Assert.AreEqual(0, cachedStaleRetries);
+            Assert.AreEqual(content.Md5, bmsFile.hash);
+            Assert.AreEqual(content.Sha256, bmsFile.sha256);
+            Assert.IsNull(updatedResolve.ResolveChartForPlaylistHash(oldMd5, null));
+            Assert.AreEqual(chartPath, updatedResolve.ResolveChartForPlaylistHash(content.Md5, null).Path);
+            Assert.AreEqual(chartPath, updatedResolve.ResolveChartForPlaylistHash(null, content.Sha256).Path);
+            Assert.AreEqual(updatedResolve.Version, cachedResolve.Version);
+            Assert.IsNotNull(initialResolve.ResolveChartForPlaylistHash(oldMd5, null));
+            Assert.IsNull(initialResolve.ResolveChartForPlaylistHash(content.Md5, null));
+            Assert.AreEqual(0, resolveWork.Count(operation => operation == "playlist_resolve_source_enumeration"));
+            Assert.AreEqual(0, resolveWork.Count(operation => operation == "playlist_resolve_full_root_enumeration"));
+            Assert.AreEqual(0, resolveWork.Count(operation => operation == "playlist_resolve_source_entry_visited"));
+            Assert.IsTrue(resolveWork.Contains("playlist_resolve_exact_path_query"));
+            Assert.IsTrue(resolveWork.Contains("playlist_resolve_delta_apply"));
+            Assert.IsTrue(resolveWork.Contains("playlist_resolve_root_capture"));
         });
     }
 
@@ -125,10 +210,22 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.IsTrue(updatedLookup.ContainsPrimaryHash(snapshot.Md5));
             Assert.IsFalse(updatedLookup.Sha256Directories.ContainsKey(staleSha256));
             Assert.IsTrue(updatedLookup.Sha256Directories.ContainsKey(snapshot.Sha256));
+            CollectionAssert.AreEqual(new[] { chartDirectory }, initialLookup.Sha256Directories[staleSha256].ToArray());
+            CollectionAssert.AreEqual(new[] { chartDirectory }, updatedLookup.Sha256Directories[snapshot.Sha256].ToArray());
+            Assert.AreEqual(1, initialLookup.GetPrimaryHashCount(snapshot.Md5));
+            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(snapshot.Md5));
+            Assert.AreEqual(2, initialLookup.DirectoryReferenceCount);
+            Assert.AreEqual(2, updatedLookup.DirectoryReferenceCount);
+            Assert.IsTrue(initialLookup.Sha256Directories.ContainsKey(staleSha256));
             Assert.IsTrue(initialSummary.Md5Hashes.Contains(snapshot.Md5));
             Assert.IsTrue(updatedSummary.Md5Hashes.Contains(snapshot.Md5));
             Assert.IsFalse(updatedSummary.Sha256Hashes.Contains(staleSha256));
             Assert.IsTrue(updatedSummary.Sha256Hashes.Contains(snapshot.Sha256));
+            Assert.AreEqual(1, initialSummary.GetMd5OwnerCount(snapshot.Md5));
+            Assert.AreEqual(1, updatedSummary.GetMd5OwnerCount(snapshot.Md5));
+            Assert.AreEqual(1, initialSummary.GetSha256OwnerCount(staleSha256));
+            Assert.AreEqual(0, updatedSummary.GetSha256OwnerCount(staleSha256));
+            Assert.AreEqual(1, updatedSummary.GetSha256OwnerCount(snapshot.Sha256));
             Assert.AreNotEqual(initialSummary.Version, updatedSummary.Version);
             Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
         });

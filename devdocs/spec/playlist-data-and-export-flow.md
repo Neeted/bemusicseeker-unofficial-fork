@@ -418,13 +418,13 @@ The reset-backed native title-bar close contract is covered by `MainWindowPlayli
 
 ### Owned chart summary verification
 
-`PlaylistSummaryAggregationTests` の18 caseは、owned chart collection と同じ `remaining` logical-negative partitionへ、次の4 owner fixtureとして置換する。各 fixtureはGUID付き temporary song database / filesystem、owned hash snapshot、digest mutation window、completion / cleanup signalを従来どおり所有し、routeは `ProcessorCount` workers / `ClassLevel`である。旧 `owned-chart-collection` named performance shardは退役済みで、現行Functional laneでは使用しない。
+旧 `PlaylistSummaryAggregationTests` のcoverageは、owned chart collectionと同じ `remaining` logical-negative partitionの次の4 fixtureが所有する。各fixtureは固有の一時DB/FSとsnapshotを使い、routeは `ProcessorCount` workers / `ClassLevel`である。旧 `owned-chart-collection` named performance shardは退役済み。局所mutationとdigest終端の現在の契約・追加coverageは[データと索引](data-and-indexes.md#所持ハッシュ索引の差分と公開)を正本とする。
 
-| behavior | canonical fixture | Existing case set | Functional route |
+| behavior | canonical fixture | 主な確認 | Functional route |
 | --- | --- | --- | --- |
-| count calculation and summary-row filter / sort presentation | `PlaylistSummaryCountAndPresentationTests` | methods 2-6, 15-18 | `remaining` logical-negative partition, `ProcessorCount` workers / `ClassLevel` |
-| owned hash index build and cancellation | `PlaylistSummaryOwnedHashTests` | methods 1, 7 | same `remaining` logical-negative partition |
-| mutation invalidation and warm / rebuild reuse | `PlaylistSummaryMutationAndWarmTests` | methods 8-11 | same `remaining` logical-negative partition |
-| playlist library resolve-index cache and digest mutation window | `PlaylistSummaryResolveIndexTests` | methods 12-14 | same `remaining` logical-negative partition |
+| count calculation and summary-row filter / sort presentation | [PlaylistSummaryCountAndPresentationTests](../../BeMusicSeeker.Tests/PlaylistSummaryCountAndPresentationTests.cs) | count/filter/sortと集合不変時のcount再利用 | `remaining` logical-negative partition, `ProcessorCount` workers / `ClassLevel` |
+| owned hash index build and cancellation | [PlaylistSummaryOwnedHashTests](../../BeMusicSeeker.Tests/PlaylistSummaryOwnedHashTests.cs) | cold buildと取消 | same `remaining` logical-negative partition |
+| owned hash mutation and snapshot reuse | [PlaylistSummaryMutationAndWarmTests](../../BeMusicSeeker.Tests/PlaylistSummaryMutationAndWarmTests.cs) | owner数差分・旧snapshot・全件仕事の除去 | same `remaining` logical-negative partition |
+| playlist library resolve-index cache | [PlaylistSummaryResolveIndexTests](../../BeMusicSeeker.Tests/PlaylistSummaryResolveIndexTests.cs) | 代表昇格・置換・move・局所仕事。実digest windowは `OwnedChartCollectionInlineDigestTests` | same `remaining` logical-negative partition |
 
 The old `PlaylistSummaryAggregationTests` selector is retired; the replacement keeps its observable counts, rows, cancellation / mutation behavior, and persistence boundary unchanged. The four replacement FQNs are routed by the shared `remaining` logical-negative predicate (`R & FullyQualifiedName!~BeMusicSeeker.Tests.BmsLibrary`) and are covered once; the complementary `remaining-bms-library` positive predicate remains disjoint.

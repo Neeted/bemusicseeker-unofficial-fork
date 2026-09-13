@@ -1288,6 +1288,35 @@ internal sealed class BmsLibraryDbGateway(
         return result;
     }
 
+    /// <summary>
+    /// 指定された MD5 だけに対応する、現行 parser / timeout 条件の chart_info 解析失敗記録を読み込みます。
+    /// </summary>
+    /// <param name="md5s">検索対象 MD5。</param>
+    /// <param name="parseTimeout">今回の解析 timeout。</param>
+    /// <returns>MD5 をキーにした現行の解析失敗記録。</returns>
+    public Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> LoadCurrentChartInfoParseFailuresByMd5(
+        IEnumerable<string> md5s,
+        TimeSpan parseTimeout)
+    {
+        List<string> keys = NormalizeChartInfoLookupKeys(md5s);
+        var result = new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
+        if (keys.Count == 0)
+        {
+            return result;
+        }
+
+        using LR2SongDBExtended songDb = OpenSongDb();
+        EnsureChartInfoSchema(songDb);
+        foreach (LR2SongDBExtended.chart_info_parse_failure row in QueryChartInfoParseFailuresByMd5(songDb, keys))
+        {
+            if (IsCurrentChartInfoParseFailure(row, parseTimeout))
+            {
+                result[row.md5] = row;
+            }
+        }
+        return result;
+    }
+
     public ChartInfoBackfillCandidateSummary GetChartInfoBackfillCandidateSummary(TimeSpan parseTimeout)
     {
         using LR2SongDBExtended songDb = OpenSongDb();
@@ -2834,6 +2863,31 @@ internal sealed class BmsLibraryDbGateway(
                 sql += " ORDER BY sha256 COLLATE NOCASE ASC";
             }
             foreach (LR2SongDBExtended.chart_info row in songDb.Query<LR2SongDBExtended.chart_info>(sql, [.. chunk.Cast<object>()]))
+            {
+                yield return row;
+            }
+        }
+    }
+
+    private static IEnumerable<LR2SongDBExtended.chart_info_parse_failure> QueryChartInfoParseFailuresByMd5(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<string> keys)
+    {
+        if (songDb == null || keys == null || keys.Count == 0)
+        {
+            yield break;
+        }
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetTableName();
+        for (int offset = 0; offset < keys.Count; offset += ChartInfoLookupChunkSize)
+        {
+            List<string> chunk = [.. keys.Skip(offset).Take(ChartInfoLookupChunkSize)];
+            if (chunk.Count == 0)
+            {
+                continue;
+            }
+            string placeholders = string.Join(", ", chunk.Select(_ => "?"));
+            string sql = "SELECT * FROM " + tableName + " WHERE md5 IN (" + placeholders + ");";
+            foreach (LR2SongDBExtended.chart_info_parse_failure row in songDb.Query<LR2SongDBExtended.chart_info_parse_failure>(sql, [.. chunk.Cast<object>()]))
             {
                 yield return row;
             }

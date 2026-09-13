@@ -3938,7 +3938,7 @@ public sealed class PlaylistViewPipelineTests
             LibraryChartRef.FromBmsonSong(earlierPath),
             LibraryChartRef.FromBmsFile(bmsMd5LaterPath)
         ]);
-        LibraryChartRef preferred = md5Index.ChartsByMd5[entry.md5];
+        LibraryChartRef preferred = md5Index.ResolveChartForPlaylistHash(entry.md5, null);
         LibraryChartRef resolvedMd5First = md5Index.ResolveChartForPlaylistEntry(entry);
         PlaylistLibraryResolveIndexSnapshot shaIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
         [
@@ -3976,7 +3976,7 @@ public sealed class PlaylistViewPipelineTests
             LibraryChartRef.FromBmsFile(laterBms),
             LibraryChartRef.FromBmsonSong(earlierBmson)
         ]);
-        LibraryChartRef preferred = index.ChartsBySha256[entry.sha256];
+        LibraryChartRef preferred = index.ResolveChartForPlaylistHash(null, entry.sha256);
         LibraryChartRef resolved = index.ResolveChartForPlaylistEntry(entry);
 
         Assert.AreSame(earlierBmson, preferred.GetBmsonStorageOwner());
@@ -4034,8 +4034,8 @@ public sealed class PlaylistViewPipelineTests
             LibraryChartRef.FromBmsonSong(pathlessBmson)
         ]);
 
-        Assert.IsFalse(index.ChartsByMd5.ContainsKey(md5Entry.md5));
-        Assert.IsFalse(index.ChartsBySha256.ContainsKey(shaEntry.sha256));
+        Assert.IsNull(index.ResolveChartForPlaylistHash(md5Entry.md5, null));
+        Assert.IsNull(index.ResolveChartForPlaylistHash(null, shaEntry.sha256));
         Assert.IsNull(index.ResolveChartForPlaylistEntry(md5Entry));
         Assert.IsNull(index.ResolveChartForPlaylistEntry(shaEntry));
     }
@@ -4061,7 +4061,7 @@ public sealed class PlaylistViewPipelineTests
             LibraryChartRef.FromBmsonSong(md5lessBmson)
         ]);
 
-        Assert.IsFalse(index.ChartsBySha256.ContainsKey(shaEntry.sha256));
+        Assert.IsNull(index.ResolveChartForPlaylistHash(null, shaEntry.sha256));
         Assert.IsNull(index.ResolveChartForPlaylistEntry(shaEntry));
     }
 

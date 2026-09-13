@@ -28,6 +28,63 @@
 
 identity、parse failure、session all-current snapshotの詳細は [chart-info-lifecycle.md](chart-info-lifecycle.md) を参照する。
 
+### storage行の格納と捕捉
+
+`CatalogStorageRowsOwner` はBMS/BMSON別の不変sequenceとexact path・owner索引を持つ。局所upsert/remove/relocationでは該当entryだけを探し、順序キーの二分探索で更新位置を求める。snapshotとread-only getterはsequence rootとversionを捕捉し、全行を複製しない。捕捉済みviewのmembership・順序・versionは固定されるが、要素は同じlive storage ownerであり、後の正規relocationによるowner.pathの変化は見える。
+
+full replacementは入力の順序・raw行を保持し、呼出側の入力listとは共有しない。BMSのupsertは同exact pathの旧行を除いて入力順で末尾へ追加する。raw BMSONは初回upsert時に有効なexact pathの先勝ちへ正規化し、現在のowner.pathでstableな大小文字無視の順に並べる。同exact keyの置換はtie位置を維持し、BMSだけのupsertではBMSONの順序を変えない。rawとcanonicalの順序規則は別であり、性能修正を理由に統一しない。
+
+relocationはDB commit・live owner反映の後、明示的なold/new factsでstorage索引を更新する。変更後owner.pathから旧keyを推測せず、現在の格納位置を維持する。BMSONの実移動後、次のBMSON upsertで必要になる全BMSON正規化は残す。この例外に全BMSの走査を含めず、通常packageごとに正規化を繰り返さない。明示replacementのversion・通知は、捕捉viewの参照同一性を理由に省略しない。
+
+| 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 局所更新、順序探索、O(1) capture/getter | [CatalogStorageRowsOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogStorageRowsOwner.cs)、[CatalogStorageIndexedSequence](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogStorageIndexedSequence.cs) | [CatalogMutationOwnerTests.StorageRowsOwner_Background16And128WithFixedDeltaKeepsWarmCaptureAndGetterBounded](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs)。同exact pathへの連続upsertと実sequenceの訪問・アクセス・materializationを確認 |
+| raw BMSON順序とtie維持 | [CatalogStorageRowsOwner.PrepareBmsonForUpsert](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogStorageRowsOwner.cs) / `UpsertBmsonEntry` | [CatalogMutationOwnerTests.StorageRowsOwner_RawBmsonUpsertNormalizesOnlyOnBmsonChangeAndKeepsTieSlot](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs)。別途順序統一を行う場合に置換するcharacterization |
+| exact relocation、旧viewとowner、明示replacementの公開 | [CatalogMutationOwner.ApplyCatalogMutation](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogMutationOwner.cs) / `CreateStorageRowsReplacementRequest` | [CatalogMutationOwnerTests](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs) の既存relocation/DB failure、`ApplyStorageRowsReplacement_ExplicitSameInputStillPublishesVersion`、`LibraryFileScanPipelineOwnerTests` の既存snapshot/input isolation |
+
+### canonical collectionの順序と局所参照
+
+`OwnedChartCollectionState`は有効なexact pathの先勝ちでcanonical membershipを作り、kindをまたぐ同pathはBMSを先に採る。同MD5の別配置を畳まず、最初に除外されたraw重複ownerを後の削除で自動昇格しない。格納sequenceは不変rootを共有し、exact path・ownerから対象entryへ直接到達して順序キーで挿入・除去する。BMSの残存相対順を保ち、新規/upsertをその末尾かつBMSONの前へ入力順に配置する。
+
+canonical BMSONのupsertは、生成時に捕捉した`ChartFile.Path`の大小文字無視の順を使い、置換はremove→appendとして同値pathのtie末尾へ移る。full replacement直後の一回だけ、BMS-only upsertでもBMSON suffixを整列する。BMS prefix・その順序キー・索引は共有し、全BMSを巻き込むコピーや再採番を行わない。BMSONが無い場合は比較器を切り替えるだけでよい。relocation-onlyはcaptured pathと格納位置を維持する。通常表示は引き続きcurrent owner.pathで整列する。
+
+`LibraryChartRefIndexSnapshot`は既存のlive cacheとして差分更新し、関係するpath/directory bucketだけをcanonical順へ並べる。比較には現在のentryの安定キーを使い、全chartのrank mapを作らない。exact pathからの局所ref取得はoptional ref indexを構築しないため、primary-only lookupの置換前facts採取にも使える。初回BMSON順正規化の事実はmutation receiptへ渡し、後段の順序依存consumerが必要な失効を判断できるようにする。
+
+| 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| BMS survivor順、BMSON captured順と初回整列、置換tie | [OwnedChartCollectionState.UpsertStorageRows](../../BeMusicSeeker/Models/BmsLibraryInternal/OwnedChartCollectionState.cs) / `EnsureCanonicalBmsonOrder` | [OwnedChartCollectionLookupMembershipTests](../../BeMusicSeeker.Tests/OwnedChartCollectionLookupMembershipTests.cs) のupsert/relocation/characterization各case。raw規則と混同しない |
+| 背景Cに依存する順序map・コピーの除去 | 同sequence、[LibraryChartRefIndexSnapshot.ReorderAffectedPathsByStorageOrder](../../BeMusicSeeker/Models/BmsLibraryInternal/LibraryChartRefIndexSnapshot.cs) | `CanonicalSequence_Background16And128KeepsWarmMutationWorkBounded`。初期構築後を区切り、BMSON固定3件のcold処理と連続upsertを実観測 |
+| exact path局所queryと旧順序キー | `TryGetCanonicalChartRefForExactPath` / `CreateLibraryChartRefsForCanonicalPaths` | [OwnedChartCollectionReferenceIndexTests.CanonicalExactPathQueryReturnsCurrentOwnerAndPreservesOrderKeyAcrossRelocation](../../BeMusicSeeker.Tests/OwnedChartCollectionReferenceIndexTests.cs) と既存ref/projection coverage |
+| storage/canonical/receiptの接続とpackage公開 | [CatalogOwnedCollectionOwner.ApplyMutation](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogOwnedCollectionOwner.cs)、[CatalogMutationOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogMutationOwner.cs)、[BMSLibrary](../../BeMusicSeeker/Models/BMSLibrary.cs) | [OwnedChartCollectionLibraryMutationTests](../../BeMusicSeeker.Tests/OwnedChartCollectionLibraryMutationTests.cs)、[BmsLibraryPackageInstallServiceTests](../../BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs) の成功prefix・失敗・中間公開coverage |
+
+### 導入済み譜面lookupのsnapshot
+
+`InstalledChartLookupIndexState`は、MD5/SHAごとのdirectory所属数を差分で管理し、同directoryの最後のownerが消えるまで候補を保持する。候補membershipが変わったhashだけを更新し、大小文字無視で整列した不変bucketを公開mapへ反映する。primary count、directory別のdistinct primary hash count、known-directoryも不変rootで捕捉する。snapshot作成時の全mapコピー・全bucket再整列を行わず、`DirectoryReferenceCount`は更新済みの所属数を捕捉した値として返す。
+
+保持済みsnapshotとexcluding lookupは後の変更で変わらない。cold build、影響bucket内の候補操作、全known-directoryを要求するconsumerの列挙は必要な仕事として残る。primary-only lookupも不変count rootを共有してsnapshotを作成する。同MD5の置換やSHA-only変更ではMD5差分を相殺し、不要なprimary snapshot更新を行わない。primary-only利用のためにfull directory lookupやoptional ref indexを構築しない。
+
+| 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 所属数とlast-owner、候補順、旧snapshot/excluding | `InstalledChartLookupIndexState` / [InstalledChartLookupIndexSnapshot](../../BeMusicSeeker/Models/BmsLibraryInternal/InstalledChartLookupIndexSnapshot.cs) | [BmsLibraryInstallEstimationServiceTests.InstalledChartLookupIndexState_KeepsDigestBucketsAndCountsConsistentAcrossLastOwnerRemoval](../../BeMusicSeeker.Tests/BmsLibraryInstallEstimationServiceTests.cs) と既存count/move/excluding各case |
+| 対象bucketだけの更新、O(1) snapshot/count取得 | 同 projected map・`CreateSnapshot` / `DirectoryReferenceCount` | `InstalledChartLookupIndexState_ObservesOnlyAffectedBucketWork`。背景16/128の実map列挙・key訪問とbucket処理を確認 |
+| overlay/inline digestとの接続 | 既存installed lookup mutation dispatch | [OwnedChartCollectionInstalledOverlayTests](../../BeMusicSeeker.Tests/OwnedChartCollectionInstalledOverlayTests.cs)、[OwnedChartCollectionInlineDigestTests](../../BeMusicSeeker.Tests/OwnedChartCollectionInlineDigestTests.cs)。MD5変更・SHA-only変更、旧候補・各countを確認 |
+| primary-only snapshotと同MD5差分の相殺 | `PrimaryHashLookupState.CreateSnapshot`、[BMSLibrary.ApplyInstalledChartLookupMutation](../../BeMusicSeeker/Models/BMSLibrary.cs) | [OwnedChartCollectionInstalledOverlayTests.CreateInstalledChartKeySnapshotExcludingCharts_ExcludesOnlyPrimaryHashCounts](../../BeMusicSeeker.Tests/OwnedChartCollectionInstalledOverlayTests.cs) / `ApplyInstalledChartStorageTargets_UpdatesPrimaryLookupWithoutBuildingOwnedRefIndex`、上記inline digest coverage |
+
+親フォルダ候補のserviceは捕捉済みpath listを再利用し、custom output baseの正規化を一buildにつき一回行う。既存のraw path prefix照合、登録rootの表記・順序、`.lr2folder`の探索と失敗時除外を維持する。path捕捉とroot×path照合は残る。実装は`BmsLibraryParentFolderCacheService`、検証は`BmsLibraryParentFolderCacheServiceTests`。
+
+### 所持ハッシュ索引の差分と公開
+
+所持ハッシュ索引はconsumerの初回利用時だけcanonical collectionから構築し、MD5/SHAそれぞれのowner数を不変mapに保持する。同hashの別配置を数え、最後のownerの削除でmembershipを除く。構築済み索引にはdurable mutationの旧新hashを集約して適用し、snapshot getterで全mapを複製しない。両hash集合が同じならcontent Versionを維持し、所持数summaryのcacheを再利用する。sourceのowned/storage versionは内容のVersionと別に管理する。
+
+installの置換前factsは、所持ハッシュ索引だけがwarmの場合も対象exact pathから採取する。digestはcollectionとハッシュ差分を同じowner境界で反映し、storage mutationの差分は変更通知前に適用する。versionだけを進めて未適用rootをcurrentとみなさず、既に現在sourceから再構築済みなら旧deltaを重ねない。正常に反映したdigest windowの終了では再失効しない。full replacement・旧facts不足の既存全失効、source照合、失敗時の非公開は維持する。
+
+| 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| owner数、last-owner、MD5/SHA独立、旧snapshot | `OwnedChartHashIndexRoot.ApplyDeltas` | [PlaylistSummaryMutationAndWarmTests.GetOwnedChartHashIndexSnapshot_TracksBmsAndBmsonOwnerCountsAndKeepsOldSnapshot](../../BeMusicSeeker.Tests/PlaylistSummaryMutationAndWarmTests.cs) |
+| 集合不変時のcontent Versionとsummary再利用 | 同root、[CatalogOwnedCollectionOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogOwnedCollectionOwner.cs) | [PlaylistSummaryCountAndPresentationTests.PlaylistCatalogSummaryOwner_ReusesCountWhenSameDigestReplacementKeepsOwnedHashVersion](../../BeMusicSeeker.Tests/PlaylistSummaryCountAndPresentationTests.cs) |
+| cold buildと局所差分、getter全copy除去 | [CatalogOwnedCollectionOwner.GetHashIndexSnapshot](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogOwnedCollectionOwner.cs) / `ApplyHashIndexDeltas` | [PlaylistSummaryMutationAndWarmTests.GetOwnedChartHashIndexSnapshot_ColdBuildEnumeratesSourceThenKnownDeltaAvoidsFullBuilder](../../BeMusicSeeker.Tests/PlaylistSummaryMutationAndWarmTests.cs)。実source/root列挙と関連key更新を観測 |
+| digest反映・通知時の可視性・DB failure | [CatalogOwnedCollectionOwner.ApplyDigestChanges](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogOwnedCollectionOwner.cs)、[BMSLibrary.DispatchOwnedChartCollectionMutation](../../BeMusicSeeker/Models/BMSLibrary.cs) | [OwnedChartCollectionInlineDigestTests](../../BeMusicSeeker.Tests/OwnedChartCollectionInlineDigestTests.cs) のMD5/SHA-only/failure各case。通知時点の新hashと旧snapshotを確認 |
+
 ## Startup DB Projection
 
 install readiness の critical path では、導入先推定に必要な catalog projection だけを読む。
@@ -47,11 +104,12 @@ install readiness の critical path では、導入先推定に必要な catalog
   - owner が current `LibraryResourceIndex`、対応する `DirectoryResourceLookupCache`、runtime generation を一体で所有する。
   - file-scan replacement、move / rename、whole-folder delete、install、merge は owner の replace / mutation command を通す。長寿命 owner / service は cache instance を保持しない。
   - snapshot は index / directory cache / generation の対応を atomic に捕捉し、公開後の directory/resource mapping は後続 mutation で変化しない。変更 command は current cache を copy-on-write し、新 index/cache/generation を一括 publish する。変更 receipt は mutation result と変更後 snapshot を返し、実変更時だけ generation を進める。`Replace` に渡した完成済み index は owner へ ownership transfer され、呼出側は publish 後に直接変更しない。
-  - directory entry は immutable `Entry` と dictionary root を共有し、unpublished clone の初回entry変更時だけrootをdetachする。入力配列は ownership transfer が明示された native canonical build を除いて複製し、呼出側 alias を保持しない。`Entry` の内部 backing 配列も assembly consumer へ公開しない。
-  - resource reverse lookup は所有権移転された不変の初期baseと、keyごとの最新値を持つ構造共有の差分mapで構成する。forkでbaseを列挙・全コピーせず、初回mutationにも全件変換を持ち込まない。差分の更新は変更keyへのtree経路とcandidate配列だけを置換し、前世代への参照chainを持たない。lookupは差分とbaseの二層で、世代数分を辿らない。ownerのpublish前とlazy結果の格納完了時に計算済み変更nodeをfreezeし、次操作へそのfreeze処理を持ち越さない。
+  - directory entry は immutable `Entry`、pathから順序番号へのmap、live entryだけを持つ番号順mapを構造共有する。forkと初回変更で全directoryを複製しない。未公開command内では最後に削除した位置から再利用し、次commandへ空き位置を持ち越さないことで既存の候補順を維持する。番号の欠番は格納・列挙せず、全件の再採番も行わない。入力配列は ownership transfer が明示された native canonical build を除いて複製し、呼出側 alias を保持しない。`Entry` の内部 backing 配列も assembly consumer へ公開しない。
+  - resource reverse lookup は所有権移転された不変の初期baseと、keyごとの最新値を持つ構造共有の差分mapで構成する。forkでbaseを列挙・全コピーせず、初回mutationにも全件変換を持ち込まない。差分の更新は変更keyへのtree経路とcandidate配列だけを置換し、前世代への参照chainを持たない。lookupは差分とbaseの二層で、世代数分を辿らない。変更map自体を不変rootとして保持し、publishやlazy結果の格納後に全件freezeする処理を設けない。
+  - move / renameは移動対象entryが参照するhashのcached bucketだけを調べ、候補pathを位置を保って置換する。候補配列は実際の置換がある場合だけ確保する。外部の既存destinationを上書きする場合の失効、未cachedとcached miss、hash=0の既存扱いは維持する。
   - 最終candidate列が順序も含めて同一のbucketは逆引きを書き換えない。directory entryの変更（空resource、SelfOwnedのみ等）は別に判断する。SelfOwnedのみの変更でも、従来互換のremove-then-addで候補順序が変わるbucketは書き換える（例: `[A, B]` のAを更新すると `[B, A]`）。末尾候補の更新等で最終列が同じなら書かない。カテゴリの参照集合が同じことだけでは無書込を保証しない。候補順序、大小文字比較、hash=0、full/lazy、未cachedと空候補の区別は維持する。`updatedHashes` は従来のremove/add遷移の集計であり、正味のbucket書込回数とは異なる。
   - 初期baseの置換前payloadはindexの寿命内で保持し、差分は同じkeyの履歴ではなく最新値だけを持つ。明示scan/replacementや既存の全逆引きinvalidateでbaseも置き換わる。自動compact、操作後への必須更新の遅延、世代台帳は追加しない。差分が長期に増えた場合の処理速度は別途の未測定事項とする。
-  - whole-folder deleteは物理削除が成功した `DeletedFolderPaths` を一つのowner commandへ渡し、全成功分を一度だけpublishする。失敗・未実行のフォルダは取り除かず、重複/親子のentryを二重計上しない。入力列挙/反映失敗は旧snapshotを維持するが、先行FS削除が取り消されたとは扱わない。
+  - whole-folder deleteは物理削除が成功した `DeletedFolderPaths` を一つのowner commandへ渡し、全成功分を一度だけpublishする。source rootを正規化・集約し、entryをcommand全体で一回走査して祖先集合と照合する。sourceごとの全directory配列作成は行わない。失敗・未実行のフォルダは取り除かず、重複/親子のentryを二重計上しない。入力列挙/反映失敗は旧snapshotを維持するが、先行FS削除が取り消されたとは扱わない。
   - installはpackage単位の確定・公開境界を維持し、後続packageの処理から先行成功分のresource候補を参照可能にする。途中の `ManualRecoveryRequired` では公開済みの成功prefixを保持し、その失敗packageと未実行suffixの候補を追加しない。これは失敗packageのFS残存物が取り消されたという保証ではなく、回復済み失敗の後続継続可否も既存のbatch契約に従う。
   - merge の source subtree removal と destination scan addition は単一 owner command で unpublished clone に適用し、combined receipt として1回だけ publish する。途中で入力列挙または mutation が失敗した場合は例外を伝播し、旧 snapshot / generation を維持する。remove と add の最終 mapping が更新前と同一なら no-op とし、snapshot identity と generation を維持する。
 - key semantics:
@@ -80,9 +138,14 @@ Everything unavailable 時の managed fallback scan とテスト用 merge path �
 
 ### Verification map: resource-index mutation
 
-`DirectoryResourceLookupCacheTests` は小規模のentry/3カテゴリ/SelfOwned、full/lazy/空候補、候補順序、旧snapshotと独立membership factsを確認する。SelfOwnedのみの変更は単一候補に加え、複数候補の先頭/末尾更新を区別し、順序変更時の実書込と最終列が同じ場合の無書込を確認する。`ResourceReverseLookupMapTests` は列挙禁止のowned read-only baseを実際の格納部品へ渡し、初期受取/fork/実変更がbase全件の列挙・コピーへ戻らないこと、双方向の世代分離を確認する。`LibraryResourceIndexOwnerTests` は成功subtreeの一括公開・entryコピー回数・例外時非公開を確認する。`OwnedChartCollectionLibraryMutationTests` と `BmsLibraryPackageInstallServiceTests` は実library command、一時DB/ファイル、既存FS fakeを通して部分削除失敗およびリソース同梱の推定先/強制導入を確認する。導入成功ケースは2 package目のsource copy直前にsnapshotと3カテゴリの候補列を捕捉し、先行公開と中間snapshotの不変性を区別して確認する。既存の推定先/強制 `ManualRecoveryRequired` ケースにはpackageごとに異なるresource keyを与え、成功prefixだけの候補保持、失敗分/未実行分の非混入、旧snapshot不変を確認する。
+| 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 関連hashだけのmove更新、full/lazy/空候補、3カテゴリとSelfOwned | [DirectoryResourceLookupCache.ReplaceDirsWithResult](../../BeMusicSeeker/Models/BmsLibraryInternal/DirectoryResourceLookupCache.cs)、[ResourceReverseLookupMap](../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceReverseLookupMap.cs) | [DirectoryResourceLookupCacheTests.ReplaceDirsWithResult_RewritesOnlyBucketsForMovedEntryHashes](../../BeMusicSeeker.Tests/DirectoryResourceLookupCacheTests.cs) と既存candidate順・cached miss各case。`ResourceReverseLookupMapTests` は列挙禁止の所有baseでforkと実変更を確認 |
+| entry root共有、command内の位置再利用、command間の候補順、旧snapshot不変 | [DirectoryResourceEntryStore](../../BeMusicSeeker/Models/BmsLibraryInternal/DirectoryResourceEntryStore.cs)、[DirectoryResourceLookupCache.CloneForMutation](../../BeMusicSeeker/Models/BmsLibraryInternal/DirectoryResourceLookupCache.cs) | [DirectoryResourceLookupCacheTests.CloneForMutation_EmptyResourceEntryChangesOnlyTheEntryStore](../../BeMusicSeeker.Tests/DirectoryResourceLookupCacheTests.cs)、[LibraryResourceIndexOwnerTests.ReplaceSourceDirectoryWithScan_PreservesEntryOrderForLazyAndFull](../../BeMusicSeeker.Tests/LibraryResourceIndexOwnerTests.cs)、`RemoveThenAddScan_DiscardsPriorCommandFreeSlotsAndPreservesFinalOrder`。旧lazy snapshotは後続操作後に初めて検索 |
+| source群の一回走査、重複・親子集約、失敗時非公開 | [DirectoryResourceLookupCache.RemoveUnderSourceDirectories](../../BeMusicSeeker/Models/BmsLibraryInternal/DirectoryResourceLookupCache.cs)、[LibraryResourceIndexOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/LibraryResourceIndexOwner.cs) | [LibraryResourceIndexOwnerTests.RemoveUnderSourceDirectories_PublishesSuccessfulSubtreesAndUpdatesEntriesLocally](../../BeMusicSeeker.Tests/LibraryResourceIndexOwnerTests.cs) とsibling/empty/exception各case。実entry訪問・更新回数を確認 |
+| packageごとの先行公開、途中失敗での成功prefix保持 | [BMSLibrary.PackageInstall](../../BeMusicSeeker/Models/BMSLibrary.cs)、[LibraryResourceIndexOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/LibraryResourceIndexOwner.cs) | [BmsLibraryPackageInstallServiceTests](../../BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs) の推定先/強制導入と `ManualRecoveryRequired`、[OwnedChartCollectionLibraryMutationTests](../../BeMusicSeeker.Tests/OwnedChartCollectionLibraryMutationTests.cs) の部分削除。一時DB/FSと既存fakeで、2 package目のcopy直前の3カテゴリ候補を捕捉し、中間snapshot不変と失敗・未実行分の非混入を確認 |
 
-このcoverageはFunctionalの振る舞いテストであり、wall-clockの閾値・本番規模fixture・外部Everythingは要求しない。`LibraryResourceIndexTestSupport` のreflectionは既存ownerのsetupとsnapshot観測に限定し、private workflowを呼ばない。対応する診断APIができた場合にこの例外を退役する。instance-localのentryコピー/bucket書込observerは実処理直後のテスト観測専用で、通常運用は未設定とする。実行有無は[実装記録](../plan/install-delete-resource-index-p0.md)に分離し、追加テストの存在をpassや速度保証とは扱わない。
+このcoverageは小規模の振る舞い・処理量検証であり、本番規模のwall-clock合格を示さない。`LibraryResourceIndexTestSupport` のreflectionは既存ownerのsetupとsnapshot観測に限定し、private workflowを呼ばない。対応する診断APIができた場合にこの例外を退役する。instance-localのentry訪問・更新とbucket書込observerは実処理のテスト観測専用で、通常運用は未設定とする。実行結果は[性能改修の実装記録](../plan/BeMusicSeeker-library-mutation-performance.md)と[先行改修の記録](../plan/install-delete-resource-index-p0.md)に分離する。
 
 ## Resource Ownership
 
@@ -107,6 +170,17 @@ health / install estimation / maintenance は category 別 chart-relative key �
   - resource health index の正本として扱わない。
 
 通常起動では全譜面の resource file existence を再検証しない。persisted maintenance snapshot を hydration し、必要な missing/stale target だけ deferred maintenance で補完する。
+
+`ResourceHealthIndexSnapshot`はkind＋exact pathから、捕捉したhash・target・warning projectionを直接参照する。構築済みsnapshotへのdeltaは変更identityだけを更新し、全membershipのコピーや、rehash対象ごとの全key探索を行わない。healthy化ではwarningだけを除きTargetCountを維持し、譜面の除去ではmembershipも除く。active/ignoredそれぞれの警告列は、既存entryの安定した順序番号を二分探索して削除し、更新warningを入力順に末尾へ追加する。未変更entryの順序と旧snapshotのcounts・projectionは維持する。
+
+membership mapと警告sequenceは不変rootを共有し、projection・count・sequence getterで全件materializeしない。初回full buildと一覧を明示列挙するconsumerの全件仕事は残る。R1のno-op→invalidate→defer→delta→必要fullの選択、full入力providerの取得条件、input versionの検証と失敗時非公開は維持する。path変更・PathCleanupの既存失効を、この局所delta改修で変更しない。
+
+| 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| exact identity、rehash、healthy化と対象除去 | `ResourceHealthIndexSnapshot.ApplyDelta` / `GetProjection` | [BmsLibraryMaintenanceServiceTests.ResourceHealthIndexSnapshot_ApplyDeltaUpdatesOnlyAffectedTargets](../../BeMusicSeeker.Tests/BmsLibraryMaintenanceServiceTests.cs) とcase-only exact path各case |
+| 警告列の順序と旧snapshot不変 | 同 `ResourceHealthWarningSequence` | [BmsLibraryMaintenanceServiceTests.ResourceHealthIndexSnapshot_PreservesWarningOrderAndOldSnapshotAcrossLocalDelta](../../BeMusicSeeker.Tests/BmsLibraryMaintenanceServiceTests.cs) |
+| 背景H/Wに比例するコピー・探索をしない | 同 membership map、ordinal比較、sequence view | `ResourceHealthIndexSnapshot_LocalDeltaSharesUnchangedSequenceAndProjectionStorage`。healthy背景とwarning背景を独立に16/128へ増やし、実列挙・訪問・比較を確認 |
+| 実rescan・unregister公開とowner境界 | `ResourceHealthIndexOwner`、既存mutation dispatch | [BmsLibraryMaintenanceServiceTests](../../BeMusicSeeker.Tests/BmsLibraryMaintenanceServiceTests.cs)、[OwnedChartCollectionLibraryMutationTests](../../BeMusicSeeker.Tests/OwnedChartCollectionLibraryMutationTests.cs) の実入口、`ResourceHealthIndexOwnerTests` / `ResourceHealthFullOwnedTargetFreshnessTests` の分岐・version・failure coverage |
 
 ## Playlist And Score Data
 
@@ -134,6 +208,21 @@ LR2 ranking 系は 2 table に分かれる。
   - `EstimateOfflineScoreRanking=true` の場合、offline score ranking estimation は必要時だけ同じ parser の compact rank calculator を on-demand load する。startup refresh で reload 済みの hash はその lookup を再利用する。
   - 初回構築では対象 LR2ID の既存 row が DB 上も 0 件であることを transaction 内で確認し、dedupe 済み rows を bulk insert する。incremental 更新は従来通り `(hash, lr2id)` 単位の delete + insert upsert を使う。
   - schema 互換のため unique 制約は持たない。index は既存 `ir_data_idx(lr2id)` に加え、非 unique `ir_data_idx_lr2id_hash(lr2id, hash)` を持つ。
+
+### プレイリストから所持譜面を解決する索引
+
+detailの参照索引はkindとexact pathで全候補を保持し、MD5/SHA別の不変bucketから代表を解決する。代表は現在pathの大小文字無視の最小値、同値ならcanonical順の先頭とする。MD5指定のentryはMD5だけを使い、未解決でもSHAへ切り替えない。代表の削除では次候補へ進み、最後の候補が無くなると未解決になる。
+
+構築済み索引にはinstall、catalog mutation、inline digestの旧新factsを適用し、対象hashのbucketだけを更新する。新候補はcanonicalのexact path queryからrefと順序を捕捉し、optional ref indexを構築しない。旧snapshotのpath・hash・代表は後続操作で変わらず、通常の後続getterは全ref/mapを再構築しない。
+
+full replacement、facts不足、full replacement直後の初回BMSON canonical順序正規化では既存の全失効を維持する。初回正規化後の通常BMS upsertは差分へ戻る。digest差分は通知前に反映し、正常なwindow終端では再失効しない。source version照合、失敗時の非公開、detailの必要通知と既存の同世代prewarm Task共有を維持する。
+
+| 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 代表昇格、exact置換、move、旧snapshot | [PlaylistLibraryResolveIndexSnapshot](../../BeMusicSeeker/Models/BmsLibraryInternal/PlaylistLibraryResolveIndexSnapshot.cs) の `TryApplyDelta` / `ResolveChartForPlaylistHash` | [PlaylistSummaryResolveIndexTests](../../BeMusicSeeker.Tests/PlaylistSummaryResolveIndexTests.cs) の `AppliesCandidateDeltaAndKeepsPriorSnapshots` / `ReplacesExactCandidateAndRetainsOldSnapshot` / `MovesCandidateAndKeepsCanonicalCandidateOrder` 各case |
+| selected keyとSHA-only解決 | 同 `ResolveChartForPlaylistHash` | [PlaylistViewPipelineTests](../../BeMusicSeeker.Tests/PlaylistViewPipelineTests.cs) の既存代表選択・path無し除外・MD5/SHA解決case |
+| cold、対象hashだけの更新、BMSON初回境界 | [BMSLibrary](../../BeMusicSeeker/Models/BMSLibrary.cs) の `ApplyPlaylistLibraryResolveIndexMutation` / `TryCreateOwnedCanonicalPlaylistChartFactsUnsafe` | 上記resolve fixtureの `WarmDeltaDoesNotEnumerateUnchangedSource`（背景16/128、後続getterを含む）、`HandlesInitialBmsonNormalizationOnce` |
+| digestの通知前反映・window終端・失敗時非公開 | 同mutation dispatchと既存prewarm owner | [OwnedChartCollectionInlineDigestTests](../../BeMusicSeeker.Tests/OwnedChartCollectionInlineDigestTests.cs) の `BuildInlineChartInfo_UpdatesWarmPlaylistResolveIndexBeforeNotification` / `BuildInlineChartInfo_StorageFailureDoesNotPublishDigestIndexSessionIndexOrWarning`、[PlaylistWorkspaceDetailRefreshTests](../../BeMusicSeeker.Tests/PlaylistWorkspaceDetailRefreshTests.cs) の既存通知・prewarm coverage |
 
 ### Verification map: IR 取得
 

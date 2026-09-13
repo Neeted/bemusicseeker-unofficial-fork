@@ -182,16 +182,7 @@ internal sealed class LibraryResourceIndexOwner
     {
         lock (gate)
         {
-            return MutateCurrentUnsafe(cache =>
-            {
-                DirectoryResourceLookupCache.ReverseLookupMutationResult result =
-                    DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-                foreach (string directory in sourceDirectories ?? [])
-                {
-                    result = result.Combine(cache.RemoveUnderSourceDirectory(directory));
-                }
-                return result;
-            });
+            return MutateCurrentUnsafe(cache => cache.RemoveUnderSourceDirectories(sourceDirectories));
         }
     }
 
@@ -242,22 +233,16 @@ internal sealed class LibraryResourceIndexOwner
                 .Distinct(StringComparer.OrdinalIgnoreCase)];
             DirectoryResourceLookupCache previousCache =
                 currentSnapshot.DirectoryLookupCache;
-            HashSet<string> affectedDirectories = [.. replacements];
-            foreach (string currentDirectory in previousCache.Keys.Where(path =>
-                (path + Path.DirectorySeparatorChar).StartsWith(
-                    sourceDirectory + Path.DirectorySeparatorChar,
-                    StringComparison.OrdinalIgnoreCase)))
-            {
-                affectedDirectories.Add(currentDirectory);
-            }
             return MutateCurrentUnsafe(cache =>
             {
+                List<string> removedDirectories = [];
                 DirectoryResourceLookupCache.ReverseLookupMutationResult result =
-                    cache.RemoveUnderSourceDirectory(sourceDirectory);
+                    cache.RemoveUnderSourceDirectories([sourceDirectory], removedDirectories);
                 foreach (string directoryPath in replacements)
                 {
                     result = result.Combine(cache.AddDir(directoryPath, replacementScan));
                 }
+                HashSet<string> affectedDirectories = [.. replacements, .. removedDirectories];
                 return previousCache.HasSameDirectoryEntries(cache, affectedDirectories)
                     ? DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty
                     : result;
@@ -355,7 +340,6 @@ internal sealed class LibraryResourceIndexOwner
             return new LibraryResourceIndexMutationReceipt(previousSnapshot, mutationResult);
         }
 
-        nextCache.FreezeReverseLookupChanges();
         LibraryResourceIndex nextIndex =
             previousSnapshot.Index.DeriveWithDirectoryLookupCache(nextCache);
         currentSnapshot = new LibraryResourceIndexSnapshot(

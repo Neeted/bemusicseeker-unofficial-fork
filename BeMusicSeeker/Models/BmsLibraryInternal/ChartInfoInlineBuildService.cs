@@ -120,9 +120,6 @@ internal sealed class ChartInfoInlineBuildService(
         Action<string> logInstallPerformanceWarn = null)
     {
         var total = new ChartInfoInlineBuildResult();
-        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway != null
-            ? dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout)
-            : new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
         List<ChartFile> targets = [.. (charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         var evaluatedResults = new Dictionary<string, ChartInfoBuildService.ChartInfoSnapshotBuildResult>(StringComparer.OrdinalIgnoreCase);
         foreach (List<ChartFile> batch in CreateBatches(targets, batchSize))
@@ -144,6 +141,12 @@ internal sealed class ChartInfoInlineBuildService(
                     logInstallPerformanceWarn?.Invoke("chart_info_inline read_failed path=" + QuoteLogValue(target.Path) + " exception=" + ex.GetType().Name + " message=" + QuoteLogValue(ex.Message));
                 }
             }
+            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway?.LoadCurrentChartInfoParseFailuresByMd5(
+                snapshots
+                    .Where(snapshot => snapshot?.Snapshot != null)
+                    .Select(snapshot => snapshot.Snapshot.Md5),
+                chartInfoBuildService.CurrentParseTimeout)
+                ?? new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
             ChartInfoInlineBuildResult batchResult = BuildForSnapshots(
                 dbGateway,
                 snapshots,

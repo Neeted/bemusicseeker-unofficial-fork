@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Windows;
 using BeMusicSeeker.Models;
@@ -97,13 +96,6 @@ internal static class PlaylistSummaryAggregationTestSupport
     internal static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)
     {
         library.ApplyInstalledChartStorageTargets(addedTargets, "install_package");
-    }
-
-    internal static IDisposable BeginOwnedDigestMutationWindow(BMSLibrary library)
-    {
-        MethodInfo? methodInfo = typeof(BMSLibrary).GetMethod("BeginOwnedDigestMutationWindow", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (IDisposable)methodInfo!.Invoke(library, [])!;
     }
 
     internal static void WithTemporarySongDb(System.Action<string> testAction)

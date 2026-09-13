@@ -2369,10 +2369,23 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string firstDir = Path.Combine("C:\\Installed", "First");
         string secondDir = Path.Combine("C:\\Installed", "Second");
         var state = new InstalledChartLookupIndexState();
-        state.AddChart(Path.Combine(firstDir, "a.bms"), hash, null);
         state.AddChart(Path.Combine(secondDir, "b.bms"), hash, null);
+        state.AddChart(Path.Combine(firstDir, "a.bms"), hash, null);
+
+        InstalledChartLookupIndexSnapshot initial = state.CreateSnapshot();
 
         Assert.AreEqual(2, state.DirectoryReferenceCount);
+        CollectionAssert.AreEqual(new[] { firstDir, secondDir }, initial.Md5Directories[hash].ToArray());
+        Assert.AreEqual(2, initial.GetPrimaryHashCount(hash));
+        Assert.AreEqual(1, initial.GetUniquePrimaryHashCountByDirectory(firstDir));
+        Assert.AreEqual(1, initial.GetUniquePrimaryHashCountByDirectory(secondDir));
+        Assert.IsTrue(initial.KnownChartDirectories.Contains(firstDir));
+        Assert.IsTrue(initial.KnownChartDirectories.Contains(secondDir));
+        Assert.AreEqual(2, initial.DirectoryReferenceCount);
+        IPrimaryHashLookup excludingOne = initial.CreateExcludingLookup(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            [hash] = 1
+        });
 
         state.RemoveChart(Path.Combine(firstDir, "a.bms"), hash, null);
         InstalledChartLookupIndexSnapshot partial = state.CreateSnapshot();
@@ -2381,6 +2394,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(1, partial.GetPrimaryHashCount(hash));
         Assert.AreEqual(1, state.DirectoryReferenceCount);
         CollectionAssert.AreEqual(new[] { secondDir }, partial.Md5Directories[hash].ToArray());
+        Assert.IsFalse(partial.KnownChartDirectories.Contains(firstDir));
+        Assert.IsTrue(partial.KnownChartDirectories.Contains(secondDir));
+        Assert.AreEqual(0, partial.GetUniquePrimaryHashCountByDirectory(firstDir));
+        Assert.AreEqual(1, partial.GetUniquePrimaryHashCountByDirectory(secondDir));
+        Assert.AreEqual(1, partial.DirectoryReferenceCount);
+        Assert.IsTrue(excludingOne.ContainsPrimaryHash(hash));
+        Assert.AreEqual(1, excludingOne.GetPrimaryHashCount(hash));
 
         state.RemoveChart(Path.Combine(secondDir, "b.bms"), hash, null);
         InstalledChartLookupIndexSnapshot empty = state.CreateSnapshot();
@@ -2390,6 +2410,192 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsFalse(empty.Md5Directories.ContainsKey(hash));
         Assert.IsFalse(empty.KnownChartDirectories.Contains(firstDir));
         Assert.IsFalse(empty.KnownChartDirectories.Contains(secondDir));
+
+        CollectionAssert.AreEqual(new[] { firstDir, secondDir }, initial.Md5Directories[hash].ToArray());
+        Assert.AreEqual(2, initial.GetPrimaryHashCount(hash));
+        Assert.IsTrue(initial.KnownChartDirectories.Contains(firstDir));
+        Assert.IsTrue(initial.KnownChartDirectories.Contains(secondDir));
+        Assert.AreEqual(2, initial.DirectoryReferenceCount);
+        Assert.AreEqual(1, initial.GetUniquePrimaryHashCountByDirectory(firstDir));
+        Assert.AreEqual(1, initial.GetUniquePrimaryHashCountByDirectory(secondDir));
+        Assert.IsTrue(excludingOne.ContainsPrimaryHash(hash));
+        Assert.AreEqual(1, excludingOne.GetPrimaryHashCount(hash));
+
+        CollectionAssert.AreEqual(new[] { secondDir }, partial.Md5Directories[hash].ToArray());
+        Assert.AreEqual(1, partial.GetPrimaryHashCount(hash));
+        Assert.AreEqual(1, partial.DirectoryReferenceCount);
+    }
+
+    [TestMethod]
+    public void PrimaryHashLookupState_SharesImmutableCountRootAndKeepsPreviousSnapshots()
+    {
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        const string sharedHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string otherHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        var state = new PrimaryHashLookupState();
+        state.AddPrimaryHash(sharedHash);
+        state.AddPrimaryHash(sharedHash);
+        state.AddPrimaryHash(otherHash);
+
+        PrimaryHashLookupSnapshot initial = state.CreateSnapshot();
+        PrimaryHashLookupSnapshot cached = state.CreateSnapshot();
+        Assert.AreSame(initial, cached);
+        Assert.AreEqual(2, initial.GetPrimaryHashCount(sharedHash));
+        Assert.AreEqual(1, initial.GetPrimaryHashCount(otherHash));
+        Assert.AreEqual(2, initial.PrimaryHashCounts[sharedHash]);
+
+        state.RemovePrimaryHash(sharedHash);
+        PrimaryHashLookupSnapshot oneOwner = state.CreateSnapshot();
+        Assert.AreEqual(1, oneOwner.GetPrimaryHashCount(sharedHash));
+        Assert.AreEqual(1, oneOwner.GetPrimaryHashCount(otherHash));
+        Assert.AreEqual(2, initial.GetPrimaryHashCount(sharedHash));
+        Assert.AreEqual(2, initial.PrimaryHashCounts[sharedHash]);
+
+        state.RemovePrimaryHash(sharedHash);
+        PrimaryHashLookupSnapshot empty = state.CreateSnapshot();
+        Assert.AreEqual(0, empty.GetPrimaryHashCount(sharedHash));
+        Assert.IsFalse(empty.ContainsPrimaryHash(sharedHash));
+        Assert.AreEqual(1, empty.GetPrimaryHashCount(otherHash));
+        Assert.AreEqual(1, oneOwner.GetPrimaryHashCount(sharedHash));
+        Assert.AreEqual(2, initial.GetPrimaryHashCount(sharedHash));
+    }
+
+    [TestMethod]
+    public void InstalledChartLookupIndexState_KeepsDigestBucketsAndCountsConsistentAcrossLastOwnerRemoval()
+    {
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        string sharedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string sharedSha256 = new string('b', 64);
+        string otherMd5 = "cccccccccccccccccccccccccccccccc";
+        string sharedDirectory = Path.Combine("C:\\Installed", "Shared");
+        string otherDirectory = Path.Combine("C:\\Installed", "Other");
+        var state = new InstalledChartLookupIndexState();
+
+        state.AddChart(Path.Combine(sharedDirectory, "bms-chart.bms"), sharedMd5, sharedSha256);
+        state.AddChart(Path.Combine(sharedDirectory.ToUpperInvariant(), "bmson-chart.bmson"), sharedMd5, sharedSha256);
+        state.AddChart(Path.Combine(otherDirectory, "other-chart.bms"), otherMd5, null);
+
+        InstalledChartLookupIndexSnapshot initial = state.CreateSnapshot();
+
+        CollectionAssert.AreEqual(new[] { sharedDirectory }, initial.Md5Directories[sharedMd5].ToArray());
+        CollectionAssert.AreEqual(new[] { sharedDirectory }, initial.Sha256Directories[sharedSha256].ToArray());
+        Assert.AreEqual(2, initial.GetPrimaryHashCount(sharedMd5));
+        Assert.AreEqual(1, initial.GetPrimaryHashCount(otherMd5));
+        Assert.AreEqual(1, initial.GetUniquePrimaryHashCountByDirectory(sharedDirectory));
+        Assert.AreEqual(1, initial.GetUniquePrimaryHashCountByDirectory(otherDirectory));
+        Assert.IsTrue(initial.KnownChartDirectories.Contains(sharedDirectory));
+        Assert.IsTrue(initial.KnownChartDirectories.Contains(otherDirectory));
+        Assert.AreEqual(3, initial.DirectoryReferenceCount);
+
+        state.RemoveChart(Path.Combine(sharedDirectory, "bms-chart.bms"), sharedMd5, sharedSha256);
+        InstalledChartLookupIndexSnapshot oneOwner = state.CreateSnapshot();
+
+        CollectionAssert.AreEqual(new[] { sharedDirectory }, oneOwner.Md5Directories[sharedMd5].ToArray());
+        CollectionAssert.AreEqual(new[] { sharedDirectory }, oneOwner.Sha256Directories[sharedSha256].ToArray());
+        Assert.AreEqual(1, oneOwner.GetPrimaryHashCount(sharedMd5));
+        Assert.AreEqual(3, oneOwner.DirectoryReferenceCount);
+        Assert.IsTrue(oneOwner.KnownChartDirectories.Contains(sharedDirectory));
+        Assert.AreEqual(1, oneOwner.GetUniquePrimaryHashCountByDirectory(sharedDirectory));
+
+        state.RemoveChart(Path.Combine(sharedDirectory.ToUpperInvariant(), "bmson-chart.bmson"), sharedMd5, sharedSha256);
+        InstalledChartLookupIndexSnapshot lastOwnerRemoved = state.CreateSnapshot();
+
+        Assert.IsFalse(lastOwnerRemoved.Md5Directories.ContainsKey(sharedMd5));
+        Assert.IsFalse(lastOwnerRemoved.Sha256Directories.ContainsKey(sharedSha256));
+        Assert.AreEqual(0, lastOwnerRemoved.GetPrimaryHashCount(sharedMd5));
+        Assert.AreEqual(1, lastOwnerRemoved.GetPrimaryHashCount(otherMd5));
+        Assert.AreEqual(1, lastOwnerRemoved.DirectoryReferenceCount);
+        Assert.IsFalse(lastOwnerRemoved.KnownChartDirectories.Contains(sharedDirectory));
+        Assert.IsTrue(lastOwnerRemoved.KnownChartDirectories.Contains(otherDirectory));
+        Assert.AreEqual(0, lastOwnerRemoved.GetUniquePrimaryHashCountByDirectory(sharedDirectory));
+        Assert.AreEqual(1, lastOwnerRemoved.GetUniquePrimaryHashCountByDirectory(otherDirectory));
+
+        CollectionAssert.AreEqual(new[] { sharedDirectory }, initial.Md5Directories[sharedMd5].ToArray());
+        CollectionAssert.AreEqual(new[] { sharedDirectory }, initial.Sha256Directories[sharedSha256].ToArray());
+        Assert.AreEqual(2, initial.GetPrimaryHashCount(sharedMd5));
+        Assert.AreEqual(3, initial.DirectoryReferenceCount);
+        Assert.IsTrue(initial.KnownChartDirectories.Contains(sharedDirectory));
+        Assert.AreEqual(1, initial.GetUniquePrimaryHashCountByDirectory(sharedDirectory));
+
+        CollectionAssert.AreEqual(new[] { sharedDirectory }, oneOwner.Md5Directories[sharedMd5].ToArray());
+        CollectionAssert.AreEqual(new[] { sharedDirectory }, oneOwner.Sha256Directories[sharedSha256].ToArray());
+        Assert.AreEqual(1, oneOwner.GetPrimaryHashCount(sharedMd5));
+        Assert.AreEqual(3, oneOwner.DirectoryReferenceCount);
+    }
+
+    /// <summary>R5b-LocalWork: 固定差分で影響 bucket の更新と scalar getter の実処理を観測します。</summary>
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public void InstalledChartLookupIndexState_ObservesOnlyAffectedBucketWork(int backgroundChartCount)
+    {
+        using var cultureScope = TestResourceInitializer.UseJapaneseCulture();
+        string rootDirectory = Path.Combine("C:\\Installed", "Background", backgroundChartCount.ToString());
+        string targetHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        string targetSha256 = new string('b', 64);
+        string targetDirectory = Path.Combine(rootDirectory, "Target");
+        string removedTargetPath = Path.Combine(targetDirectory, "removed.bms");
+        string retainedTargetDirectory = Path.Combine(rootDirectory, "TargetRetained");
+        string retainedTargetPath = Path.Combine(retainedTargetDirectory, "retained.bms");
+        var state = new InstalledChartLookupIndexState();
+        List<string> coldWork = [];
+        state.StoreWorkObserver = operation => coldWork.Add(operation);
+
+        for (int index = 0; index < backgroundChartCount; index++)
+        {
+            string backgroundHash = index.ToString("x8") + new string('0', 24);
+            string backgroundSha256 = index.ToString("x8") + new string('1', 56);
+            string backgroundPath = Path.Combine(rootDirectory, "Chart-" + index.ToString(), "background.bms");
+            state.AddChart(backgroundPath, backgroundHash, backgroundSha256);
+        }
+        state.AddChart(removedTargetPath, targetHash, targetSha256);
+        state.AddChart(retainedTargetPath, targetHash, targetSha256);
+        InstalledChartLookupIndexSnapshot initial = state.CreateSnapshot();
+        _ = initial.Md5Directories.ToArray();
+        _ = initial.Sha256Directories.ToArray();
+        _ = initial.PrimaryHashCounts.ToArray();
+        _ = initial.UniquePrimaryHashCountsByDirectory.ToArray();
+        _ = initial.KnownChartDirectories.ToArray();
+        state.StoreWorkObserver = null;
+        initial.StoreWorkObserver = null;
+        Assert.IsTrue(coldWork.Count(operation => operation == "installed_directory_bucket_update") > 0);
+        Assert.IsTrue(coldWork.Count(operation => operation == "installed_root_map_enumeration") > 0);
+        Assert.IsTrue(coldWork.Count(operation => operation == "installed_root_map_key_visited") > 0);
+
+        List<string> storeWork = [];
+        state.StoreWorkObserver = operation => storeWork.Add(operation);
+        state.RemoveChart(removedTargetPath, targetHash, targetSha256);
+        InstalledChartLookupIndexSnapshot updated = state.CreateSnapshot();
+        _ = updated.Md5Directories.Count;
+        _ = updated.Sha256Directories.Count;
+        _ = updated.GetDistinctDirectoriesByPrimaryHash(targetHash).Count;
+        _ = updated.GetPrimaryHashCount(targetHash);
+        _ = updated.GetUniquePrimaryHashCountByDirectory(retainedTargetDirectory);
+        _ = updated.PrimaryHashCounts.Count;
+        _ = updated.UniquePrimaryHashCountsByDirectory.Count;
+        _ = updated.KnownChartDirectories.Count;
+        _ = updated.DirectoryReferenceCount;
+        state.StoreWorkObserver = null;
+        updated.StoreWorkObserver = null;
+
+        CollectionAssert.AreEqual(new[] { retainedTargetDirectory }, updated.Md5Directories[targetHash].ToArray());
+        CollectionAssert.AreEqual(new[] { retainedTargetDirectory }, updated.Sha256Directories[targetSha256].ToArray());
+        Assert.AreEqual(1, updated.GetPrimaryHashCount(targetHash));
+        Assert.AreEqual(1, updated.GetUniquePrimaryHashCountByDirectory(retainedTargetDirectory));
+        Assert.AreEqual(2 * backgroundChartCount + 2, updated.DirectoryReferenceCount);
+        Assert.AreEqual(2, storeWork.Count(operation => operation == "installed_directory_bucket_update"));
+        int affectedBucketEntryCopies = storeWork.Count(operation => operation == "installed_directory_bucket_entry_copied");
+        Assert.IsTrue(affectedBucketEntryCopies <= 2);
+        Assert.AreEqual(1, storeWork.Count(operation => operation == "installed_snapshot_root_capture"));
+        Assert.AreEqual(1, storeWork.Count(operation => operation == "installed_directory_reference_count_read"));
+        Assert.IsTrue(affectedBucketEntryCopies < backgroundChartCount);
+        Assert.AreEqual(0, storeWork.Count(operation => operation == "installed_root_map_enumeration"));
+        Assert.AreEqual(0, storeWork.Count(operation => operation == "installed_root_map_key_visited"));
+
+        CollectionAssert.AreEqual(new[] { targetDirectory, retainedTargetDirectory }, initial.Md5Directories[targetHash].ToArray());
+        CollectionAssert.AreEqual(new[] { targetDirectory, retainedTargetDirectory }, initial.Sha256Directories[targetSha256].ToArray());
+        Assert.AreEqual(2, initial.GetPrimaryHashCount(targetHash));
+        Assert.AreEqual(2 * backgroundChartCount + 4, initial.DirectoryReferenceCount);
     }
 
     [TestMethod]

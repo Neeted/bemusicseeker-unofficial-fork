@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -12,6 +13,30 @@ internal interface ILibraryChartCanonicalLookup
     CanonicalChartResolveResult ResolveCanonicalCharts(IEnumerable<LibraryChartRef> inputCharts);
 
     int CountChartRefsUnderRealPath(string folderPath, ISet<string> excludedPaths);
+}
+
+/// <summary>
+/// BMS subtree count / range query が実際に訪問した範囲を集約する instance-local 診断です。
+/// </summary>
+/// <param name="subtreeCountQueryCount">subtree count query の呼出し回数。</param>
+/// <param name="rangeQueryCount">range query の呼出し回数。</param>
+/// <param name="rangeVisitedReferenceCount">range query が実際に訪問した chart ref 数。</param>
+/// <param name="rangeReturnedPathCount">range query が返した exact path 数。</param>
+internal sealed class LibraryChartRefIndexBmsQueryDiagnostics(
+    int subtreeCountQueryCount,
+    int rangeQueryCount,
+    int rangeVisitedReferenceCount,
+    int rangeReturnedPathCount)
+{
+    internal static LibraryChartRefIndexBmsQueryDiagnostics Empty { get; } = new(0, 0, 0, 0);
+
+    internal int SubtreeCountQueryCount { get; } = subtreeCountQueryCount;
+
+    internal int RangeQueryCount { get; } = rangeQueryCount;
+
+    internal int RangeVisitedReferenceCount { get; } = rangeVisitedReferenceCount;
+
+    internal int RangeReturnedPathCount { get; } = rangeReturnedPathCount;
 }
 
 internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLookup
@@ -25,6 +50,10 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     private readonly List<string> sortedDirectDirectories;
     private readonly Dictionary<string, int> subtreeCountsByDirectory;
     private readonly Dictionary<string, int> bmsSubtreeCountsByDirectory;
+    private int bmsSubtreeCountQueryCount;
+    private int bmsRangeQueryCount;
+    private int bmsRangeVisitedReferenceCount;
+    private int bmsRangeReturnedPathCount;
 
     private LibraryChartRefIndexSnapshot(
         Dictionary<BMSFile, LibraryChartRef> bmsByReference,
@@ -59,18 +88,6 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     /// 直接 chart refs を持つ real path directory bucket 数を返します。
     /// </summary>
     internal int DirectDirectoryCount => directRefsByDirectory.Count;
-
-    internal IReadOnlyList<string> GetCurrentBmsChartPaths()
-    {
-        return Array.AsReadOnly(refsByPath.Values
-            .SelectMany(refs => refs ?? [])
-            .Where(chart => chart != null && IsBmsChartRef(chart) && HasCurrentPath(chart))
-            .Select(chart => chart.Path)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .ToArray());
-    }
 
     /// <summary>
     /// subtree count を持つ real path directory bucket 数を返します。
@@ -190,7 +207,14 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         }
     }
 
-    internal void ReorderAffectedPathsByStorageOrder(IEnumerable<ChartFile> charts, IEnumerable<string> affectedPaths)
+    /// <summary>
+    /// 変更されたpathとそのdirectory bucketだけを、canonical sequenceの安定順で並べ直します。
+    /// </summary>
+    /// <param name="affectedPaths">変更されたexact path。</param>
+    /// <param name="storageOrderComparison">canonical sequenceと同じ順序でrefを比較する関数。</param>
+    internal void ReorderAffectedPathsByStorageOrder(
+        IEnumerable<string> affectedPaths,
+        Comparison<LibraryChartRef> storageOrderComparison)
     {
         var affectedPathKeys = new HashSet<string>(
             (affectedPaths ?? []).Select(CreatePathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
@@ -203,19 +227,18 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         var affectedDirectoryKeys = new HashSet<string>(
             affectedPathKeys.Select(CreateDirectoryKeyForFilePath).Where(directory => !string.IsNullOrWhiteSpace(directory)),
             StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, int> orderByIdentity = BuildStorageOrder(charts);
         foreach (string pathKey in affectedPathKeys)
         {
             if (refsByPath.TryGetValue(pathKey, out List<LibraryChartRef> refs))
             {
-                SortRefsByStorageOrder(refs, orderByIdentity);
+                SortRefsByStorageOrder(refs, storageOrderComparison);
             }
         }
         foreach (string directoryKey in affectedDirectoryKeys)
         {
             if (directRefsByDirectory.TryGetValue(directoryKey, out List<LibraryChartRef> refs))
             {
-                SortRefsByStorageOrder(refs, orderByIdentity);
+                SortRefsByStorageOrder(refs, storageOrderComparison);
             }
         }
     }
@@ -270,18 +293,47 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     internal List<string> GetBmsChartPathsUnderRealPath(string folderPath)
     {
         string folderKey = CreateDirectoryKey(folderPath);
-        if (string.IsNullOrWhiteSpace(folderKey)
-            || !bmsSubtreeCountsByDirectory.ContainsKey(folderKey))
+        if (string.IsNullOrWhiteSpace(folderKey))
         {
             return [];
         }
 
-        return [.. EnumerateChartRefsUnderDirectoryKey(folderKey)
-            .Where(IsBmsChartRef)
-            .Where(HasCurrentPath)
-            .Select(chart => chart.Path)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        Interlocked.Increment(ref bmsRangeQueryCount);
+        if (!bmsSubtreeCountsByDirectory.ContainsKey(folderKey))
+        {
+            return [];
+        }
+
+        var result = new List<string>();
+        var addedPaths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (LibraryChartRef chart in EnumerateChartRefsUnderDirectoryKey(folderKey))
+        {
+            Interlocked.Increment(ref bmsRangeVisitedReferenceCount);
+            if (!IsBmsChartRef(chart) || !HasCurrentPath(chart))
+            {
+                continue;
+            }
+
+            string path = chart.Path;
+            if (!string.IsNullOrWhiteSpace(path) && addedPaths.Add(path))
+            {
+                result.Add(path);
+                Interlocked.Increment(ref bmsRangeReturnedPathCount);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// この index instance の BMS 範囲 query 診断を返します。
+    /// </summary>
+    internal LibraryChartRefIndexBmsQueryDiagnostics CaptureBmsQueryDiagnostics()
+    {
+        return new LibraryChartRefIndexBmsQueryDiagnostics(
+            Volatile.Read(ref bmsSubtreeCountQueryCount),
+            Volatile.Read(ref bmsRangeQueryCount),
+            Volatile.Read(ref bmsRangeVisitedReferenceCount),
+            Volatile.Read(ref bmsRangeReturnedPathCount));
     }
 
     private IEnumerable<LibraryChartRef> EnumerateChartRefsUnderDirectoryKey(string folderKey)
@@ -405,6 +457,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
 
     internal int CountBmsChartRefsUnderRealPath(string folderPath)
     {
+        Interlocked.Increment(ref bmsSubtreeCountQueryCount);
         string folderKey = CreateDirectoryKey(folderPath);
         return !string.IsNullOrWhiteSpace(folderKey)
             && bmsSubtreeCountsByDirectory.TryGetValue(folderKey, out int count)
@@ -518,7 +571,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             return 0;
         }
 
-        int removed = refs.RemoveAll(chartRef => IsSameChart(chartRef, chart));
+        int removed = refs.RemoveAll(reference => IsSameChart(reference, chart));
         if (refs.Count == 0)
         {
             refsByPath.Remove(pathKey);
@@ -533,7 +586,7 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             return 0;
         }
 
-        int removed = refs.RemoveAll(chartRef => IsSameChart(chartRef, chart));
+        int removed = refs.RemoveAll(reference => IsSameChart(reference, chart));
         if (refs.Count == 0)
         {
             directRefsByDirectory.Remove(directoryKey);
@@ -611,37 +664,17 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
         return null;
     }
 
-    private static Dictionary<string, int> BuildStorageOrder(IEnumerable<ChartFile> charts)
+    private static void SortRefsByStorageOrder(
+        List<LibraryChartRef> refs,
+        Comparison<LibraryChartRef> storageOrderComparison)
     {
-        var orderByIdentity = new Dictionary<string, int>(StringComparer.Ordinal);
-        int order = 0;
-        foreach (ChartFile chart in charts ?? [])
-        {
-            if (string.IsNullOrWhiteSpace(chart?.Path))
-            {
-                order++;
-                continue;
-            }
-
-            string key = CreateStorageIdentityKey(chart);
-            if (!string.IsNullOrWhiteSpace(key) && !orderByIdentity.ContainsKey(key))
-            {
-                orderByIdentity[key] = order;
-            }
-            order++;
-        }
-        return orderByIdentity;
-    }
-
-    private static void SortRefsByStorageOrder(List<LibraryChartRef> refs, Dictionary<string, int> orderByIdentity)
-    {
-        refs?.Sort((left, right) => CompareByStorageOrder(left, right, orderByIdentity));
+        refs?.Sort((left, right) => CompareByStorageOrder(left, right, storageOrderComparison));
     }
 
     private static int CompareByStorageOrder(
         LibraryChartRef left,
         LibraryChartRef right,
-        IReadOnlyDictionary<string, int> orderByIdentity)
+        Comparison<LibraryChartRef> storageOrderComparison)
     {
         if (ReferenceEquals(left, right))
         {
@@ -656,42 +689,10 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
             return -1;
         }
 
-        int leftOrder = GetStorageOrder(left, orderByIdentity);
-        int rightOrder = GetStorageOrder(right, orderByIdentity);
-        int orderCompare = leftOrder.CompareTo(rightOrder);
+        int orderCompare = storageOrderComparison?.Invoke(left, right) ?? 0;
         return orderCompare != 0
             ? orderCompare
             : StringComparer.OrdinalIgnoreCase.Compare(left.Path, right.Path);
-    }
-
-    private static int GetStorageOrder(LibraryChartRef chart, IReadOnlyDictionary<string, int> orderByIdentity)
-    {
-        string key = CreateStorageIdentityKey(chart);
-        return !string.IsNullOrWhiteSpace(key) && orderByIdentity != null && orderByIdentity.TryGetValue(key, out int order)
-            ? order
-            : int.MaxValue;
-    }
-
-    private static string CreateStorageIdentityKey(ChartFile chart)
-    {
-        if (chart == null)
-        {
-            return null;
-        }
-
-        BMSFile bmsOwner = chart.GetBmsStorageOwner();
-        if (bmsOwner != null)
-        {
-            return "bms-owner:" + RuntimeHelpers.GetHashCode(bmsOwner);
-        }
-
-        LR2SongDBExtended.bmson_song bmsonOwner = chart.GetBmsonStorageOwner();
-        if (bmsonOwner != null)
-        {
-            return "bmson-owner:" + RuntimeHelpers.GetHashCode(bmsonOwner);
-        }
-
-        return (chart.Kind == ChartFileKind.Bmson ? "bmson-path:" : "bms-path:") + chart.Path;
     }
 
     private static string CreateStorageIdentityKey(LibraryChartRef chart)

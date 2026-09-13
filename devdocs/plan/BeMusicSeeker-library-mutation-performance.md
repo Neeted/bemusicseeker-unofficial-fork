@@ -1,6 +1,19 @@
 # ライブラリ変更操作の性能課題と実装計画
 
-Status: Active
+Status: R3〜R6 Completed / R7 Pending
+
+### 2026-09-13 の実行範囲
+
+- 利用者の依頼により R3〜R6 を進める。本番環境の計測・チューニングは行わず、コード上の全件走査・コピー・再読込を削減する。R7 の大規模実測・I/O 条件・並列度の調整は対象外であり、改善率や実運用速度を検証済みとはしない。
+- 開始 revision は `1f63ae274c738f746c024e5b0ed5e9d0430cdcf9`、作業ツリーは clean。root は設計、計画・仕様、統合検証、commit を担当する。各 unit の実装担当はコードと対応テストを所有し、共有ファイルを並行編集しない。
+- 順序は R3 → R4a → R4b → R4c → R5a-storage → R5a-canonical → R5b → R5c → R6。R4b は新しい長寿命索引を増やす必要がなければ、削除 root の祖先集合との照合による全 directory 一回走査を採用する。R6 は対象 MD5 query を採用し、新規 session cache は追加しない。
+- 各 unit は独立したテスト設計を承認してから実装する。既存 fixture を優先し、結果・旧 snapshot・部分成功・対象外列挙の不要性に不足する coverage だけを追加／更新する。反復は filtered Quick、最後の統合 snapshot は Functional を原則一回実行し、凍結して静的レビューする。
+- 受付、writer、durable finalization、package ごとの公開、exact row と filesystem scope の比較規則を維持する。snapshot 不成立、旧／新 facts の不足、順序・所有権の変更、新しい永続状態や回復処理が必要になった場合は root が再計画する。
+- 現在: 計画点検・R3〜R6の独立test設計とconsumer判断を完了。R3/R4/R5a/R5b-core/R5b-installed-full-snapshot/R5c/R6は関連Quickと全件処理を検出する識別力確認を完了。playlist-resolveも関連Quickと識別力確認を完了。親フォルダの照合仕様変更と重複graphの局所更新は採用せず、残る費用をR5bに明記する。全体Functional・凍結レビュー完了。
+
+- 最終統合検証: 2026-09-13 の Functional は成功4,802件・skip11件・失敗0件。実test executionは241.8秒で180秒reporting targetを超え、300秒hard budget内の成功。retryなし。restore・format・analyzer・Release buildも成功し、analyzer指摘/コンパイラ警告/エラーは0件。本番計測、Full、R7は対象外。
+
+- 凍結レビュー: R3〜R6の本番入口、consumer、失敗・通知境界、旧snapshot、候補順、exact identityと独立test packetの対応を確認し、修正必須の指摘なし。R3〜R6を完了とする。R7と本番規模の速度評価は未着手であり、今回の完了条件には含めない。
 
 ## 1. 目的・対象・読み方
 
@@ -100,14 +113,14 @@ SelfOwnedのみの変更でも、既存のremove→appendで候補が`[A, B] →
 | R2b | PathCleanupの全表materialize・行ごとの削除・孤児確認を対象集合SQLへ統合 | 主にmerge、PathCleanupを使う修正経路 | 実装済み |
 | R2c | resource-healthのchart identityがpathをcase-insensitive比較 | warning表示・maintenanceを伴う変更 | 実装済み |
 | RELINK-1 | file diffの一対一・同一MD5 relinkをpath差分の種類によらず適用 | startup / file diff / 再初期化 | 完了。R2群とは独立した仕様統一 |
-| R3 | LR2同期receipt用の全BMS path取得、二重sort、全祖先lookup作成 | delete、move、rename、merge | R2のexact factsと整合させる |
-| R4a | move / renameで全reverse key・候補配列を走査・一時確保 | move、rename | 対象bucket更新へ |
-| R4b | 削除sourceごとに全directory keysを複製・走査 | delete、merge | subtree検索を集約 |
-| R4c | entry rootをpackageごとに全コピー | install、変更全般 | entry構造共有へ |
-| R5a | storage rowリスト再作成、canonical list探索・順序map再構築 | install、delete、move、merge | row identity修正後に増分化 |
-| R5b | 派生索引の全失効と次操作での再構築 | 変更全般、連続merge | 必要な旧／新factsを渡す |
-| R5c | resource-health deltaでも全keyコピーと変更対象ごとの全key探索 | current索引へのdelta更新 | R2c後に独立unitで修正 |
-| R6 | inlineの再read、全parse-failure map取得、不要な再通知の可能性 | install、merge後maintenance | 確認済み仕事と検討候補を分ける |
+| R3 | LR2同期receipt用の全BMS path取得、二重sort、全祖先lookup作成 | delete、move、rename、merge | 完了 |
+| R4a | move / renameで全reverse key・候補配列を走査・一時確保 | move、rename | 完了 |
+| R4b | 削除sourceごとに全directory keysを複製・走査 | delete、merge | 完了 |
+| R4c | entry rootをpackageごとに全コピー | install、変更全般 | 完了 |
+| R5a | storage rowリスト再作成、canonical list探索・順序map再構築 | install、delete、move、merge | 完了 |
+| R5b | 派生索引の全失効と次操作での再構築 | 変更全般、連続merge | 完了 |
+| R5c | resource-health deltaでも全keyコピーと変更対象ごとの全key探索 | current索引へのdelta更新 | 完了 |
+| R6 | inlineの再read、全parse-failure map取得、不要な再通知の可能性 | install、merge後maintenance | 完了 |
 | R7 | 物理I/O条件・並列度・長期cacheの費用が未評価 | 変更全般 | 仕事量削減後に必要範囲を測定 |
 
 ## 6. 実装unit
@@ -227,118 +240,71 @@ Production route: startup / maintenance hydrationまたはmanual resource-health
 
 ### R3 — LR2同期に必要な範囲のfactsだけを作る
 
-#### 現行コスト・根拠
+Status: Implemented（2026-09-13）、Functional・凍結レビュー完了。
 
-BMSの削除またはpath変更で、`BMSLibrary.CreateLr2NormalFolderCurrentBmsSnapshotUnsafe`と`CreateLr2NormalFolderCatalogMutationReceipt`が全BMS pathを取得する（`BMSLibrary.cs:6506–6515,6553–6574`）。`LibraryChartRefIndexSnapshot.GetCurrentBmsChartPaths`でsortした後、`Lr2NormalFolderCatalogMutationReceipt` constructorが再びDistinct / sortし、`Lr2NormalFolderCurrentBmsLookup.CreateFromChartPaths`が全pathの祖先lookupを作る。全BMSのsortと概ね`C × h`の祖先処理が局所操作に入る。
+全BMS path捕捉・二重sort・全祖先lookup生成を退役し、変更対象の範囲queryと祖先countをreceiptへ捕捉する。通常renameとauto-renameは同じ局所factsを使い、auto-renameは確定したold/new pathで予定factsを補正する。exact DB key、残存譜面、root除外、部分成功・失敗時のLR2同期境界を維持した。
 
-LR2のDB側は`UseScopedExistingRows = true`を既に使う（`BMSLibrary.Lr2SynchronizationOwner.cs:842–856`）。追加だけのinstall receiptは全BMS snapshotを要求しない。この二点を退行させない。
-
-#### 修正方針
-
-- receiptのold / new / removed directoryとprune scope、その必要な祖先を先に求める。ancestorの残存判定は既存owned directory索引の件数・存在queryで行い、現在BMS pathの実列挙は同期対象scope内に限定する。
-- `OwnedChartCollectionState` / `LibraryChartRefIndexSnapshot`にあるBMS subtree countと`GetBmsChartPathsUnderRealPath`を再利用候補とする。whole-library snapshotを取得するwrapperを挟んで差分queryの外観だけ作らない。
-- 正しいowned collection versionの下で対象範囲の不変factsを捕捉する。live lookup delegateをそのままreceiptへ渡して後から別世代を読ませない。snapshot不可を空集合に変換してpruneしない。
-- scope探索の比較規則と、DBへ渡すexact path集合を分離する。現在の`Distinct(OrdinalIgnoreCase)`をrow identityの正本として引き継がない。folder pruneのterminal SQLまで確認する。
-- `Lr2NormalFolderCatalogMutationReceipt` / `Lr2NormalFolderSyncScopeBuilder`とcompositionを同じunitで変更し、通常mutationの全BMS constructor経路を退役する。全scan用の必要な全件処理は別に残せる。
-
-受入条件: siblingにBMSが残る祖先を誤pruneしない、登録root境界、BMS / BMSONの区別、old / new path、case-only factsの非混同、snapshot不成立時とLR2 finalizer失敗時の既存結果を維持する。少数対象では全BMS enumeratorを使わないことを観測する。
-
-配置候補: `Lr2NormalFolderSyncScopeBuilderTests`、`Lr2NormalFolderDbSyncServiceTests`、`BmsLibraryInitializationLr2NormalFolderTests`、`BmsLibraryCatalogRelocationTests`、`OwnedChartCollectionLibraryMutationTests`。
+関連Quick 95/95成功。背景16/128で通常rename・auto-renameの実query訪問を確認し、全BMS列挙を戻す限定変異は4/4で不要訪問を検出した。恒久契約と対応表: [LR2生成の局所同期](../spec/lr2-song-db-generation.md#局所catalog変更後のnormal-folder同期)。全件を必要とするfull scanの処理は維持する。
 
 ### R4a — move / renameのreverse更新を関連bucketに限定する
 
-`DirectoryResourceLookupCache.RewriteCachedDirectoryPaths:1161–1202`は全reverse keyを列挙し、非empty bucketごとに変更有無の判定前から候補配列を確保する。費用は全`K`と候補総数に依存する。
+Status: Implemented（R4a/b/c、2026-09-13）、Functional・凍結レビュー完了。
 
-`ReplaceDirsWithResult`が既に集める移動対象entryからAudio / Image / Movieのhash集合を取り、該当bucketのみ旧path→新pathへ置換する。候補配列の確保も実変更時に限定する。費用の目標は移動対象entryのhash総数と、関連bucketのfan-outに依存する形であり、全Kの処理ではない。
+移動entryのaudio/image/movie hashから関連bucketだけを調べ、変わる候補配列だけを置換する。全reverse key走査と変更rootの全freeze copyを退役した。cached miss、未構築lookup、full/lazy lookup、旧snapshot、候補順、外部上書き時の失効を維持する。
 
-moveは候補位置を維持する置換である。installのremove→appendを流用して順序を変えない。複数old pathの同時置換、共有hashの非対象候補、置換先重複の順序・dedupeも保持する。hash=0、full / lazy、cached missと未キャッシュの区別を維持する。
-
-まず外部overwriteなしの通常move / renameを対象にする。外部overwrite時に存在するinvalidate / warmup分岐を安易に変更しない。resource directory探索のcase-insensitive規則をDB row identityへ拡張しない。
-
-受入条件: unrelated reverse baselineの列挙を禁止した格納部品で実ownerのmoveを行っても成立する、旧snapshotが不変、関連bucketだけ変更、候補順序が正しい。全Kを新たなmap構築時に列挙する代替実装は不合格。
-
-配置候補: `DirectoryResourceLookupCacheTests`、`ResourceReverseLookupMapTests`、`LibraryResourceIndexOwnerTests`、`BmsLibraryCatalogRelocationTests`。
+R4全体の関連Quick 244/244成功。候補順の変異、fork時全entry copy、sourceごとの全directory走査の各限定変異を識別し、復元した。恒久契約と対応表: [resource索引](../spec/data-and-indexes.md#resource-index)。
 
 ### R4b — 削除subtree探索の反復をなくす
 
-`DirectoryResourceLookupCache.Keys:434–440`は全entry key配列を作る。`RemoveUnderSourceDirectory:610–625`はこれをsourceごとに使い、`LibraryResourceIndexOwner.RemoveUnderSourceDirectories:180–195`が各sourceを反復する。現状の探索費用は概ね`S × D`。
+Status: Implemented（2026-09-13）。
 
-確認済みsource rootを重複・親子関係で整理する。resource entryと同じmembershipを持つdirectory索引から範囲取得する方式を優先する。小さく段階化する場合は、sourceの祖先判定用集合を作り一度だけentryを走査する方式も選択肢とするが、その段階は「全D列挙を一回に集約」と正確に記録する。
-
-単一の全D走査の内側で全sourceに`Any`するだけでは`S × D`は消えない。列挙回数だけでなく比較回数を確認する。補助索引を使う場合はinstall / move / replacementでの増分保守費用も含め、毎commandの全D再構築を避ける。
-
-既存の未公開cache一つ・最大一回公開・成功folderだけの適用・例外時旧snapshot保持を維持する。`A`と`AB`のprefixを混同せず、重複rootと親子rootを二重計上しない。
-
-配置候補: `LibraryResourceIndexOwnerTests`、`DirectoryResourceLookupCacheTests`、`OwnedChartCollectionLibraryMutationTests`。全対象fixtureは小規模でよい。
+削除sourceを正規化・重複除去・包含整理し、祖先との照合でcommand内の全directory走査を一回にまとめる。mergeは同じ採取結果をcollect/removeへ渡す。sourceごとの全keys copy/scanを退役した。全D走査一回は必要な残存処理とし、専用subtree indexは追加しない。
 
 ### R4c — resource entry rootの構造共有
 
-`DirectoryResourceLookupCache.EnsureEntriesRootWritableUnsafe:984–992`は最初の実変更時に全entry Dictionaryをコピーする。installのpackage単位公開により、entry側には`P × D`が残る。
+Status: Implemented（2026-09-13）。
 
-entry rootを変更経路のみdetachする構造共有へ移す。六つのresource / SelfOwned集合の同値判定を先に行い、no-opでcopy / generation増加を起こさない。補助directory索引、enumerator、lookup、full / lazy queryが旧世代を壊さず利用できるようにする。
-
-**packageごとの公開を最後にまとめる方法は不可。** 後続packageから先行成功を読めることと、途中失敗時の成功prefix保持が必要である。新しいentry mapも世代chainの線形走査や毎回の全D変換を持ち込まない。
-
-配置候補: R4aのfixtureと`BmsLibraryPackageInstallServiceTests`。実library入口でpackage間の中間snapshotと失敗後の成功prefixを確認する既存coverageを維持する。単なる最終generation数だけを公開時点の証拠にしない。
+entryのexactな格納順を不変rootで共有し、forkの全entry複製を除く。同command内の削除slot再利用と、次commandでは残存順から末尾追加する旧候補順を維持する。snapshotを越えた空き位置の持越し、世代chain、全件compactionは追加しない。明示的な全lookup構築・候補全列挙の費用は残る。
 
 ### R5a — storage rowsとcanonical collectionの全件仕事を減らす
 
-#### 確認済み箇所
+Status: Implemented（2026-09-13）、Functional・凍結レビュー完了。
 
-- `CatalogStorageRowsOwner.ApplyInstalledTargets:93–129`と`ApplyCatalogMutation:145–234`はBMSの全list filter / 再作成、BMSONの全grouping / dictionary化 / sortを行う。
-- `OwnedChartCollectionState.UpsertStorageRows:1342–1379`から、`RemoveMatchingStorageRows`の`charts.RemoveAll`、`InsertBmsChartsBeforeBmson`の`FindIndex`、`SortBmsonChartsByPath`へ進む（`1403–1480`）。削除にも`charts.RemoveAll`がある。pathによる対象発見が増分でも、listの保守が全体依存となる。
-- `LibraryChartRefIndexSnapshot.ReorderAffectedPathsByStorageOrder:193–220`はaffected bucketのみsortする前に、`BuildStorageOrder(charts)`で全chartの順序mapを作る。
+raw storageとcanonical collectionに不変sequenceと対象entryへの索引を使い、局所upsert/remove/relocationとO(1) capture/getterへ移した。全row再copy、canonical順序map再構築、局所ref取得の全走査を退役する。rawとcanonicalのBMS/BMSON順序規則は統一せず、live ownerと捕捉済みviewの契約を維持した。
 
-#### 方針
+初回canonical BMSON順序正規化はBMSON suffixだけを処理し、発生factをreceiptへ渡す。raw BMSONは実移動後の次BMSON upsertで必要な再整列を残す。いずれも全BMSを巻き込まない。full replacement・cold build・明示的な一覧列挙は維持する。
 
-R2aのexact identityを先に固定する。path / ownerによる増分格納、kind別の順序構造、必要なread viewの構造共有を検討し、書込とconsumerの双方を改修する。BMS / BMSONの並びやrepresentative選択に意味がある箇所は保持する。
-
-全list化をlazy getterに隠して各packageがそのgetterを呼ぶ構成は不可。`CatalogStorageRowsOwner`だけ直して、owned側の全chart順序mapをpackageごとに作り続ける段階も、未達として残す。大きいunitは「storage row格納」「canonical list / order」の二つに分割できるが、各段階の残存費用を明記する。
-
-受入条件: 同じMD5の複数配置、exact pathとowner reference、storage version、旧view、混在kindの順序、package単位の反映・失敗時成功prefix、必要なUI refresh signalを維持する。compatibility viewのmaterialization回数も観測する。
-
-配置候補: `CatalogMutationOwnerTests`、`OwnedChartCollectionLookupMembershipTests`、`OwnedChartCollectionReferenceIndexTests`、`OwnedChartCollectionLibraryMutationTests`、`BmsLibraryPackageInstallServiceTests`。
+storage Quick 40/40、canonical Quick 259/259成功。getter全materialize変異と初回BMSON正規化に全sequence捕捉を戻す変異を実列挙・訪問assertで識別し、復元した。恒久契約と対応表: [格納と捕捉](../spec/data-and-indexes.md#storage行の格納と捕捉)、[canonical順序と局所参照](../spec/data-and-indexes.md#canonical-collectionの順序と局所参照)。
 
 ### R5b — 派生索引の失効範囲を限定する
 
-`BuildMergeCatalogDelta`はinstalled-directory index等の失効を要求し、`BMSLibrary.DispatchOwnedChartCollectionMutation`にはinstalled / playlist resolve / owned hash / parent folder / duplicateの広い失効経路がある。必要性が異なるので一括して「失効不要」と判定しない。
+Status: Implemented（2026-09-13）、Functional・凍結レビュー完了。
 
-先に各consumerについて、membership、path、MD5 / SHA-256、warning、displayだけの変更のどれへ依存するかを整理する。構築済み索引へdurable receiptの旧／新factsを渡し、影響key / pathだけ更新する。facts不足時の既存full invalidationは維持し、通常経路で必要な旧値が落ちている場合に限ってreceiptを補う。
+- 所持ハッシュ: MD5/SHA別のowner数を差分更新する。両hash集合が同じならcontent Versionとsummary count cacheを維持し、source versionだけを適切な公開境界で更新する。HashSetとcountの二重stateを除き、digest・通知前の可視性、旧snapshot、full replacement・旧facts不足時の全失効を維持した。
+- primary/full installed lookup: countとdirectory候補の不変rootを共有し、snapshot時の全map複製・全bucket整列・参照数の全map Sumを除く。同MD5/SHA-onlyのnet差分を相殺し、影響bucketだけを更新する。last-owner・excluding・旧snapshotを保持する。
+- playlist resolve: kind＋exact pathで全候補を保持し、対象MD5/SHA bucketの差分で代表削除・置換・移動・digest変更へ追従する。代表用の重複mapは作らずbucket先頭から解決する。optional ref indexを構築せず、digest window終端の無条件失効と旧全ref生成routeを退役した。初回BMSON順正規化とfacts不足の既存失効は残す。
+- parent folder: 捕捉済みpath listの再copyとrootごとのoutput-base正規化を除く。登録rootの `root\.` 等では正規化済みsubtree countに置き換えると候補採否が変わるため、この置換は採用しない。既存raw prefix照合・FS探索/失敗・standalone・公開versionを保持する。
+- duplicate: 削除による分割・追加による結合を含む全体graph解析とwarning clear/applyを維持する。新しいincremental graphや必要通知の抑止は追加しない。
 
-未構築optional indexはmutationのためだけに構築しない。同じ失効への二重通知・予約は既存のcoalescing / single-flightで抑える。単に通知を消したり、新しい世代tokenを索引ごとに追加したりしない。
-
-`InstalledChartLookupIndexSnapshot.cs`内のprimary hash lookupには既にexcluding wrapperがある。`CreateSnapshot:155–163`のdirty時のcount map copyと、full invalidateからの再構築を区別する。excluding操作のたびに全snapshotを新規作成していると誤認しない。
-
-受入条件: 連続二回目のmerge / installで不要なcold rebuildが復活しない、同一hashの最後のownerだけを除去した時の判定が正しい、旧snapshotにlive owner変更が混入しない、必要な表示・warningは更新される。必要なrefreshが遅れて次の操作へ費用を移しただけで完了としない。
-
-配置候補: 上記owned collection系fixtureと`PlaylistSummaryMutationAndWarmTests`。個別索引の近傍coverageを先に検索し、巨大な横断fixtureを新設しない。
+core Quick 202/202、installed full Quick 148/148、playlist resolve Quick 216/216成功。full source/root copy、参照数Sum、resolve全再構築、digest終端無条件失効の限定変異を対応assertで識別し、復元した。恒久契約と対応表: [installed lookup](../spec/data-and-indexes.md#導入済み譜面lookupのsnapshot)、[所持hash](../spec/data-and-indexes.md#所持ハッシュ索引の差分と公開)、[playlist解決](../spec/data-and-indexes.md#プレイリストから所持譜面を解決する索引)。親フォルダのpath捕捉・root×path照合とduplicate全体処理は残件である。
 
 ### R5c — resource-health delta本体を差分仕事にする
 
-`ResourceHealthWarningProjection.cs:121–172`の`ApplyDelta`は、`projectionsByKey`の全コピーと`targetKeys`の全コピーを行う。さらに`RemoveMatchingChartIdentity:190–205`が各updated / removed targetについて`nextTargetKeys`を全探索する。主な費用だけでも`H + W + ΔC × H`の仕事がある。加えてupdated / removed間の`Any`照合（`134`）もあり、両方を多数含む差分ではその積に依存する。R1のfull入力provider非呼出しだけではなくならない。
+Status: Implemented（2026-09-13）、Functional・凍結レビュー完了。
 
-R2cでexact chart identityを固定してから、同一chartの旧hashを直接引けるmembership構造と、変更部分だけ共有するkey / projection構造へ移す。目的は、rehashで古いprojectionを除くための全H探索と全root copyを除去すること。active / ignored viewの順序と更新、TargetCount、削除優先、invalidated時の非公開、input mutation versionを保持する。
+kind＋exact pathでhash/projection/順序を一つのentryに束ね、対象identityから旧hashへ直接到達する。全membership/projection copyと対象ごとの全H探索を退役し、active/ignoredの順序sequenceも構造共有する。getterへ全W materializationを移さず、旧snapshot、未変更の相対順、更新対象の末尾配置、healthy membershipを維持した。
 
-R1で固定した分岐優先度・full入力取得条件・公開前version照合を変更しない。必要なfull buildは残し、delta失敗時に勝手な全再構築や自動retryを追加しない。対象が同じexact pathでhashだけ変わる場合と、case-only別pathの場合を別に検証する。
-
-配置候補: `BmsLibraryMaintenanceServiceTests.ResourceHealthIndexSnapshot_ApplyDeltaUpdatesOnlyAffectedTargets`、`ResourceHealthIndexOwnerTests`、`OwnedChartCollectionLibraryMutationTests`。少数更新に無関係なtarget membershipの列挙が不要であることを実格納部品の観測で示す。
+R1のno-op/invalidate/defer/delta/full分岐、provider取得、input version照合、失敗時非公開を維持する。path-change/PathCleanupの既存失効、必要なfull build・明示一覧列挙は残す。関連Quick 155/155成功。getter全列挙・materialize変異を実view列挙assertで識別し、復元した。恒久契約と対応表: [resource health](../spec/data-and-indexes.md#maintenance-and-resource-health)、[path identity](../spec/path-identity.md#resource-health-index-の-chart-path-identityr2c)。
 
 ### R6 — inline / maintenance入力の再利用と対象query
 
-#### 確認済みの残件
+Status: Implemented（2026-09-13）、Functional・凍結レビュー完了。
 
-`ChartInfoInlineBuildService.BuildForExistingCharts:116–153`はtargetのsnapshotを再readし、その前に`LoadCurrentChartInfoParseFailureMap`を呼ぶ。後者はparse-failure表全体を読む（`BmsLibraryDbGateway.cs:1369–1381`）。通常のchart_info自体は`LoadChartInfosBySha256:1299–1314`で対象SHA限定の取得があり、build内のgroup evaluation再利用も既にある。
+実read snapshotのMD5だけをparameter化したparse-failure queryへ渡し、全failure map取得を除いた。discovery時の旧MD5を使わず、empty入力ではqueryしない。全件hydrationのAPI、current判定、明示save/deleteの可視性を維持し、新session cacheは追加しない。
 
-#### 修正方針
+関連するR3/R4a/bとの統合Quick 264/264成功。全SELECT＋managed filterを戻す限定変異は実SQLite ROW数の増加で失敗し、復元後も対象Quick成功。恒久契約と対応表: [chart-info lifecycle](../spec/chart-info-lifecycle.md#既存pathからのinline解析のfailure取得)。
 
-- parse-failure情報は対象MD5検索を第一候補とする。session cacheを選ぶ場合はparser version、timeout条件、failure明示削除と保存結果の可視性を既存lifecycleへ合わせる。根拠のない恒久cacheを追加しない。
-- package処理が保持するbytes / digest / parse result / resource列挙結果は、同じ入力であると保証できる寿命の範囲で再利用する。sourceとdestinationの存在検証は別物とする。内容hash一致だけでdestination resource検証を省かない。
-- `currentSkipped`でも新ownerへのstorage applicationが必要なことがある。これをsession indexへの同値upsertや通知の必要性と分ける。実際のconsumerを追って不要性が確認できたものだけ除去する。
-- merge後はdestination scanとmaintenanceがある（`BMSLibrary.LibraryFileOperationOwner.Merge.cs:147–163`）。movedBmsが0でもresource補完で既存譜面のwarningが変わり得るので、一律skipしない。確定したfile factsから再利用可能な範囲を判断する。
-
-read / digest / query / parse / commit / owner apply / notificationの内訳を観測し、parserの仕事が既にskipされるケースへ並列度変更だけを適用しない。group再利用の範囲拡大と同値通知削減は、効果・契約を確認してから実装する候補であり、現時点で全処理が不要と確定したわけではない。
-
-契約: [chart-info lifecycle](../spec/chart-info-lifecycle.md)、[chart file read pipeline](../spec/chart-file-read-pipeline.md)。配置候補: `ChartInfoInlineHydrationTests`、`ChartInfoInstallFailureRetryTests`、`ChartInfoBackfillStorageTests`、`BmsLibraryMaintenanceServiceTests`。
+通常installのdiscovery→destination間に同一寿命の再利用可能bytesは保持されていないため、destination再read/resource検証を維持する。currentSkippedでも必要なstorage/digest/session反映・通知、mergeのresource-only補完は省略しない。本番計測・並列度調整は未実施。
 
 ### R7 — I/O・並列度・長期cacheを条件別に評価する
 
@@ -363,8 +329,8 @@ R2aをR2bと同じ巨大変更に埋めず、identity修正と速度改善の根
 | R2b | PathCleanup gateway、対象集合SQL、必要なdigest cleanup | R2a exact集合、DB transaction、R2a-GATE admission | R2a identity oracleを維持し、対象外背景rowを含むgateway観測を追加／更新 |
 | R2c / R5c | resource-health snapshot / keyと必要なowner入力整形 | R1の取得・version契約、warning仕様 | 既存health fixtureへ独立identity・処理量caseを追加／更新 |
 | RELINK-1 | file diff relink判定、file-scan test、path / pipeline / LR2 specの実装状態 | R2のexact集合、旧保存値snapshot、DB復元境界、maintenance生成 | case-only BMS既存testの期待値を置換し、通常／曖昧／既存destinationとの対になるcoverageを補う |
-| R3 | LR2 receipt、scope builder、composition、必要なowned query | DB writer / prune契約、登録root | 既存scope / DB / relocation fixtureを拡張 |
-| R4 | resource cache / owner / map、必要なdirectory query | scan ownership、install公開、候補順序 | 既存resource / package fixtureを拡張 |
+| R3 | LR2 receipt、scope builder、composition、必要なowned query | DB writer / prune契約、登録root | 完了 |
+| R4 | resource cache / owner / map、必要なdirectory query | scan ownership、install公開、候補順序 | 完了 |
 | R5a / R5b | storage / owned / 隣接索引・receipt・dispatchの対象経路 | consumer順序、表示、既存single-flight | 既存coverageを優先。差分ごとに不足を判断 |
 | R6 / R7 | 対象read / query / reuse / I/O policyのみ | parser / metadata lifecycle、FS安全性 | 機械的整理だけなら追加不要。挙動・失敗・処理量に不足がある時だけ追加 |
 

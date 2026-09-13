@@ -89,6 +89,81 @@ public sealed class ChartInfoInstallFailureRetryTests
         });
     }
 
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void InstallChartPackages_UsesInstalledSnapshotMd5ForFailureLookup(bool failureMatchesInstalledSnapshot)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
+        {
+            string sourceDir = Path.Combine(tempRootPath, "SourceChangedBms");
+            string installDir = Path.Combine(tempRootPath, "InstalledChangedBms");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(installDir);
+            string sourceChartPath = Path.Combine(sourceDir, "changed.bms");
+            File.WriteAllText(
+                sourceChartPath,
+                "#PLAYER 1\r\n"
+                    + "#TITLE discovered A\r\n"
+                    + "#BPM 120\r\n"
+                    + "#PLAYLEVEL 7\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+            PackageChartEntry pendingChart = PackageChartEntry.FromPath(sourceChartPath);
+            Assert.IsNotNull(pendingChart);
+            string discoveryMd5 = pendingChart.Chart.Md5;
+
+            File.WriteAllText(
+                sourceChartPath,
+                "#PLAYER 1\r\n"
+                    + "#TITLE installed B\r\n"
+                    + "#BPM 130\r\n"
+                    + "#PLAYLEVEL 8\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+            ChartFileSnapshot installedSnapshot = ChartFileContentReader.ReadSnapshot(sourceChartPath);
+            Assert.AreNotEqual(discoveryMd5, installedSnapshot.Md5);
+
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoSchema();
+            string failureMd5 = failureMatchesInstalledSnapshot ? installedSnapshot.Md5 : discoveryMd5;
+            gateway.UpsertChartInfoParseFailures(
+            [
+                CreateChartInfoParseFailureRow(
+                    failureMd5,
+                    installedSnapshot.Sha256,
+                    sourceChartPath,
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                    "parse_failed",
+                    "InvalidDataException",
+                    "persisted failure",
+                    null)
+            ]);
+
+            var package = ChartPackage.FromChartEntries([pendingChart]);
+            package.path = sourceDir;
+            package.delete_parent = false;
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+
+            InvokeInstallChartPackages(library, [package], installDir);
+
+            BMSFile installedFile = library.BMSFiles.Single();
+            Assert.AreEqual(installedSnapshot.Md5, installedFile.hash);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            if (failureMatchesInstalledSnapshot)
+            {
+                Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", installedSnapshot.Sha256));
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", installedSnapshot.Md5));
+            }
+            else
+            {
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", installedSnapshot.Sha256));
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", discoveryMd5));
+            }
+        });
+    }
+
     [TestMethod]
     public void InstallChartPackages_AddsBmsonAndBuildsInlineChartInfo()
     {

@@ -96,6 +96,8 @@ public sealed class CatalogMutationOwnerTests
             }
 
             var storageRowsOwner = new CatalogStorageRowsOwner();
+            storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], [bmson]);
+            CatalogStorageRowsSnapshot capturedRows = storageRowsOwner.CaptureSnapshot();
             var owner = new CatalogMutationOwner(
                 storageRowsOwner,
                 new CatalogOwnedCollectionOwner(),
@@ -123,12 +125,18 @@ public sealed class CatalogMutationOwnerTests
 
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(2, receipt.PathFacts.Count);
-            Assert.AreEqual(0, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
-            Assert.AreEqual(1, receipt.StorageRowsVersion.BmsRowsVersion);
-            Assert.AreEqual(0, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
-            Assert.AreEqual(1, receipt.StorageRowsVersion.BmsonRowsVersion);
+            Assert.AreEqual(1, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
+            Assert.AreEqual(2, receipt.StorageRowsVersion.BmsRowsVersion);
+            Assert.AreEqual(1, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
+            Assert.AreEqual(2, receipt.StorageRowsVersion.BmsonRowsVersion);
             Assert.AreEqual(newBmsPath, bms.path);
             Assert.AreEqual(newBmsonPath, bmson.path);
+            CollectionAssert.AreEqual(new[] { bms }, storageRowsOwner.BmsRows.ToArray());
+            CollectionAssert.AreEqual(new[] { bmson }, storageRowsOwner.BmsonRows.ToArray());
+            CollectionAssert.AreEqual(new[] { bms }, capturedRows.BmsRows.ToArray());
+            CollectionAssert.AreEqual(new[] { bmson }, capturedRows.BmsonRows.ToArray());
+            Assert.AreEqual(newBmsPath, capturedRows.BmsRows[0].path);
+            Assert.AreEqual(newBmsonPath, capturedRows.BmsonRows[0].path);
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             verifySongDb.CreateTable<LR2SongDB.song>();
             verifySongDb.CreateTable<LR2SongDB.folder>();
@@ -963,6 +971,83 @@ public sealed class CatalogMutationOwnerTests
     }
 
     [TestMethod]
+    public void ApplyStorageRowsReplacement_ExplicitSameInputStillPublishesVersion()
+    {
+        var bms = CreateBms("same-input.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, null);
+
+        CatalogStorageRowsReplacementRequest request = owner.CreateStorageRowsReplacementRequest(
+            storageRowsOwner.BmsRows,
+            [],
+            replaceBmsRows: true,
+            replaceBmsonRows: false);
+        CatalogStorageRowsReplacementReceipt receipt = owner.ApplyStorageRowsReplacement(request);
+
+        Assert.IsTrue(receipt.Applied);
+        Assert.IsTrue(receipt.BmsRowsChanged);
+        Assert.IsFalse(receipt.BmsonRowsChanged);
+        Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
+        Assert.AreSame(bms, storageRowsOwner.BmsRows.Single());
+    }
+
+    [TestMethod]
+    public void StorageRowsOwner_Background16And128WithFixedDeltaKeepsWarmCaptureAndGetterBounded()
+    {
+        StorageWorkScenario small = RunStorageWorkScenario(16);
+        StorageWorkScenario large = RunStorageWorkScenario(128);
+
+        Assert.IsTrue(small.ColdEnumerationCount > 0);
+        Assert.IsTrue(small.ColdVisitedEntryCount > 0);
+        Assert.IsTrue(small.ColdMaterializationCount > 0);
+        Assert.IsTrue(small.ColdAccessCount > 0);
+        Assert.IsTrue(large.ColdEnumerationCount > 0);
+        Assert.IsTrue(large.ColdVisitedEntryCount > 0);
+        Assert.IsTrue(large.ColdMaterializationCount > 0);
+        Assert.IsTrue(large.ColdAccessCount > 0);
+
+        Assert.AreEqual(0, small.WarmEnumerationCount);
+        Assert.AreEqual(0, small.WarmVisitedEntryCount);
+        Assert.AreEqual(0, small.WarmMaterializationCount);
+        Assert.AreEqual(0, large.WarmEnumerationCount);
+        Assert.AreEqual(0, large.WarmVisitedEntryCount);
+        Assert.AreEqual(0, large.WarmMaterializationCount);
+        Assert.AreEqual(small.WarmEnumerationCount, large.WarmEnumerationCount);
+        Assert.AreEqual(small.WarmVisitedEntryCount, large.WarmVisitedEntryCount);
+        Assert.AreEqual(small.WarmMaterializationCount, large.WarmMaterializationCount);
+        Assert.IsTrue(small.WarmAccessCount > 0);
+        Assert.IsTrue(large.WarmAccessCount > 0);
+        Assert.IsTrue(small.WarmAccessCount <= CalculateWarmAccessUpperBound(16));
+        Assert.IsTrue(large.WarmAccessCount <= CalculateWarmAccessUpperBound(128));
+    }
+
+    [TestMethod]
+    public void StorageRowsOwner_RawBmsonUpsertNormalizesOnlyOnBmsonChangeAndKeepsTieSlot()
+    {
+        var z = CreateBmson("z.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var upper = CreateBmson("A.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var lower = CreateBmson("a.bmson", "cccccccccccccccccccccccccccccccc");
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        storageRowsOwner.ReplaceBmsonRows([z, upper, lower]);
+        var addedBms = CreateBms("added.bms", "dddddddddddddddddddddddddddddddd");
+
+        storageRowsOwner.ApplyInstalledTargets(ChartStorageTargetSet.FromRows([addedBms], []));
+
+        CollectionAssert.AreEqual(
+            new[] { z, upper, lower },
+            storageRowsOwner.BmsonRows.ToArray());
+
+        var replacement = CreateBmson("A.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        storageRowsOwner.ApplyInstalledTargets(ChartStorageTargetSet.FromRows([], [replacement]));
+
+        CollectionAssert.AreEqual(
+            new[] { replacement, lower, z },
+            storageRowsOwner.BmsonRows.ToArray());
+    }
+
+    [TestMethod]
     public void ApplyInstalledTargetUpsert_EmitsReceiptAndReplacesSamePathRows()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogInstalledTarget_" + Guid.NewGuid().ToString("N"));
@@ -1655,6 +1740,113 @@ public sealed class CatalogMutationOwnerTests
         return file;
     }
 
+    private static StorageWorkScenario RunStorageWorkScenario(int backgroundCount)
+    {
+        var workObserver = new RecordingCatalogStorageSequenceWorkObserver();
+        var storageRowsOwner = new CatalogStorageRowsOwner(workObserver);
+        var bmsRows = new List<BMSFile>(backgroundCount);
+        var bmsonRows = new List<LR2SongDBExtended.bmson_song>(backgroundCount);
+        for (int i = 0; i < backgroundCount; i++)
+        {
+            bmsRows.Add(CreateBms($"background-{i}.bms", i.ToString("x32")));
+            bmsonRows.Add(CreateBmson($"background-{i}.bmson", i.ToString("x32")));
+        }
+
+        storageRowsOwner.ReplaceRowsAndCaptureSnapshot(bmsRows, bmsonRows);
+        var materializedBmsRows = new BMSFile[storageRowsOwner.BmsRows.Count];
+        ((ICollection<BMSFile>)storageRowsOwner.BmsRows).CopyTo(materializedBmsRows, 0);
+        var materializedBmsonRows = new LR2SongDBExtended.bmson_song[storageRowsOwner.BmsonRows.Count];
+        ((ICollection<LR2SongDBExtended.bmson_song>)storageRowsOwner.BmsonRows)
+            .CopyTo(materializedBmsonRows, 0);
+        _ = storageRowsOwner.BmsRows[0];
+        _ = storageRowsOwner.BmsonRows[0];
+        StorageWorkCounts coldMaterialization = workObserver.Capture();
+
+        storageRowsOwner.ApplyInstalledTargets(ChartStorageTargetSet.FromRows(
+            [],
+            [CreateBmson($"cold-{backgroundCount}.bmson", $"{backgroundCount:x32}")]));
+        StorageWorkCounts coldNormalization = workObserver.Capture();
+        workObserver.Reset();
+
+        CatalogStorageRowsSnapshot firstDeltaSnapshot = null!;
+        BMSFile firstDeltaBms = null!;
+        LR2SongDBExtended.bmson_song firstDeltaBmson = null!;
+        for (int command = 0; command < 2; command++)
+        {
+            string suffix = $"{backgroundCount}";
+            BMSFile deltaBms = CreateBms(
+                $"delta-{suffix}.bms",
+                $"{(backgroundCount + command + 1):x32}");
+            LR2SongDBExtended.bmson_song deltaBmson = CreateBmson(
+                $"delta-{suffix}.bmson",
+                $"{(backgroundCount + command + 1):x32}");
+            storageRowsOwner.ApplyInstalledTargets(ChartStorageTargetSet.FromRows(
+                [deltaBms],
+                [deltaBmson]));
+
+            CatalogStorageRowsSnapshot captured = storageRowsOwner.CaptureSnapshot();
+            _ = captured.BmsRows.Count;
+            _ = captured.BmsonRows.Count;
+            IReadOnlyList<BMSFile> bmsView = storageRowsOwner.GetBmsRowsReadOnly();
+            IReadOnlyList<LR2SongDBExtended.bmson_song> bmsonView = storageRowsOwner.GetBmsonRowsReadOnly();
+            _ = bmsView.Count;
+            _ = bmsonView.Count;
+            Assert.AreEqual(backgroundCount + 1, captured.BmsRows.Count);
+            Assert.AreEqual(backgroundCount + 2, captured.BmsonRows.Count);
+            Assert.AreEqual(backgroundCount + 1, bmsView.Count);
+            Assert.AreEqual(backgroundCount + 2, bmsonView.Count);
+
+            int bmsDeltaIndex = backgroundCount;
+            int bmsonDeltaIndex = backgroundCount + 1;
+            if (command == 0)
+            {
+                firstDeltaSnapshot = captured;
+                firstDeltaBms = deltaBms;
+                firstDeltaBmson = deltaBmson;
+                Assert.AreSame(deltaBms, captured.BmsRows[bmsDeltaIndex]);
+                Assert.AreSame(deltaBmson, captured.BmsonRows[bmsonDeltaIndex]);
+                Assert.AreSame(deltaBms, bmsView[bmsDeltaIndex]);
+                Assert.AreSame(deltaBmson, bmsonView[bmsonDeltaIndex]);
+            }
+            else
+            {
+                Assert.IsNotNull(firstDeltaSnapshot);
+                Assert.AreSame(deltaBms, captured.BmsRows[bmsDeltaIndex]);
+                Assert.AreSame(deltaBmson, captured.BmsonRows[bmsonDeltaIndex]);
+                Assert.AreSame(firstDeltaBms, firstDeltaSnapshot.BmsRows[bmsDeltaIndex]);
+                Assert.AreSame(firstDeltaBmson, firstDeltaSnapshot.BmsonRows[bmsonDeltaIndex]);
+            }
+        }
+
+        StorageWorkCounts warm = workObserver.Capture();
+        Assert.AreEqual(backgroundCount + 1, storageRowsOwner.BmsRows.Count);
+        Assert.AreEqual(backgroundCount + 2, storageRowsOwner.BmsonRows.Count);
+        Assert.IsTrue(coldNormalization.EnumerationCount > coldMaterialization.EnumerationCount);
+        Assert.IsTrue(coldNormalization.MaterializationCount > coldMaterialization.MaterializationCount);
+        return new StorageWorkScenario(
+            coldMaterialization.EnumerationCount + coldNormalization.EnumerationCount,
+            coldMaterialization.VisitedEntryCount + coldNormalization.VisitedEntryCount,
+            coldMaterialization.MaterializationCount + coldNormalization.MaterializationCount,
+            coldMaterialization.AccessCount + coldNormalization.AccessCount,
+            warm.EnumerationCount,
+            warm.VisitedEntryCount,
+            warm.MaterializationCount,
+            warm.AccessCount);
+    }
+
+    private static int CalculateWarmAccessUpperBound(int backgroundCount)
+    {
+        int target = backgroundCount + 3;
+        int powerOfTwo = 1;
+        int ceilingLog2 = 0;
+        while (powerOfTwo < target)
+        {
+            powerOfTwo <<= 1;
+            ceilingLog2++;
+        }
+        return 8 + (4 * (ceilingLog2 + 1));
+    }
+
     private static bool IsCatalogResultStatement(string sql)
     {
         return sql.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
@@ -1698,4 +1890,56 @@ public sealed class CatalogMutationOwnerTests
 
         internal void SetArtist(string value) => artist = value;
     }
+
+    private sealed class RecordingCatalogStorageSequenceWorkObserver : ICatalogStorageSequenceWorkObserver
+    {
+        internal int AccessCount { get; private set; }
+
+        internal int EnumerationCount { get; private set; }
+
+        internal int VisitedEntryCount { get; private set; }
+
+        internal int MaterializationCount { get; private set; }
+
+        public void ObserveAccess() => AccessCount++;
+
+        public void ObserveEnumeration() => EnumerationCount++;
+
+        public void ObserveEntryVisit() => VisitedEntryCount++;
+
+        public void ObserveMaterialization(int count) => MaterializationCount += count;
+
+        internal StorageWorkCounts Capture()
+        {
+            return new StorageWorkCounts(
+                EnumerationCount,
+                VisitedEntryCount,
+                MaterializationCount,
+                AccessCount);
+        }
+
+        internal void Reset()
+        {
+            AccessCount = 0;
+            EnumerationCount = 0;
+            VisitedEntryCount = 0;
+            MaterializationCount = 0;
+        }
+    }
+
+    private readonly record struct StorageWorkCounts(
+        int EnumerationCount,
+        int VisitedEntryCount,
+        int MaterializationCount,
+        int AccessCount);
+
+    private readonly record struct StorageWorkScenario(
+        int ColdEnumerationCount,
+        int ColdVisitedEntryCount,
+        int ColdMaterializationCount,
+        int ColdAccessCount,
+        int WarmEnumerationCount,
+        int WarmVisitedEntryCount,
+        int WarmMaterializationCount,
+        int WarmAccessCount);
 }

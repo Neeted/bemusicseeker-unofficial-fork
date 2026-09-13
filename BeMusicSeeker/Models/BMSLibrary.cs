@@ -404,6 +404,18 @@ public partial class BMSLibrary : ObservableObject
         internal int DirectoryCount { get; set; }
 
         internal int OwnedCollectionVersion { get; set; }
+
+        /// <summary>直前の BMS subtree count query の呼出し回数です。</summary>
+        internal int BmsCountQueryCount { get; set; }
+
+        /// <summary>直前の BMS range query の呼出し回数です。</summary>
+        internal int BmsRangeQueryCount { get; set; }
+
+        /// <summary>BMS range query が実際に訪問した chart ref 数です。</summary>
+        internal int BmsRangeVisitedReferenceCount { get; set; }
+
+        /// <summary>BMS range query が返した exact path 数です。</summary>
+        internal int BmsRangeReturnedPathCount { get; set; }
     }
 
     /// <summary>
@@ -1180,8 +1192,12 @@ public partial class BMSLibrary : ObservableObject
         bool notifyBmsonRows,
         Action<Action> postLeaseNotificationObserver = null)
     {
-        List<BMSFile> normalizedBmsRows = NormalizeBmsStorageRows(bmsFiles);
-        List<LR2SongDBExtended.bmson_song> normalizedBmsonRows = NormalizeBmsonStorageRows(bmsonSongs);
+        List<BMSFile> normalizedBmsRows = replaceBmsRows
+            ? NormalizeBmsStorageRows(bmsFiles)
+            : [];
+        List<LR2SongDBExtended.bmson_song> normalizedBmsonRows = replaceBmsonRows
+            ? NormalizeBmsonStorageRows(bmsonSongs)
+            : [];
         CatalogStorageRowsReplacementRequest request = catalogMutationOwner.CreateStorageRowsReplacementRequest(
             normalizedBmsRows,
             normalizedBmsonRows,
@@ -1479,15 +1495,6 @@ public partial class BMSLibrary : ObservableObject
         {
             return catalogOwnedCollectionOwner.Collection.CreatePathSnapshot();
         }
-    }
-
-    /// <summary>
-    /// インストール済み譜面のスナップショットから、親フォルダの候補リストを構築します。
-    /// カスタムフォルダ出力先ディレクトリ配下は除外されます。
-    /// </summary>
-    private List<string> BuildBMSParentFolderCandidates(List<string> installedChartPaths)
-    {
-        return parentFolderCacheService.BuildParentFolderCandidates(getBMSDirectories(), installedChartPaths, CurrentOptionsSnapshot);
     }
 
     /// <summary>
@@ -6564,26 +6571,13 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private sealed class Lr2NormalFolderCurrentBmsSnapshot(
+    private sealed class Lr2NormalFolderCurrentBmsCapture(
         int ownedCollectionVersion,
-        IReadOnlyList<string> currentBmsChartPaths)
+        Lr2NormalFolderCurrentBmsLookup currentBmsFacts)
     {
         internal int OwnedCollectionVersion { get; } = ownedCollectionVersion;
 
-        internal IReadOnlyList<string> CurrentBmsChartPaths { get; } = currentBmsChartPaths ?? [];
-    }
-
-    private Lr2NormalFolderCurrentBmsSnapshot CreateLr2NormalFolderCurrentBmsSnapshotUnsafe()
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe();
-        lock (lockOwnedChartCollection)
-        {
-            return new Lr2NormalFolderCurrentBmsSnapshot(
-                OwnedChartCollectionVersion,
-                catalogOwnedCollectionOwner.IsInitialized
-                    ? catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefIndexSnapshot().GetCurrentBmsChartPaths()
-                    : []);
-        }
+        internal Lr2NormalFolderCurrentBmsLookup CurrentBmsFacts { get; } = currentBmsFacts;
     }
 
     private Lr2NormalFolderCatalogMutationReceipt CreateLr2NormalFolderCatalogMutationReceipt(
@@ -6620,35 +6614,46 @@ public partial class BMSLibrary : ObservableObject
         int expectedVersion = ownedCollectionVersion > 0
             ? ownedCollectionVersion
             : receipt?.OwnedCollectionVersion ?? 0;
-        bool requiresSnapshot = receipt.RemovedCharts?.Any(chart => chart?.Kind == ChartFileKind.Bms) == true
-            || receipt.PathFacts?.Any(pathFact => pathFact?.Kind == ChartFileKind.Bms) == true;
-        Lr2NormalFolderCurrentBmsSnapshot currentSnapshot = requiresSnapshot
-            ? TryCreateLr2NormalFolderCurrentBmsSnapshot()
+        List<string> addedBmsChartPaths = [.. receipt.AddedCharts?
+            .Where(chart => chart?.Kind == ChartFileKind.Bms)
+            .Select(chart => chart.Path) ?? []];
+        List<string> removedBmsChartPaths = [.. receipt.RemovedCharts?
+            .Where(chart => chart?.Kind == ChartFileKind.Bms)
+            .Select(chart => chart.Path) ?? []];
+        List<Lr2NormalFolderPathChange> pathChanges = [.. receipt.PathFacts?
+            .Where(pathFact => pathFact?.Kind == ChartFileKind.Bms)
+            .Select(pathFact => new Lr2NormalFolderPathChange(pathFact.OldPath, pathFact.NewPath)) ?? []];
+        bool requiresSnapshot = removedBmsChartPaths.Count > 0 || pathChanges.Count > 0;
+        Lr2NormalFolderCatalogMutationReceipt factsReceipt = requiresSnapshot
+            ? new Lr2NormalFolderCatalogMutationReceipt(
+                expectedVersion,
+                addedBmsChartPaths,
+                removedBmsChartPaths,
+                pathChanges,
+                null)
             : null;
-        bool snapshotMatchesVersion = !requiresSnapshot
-            || (currentSnapshot != null
-                && (expectedVersion <= 0 || currentSnapshot.OwnedCollectionVersion == expectedVersion));
+        Lr2NormalFolderCurrentBmsCapture currentCapture = requiresSnapshot
+            ? TryCaptureLr2NormalFolderCurrentBmsFacts(
+                getBMSDirectories(),
+                factsReceipt,
+                expectedVersion)
+            : null;
         return new Lr2NormalFolderCatalogMutationReceipt(
-            expectedVersion > 0 ? expectedVersion : currentSnapshot?.OwnedCollectionVersion ?? 0,
-            receipt.AddedCharts?
-                .Where(chart => chart?.Kind == ChartFileKind.Bms)
-                .Select(chart => chart.Path),
-            receipt.RemovedCharts?
-                .Where(chart => chart?.Kind == ChartFileKind.Bms)
-                .Select(chart => chart.Path),
-            receipt.PathFacts?
-                .Where(pathFact => pathFact?.Kind == ChartFileKind.Bms)
-                .Select(pathFact => new Lr2NormalFolderPathChange(pathFact.OldPath, pathFact.NewPath)),
-            requiresSnapshot && snapshotMatchesVersion
-                ? currentSnapshot?.CurrentBmsChartPaths
-                : null);
+            expectedVersion > 0 ? expectedVersion : currentCapture?.OwnedCollectionVersion ?? 0,
+            addedBmsChartPaths,
+            removedBmsChartPaths,
+            pathChanges,
+            requiresSnapshot ? currentCapture?.CurrentBmsFacts : null);
     }
 
-    private Lr2NormalFolderCurrentBmsSnapshot TryCreateLr2NormalFolderCurrentBmsSnapshot()
+    private Lr2NormalFolderCurrentBmsCapture TryCaptureLr2NormalFolderCurrentBmsFacts(
+        IEnumerable<string> rootDirectories,
+        Lr2NormalFolderCatalogMutationReceipt receipt,
+        int expectedVersion)
     {
         try
         {
-            return CreateLr2NormalFolderCurrentBmsSnapshotUnsafe();
+            return CaptureLr2NormalFolderCurrentBmsFactsUnsafe(rootDirectories, receipt, expectedVersion);
         }
         catch (Exception ex)
         {
@@ -6657,6 +6662,81 @@ public partial class BMSLibrary : ObservableObject
                 + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
             return null;
         }
+    }
+
+    private Lr2NormalFolderCurrentBmsCapture CaptureLr2NormalFolderCurrentBmsFactsUnsafe(
+        IEnumerable<string> rootDirectories,
+        Lr2NormalFolderCatalogMutationReceipt receipt,
+        int expectedVersion = 0)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        Lr2NormalFolderBmsQueryScope queryScope =
+            Lr2NormalFolderSyncScopeBuilder.CreateCatalogMutationBmsQueryScope(rootDirectories, receipt);
+        return CaptureLr2NormalFolderCurrentBmsFactsUnsafe(queryScope, expectedVersion);
+    }
+
+    private Lr2NormalFolderCurrentBmsCapture CaptureLr2NormalFolderCurrentBmsFactsUnsafe(
+        Lr2NormalFolderBmsQueryScope queryScope,
+        int expectedVersion = 0)
+    {
+        lock (lockOwnedChartCollection)
+        {
+            int ownedCollectionVersion = OwnedChartCollectionVersion;
+            if (expectedVersion > 0 && ownedCollectionVersion != expectedVersion)
+            {
+                return null;
+            }
+            if (queryScope.CountQueryDirectories.Count == 0
+                && queryScope.PathQueryDirectories.Count == 0)
+            {
+                return new Lr2NormalFolderCurrentBmsCapture(
+                    ownedCollectionVersion,
+                    Lr2NormalFolderCurrentBmsLookup.Empty);
+            }
+
+            LibraryChartRefIndexSnapshot index =
+                catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefIndexSnapshot();
+            LibraryChartRefIndexBmsQueryDiagnostics before = index.CaptureBmsQueryDiagnostics();
+            var countFacts = new List<KeyValuePair<string, int>>(queryScope.CountQueryDirectories.Count);
+            foreach (string directory in queryScope.CountQueryDirectories)
+            {
+                countFacts.Add(new KeyValuePair<string, int>(
+                    directory,
+                    index.CountBmsChartRefsUnderRealPath(directory)));
+            }
+
+            var pathFacts = new List<KeyValuePair<string, IReadOnlyList<string>>>(queryScope.PathQueryDirectories.Count);
+            foreach (string directory in queryScope.PathQueryDirectories)
+            {
+                pathFacts.Add(new KeyValuePair<string, IReadOnlyList<string>>(
+                    directory,
+                    index.GetBmsChartPathsUnderRealPath(directory)));
+            }
+
+            if (OwnedChartCollectionVersion != ownedCollectionVersion)
+            {
+                return null;
+            }
+
+            LibraryChartRefIndexBmsQueryDiagnostics after = index.CaptureBmsQueryDiagnostics();
+            return new Lr2NormalFolderCurrentBmsCapture(
+                ownedCollectionVersion,
+                Lr2NormalFolderCurrentBmsLookup.CreateFromScopedFacts(
+                    countFacts,
+                    pathFacts,
+                    CreateBmsQueryDiagnosticsDelta(before, after)));
+        }
+    }
+
+    private static LibraryChartRefIndexBmsQueryDiagnostics CreateBmsQueryDiagnosticsDelta(
+        LibraryChartRefIndexBmsQueryDiagnostics before,
+        LibraryChartRefIndexBmsQueryDiagnostics after)
+    {
+        return new LibraryChartRefIndexBmsQueryDiagnostics(
+            Math.Max(0, (after?.SubtreeCountQueryCount ?? 0) - (before?.SubtreeCountQueryCount ?? 0)),
+            Math.Max(0, (after?.RangeQueryCount ?? 0) - (before?.RangeQueryCount ?? 0)),
+            Math.Max(0, (after?.RangeVisitedReferenceCount ?? 0) - (before?.RangeVisitedReferenceCount ?? 0)),
+            Math.Max(0, (after?.RangeReturnedPathCount ?? 0) - (before?.RangeReturnedPathCount ?? 0)));
     }
 
     private void MarkLr2SongDbSyncIncompleteAfterFileDiffSongDbWriteFailure(
@@ -7722,6 +7802,39 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    /// <summary>
+    /// delta適用済みplaylist resolve rootへ、通知直前のsource versionだけを捕捉します。
+    /// root自体は共有し、旧snapshotの値を変更しません。
+    /// </summary>
+    private void RebasePlaylistLibraryResolveIndexSnapshot()
+    {
+        lock (lockPlaylistLibraryResolveIndexSnapshot)
+        {
+            PlaylistLibraryResolveIndexSnapshot snapshot = playlistLibraryResolveIndexSnapshot;
+            if (snapshot == null)
+            {
+                return;
+            }
+
+            StorageRowsVersionSnapshot storageRowsVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
+            int ownedCollectionVersion = OwnedChartCollectionVersion;
+            if (snapshot.OwnedCollectionVersion == ownedCollectionVersion
+                && snapshot.BmsRowsVersion == storageRowsVersion.BmsRowsVersion
+                && snapshot.BmsonRowsVersion == storageRowsVersion.BmsonRowsVersion)
+            {
+                return;
+            }
+
+            playlistLibraryResolveIndexSnapshot = snapshot.WithMetadata(
+                version: snapshot.Version,
+                buildElapsedMs: snapshot.BuildElapsedMs,
+                invalidationVersion: snapshot.InvalidationVersion,
+                ownedCollectionVersion: ownedCollectionVersion,
+                bmsRowsVersion: storageRowsVersion.BmsRowsVersion,
+                bmsonRowsVersion: storageRowsVersion.BmsonRowsVersion);
+        }
+    }
+
     private IDisposable BeginOwnedDigestMutationWindow()
     {
         lock (pendingInstallEstimateCurrentnessGate)
@@ -7760,7 +7873,6 @@ public partial class BMSLibrary : ObservableObject
                 catalogOwnedCollectionOwner.EndDigestMutationWindow();
                 ownedDigestMutationGeneration++;
             }
-            InvalidatePlaylistLibraryResolveIndexSnapshot();
         }
     }
 
@@ -7798,11 +7910,18 @@ public partial class BMSLibrary : ObservableObject
         catalogOwnedCollectionOwner.Invalidate();
     }
 
-    private int NotifyOwnedChartCollectionChanged(int committedVersion = 0)
+    private int NotifyOwnedChartCollectionChanged(
+        int committedVersion = 0,
+        bool rebasePlaylistResolveIndex = false)
     {
         int version = committedVersion > 0
             ? committedVersion
             : catalogOwnedCollectionOwner.IncrementVersion();
+        catalogOwnedCollectionOwner.RebaseHashIndexSnapshot();
+        if (rebasePlaylistResolveIndex)
+        {
+            RebasePlaylistLibraryResolveIndexSnapshot();
+        }
         RaisePropertyChanged(() => OwnedChartCollectionVersion);
         return version;
     }
@@ -7874,7 +7993,10 @@ public partial class BMSLibrary : ObservableObject
 
         public bool InstalledLookupMutationApplied { get; set; }
 
-        public bool InstalledHashIndexInvalidated { get; set; }
+        public bool OwnedHashIndexMutationApplied { get; set; }
+
+        /// <summary>今回のmutation factsをplaylist resolve rootへ適用済みか。</summary>
+        public bool PlaylistResolveIndexMutationApplied { get; set; }
 
         public bool PlaylistResolveIndexInvalidated { get; set; }
 
@@ -7909,6 +8031,9 @@ public partial class BMSLibrary : ObservableObject
         public bool OwnedCollectionChangeNotified { get; set; }
 
         public bool OwnedCollectionVersionAlreadyAdvanced { get; set; }
+
+        /// <summary>今回のcatalog mutationで初回BMSON canonical順序正規化が発生したか。</summary>
+        public bool BmsonCanonicalOrderNormalized { get; set; }
 
         public int OwnedCollectionVersion { get; set; }
 
@@ -7998,16 +8123,364 @@ public partial class BMSLibrary : ObservableObject
                 || result.DuplicateCacheInvalidated);
     }
 
-    private readonly struct InstalledChartLookupMutationEntry(string path, string md5, string sha256)
+    /// <summary>
+    /// durable mutationの旧新 hash factsを、構築済み owned hash rootへ一度だけ渡します。
+    /// </summary>
+    /// <param name="result">catalog mutationの結果。</param>
+    private void ApplyOwnedChartHashIndexMutation(OwnedChartCollectionMutationResult result)
+    {
+        if (result == null || result.OwnedHashIndexMutationApplied)
+        {
+            return;
+        }
+
+        bool hasDigestFacts = result.DigestChangedCount > 0 && result.DigestMutationApplied;
+        bool hasStorageHashFacts = result.StorageMutation.RemoveRequests.Count > 0
+            || result.StorageMutation.AddedCharts.Count > 0;
+        if (!hasDigestFacts && !hasStorageHashFacts)
+        {
+            if (result.OwnedCollectionChanged)
+            {
+                catalogOwnedCollectionOwner.RebaseHashIndexSnapshot();
+            }
+            return;
+        }
+
+        var deltas = new List<OwnedChartHashIndexDelta>();
+        bool requiresFullInvalidate = false;
+        if (hasDigestFacts)
+        {
+            foreach (LibraryChartDigestChange change in result.DigestChanges)
+            {
+                if (change?.HasDigestChange == true)
+                {
+                    deltas.Add(new OwnedChartHashIndexDelta(
+                        change.OldMd5,
+                        change.OldSha256,
+                        change.NewMd5,
+                        change.NewSha256));
+                }
+            }
+        }
+        else
+        {
+            foreach (InstalledChartLookupMutationEntry removed in result.InstalledLookupMutation?.Removed ?? [])
+            {
+                deltas.Add(new OwnedChartHashIndexDelta(
+                    removed.Md5,
+                    removed.Sha256,
+                    null,
+                    null));
+            }
+            foreach (ChartFile added in result.StorageMutation.AddedCharts.Where(chart => chart != null))
+            {
+                deltas.Add(new OwnedChartHashIndexDelta(
+                    null,
+                    null,
+                    added.Md5,
+                    added.Sha256));
+            }
+
+            requiresFullInvalidate = result.InstalledLookupMutation?.RequiresFullInvalidate == true
+                && HasUnknownOwnedHashRemoval(result.StorageMutation.RemoveRequests);
+        }
+
+        // 旧行の exact facts が欠ける場合は、候補 hash を部分的に適用せず
+        // 既存の full rebuild 契約へ戻します。file scan の削除 payload 不在もここで扱います。
+        if (result.InstalledLookupMutation?.RequiresFullInvalidate == true
+            && (HasUnknownOwnedHashRemoval(result.StorageMutation.RemoveRequests)
+                || result.RemovedCount > result.StorageMutation.RemoveRequests.Count
+                || (result.StorageMutation.AddedCharts.Count > 0
+                    && result.InstalledLookupMutation.Removed.Count == 0)))
+        {
+            requiresFullInvalidate = true;
+        }
+        catalogOwnedCollectionOwner.ApplyHashIndexDeltas(deltas, requiresFullInvalidate);
+        result.OwnedHashIndexMutationApplied = true;
+    }
+
+    private static bool HasUnknownOwnedHashRemoval(IEnumerable<OwnedChartRemoveRequest> removeRequests)
+    {
+        foreach (OwnedChartRemoveRequest request in removeRequests ?? [])
+        {
+            if (request == null)
+            {
+                continue;
+            }
+            if (request.Mode == OwnedChartRemoveMode.PathCleanup)
+            {
+                return true;
+            }
+            string md5 = request.BmsOwner?.hash ?? request.BmsonOwner?.md5;
+            if (string.IsNullOrWhiteSpace(md5))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// warmなplaylist resolve rootへ、今回の旧新path/hash factsだけを適用します。
+    /// facts不足または全置換境界では既存の全失効契約へ戻します。
+    /// </summary>
+    /// <param name="result">catalog mutationの結果。</param>
+    private void ApplyPlaylistLibraryResolveIndexMutation(OwnedChartCollectionMutationResult result)
+    {
+        if (result == null || result.PlaylistResolveIndexMutationApplied)
+        {
+            return;
+        }
+
+        result.PlaylistResolveIndexMutationApplied = true;
+        if (!result.OwnedCollectionChanged && result.DigestChangedCount == 0)
+        {
+            return;
+        }
+
+        PlaylistLibraryResolveIndexSnapshot snapshot;
+        lock (lockPlaylistLibraryResolveIndexSnapshot)
+        {
+            snapshot = playlistLibraryResolveIndexSnapshot;
+        }
+
+        if (result.PlaylistResolveIndexInvalidated || result.BmsonCanonicalOrderNormalized)
+        {
+            InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
+            result.PlaylistResolveIndexInvalidated = true;
+            return;
+        }
+
+        // cold consumerにはmutation用のoptional indexを構築しません。
+        if (snapshot == null)
+        {
+            return;
+        }
+
+        var removals = new List<PlaylistLibraryResolveChartFact>();
+        var removalKeys = new HashSet<string>(StringComparer.Ordinal);
+        var additionPaths = new List<(LibraryChartKind Kind, string Path)>();
+        var additionKeys = new HashSet<string>(StringComparer.Ordinal);
+        bool factsComplete = true;
+
+        if (result.DigestChangedCount > 0)
+        {
+            if (!result.DigestMutationApplied)
+            {
+                factsComplete = false;
+            }
+            foreach (LibraryChartDigestChange change in result.DigestChanges)
+            {
+                if (change?.HasDigestChange != true
+                    || !AddPlaylistResolveRemovalFact(
+                        removals,
+                        removalKeys,
+                        change.Kind,
+                        change.Path,
+                        change.OldMd5,
+                        change.OldSha256))
+                {
+                    factsComplete = false;
+                    continue;
+                }
+                AddPlaylistResolveAdditionPath(
+                    additionPaths,
+                    additionKeys,
+                    change.Kind,
+                    change.Path);
+            }
+        }
+        else
+        {
+            InstalledChartLookupMutation mutation = result.InstalledLookupMutation;
+            if (mutation == null || mutation.RequiresFullInvalidate)
+            {
+                factsComplete = false;
+            }
+            else
+            {
+                foreach (InstalledChartLookupMutationEntry removed in mutation.Removed)
+                {
+                    if (!AddPlaylistResolveRemovalFact(
+                        removals,
+                        removalKeys,
+                        ToLibraryChartKind(removed.Kind),
+                        removed.Path,
+                        removed.Md5,
+                        removed.Sha256))
+                    {
+                        factsComplete = false;
+                    }
+                }
+                foreach (InstalledChartLookupPathMutationEntry moved in mutation.Moved)
+                {
+                    if (!AddPlaylistResolveRemovalFact(
+                        removals,
+                        removalKeys,
+                        ToLibraryChartKind(moved.Kind),
+                        moved.OldPath,
+                        moved.Md5,
+                        moved.Sha256))
+                    {
+                        factsComplete = false;
+                    }
+                    else
+                    {
+                        AddPlaylistResolveAdditionPath(
+                            additionPaths,
+                            additionKeys,
+                            ToLibraryChartKind(moved.Kind),
+                            moved.NewPath);
+                    }
+                }
+
+                foreach (ChartFile added in result.StorageMutation.AddedCharts ?? [])
+                {
+                    if (added == null
+                        || string.IsNullOrWhiteSpace(added.Path)
+                        || string.IsNullOrWhiteSpace(added.Md5))
+                    {
+                        factsComplete = false;
+                        continue;
+                    }
+                    AddPlaylistResolveAdditionPath(
+                        additionPaths,
+                        additionKeys,
+                        ToLibraryChartKind(added.Kind),
+                        added.Path);
+                }
+            }
+        }
+
+        if (!factsComplete || (removals.Count == 0 && additionPaths.Count == 0))
+        {
+            InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
+            result.PlaylistResolveIndexInvalidated = true;
+            return;
+        }
+
+        if (!TryCreateOwnedCanonicalPlaylistChartFactsUnsafe(
+            additionPaths,
+            out List<PlaylistLibraryResolveChartFact> additions))
+        {
+            InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
+            result.PlaylistResolveIndexInvalidated = true;
+            return;
+        }
+
+        lock (lockPlaylistLibraryResolveIndexSnapshot)
+        {
+            if (!ReferenceEquals(snapshot, playlistLibraryResolveIndexSnapshot))
+            {
+                playlistLibraryResolveIndexSnapshot = null;
+                playlistLibraryResolveIndexInvalidationVersion++;
+                playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = OwnedChartCollectionVersion;
+                result.PlaylistResolveIndexInvalidated = true;
+                return;
+            }
+
+            if (!snapshot.TryApplyDelta(
+                removals,
+                additions,
+                PlaylistLibraryResolveIndexStoreWorkObserver,
+                out PlaylistLibraryResolveIndexSnapshot nextSnapshot))
+            {
+                playlistLibraryResolveIndexSnapshot = null;
+                playlistLibraryResolveIndexInvalidationVersion++;
+                playlistLibraryResolveIndexInvalidationOwnedCollectionVersion = OwnedChartCollectionVersion;
+                result.PlaylistResolveIndexInvalidated = true;
+                return;
+            }
+
+            StorageRowsVersionSnapshot storageRowsVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
+            playlistLibraryResolveIndexSnapshot = nextSnapshot.WithMetadata(
+                version: Interlocked.Increment(ref playlistLibraryResolveIndexSnapshotVersion),
+                buildElapsedMs: snapshot.BuildElapsedMs,
+                invalidationVersion: playlistLibraryResolveIndexInvalidationVersion,
+                ownedCollectionVersion: OwnedChartCollectionVersion,
+                bmsRowsVersion: storageRowsVersion.BmsRowsVersion,
+                bmsonRowsVersion: storageRowsVersion.BmsonRowsVersion);
+        }
+    }
+
+    private static bool AddPlaylistResolveRemovalFact(
+        List<PlaylistLibraryResolveChartFact> removals,
+        ISet<string> removalKeys,
+        LibraryChartKind kind,
+        string path,
+        string md5,
+        string sha256)
+    {
+        if (removals == null
+            || removalKeys == null
+            || string.IsNullOrWhiteSpace(path)
+            || string.IsNullOrWhiteSpace(md5))
+        {
+            return false;
+        }
+
+        string key = (kind == LibraryChartKind.Bmson ? "bmson" : "bms")
+            + "\u001f"
+            + path
+            + "\u001f"
+            + md5.Trim()
+            + "\u001f"
+            + (sha256?.Trim() ?? string.Empty);
+        if (removalKeys.Add(key))
+        {
+            removals.Add(PlaylistLibraryResolveChartFact.ForRemoval(kind, path, md5, sha256));
+        }
+        return true;
+    }
+
+    private static void AddPlaylistResolveAdditionPath(
+        List<(LibraryChartKind Kind, string Path)> additionPaths,
+        ISet<string> additionKeys,
+        LibraryChartKind kind,
+        string path)
+    {
+        if (additionPaths == null
+            || additionKeys == null
+            || string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+
+        string key = (kind == LibraryChartKind.Bmson ? "bmson" : "bms")
+            + "\u001f"
+            + path;
+        if (additionKeys.Add(key))
+        {
+            additionPaths.Add((kind, path));
+        }
+    }
+
+    private static LibraryChartKind ToLibraryChartKind(ChartFileKind kind)
+    {
+        return kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms;
+    }
+
+    private readonly struct InstalledChartLookupMutationEntry(
+        string path,
+        string md5,
+        string sha256,
+        ChartFileKind kind = ChartFileKind.Bms)
     {
         public string Path { get; } = path;
 
         public string Md5 { get; } = md5;
 
         public string Sha256 { get; } = sha256;
+
+        public ChartFileKind Kind { get; } = kind;
     }
 
-    private readonly struct InstalledChartLookupPathMutationEntry(string oldPath, string newPath, string md5, string sha256)
+    private readonly struct InstalledChartLookupPathMutationEntry(
+        string oldPath,
+        string newPath,
+        string md5,
+        string sha256,
+        ChartFileKind kind = ChartFileKind.Bms)
     {
         public string OldPath { get; } = oldPath;
 
@@ -8016,6 +8489,8 @@ public partial class BMSLibrary : ObservableObject
         public string Md5 { get; } = md5;
 
         public string Sha256 { get; } = sha256;
+
+        public ChartFileKind Kind { get; } = kind;
     }
 
     internal OwnedChartHashIndexVersionedSnapshot GetOwnedChartHashIndexSnapshot()
@@ -8031,6 +8506,22 @@ public partial class BMSLibrary : ObservableObject
             out _,
             out _);
     }
+
+    /// <summary>
+    /// owned hash root の実格納処理を観測する内部 hook を設定します。
+    /// 通常運用では未設定で、テストが cold build と局所更新の仕事量を確認する場合だけ使用します。
+    /// </summary>
+    internal Action<string> OwnedChartHashIndexStoreWorkObserver
+    {
+        get => catalogOwnedCollectionOwner.StoreWorkObserver;
+        set => catalogOwnedCollectionOwner.StoreWorkObserver = value;
+    }
+
+    /// <summary>
+    /// playlist resolve root の実格納処理を観測する内部 hook です。
+    /// 通常運用では未設定で、cold build と局所差分更新の列挙範囲をテストで確認する場合だけ使用します。
+    /// </summary>
+    internal Action<string> PlaylistLibraryResolveIndexStoreWorkObserver { get; set; }
 
     internal OwnedHashIndexWarmupResult WarmOwnedChartHashIndexSnapshot(string reason)
     {
@@ -8072,7 +8563,8 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>
     /// playlist detail の entry hash 解決に使う owned collection 隣接 index を返します。
-    /// 所持譜面や digest / path 変更時に無効化し、次回要求時にだけ再構築します。
+    /// 初回要求時に構築し、所持譜面や digest / path の差分を適用済みなら同じrootを再利用します。
+    /// full replacementまたはfacts不足の場合だけ次回要求時に再構築します。
     /// </summary>
     /// <param name="cancellationToken">構築中の cancellation token。</param>
     /// <param name="cacheHit">既存 snapshot を再利用した場合は true。</param>
@@ -8129,11 +8621,15 @@ public partial class BMSLibrary : ObservableObject
                 rebuiltSnapshot = CreatePlaylistLibraryResolveIndexSnapshotUnsafe(cancellationToken, out storageRowsVersion);
                 ownedCollectionVersion = OwnedChartCollectionVersion;
             }
-            rebuiltSnapshot.BuildElapsedMs = stopwatch.ElapsedMilliseconds;
-            rebuiltSnapshot.InvalidationVersion = invalidationVersion;
-            rebuiltSnapshot.OwnedCollectionVersion = invalidationOwnedCollectionVersion == ownedCollectionVersion ? invalidationOwnedCollectionVersion : ownedCollectionVersion;
-            rebuiltSnapshot.BmsRowsVersion = storageRowsVersion.BmsRowsVersion;
-            rebuiltSnapshot.BmsonRowsVersion = storageRowsVersion.BmsonRowsVersion;
+            rebuiltSnapshot = rebuiltSnapshot.WithMetadata(
+                version: 0,
+                buildElapsedMs: stopwatch.ElapsedMilliseconds,
+                invalidationVersion: invalidationVersion,
+                ownedCollectionVersion: invalidationOwnedCollectionVersion == ownedCollectionVersion
+                    ? invalidationOwnedCollectionVersion
+                    : ownedCollectionVersion,
+                bmsRowsVersion: storageRowsVersion.BmsRowsVersion,
+                bmsonRowsVersion: storageRowsVersion.BmsonRowsVersion);
 
             lock (lockPlaylistLibraryResolveIndexSnapshot)
             {
@@ -8163,7 +8659,13 @@ public partial class BMSLibrary : ObservableObject
                     staleRetryCount++;
                     continue;
                 }
-                rebuiltSnapshot.Version = Interlocked.Increment(ref playlistLibraryResolveIndexSnapshotVersion);
+                rebuiltSnapshot = rebuiltSnapshot.WithMetadata(
+                    version: Interlocked.Increment(ref playlistLibraryResolveIndexSnapshotVersion),
+                    buildElapsedMs: rebuiltSnapshot.BuildElapsedMs,
+                    invalidationVersion: rebuiltSnapshot.InvalidationVersion,
+                    ownedCollectionVersion: rebuiltSnapshot.OwnedCollectionVersion,
+                    bmsRowsVersion: rebuiltSnapshot.BmsRowsVersion,
+                    bmsonRowsVersion: rebuiltSnapshot.BmsonRowsVersion);
                 playlistLibraryResolveIndexSnapshot = rebuiltSnapshot;
                 cacheHit = false;
                 return rebuiltSnapshot;
@@ -8383,6 +8885,8 @@ public partial class BMSLibrary : ObservableObject
             }
         }
         stopwatch.Stop();
+        LibraryChartRefIndexBmsQueryDiagnostics queryDiagnostics =
+            snapshot?.CaptureBmsQueryDiagnostics() ?? LibraryChartRefIndexBmsQueryDiagnostics.Empty;
         var result = new OwnedAdjacentIndexWarmupResult
         {
             IndexName = "real_path",
@@ -8391,7 +8895,11 @@ public partial class BMSLibrary : ObservableObject
             ChartRefCount = snapshot?.ChartRefCount ?? 0,
             DirectDirectoryCount = snapshot?.DirectDirectoryCount ?? 0,
             SubtreeDirectoryCount = snapshot?.SubtreeDirectoryCount ?? 0,
-            OwnedCollectionVersion = ownedVersion
+            OwnedCollectionVersion = ownedVersion,
+            BmsCountQueryCount = queryDiagnostics.SubtreeCountQueryCount,
+            BmsRangeQueryCount = queryDiagnostics.RangeQueryCount,
+            BmsRangeVisitedReferenceCount = queryDiagnostics.RangeVisitedReferenceCount,
+            BmsRangeReturnedPathCount = queryDiagnostics.RangeReturnedPathCount
         };
         LogInstallPerformance("owned_adjacent_index_warmup index=" + result.IndexName
             + " reason=" + (reason ?? string.Empty)
@@ -8499,7 +9007,15 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private bool TryCreateOwnedChartRefsForPathsUnsafe(IEnumerable<string> paths, out List<LibraryChartRef> chartRefs)
+    /// <summary>
+    /// optional ref indexを構築せず、owned collectionのexact path索引からcanonical順の既存refを取得します。
+    /// </summary>
+    /// <param name="paths">照合するexact path。</param>
+    /// <param name="chartRefs">一致した現在owner ref。</param>
+    /// <returns>owned collectionが初期化済みで取得できた場合はtrue。</returns>
+    private bool TryCreateOwnedCanonicalChartRefsForPathsUnsafe(
+        IEnumerable<string> paths,
+        out List<LibraryChartRef> chartRefs)
     {
         lock (lockOwnedChartCollection)
         {
@@ -8508,21 +9024,65 @@ public partial class BMSLibrary : ObservableObject
                 chartRefs = null;
                 return false;
             }
-            chartRefs = catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefsForPaths(paths);
+            chartRefs = catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefsForCanonicalPaths(paths);
             return true;
         }
     }
 
-    private bool TryScanOwnedChartRefsForPathsUnsafe(IEnumerable<string> paths, out List<LibraryChartRef> chartRefs)
+    /// <summary>
+    /// optional ref indexを構築せず、指定されたkind/exact pathだけからplaylist resolve factを捕捉します。
+    /// </summary>
+    /// <param name="paths">照合対象のkindとexact path。</param>
+    /// <param name="facts">現在ownerとcanonical順を捕捉したfact。</param>
+    /// <returns>全pathを現在のowned collectionから取得できた場合はtrue。</returns>
+    private bool TryCreateOwnedCanonicalPlaylistChartFactsUnsafe(
+        IEnumerable<(LibraryChartKind Kind, string Path)> paths,
+        out List<PlaylistLibraryResolveChartFact> facts)
     {
+        facts = [];
         lock (lockOwnedChartCollection)
         {
             if (!catalogOwnedCollectionOwner.IsInitialized)
             {
-                chartRefs = null;
+                facts = null;
                 return false;
             }
-            chartRefs = catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefsForPathsByScan(paths);
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach ((LibraryChartKind Kind, string Path) request in paths ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(request.Path))
+                {
+                    return false;
+                }
+
+                string identityKey = (request.Kind == LibraryChartKind.Bmson ? "bmson" : "bms")
+                    + "\u001f"
+                    + request.Path;
+                if (!seen.Add(identityKey))
+                {
+                    continue;
+                }
+
+                PlaylistLibraryResolveIndexStoreWorkObserver?.Invoke("playlist_resolve_exact_path_query");
+                if (!catalogOwnedCollectionOwner.Collection.TryGetCanonicalChartRefForExactPath(
+                    request.Kind,
+                    request.Path,
+                    out LibraryChartRef chartRef,
+                    out OwnedChartCanonicalOrderKey stableOrder))
+                {
+                    return false;
+                }
+                PlaylistLibraryResolveIndexStoreWorkObserver?.Invoke("playlist_resolve_exact_path_entry_visited");
+                PlaylistLibraryResolveChartFact fact = PlaylistLibraryResolveChartFact.FromChart(
+                    chartRef,
+                    stableOrder);
+                if (fact == null)
+                {
+                    return false;
+                }
+                facts.Add(fact);
+            }
             return true;
         }
     }
@@ -8542,7 +9102,7 @@ public partial class BMSLibrary : ObservableObject
     {
         cancellationToken.ThrowIfCancellationRequested();
         EnsureOwnedChartCollectionBuiltUnsafe();
-        List<LibraryChartRef> refs;
+        List<PlaylistLibraryResolveChartFact> facts;
         lock (lockStorageRowsVersion)
         {
             StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
@@ -8553,11 +9113,16 @@ public partial class BMSLibrary : ObservableObject
                     throw new InvalidOperationException("Owned chart collection storage row version is not current.");
                 }
                 storageRowsVersion = currentVersion;
-                refs = catalogOwnedCollectionOwner.Collection.CreatePlaylistLibraryResolveRefSnapshot(cancellationToken.ThrowIfCancellationRequested);
+                facts = catalogOwnedCollectionOwner.Collection.CreatePlaylistLibraryResolveChartFactSnapshot(
+                    cancellationToken.ThrowIfCancellationRequested,
+                    PlaylistLibraryResolveIndexStoreWorkObserver);
             }
         }
         cancellationToken.ThrowIfCancellationRequested();
-        return PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(refs, cancellationToken.ThrowIfCancellationRequested);
+        return PlaylistLibraryResolveIndexSnapshot.FromLibraryChartFacts(
+            facts,
+            cancellationToken.ThrowIfCancellationRequested,
+            PlaylistLibraryResolveIndexStoreWorkObserver);
     }
 
     private ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummaryUnsafe(
@@ -9005,6 +9570,7 @@ public partial class BMSLibrary : ObservableObject
                         installPathToDelete);
                     mutationResult.OwnedCollectionVersion = installedTargetReceipt.OwnedCollectionVersion;
                     mutationResult.OwnedCollectionVersionAlreadyAdvanced = installedTargetReceipt.OwnedCollectionApplied;
+                    mutationResult.BmsonCanonicalOrderNormalized = installedTargetReceipt.BmsonCanonicalOrderNormalized;
                 }
             }
             finally
@@ -9102,16 +9668,6 @@ public partial class BMSLibrary : ObservableObject
             installDestinationStateOwner.PruneToCurrentOwnedCharts();
         }
         result.InstallDestinationRuntimeStateApplied = true;
-        if (HasOwnedHashSetChanges(result))
-        {
-            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
-            result.InstalledHashIndexInvalidated = true;
-        }
-        if (result.OwnedCollectionChanged)
-        {
-            InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
-            result.PlaylistResolveIndexInvalidated = true;
-        }
         if (result.InstallEstimationMetadataProfileCacheInvalidated || result.ShouldDispatchInstalledLookup)
         {
             InvalidateInstallEstimationMetadataProfileCache();
@@ -9125,6 +9681,8 @@ public partial class BMSLibrary : ObservableObject
                 logOverride);
             result.InstalledLookupMutationApplied = true;
         }
+        ApplyOwnedChartHashIndexMutation(result);
+        ApplyPlaylistLibraryResolveIndexMutation(result);
     }
 
     private void PublishInstalledChartStorageTargetsAfterGuard(
@@ -9276,6 +9834,7 @@ public partial class BMSLibrary : ObservableObject
             ParentFolderInvalidated = request.HasDbDiff,
             DuplicateCacheInvalidated = request.HasDbDiff,
             OwnedCollectionChanged = storageRowsChanged,
+            PlaylistResolveIndexInvalidated = request.HasDbDiff,
             ResourceHealthIndexInvalidated = resourceHealthShouldInvalidate,
             WarningPresentationChanged = fileScanPresentationChanged,
             MaintenancePresentationChanged = fileScanPresentationChanged,
@@ -9694,9 +10253,18 @@ public partial class BMSLibrary : ObservableObject
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
             if (result.DigestMutationRequest != null)
             {
-                catalogMutationOwner.ApplyDigestMutation(result.DigestMutationRequest);
+                CatalogDigestMutationReceipt digestReceipt = catalogMutationOwner.ApplyDigestMutation(
+                    result.DigestMutationRequest);
+                result.OwnedHashIndexMutationApplied = digestReceipt.Applied;
             }
+            result.DigestMutationApplied = true;
             digestMs += StopPerformanceStepStopwatch(stepStopwatch);
+        }
+        {
+            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
+            ApplyOwnedChartHashIndexMutation(result);
+            ApplyPlaylistLibraryResolveIndexMutation(result);
+            playlistSummaryMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.ParentFolderInvalidated)
         {
@@ -9718,38 +10286,10 @@ public partial class BMSLibrary : ObservableObject
                 publishNotification: !deferDuplicateChartGroupsNotification);
             duplicateMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        if (HasOwnedHashSetChanges(result) && !result.InstalledHashIndexInvalidated)
+        if (result.OwnedCollectionChanged && publishOwnedCollectionNotifications)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
-            playlistSummaryMs += StopPerformanceStepStopwatch(stepStopwatch);
-        }
-        if (result.OwnedCollectionChanged)
-        {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            if (!result.PlaylistResolveIndexInvalidated)
-            {
-                InvalidatePlaylistLibraryResolveIndexSnapshot();
-            }
-            if (publishOwnedCollectionNotifications)
-            {
-                PublishOwnedCollectionChangeNotification(result);
-            }
-            ownedCollectionNotifyMs += StopPerformanceStepStopwatch(stepStopwatch);
-        }
-        if (HasOwnedHashSetChanges(result) && !result.InstalledHashIndexInvalidated)
-        {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
-            playlistSummaryMs += StopPerformanceStepStopwatch(stepStopwatch);
-        }
-        if (result.OwnedCollectionChanged)
-        {
-            Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            if (!result.PlaylistResolveIndexInvalidated)
-            {
-                InvalidatePlaylistLibraryResolveIndexSnapshot(result.OwnedCollectionVersion);
-            }
+            PublishOwnedCollectionChangeNotification(result);
             ownedCollectionNotifyMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         {
@@ -9801,7 +10341,7 @@ public partial class BMSLibrary : ObservableObject
                 + " parentFolder=" + ToInvalidateLogValue(result.ParentFolderInvalidated)
                 + " duplicate=" + ToInvalidateLogValue(result.DuplicateCacheInvalidated)
                 + " catalogHashSet=" + ToInvalidateLogValue(HasOwnedHashSetChanges(result))
-                + " playlistResolve=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
+                + " playlistResolve=" + ToInvalidateLogValue(result.PlaylistResolveIndexInvalidated)
                 + " ownedCollection=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
                 + " resourceHealth=" + ToResourceHealthMutationDispatchLogValue(result.ResourceHealthMutation)
                 + " installMetadata=" + ToInvalidateLogValue(installMetadataProfileCacheInvalidated)
@@ -9849,9 +10389,13 @@ public partial class BMSLibrary : ObservableObject
             digestChanges,
             resourceHealthIndexInvalidated: true);
         mutationResult.DigestMutationApplied = true;
+        // CatalogMutationOwner.ApplyDigestMutation が既に owned hash root へ
+        // facts を適用しているため、後続の表示dispatchでは再適用しない。
+        mutationResult.OwnedHashIndexMutationApplied = true;
         mutationResult.InstalledLookupMutationApplied = true;
-        mutationResult.InstalledHashIndexInvalidated = true;
-        mutationResult.PlaylistResolveIndexInvalidated = true;
+        // PrepareDigestIndexes で playlist resolve root も同じfactsへ適用済み。
+        // ここでは通知と他の表示projectionだけを実行し、二重適用しません。
+        mutationResult.PlaylistResolveIndexMutationApplied = true;
         mutationResult.InstallMetadataCacheInvalidated = true;
         DispatchOwnedChartCollectionMutationWithResourceHealthLease(mutationResult, reason);
     }
@@ -9863,6 +10407,9 @@ public partial class BMSLibrary : ObservableObject
         OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
             digestChanges);
         mutationResult.OwnedCollectionVersion = OwnedChartCollectionVersion;
+        // Digest event は CatalogMutationOwner.ApplyDigestMutation の後に発生する。
+        mutationResult.DigestMutationApplied = true;
+        mutationResult.OwnedHashIndexMutationApplied = true;
         ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
             mutationResult,
             reason,
@@ -9973,9 +10520,14 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
+        bool rebasePlaylistResolveIndex = result.PlaylistResolveIndexMutationApplied
+            && !result.PlaylistResolveIndexInvalidated;
         result.OwnedCollectionVersion = result.OwnedCollectionVersionAlreadyAdvanced
-            ? NotifyOwnedChartCollectionChanged(result.OwnedCollectionVersion)
-            : NotifyOwnedChartCollectionChanged();
+            ? NotifyOwnedChartCollectionChanged(
+                result.OwnedCollectionVersion,
+                rebasePlaylistResolveIndex)
+            : NotifyOwnedChartCollectionChanged(
+                rebasePlaylistResolveIndex: rebasePlaylistResolveIndex);
         result.OwnedCollectionChangeNotified = true;
     }
 
@@ -10042,7 +10594,12 @@ public partial class BMSLibrary : ObservableObject
                 mutation.RequiresFullInvalidate = true;
                 continue;
             }
-            mutation.Moved.Add(new InstalledChartLookupPathMutationEntry(oldPath, newPath, chart.Md5, chart.Sha256));
+            mutation.Moved.Add(new InstalledChartLookupPathMutationEntry(
+                oldPath,
+                newPath,
+                chart.Md5,
+                chart.Sha256,
+                chart.Kind));
         }
         if ((folderPathChanges?.Count ?? 0) > 0 && storageMutation.PathChanges.Count == 0)
         {
@@ -10056,7 +10613,13 @@ public partial class BMSLibrary : ObservableObject
         var mutation = new InstalledChartLookupMutation();
         bool fullLookupInitialized = IsInstalledChartLookupIndexInitializedUnsafe();
         bool primaryLookupInitialized = IsInstalledPrimaryHashLookupInitializedUnsafe();
-        if (storageMutation?.AddedCount > 0 != true || (!fullLookupInitialized && !primaryLookupInitialized))
+        bool ownedHashLookupInitialized = catalogOwnedCollectionOwner.IsHashIndexWarm();
+        bool playlistResolveLookupInitialized = IsPlaylistLibraryResolveIndexWarmUnsafe();
+        if (storageMutation?.AddedCount > 0 != true
+            || (!fullLookupInitialized
+                && !primaryLookupInitialized
+                && !ownedHashLookupInitialized
+                && !playlistResolveLookupInitialized))
         {
             return mutation;
         }
@@ -10074,9 +10637,9 @@ public partial class BMSLibrary : ObservableObject
         addedPaths.UnionWith(addedBmsonPaths);
         if (addedPaths.Count > 0)
         {
-            bool existingRefsAvailable = fullLookupInitialized
-                ? TryCreateOwnedChartRefsForPathsUnsafe(addedPaths, out List<LibraryChartRef> existingRefs)
-                : TryScanOwnedChartRefsForPathsUnsafe(addedPaths, out existingRefs);
+            bool existingRefsAvailable = TryCreateOwnedCanonicalChartRefsForPathsUnsafe(
+                addedPaths,
+                out List<LibraryChartRef> existingRefs);
             if (!existingRefsAvailable)
             {
                 mutation.RequiresFullInvalidate = true;
@@ -10092,13 +10655,23 @@ public partial class BMSLibrary : ObservableObject
                 if (existingRef.Kind == LibraryChartKind.Bms && addedBmsPaths.Contains(existingPathKey)
                     || existingRef.Kind == LibraryChartKind.Bmson && addedBmsonPaths.Contains(existingPathKey))
                 {
-                    mutation.Removed.Add(new InstalledChartLookupMutationEntry(existingRef.Path, existingRef.Md5, existingRef.Sha256));
+                    mutation.Removed.Add(new InstalledChartLookupMutationEntry(
+                        existingRef.Path,
+                        existingRef.Md5,
+                        existingRef.Sha256,
+                        existingRef.Kind == LibraryChartKind.Bmson
+                            ? ChartFileKind.Bmson
+                            : ChartFileKind.Bms));
                 }
             }
         }
         foreach (ChartFile chart in addedChartList)
         {
-            mutation.Added.Add(new InstalledChartLookupMutationEntry(chart.Path, chart.Md5, chart.Sha256));
+            mutation.Added.Add(new InstalledChartLookupMutationEntry(
+                chart.Path,
+                chart.Md5,
+                chart.Sha256,
+                chart.Kind));
         }
         return mutation;
     }
@@ -10116,6 +10689,14 @@ public partial class BMSLibrary : ObservableObject
         lock (lockInstalledPrimaryHashLookup)
         {
             return installedPrimaryHashLookupInitialized;
+        }
+    }
+
+    private bool IsPlaylistLibraryResolveIndexWarmUnsafe()
+    {
+        lock (lockPlaylistLibraryResolveIndexSnapshot)
+        {
+            return playlistLibraryResolveIndexSnapshot != null;
         }
     }
 
@@ -10137,7 +10718,11 @@ public partial class BMSLibrary : ObservableObject
 
     private static InstalledChartLookupMutationEntry CreateInstalledChartLookupMutationEntry(ChartFile chart)
     {
-        return new InstalledChartLookupMutationEntry(chart?.Path, chart?.Md5, chart?.Sha256);
+        return new InstalledChartLookupMutationEntry(
+            chart?.Path,
+            chart?.Md5,
+            chart?.Sha256,
+            chart?.Kind ?? ChartFileKind.Bms);
     }
 
     private static InstalledChartLookupMutation BuildInstalledChartLookupDigestMutation(IEnumerable<LibraryChartDigestChange> digestChanges)
@@ -10153,8 +10738,19 @@ public partial class BMSLibrary : ObservableObject
             {
                 throw new InvalidOperationException("Owned chart digest changes require a current owner path.");
             }
-            mutation.Removed.Add(new InstalledChartLookupMutationEntry(digestChange.Path, digestChange.OldMd5, digestChange.OldSha256));
-            mutation.Added.Add(new InstalledChartLookupMutationEntry(digestChange.Path, digestChange.NewMd5, digestChange.NewSha256));
+            ChartFileKind kind = digestChange.Kind == LibraryChartKind.Bmson
+                ? ChartFileKind.Bmson
+                : ChartFileKind.Bms;
+            mutation.Removed.Add(new InstalledChartLookupMutationEntry(
+                digestChange.Path,
+                digestChange.OldMd5,
+                digestChange.OldSha256,
+                kind));
+            mutation.Added.Add(new InstalledChartLookupMutationEntry(
+                digestChange.Path,
+                digestChange.NewMd5,
+                digestChange.NewSha256,
+                kind));
         }
         return mutation;
     }
@@ -12860,11 +13456,18 @@ public partial class BMSLibrary : ObservableObject
                                 chartFiles.Where(chart => chart != null),
                                 getBMSDirectories(),
                                 renameRootFolder));
+                        Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
+                            HasActionableAutoRenamePlan(plans)
+                                ? TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans)
+                                : null;
                         result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
                             plans,
                             deferredProgressReporter,
                             postLeaseNotifications);
-                        SyncAutoRenameLr2NormalFoldersUnderExistingLease(result, mutationCapability);
+                        SyncAutoRenameLr2NormalFoldersUnderExistingLease(
+                            result,
+                            currentBmsCapture,
+                            mutationCapability);
                     });
             }
             catch (Exception exception)
@@ -12926,11 +13529,16 @@ public partial class BMSLibrary : ObservableObject
                         () => plans = CreateAutoRenameAllChartFolderPlansUnsafe(parentDir));
                     if (HasActionableAutoRenamePlan(plans))
                     {
+                        Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
+                            TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans);
                         result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
                             plans,
                             deferredProgressReporter,
                             postLeaseNotifications);
-                        SyncAutoRenameLr2NormalFoldersUnderExistingLease(result, mutationCapability);
+                        SyncAutoRenameLr2NormalFoldersUnderExistingLease(
+                            result,
+                            currentBmsCapture,
+                            mutationCapability);
                     }
                 });
             }
@@ -13117,6 +13725,7 @@ public partial class BMSLibrary : ObservableObject
 
     private void SyncAutoRenameLr2NormalFoldersUnderExistingLease(
         AutoRenameBatchResult result,
+        Lr2NormalFolderCurrentBmsCapture currentBmsCapture,
         LibraryFileMutationCapability mutationCapability)
     {
         if (result?.HasOperationFailure == true
@@ -13127,54 +13736,56 @@ public partial class BMSLibrary : ObservableObject
         }
 
         ArgumentNullException.ThrowIfNull(mutationCapability);
-        // This snapshot is intentionally captured while the original batch
-        // capability is still valid.  The deferred catalog effect has not yet
-        // applied its live path projection, so project each moved path before
-        // handing the immutable LR2 receipt to the owner.
-        Lr2NormalFolderCurrentBmsSnapshot currentSnapshot =
-            CreateAutoRenameLr2NormalFolderCurrentBmsSnapshotUnsafe();
-        IReadOnlyList<string> currentBmsChartPaths = ProjectAutoRenameCurrentBmsChartPaths(
-            currentSnapshot?.CurrentBmsChartPaths,
-            result.Lr2NormalFolderPathChanges);
+        // catalog apply は batch 内で先に完了しているため、deferred apply
+        // 前に捕捉した局所 facts を確定 old/new path へ投影して渡します。
+        if (currentBmsCapture?.CurrentBmsFacts == null)
+        {
+            throw new InvalidOperationException("LR2 normal-folder catalog facts are unavailable.");
+        }
+        Lr2NormalFolderCurrentBmsLookup currentBmsFacts =
+            currentBmsCapture.CurrentBmsFacts.ProjectPathChanges(result.Lr2NormalFolderPathChanges);
         lr2SynchronizationOwner.SyncLr2NormalFoldersForCatalogMutation(
             new Lr2NormalFolderCatalogMutationReceipt(
-                currentSnapshot?.OwnedCollectionVersion ?? 0,
+                OwnedChartCollectionVersion,
                 [],
                 [],
                 result.Lr2NormalFolderPathChanges,
-                currentBmsChartPaths),
+                currentBmsFacts),
             "auto_rename_folders",
             mutationCapability);
     }
 
-    private static IReadOnlyList<string> ProjectAutoRenameCurrentBmsChartPaths(
-        IEnumerable<string> currentBmsChartPaths,
-        IEnumerable<Lr2NormalFolderPathChange> pathChanges)
+    private Lr2NormalFolderCurrentBmsCapture TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(
+        IEnumerable<FolderAutoRenamePlan> plans)
     {
-        Dictionary<string, string> replacements = (pathChanges ?? [])
-            .Where(change => change != null
-                && !string.IsNullOrWhiteSpace(change.OldPath)
-                && !string.IsNullOrWhiteSpace(change.NewPath))
-            .GroupBy(change => change.OldPath, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                group => group.Key,
-                group => group.Last().NewPath,
-                StringComparer.OrdinalIgnoreCase);
-        return (currentBmsChartPaths ?? [])
-            .Select(path => replacements.TryGetValue(path, out string replacement) ? replacement : path)
-            .ToArray();
+        if (CurrentOptionsSnapshot?.OperationModeLR2DB != true)
+        {
+            return null;
+        }
+
+        try
+        {
+            return CaptureAutoRenameLr2NormalFolderCurrentBmsFactsUnsafe(
+                getBMSDirectories(),
+                plans);
+        }
+        catch (Exception ex)
+        {
+            LogInstallPerformanceWarn("lr2_normal_folder_auto_rename_facts failed"
+                + " exception=" + ex.GetType().Name
+                + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+            return null;
+        }
     }
 
-    private Lr2NormalFolderCurrentBmsSnapshot CreateAutoRenameLr2NormalFolderCurrentBmsSnapshotUnsafe()
+    private Lr2NormalFolderCurrentBmsCapture CaptureAutoRenameLr2NormalFolderCurrentBmsFactsUnsafe(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<FolderAutoRenamePlan> plans)
     {
-        lock (lockOwnedChartCollection)
-        {
-            return new Lr2NormalFolderCurrentBmsSnapshot(
-                OwnedChartCollectionVersion,
-                catalogOwnedCollectionOwner.IsInitialized
-                    ? catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefIndexSnapshot().GetCurrentBmsChartPaths()
-                    : []);
-        }
+        EnsureOwnedChartCollectionBuiltUnsafe();
+        Lr2NormalFolderBmsQueryScope queryScope =
+            Lr2NormalFolderSyncScopeBuilder.CreateAutoRenameBmsQueryScope(rootDirectories, plans);
+        return CaptureLr2NormalFolderCurrentBmsFactsUnsafe(queryScope);
     }
 
     private void PublishAutoRenameBatchRefreshNotification()
@@ -13738,6 +14349,7 @@ public partial class BMSLibrary : ObservableObject
             || receipt.MovedCharts.Count > 0;
         mutationResult.OwnedCollectionVersion = receipt.OwnedCollectionVersion;
         mutationResult.OwnedCollectionVersionAlreadyAdvanced = hasCatalogFacts;
+        mutationResult.BmsonCanonicalOrderNormalized |= receipt.BmsonCanonicalOrderNormalized;
         mutationResult.OwnedCollectionChanged |= hasCatalogFacts;
         mutationResult.DuplicateCacheInvalidated |= receipt.AddedCharts.Count > 0
             || receipt.RemovedCharts.Count > 0;

@@ -424,6 +424,118 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    [DataTestMethod]
+    [DataRow(16, false)]
+    [DataRow(128, false)]
+    [DataRow(16, true)]
+    [DataRow(128, true)]
+    public void RenameIngress_CapturesOnlyLocalBmsRangeFacts(int backgroundChartCount, bool autoRename)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(
+                Path.GetTempPath(),
+                "BeMusicSeeker_LocalBmsScopeCapture_" + Guid.NewGuid().ToString("N"));
+            string libraryRootPath = Path.Combine(tempRootPath, "LibraryRoot");
+            string sourceDirectoryPath = Path.Combine(libraryRootPath, "TargetSource");
+            string backgroundDirectoryPath = Path.Combine(libraryRootPath, "Background");
+            string targetChartPath = Path.Combine(sourceDirectoryPath, "target.bms");
+            string lr2RootPath = Path.Combine(tempRootPath, "LR2beta3");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(backgroundDirectoryPath);
+            File.WriteAllText(
+                targetChartPath,
+                "#PLAYER 1\r\n#TITLE Target Title\r\n#ARTIST Target Artist\r\n");
+            try
+            {
+                var target = new TestableBmsFile { path = targetChartPath };
+                target.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                target.SetTitle("Target Title");
+                target.SetArtist("Target Artist");
+                var files = new List<TestableBmsFile> { target };
+                for (int index = 0; index < backgroundChartCount; index++)
+                {
+                    var background = new TestableBmsFile
+                    {
+                        path = Path.Combine(backgroundDirectoryPath, $"background-{index:D3}.bms")
+                    };
+                    background.SetHash(index.ToString("x32"));
+                    files.Add(background);
+                }
+
+                LR2Config lr2Config = BmsPlaylistTestSupport.CreateLr2Config(lr2RootPath, libraryRootPath);
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    () => lr2Config,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = true,
+                        LR2RootPath = lr2RootPath,
+                        FolderNameFormat = "[%ARTIST%] %TITLE%"
+                    })
+                {
+                    BMSFiles = files
+                };
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    foreach (TestableBmsFile file in files)
+                    {
+                        songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    }
+                }
+
+                var before =
+                    library.WarmOwnedRealPathDirectoryView("R3局所BMS範囲捕捉前");
+                if (autoRename)
+                {
+                    AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult(
+                        [ChartFileProjection.FromBmsFile(target)]);
+                    Assert.IsTrue(result.HasDurableCommit);
+                }
+                else
+                {
+                    FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                        sourceDirectoryPath,
+                        "Renamed");
+                    Assert.IsNotNull(receipt);
+                    Assert.IsTrue(receipt.DurableCommit);
+                }
+
+                var after =
+                    library.WarmOwnedRealPathDirectoryView("R3局所BMS範囲捕捉後");
+                int countQueryDelta = after.BmsCountQueryCount - before.BmsCountQueryCount;
+                int rangeQueryDelta = after.BmsRangeQueryCount - before.BmsRangeQueryCount;
+                int visitedReferenceDelta =
+                    after.BmsRangeVisitedReferenceCount - before.BmsRangeVisitedReferenceCount;
+                int returnedPathDelta = after.BmsRangeReturnedPathCount - before.BmsRangeReturnedPathCount;
+
+                Assert.IsTrue(countQueryDelta > 0, "receipt捕捉ではBMS祖先件数queryを実行すること。");
+                Assert.IsTrue(rangeQueryDelta > 0, "receipt捕捉ではBMS範囲queryを実行すること。");
+                Assert.IsTrue(returnedPathDelta > 0, "receipt捕捉では対象BMSのexact pathを保持すること。");
+                Assert.IsTrue(
+                    visitedReferenceDelta <= 1,
+                    $"対象1譜面の局所範囲queryが訪問したref数は1以下であること（実測{visitedReferenceDelta}、背景{backgroundChartCount}）。");
+
+                string destinationDirectoryPath = autoRename
+                    ? Path.Combine(libraryRootPath, "[Target Artist] Target Title")
+                    : Path.Combine(libraryRootPath, "Renamed");
+                Assert.AreEqual(Path.Combine(destinationDirectoryPath, "target.bms"), target.path);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
     [TestMethod]
     public void AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh()
     {

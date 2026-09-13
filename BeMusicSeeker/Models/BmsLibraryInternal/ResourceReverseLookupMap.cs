@@ -9,14 +9,14 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// Shares an owned scan's reverse lookup and path-copies only subsequent key changes.
 /// </summary>
 /// <remarks>
-/// The base and candidate arrays are immutable by ownership. A fork has its own builder over
-/// shared immutable change nodes, not a link to the preceding generation. Neither a fork nor
-/// its first write enumerates the base. Callers serialize access to each map with the cache lock.
+/// baseと候補配列は所有権によりimmutableである。forkは直前世代へのlinkではなく、immutableな
+/// change rootを共有する。forkと最初の書き込みはいずれもbaseを列挙しない。呼び出し側はcache
+/// lockで各mapへのアクセスを直列化する。
 /// </remarks>
 internal sealed class ResourceReverseLookupMap
 {
     private readonly IReadOnlyDictionary<uint, string[]> baseline;
-    private readonly ImmutableDictionary<uint, string[]>.Builder changes;
+    private ImmutableDictionary<uint, string[]> changes;
 
     /// <summary>
     /// Transfers ownership of a complete base without enumerating or copying it.
@@ -24,13 +24,14 @@ internal sealed class ResourceReverseLookupMap
     /// </summary>
     internal ResourceReverseLookupMap(IReadOnlyDictionary<uint, string[]> baseline = null)
         : this(baseline ?? new Dictionary<uint, string[]>(),
-            ImmutableDictionary<uint, string[]>.Empty.ToBuilder(), baseline?.Count ?? 0)
+            ImmutableDictionary<uint, string[]>.Empty,
+            baseline?.Count ?? 0)
     {
     }
 
     private ResourceReverseLookupMap(
         IReadOnlyDictionary<uint, string[]> baseline,
-        ImmutableDictionary<uint, string[]>.Builder changes,
+        ImmutableDictionary<uint, string[]> changes,
         int count)
     {
         this.baseline = baseline;
@@ -42,21 +43,12 @@ internal sealed class ResourceReverseLookupMap
     internal int Count { get; private set; }
 
     /// <summary>
-    /// Forks the latest changes without copying the complete base or retaining a generation chain.
-    /// Freezing a builder visits only its still-mutable change nodes; already frozen nodes are shared.
+    /// 完全なbaseのcopyや世代chainの保持を行わず、最新のchangeをforkする。
+    /// immutableなchange rootと所有されたbaseは参照共有する。
     /// </summary>
     internal ResourceReverseLookupMap Fork()
     {
-        return new ResourceReverseLookupMap(baseline, changes.ToImmutable().ToBuilder(), Count);
-    }
-
-    /// <summary>
-    /// Seals computed change nodes at publication, rather than charging a later mutation for
-    /// freezing a preceding lazy-cache fill. This neither copies nor enumerates the scan base.
-    /// </summary>
-    internal void FreezeChanges()
-    {
-        changes.ToImmutable();
+        return new ResourceReverseLookupMap(baseline, changes, Count);
     }
 
     /// <summary>Looks up a key in the latest changes, then the shared scan base.</summary>
@@ -85,7 +77,7 @@ internal sealed class ResourceReverseLookupMap
             return false;
         }
 
-        changes[hash] = directories;
+        changes = changes.SetItem(hash, directories);
         if (!existed)
         {
             Count++;

@@ -108,7 +108,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             LibraryResourceIndexOwner owner = LibraryResourceIndexTestSupport.GetOwner(library);
             owner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
                 [existingDirectory], [[shared]], [[]], [[]], [[shared]], [[]], [[]],
-                new Dictionary<uint, string[]> { [shared] = [existingDirectory] }, [], []));
+                new Dictionary<uint, string[]> { [shared] = [existingDirectory] }, new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
             LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
             LibraryResourceIndexSnapshot? beforeSecondPackage = null;
             string[] audioAtSecondPackage = [];
@@ -837,7 +837,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             LibraryResourceIndexOwner resourceOwner = LibraryResourceIndexTestSupport.GetOwner(library);
             resourceOwner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
-                [], [], [], [], [], [], [], [], [], []));
+                [], [], [], [], [], [], [], new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
             LibraryResourceIndexSnapshot before = resourceOwner.CaptureSnapshot();
 
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
@@ -4858,7 +4858,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
             LibraryResourceIndexOwner resourceOwner = LibraryResourceIndexTestSupport.GetOwner(library);
             resourceOwner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
-                [], [], [], [], [], [], [], [], [], []));
+                [], [], [], [], [], [], [], new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
             LibraryResourceIndexSnapshot before = resourceOwner.CaptureSnapshot();
 
             FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(

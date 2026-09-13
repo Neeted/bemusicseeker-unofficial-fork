@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
 
@@ -35,27 +37,47 @@ internal interface IMutablePrimaryHashLookup : IPrimaryHashLookup
 /// </summary>
 internal sealed class PrimaryHashLookupSnapshot : IPrimaryHashLookup
 {
-    private readonly Dictionary<string, int> primaryHashCounts;
+    private static readonly ImmutableDictionary<string, int> EmptyCounts =
+        ImmutableDictionary<string, int>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
 
     public PrimaryHashLookupSnapshot()
-        : this(new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase))
+        : this(EmptyCounts)
     {
     }
 
-    private PrimaryHashLookupSnapshot(Dictionary<string, int> primaryHashCounts)
+    private PrimaryHashLookupSnapshot(ImmutableDictionary<string, int> primaryHashCounts)
     {
-        this.primaryHashCounts = primaryHashCounts ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        this.primaryHashCounts = primaryHashCounts ?? EmptyCounts;
     }
 
     /// <summary>
-    /// mutable state から primary md5 count だけをコピーします。
+    /// mutable state から primary md5 count root を作成します。
     /// </summary>
     /// <param name="source">コピー元の count map。</param>
     /// <returns>primary md5 count snapshot。</returns>
     internal static PrimaryHashLookupSnapshot Create(IReadOnlyDictionary<string, int> source)
     {
-        return new PrimaryHashLookupSnapshot(CopyPrimaryHashCounts(source));
+        if (source is ImmutableDictionary<string, int> immutableSource
+            && immutableSource.KeyComparer == StringComparer.OrdinalIgnoreCase)
+        {
+            return new PrimaryHashLookupSnapshot(immutableSource);
+        }
+
+        ImmutableDictionary<string, int>.Builder builder = EmptyCounts.ToBuilder();
+        foreach (KeyValuePair<string, int> item in source ?? new Dictionary<string, int>())
+        {
+            if (!string.IsNullOrWhiteSpace(item.Key) && item.Value > 0)
+            {
+                builder[item.Key] = item.Value;
+            }
+        }
+        return new PrimaryHashLookupSnapshot(builder.ToImmutable());
     }
+
+    private readonly ImmutableDictionary<string, int> primaryHashCounts;
+
+    /// <summary>primary md5 count の immutable root view。</summary>
+    internal IReadOnlyDictionary<string, int> PrimaryHashCounts => primaryHashCounts;
 
     public int DistinctPrimaryHashCount => primaryHashCounts.Count;
 
@@ -78,22 +100,6 @@ internal sealed class PrimaryHashLookupSnapshot : IPrimaryHashLookup
             : new ExcludingPrimaryHashLookup(this, excludedCounts);
     }
 
-    private static Dictionary<string, int> CopyPrimaryHashCounts(IReadOnlyDictionary<string, int> source)
-    {
-        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        if (source == null)
-        {
-            return result;
-        }
-        foreach (KeyValuePair<string, int> item in source)
-        {
-            if (!string.IsNullOrWhiteSpace(item.Key) && item.Value > 0)
-            {
-                result[item.Key] = item.Value;
-            }
-        }
-        return result;
-    }
 }
 
 /// <summary>
@@ -103,7 +109,10 @@ internal sealed class PrimaryHashLookupSnapshot : IPrimaryHashLookup
 /// </summary>
 internal sealed class PrimaryHashLookupState : IPrimaryHashLookup
 {
-    private readonly Dictionary<string, int> primaryHashCounts = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ImmutableDictionary<string, int> EmptyCounts =
+        ImmutableDictionary<string, int>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
+
+    private ImmutableDictionary<string, int> primaryHashCounts = EmptyCounts;
 
     private PrimaryHashLookupSnapshot snapshot;
 
@@ -131,7 +140,9 @@ internal sealed class PrimaryHashLookupState : IPrimaryHashLookup
     {
         if (!string.IsNullOrWhiteSpace(lookupHash))
         {
-            Increment(primaryHashCounts, lookupHash);
+            primaryHashCounts = primaryHashCounts.SetItem(
+                lookupHash,
+                primaryHashCounts.TryGetValue(lookupHash, out int count) ? count + 1 : 1);
             MarkDirty();
         }
     }
@@ -142,14 +153,18 @@ internal sealed class PrimaryHashLookupState : IPrimaryHashLookup
     /// <param name="lookupHash">owned chart の md5。</param>
     internal void RemovePrimaryHash(string lookupHash)
     {
-        if (!string.IsNullOrWhiteSpace(lookupHash) && Decrement(primaryHashCounts, lookupHash))
+        if (!string.IsNullOrWhiteSpace(lookupHash)
+            && primaryHashCounts.TryGetValue(lookupHash, out int currentCount))
         {
+            primaryHashCounts = currentCount <= 1
+                ? primaryHashCounts.Remove(lookupHash)
+                : primaryHashCounts.SetItem(lookupHash, currentCount - 1);
             MarkDirty();
         }
     }
 
     /// <summary>
-    /// snapshot を返します。count map だけをコピーし、directory map は作りません。
+    /// snapshot を返します。構築済み immutable count root を共有し、directory map は作りません。
     /// </summary>
     /// <returns>primary md5 lookup snapshot。</returns>
     internal PrimaryHashLookupSnapshot CreateSnapshot()
@@ -171,100 +186,149 @@ internal sealed class PrimaryHashLookupState : IPrimaryHashLookup
             : new ExcludingPrimaryHashLookup(baseline, excludedCounts);
     }
 
-    private static void Increment(Dictionary<string, int> counts, string key)
-    {
-        counts[key] = counts.TryGetValue(key, out int count) ? count + 1 : 1;
-    }
-
-    private static bool Decrement(Dictionary<string, int> counts, string key)
-    {
-        if (!counts.TryGetValue(key, out int count))
-        {
-            return false;
-        }
-        if (count <= 1)
-        {
-            counts.Remove(key);
-        }
-        else
-        {
-            counts[key] = count - 1;
-        }
-        return true;
-    }
-
     private void MarkDirty()
     {
         snapshotDirty = true;
     }
 }
 
+/// <summary>
+/// installed chart の digest bucket、primary count、既知 directory を共有 immutable root として公開する snapshot です。
+/// </summary>
 internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupIndex
 {
-    private readonly Dictionary<string, IReadOnlyList<string>> md5Directories;
+    private static readonly ImmutableDictionary<string, IReadOnlyList<string>> EmptyDirectoryMap =
+        ImmutableDictionary<string, IReadOnlyList<string>>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, IReadOnlyList<string>> sha256Directories;
+    private static readonly ImmutableSortedSet<string> EmptyDirectorySet =
+        ImmutableSortedSet<string>.Empty.WithComparer(StringComparer.OrdinalIgnoreCase);
 
-    private readonly HashSet<string> knownChartDirectories;
+    private static readonly ImmutableDictionary<string, int> EmptyCountMap =
+        ImmutableDictionary<string, int>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, int> primaryHashCounts;
+    private readonly ImmutableDictionary<string, IReadOnlyList<string>> md5Directories;
 
-    private readonly Dictionary<string, int> uniquePrimaryHashCountsByDirectory;
+    private readonly ImmutableDictionary<string, IReadOnlyList<string>> sha256Directories;
+
+    private readonly ImmutableSortedSet<string> knownChartDirectories;
+
+    private readonly ImmutableDictionary<string, int> primaryHashCounts;
+
+    private readonly ImmutableDictionary<string, int> uniquePrimaryHashCountsByDirectory;
+
+    private readonly int directoryReferenceCount;
+
+    private readonly InstalledLookupMapView<IReadOnlyList<string>> md5DirectoriesView;
+
+    private readonly InstalledLookupMapView<IReadOnlyList<string>> sha256DirectoriesView;
+
+    private readonly InstalledLookupMapView<int> primaryHashCountsView;
+
+    private readonly InstalledLookupMapView<int> uniquePrimaryHashCountsByDirectoryView;
 
     public InstalledChartLookupIndexSnapshot()
         : this(
-            new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase),
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase))
+            EmptyDirectoryMap,
+            EmptyDirectoryMap,
+            EmptyDirectorySet,
+            EmptyCountMap,
+            EmptyCountMap,
+            directoryReferenceCount: 0,
+            storeWorkObserver: null)
     {
     }
 
     private InstalledChartLookupIndexSnapshot(
-        Dictionary<string, IReadOnlyList<string>> md5Directories,
-        Dictionary<string, IReadOnlyList<string>> sha256Directories,
-        HashSet<string> knownChartDirectories,
-        Dictionary<string, int> primaryHashCounts,
-        Dictionary<string, int> uniquePrimaryHashCountsByDirectory)
+        ImmutableDictionary<string, IReadOnlyList<string>> md5Directories,
+        ImmutableDictionary<string, IReadOnlyList<string>> sha256Directories,
+        ImmutableSortedSet<string> knownChartDirectories,
+        ImmutableDictionary<string, int> primaryHashCounts,
+        ImmutableDictionary<string, int> uniquePrimaryHashCountsByDirectory,
+        int directoryReferenceCount,
+        Action<string> storeWorkObserver)
     {
-        this.md5Directories = md5Directories ?? new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-        this.sha256Directories = sha256Directories ?? new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-        this.knownChartDirectories = knownChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        this.primaryHashCounts = primaryHashCounts ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        this.uniquePrimaryHashCountsByDirectory = uniquePrimaryHashCountsByDirectory ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        this.md5Directories = md5Directories ?? EmptyDirectoryMap;
+        this.sha256Directories = sha256Directories ?? EmptyDirectoryMap;
+        this.knownChartDirectories = knownChartDirectories ?? EmptyDirectorySet;
+        this.primaryHashCounts = primaryHashCounts ?? EmptyCountMap;
+        this.uniquePrimaryHashCountsByDirectory = uniquePrimaryHashCountsByDirectory ?? EmptyCountMap;
+        this.directoryReferenceCount = directoryReferenceCount;
+        StoreWorkObserver = storeWorkObserver;
+        md5DirectoriesView = new(this.md5Directories, () => StoreWorkObserver);
+        sha256DirectoriesView = new(this.sha256Directories, () => StoreWorkObserver);
+        primaryHashCountsView = new(this.primaryHashCounts, () => StoreWorkObserver);
+        uniquePrimaryHashCountsByDirectoryView = new(this.uniquePrimaryHashCountsByDirectory, () => StoreWorkObserver);
     }
 
+    /// <summary>
+    /// 差分更新済みの immutable root から installed lookup snapshot を作成します。
+    /// root は state が更新時に差し替えるため、snapshot 作成時に全 map を複製しません。
+    /// </summary>
+    /// <param name="md5Directories">MD5 ごとのソート済み directory bucket。</param>
+    /// <param name="sha256Directories">SHA-256 ごとのソート済み directory bucket。</param>
+    /// <param name="knownChartDirectories">譜面を含む既知 directory の root。</param>
+    /// <param name="primaryHashCounts">primary hash の所持数 root。</param>
+    /// <param name="uniquePrimaryHashCountsByDirectory">directory ごとの distinct primary hash 数 root。</param>
+    /// <param name="directoryReferenceCount">MD5/SHA bucket の distinct directory 参照数。</param>
+    /// <param name="storeWorkObserver">実際の差分 store 処理を任意に観測する内部 callback。</param>
+    /// <returns>指定された root を保持する immutable snapshot。</returns>
     internal static InstalledChartLookupIndexSnapshot Create(
-        Dictionary<string, HashSet<string>> md5DirectoryMap,
-        Dictionary<string, HashSet<string>> sha256DirectoryMap,
-        HashSet<string> knownChartDirectories,
-        Dictionary<string, int> primaryHashCounts,
-        Dictionary<string, int> uniquePrimaryHashCountsByDirectory)
+        ImmutableDictionary<string, IReadOnlyList<string>> md5Directories,
+        ImmutableDictionary<string, IReadOnlyList<string>> sha256Directories,
+        ImmutableSortedSet<string> knownChartDirectories,
+        ImmutableDictionary<string, int> primaryHashCounts,
+        ImmutableDictionary<string, int> uniquePrimaryHashCountsByDirectory,
+        int directoryReferenceCount,
+        Action<string> storeWorkObserver = null)
     {
         return new InstalledChartLookupIndexSnapshot(
-            CopyDirectoryMap(md5DirectoryMap),
-            CopyDirectoryMap(sha256DirectoryMap),
-            CopyKnownDirectories(knownChartDirectories),
-            CopyPrimaryHashCounts(primaryHashCounts),
-            CopyPrimaryHashCounts(uniquePrimaryHashCountsByDirectory));
+            md5Directories,
+            sha256Directories,
+            knownChartDirectories,
+            primaryHashCounts,
+            uniquePrimaryHashCountsByDirectory,
+            directoryReferenceCount,
+            storeWorkObserver);
     }
 
-    public IReadOnlyDictionary<string, IReadOnlyList<string>> Md5Directories => md5Directories;
+    /// <summary>MD5 hash ごとのソート済み installed directory bucket を返します。</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Md5Directories => md5DirectoriesView;
 
-    public IReadOnlyDictionary<string, IReadOnlyList<string>> Sha256Directories => sha256Directories;
+    /// <summary>SHA-256 hash ごとのソート済み installed directory bucket を返します。</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Sha256Directories => sha256DirectoriesView;
 
-    public int HashCount => Md5Directories.Count + Sha256Directories.Count;
+    /// <summary>MD5/SHA の distinct hash bucket 数を返します。</summary>
+    public int HashCount => md5Directories.Count + sha256Directories.Count;
 
-    public int DirectoryReferenceCount => Md5Directories.Sum(x => x.Value.Count)
-        + Sha256Directories.Sum(x => x.Value.Count);
+    /// <summary>
+    /// MD5/SHA bucket に属する distinct directory 参照数を返します。
+    /// 保存済み scalar を読むだけで、全 bucket を再集計しません。
+    /// </summary>
+    public int DirectoryReferenceCount
+    {
+        get
+        {
+            StoreWorkObserver?.Invoke("installed_directory_reference_count_read");
+            return directoryReferenceCount;
+        }
+    }
 
+    /// <summary>
+    /// immutable store の実処理を任意に記録する内部観測口です。
+    /// production では未設定のまま使用します。設定時も callback は state へ再入せず、待機や例外送出をしません。
+    /// </summary>
+    internal Action<string> StoreWorkObserver { get; set; }
+
+    /// <summary>installed chart が存在する既知 directory の read-only collection を返します。</summary>
     public IReadOnlyCollection<string> KnownChartDirectories => knownChartDirectories;
 
-    public IReadOnlyDictionary<string, int> PrimaryHashCounts => primaryHashCounts;
+    /// <summary>primary hash ごとの installed chart 所持数を返します。</summary>
+    public IReadOnlyDictionary<string, int> PrimaryHashCounts => primaryHashCountsView;
 
-    public IReadOnlyDictionary<string, int> UniquePrimaryHashCountsByDirectory => uniquePrimaryHashCountsByDirectory;
+    /// <summary>directory ごとの distinct primary hash 数を返します。</summary>
+    public IReadOnlyDictionary<string, int> UniquePrimaryHashCountsByDirectory => uniquePrimaryHashCountsByDirectoryView;
 
+    /// <summary>distinct primary hash 数を返します。</summary>
     public int DistinctPrimaryHashCount => primaryHashCounts.Count;
 
     public bool ContainsPrimaryHash(string lookupHash)
@@ -290,19 +354,25 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
             : 0;
     }
 
+    /// <summary>primary hash に対応するソート済み directory bucket を返します。</summary>
+    /// <param name="lookupHash">検索する primary hash。</param>
+    /// <returns>primary hash を含む directory の read-only list。</returns>
     public IReadOnlyList<string> GetDistinctDirectoriesByPrimaryHash(string lookupHash)
     {
         if (string.IsNullOrWhiteSpace(lookupHash))
         {
             return [];
         }
-        if (md5Directories.TryGetValue(lookupHash, out IReadOnlyList<string> md5DirectoryList) && md5DirectoryList != null)
+        if (md5DirectoriesView.TryGetValue(lookupHash, out IReadOnlyList<string> md5DirectoryList) && md5DirectoryList != null)
         {
-            return CreateDistinctDirectoryList(md5DirectoryList);
+            return md5DirectoryList;
         }
         return [];
     }
 
+    /// <summary>指定 directory に属する distinct primary hash 数を返します。</summary>
+    /// <param name="directoryPath">照会する directory path。</param>
+    /// <returns>directory に属する distinct primary hash 数。</returns>
     public int GetUniquePrimaryHashCountByDirectory(string directoryPath)
     {
         return !string.IsNullOrWhiteSpace(directoryPath)
@@ -311,96 +381,144 @@ internal sealed class InstalledChartLookupIndexSnapshot : IInstalledChartLookupI
             : 0;
     }
 
-    private static Dictionary<string, IReadOnlyList<string>> CopyDirectoryMap(Dictionary<string, HashSet<string>> source)
-    {
-        var result = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-        if (source == null)
-        {
-            return result;
-        }
-        foreach (KeyValuePair<string, HashSet<string>> item in source)
-        {
-            if (!string.IsNullOrWhiteSpace(item.Key))
-            {
-                result[item.Key] = [.. (item.Value ?? [])
-                    .Where(dir => !string.IsNullOrWhiteSpace(dir))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(dir => dir, StringComparer.OrdinalIgnoreCase)];
-            }
-        }
-        return result;
-    }
-
-    private static HashSet<string> CopyKnownDirectories(HashSet<string> source)
-    {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (source == null)
-        {
-            return result;
-        }
-        foreach (string directory in source)
-        {
-            if (!string.IsNullOrWhiteSpace(directory))
-            {
-                result.Add(directory);
-            }
-        }
-        return result;
-    }
-
-    private static Dictionary<string, int> CopyPrimaryHashCounts(Dictionary<string, int> source)
-    {
-        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        if (source == null)
-        {
-            return result;
-        }
-        foreach (KeyValuePair<string, int> item in source)
-        {
-            if (!string.IsNullOrWhiteSpace(item.Key) && item.Value > 0)
-            {
-                result[item.Key] = item.Value;
-            }
-        }
-        return result;
-    }
-
-    private static IReadOnlyList<string> CreateDistinctDirectoryList(IEnumerable<string> directories)
-    {
-        return [.. (directories ?? [])
-            .Where(dir => !string.IsNullOrWhiteSpace(dir))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-    }
-
     internal IPrimaryHashLookup CreateExcludingLookup(IReadOnlyDictionary<string, int> excludedCounts)
     {
         return excludedCounts == null || excludedCounts.Count == 0
             ? this
             : new ExcludingPrimaryHashLookup(this, excludedCounts);
     }
+
+    /// <summary>
+    /// immutable map root の read-only view です。列挙時だけ任意の内部観測 callback を呼び、
+    /// snapshot 自体の root は複製しません。
+    /// </summary>
+    private sealed class InstalledLookupMapView<TValue> : IReadOnlyDictionary<string, TValue>
+    {
+        private readonly ImmutableDictionary<string, TValue> root;
+
+        private readonly Func<Action<string>> observerProvider;
+
+        internal InstalledLookupMapView(
+            ImmutableDictionary<string, TValue> root,
+            Func<Action<string>> observerProvider)
+        {
+            this.root = root ?? throw new ArgumentNullException(nameof(root));
+            this.observerProvider = observerProvider ?? throw new ArgumentNullException(nameof(observerProvider));
+        }
+
+        public int Count => root.Count;
+
+        public IEnumerable<string> Keys => EnumerateKeys();
+
+        public IEnumerable<TValue> Values => EnumerateValues();
+
+        public TValue this[string key]
+        {
+            get
+            {
+                Observe("installed_root_map_lookup");
+                return root[key];
+            }
+        }
+
+        public bool ContainsKey(string key)
+        {
+            Observe("installed_root_map_lookup");
+            return root.ContainsKey(key);
+        }
+
+        public bool TryGetValue(string key, out TValue value)
+        {
+            Observe("installed_root_map_lookup");
+            return root.TryGetValue(key, out value);
+        }
+
+        public IEnumerator<KeyValuePair<string, TValue>> GetEnumerator()
+        {
+            Observe("installed_root_map_enumeration");
+            foreach (KeyValuePair<string, TValue> item in root)
+            {
+                Observe("installed_root_map_key_visited");
+                yield return item;
+            }
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return GetEnumerator();
+        }
+
+        private IEnumerable<string> EnumerateKeys()
+        {
+            foreach (KeyValuePair<string, TValue> item in this)
+            {
+                yield return item.Key;
+            }
+        }
+
+        private IEnumerable<TValue> EnumerateValues()
+        {
+            foreach (KeyValuePair<string, TValue> item in this)
+            {
+                yield return item.Value;
+            }
+        }
+
+        private void Observe(string operation)
+        {
+            Action<string> observer = observerProvider();
+            observer?.Invoke(operation);
+        }
+    }
+
 }
 
+/// <summary>
+/// installed chart の owner count と差分更新済み immutable root を保持する full lookup state です。
+/// </summary>
 internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
 {
+    private static readonly ImmutableDictionary<string, IReadOnlyList<string>> EmptyDirectoryMap =
+        ImmutableDictionary<string, IReadOnlyList<string>>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly ImmutableSortedSet<string> EmptyDirectorySet =
+        ImmutableSortedSet<string>.Empty.WithComparer(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly ImmutableDictionary<string, int> EmptyCountMap =
+        ImmutableDictionary<string, int>.Empty.WithComparers(StringComparer.OrdinalIgnoreCase);
+
     private readonly Dictionary<string, Dictionary<string, int>> md5DirectoryCounts = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, Dictionary<string, int>> sha256DirectoryCounts = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, int> knownChartDirectoryCounts = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, int> primaryHashCounts = new(StringComparer.OrdinalIgnoreCase);
+    private ImmutableDictionary<string, int> primaryHashCounts = EmptyCountMap;
 
     private readonly Dictionary<string, Dictionary<string, int>> primaryHashPathCounts = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<string, Dictionary<string, int>> directoryPrimaryHashCounts = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, int> uniquePrimaryHashCountsByDirectory = new(StringComparer.OrdinalIgnoreCase);
+    private ImmutableDictionary<string, int> uniquePrimaryHashCountsByDirectory = EmptyCountMap;
+
+    // 可変の owner-count 表とは分離し、公開 snapshot が保持する root を更新ごとに差し替えます。
+    private ImmutableDictionary<string, IReadOnlyList<string>> md5DirectoryLists = EmptyDirectoryMap;
+
+    private ImmutableDictionary<string, IReadOnlyList<string>> sha256DirectoryLists = EmptyDirectoryMap;
+
+    private ImmutableSortedSet<string> knownChartDirectories = EmptyDirectorySet;
 
     private InstalledChartLookupIndexSnapshot snapshot;
 
     private bool snapshotDirty = true;
 
     private int directoryReferenceCount;
+
+    /// <summary>
+    /// installed lookup の差分更新・snapshot 取得で実際に行った store 処理を任意に記録する内部観測口です。
+    /// production では未設定のまま使用します。設定時も callback は state へ再入せず、待機や例外送出をしません。
+    /// </summary>
+    internal Action<string> StoreWorkObserver { get; set; }
 
     public int DistinctPrimaryHashCount => primaryHashCounts.Count;
 
@@ -430,24 +548,31 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             : [];
     }
 
+    /// <summary>
+    /// primary hash のソート済み directory bucket を返します。bucket の再構成は membership 変更時だけ行います。
+    /// </summary>
+    /// <param name="lookupHash">検索する primary hash。</param>
+    /// <returns>primary hash を含む directory の read-only list。</returns>
     internal IReadOnlyList<string> GetDistinctDirectoriesByPrimaryHash(string lookupHash)
     {
         if (string.IsNullOrWhiteSpace(lookupHash))
         {
             return [];
         }
-        if (md5DirectoryCounts.TryGetValue(lookupHash, out Dictionary<string, int> md5Directories) && md5Directories != null)
+        if (md5DirectoryLists.TryGetValue(lookupHash, out IReadOnlyList<string> md5DirectoryList) && md5DirectoryList != null)
         {
-            return CreateDirectoryList(md5Directories);
+            return md5DirectoryList;
         }
         return [];
     }
 
+    /// <summary>
+    /// 既知 chart directory の immutable root を返します。全件列挙は呼び出し側が必要な場合だけ行います。
+    /// </summary>
+    /// <returns>既知 chart directory の read-only collection。</returns>
     internal IReadOnlyCollection<string> CreateKnownChartDirectorySnapshot()
     {
-        return [.. knownChartDirectoryCounts.Keys
-            .Where(directory => !string.IsNullOrWhiteSpace(directory))
-            .OrderBy(directory => directory, StringComparer.OrdinalIgnoreCase)];
+        return knownChartDirectories;
     }
 
     internal void AddChart(string path, string md5, string sha256)
@@ -496,48 +621,41 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             : new ExcludingPrimaryHashLookup(baseline, excludedCounts);
     }
 
+    /// <summary>
+    /// 更新済み immutable root を保持する installed lookup snapshot を返します。
+    /// dirty でない場合は既存 snapshot を再利用し、dirty 時も root 全件を複製しません。
+    /// </summary>
+    /// <returns>現在の installed lookup snapshot。</returns>
     internal InstalledChartLookupIndexSnapshot CreateSnapshot()
     {
         if (!snapshotDirty && snapshot != null)
         {
             return snapshot;
         }
+        StoreWorkObserver?.Invoke("installed_snapshot_root_capture");
         snapshot = InstalledChartLookupIndexSnapshot.Create(
-            ToDirectorySetMap(md5DirectoryCounts),
-            ToDirectorySetMap(sha256DirectoryCounts),
-            new HashSet<string>(knownChartDirectoryCounts.Keys, StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, int>(primaryHashCounts, StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, int>(uniquePrimaryHashCountsByDirectory, StringComparer.OrdinalIgnoreCase));
+            md5DirectoryLists,
+            sha256DirectoryLists,
+            knownChartDirectories,
+            primaryHashCounts,
+            uniquePrimaryHashCountsByDirectory,
+            directoryReferenceCount,
+            StoreWorkObserver);
         snapshotDirty = false;
         return snapshot;
-    }
-
-    private static Dictionary<string, HashSet<string>> ToDirectorySetMap(Dictionary<string, Dictionary<string, int>> source)
-    {
-        var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (KeyValuePair<string, Dictionary<string, int>> item in source)
-        {
-            result[item.Key] = new HashSet<string>(item.Value.Keys, StringComparer.OrdinalIgnoreCase);
-        }
-        return result;
-    }
-
-    private static IReadOnlyList<string> CreateDirectoryList(Dictionary<string, int> directoryCounts)
-    {
-        IEnumerable<string> directories = directoryCounts == null
-            ? []
-            : directoryCounts.Keys;
-        return [.. directories
-            .Where(directory => !string.IsNullOrWhiteSpace(directory))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(directory => directory, StringComparer.OrdinalIgnoreCase)];
     }
 
     private void AddKnownDirectory(string directory)
     {
         if (!string.IsNullOrWhiteSpace(directory))
         {
+            bool added = !knownChartDirectoryCounts.ContainsKey(directory);
             Increment(knownChartDirectoryCounts, directory);
+            if (added)
+            {
+                knownChartDirectories = knownChartDirectories.Add(directory);
+                StoreWorkObserver?.Invoke("installed_known_directory_update");
+            }
             MarkDirty();
         }
     }
@@ -546,6 +664,11 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
     {
         if (!string.IsNullOrWhiteSpace(directory) && Decrement(knownChartDirectoryCounts, directory))
         {
+            if (!knownChartDirectoryCounts.ContainsKey(directory))
+            {
+                knownChartDirectories = knownChartDirectories.Remove(directory);
+                StoreWorkObserver?.Invoke("installed_known_directory_update");
+            }
             MarkDirty();
         }
     }
@@ -565,9 +688,18 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             directoryCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             directoryCountsByHash[hash] = directoryCounts;
         }
-        if (!directoryCounts.ContainsKey(directory))
+        bool added = !directoryCounts.ContainsKey(directory);
+        if (added)
         {
             directoryReferenceCount++;
+            if (ReferenceEquals(directoryCountsByHash, md5DirectoryCounts))
+            {
+                md5DirectoryLists = AddDirectoryToSortedBuckets(md5DirectoryLists, hash, directory, StoreWorkObserver);
+            }
+            else
+            {
+                sha256DirectoryLists = AddDirectoryToSortedBuckets(sha256DirectoryLists, hash, directory, StoreWorkObserver);
+            }
         }
         Increment(directoryCounts, directory);
         MarkDirty();
@@ -586,9 +718,18 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         if (directoryCountsByHash.TryGetValue(hash, out Dictionary<string, int> directoryCounts)
             && Decrement(directoryCounts, directory))
         {
-            if (!directoryCounts.ContainsKey(directory))
+            bool removed = !directoryCounts.ContainsKey(directory);
+            if (removed)
             {
                 directoryReferenceCount--;
+                if (ReferenceEquals(directoryCountsByHash, md5DirectoryCounts))
+                {
+                    md5DirectoryLists = RemoveDirectoryFromSortedBuckets(md5DirectoryLists, hash, directory, StoreWorkObserver);
+                }
+                else
+                {
+                    sha256DirectoryLists = RemoveDirectoryFromSortedBuckets(sha256DirectoryLists, hash, directory, StoreWorkObserver);
+                }
             }
             if (directoryCounts.Count == 0)
             {
@@ -602,15 +743,24 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
     {
         if (!string.IsNullOrWhiteSpace(lookupHash))
         {
-            Increment(primaryHashCounts, lookupHash);
+            int count = primaryHashCounts.TryGetValue(lookupHash, out int currentCount)
+                ? currentCount + 1
+                : 1;
+            primaryHashCounts = primaryHashCounts.SetItem(lookupHash, count);
+            StoreWorkObserver?.Invoke("installed_primary_hash_count_update");
             MarkDirty();
         }
     }
 
     private void RemovePrimaryHash(string lookupHash)
     {
-        if (!string.IsNullOrWhiteSpace(lookupHash) && Decrement(primaryHashCounts, lookupHash))
+        if (!string.IsNullOrWhiteSpace(lookupHash)
+            && primaryHashCounts.TryGetValue(lookupHash, out int currentCount))
         {
+            primaryHashCounts = currentCount <= 1
+                ? primaryHashCounts.Remove(lookupHash)
+                : primaryHashCounts.SetItem(lookupHash, currentCount - 1);
+            StoreWorkObserver?.Invoke("installed_primary_hash_count_update");
             MarkDirty();
         }
     }
@@ -654,9 +804,14 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             hashCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             directoryPrimaryHashCounts[directory] = hashCounts;
         }
-        if (!hashCounts.ContainsKey(lookupHash))
+        bool added = !hashCounts.ContainsKey(lookupHash);
+        if (added)
         {
-            Increment(uniquePrimaryHashCountsByDirectory, directory);
+            int count = uniquePrimaryHashCountsByDirectory.TryGetValue(directory, out int currentCount)
+                ? currentCount + 1
+                : 1;
+            uniquePrimaryHashCountsByDirectory = uniquePrimaryHashCountsByDirectory.SetItem(directory, count);
+            StoreWorkObserver?.Invoke("installed_unique_hash_count_update");
         }
         Increment(hashCounts, lookupHash);
         MarkDirty();
@@ -671,9 +826,16 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
         if (directoryPrimaryHashCounts.TryGetValue(directory, out Dictionary<string, int> hashCounts)
             && Decrement(hashCounts, lookupHash))
         {
-            if (!hashCounts.ContainsKey(lookupHash))
+            bool removed = !hashCounts.ContainsKey(lookupHash);
+            if (removed)
             {
-                Decrement(uniquePrimaryHashCountsByDirectory, directory);
+                if (uniquePrimaryHashCountsByDirectory.TryGetValue(directory, out int currentCount))
+                {
+                    uniquePrimaryHashCountsByDirectory = currentCount <= 1
+                        ? uniquePrimaryHashCountsByDirectory.Remove(directory)
+                        : uniquePrimaryHashCountsByDirectory.SetItem(directory, currentCount - 1);
+                }
+                StoreWorkObserver?.Invoke("installed_unique_hash_count_update");
             }
             if (hashCounts.Count == 0)
             {
@@ -681,6 +843,100 @@ internal sealed class InstalledChartLookupIndexState : IPrimaryHashLookup
             }
             MarkDirty();
         }
+    }
+
+    private static ImmutableDictionary<string, IReadOnlyList<string>> AddDirectoryToSortedBuckets(
+        ImmutableDictionary<string, IReadOnlyList<string>> buckets,
+        string hash,
+        string directory,
+        Action<string> storeWorkObserver)
+    {
+        if (!buckets.TryGetValue(hash, out IReadOnlyList<string> existing) || existing == null || existing.Count == 0)
+        {
+            storeWorkObserver?.Invoke("installed_directory_bucket_update");
+            return buckets.SetItem(hash, ImmutableArray.Create<string>(directory));
+        }
+
+        int insertIndex = FindDirectoryIndex(existing, directory);
+        if (insertIndex >= 0)
+        {
+            return buckets;
+        }
+
+        insertIndex = ~insertIndex;
+        ImmutableArray<string>.Builder next = ImmutableArray.CreateBuilder<string>(existing.Count + 1);
+        for (int index = 0; index < insertIndex; index++)
+        {
+            next.Add(existing[index]);
+            storeWorkObserver?.Invoke("installed_directory_bucket_entry_copied");
+        }
+        next.Add(directory);
+        for (int index = insertIndex; index < existing.Count; index++)
+        {
+            next.Add(existing[index]);
+            storeWorkObserver?.Invoke("installed_directory_bucket_entry_copied");
+        }
+        storeWorkObserver?.Invoke("installed_directory_bucket_update");
+        return buckets.SetItem(hash, next.MoveToImmutable());
+    }
+
+    private static ImmutableDictionary<string, IReadOnlyList<string>> RemoveDirectoryFromSortedBuckets(
+        ImmutableDictionary<string, IReadOnlyList<string>> buckets,
+        string hash,
+        string directory,
+        Action<string> storeWorkObserver)
+    {
+        if (!buckets.TryGetValue(hash, out IReadOnlyList<string> existing) || existing == null)
+        {
+            return buckets;
+        }
+
+        int removeIndex = FindDirectoryIndex(existing, directory);
+        if (removeIndex < 0)
+        {
+            return buckets;
+        }
+        if (existing.Count == 1)
+        {
+            storeWorkObserver?.Invoke("installed_directory_bucket_update");
+            return buckets.Remove(hash);
+        }
+
+        ImmutableArray<string>.Builder next = ImmutableArray.CreateBuilder<string>(existing.Count - 1);
+        for (int index = 0; index < existing.Count; index++)
+        {
+            if (index != removeIndex)
+            {
+                next.Add(existing[index]);
+                storeWorkObserver?.Invoke("installed_directory_bucket_entry_copied");
+            }
+        }
+        storeWorkObserver?.Invoke("installed_directory_bucket_update");
+        return buckets.SetItem(hash, next.MoveToImmutable());
+    }
+
+    private static int FindDirectoryIndex(IReadOnlyList<string> directories, string directory)
+    {
+        int low = 0;
+        int high = directories.Count - 1;
+        while (low <= high)
+        {
+            int middle = low + ((high - low) / 2);
+            int comparison = StringComparer.OrdinalIgnoreCase.Compare(directories[middle], directory);
+            if (comparison == 0)
+            {
+                return middle;
+            }
+            if (comparison < 0)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle - 1;
+            }
+        }
+        return ~low;
     }
 
     private static void Increment(Dictionary<string, int> counts, string key)

@@ -418,6 +418,268 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     }
 
     [TestMethod]
+    public void UpsertStorageRows_BmsSurvivorsKeepRelativeOrderAndReplacementAppends()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "B0.bms"));
+        var replaced = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "B1.bms"));
+        var third = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Bms", "B2.bms"));
+        var replacement = CreateFile("dddddddddddddddddddddddddddddddd", replaced.path);
+        var added = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", Path.Combine("C:\\Installed", "Bms", "B3.bms"));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([first, replaced, third], []);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+
+        state.UpsertStorageRows([replacement, added], []);
+
+        List<ChartFile> snapshot = state.CreateSnapshot(includeResourceReferences: false);
+        CollectionAssert.AreEqual(
+            new[] { first, third, replacement, added },
+            snapshot.Select(chart => chart.GetBmsStorageOwner()).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { first, third, replacement, added },
+            index.GetChartRefsUnderRealPath(Path.Combine("C:\\Installed", "Bms"))
+                .Select(chart => chart.GetBmsStorageOwner())
+                .ToArray());
+    }
+
+    [TestMethod]
+    public void UpsertStorageRows_CanonicalBmsonUsesCapturedPathAndReplacementAppends()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string directory = Path.Combine("C:\\Installed", "Bmson");
+        var z = CreateBmsonSong(Path.Combine(directory, "z.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var upper = CreateBmsonSong(Path.Combine(directory, "A.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var lower = CreateBmsonSong(Path.Combine(directory, "a.bmson"), "cccccccccccccccccccccccccccccccc");
+        var bms = CreateFile("dddddddddddddddddddddddddddddddd", Path.Combine(directory, "added.bms"));
+        var replacement = CreateBmsonSong(upper.path, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([], [z, upper, lower]);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+
+        state.UpsertStorageRows([bms], []);
+        CollectionAssert.AreEqual(
+            new object[] { bms, upper, lower, z },
+            state.CreateSnapshot(includeResourceReferences: false)
+                .Select(chart => chart.Kind == ChartFileKind.Bms
+                    ? (object)chart.GetBmsStorageOwner()
+                    : chart.GetBmsonStorageOwner())
+                .ToArray());
+
+        state.UpsertStorageRows([], [replacement]);
+        CollectionAssert.AreEqual(
+            new object[] { bms, lower, replacement, z },
+            state.CreateSnapshot(includeResourceReferences: false)
+                .Select(chart => chart.Kind == ChartFileKind.Bms
+                    ? (object)chart.GetBmsStorageOwner()
+                    : chart.GetBmsonStorageOwner())
+                .ToArray());
+        CollectionAssert.AreEqual(
+            new object[] { bms, lower, replacement, z },
+            index.GetChartRefsUnderRealPath(directory)
+                .Select(chart => chart.Kind == LibraryChartKind.Bms
+                    ? (object)chart.GetBmsStorageOwner()
+                    : chart.GetBmsonStorageOwner())
+                .ToArray());
+    }
+
+    [TestMethod]
+    public void ApplyPathChanges_CanonicalBmsonKeepsCapturedSequencePosition()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string directory = Path.Combine("C:\\Installed", "Bmson");
+        var z = CreateBmsonSong(Path.Combine(directory, "z.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var upper = CreateBmsonSong(Path.Combine(directory, "A.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var lower = CreateBmsonSong(Path.Combine(directory, "a.bmson"), "cccccccccccccccccccccccccccccccc");
+        var bms = CreateFile("dddddddddddddddddddddddddddddddd", Path.Combine(directory, "added.bms"));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([], [z, upper, lower]);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        state.UpsertStorageRows([bms], []);
+
+        string oldPath = upper.path!;
+        string movedPath = Path.Combine(directory, "y.bmson");
+        upper.path = movedPath;
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsonSong(upper),
+                OldPath = oldPath,
+                NewPath = movedPath
+            }
+        ]);
+
+        CollectionAssert.AreEqual(
+            new object[] { bms, upper, lower, z },
+            state.CreateSnapshot(includeResourceReferences: false)
+                .Select(chart => chart.Kind == ChartFileKind.Bms
+                    ? (object)chart.GetBmsStorageOwner()
+                    : chart.GetBmsonStorageOwner())
+                .ToArray());
+        CollectionAssert.AreEqual(
+            new object[] { bms, upper, lower, z },
+            index.GetChartRefsUnderRealPath(directory)
+                .Select(chart => chart.Kind == LibraryChartKind.Bms
+                    ? (object)chart.GetBmsStorageOwner()
+                    : chart.GetBmsonStorageOwner())
+                .ToArray());
+    }
+
+    [TestMethod]
+    public void CanonicalSequence_Background16And128KeepsWarmMutationWorkBounded()
+    {
+        CanonicalWorkScenario small = RunCanonicalWorkScenario(16);
+        CanonicalWorkScenario large = RunCanonicalWorkScenario(128);
+
+        Assert.IsTrue(small.ColdEnumerationCount > 0);
+        Assert.IsTrue(small.ColdVisitedEntryCount > 0);
+        Assert.IsTrue(small.ColdMaterializationCount > 0);
+        Assert.IsTrue(small.ColdAccessCount > 0);
+        Assert.IsTrue(large.ColdEnumerationCount > 0);
+        Assert.IsTrue(large.ColdVisitedEntryCount > 0);
+        Assert.IsTrue(large.ColdMaterializationCount > 0);
+        Assert.IsTrue(large.ColdAccessCount > 0);
+
+        Assert.AreEqual(0, small.WarmEnumerationCount);
+        Assert.AreEqual(0, small.WarmVisitedEntryCount);
+        Assert.AreEqual(0, small.WarmMaterializationCount);
+        Assert.AreEqual(0, large.WarmEnumerationCount);
+        Assert.AreEqual(0, large.WarmVisitedEntryCount);
+        Assert.AreEqual(0, large.WarmMaterializationCount);
+        Assert.AreEqual(small.WarmEnumerationCount, large.WarmEnumerationCount);
+        Assert.AreEqual(small.WarmVisitedEntryCount, large.WarmVisitedEntryCount);
+        Assert.AreEqual(small.WarmMaterializationCount, large.WarmMaterializationCount);
+        Assert.IsTrue(small.WarmAccessCount > 0);
+        Assert.IsTrue(large.WarmAccessCount > 0);
+        Assert.IsTrue(small.WarmAccessCount <= CalculateCanonicalWarmAccessUpperBound(16));
+        Assert.IsTrue(large.WarmAccessCount <= CalculateCanonicalWarmAccessUpperBound(128));
+    }
+
+    private static CanonicalWorkScenario RunCanonicalWorkScenario(int backgroundCount)
+    {
+        const int bmsonCount = 3;
+        var workObserver = new RecordingCanonicalSequenceWorkObserver();
+        var bmsFiles = new List<BMSFile>(backgroundCount);
+        for (int i = 0; i < backgroundCount; i++)
+        {
+            bmsFiles.Add(CreateFile(
+                i.ToString("x32"),
+                Path.Combine("C:\\CanonicalWork", $"background-{i}.bms")));
+        }
+        var bmsonSongs = new List<LR2SongDBExtended.bmson_song>(bmsonCount);
+        for (int i = 0; i < bmsonCount; i++)
+        {
+            bmsonSongs.Add(CreateBmsonSong(
+                Path.Combine("C:\\CanonicalWork", $"background-{i}.bmson"),
+                (i + 1).ToString("x32")));
+        }
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows(
+            bmsFiles,
+            bmsonSongs,
+            CancellationToken.None,
+            workObserver,
+            out _);
+        LibraryChartRefIndexSnapshot index = state.CreateLibraryChartRefIndexSnapshot();
+        List<ChartFile> oldSnapshot = state.CreateSnapshot(includeResourceReferences: false);
+        workObserver.Reset();
+        state.UpsertStorageRows([
+            CreateFile(
+                new string('e', 32),
+                Path.Combine("C:\\CanonicalWork", $"cold-{backgroundCount}.bms"))
+        ], []);
+        CanonicalWorkCounts cold = workObserver.Capture();
+        Assert.AreEqual(bmsonCount, cold.VisitedEntryCount);
+        Assert.AreEqual(bmsonCount, cold.MaterializationCount);
+        workObserver.Reset();
+
+        BMSFile firstDelta = CreateFile(
+            new string('d', 32),
+            Path.Combine("C:\\CanonicalWork", $"delta-{backgroundCount}.bms"));
+        var replacement = CreateFile(firstDelta.hash, firstDelta.path);
+        replacement.SetHash(new string('c', 32));
+        state.UpsertStorageRows([firstDelta], []);
+        Assert.AreSame(firstDelta, index.GetChartRefsByPaths([firstDelta.path]).Single().GetBmsStorageOwner());
+        state.UpsertStorageRows([replacement], []);
+        Assert.AreSame(replacement, index.GetChartRefsByPaths([replacement.path]).Single().GetBmsStorageOwner());
+        CanonicalWorkCounts warm = workObserver.Capture();
+
+        Assert.AreEqual(backgroundCount + bmsonCount, oldSnapshot.Count);
+        Assert.IsTrue(oldSnapshot.Any(chart => chart.GetBmsonStorageOwner() != null));
+        Assert.AreEqual(backgroundCount + bmsonCount + 2, state.CreateSnapshot(includeResourceReferences: false).Count);
+        return new CanonicalWorkScenario(
+            cold.EnumerationCount,
+            cold.VisitedEntryCount,
+            cold.MaterializationCount,
+            cold.AccessCount,
+            warm.EnumerationCount,
+            warm.VisitedEntryCount,
+            warm.MaterializationCount,
+            warm.AccessCount);
+    }
+
+    private static int CalculateCanonicalWarmAccessUpperBound(int backgroundCount)
+    {
+        int target = backgroundCount + 3;
+        int powerOfTwo = 1;
+        int ceilingLog2 = 0;
+        while (powerOfTwo < target)
+        {
+            powerOfTwo <<= 1;
+            ceilingLog2++;
+        }
+        return 8 + (4 * (ceilingLog2 + 1));
+    }
+
+    private sealed class RecordingCanonicalSequenceWorkObserver : ICatalogStorageSequenceWorkObserver
+    {
+        internal int AccessCount { get; private set; }
+
+        internal int EnumerationCount { get; private set; }
+
+        internal int VisitedEntryCount { get; private set; }
+
+        internal int MaterializationCount { get; private set; }
+
+        public void ObserveAccess() => AccessCount++;
+
+        public void ObserveEnumeration() => EnumerationCount++;
+
+        public void ObserveEntryVisit() => VisitedEntryCount++;
+
+        public void ObserveMaterialization(int count) => MaterializationCount += count;
+
+        internal CanonicalWorkCounts Capture()
+        {
+            return new CanonicalWorkCounts(
+                EnumerationCount,
+                VisitedEntryCount,
+                MaterializationCount,
+                AccessCount);
+        }
+
+        internal void Reset()
+        {
+            AccessCount = 0;
+            EnumerationCount = 0;
+            VisitedEntryCount = 0;
+            MaterializationCount = 0;
+        }
+    }
+
+    private readonly record struct CanonicalWorkCounts(
+        int EnumerationCount,
+        int VisitedEntryCount,
+        int MaterializationCount,
+        int AccessCount);
+
+    private readonly record struct CanonicalWorkScenario(
+        int ColdEnumerationCount,
+        int ColdVisitedEntryCount,
+        int ColdMaterializationCount,
+        int ColdAccessCount,
+        int WarmEnumerationCount,
+        int WarmVisitedEntryCount,
+        int WarmMaterializationCount,
+        int WarmAccessCount);
+
+    [TestMethod]
     public void DuplicateChartRowSnapshot_UsesCachedIndexWithoutCopyingRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();

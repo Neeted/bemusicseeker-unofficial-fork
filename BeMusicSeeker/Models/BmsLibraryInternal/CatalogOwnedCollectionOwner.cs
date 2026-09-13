@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models.LR2;
 
@@ -26,6 +27,8 @@ internal sealed class CatalogOwnedCollectionOwner
 
     private readonly object hashIndexSnapshotGate = new();
 
+    private OwnedChartHashIndexRoot hashIndexRoot;
+
     private OwnedChartHashIndexVersionedSnapshot hashIndexSnapshot;
 
     private int hashIndexSnapshotVersion;
@@ -33,6 +36,12 @@ internal sealed class CatalogOwnedCollectionOwner
     private int hashIndexInvalidationVersion;
 
     private int digestMutationWindowDepth;
+
+    /// <summary>
+    /// owned hash rootの実処理を記録する任意の内部 observer です。
+    /// production では設定せず、設定時も owner へ再入しません。
+    /// </summary>
+    internal Action<string> StoreWorkObserver { get; set; }
 
     internal object Gate => gate;
 
@@ -51,10 +60,12 @@ internal sealed class CatalogOwnedCollectionOwner
         Interlocked.Increment(ref digestMutationWindowDepth);
     }
 
+    /// <summary>
+    /// digest mutation windowを閉じます。確定済み hash facts は mutation 中に適用済みのため、ここでは失効しません。
+    /// </summary>
     internal void EndDigestMutationWindow()
     {
         Interlocked.Decrement(ref digestMutationWindowDepth);
-        InvalidateHashIndexSnapshot();
     }
 
     internal bool IsDigestMutationWindowActive()
@@ -71,15 +82,39 @@ internal sealed class CatalogOwnedCollectionOwner
         }
     }
 
+    /// <summary>
+    /// owned hash rootを破棄し、次回consumer利用時にfull buildへ戻します。
+    /// </summary>
     internal void InvalidateHashIndexSnapshot()
     {
         lock (hashIndexSnapshotGate)
         {
+            hashIndexRoot = null;
             hashIndexSnapshot = null;
             hashIndexInvalidationVersion++;
         }
     }
 
+    /// <summary>
+    /// 所持 hash の optional root が構築済みかを返します。
+    /// </summary>
+    /// <returns>構築済みなら true。</returns>
+    internal bool IsHashIndexWarm()
+    {
+        lock (hashIndexSnapshotGate)
+        {
+            return hashIndexRoot != null;
+        }
+    }
+
+    /// <summary>
+    /// owned hash rootを必要時だけ構築し、構築済みなら同じ immutable rootを再利用します。
+    /// </summary>
+    /// <param name="storageRowsOwner">storage row versionの所有者。</param>
+    /// <param name="cancellationToken">build中断用token。</param>
+    /// <param name="cacheHit">既存rootを返したか。</param>
+    /// <param name="staleRetryCount">version競合による再試行回数。</param>
+    /// <returns>現在の owned hash snapshot。</returns>
     internal OwnedChartHashIndexVersionedSnapshot GetHashIndexSnapshot(
         CatalogStorageRowsOwner storageRowsOwner,
         CancellationToken cancellationToken,
@@ -100,21 +135,13 @@ internal sealed class CatalogOwnedCollectionOwner
             lock (hashIndexSnapshotGate)
             {
                 OwnedChartHashIndexVersionedSnapshot currentSnapshot = hashIndexSnapshot;
-                int currentOwnedCollectionVersion = CollectionVersion;
-                if (currentSnapshot != null)
+                if (currentSnapshot != null
+                    && IsHashIndexSnapshotCurrent(currentSnapshot, storageRowsOwner, CollectionVersion))
                 {
-                    if (IsHashIndexSnapshotCurrent(currentSnapshot, storageRowsOwner, currentOwnedCollectionVersion))
-                    {
-                        cacheHit = true;
-                        return currentSnapshot;
-                    }
-                    hashIndexSnapshot = null;
-                    hashIndexInvalidationVersion++;
+                    cacheHit = true;
+                    return currentSnapshot;
                 }
-                if (IsDigestMutationWindowActive())
-                {
-                    waitForDigestWindow = true;
-                }
+                waitForDigestWindow = IsDigestMutationWindowActive();
                 invalidationVersion = hashIndexInvalidationVersion;
             }
 
@@ -128,9 +155,10 @@ internal sealed class CatalogOwnedCollectionOwner
             cancellationToken.ThrowIfCancellationRequested();
             Stopwatch stopwatch = Stopwatch.StartNew();
             EnsureCurrent(storageRowsOwner, cancellationToken);
-            OwnedChartHashIndexSnapshot builtSnapshot;
+            OwnedChartHashIndexSnapshot builtSnapshot = null;
             StorageRowsVersionSnapshot storageRowsVersion;
             int ownedCollectionVersion;
+            bool needsBuild;
             using (storageRowsOwner.WriteGate.GetReaderGuard())
             {
                 storageRowsVersion = storageRowsOwner.CaptureVersionSnapshot();
@@ -143,26 +171,26 @@ internal sealed class CatalogOwnedCollectionOwner
                         staleRetryCount++;
                         continue;
                     }
-                    builtSnapshot = collection.CreateOwnedHashIndexSnapshot(cancellationToken);
                     ownedCollectionVersion = CollectionVersion;
+                    lock (hashIndexSnapshotGate)
+                    {
+                        needsBuild = hashIndexRoot == null
+                            || !IsHashIndexSnapshotCurrent(
+                                hashIndexSnapshot,
+                                storageRowsVersion,
+                                ownedCollectionVersion);
+                    }
+                    if (needsBuild)
+                    {
+                        builtSnapshot = collection.CreateOwnedHashIndexSnapshot(
+                            cancellationToken,
+                            StoreWorkObserver);
+                    }
                 }
             }
             cancellationToken.ThrowIfCancellationRequested();
             lock (hashIndexSnapshotGate)
             {
-                OwnedChartHashIndexVersionedSnapshot currentSnapshot = hashIndexSnapshot;
-                if (currentSnapshot != null)
-                {
-                    if (IsHashIndexSnapshotCurrent(currentSnapshot, storageRowsOwner, CollectionVersion))
-                    {
-                        cacheHit = true;
-                        return currentSnapshot;
-                    }
-                    hashIndexSnapshot = null;
-                    hashIndexInvalidationVersion++;
-                    staleRetryCount++;
-                    continue;
-                }
                 if (hashIndexInvalidationVersion != invalidationVersion
                     || CollectionVersion != ownedCollectionVersion
                     || storageRowsOwner.BmsRowsVersion != storageRowsVersion.BmsRowsVersion
@@ -172,17 +200,23 @@ internal sealed class CatalogOwnedCollectionOwner
                     staleRetryCount++;
                     continue;
                 }
-                OwnedChartHashIndexVersionedSnapshot rebuiltSnapshot = new(
-                    builtSnapshot,
-                    Interlocked.Increment(ref hashIndexSnapshotVersion),
+
+                if (needsBuild)
+                {
+                    hashIndexRoot = OwnedChartHashIndexRoot.Create(builtSnapshot);
+                    hashIndexSnapshotVersion = Math.Max(1, hashIndexSnapshotVersion + 1);
+                    StoreWorkObserver?.Invoke("owned_hash_root_capture");
+                    cacheHit = false;
+                }
+                else
+                {
+                    cacheHit = true;
+                }
+                hashIndexSnapshot = CreateHashIndexVersionedSnapshotUnsafe(
                     stopwatch.ElapsedMilliseconds,
-                    invalidationVersion,
                     ownedCollectionVersion,
-                    storageRowsVersion.BmsRowsVersion,
-                    storageRowsVersion.BmsonRowsVersion);
-                hashIndexSnapshot = rebuiltSnapshot;
-                cacheHit = false;
-                return rebuiltSnapshot;
+                    storageRowsVersion);
+                return hashIndexSnapshot;
             }
         }
     }
@@ -195,10 +229,149 @@ internal sealed class CatalogOwnedCollectionOwner
         return snapshot != null
             && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion
             && storageRowsOwner.BmsRowsVersion == snapshot.BmsRowsVersion
-            && storageRowsOwner.BmsonRowsVersion == snapshot.BmsonRowsVersion;
+            && storageRowsOwner.BmsonRowsVersion == snapshot.BmsonRowsVersion
+            && snapshot.InvalidationVersion == Volatile.Read(ref hashIndexInvalidationVersion);
     }
 
-    internal int IncrementVersion() => Interlocked.Increment(ref collectionVersion);
+    private bool IsHashIndexSnapshotCurrent(
+        OwnedChartHashIndexVersionedSnapshot snapshot,
+        StorageRowsVersionSnapshot storageRowsVersion,
+        int currentOwnedCollectionVersion)
+    {
+        return snapshot != null
+            && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion
+            && storageRowsVersion.BmsRowsVersion == snapshot.BmsRowsVersion
+            && storageRowsVersion.BmsonRowsVersion == snapshot.BmsonRowsVersion
+            && snapshot.InvalidationVersion == hashIndexInvalidationVersion;
+    }
+
+    private OwnedChartHashIndexVersionedSnapshot CreateHashIndexVersionedSnapshotUnsafe(
+        long buildElapsedMs,
+        int ownedCollectionVersion,
+        StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        return OwnedChartHashIndexVersionedSnapshot.CreateFromRoot(
+            hashIndexRoot,
+            hashIndexSnapshotVersion,
+            buildElapsedMs,
+            hashIndexInvalidationVersion,
+            ownedCollectionVersion,
+            storageRowsVersion.BmsRowsVersion,
+            storageRowsVersion.BmsonRowsVersion,
+            StoreWorkObserver);
+    }
+
+    /// <summary>
+    /// owned collection versionだけを進めます。hash factsの適用とsnapshotのsource version更新は、
+    /// mutation dispatchのpublication境界で一体に行います。
+    /// </summary>
+    /// <returns>進めた owned collection version。</returns>
+    internal int IncrementVersion()
+    {
+        return Interlocked.Increment(ref collectionVersion);
+    }
+
+    /// <summary>
+    /// facts適用後のowned collection versionを、構築済みhash snapshotへ反映します。
+    /// </summary>
+    internal void RebaseHashIndexSnapshot()
+    {
+        StorageRowsVersionSnapshot storageRowsVersion;
+        int ownedCollectionVersion;
+        lock (gate)
+        {
+            storageRowsVersion = new StorageRowsVersionSnapshot(
+                bmsRowsVersion,
+                bmsonRowsVersion);
+            ownedCollectionVersion = CollectionVersion;
+        }
+        lock (hashIndexSnapshotGate)
+        {
+            if (hashIndexRoot == null
+                || IsHashIndexSnapshotCurrent(
+                    hashIndexSnapshot,
+                    storageRowsVersion,
+                    ownedCollectionVersion))
+            {
+                return;
+            }
+            hashIndexSnapshot = CreateHashIndexVersionedSnapshotUnsafe(
+                hashIndexSnapshot?.BuildElapsedMs ?? 0L,
+                ownedCollectionVersion,
+                storageRowsVersion);
+        }
+    }
+
+    /// <summary>
+    /// 構築済み owned hash rootへ旧新 factsを局所適用します。
+    /// </summary>
+    /// <param name="deltas">適用する旧新 hash facts。</param>
+    /// <param name="requiresFullInvalidate">旧 facts不足などで全再構築が必要か。</param>
+    /// <returns>構築済み rootへ適用した場合は true。</returns>
+    internal bool ApplyHashIndexDeltas(
+        IReadOnlyList<OwnedChartHashIndexDelta> deltas,
+        bool requiresFullInvalidate)
+    {
+        return ApplyHashIndexDeltasCore(deltas, requiresFullInvalidate, skipCurrentSnapshot: true);
+    }
+
+    private bool ApplyHashIndexDeltasCore(
+        IReadOnlyList<OwnedChartHashIndexDelta> deltas,
+        bool requiresFullInvalidate,
+        bool skipCurrentSnapshot)
+    {
+        StorageRowsVersionSnapshot storageRowsVersion;
+        int ownedCollectionVersion;
+        lock (gate)
+        {
+            storageRowsVersion = new StorageRowsVersionSnapshot(
+                bmsRowsVersion,
+                bmsonRowsVersion);
+            ownedCollectionVersion = CollectionVersion;
+        }
+        lock (hashIndexSnapshotGate)
+        {
+            if (hashIndexRoot == null)
+            {
+                return false;
+            }
+            if (requiresFullInvalidate)
+            {
+                hashIndexRoot = null;
+                hashIndexSnapshot = null;
+                hashIndexInvalidationVersion++;
+                StoreWorkObserver?.Invoke("owned_hash_full_invalidate");
+                return true;
+            }
+
+            if (skipCurrentSnapshot
+                && IsHashIndexSnapshotCurrent(
+                    hashIndexSnapshot,
+                    storageRowsVersion,
+                    ownedCollectionVersion))
+            {
+                // IncrementVersion は facts 適用前に呼ばれるため、先行した getter が
+                // 現在 source から再構築済みなら、その rootへ旧deltaを重ねません。
+                return true;
+            }
+
+            OwnedChartHashIndexRoot nextRoot = hashIndexRoot.ApplyDeltas(
+                deltas,
+                StoreWorkObserver,
+                out bool membershipChanged);
+            hashIndexRoot = nextRoot;
+            if (membershipChanged)
+            {
+                hashIndexSnapshotVersion = Math.Max(1, hashIndexSnapshotVersion + 1);
+            }
+            hashIndexSnapshot = CreateHashIndexVersionedSnapshotUnsafe(
+                hashIndexSnapshot?.BuildElapsedMs ?? 0L,
+                ownedCollectionVersion,
+                storageRowsVersion);
+            StoreWorkObserver?.Invoke("owned_hash_delta_apply");
+            return true;
+        }
+    }
 
     internal bool IsCurrent(int currentBmsRowsVersion, int currentBmsonRowsVersion)
     {
@@ -287,13 +460,25 @@ internal sealed class CatalogOwnedCollectionOwner
         }
     }
 
+    /// <summary>
+    /// durable catalog mutationをowned collectionへ反映し、初回BMSON canonical順序正規化の発生を返します。
+    /// </summary>
+    /// <param name="removeRequests">明示されたowner/path remove。</param>
+    /// <param name="pathChanges">durable commit後に確定したpath facts。</param>
+    /// <param name="addedBmsFiles">追加または置換するBMS storage row。</param>
+    /// <param name="addedBmsonSongs">追加または置換するBMSON storage row。</param>
+    /// <param name="storageRowsVersion">適用前後のstorage row version。</param>
+    /// <param name="bmsonCanonicalOrderNormalized">今回のupsertで初回BMSON順序正規化が発生したか。</param>
+    /// <returns>owned collectionへmutationを適用できた場合は<see langword="true"/>。</returns>
     internal bool ApplyMutation(
         IReadOnlyList<OwnedChartRemoveRequest> removeRequests,
         IReadOnlyList<LibraryChartPathChange> pathChanges,
         IReadOnlyList<BMSFile> addedBmsFiles,
         IReadOnlyList<LR2SongDBExtended.bmson_song> addedBmsonSongs,
-        StorageRowsVersionSnapshot storageRowsVersion)
+        StorageRowsVersionSnapshot storageRowsVersion,
+        out bool bmsonCanonicalOrderNormalized)
     {
+        bmsonCanonicalOrderNormalized = false;
         lock (gate)
         {
             if (!initialized)
@@ -318,7 +503,9 @@ internal sealed class CatalogOwnedCollectionOwner
             }
             if (addedBmsFiles?.Count > 0 || addedBmsonSongs?.Count > 0)
             {
-                collection.UpsertStorageRows(addedBmsFiles ?? [], addedBmsonSongs ?? []);
+                bmsonCanonicalOrderNormalized = collection.UpsertStorageRows(
+                    addedBmsFiles ?? [],
+                    addedBmsonSongs ?? []);
             }
 
             bmsRowsVersion = storageRowsVersion.BmsRowsVersion;
@@ -344,6 +531,11 @@ internal sealed class CatalogOwnedCollectionOwner
         }
     }
 
+    /// <summary>
+    /// digest factsをowned collectionと構築済みhash rootへ同じmutation境界で適用します。
+    /// </summary>
+    /// <param name="digestChanges">永続化済みの旧新digest facts。</param>
+    /// <returns>owned collectionへ適用できた場合は true。</returns>
     internal bool ApplyDigestChanges(IReadOnlyList<LibraryChartDigestChange> digestChanges)
     {
         if (digestChanges?.Count == 0)
@@ -358,8 +550,27 @@ internal sealed class CatalogOwnedCollectionOwner
                 return false;
             }
 
-            collection.ApplyDigestChanges(digestChanges);
-            return true;
+            try
+            {
+                collection.ApplyDigestChanges(digestChanges);
+                List<OwnedChartHashIndexDelta> hashDeltas = [.. digestChanges
+                    .Where(change => change?.HasDigestChange == true)
+                    .Select(change => new OwnedChartHashIndexDelta(
+                        change.OldMd5,
+                        change.OldSha256,
+                        change.NewMd5,
+                        change.NewSha256))];
+                ApplyHashIndexDeltasCore(
+                    hashDeltas,
+                    requiresFullInvalidate: false,
+                    skipCurrentSnapshot: false);
+                return true;
+            }
+            catch
+            {
+                ClearHashIndexUnsafe();
+                throw;
+            }
         }
     }
 
@@ -377,6 +588,7 @@ internal sealed class CatalogOwnedCollectionOwner
         initialized = false;
         bmsRowsVersion = -1;
         bmsonRowsVersion = -1;
+        ClearHashIndexUnsafe();
     }
 
     internal bool TryCreateFileScanRemovedStorageOwnerIdentityCharts(
@@ -441,6 +653,22 @@ internal sealed class CatalogOwnedCollectionOwner
         initialized = true;
         bmsRowsVersion = replacementBmsRowsVersion;
         bmsonRowsVersion = replacementBmsonRowsVersion;
+        ClearHashIndexUnsafe();
+    }
+
+    private void ClearHashIndexUnsafe()
+    {
+        lock (hashIndexSnapshotGate)
+        {
+            if (hashIndexRoot == null && hashIndexSnapshot == null)
+            {
+                return;
+            }
+            hashIndexRoot = null;
+            hashIndexSnapshot = null;
+            hashIndexInvalidationVersion++;
+            StoreWorkObserver?.Invoke("owned_hash_full_invalidate");
+        }
     }
 }
 

@@ -133,10 +133,11 @@ internal sealed class CatalogMutationReceipt
             bmsonRemovalDbMs: 0,
             liveApplyMs: 0,
             ownedCollectionApplied: false,
-            ownedCollectionVersion: 0,
-            addedCharts: [],
-            pathFacts: [],
-            removalRequests: []);
+             ownedCollectionVersion: 0,
+             addedCharts: [],
+             pathFacts: [],
+             removalRequests: [],
+             bmsonCanonicalOrderNormalized: false);
 
     internal CatalogMutationReceipt(
         bool applied,
@@ -151,7 +152,8 @@ internal sealed class CatalogMutationReceipt
         int ownedCollectionVersion,
         IEnumerable<CatalogChartMutationFact> addedCharts,
         IEnumerable<CatalogRelocationPathFact> pathFacts,
-        IEnumerable<OwnedChartRemoveRequest> removalRequests)
+        IEnumerable<OwnedChartRemoveRequest> removalRequests,
+        bool bmsonCanonicalOrderNormalized = false)
     {
         Applied = applied;
         StorageRowsVersion = storageRowsVersion;
@@ -170,6 +172,7 @@ internal sealed class CatalogMutationReceipt
         PathFacts = Array.AsReadOnly([.. (pathFacts ?? []).Where(fact => fact != null)]);
         MovedCharts = PathFacts;
         RemovedCharts = CatalogChartMutationFact.CreateRemovalFacts(removalRequests);
+        BmsonCanonicalOrderNormalized = bmsonCanonicalOrderNormalized;
     }
 
     internal bool Applied { get; }
@@ -201,6 +204,9 @@ internal sealed class CatalogMutationReceipt
     internal IReadOnlyList<CatalogRelocationPathFact> MovedCharts { get; }
 
     internal IReadOnlyList<CatalogRelocationPathFact> PathFacts { get; }
+
+    /// <summary>今回のupsertで初回BMSON canonical順序正規化が発生したか。</summary>
+    internal bool BmsonCanonicalOrderNormalized { get; }
 
 }
 

@@ -155,6 +155,54 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
     }
 
     [TestMethod]
+    public void Sync_ExactPruneKeepsCaseVariantRowOutsideExactIdentity()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string songDbPath = Path.Combine(tempDirectory, "song.db");
+        try
+        {
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            songDb.CreateTable<LR2SongDB.folder>();
+            string exactStalePath = FolderPath(@"D:\BMS\Pack\Song");
+            string caseVariantStalePath = FolderPath(@"D:\BMS\PACK\SONG");
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = exactStalePath,
+                type = 1
+            }, typeof(LR2SongDB.folder));
+            songDb.InsertOrReplace(new LR2SongDB.folder
+            {
+                path = caseVariantStalePath,
+                type = 1
+            }, typeof(LR2SongDB.folder));
+
+            DateTime timestamp = new(2026, 6, 8, 1, 2, 3, DateTimeKind.Utc);
+            Lr2NormalFolderDbSyncResult result = Lr2NormalFolderDbSyncService.Sync(songDb, new Lr2NormalFolderDbSyncRequest
+            {
+                RootDirectories = [@"D:\BMS"],
+                ChartPaths = [@"D:\BMS\Keep\chart.bms"],
+                PruneExactDirectories = [@"D:\BMS\Pack\Song"],
+                DirectoryLastWriteTimeUtcResolver = _ => timestamp,
+                GeneratedAtUtc = timestamp.AddDays(1),
+                AllowPrune = true,
+                UseScopedExistingRows = true
+            });
+
+            Assert.AreEqual(1, result.DeletedCount);
+            Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == exactStalePath));
+            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == caseVariantStalePath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void Sync_PrunesOnlyRequestedNormalFolderScope()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2NormalFolderDbSyncServiceTests), Guid.NewGuid().ToString("N"));

@@ -69,10 +69,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 [[], [], []], [[], [], []],
                 folders.Select(_ => new[] { shared }).ToArray(),
                 [[], [], []], [[], [], []],
-                new Dictionary<uint, string[]> { [shared] = folders.ToArray() }, [], []));
+                new Dictionary<uint, string[]> { [shared] = folders.ToArray() }, new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
             LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
-            var entryCopies = new List<int>();
-            before.DirectoryLookupCache.EntriesRootCopiedObserver = count => entryCopies.Add(count);
+            var entryMutations = new List<string>();
+            before.DirectoryLookupCache.EntryStoreMutationObserver = path => entryMutations.Add(path);
 
             LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(
                 files.Select(LibraryChartRef.FromBmsFile), recycle, folders);
@@ -88,7 +88,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 (recycle ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently)));
             LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
             Assert.AreEqual(before.Generation + 1, after.Generation);
-            CollectionAssert.AreEqual(new[] { 3 }, entryCopies);
+            CollectionAssert.AreEqual(new[] { folders[0], folders[2] }, entryMutations);
             CollectionAssert.AreEqual(new[] { folders[1] }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
             CollectionAssert.AreEqual(folders, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
             using var readback = new LR2SongDBExtended(songDbPath);
@@ -1073,13 +1073,20 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             EnsureCurrentResourceHealthIndex(library);
-            Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            ResourceHealthIndexSnapshot beforeSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            Assert.AreEqual(1, beforeSnapshot.TargetCount);
+            Assert.IsTrue(beforeSnapshot.GetProjection(
+                ChartFileKind.Bms,
+                bmsFile.path,
+                bmsFile.hash).HasIssues);
             var delta = new LibraryMutationDelta();
             delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsFile));
 
             InvokeApplyLibraryMutationDelta(library, delta);
 
-            Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+            ResourceHealthIndexSnapshot afterSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            Assert.AreEqual(0, afterSnapshot.TargetCount);
+            Assert.AreEqual(1, beforeSnapshot.TargetCount);
             Assert.IsFalse(HasNoCurrentResourceHealthIndex(library));
         });
     }

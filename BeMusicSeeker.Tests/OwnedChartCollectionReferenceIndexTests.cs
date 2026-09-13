@@ -18,6 +18,47 @@ namespace BeMusicSeeker.Tests;
 public sealed class OwnedChartCollectionReferenceIndexTests
 {
     [TestMethod]
+    public void CanonicalExactPathQueryReturnsCurrentOwnerAndPreservesOrderKeyAcrossRelocation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string oldPath = Path.Combine("C:\\Installed", "Bms", "old.bms");
+        string newPath = Path.Combine("C:\\Installed", "Bms", "new.bms");
+        var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
+        var sibling = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "sibling.bms"));
+        OwnedChartCollectionState state = OwnedChartCollectionState.FromStorageRows([bmsFile, sibling], []);
+
+        Assert.IsTrue(state.TryGetCanonicalChartRefForExactPath(
+            LibraryChartKind.Bms,
+            oldPath,
+            out LibraryChartRef oldRef,
+            out OwnedChartCanonicalOrderKey oldOrder));
+        Assert.AreSame(bmsFile, oldRef.GetBmsStorageOwner());
+
+        bmsFile.path = newPath;
+        state.ApplyPathChanges([
+            new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                OldPath = oldPath,
+                NewPath = newPath
+            }
+        ]);
+
+        Assert.IsFalse(state.TryGetCanonicalChartRefForExactPath(
+            LibraryChartKind.Bms,
+            oldPath,
+            out _,
+            out _));
+        Assert.IsTrue(state.TryGetCanonicalChartRefForExactPath(
+            LibraryChartKind.Bms,
+            newPath,
+            out LibraryChartRef newRef,
+            out OwnedChartCanonicalOrderKey newOrder));
+        Assert.AreSame(bmsFile, newRef.GetBmsStorageOwner());
+        Assert.AreEqual(oldOrder, newOrder);
+    }
+
+    [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ReprojectsCurrentStorageOwnerValues()
     {
         TestResourceInitializer.EnsureJapaneseResources();

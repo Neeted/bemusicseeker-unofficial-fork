@@ -299,7 +299,7 @@ public sealed class LibraryResourceIndexOwnerTests
     }
 
     [TestMethod]
-    public void RemoveUnderSourceDirectories_PublishesSuccessfulSubtreesOnceAndCopiesEntriesOnce()
+    public void RemoveUnderSourceDirectories_PublishesSuccessfulSubtreesAndUpdatesEntriesLocally()
     {
         const string first = @"C:\Library\First";
         const string nested = @"C:\Library\First\Nested";
@@ -307,17 +307,37 @@ public sealed class LibraryResourceIndexOwnerTests
         const string last = @"C:\Library\Last";
         var owner = new LibraryResourceIndexOwner(CreateFullResourceIndex(first, nested, failed, last));
         LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
-        var entryCopies = new List<int>();
-        before.DirectoryLookupCache.EntriesRootCopiedObserver = count => entryCopies.Add(count);
+        var entryMutations = new List<string>();
+        var entryVisits = new List<string>();
+        var ancestorChecks = new List<(string Entry, string Ancestor)>();
+        before.DirectoryLookupCache.EntryStoreMutationObserver = path => entryMutations.Add(path);
+        before.DirectoryLookupCache.EntryStoreEntryVisitedObserver = path => entryVisits.Add(path);
+        before.DirectoryLookupCache.EntryAncestorCheckObserver =
+            (entry, ancestor) => ancestorChecks.Add((entry, ancestor));
 
         // This is the confirmed filesystem result, not the original selection containing Failed.
         LibraryResourceIndexMutationReceipt receipt = owner.RemoveUnderSourceDirectories(
-            [nested, first, first.ToUpperInvariant(), last]);
+            [
+                nested,
+                first,
+                first.ToUpperInvariant(),
+                last,
+                @"C:\Library\UnrelatedA",
+                @"C:\Library\UnrelatedB"
+            ]);
 
         Assert.IsTrue(receipt.MutationResult.Changed);
         Assert.AreEqual(before.Generation + 1, receipt.Snapshot.Generation);
         Assert.AreEqual(3, receipt.MutationResult.RemovedDirectoryCount);
-        CollectionAssert.AreEqual(new[] { 4 }, entryCopies);
+        CollectionAssert.AreEqual(new[] { first, nested, last }, entryMutations);
+        CollectionAssert.AreEqual(new[] { first, nested, failed, last }, entryVisits);
+        Assert.AreEqual(ancestorChecks.Count, ancestorChecks.Distinct().Count());
+        Assert.AreEqual(
+            entryVisits.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
+            ancestorChecks
+                .Select(check => check.Entry)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count());
         CollectionAssert.AreEquivalent(new[] { first, nested, failed, last }, before.DirectoryLookupCache.Keys.ToArray());
         CollectionAssert.AreEqual(new[] { failed }, receipt.Snapshot.DirectoryLookupCache.Keys.ToArray());
         CollectionAssert.AreEqual(new[] { failed }, receipt.Snapshot.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(17u).ToArray());
@@ -327,13 +347,105 @@ public sealed class LibraryResourceIndexOwnerTests
     }
 
     [TestMethod]
+    public void RemoveUnderSourceDirectories_PreservesSiblingWithSharedPrefixAndDeduplicatesRoots()
+    {
+        const string source = @"C:\Library\Source";
+        const string nested = source + @"\Nested";
+        const string deep = nested + @"\Deep";
+        const string sibling = @"C:\Library\SourceBackup";
+        const string keep = @"C:\Library\Keep";
+        var owner = new LibraryResourceIndexOwner(CreateFullResourceIndex(
+            source, nested, deep, sibling, keep));
+        LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
+
+        LibraryResourceIndexMutationReceipt receipt = owner.RemoveUnderSourceDirectories(
+            [nested + @"\", source.ToUpperInvariant(), source, nested]);
+
+        Assert.IsTrue(receipt.MutationResult.Changed);
+        Assert.AreEqual(3, receipt.MutationResult.RemovedDirectoryCount);
+        CollectionAssert.AreEquivalent(
+            new[] { sibling, keep },
+            receipt.Snapshot.DirectoryLookupCache.Keys.ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { source, nested, deep, sibling, keep },
+            before.DirectoryLookupCache.Keys.ToArray());
+    }
+
+    /// <summary>
+    /// 保持したentry順に対して、同一command内の削除slot再利用とfull/lazy逆引き順を確認する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ReplaceSourceDirectoryWithScan_PreservesEntryOrderForLazyAndFull(bool full)
+    {
+        const uint hash = 73u;
+        const string source = @"C:\Library\Source";
+        string[] initial =
+        [
+            @"C:\Library\L",
+            source + @"\P",
+            @"C:\Library\M",
+            source + @"\Q",
+            @"C:\Library\R"
+        ];
+        string[] replacements = [@"C:\Library\X", @"C:\Library\Y"];
+        LibraryResourceIndexOwner owner = new(CreateOrderedResourceIndex(full, hash, initial));
+        LibraryResourceIndexSnapshot oldSnapshot = owner.CaptureSnapshot();
+        ChartScanResult replacementScan = CreateOrderedScan(hash, replacements);
+
+        LibraryResourceIndexMutationReceipt receipt = owner.ReplaceSourceDirectoryWithScan(
+            source,
+            replacementScan);
+
+        string[] expected = full
+            ? [initial[0], initial[2], initial[4], replacements[0], replacements[1]]
+            : [initial[0], replacements[1], initial[2], replacements[0], initial[4]];
+        AssertAllCategoryCandidates(receipt.Snapshot.DirectoryLookupCache, hash, expected);
+        AssertAllCategoryCandidates(oldSnapshot.DirectoryLookupCache, hash, initial);
+    }
+
+    /// <summary>
+    /// commandをまたぐforkでは過去の空slotを持ち越さず、削除後の追加を末尾順に保つ。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RemoveThenAddScan_DiscardsPriorCommandFreeSlotsAndPreservesFinalOrder(bool full)
+    {
+        const uint hash = 73u;
+        const string source = @"C:\Library\Source";
+        string[] initial =
+        [
+            @"C:\Library\L",
+            source + @"\P",
+            @"C:\Library\M",
+            source + @"\Q",
+            @"C:\Library\R"
+        ];
+        string[] replacements = [@"C:\Library\X", @"C:\Library\Y"];
+        LibraryResourceIndexOwner owner = new(CreateOrderedResourceIndex(full, hash, initial));
+        LibraryResourceIndexSnapshot oldSnapshot = owner.CaptureSnapshot();
+        ChartScanResult replacementScan = CreateOrderedScan(hash, replacements);
+
+        LibraryResourceIndexMutationReceipt removed = owner.RemoveUnderSourceDirectories([source]);
+
+        LibraryResourceIndexMutationReceipt added = owner.AddScanDirectories(replacementScan);
+        string[] remaining = [initial[0], initial[2], initial[4]];
+        string[] final = [.. remaining, replacements[0], replacements[1]];
+        AssertAllCategoryCandidates(removed.Snapshot.DirectoryLookupCache, hash, remaining);
+        AssertAllCategoryCandidates(added.Snapshot.DirectoryLookupCache, hash, final);
+        AssertAllCategoryCandidates(oldSnapshot.DirectoryLookupCache, hash, initial);
+    }
+
+    [TestMethod]
     public void RemoveUnderSourceDirectories_EmptyAndMissingInputsDoNotPublishOrCopy()
     {
         var owner = new LibraryResourceIndexOwner(CreateFullResourceIndex(@"C:\Library\Keep"));
         LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
-        var copies = new List<int>();
+        var entryMutations = new List<string>();
         var writes = new List<uint>();
-        before.DirectoryLookupCache.EntriesRootCopiedObserver = count => copies.Add(count);
+        before.DirectoryLookupCache.EntryStoreMutationObserver = path => entryMutations.Add(path);
         before.DirectoryLookupCache.ReverseBucketWrittenObserver = (_, hash) => writes.Add(hash);
 
         LibraryResourceIndexMutationReceipt empty = owner.RemoveUnderSourceDirectories([]);
@@ -344,7 +456,7 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.IsFalse(missing.MutationResult.Changed);
         Assert.AreSame(before.Index, owner.CaptureSnapshot().Index);
         Assert.AreEqual(before.Generation, owner.CaptureSnapshot().Generation);
-        Assert.AreEqual(0, copies.Count);
+        Assert.AreEqual(0, entryMutations.Count);
         Assert.AreEqual(0, writes.Count);
     }
 
@@ -407,6 +519,64 @@ public sealed class LibraryResourceIndexOwnerTests
             new Dictionary<uint, string[]> { [17u] = directories.ToArray() },
             new Dictionary<uint, string[]> { [23u] = directories.ToArray() },
             new Dictionary<uint, string[]> { [31u] = directories.ToArray() });
+    }
+
+    private static LibraryResourceIndex CreateOrderedResourceIndex(
+        bool full,
+        uint hash,
+        params string[] directories)
+    {
+        if (full)
+        {
+            return LibraryResourceIndex.CreateFromNativeCanonicalArrays(
+                directories,
+                directories.Select(_ => new[] { hash }).ToArray(),
+                directories.Select(_ => new[] { hash }).ToArray(),
+                directories.Select(_ => new[] { hash }).ToArray(),
+                directories.Select(_ => new[] { hash }).ToArray(),
+                directories.Select(_ => new[] { hash }).ToArray(),
+                directories.Select(_ => new[] { hash }).ToArray(),
+                new Dictionary<uint, string[]> { [hash] = directories.ToArray() },
+                new Dictionary<uint, string[]> { [hash] = directories.ToArray() },
+                new Dictionary<uint, string[]> { [hash] = directories.ToArray() });
+        }
+
+        return LibraryResourceIndex.CreateFromScanResult(CreateOrderedScan(hash, directories));
+    }
+
+    private static ChartScanResult CreateOrderedScan(uint hash, params string[] directories)
+    {
+        var scan = new ChartScanResult
+        {
+            ResourceHashArraysAreSortedDistinct = true
+        };
+        foreach (string directory in directories)
+        {
+            scan.ChartDirectories.Add(directory);
+            scan.AudioRelativePathHashesByChartDirectory[directory] = [hash];
+            scan.ImageRelativePathHashesByChartDirectory[directory] = [hash];
+            scan.MovieRelativePathHashesByChartDirectory[directory] = [hash];
+            scan.SelfOwnedAudioRelativePathHashesByChartDirectory[directory] = [hash];
+            scan.SelfOwnedImageRelativePathHashesByChartDirectory[directory] = [hash];
+            scan.SelfOwnedMovieRelativePathHashesByChartDirectory[directory] = [hash];
+        }
+        return scan;
+    }
+
+    private static void AssertAllCategoryCandidates(
+        DirectoryResourceLookupCache cache,
+        uint hash,
+        string[] expected)
+    {
+        CollectionAssert.AreEqual(
+            expected,
+            cache.GetDirectoriesByAudioRelativeHash(hash).ToArray());
+        CollectionAssert.AreEqual(
+            expected,
+            cache.GetDirectoriesByImageRelativeHash(hash).ToArray());
+        CollectionAssert.AreEqual(
+            expected,
+            cache.GetDirectoriesByMovieRelativeHash(hash).ToArray());
     }
 
     private static LibraryResourceIndex CreateIndex(params string[] directories)

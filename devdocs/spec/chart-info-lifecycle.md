@@ -28,6 +28,18 @@ current `chart_info` と current parse failure が併存する場合は `chart_i
 
 inline file diff / package install、full backfill、LR2 `song_rows` は同じ evaluator を使う。各経路が異なるのは、snapshot と currentness facts の準備、結果の staging、transaction ownership だけであり、parser、優先順位、failure message normalization を分岐させない。
 
+### 既存pathからのinline解析のfailure取得
+
+package導入後など、pathからinline解析する場合はbatch内で正常に読めたsnapshotのMD5だけを対象にfailureを取得する。discovery時のownerが保持するMD5は、実read時の内容と異なることがあるため検索の正本にしない。対象MD5が空ならDBを開かずfailure queryも実行しない。
+
+failure取得はMD5のparameter化queryをchunkに分け、無関係なfailure行を全表materializeしてからfilterしない。parser/timeoutのcurrent条件とinfo優先順位は共通evaluatorの契約を維持し、session cacheは追加しない。全ownerを照合するhydration等の全件取得は別経路として残す。current infoの再利用でも、新ownerへ必要なstorage application、commit後digest/session反映と通知を省略しない。
+
+| 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 対象failure query、空入力、current判定 | [[BmsLibraryDbGateway.cs](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs)](../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の `LoadCurrentChartInfoParseFailuresByMd5` | [[ChartInfoInlineHydrationTests.cs](../../BeMusicSeeker.Tests/ChartInfoInlineHydrationTests.cs)](../../BeMusicSeeker.Tests/ChartInfoInlineHydrationTests.cs) の同名queryの3case。実SQLiteの返却行・走査量、空入力の無query、旧parser/短timeout除外 |
+| discovery後に内容が変化した導入 | [[ChartInfoInlineBuildService.cs](../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfoInlineBuildService.cs)](../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfoInlineBuildService.cs) の `BuildForExistingCharts` | [[ChartInfoInstallFailureRetryTests.cs](../../BeMusicSeeker.Tests/ChartInfoInstallFailureRetryTests.cs)](../../BeMusicSeeker.Tests/ChartInfoInstallFailureRetryTests.cs) の `InstallChartPackages_UsesInstalledSnapshotMd5ForFailureLookup`。実fileをA→Bへ変更し、Bのfailure再利用とAだけのfailureではBを解析すること |
+| current infoの新owner反映と既存公開境界 | 同serviceの `BuildForSnapshots` と `CatalogChartInfoOwner` / [CatalogMutationOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogMutationOwner.cs) | [ChartInfoInlineHydrationTests.ChartInfoInlineBuildService_AppliesExistingCurrentRowWithoutParsing](../../BeMusicSeeker.Tests/ChartInfoInlineHydrationTests.cs)、`CatalogChartInfoOwner_InlinePublicationOrdersDigestIndexesBeforeSessionIndexAndEvents`、既存backfill storage/failure coverage |
+
 ## Durable Storage And Publication
 
 inline / full backfill は、storage mutation と chart-info facts を immutable な `CatalogChartInfoStorageWriteRequest` にまとめ、`CatalogMutationOwner.ApplyChartInfoStorageWrite(...)` から一つの catalog transaction へ保存する。新規・更新譜面のinline経路は基本解析結果とchart-info projectionを組み合わせたBMS/BMSON storage rowを保存できる。一方、既所持譜面を対象とするfull backfillはsong行全体を再構築せず、既存BMS `song` rowへ`Lr2SongDbWriter.UpdateChartInfoSongProjections(...)`でupdate-only projectionを適用する。
@@ -73,7 +85,7 @@ Chart-info metadata coverage is organized in five owner-local source files, each
 | schema creation, bundle export/import, startup importer, catalog mutation | `ChartInfoMetadataSchemaExportImportTests` | `ChartInfoMetadataTests` cases 1-19 | `remaining`, ClassLevel discovery |
 | BMS/BMSON parser behavior and compatibility fixtures | `ChartInfoParserBehaviorTests` | cases 23-81 | same route |
 | full backfill, storage projection, digest/index publication and transaction failure | `ChartInfoBackfillStorageTests` | cases 82-96 | same route |
-| read-only lookup, deferred hydration, inline evaluator and hydration candidate state | `ChartInfoInlineHydrationTests` | cases 20-22, 97-111 | same route |
-| install, parse-failure warning/removal, retry and contention contracts | `ChartInfoInstallFailureRetryTests` | cases 112-134 | same route |
+| read-only lookup, deferred hydration, inline evaluator and hydration candidate state | [ChartInfoInlineHydrationTests](../../BeMusicSeeker.Tests/ChartInfoInlineHydrationTests.cs) | cases 20-22, 97-111 | same route |
+| install, parse-failure warning/removal, retry and contention contracts | [ChartInfoInstallFailureRetryTests](../../BeMusicSeeker.Tests/ChartInfoInstallFailureRetryTests.cs) | cases 112-134 | same route |
 
 The old `ChartInfoMetadataTests` selector and retired partial `ChartInfoMetadataOwnerTests` selector are absent from the launch plan and remaining exclusion ledger. The five distinct fixtures are not named selectors; `remaining` discovers each exactly once. The replacement owns every original behavior case exactly, including `DataRow` cases.

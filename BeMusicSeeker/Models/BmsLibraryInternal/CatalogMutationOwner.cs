@@ -673,8 +673,7 @@ internal sealed class CatalogMutationOwner
                 removalRequest);
             long liveApplyMs = ApplyRelocationLive(relocationRequest);
             StorageRowsVersionSnapshot storageRowsVersion = storageRowsOwner.ApplyCatalogMutation(
-                relocationRequest.BmsPathReplacements.Count > 0,
-                relocationRequest.BmsonPathReplacements.Count > 0,
+                relocationRequest,
                 removalRequest,
                 protectedPathFacts,
                 addedBmsRows,
@@ -712,7 +711,8 @@ internal sealed class CatalogMutationOwner
                 delta.ChartPathChanges,
                 addedBmsRows,
                 addedBmsonRows,
-                storageRowsVersion);
+                storageRowsVersion,
+                out bool bmsonCanonicalOrderNormalized);
             int ownedCollectionVersion = ownedCollectionChanged
                 ? ownedCollectionOwner.IncrementVersion()
                 : ownedCollectionOwner.CollectionVersion;
@@ -729,7 +729,8 @@ internal sealed class CatalogMutationOwner
                  ownedCollectionVersion,
                  addedChartFacts,
                  pathFacts,
-                 removalRequest?.RemoveRequests);
+                 removalRequest?.RemoveRequests,
+                 bmsonCanonicalOrderNormalized);
         }
     }
 
@@ -923,6 +924,14 @@ internal sealed class CatalogMutationOwner
         };
     }
 
+    /// <summary>
+    /// 選択された kind の raw storage replacement request を作成します。
+    /// 明示 replacement は入力 view の参照同一性に依存せず publication 対象になります。
+    /// </summary>
+    /// <param name="bmsRows">BMS replacement input。</param>
+    /// <param name="bmsonRows">BMSON replacement input。</param>
+    /// <param name="replaceBmsRows">BMS を置換するかどうか。</param>
+    /// <param name="replaceBmsonRows">BMSON を置換するかどうか。</param>
     internal CatalogStorageRowsReplacementRequest CreateStorageRowsReplacementRequest(
         IEnumerable<BMSFile> bmsRows,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
@@ -931,17 +940,18 @@ internal sealed class CatalogMutationOwner
     {
         using (storageRowsOwner.WriteGate.GetWriterGuard())
         {
-            CatalogStorageRowsSnapshot currentRows = storageRowsOwner.CaptureSnapshot();
             return new CatalogStorageRowsReplacementRequest(
                 bmsRows,
                 bmsonRows,
                 replaceBmsRows,
                 replaceBmsonRows,
-                replaceBmsRows && !ReferenceEquals(currentRows.BmsRows, bmsRows),
-                replaceBmsonRows && !ReferenceEquals(currentRows.BmsonRows, bmsonRows));
+                replaceBmsRows,
+                replaceBmsonRows);
         }
     }
 
+    /// <summary>storage replacement を適用し、対象 kind の version/publication facts を返します。</summary>
+    /// <param name="request">適用する immutable replacement request。</param>
     internal CatalogStorageRowsReplacementReceipt ApplyStorageRowsReplacement(
         CatalogStorageRowsReplacementRequest request)
     {
@@ -955,11 +965,11 @@ internal sealed class CatalogMutationOwner
             StorageRowsVersionSnapshot previousVersions = storageRowsOwner.CaptureVersionSnapshot();
             if (request.ReplaceBmsRows && request.BmsRowsChanged)
             {
-                storageRowsOwner.ReplaceBmsRows([.. request.BmsRows]);
+                storageRowsOwner.ReplaceBmsRows(request.BmsRows);
             }
             if (request.ReplaceBmsonRows && request.BmsonRowsChanged)
             {
-                storageRowsOwner.ReplaceBmsonRows([.. request.BmsonRows]);
+                storageRowsOwner.ReplaceBmsonRows(request.BmsonRows);
             }
             bool applied = request.BmsRowsChanged || request.BmsonRowsChanged;
             if (applied)
@@ -1030,8 +1040,8 @@ internal sealed class CatalogMutationOwner
             StorageRowsVersionSnapshot previousVersions = storageRowsOwner.CaptureVersionSnapshot();
             CatalogStorageRowsSnapshot storageRows = request.HasDbDiff
                 ? storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
-                    [.. request.NextBmsRows],
-                    [.. request.NextBmsonRows])
+                    request.NextBmsRows,
+                    request.NextBmsonRows)
                 : null;
             CatalogOwnedCollectionReplacementResult ownedReplacement = request.HasDbDiff
                 ? ownedCollectionOwner.ReplaceForFileScan(storageRows)
@@ -1309,7 +1319,8 @@ internal sealed class CatalogMutationOwner
             [],
             targets.BmsFiles,
             targets.BmsonSongs,
-            versions);
+            versions,
+            out bool bmsonCanonicalOrderNormalized);
         int ownedCollectionVersion = ownedCollectionApplied
             ? ownedCollectionOwner.IncrementVersion()
             : ownedCollectionOwner.CollectionVersion;
@@ -1319,7 +1330,8 @@ internal sealed class CatalogMutationOwner
             versions,
             ownedCollectionVersion,
             addedCharts,
-            installRowDeleted: hasInstallRowDeletion);
+            installRowDeleted: hasInstallRowDeletion,
+            bmsonCanonicalOrderNormalized: bmsonCanonicalOrderNormalized);
     }
 
     internal CatalogDigestMutationRequest CreateDigestMutationRequest(
@@ -1419,6 +1431,13 @@ internal sealed class CatalogStorageRowsRemovalRequest
 /// </summary>
 internal sealed class CatalogStorageRowsReplacementRequest
 {
+    /// <summary>selected kind の replacement input と publication facts を固定します。</summary>
+    /// <param name="bmsRows">BMS replacement input。</param>
+    /// <param name="bmsonRows">BMSON replacement input。</param>
+    /// <param name="replaceBmsRows">BMS を置換するかどうか。</param>
+    /// <param name="replaceBmsonRows">BMSON を置換するかどうか。</param>
+    /// <param name="bmsRowsChanged">BMS replacement を publication するかどうか。</param>
+    /// <param name="bmsonRowsChanged">BMSON replacement を publication するかどうか。</param>
     internal CatalogStorageRowsReplacementRequest(
         IEnumerable<BMSFile> bmsRows,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
@@ -1427,24 +1446,30 @@ internal sealed class CatalogStorageRowsReplacementRequest
         bool bmsRowsChanged,
         bool bmsonRowsChanged)
     {
-        BmsRows = Snapshot(bmsRows);
-        BmsonRows = Snapshot(bmsonRows);
         ReplaceBmsRows = replaceBmsRows;
         ReplaceBmsonRows = replaceBmsonRows;
-        BmsRowsChanged = bmsRowsChanged;
-        BmsonRowsChanged = bmsonRowsChanged;
+        BmsRows = Snapshot(replaceBmsRows ? bmsRows : null);
+        BmsonRows = Snapshot(replaceBmsonRows ? bmsonRows : null);
+        BmsRowsChanged = replaceBmsRows && bmsRowsChanged;
+        BmsonRowsChanged = replaceBmsonRows && bmsonRowsChanged;
     }
 
+    /// <summary>immutable BMS replacement input。</summary>
     internal IReadOnlyList<BMSFile> BmsRows { get; }
 
+    /// <summary>immutable BMSON replacement input。</summary>
     internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonRows { get; }
 
+    /// <summary>BMS replacement が選択されたかどうか。</summary>
     internal bool ReplaceBmsRows { get; }
 
+    /// <summary>BMSON replacement が選択されたかどうか。</summary>
     internal bool ReplaceBmsonRows { get; }
 
+    /// <summary>BMS replacement が publication 対象かどうか。</summary>
     internal bool BmsRowsChanged { get; }
 
+    /// <summary>BMSON replacement が publication 対象かどうか。</summary>
     internal bool BmsonRowsChanged { get; }
 
     private static IReadOnlyList<T> Snapshot<T>(IEnumerable<T> values)
@@ -1557,7 +1582,8 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
             ownedCollectionApplied: false,
             default,
             ownedCollectionVersion: 0,
-            []);
+            [],
+            bmsonCanonicalOrderNormalized: false);
 
     internal CatalogInstalledTargetUpsertReceipt(
         bool applied,
@@ -1565,7 +1591,8 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
         StorageRowsVersionSnapshot storageRowsVersion,
         int ownedCollectionVersion,
         IEnumerable<CatalogChartMutationFact> addedCharts,
-        bool installRowDeleted = false)
+        bool installRowDeleted = false,
+        bool bmsonCanonicalOrderNormalized = false)
     {
         Applied = applied;
         Kind = applied
@@ -1576,6 +1603,7 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
         OwnedCollectionVersion = ownedCollectionVersion;
         AddedCharts = Array.AsReadOnly([.. addedCharts ?? []]);
         InstallRowDeleted = installRowDeleted;
+        BmsonCanonicalOrderNormalized = bmsonCanonicalOrderNormalized;
     }
 
     internal bool Applied { get; }
@@ -1591,6 +1619,9 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
     internal IReadOnlyList<CatalogChartMutationFact> AddedCharts { get; }
 
     internal bool InstallRowDeleted { get; }
+
+    /// <summary>今回のupsertで初回BMSON canonical順序正規化が発生したか。</summary>
+    internal bool BmsonCanonicalOrderNormalized { get; }
 }
 
 /// <summary>

@@ -193,6 +193,20 @@ scan surface の選択・currentness は、`ScanSurfaceGeneration`、BMS/BMSON s
 - full reconciliation は full folder projection を一度だけ whole-table transaction へ渡し、song membership を追加・削除・stale prune しません。
 - sync 失敗時は `Incomplete` / `Failed` などとして表面化し、成功扱いにしません。
 
+## 局所catalog変更後のnormal-folder同期
+
+install、delete、move、rename、mergeの確定結果から、LR2同期に必要な追加・削除・旧／新BMS pathを捕捉する。追加だけならcurrent BMS検索を行わず、削除・移動では変更directory配下のBMS pathと登録rootまでの祖先BMS件数だけを既存索引から取得する。BMSONをBMSの残存件数に含めず、登録root全体へprune範囲を拡大しない。
+
+factsはowned collectionのlockと対応versionの下で不変な値として捕捉し、receiptにlive lookup delegateを保持しない。自動renameでは適用前のsource/destination factsを確定old/new pathへ投影し、操作のlease内でLR2 finalizerを終える。捕捉不能やfinalizer失敗を通常成功へ読み替えず、先行したFS/DB確定を再実行・巻き戻ししない。
+
+探索directoryの比較と、DBへ渡すexact chart path・旧folder keyを区別する。通常変更ごとの全BMS path列挙、全件sort、全祖先lookup再構築は行わない。初回の索引構築、必要なfull scan/reconciliation、実際に変更範囲が大きい操作の範囲処理は残る。
+
+| 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 追加だけの同期、削除祖先、root境界、exact factsの不変性 | [[Lr2NormalFolderCatalogMutationReceipt.cs](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2NormalFolderCatalogMutationReceipt.cs)](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2NormalFolderCatalogMutationReceipt.cs)、[[Lr2NormalFolderSyncScopeBuilder.cs](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2NormalFolderSyncScopeBuilder.cs)](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2NormalFolderSyncScopeBuilder.cs) | [[Lr2NormalFolderSyncScopeBuilderTests.cs](../../BeMusicSeeker.Tests/Lr2NormalFolderSyncScopeBuilderTests.cs)](../../BeMusicSeeker.Tests/Lr2NormalFolderSyncScopeBuilderTests.cs) のcatalog mutation、scoped facts、nested projection各case |
+| old/current exact keyと限定したDB読込・prune | [[Lr2NormalFolderDbSyncService.cs](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2NormalFolderDbSyncService.cs)](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2NormalFolderDbSyncService.cs)、[Lr2FolderGenerationScopePlanner](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2FolderGenerationScopePlanner.cs) | [[Lr2NormalFolderDbSyncServiceTests.cs](../../BeMusicSeeker.Tests/Lr2NormalFolderDbSyncServiceTests.cs)](../../BeMusicSeeker.Tests/Lr2NormalFolderDbSyncServiceTests.cs) の `Sync_ScopedExistingRows_LoadsGeneratedAndPruneScopeRowsOnly`、`Sync_ExactPruneKeepsCaseVariantRowOutsideExactIdentity` と既存scope/failure case |
+| 本番renameの局所query、auto-rename投影とdurable finalizer | [[BMSLibrary.cs](../../BeMusicSeeker/Models/BMSLibrary.cs)](../../BeMusicSeeker/Models/BMSLibrary.cs) の `CaptureLr2NormalFolderCurrentBmsFactsUnsafe` / `SyncAutoRenameLr2NormalFoldersUnderExistingLease`、[[LibraryChartRefIndexSnapshot.cs](../../BeMusicSeeker/Models/BmsLibraryInternal/LibraryChartRefIndexSnapshot.cs)](../../BeMusicSeeker/Models/BmsLibraryInternal/LibraryChartRefIndexSnapshot.cs) のBMS count/range query | [[BmsLibraryFolderRenameRefreshTests.cs](../../BeMusicSeeker.Tests/BmsLibraryFolderRenameRefreshTests.cs)](../../BeMusicSeeker.Tests/BmsLibraryFolderRenameRefreshTests.cs) の `RenameIngress_CapturesOnlyLocalBmsRangeFacts`、既存auto-renameとfinalizer失敗case。背景16/128の実query訪問を確認し、本番規模の実時間は未測定 |
+
 ## 主な実装
 
 - `BeMusicSeeker/Models/BmsLibraryInternal/Lr2SongDbSyncService.cs`

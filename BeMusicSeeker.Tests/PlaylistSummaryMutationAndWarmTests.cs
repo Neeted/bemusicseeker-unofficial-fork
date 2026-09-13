@@ -50,7 +50,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     }
 
     [TestMethod]
-    public void GetOwnedChartHashIndexSnapshot_RebuildsAfterLibraryMutationDelta()
+    public void GetOwnedChartHashIndexSnapshot_AppliesDeltaAfterLibraryMutation()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -74,7 +74,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     }
 
     [TestMethod]
-    public void GetOwnedChartHashIndexSnapshot_RebuildsAfterInstalledChartUpsert()
+    public void GetOwnedChartHashIndexSnapshot_AppliesDeltaAfterInstalledChartUpsert()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -143,6 +143,109 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             Assert.AreEqual(third.SnapshotVersion, snapshot.Version);
             CollectionAssert.DoesNotContain(new List<string>(snapshot.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             CollectionAssert.Contains(new List<string>(snapshot.Md5Hashes), "cccccccccccccccccccccccccccccccc");
+        });
+    }
+
+    [TestMethod]
+    public void GetOwnedChartHashIndexSnapshot_TracksBmsAndBmsonOwnerCountsAndKeepsOldSnapshot()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            new BmsLibraryDbGateway(songDbPath).EnsureBmsonSchema();
+            const string sharedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string sharedSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            BMSFile bmsFile = CreateLibraryFile(@"C:\Songs\shared.bms", sharedMd5, sharedSha256);
+            LR2SongDBExtended.bmson_song bmsonSong = new()
+            {
+                path = @"C:\Songs\shared.bmson",
+                md5 = sharedMd5,
+                sha256 = sharedSha256
+            };
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles = [bmsFile],
+                BmsonSongs = [bmsonSong]
+            };
+
+            OwnedChartHashIndexVersionedSnapshot initial = library.GetOwnedChartHashIndexSnapshot();
+            Assert.AreEqual(2, initial.GetMd5OwnerCount(sharedMd5));
+            Assert.AreEqual(2, initial.GetSha256OwnerCount(sharedSha256));
+            Assert.IsTrue(initial.ContainsMd5(sharedMd5));
+            Assert.IsTrue(initial.ContainsSha256(sharedSha256));
+
+            var removeBms = new LibraryMutationDelta();
+            removeBms.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsFile));
+            InvokeApplyLibraryMutationDelta(library, removeBms);
+            OwnedChartHashIndexVersionedSnapshot oneOwner = library.GetOwnedChartHashIndexSnapshot();
+
+            Assert.AreEqual(initial.Version, oneOwner.Version);
+            Assert.AreEqual(1, oneOwner.GetMd5OwnerCount(sharedMd5));
+            Assert.AreEqual(1, oneOwner.GetSha256OwnerCount(sharedSha256));
+            Assert.IsTrue(oneOwner.ContainsMd5(sharedMd5));
+            Assert.IsTrue(oneOwner.ContainsSha256(sharedSha256));
+
+            var removeBmson = new LibraryMutationDelta();
+            removeBmson.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsonSong));
+            InvokeApplyLibraryMutationDelta(library, removeBmson);
+            OwnedChartHashIndexVersionedSnapshot empty = library.GetOwnedChartHashIndexSnapshot();
+
+            Assert.IsTrue(empty.Version > oneOwner.Version);
+            Assert.AreEqual(0, empty.GetMd5OwnerCount(sharedMd5));
+            Assert.AreEqual(0, empty.GetSha256OwnerCount(sharedSha256));
+            Assert.IsFalse(empty.ContainsMd5(sharedMd5));
+            Assert.IsFalse(empty.ContainsSha256(sharedSha256));
+
+            Assert.AreEqual(2, initial.GetMd5OwnerCount(sharedMd5));
+            Assert.AreEqual(2, initial.GetSha256OwnerCount(sharedSha256));
+            Assert.AreEqual(1, oneOwner.GetMd5OwnerCount(sharedMd5));
+            Assert.AreEqual(1, oneOwner.GetSha256OwnerCount(sharedSha256));
+        });
+    }
+
+    /// <summary>R5b-LocalWork: cold source走査後の既知deltaはroot局所更新だけで再buildしません。</summary>
+    [TestMethod]
+    public void GetOwnedChartHashIndexSnapshot_ColdBuildEnumeratesSourceThenKnownDeltaAvoidsFullBuilder()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            BMSFile removedFile = CreateLibraryFile(
+                @"C:\Songs\removed.bms",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            BMSFile keptFile = CreateLibraryFile(
+                @"C:\Songs\kept.bms",
+                "cccccccccccccccccccccccccccccccc",
+                "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            {
+                BMSFiles = [removedFile, keptFile]
+            };
+            List<string> storeWork = [];
+            library.OwnedChartHashIndexStoreWorkObserver = storeWork.Add;
+
+            OwnedChartHashIndexVersionedSnapshot cold = library.GetOwnedChartHashIndexSnapshot();
+            Assert.IsTrue(storeWork.Contains("owned_hash_source_enumeration"));
+            Assert.AreEqual(2, storeWork.Count(operation => operation == "owned_hash_source_entry_visited"));
+            Assert.IsTrue(storeWork.Contains("owned_hash_root_capture"));
+            Assert.AreEqual(2, cold.GetMd5OwnerCount("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+                + cold.GetMd5OwnerCount("cccccccccccccccccccccccccccccccc"));
+
+            storeWork.Clear();
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedFile));
+            InvokeApplyLibraryMutationDelta(library, delta);
+            OwnedChartHashIndexVersionedSnapshot updated = library.GetOwnedChartHashIndexSnapshot();
+
+            Assert.AreEqual(0, storeWork.Count(operation => operation == "owned_hash_source_enumeration"));
+            Assert.AreEqual(0, storeWork.Count(operation => operation == "owned_hash_source_entry_visited"));
+            Assert.IsTrue(storeWork.Contains("owned_hash_delta_apply"));
+            Assert.IsTrue(storeWork.Count(operation => operation == "owned_hash_count_root_update") <= 2);
+            Assert.AreEqual(0, storeWork.Count(operation => operation == "owned_hash_root_enumeration"));
+            Assert.AreEqual(0, storeWork.Count(operation => operation == "owned_hash_root_key_visited"));
+            Assert.AreEqual(0, updated.GetMd5OwnerCount("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+            Assert.AreEqual(1, updated.GetMd5OwnerCount("cccccccccccccccccccccccccccccccc"));
+            Assert.AreEqual(0, updated.GetSha256OwnerCount("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+            Assert.AreEqual(1, updated.GetSha256OwnerCount("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"));
         });
     }
 

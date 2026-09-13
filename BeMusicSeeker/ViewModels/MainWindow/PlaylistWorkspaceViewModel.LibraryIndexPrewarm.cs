@@ -190,7 +190,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     }
                     prewarmToken.ThrowIfCancellationRequested();
                     PlaylistLibraryIndexSnapshot snapshot = CreatePlaylistLibraryIndexSnapshot(prewarmToken, targetVersion, out bool cacheHit, out int staleRetryCount);
-                    LogPlaylistLibraryIndex("playlist_library_index_prewarm completed version=" + targetVersion + " status=" + (cacheHit ? "cached" : "built") + " chartsByMd5Count=" + (snapshot.ResolveIndex?.ChartsByMd5.Count ?? 0) + " buildMs=" + snapshot.BuildElapsedMs + " staleRetries=" + staleRetryCount + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
+                    LogPlaylistLibraryIndex("playlist_library_index_prewarm completed version=" + targetVersion + " status=" + (cacheHit ? "cached" : "built") + " chartsByMd5Count=" + (snapshot.ResolveIndex?.Md5HashCount ?? 0) + " buildMs=" + snapshot.BuildElapsedMs + " staleRetries=" + staleRetryCount + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
                     return snapshot;
                 }
                 catch (OperationCanceledException)
