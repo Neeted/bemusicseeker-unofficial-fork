@@ -28,18 +28,17 @@ public sealed class CatalogMutationOwnerTests
         {
             var movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             movedBms.path = oldPath;
-            var delta = new LibraryMutationDelta();
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            LibraryChartPathChange pathChange = new()
             {
                 Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
                 OldPath = oldPath,
                 NewPath = newPath
-            });
+            };
+            LibraryCatalogMutationFacts catalogFacts = new([], [pathChange], []);
 
             var owner = new CatalogMutationOwner(new CatalogStorageRowsOwner(), new CatalogOwnedCollectionOwner(), null);
-            CatalogRelocationRequest request = owner.CreateRelocationRequest(delta);
+            CatalogRelocationRequest request = owner.CreateRelocationRequest(catalogFacts);
 
-            delta.ChartPathChanges[0].NewPath = laterPath;
             movedBms.path = laterPath;
 
             Assert.AreEqual(1, request.BmsPathReplacements.Count);
@@ -102,26 +101,28 @@ public sealed class CatalogMutationOwnerTests
                 storageRowsOwner,
                 new CatalogOwnedCollectionOwner(),
                 new BmsLibraryDbGateway(songDbPath));
-            var delta = new LibraryMutationDelta();
-            delta.FolderPathChanges.Add(new LibraryFolderPathChange
+            var folderPathChanges = new List<LibraryFolderPathChange>();
+            folderPathChanges.Add(new LibraryFolderPathChange
             {
                 OldFolderPath = oldDirectoryPath,
                 NewFolderPath = newDirectoryPath
             });
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            var pathChanges = new List<LibraryChartPathChange>();
+            pathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(bms),
                 OldPath = oldBmsPath,
                 NewPath = newBmsPath
             });
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            pathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ChartFileProjection.FromBmsonStorageOwnerIdentity(bmson),
                 OldPath = oldBmsonPath,
                 NewPath = newBmsonPath
             });
 
-            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, []);
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(
+                new LibraryCatalogMutationFacts([], pathChanges, folderPathChanges));
 
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(2, receipt.PathFacts.Count);
@@ -211,17 +212,21 @@ public sealed class CatalogMutationOwnerTests
                 storageRowsOwner,
                 ownedCollectionOwner,
                 new BmsLibraryDbGateway(songDbPath));
-            var delta = new LibraryMutationDelta();
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            var pathChanges = new List<LibraryChartPathChange>();
+            pathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
                 OldPath = movedOldPath,
                 NewPath = movedNewPath
             });
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBmson));
+            var removeRequests = new List<OwnedChartRemoveRequest>
+            {
+                OwnedChartRemoveRequest.FromOwnerReference(removedBms),
+                OwnedChartRemoveRequest.FromOwnerReference(removedBmson)
+            };
+            LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(catalogFacts);
 
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(CatalogMutationApplyKind.GenericMutation, receipt.Kind);
@@ -298,16 +303,20 @@ public sealed class CatalogMutationOwnerTests
                 storageRowsOwner,
                 ownedCollectionOwner,
                 new BmsLibraryDbGateway(songDbPath));
-            var delta = new LibraryMutationDelta();
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            var pathChanges = new List<LibraryChartPathChange>();
+            pathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
                 OldPath = oldPath,
                 NewPath = newPath
             });
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
+            var removeRequests = new List<OwnedChartRemoveRequest>
+            {
+                OwnedChartRemoveRequest.FromOwnerReference(removedBms)
+            };
+            LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests));
+            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyCatalogMutation(catalogFacts));
 
             Assert.AreEqual(oldPath, movedBms.path);
             Assert.AreEqual(initialRows.BmsRowsVersion, storageRowsOwner.BmsRowsVersion);
@@ -370,16 +379,20 @@ public sealed class CatalogMutationOwnerTests
                 storageRowsOwner,
                 ownedCollectionOwner,
                 new BmsLibraryDbGateway(songDbPath));
-            var delta = new LibraryMutationDelta();
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            var pathChanges = new List<LibraryChartPathChange>();
+            pathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
                 OldPath = movedOldPath,
                 NewPath = removedPath
             });
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
+            var removeRequests = new List<OwnedChartRemoveRequest>
+            {
+                OwnedChartRemoveRequest.FromOwnerReference(removedBms)
+            };
+            LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+            owner.ApplyCatalogMutation(catalogFacts);
 
             Assert.AreEqual(removedPath, movedBms.path);
             Assert.AreEqual(1, storageRowsOwner.BmsRows.Count);
@@ -435,16 +448,20 @@ public sealed class CatalogMutationOwnerTests
                 storageRowsOwner,
                 ownedCollectionOwner,
                 new BmsLibraryDbGateway(songDbPath));
-            var delta = new LibraryMutationDelta();
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            var pathChanges = new List<LibraryChartPathChange>();
+            pathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
                 OldPath = movedOldPath,
                 NewPath = movedNewPath
             });
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
+            var removeRequests = new List<OwnedChartRemoveRequest>
+            {
+                OwnedChartRemoveRequest.FromOwnerReference(removedBms)
+            };
+            LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+            owner.ApplyCatalogMutation(catalogFacts);
 
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(row => row.path == removedPath));
@@ -491,16 +508,20 @@ public sealed class CatalogMutationOwnerTests
                 storageRowsOwner,
                 ownedCollectionOwner,
                 new BmsLibraryDbGateway(songDbPath));
-            var delta = new LibraryMutationDelta();
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            var pathChanges = new List<LibraryChartPathChange>();
+            pathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
                 OldPath = oldPath,
                 NewPath = newPath
             });
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, newPath));
+            var removeRequests = new List<OwnedChartRemoveRequest>
+            {
+                OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, newPath)
+            };
+            LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
 
-            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(catalogFacts);
 
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(1, receipt.PathFacts.Count);
@@ -661,8 +682,7 @@ public sealed class CatalogMutationOwnerTests
                 OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, maintenanceOnlyPath),
                 OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, targetBmsonPath)
             };
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.AddRange(removeRequests);
+            LibraryCatalogMutationFacts catalogFacts = new(removeRequests, [], []);
 
             using var observation = new SqliteStatementObservation();
             var owner = new CatalogMutationOwner(
@@ -670,7 +690,7 @@ public sealed class CatalogMutationOwnerTests
                 ownedCollectionOwner,
                 new BmsLibraryDbGateway(songDbPath, songDbFactory: observation.OpenSongDb));
 
-            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, removeRequests);
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(catalogFacts);
             observation.ThrowIfCallbackFailed();
 
             Assert.IsTrue(receipt.Applied);
@@ -803,14 +823,16 @@ public sealed class CatalogMutationOwnerTests
                 OwnedChartCollectionState.FromStorageRows([removedBms], []),
                 initialRows.BmsRowsVersion,
                 initialRows.BmsonRowsVersion));
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
+            LibraryCatalogMutationFacts catalogFacts = new(
+                [OwnedChartRemoveRequest.FromOwnerReference(removedBms)],
+                [],
+                []);
 
             new CatalogMutationOwner(
                 storageRowsOwner,
                 ownedCollectionOwner,
                 new BmsLibraryDbGateway(songDbPath))
-                .ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+                .ApplyCatalogMutation(catalogFacts);
 
             using var verifySongDb = new LR2SongDBExtended(songDbPath);
             Assert.IsFalse(verifySongDb.Table<BMSFileMaintenanceInfo>().Any(row => row.path == removedPath));
@@ -1105,17 +1127,13 @@ public sealed class CatalogMutationOwnerTests
     }
 
     /// <summary>
-    /// generic／installの両upsertで別exact keyを保持し、複数BMSONの入力を畳みません。
+    /// install upsertで別exact keyを保持し、複数BMSONの入力を畳みません。
     /// </summary>
     [DataTestMethod]
-    [DataRow("CHART", false, false)]
-    [DataRow("other", false, false)]
-    [DataRow(".\\chart", false, false)]
-    [DataRow("CHART", true, false)]
-    [DataRow("other", true, false)]
-    [DataRow("CHART", false, true)]
-    [DataRow("CHART", true, true)]
-    public void ApplyInstalledTargetUpsert_PreservesEveryExactKey(string siblingName, bool generic, bool replaceBoth)
+    [DataRow("CHART", false)]
+    [DataRow("other", false)]
+    [DataRow(".\\chart", false)]
+    public void ApplyInstalledTargetUpsert_PreservesEveryExactKey(string siblingName, bool replaceBoth)
     {
         BmsLibraryStateApplierTestSupport.WithTemporarySongDb(songDbPath =>
         {
@@ -1146,16 +1164,9 @@ public sealed class CatalogMutationOwnerTests
             BMSFile[] bmsInput = replaceBoth ? [addedBms, keptBms] : [addedBms];
             LR2SongDBExtended.bmson_song[] bmsonInput = replaceBoth ? [addedBmson, keptBmson] : [addedBmson];
 
-            if (generic)
-            {
-                Assert.IsTrue(owner.ApplyCatalogMutation(new LibraryMutationDelta(), [], bmsInput, bmsonInput).Applied);
-            }
-            else
-            {
-                CatalogInstalledTargetUpsertRequest request =
-                    owner.CreateInstalledTargetUpsertRequest(bmsInput, bmsonInput);
-                Assert.IsTrue(owner.ApplyInstalledTargetUpsert(request).Applied);
-            }
+            CatalogInstalledTargetUpsertRequest request =
+                owner.CreateInstalledTargetUpsertRequest(bmsInput, bmsonInput);
+            Assert.IsTrue(owner.ApplyInstalledTargetUpsert(request).Applied);
 
             CollectionAssert.AreEquivalent(new[] { addedBms, keptBms }, storage.BmsRows.ToArray());
             CollectionAssert.AreEquivalent(new[] { addedBmson, keptBmson }, storage.BmsonRows.ToArray());

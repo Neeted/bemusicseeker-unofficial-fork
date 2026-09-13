@@ -69,15 +69,23 @@ public sealed class PlaylistSummaryResolveIndexTests
     }
 
     [TestMethod]
-    public void GetPlaylistLibraryResolveIndexSnapshot_AppliesCandidateDeltaAndKeepsPriorSnapshots()
+    public void GetPlaylistLibraryResolveIndexSnapshot_AppliesRemovalAndKeepsPriorSnapshots()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string sharedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string sharedSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            BMSFile firstFile = CreateLibraryFile(@"C:\Songs\A.bms", sharedMd5, sharedSha256);
-            BMSFile middleFile = CreateLibraryFile(@"C:\Songs\M.bms", sharedMd5, sharedSha256);
-            BMSFile lastFile = CreateLibraryFile(@"C:\Songs\Z.bms", sharedMd5, sharedSha256);
+            string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Songs");
+            Directory.CreateDirectory(rootPath);
+            string firstPath = Path.Combine(rootPath, "A.bms");
+            string middlePath = Path.Combine(rootPath, "M.bms");
+            string lastPath = Path.Combine(rootPath, "Z.bms");
+            File.WriteAllText(firstPath, "#PLAYER 1");
+            File.WriteAllText(middlePath, "#PLAYER 1");
+            File.WriteAllText(lastPath, "#PLAYER 1");
+            BMSFile firstFile = CreateLibraryFile(firstPath, sharedMd5, sharedSha256);
+            BMSFile middleFile = CreateLibraryFile(middlePath, sharedMd5, sharedSha256);
+            BMSFile lastFile = CreateLibraryFile(lastPath, sharedMd5, sharedSha256);
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles = [firstFile, middleFile, lastFile]
@@ -89,42 +97,48 @@ public sealed class PlaylistSummaryResolveIndexTests
                 out int initialStaleRetries);
             Assert.IsFalse(initialCacheHit);
             Assert.AreEqual(0, initialStaleRetries);
-            Assert.AreEqual(@"C:\Songs\A.bms", initial.ResolveChartForPlaylistHash(sharedMd5, null).Path);
+            Assert.AreEqual(firstPath, initial.ResolveChartForPlaylistHash(sharedMd5, null).Path);
             CollectionAssert.AreEqual(
-                new[] { @"C:\Songs\A.bms", @"C:\Songs\M.bms", @"C:\Songs\Z.bms" },
+                new[] { firstPath, middlePath, lastPath },
                 initial.GetMd5Candidates(sharedMd5).Select(chart => chart.Path).ToArray());
 
-            var removeFirst = new LibraryMutationDelta();
-            removeFirst.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(firstFile));
-            InvokeApplyLibraryMutationDelta(library, removeFirst);
+            LibraryChartRemovalOutcome removeFirst = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(firstFile)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+            Assert.IsFalse(removeFirst.HasError);
             PlaylistLibraryResolveIndexSnapshot afterFirstRemoval = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool afterFirstCacheHit,
                 out int afterFirstStaleRetries);
             Assert.IsTrue(afterFirstCacheHit);
             Assert.AreEqual(0, afterFirstStaleRetries);
-            Assert.AreEqual(@"C:\Songs\M.bms", afterFirstRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
+            Assert.AreEqual(middlePath, afterFirstRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
             CollectionAssert.AreEqual(
-                new[] { @"C:\Songs\M.bms", @"C:\Songs\Z.bms" },
+                new[] { middlePath, lastPath },
                 afterFirstRemoval.GetMd5Candidates(sharedMd5).Select(chart => chart.Path).ToArray());
 
-            var removeMiddle = new LibraryMutationDelta();
-            removeMiddle.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(middleFile));
-            InvokeApplyLibraryMutationDelta(library, removeMiddle);
+            LibraryChartRemovalOutcome removeMiddle = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(middleFile)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+            Assert.IsFalse(removeMiddle.HasError);
             PlaylistLibraryResolveIndexSnapshot afterSecondRemoval = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool afterSecondCacheHit,
                 out int afterSecondStaleRetries);
             Assert.IsTrue(afterSecondCacheHit);
             Assert.AreEqual(0, afterSecondStaleRetries);
-            Assert.AreEqual(@"C:\Songs\Z.bms", afterSecondRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
+            Assert.AreEqual(lastPath, afterSecondRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
             CollectionAssert.AreEqual(
-                new[] { @"C:\Songs\Z.bms" },
+                new[] { lastPath },
                 afterSecondRemoval.GetMd5Candidates(sharedMd5).Select(chart => chart.Path).ToArray());
 
-            var removeLast = new LibraryMutationDelta();
-            removeLast.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(lastFile));
-            InvokeApplyLibraryMutationDelta(library, removeLast);
+            LibraryChartRemovalOutcome removeLast = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(lastFile)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+            Assert.IsFalse(removeLast.HasError);
             PlaylistLibraryResolveIndexSnapshot empty = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool emptyCacheHit,
@@ -132,50 +146,90 @@ public sealed class PlaylistSummaryResolveIndexTests
             Assert.IsTrue(emptyCacheHit);
             Assert.AreEqual(0, emptyStaleRetries);
             Assert.IsNull(empty.ResolveChartForPlaylistHash(sharedMd5, null));
-            Assert.AreEqual(@"C:\Songs\A.bms", initial.ResolveChartForPlaylistHash(sharedMd5, null).Path);
-            Assert.AreEqual(@"C:\Songs\M.bms", afterFirstRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
-            Assert.AreEqual(@"C:\Songs\Z.bms", afterSecondRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
+            Assert.AreEqual(firstPath, initial.ResolveChartForPlaylistHash(sharedMd5, null).Path);
+            Assert.AreEqual(middlePath, afterFirstRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
+            Assert.AreEqual(lastPath, afterSecondRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
         });
     }
 
     [TestMethod]
-    public void GetPlaylistLibraryResolveIndexSnapshot_ReplacesExactCandidateAndRetainsOldSnapshot()
+    public void ReloadFileDiff_ReplacesExactCandidateAndRetainsOldSnapshot()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            const string chartPath = @"C:\Songs\replace.bms";
-            const string oldMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-            const string oldSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            const string newMd5 = "cccccccccccccccccccccccccccccccc";
-            const string newSha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Replacement");
+            Directory.CreateDirectory(chartDirectory);
+            string chartPath = Path.Combine(chartDirectory, "replace.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Old\r\n#BPM 120\r\n#00111:01\r\n");
+            ChartFileSnapshot oldSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+            string oldMd5 = oldSnapshot.Md5;
+            string oldSha256 = oldSnapshot.Sha256;
             BMSFile oldFile = CreateLibraryFile(chartPath, oldMd5, oldSha256);
-            BMSFile replacementFile = CreateLibraryFile(chartPath, newMd5, newSha256);
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
+            var options = new BmsLibraryOptionsSnapshot
             {
+                OperationModeLR2DB = false,
+                ScanBmsFilesOnStartup = false,
+                UpdateLr2IrRankingCacheOnStartup = false,
+                EnableDownloadLr2IrScoreAndDetectUnsent = false,
+                UseBeatorajaScoreDb = false,
+                EnableReadOptimizedPragmas = false,
+                PendingInstallEstimateMaxParallelPackages = 1
+            };
+            IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
+                [chartPath],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [chartDirectory] = []
+                },
+                [chartDirectory]);
+            var library = new TestBmsLibrary(
+                songDbPath,
+                getLR2Config: null,
+                _lr2ScoreDB: null,
+                startupRequiredFileScanReason: null,
+                optionsSnapshotProvider: () => options,
+                applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                chartFileScanner: chartFileScanner,
+                dialogService: new RecordingDialogService())
+            {
+                SearchTargets = [chartDirectory],
                 BMSFiles = [oldFile]
             };
 
-            PlaylistLibraryResolveIndexSnapshot initial = library.GetPlaylistLibraryResolveIndexSnapshot(
-                CancellationToken.None,
-                out bool initialCacheHit,
-                out int _);
-            Assert.IsFalse(initialCacheHit);
-            Assert.AreEqual(chartPath, initial.ResolveChartForPlaylistHash(oldMd5, null).Path);
+            try
+            {
+                PlaylistLibraryResolveIndexSnapshot initial = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool initialCacheHit,
+                    out int _);
+                Assert.IsFalse(initialCacheHit);
+                Assert.AreEqual(chartPath, initial.ResolveChartForPlaylistHash(oldMd5, null).Path);
 
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([replacementFile], []));
-            PlaylistLibraryResolveIndexSnapshot updated = library.GetPlaylistLibraryResolveIndexSnapshot(
-                CancellationToken.None,
-                out bool updatedCacheHit,
-                out int updatedStaleRetries);
+                File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE New\r\n#BPM 130\r\n#00111:02\r\n");
+                ChartFileSnapshot newSnapshot = ChartFileContentReader.ReadSnapshot(chartPath);
+                string newMd5 = newSnapshot.Md5;
+                string newSha256 = newSnapshot.Sha256;
+                library.ReloadFileDiff();
+                PlaylistLibraryResolveIndexSnapshot updated = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool updatedCacheHit,
+                    out int updatedStaleRetries);
 
-            Assert.IsTrue(updatedCacheHit);
-            Assert.AreEqual(0, updatedStaleRetries);
-            Assert.IsNull(updated.ResolveChartForPlaylistHash(oldMd5, null));
-            Assert.AreEqual(chartPath, updated.ResolveChartForPlaylistHash(newMd5, null).Path);
-            Assert.IsNull(updated.ResolveChartForPlaylistHash(oldMd5, newSha256));
-            Assert.AreEqual(chartPath, updated.ResolveChartForPlaylistHash(null, newSha256).Path);
-            Assert.IsNotNull(initial.ResolveChartForPlaylistHash(oldMd5, null));
-            Assert.IsNull(initial.ResolveChartForPlaylistHash(newMd5, null));
+                // 実ファイル走査による digest 置換は full replacement を経由するため、
+                // lookup は再構築される。旧 snapshot と新 hash の対応は下で検証する。
+                Assert.IsFalse(updatedCacheHit);
+                Assert.AreEqual(0, updatedStaleRetries);
+                Assert.IsNull(updated.ResolveChartForPlaylistHash(oldMd5, null));
+                Assert.AreEqual(chartPath, updated.ResolveChartForPlaylistHash(newMd5, null).Path);
+                Assert.IsNull(updated.ResolveChartForPlaylistHash(oldMd5, newSha256));
+                Assert.AreEqual(chartPath, updated.ResolveChartForPlaylistHash(null, newSha256).Path);
+                Assert.IsNotNull(initial.ResolveChartForPlaylistHash(oldMd5, null));
+                Assert.IsNull(initial.ResolveChartForPlaylistHash(newMd5, null));
+            }
+            finally
+            {
+                library.RequestShutdown("playlist-resolve-exact-replacement-test");
+            }
         });
     }
 
@@ -186,16 +240,17 @@ public sealed class PlaylistSummaryResolveIndexTests
         {
             const string sharedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string sharedSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Move");
-            Directory.CreateDirectory(chartDirectory);
-            string firstPath = Path.Combine(chartDirectory, "A.bms");
-            string oldMovedPath = Path.Combine(chartDirectory, "Z.bms");
-            string movedPath = Path.Combine(chartDirectory, "M.bms");
+            string oldDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Move", "Old");
+            string newDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Move", "New");
+            Directory.CreateDirectory(oldDirectory);
+            string firstPath = Path.Combine(oldDirectory, "A.bms");
+            string movedPath = Path.Combine(oldDirectory, "Z.bms");
+            string firstMovedPath = Path.Combine(newDirectory, "A.bms");
+            string newMovedPath = Path.Combine(newDirectory, "Z.bms");
             File.WriteAllText(firstPath, "#PLAYER 1");
-            File.WriteAllText(oldMovedPath, "#PLAYER 1");
             File.WriteAllText(movedPath, "#PLAYER 1");
             BMSFile firstFile = CreateLibraryFile(firstPath, sharedMd5, sharedSha256);
-            BMSFile movedFile = CreateLibraryFile(oldMovedPath, sharedMd5, sharedSha256);
+            BMSFile movedFile = CreateLibraryFile(movedPath, sharedMd5, sharedSha256);
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles = [firstFile, movedFile]
@@ -210,29 +265,30 @@ public sealed class PlaylistSummaryResolveIndexTests
                 new[] { firstFile.path, movedFile.path },
                 initial.GetMd5Candidates(sharedMd5).Select(chart => chart.Path).ToArray());
 
-            var delta = new LibraryMutationDelta();
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
-            {
-                Chart = ChartFileProjection.FromBmsFile(movedFile),
-                OldPath = movedFile.path,
-                NewPath = movedPath
-            });
-            InvokeApplyLibraryMutationDelta(library, delta);
+            FileDbMutationReceipt moveReceipt = library.RenameChartFolderWithReceipt(
+                oldDirectory,
+                "New",
+                unregister: false,
+                renameRootFolder: false);
+            Assert.IsTrue(moveReceipt.DurableCommit, moveReceipt.Failure?.ToString());
 
             PlaylistLibraryResolveIndexSnapshot updated = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool updatedCacheHit,
-                out int updatedStaleRetries);
+            out int updatedStaleRetries);
             Assert.IsTrue(updatedCacheHit);
             Assert.AreEqual(0, updatedStaleRetries);
-            Assert.IsFalse(updated.ContainsCandidate(LibraryChartKind.Bms, oldMovedPath));
-            Assert.IsTrue(updated.ContainsCandidate(LibraryChartKind.Bms, movedPath));
-            Assert.AreEqual(firstFile.path, updated.ResolveChartForPlaylistHash(sharedMd5, null).Path);
+            Assert.IsFalse(updated.ContainsCandidate(LibraryChartKind.Bms, firstPath));
+            Assert.IsFalse(updated.ContainsCandidate(LibraryChartKind.Bms, movedPath));
+            Assert.IsTrue(updated.ContainsCandidate(LibraryChartKind.Bms, firstMovedPath));
+            Assert.IsTrue(updated.ContainsCandidate(LibraryChartKind.Bms, newMovedPath));
+            Assert.AreEqual(firstMovedPath, updated.ResolveChartForPlaylistHash(sharedMd5, null).Path);
             CollectionAssert.AreEqual(
-                new[] { firstFile.path, movedPath },
+                new[] { firstMovedPath, newMovedPath },
                 updated.GetMd5Candidates(sharedMd5).Select(chart => chart.Path).ToArray());
-            Assert.IsTrue(initial.ContainsCandidate(LibraryChartKind.Bms, oldMovedPath));
-            Assert.AreEqual(oldMovedPath, initial.GetMd5Candidates(sharedMd5)[1].Path);
+            Assert.IsTrue(initial.ContainsCandidate(LibraryChartKind.Bms, firstPath));
+            Assert.IsTrue(initial.ContainsCandidate(LibraryChartKind.Bms, movedPath));
+            Assert.AreEqual(movedPath, initial.GetMd5Candidates(sharedMd5)[1].Path);
         });
     }
 
@@ -248,66 +304,92 @@ public sealed class PlaylistSummaryResolveIndexTests
             string secondBmsPath = Path.Combine(chartDirectory, "second.bms");
             File.WriteAllText(bmsonPath, "{}");
             File.WriteAllText(firstBmsPath, "#PLAYER 1");
-            File.WriteAllText(secondBmsPath, "#PLAYER 1");
             const string bmsonMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string bmsonSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             var bmsonSong = new LR2SongDBExtended.bmson_song
             {
                 path = bmsonPath,
                 md5 = bmsonMd5,
-                sha256 = bmsonSha256
+                sha256 = bmsonSha256,
+                updated_at = File.GetLastWriteTimeUtc(bmsonPath)
             };
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = false,
+                ScanBmsFilesOnStartup = false,
+                UpdateLr2IrRankingCacheOnStartup = false,
+                EnableDownloadLr2IrScoreAndDetectUnsent = false,
+                UseBeatorajaScoreDb = false,
+                EnableReadOptimizedPragmas = false,
+                PendingInstallEstimateMaxParallelPackages = 1
+            };
+            var chartFileScanner = new MutableChartFileScanner([bmsonPath, firstBmsPath]);
+            var library = new TestBmsLibrary(
+                songDbPath,
+                getLR2Config: null,
+                _lr2ScoreDB: null,
+                startupRequiredFileScanReason: null,
+                optionsSnapshotProvider: () => options,
+                applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                chartFileScanner: chartFileScanner,
+                dialogService: new RecordingDialogService())
+            {
+                SearchTargets = [chartDirectory]
+            };
             SetLibraryFilesWithoutNotification(library, []);
             SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
 
-            List<string> resolveWork = [];
-            library.PlaylistLibraryResolveIndexStoreWorkObserver = resolveWork.Add;
-            PlaylistLibraryResolveIndexSnapshot initial = library.GetPlaylistLibraryResolveIndexSnapshot(
-                CancellationToken.None,
-                out bool initialCacheHit,
-                out int _);
-            Assert.IsFalse(initialCacheHit);
-            Assert.AreEqual(bmsonPath, initial.ResolveChartForPlaylistHash(null, bmsonSha256).Path);
-            resolveWork.Clear();
+            try
+            {
+                List<string> resolveWork = [];
+                library.PlaylistLibraryResolveIndexStoreWorkObserver = resolveWork.Add;
+                PlaylistLibraryResolveIndexSnapshot initial = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool initialCacheHit,
+                    out int _);
+                Assert.IsFalse(initialCacheHit);
+                Assert.AreEqual(bmsonPath, initial.ResolveChartForPlaylistHash(null, bmsonSha256).Path);
+                resolveWork.Clear();
 
-            BMSFile firstBms = CreateLibraryFile(
-                firstBmsPath,
-                "cccccccccccccccccccccccccccccccc",
-                "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
-            InvokeApplyInstalledChartStorageTargets(
-                library,
-                ChartStorageTargetSet.FromRows([firstBms], []));
-            BMSLibrary.PlaylistLibraryResolveIndexRuntimeState invalidated = library.GetPlaylistLibraryResolveIndexRuntimeState();
-            Assert.IsFalse(invalidated.IsCached);
-            PlaylistLibraryResolveIndexSnapshot afterNormalization = library.GetPlaylistLibraryResolveIndexSnapshot(
-                CancellationToken.None,
-                out bool afterNormalizationCacheHit,
-                out int afterNormalizationStaleRetries);
-            Assert.IsFalse(afterNormalizationCacheHit);
-            Assert.AreEqual(0, afterNormalizationStaleRetries);
-            Assert.AreEqual(bmsonPath, afterNormalization.ResolveChartForPlaylistHash(null, bmsonSha256).Path);
-            Assert.IsTrue(resolveWork.Contains("playlist_resolve_full_root_enumeration"));
-            Assert.IsTrue(resolveWork.Contains("playlist_resolve_source_enumeration"));
-            resolveWork.Clear();
+                library.ReloadFileDiff();
+                BMSLibrary.PlaylistLibraryResolveIndexRuntimeState invalidated = library.GetPlaylistLibraryResolveIndexRuntimeState();
+                Assert.IsFalse(invalidated.IsCached);
+                PlaylistLibraryResolveIndexSnapshot afterNormalization = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool afterNormalizationCacheHit,
+                    out int afterNormalizationStaleRetries);
+                Assert.IsFalse(afterNormalizationCacheHit);
+                Assert.AreEqual(0, afterNormalizationStaleRetries);
+                Assert.AreEqual(bmsonPath, afterNormalization.ResolveChartForPlaylistHash(null, bmsonSha256).Path);
+                Assert.IsTrue(resolveWork.Contains("playlist_resolve_full_root_enumeration"));
+                Assert.IsTrue(resolveWork.Contains("playlist_resolve_source_enumeration"));
+                resolveWork.Clear();
 
-            BMSFile secondBms = CreateLibraryFile(
-                secondBmsPath,
-                "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-            InvokeApplyInstalledChartStorageTargets(
-                library,
-                ChartStorageTargetSet.FromRows([secondBms], []));
-            PlaylistLibraryResolveIndexSnapshot afterBmsOnlyUpsert = library.GetPlaylistLibraryResolveIndexSnapshot(
-                CancellationToken.None,
-                out bool bmsOnlyCacheHit,
-                out int bmsOnlyStaleRetries);
-            Assert.IsTrue(bmsOnlyCacheHit);
-            Assert.AreEqual(0, bmsOnlyStaleRetries);
-            Assert.AreEqual(secondBmsPath, afterBmsOnlyUpsert.ResolveChartForPlaylistHash(secondBms.hash, null).Path);
-            Assert.AreEqual(0, resolveWork.Count(operation => operation == "playlist_resolve_full_root_enumeration"));
-            Assert.AreEqual(0, resolveWork.Count(operation => operation == "playlist_resolve_source_enumeration"));
-            Assert.IsTrue(resolveWork.Contains("playlist_resolve_delta_apply"));
+                File.WriteAllText(secondBmsPath, "#PLAYER 1\r\n#TITLE Second\r\n");
+                ChartFileSnapshot secondSnapshot = ChartFileContentReader.ReadSnapshot(secondBmsPath);
+                BMSFile secondBms = CreateLibraryFile(
+                    secondBmsPath,
+                    secondSnapshot.Md5,
+                    secondSnapshot.Sha256);
+                chartFileScanner.SetChartPaths([bmsonPath, firstBmsPath, secondBmsPath]);
+                library.ReloadFileDiff();
+                PlaylistLibraryResolveIndexSnapshot afterBmsOnlyUpsert = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool bmsOnlyCacheHit,
+                    out int bmsOnlyStaleRetries);
+                // 新規 BMS の導入は ReloadFileDiff の通常全走査経路で公開されるため、
+                // この境界では解決索引を再構築する。
+                Assert.IsFalse(bmsOnlyCacheHit);
+                Assert.AreEqual(0, bmsOnlyStaleRetries);
+                Assert.AreEqual(secondBmsPath, afterBmsOnlyUpsert.ResolveChartForPlaylistHash(secondBms.hash, null).Path);
+                Assert.IsTrue(resolveWork.Contains("playlist_resolve_full_root_enumeration"));
+                Assert.IsTrue(resolveWork.Contains("playlist_resolve_source_enumeration"));
+                Assert.AreEqual(0, resolveWork.Count(operation => operation == "playlist_resolve_delta_apply"));
+            }
+            finally
+            {
+                library.RequestShutdown("playlist-resolve-bmson-normalization-test");
+            }
         });
     }
 
@@ -319,15 +401,20 @@ public sealed class PlaylistSummaryResolveIndexTests
             const string removedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string removedSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
             const int backgroundCount = 16;
+            string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Songs");
+            Directory.CreateDirectory(rootPath);
             var files = new List<BMSFile>
             {
-                CreateLibraryFile(@"C:\Songs\000-removed.bms", removedMd5, removedSha256)
+                CreateLibraryFile(Path.Combine(rootPath, "000-removed.bms"), removedMd5, removedSha256)
             };
+            File.WriteAllText(files[0].path, "#PLAYER 1");
             for (int index = 1; index <= backgroundCount; index++)
             {
                 string hash = index.ToString("x32");
                 string sha256 = (index + 100).ToString("x64");
-                files.Add(CreateLibraryFile($@"C:\Songs\{index:000}-background.bms", hash, sha256));
+                string path = Path.Combine(rootPath, $"{index:000}-background.bms");
+                File.WriteAllText(path, "#PLAYER 1");
+                files.Add(CreateLibraryFile(path, hash, sha256));
             }
 
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
@@ -345,9 +432,11 @@ public sealed class PlaylistSummaryResolveIndexTests
             Assert.IsTrue(storeWork.Contains("playlist_resolve_full_root_enumeration"));
 
             storeWork.Clear();
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(files[0]));
-            InvokeApplyLibraryMutationDelta(library, delta);
+            LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(files[0])],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+            Assert.IsFalse(removal.HasError);
             PlaylistLibraryResolveIndexSnapshot updated = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool updatedCacheHit,
@@ -369,9 +458,49 @@ public sealed class PlaylistSummaryResolveIndexTests
             Assert.IsTrue(storeWork.Contains("playlist_resolve_bucket_update"));
             Assert.IsTrue(storeWork.Contains("playlist_resolve_root_capture"));
             Assert.IsNull(updated.ResolveChartForPlaylistHash(removedMd5, null));
-            Assert.AreEqual(@"C:\Songs\001-background.bms", updated.ResolveChartForPlaylistHash(files[1].hash, null).Path);
+            Assert.AreEqual(files[1].path, updated.ResolveChartForPlaylistHash(files[1].hash, null).Path);
             Assert.IsNotNull(initial.ResolveChartForPlaylistHash(removedMd5, null));
         });
+    }
+
+    private sealed class MutableChartFileScanner : IChartFileScanner
+    {
+        private IReadOnlyList<string> chartPaths = [];
+
+        internal MutableChartFileScanner(IEnumerable<string> chartPaths)
+        {
+            SetChartPaths(chartPaths);
+        }
+
+        internal void SetChartPaths(IEnumerable<string> paths)
+        {
+            chartPaths = [.. paths ?? []];
+        }
+
+        public ChartScanExecutionResult Scan(
+            IEnumerable<string> rootDirectories,
+            IEnumerable<string> chartExtensions,
+            bool verboseLog = false,
+            bool includeTextSurface = true,
+            bool includeDirectorySurface = false)
+        {
+            Dictionary<string, IEnumerable<string>> resourcesByDirectory = new(StringComparer.OrdinalIgnoreCase);
+            foreach (string? directory in chartPaths.Select(Path.GetDirectoryName).Where(path => !string.IsNullOrWhiteSpace(path)))
+            {
+                resourcesByDirectory.TryAdd(directory!, []);
+            }
+
+            return new ChartScanExecutionResult
+            {
+                ScanSource = ChartScanSource.Everything,
+                Success = true,
+                IsComplete = true,
+                Result = BmsLibraryInitializationTestSupport.CreateScanResult(
+                    chartPaths,
+                    resourcesByDirectory,
+                    resourcesByDirectory.Keys)
+            };
+        }
     }
 
 }

@@ -529,15 +529,15 @@ internal sealed class CatalogMutationOwner
     /// <summary>
     /// Captures and validates the relocation facts before the durable catalog transaction.
     /// </summary>
-    internal CatalogRelocationRequest CreateRelocationRequest(LibraryMutationDelta delta)
+    internal CatalogRelocationRequest CreateRelocationRequest(LibraryCatalogMutationFacts facts)
     {
-        if (delta == null)
+        if (facts == null)
         {
             return new CatalogRelocationRequest([], [], []);
         }
 
         var folderChanges = new List<CatalogFolderPathReplacement>();
-        foreach (LibraryFolderPathChange change in delta.FolderPathChanges ?? [])
+        foreach (LibraryFolderPathChange change in facts.FolderPathChanges)
         {
             if (change == null
                 || string.IsNullOrWhiteSpace(change.OldFolderPath)
@@ -551,7 +551,7 @@ internal sealed class CatalogMutationOwner
         var bmsChanges = new List<BmsSongPathReplacement>();
         var bmsonChanges = new List<BmsonSongPathReplacement>();
         var folderParentHashCache = new Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache();
-        foreach (LibraryChartPathChange change in delta.ChartPathChanges ?? [])
+        foreach (LibraryChartPathChange change in facts.ChartPathChanges)
         {
             BMSFile bmsFile = change?.GetBmsStorageOwner();
             if (bmsFile != null)
@@ -581,25 +581,21 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>
-    /// Applies one generic catalog mutation command. Relocation and removal rows share
-    /// one durable transaction, then the live catalog and owned collection are updated
-    /// under the canonical storage-to-maintenance guards.
+    /// 捕捉済みcatalog factsから一つの汎用catalog変更を適用します。
+    /// 移動と削除の行を一つのdurable transactionで処理した後、
+    /// canonicalなstorageからmaintenanceまでのguard内でlive catalogと所持譜面を更新します。
     /// </summary>
+    /// <param name="facts">immutable catalog relocation/removal facts。</param>
+    /// <param name="onDurableCommit">DB commit完了時に一度だけ呼ぶ通知。</param>
     internal CatalogMutationReceipt ApplyCatalogMutation(
-        LibraryMutationDelta delta,
-        IEnumerable<OwnedChartRemoveRequest> removeRequests,
-        IEnumerable<BMSFile> addedBmsFiles = null,
-        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs = null,
+        LibraryCatalogMutationFacts facts,
         Action onDurableCommit = null)
     {
         CatalogWriteFailureFact failureFact = null;
         try
         {
             return ApplyCatalogMutationUnderGuards(
-                delta,
-                removeRequests,
-                addedBmsFiles,
-                addedBmsonSongs,
+                facts,
                 onDurableCommit,
                 fact => failureFact = fact);
         }
@@ -611,30 +607,23 @@ internal sealed class CatalogMutationOwner
     }
 
     private CatalogMutationReceipt ApplyCatalogMutationUnderGuards(
-        LibraryMutationDelta delta,
-        IEnumerable<OwnedChartRemoveRequest> removeRequests,
-        IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs,
+        LibraryCatalogMutationFacts facts,
         Action onDurableCommit,
         Action<CatalogWriteFailureFact> captureFailureFact)
     {
-        if (delta == null)
+        if (facts == null)
         {
             return CatalogMutationReceipt.NotApplied;
         }
         CatalogRelocationRequest relocationRequest;
         CatalogStorageRowsRemovalRequest removalRequest;
-        IReadOnlyList<BMSFile> addedBmsRows = [.. (addedBmsFiles ?? [])];
-        IReadOnlyList<LR2SongDBExtended.bmson_song> addedBmsonRows = [.. (addedBmsonSongs ?? [])];
         using (storageRowsOwner.WriteGate.GetWriterGuard())
         using (maintenanceWriteGate.GetWriterGuard())
         {
-            relocationRequest = CreateRelocationRequest(delta);
-            removalRequest = CreateStorageRowsRemovalRequest(removeRequests);
+            relocationRequest = CreateRelocationRequest(facts);
+            removalRequest = CreateStorageRowsRemovalRequest(facts.ChartRemoveRequests);
             if (!relocationRequest.HasChanges
-                && !removalRequest.HasChanges
-                && addedBmsRows.Count == 0
-                && addedBmsonRows.Count == 0)
+                && !removalRequest.HasChanges)
             {
                 return CatalogMutationReceipt.NotApplied;
             }
@@ -648,9 +637,7 @@ internal sealed class CatalogMutationOwner
             {
                 dbResult = dbGateway.ReplaceAndRemoveLibraryMutationRows(
                     relocationRequest,
-                    removalRequest,
-                    addedBmsRows,
-                    addedBmsonRows);
+                    removalRequest);
             }
             catch (Exception ex)
             {
@@ -675,17 +662,7 @@ internal sealed class CatalogMutationOwner
             StorageRowsVersionSnapshot storageRowsVersion = storageRowsOwner.ApplyCatalogMutation(
                 relocationRequest,
                 removalRequest,
-                protectedPathFacts,
-                addedBmsRows,
-                addedBmsonRows);
-            IReadOnlyList<CatalogChartMutationFact> addedChartFacts = CatalogChartMutationFact.CreateFacts(
-                ChartFileProjection.FromStorageRows(
-                    addedBmsRows,
-                    addedBmsonRows,
-                    includeWarningSnapshot: false,
-                    requirePath: false,
-                    includeResourceReferences: false,
-                    includeScoreSnapshot: false));
+                protectedPathFacts);
             IReadOnlyList<CatalogRelocationPathFact> pathFacts =
             [
                 .. relocationRequest.BmsPathReplacements.Select(replacement => new CatalogRelocationPathFact(
@@ -703,14 +680,11 @@ internal sealed class CatalogMutationOwner
             ];
             IReadOnlyList<CatalogChartMutationFact> removedChartFacts =
                 CatalogChartMutationFact.CreateRemovalFacts(removalRequest?.RemoveRequests);
-            bool ownedCollectionChanged = addedChartFacts.Count > 0
-                || removedChartFacts.Count > 0
+            bool ownedCollectionChanged = removedChartFacts.Count > 0
                 || pathFacts.Count > 0;
             bool ownedCollectionApplied = ownedCollectionOwner.ApplyMutation(
                 removalRequest?.RemoveRequests,
-                delta.ChartPathChanges,
-                addedBmsRows,
-                addedBmsonRows,
+                facts.ChartPathChanges,
                 storageRowsVersion,
                 out bool bmsonCanonicalOrderNormalized);
             int ownedCollectionVersion = ownedCollectionChanged
@@ -727,7 +701,7 @@ internal sealed class CatalogMutationOwner
                 liveApplyMs,
                 ownedCollectionApplied,
                  ownedCollectionVersion,
-                 addedChartFacts,
+                 [],
                  pathFacts,
                  removalRequest?.RemoveRequests,
                  bmsonCanonicalOrderNormalized);

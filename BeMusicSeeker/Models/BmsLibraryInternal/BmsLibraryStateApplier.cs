@@ -97,19 +97,26 @@ internal sealed partial class PackageLifecycleOwner
             setPendingPackages(remainingPackages);
         }
 
-        public BmsLibraryStateApplyResult ApplyLibraryMutationDelta(
-            LibraryMutationDelta delta,
+        /// <summary>
+        /// catalog commit後のpackage参照factsを適用し、必要なpackage変更結果を返します。
+        /// </summary>
+        /// <param name="facts">install destinationとinstalled package pathの確定facts。</param>
+        /// <param name="committedRemovalFacts">durableにcommitされたcatalog削除facts。</param>
+        /// <param name="protectedPathFacts">削除から保護する移動先path facts。</param>
+        /// <returns>package更新に要した時間を含む適用結果。</returns>
+        public BmsLibraryStateApplyResult ApplyPackageReferenceFacts(
+            LibraryPackageReferenceFacts facts,
             IEnumerable<CatalogChartMutationFact> committedRemovalFacts = null,
             IEnumerable<CatalogRelocationPathFact> protectedPathFacts = null)
         {
             var result = new BmsLibraryStateApplyResult();
-            if (delta == null)
+            if (facts == null)
             {
                 return result;
             }
 
             Stopwatch stopwatch = Stopwatch.StartNew();
-            foreach (LibraryInstallDestinationChange installDestinationChange in delta.UpdatedInstallDestinations)
+            foreach (LibraryInstallDestinationChange installDestinationChange in facts.InstallDestinationChanges)
             {
                 if (installDestinationChange?.Entry != null)
                 {
@@ -124,7 +131,7 @@ internal sealed partial class PackageLifecycleOwner
                 }
             }
 
-            foreach (LibraryInstalledPackagePathChange installedPackagePathChange in delta.UpdatedInstalledPackagePaths)
+            foreach (LibraryInstalledPackagePathChange installedPackagePathChange in facts.InstalledPackagePathChanges)
             {
                 if (installedPackagePathChange?.Package != null)
                 {
@@ -139,7 +146,7 @@ internal sealed partial class PackageLifecycleOwner
                 PruneInstalledPackagesForRemovedCharts(committedRemovalFacts, protectedPathFacts);
             }
 
-            if (delta.RaiseInstalledPackagesChanged)
+            if (facts.InstalledPackagePathChanges.Count > 0)
             {
                 InvokeOnUi(raiseInstalledPackagesChanged);
             }

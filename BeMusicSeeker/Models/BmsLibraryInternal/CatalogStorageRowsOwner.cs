@@ -270,24 +270,17 @@ internal sealed class CatalogStorageRowsOwner
     }
 
     /// <summary>
-    /// DB commit 後に渡された relocation facts、owner remove、path cleanup、追加行を一 command で反映します。
+    /// DB commit 後に渡された relocation facts、owner remove、path cleanupを一 command で反映します。
     /// old path は live owner から再取得せず、relocation request の事実を使います。
     /// </summary>
     /// <param name="relocationRequest">DB commit 済みの old/new path facts。</param>
     /// <param name="removalRequest">owner remove と path cleanup の要求。</param>
     /// <param name="protectedPathFacts">relocation destination として保護する path facts。</param>
-    /// <param name="addedBmsFiles">追加する BMS 行。</param>
-    /// <param name="addedBmsonSongs">追加する BMSON 行。</param>
     internal StorageRowsVersionSnapshot ApplyCatalogMutation(
         CatalogRelocationRequest relocationRequest,
         CatalogStorageRowsRemovalRequest removalRequest,
-        IEnumerable<CatalogRelocationPathFact> protectedPathFacts,
-        IEnumerable<BMSFile> addedBmsFiles = null,
-        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs = null)
+        IEnumerable<CatalogRelocationPathFact> protectedPathFacts)
     {
-        List<BMSFile> addedBmsRows = [.. (addedBmsFiles ?? []).Where(file => file != null)];
-        List<LR2SongDBExtended.bmson_song> addedBmsonRows =
-            [.. (addedBmsonSongs ?? []).Where(song => song != null)];
         using (writeGate.GetWriterGuard())
         {
             lock (versionGate)
@@ -328,46 +321,15 @@ internal sealed class CatalogStorageRowsOwner
                     RemoveBmsonMatches(removedBmsonRows, bmsonPathCleanupKeys);
                     RefreshBmsonView();
                 }
-                if (addedBmsRows.Count > 0)
-                {
-                    RemoveBmsNullEntries();
-                    var addedPaths = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (BMSFile file in addedBmsRows)
-                    {
-                        if (!string.IsNullOrWhiteSpace(file.path))
-                        {
-                            addedPaths.Add(file.path);
-                        }
-                    }
-                    foreach (string path in addedPaths)
-                    {
-                        RemoveBmsEntriesAtPath(path);
-                    }
-                    foreach (BMSFile file in addedBmsRows)
-                    {
-                        AppendBmsEntry(file);
-                    }
-                    RefreshBmsView();
-                }
-                if (addedBmsonRows.Count > 0)
-                {
-                    PrepareBmsonForUpsert();
-                    foreach (LR2SongDBExtended.bmson_song song in addedBmsonRows)
-                    {
-                        UpsertBmsonEntry(song);
-                    }
-                    RefreshBmsonView();
-                }
-
                 bool bmsRowsRelocated = relocationRequest != null
                     && relocationRequest.BmsPathReplacements.Count > 0;
                 bool bmsonRowsRelocated = relocationRequest != null
                     && relocationRequest.BmsonPathReplacements.Count > 0;
-                if (bmsRowsRelocated || bmsRowsRemoved || addedBmsRows.Count > 0)
+                if (bmsRowsRelocated || bmsRowsRemoved)
                 {
                     IncrementBmsRowsVersion();
                 }
-                if (bmsonRowsRelocated || bmsonRowsRemoved || addedBmsonRows.Count > 0)
+                if (bmsonRowsRelocated || bmsonRowsRemoved)
                 {
                     IncrementBmsonRowsVersion();
                 }

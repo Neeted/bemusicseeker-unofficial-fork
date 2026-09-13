@@ -849,7 +849,19 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return !string.IsNullOrWhiteSpace(chart?.Path);
     }
 
-    public LibraryMutationDelta BuildFolderMoveDelta(
+    /// <summary>
+    /// 指定folderの移動結果からcatalogとpackage参照のfactsを捕捉します。
+    /// </summary>
+    /// <param name="srcDir">移動元folder。</param>
+    /// <param name="dstDir">移動先folder。</param>
+    /// <param name="sourceCharts">移動元配下のchart参照。</param>
+    /// <param name="installDestinationOverlayCharts">現在のinstall destination overlay。</param>
+    /// <param name="pendingPackages">pending package参照。</param>
+    /// <param name="installedPackages">installed package参照。</param>
+    /// <param name="unregister">移動ではなくcatalogから登録解除するかどうか。</param>
+    /// <param name="notifyStorageRowPathChanges">storage row path通知を要求するかどうか。</param>
+    /// <returns>catalog facts、package参照facts、通知方針。</returns>
+    public LibraryFolderMoveFacts BuildFolderMoveFacts(
         string srcDir,
         string dstDir,
         IEnumerable<LibraryChartRef> sourceCharts,
@@ -859,24 +871,31 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         bool unregister,
         bool notifyStorageRowPathChanges = true)
     {
-        var delta = new LibraryMutationDelta();
+        var removeRequests = new List<OwnedChartRemoveRequest>();
+        var chartPathChanges = new List<LibraryChartPathChange>();
+        var folderPathChanges = new List<LibraryFolderPathChange>();
+        var installDestinationChanges = new List<LibraryInstallDestinationChange>();
+        var installedPackagePathChanges = new List<LibraryInstalledPackagePathChange>();
         List<LibraryChartRef> targetCharts = [.. (sourceCharts ?? [])
             .Where(chart => IsChartUnderFolder(chart, srcDir))];
         if (unregister)
         {
-            delta.ChartRemoveRequests.AddRange(targetCharts
+            removeRequests.AddRange(targetCharts
                 .Select(ToChartFile)
                 .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
                 .Where(request => request != null));
-            return delta;
+            return new LibraryFolderMoveFacts(
+                new LibraryCatalogMutationFacts(removeRequests, [], []),
+                LibraryPackageReferenceFacts.Empty,
+                LibraryStorageRowPathNotificationPolicy.Suppressed);
         }
-        delta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir));
+        installDestinationChanges.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir));
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
                 && (installedPackage.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             {
-                delta.UpdatedInstalledPackagePaths.Add(new LibraryInstalledPackagePathChange
+                installedPackagePathChanges.Add(new LibraryInstalledPackagePathChange
                 {
                     Package = installedPackage,
                     NewPath = installedPackage.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
@@ -888,14 +907,14 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             .GroupBy(target => Path.GetDirectoryName(target.Path)))
         {
             string newFolderPath = group.Key.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-            delta.FolderPathChanges.Add(new LibraryFolderPathChange
+            folderPathChanges.Add(new LibraryFolderPathChange
             {
                 NewFolderPath = newFolderPath,
                 OldFolderPath = group.Key
             });
             foreach (LibraryChartRef chart in group)
             {
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                chartPathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = ToChartFile(chart),
                     OldPath = chart.Path,
@@ -905,16 +924,19 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         foreach (LibraryChartRef chart in targetCharts.Where(chart => chart.GetBmsonStorageOwner() != null))
         {
-            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            chartPathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ToChartFile(chart),
                 OldPath = chart.Path,
                 NewPath = chart.Path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
             });
         }
-        delta.NotifyStorageRowPathChanges = notifyStorageRowPathChanges && delta.ChartPathChanges.Count > 0;
-        delta.RaiseInstalledPackagesChanged = delta.UpdatedInstalledPackagePaths.Count > 0;
-        return delta;
+        return new LibraryFolderMoveFacts(
+            new LibraryCatalogMutationFacts(removeRequests, chartPathChanges, folderPathChanges),
+            new LibraryPackageReferenceFacts(installDestinationChanges, installedPackagePathChanges),
+            notifyStorageRowPathChanges && chartPathChanges.Count > 0
+                ? LibraryStorageRowPathNotificationPolicy.Notify
+                : LibraryStorageRowPathNotificationPolicy.Suppressed);
     }
 
     public List<FolderAutoRenamePlan> BuildAutoRenamePlans(
@@ -1180,20 +1202,24 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         result.Repackage.path = srcDir;
         result.Repackage.delete_parent = false;
         result.ExistingHashes = createHashSnapshotExcluding?.Invoke(sourceEntries.Select(entry => entry.Chart).Where(chart => chart != null)) ?? EmptyPrimaryHashLookup.Instance;
-        result.ReferenceMutationDelta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir));
+        var installDestinationChanges = new List<LibraryInstallDestinationChange>(
+            EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir));
+        var installedPackagePathChanges = new List<LibraryInstalledPackagePathChange>();
         foreach (ChartPackage installedPackage in installedPackages ?? [])
         {
             if (!string.IsNullOrWhiteSpace(installedPackage?.path)
                 && (installedPackage.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             {
-                result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Add(new LibraryInstalledPackagePathChange
+                installedPackagePathChanges.Add(new LibraryInstalledPackagePathChange
                 {
                     Package = installedPackage,
                     NewPath = installedPackage.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
                 });
             }
         }
-        result.ReferenceMutationDelta.RaiseInstalledPackagesChanged = result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
+        result.ReferenceFacts = new LibraryPackageReferenceFacts(
+            installDestinationChanges,
+            installedPackagePathChanges);
         result.Success = result.SourceCharts.Count > 0;
         return result;
     }
@@ -1361,13 +1387,26 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             && chart.Path.StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
-    public LibraryMutationDelta RenameLibraryFileExtensions(
+    /// <summary>
+    /// legacy extension renameの実行結果を、catalog factsと操作reportへ分離して返します。
+    /// </summary>
+    /// <param name="charts">対象chart snapshot。</param>
+    /// <param name="newExt">変更後の拡張子。</param>
+    /// <param name="unregister">成功した対象をcatalogから登録解除するかどうか。</param>
+    /// <param name="processRename">filesystem rename executor。</param>
+    /// <returns>確定catalog factsと失敗・件数・時間の操作report。</returns>
+    public LibraryFileExtensionRenameResult RenameLibraryFileExtensions(
         IEnumerable<ChartFile> charts,
         string newExt,
         bool unregister,
         Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename)
     {
-        var delta = new LibraryMutationDelta();
+        var removeRequests = new List<OwnedChartRemoveRequest>();
+        var pathChanges = new List<LibraryChartPathChange>();
+        var failures = new List<LibraryDeleteFailure>();
+        int renamedCount = 0;
+        int duplicateDeletedCount = 0;
+        int skippedCount = 0;
         var stopwatch = Stopwatch.StartNew();
         foreach (BMSFile file in (charts ?? [])
             .Select(chart => chart?.GetBmsStorageOwner())
@@ -1378,14 +1417,14 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             switch (renameResult.Action)
             {
                 case RenameInvalidExtensionAction.Renamed:
-                    delta.RenamedCount++;
+                    renamedCount++;
                     if (unregister)
                     {
-                        delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+                        removeRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
                     }
                     else
                     {
-                        delta.ChartPathChanges.Add(new LibraryChartPathChange
+                        pathChanges.Add(new LibraryChartPathChange
                         {
                             Chart = ChartFileProjection.FromBmsFile(
                                 file,
@@ -1394,18 +1433,17 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                             OldPath = file.path,
                             NewPath = renameResult.FinalPath
                         });
-                        delta.NotifyStorageRowPathChanges = true;
                     }
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
-                    delta.DuplicateDeletedCount++;
-                    delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+                    duplicateDeletedCount++;
+                    removeRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
                     break;
                 default:
-                    delta.SkippedCount++;
+                    skippedCount++;
                     if (renameResult.FailureException != null)
                     {
-                        delta.Failures.Add(new LibraryDeleteFailure
+                        failures.Add(new LibraryDeleteFailure
                         {
                             Path = file.path,
                             Exception = renameResult.FailureException,
@@ -1416,8 +1454,14 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         stopwatch.Stop();
-        delta.TotalMs = stopwatch.ElapsedMilliseconds;
-        return delta;
+        LibraryCatalogMutationFacts catalogFacts = new(removeRequests, pathChanges, []);
+        LibraryFileExtensionRenameReport report = new(
+            failures,
+            renamedCount,
+            duplicateDeletedCount,
+            skippedCount,
+            stopwatch.ElapsedMilliseconds);
+        return new LibraryFileExtensionRenameResult(catalogFacts, report);
     }
 
     public RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions, Action<string> logInfo = null, Action<Exception, string> logWarn = null)

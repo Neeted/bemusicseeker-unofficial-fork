@@ -157,7 +157,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void MoveFolderAndUpdateReferences_RewritesDirectoryIndexAndBuildFolderMoveDeltaTracksReferences()
+    public void MoveFolderAndUpdateReferences_RewritesDirectoryIndexAndBuildFolderMoveFactsTracksReferences()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -201,7 +201,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             resourceIndexOwner.MoveFolderReferences(sourceRoot, destinationRoot);
             DirectoryResourceLookupCache priorLookupCache = lookupCache;
             lookupCache = resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
-            LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+            LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
                 sourceRoot,
                 destinationRoot,
                 [LibraryChartRef.FromBmsFile(libraryFile)],
@@ -222,16 +222,16 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsNotNull(priorLookupCache.GetEntryOrNull(sourceRoot));
             Assert.IsNotNull(priorLookupCache.GetEntryOrNull(nestedDirectoryPath));
             Assert.IsNull(priorLookupCache.GetEntryOrNull(destinationRoot));
-            Assert.AreEqual(2, delta.UpdatedInstallDestinations.Count);
-            Assert.AreEqual(1, delta.UpdatedInstalledPackagePaths.Count);
+            Assert.AreEqual(2, facts.PackageReferenceFacts.InstallDestinationChanges.Count);
+            Assert.AreEqual(1, facts.PackageReferenceFacts.InstalledPackagePathChanges.Count);
             CollectionAssert.AreEquivalent(
                 new[] { Path.Combine(destinationRoot, "Nested"), destinationRoot },
-                delta.UpdatedInstallDestinations.Select(change => change.NewInstallDestination).ToArray());
-            LibraryInstallDestinationChange libraryDestinationChange = delta.UpdatedInstallDestinations.Single(change => ReferenceEquals(change.GetBmsStorageOwner(), libraryFile));
-            ChartFile appliedLibraryChart = libraryDestinationChange.CreateAppliedChartSnapshot(delta.ChartPathChanges);
+                facts.PackageReferenceFacts.InstallDestinationChanges.Select(change => change.NewInstallDestination).ToArray());
+            LibraryInstallDestinationChange libraryDestinationChange = facts.PackageReferenceFacts.InstallDestinationChanges.Single(change => ReferenceEquals(change.GetBmsStorageOwner(), libraryFile));
+            ChartFile appliedLibraryChart = libraryDestinationChange.CreateAppliedChartSnapshot(facts.CatalogFacts.ChartPathChanges);
             Assert.AreEqual(Path.Combine(destinationRoot, "Nested", "chart.bms"), appliedLibraryChart.Path);
             Assert.AreEqual(destinationRoot, appliedLibraryChart.InstallDestination);
-            Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), delta.UpdatedInstalledPackagePaths[0].NewPath);
+            Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), facts.PackageReferenceFacts.InstalledPackagePathChanges[0].NewPath);
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         });
     }
@@ -334,7 +334,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void BuildFolderMoveDelta_UsesChartSnapshotInstallDestinationForBmsonLibraryRef()
+    public void BuildFolderMoveFacts_UsesChartSnapshotInstallDestinationForBmsonLibraryRef()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -359,7 +359,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 "Install artist",
                 []);
 
-            LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+            LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
                 sourceRoot,
                 destinationRoot,
                 [],
@@ -369,12 +369,12 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 unregister: false,
                 notifyStorageRowPathChanges: false);
 
-            LibraryInstallDestinationChange change = delta.UpdatedInstallDestinations.Single();
+            LibraryInstallDestinationChange change = facts.PackageReferenceFacts.InstallDestinationChanges.Single();
             Assert.IsNull(change.GetBmsStorageOwner());
             Assert.AreSame(bmsonSong, change.Chart.GetBmsonStorageOwner());
             Assert.AreEqual(sourceRoot, change.GetCurrentInstallDestination());
             Assert.AreEqual(destinationRoot, change.NewInstallDestination);
-            ChartFile appliedChart = change.CreateAppliedChartSnapshot(delta.ChartPathChanges);
+            ChartFile appliedChart = change.CreateAppliedChartSnapshot(facts.CatalogFacts.ChartPathChanges);
             Assert.AreSame(bmsonSong, appliedChart.GetBmsonStorageOwner());
             Assert.AreEqual(destinationRoot, appliedChart.InstallDestination);
         });
@@ -401,7 +401,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void BuildFolderMoveDelta_RewritesInstallDestinationWithTrailingSourceSeparator()
+    public void BuildFolderMoveFacts_RewritesInstallDestinationWithTrailingSourceSeparator()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile libraryFile = CreateFile("C:\\Charts\\library.bms");
@@ -409,7 +409,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         var pendingEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Install\\Source");
         var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
 
-        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+        LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
             "C:\\Install\\Source\\",
             "D:\\Install\\Destination\\",
             [],
@@ -419,8 +419,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             unregister: false,
             notifyStorageRowPathChanges: false);
 
-        LibraryInstallDestinationChange pendingChange = delta.UpdatedInstallDestinations.Single(change => ReferenceEquals(change.Entry, pendingEntry));
-        LibraryInstallDestinationChange libraryChange = delta.UpdatedInstallDestinations.Single(change => ReferenceEquals(change.GetBmsStorageOwner(), libraryFile));
+        LibraryInstallDestinationChange pendingChange = facts.PackageReferenceFacts.InstallDestinationChanges.Single(change => ReferenceEquals(change.Entry, pendingEntry));
+        LibraryInstallDestinationChange libraryChange = facts.PackageReferenceFacts.InstallDestinationChanges.Single(change => ReferenceEquals(change.GetBmsStorageOwner(), libraryFile));
         Assert.AreEqual("D:\\Install\\Destination", pendingChange.NewInstallDestination);
         Assert.AreEqual("D:\\Install\\Destination\\Child", libraryChange.NewInstallDestination);
     }
@@ -440,7 +440,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             var pendingEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, sourceRoot);
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
 
-            LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+            LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
                 sourceRoot,
                 destinationRoot,
                 [LibraryChartRef.FromBmsFile(libraryFile)],
@@ -450,8 +450,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 unregister: false,
                 notifyStorageRowPathChanges: false);
 
-            LibraryInstallDestinationChange pendingChange = delta.UpdatedInstallDestinations.Single(change => ReferenceEquals(change.Entry, pendingEntry));
-            ChartFile pendingSnapshot = pendingChange.CreateAppliedChartSnapshot(delta.ChartPathChanges);
+            LibraryInstallDestinationChange pendingChange = facts.PackageReferenceFacts.InstallDestinationChanges.Single(change => ReferenceEquals(change.Entry, pendingEntry));
+            ChartFile pendingSnapshot = pendingChange.CreateAppliedChartSnapshot(facts.CatalogFacts.ChartPathChanges);
             Assert.AreEqual(collidingPath, pendingSnapshot.Path);
             Assert.AreEqual(destinationRoot, pendingSnapshot.InstallDestination);
         });
@@ -546,13 +546,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void BuildFolderMoveDelta_CanSuppressStorageRowPathNotificationForRename()
+    public void BuildFolderMoveFacts_CanSuppressStorageRowPathNotificationForRename()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile file1 = CreateFile("C:\\Lib\\Src\\A\\a.bms");
         TestableBmsFile file2 = CreateFile("C:\\Lib\\Src\\B\\b.bms");
 
-        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+        LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([file1, file2]),
@@ -562,22 +562,22 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             unregister: false,
             notifyStorageRowPathChanges: false);
 
-        Assert.AreEqual(2, delta.FolderPathChanges.Count);
-        Assert.AreEqual(2, delta.ChartPathChanges.Count);
-        Assert.AreEqual(0, delta.ChartRemoveRequests.Count);
+        Assert.AreEqual(2, facts.CatalogFacts.FolderPathChanges.Count);
+        Assert.AreEqual(2, facts.CatalogFacts.ChartPathChanges.Count);
+        Assert.AreEqual(0, facts.CatalogFacts.ChartRemoveRequests.Count);
         CollectionAssert.AreEquivalent(
             new[] { "C:\\Lib\\Dst\\A\\a.bms", "C:\\Lib\\Dst\\B\\b.bms" },
-            delta.ChartPathChanges.Select(change => change.NewPath).ToArray());
-        Assert.IsFalse(delta.NotifyStorageRowPathChanges);
+            facts.CatalogFacts.ChartPathChanges.Select(change => change.NewPath).ToArray());
+        Assert.AreEqual(LibraryStorageRowPathNotificationPolicy.Suppressed, facts.StorageRowPathNotificationPolicy);
     }
 
     [TestMethod]
-    public void BuildFolderMoveDelta_RequestsStorageRowPathNotificationForRootMove()
+    public void BuildFolderMoveFacts_RequestsStorageRowPathNotificationForRootMove()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile file = CreateFile("C:\\Lib\\Src\\A\\a.bms");
 
-        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+        LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([file]),
@@ -587,8 +587,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             unregister: false,
             notifyStorageRowPathChanges: true);
 
-        Assert.IsTrue(delta.NotifyStorageRowPathChanges);
-        LibraryChartPathChange pathChange = delta.ChartPathChanges.Single();
+        Assert.AreEqual(LibraryStorageRowPathNotificationPolicy.Notify, facts.StorageRowPathNotificationPolicy);
+        LibraryChartPathChange pathChange = facts.CatalogFacts.ChartPathChanges.Single();
         Assert.AreEqual("C:\\Lib\\Src\\A\\a.bms", pathChange.OldPath);
         Assert.AreEqual("C:\\Lib\\Dst\\A\\a.bms", pathChange.NewPath);
     }
@@ -787,7 +787,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void BuildFolderMoveDelta_TracksBmsonChartPathChanges()
+    public void BuildFolderMoveFacts_TracksBmsonChartPathChanges()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
         var bmsonSong = new LR2SongDBExtended.bmson_song
@@ -796,7 +796,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             folder = "C:\\Lib\\Src\\Pkg"
         };
 
-        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+        LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([], [bmsonSong]),
@@ -806,15 +806,15 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             unregister: false,
             notifyStorageRowPathChanges: false);
 
-        Assert.AreEqual(1, delta.ChartPathChanges.Count);
-        Assert.AreSame(bmsonSong, delta.ChartPathChanges[0].GetBmsonStorageOwner());
-        Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bmson", delta.ChartPathChanges[0].OldPath);
-        Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", delta.ChartPathChanges[0].NewPath);
-        Assert.IsFalse(delta.NotifyStorageRowPathChanges);
+        Assert.AreEqual(1, facts.CatalogFacts.ChartPathChanges.Count);
+        Assert.AreSame(bmsonSong, facts.CatalogFacts.ChartPathChanges[0].GetBmsonStorageOwner());
+        Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bmson", facts.CatalogFacts.ChartPathChanges[0].OldPath);
+        Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", facts.CatalogFacts.ChartPathChanges[0].NewPath);
+        Assert.AreEqual(LibraryStorageRowPathNotificationPolicy.Suppressed, facts.StorageRowPathNotificationPolicy);
     }
 
     [TestMethod]
-    public void BuildFolderMoveDelta_BmsonRootMove_RequestsStorageRowPathNotification()
+    public void BuildFolderMoveFacts_BmsonRootMove_RequestsStorageRowPathNotification()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
         var bmsonSong = new LR2SongDBExtended.bmson_song
@@ -823,7 +823,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             folder = "C:\\Lib\\Src\\Pkg"
         };
 
-        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+        LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([], [bmsonSong]),
@@ -833,9 +833,9 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             unregister: false,
             notifyStorageRowPathChanges: true);
 
-        Assert.IsTrue(delta.NotifyStorageRowPathChanges);
-        Assert.AreEqual(1, delta.ChartPathChanges.Count);
-        Assert.AreSame(bmsonSong, delta.ChartPathChanges[0].GetBmsonStorageOwner());
+        Assert.AreEqual(LibraryStorageRowPathNotificationPolicy.Notify, facts.StorageRowPathNotificationPolicy);
+        Assert.AreEqual(1, facts.CatalogFacts.ChartPathChanges.Count);
+        Assert.AreSame(bmsonSong, facts.CatalogFacts.ChartPathChanges[0].GetBmsonStorageOwner());
     }
 
     [TestMethod]
@@ -873,10 +873,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 _ => new PrimaryHashSetLookup());
 
             Assert.IsTrue(result.Success);
-            Assert.AreEqual(2, result.ReferenceMutationDelta.UpdatedInstallDestinations.Count);
+            Assert.AreEqual(2, result.ReferenceFacts.InstallDestinationChanges.Count);
             CollectionAssert.AreEquivalent(
                 new[] { destinationRoot, destinationRoot },
-                result.ReferenceMutationDelta.UpdatedInstallDestinations.Select(change => change.NewInstallDestination).ToArray());
+                result.ReferenceFacts.InstallDestinationChanges.Select(change => change.NewInstallDestination).ToArray());
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
         });
     }
@@ -914,7 +914,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 _ => new PrimaryHashSetLookup());
 
             Assert.IsTrue(result.Success);
-            LibraryInstallDestinationChange change = result.ReferenceMutationDelta.UpdatedInstallDestinations.Single();
+            LibraryInstallDestinationChange change = result.ReferenceFacts.InstallDestinationChanges.Single();
             Assert.AreSame(adapterlessBmsonEntry, change.Entry);
             Assert.AreEqual(destinationRoot, change.NewInstallDestination);
             Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
@@ -1001,7 +1001,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void BuildFolderMoveDelta_MixedBmsAndBmsonTracksBothStorageModels()
+    public void BuildFolderMoveFacts_MixedBmsAndBmsonTracksBothStorageModels()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile bmsFile = CreateFile("C:\\Lib\\Src\\Pkg\\chart.bms");
@@ -1011,7 +1011,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             folder = "C:\\Lib\\Src\\Pkg"
         };
 
-        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+        LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([bmsFile], [bmsonSong]),
@@ -1021,18 +1021,18 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             unregister: false,
             notifyStorageRowPathChanges: true);
 
-        Assert.AreEqual(2, delta.ChartPathChanges.Count);
-        LibraryChartPathChange bmsPathChange = delta.ChartPathChanges.Single(change => change.GetBmsStorageOwner() == bmsFile);
+        Assert.AreEqual(2, facts.CatalogFacts.ChartPathChanges.Count);
+        LibraryChartPathChange bmsPathChange = facts.CatalogFacts.ChartPathChanges.Single(change => change.GetBmsStorageOwner() == bmsFile);
         Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bms", bmsPathChange.OldPath);
         Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bms", bmsPathChange.NewPath);
-        LibraryChartPathChange bmsonPathChange = delta.ChartPathChanges.Single(change => change.GetBmsonStorageOwner() == bmsonSong);
+        LibraryChartPathChange bmsonPathChange = facts.CatalogFacts.ChartPathChanges.Single(change => change.GetBmsonStorageOwner() == bmsonSong);
         Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bmson", bmsonPathChange.OldPath);
         Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", bmsonPathChange.NewPath);
-        Assert.IsTrue(delta.NotifyStorageRowPathChanges);
+        Assert.AreEqual(LibraryStorageRowPathNotificationPolicy.Notify, facts.StorageRowPathNotificationPolicy);
     }
 
     [TestMethod]
-    public void BuildFolderMoveDelta_UnregisterTracksBmsonSongsSeparately()
+    public void BuildFolderMoveFacts_UnregisterTracksBmsonSongsSeparately()
     {
         var service = new BmsLibraryLibraryFileOperationsService();
         var bmsonSong = new LR2SongDBExtended.bmson_song
@@ -1042,7 +1042,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         };
         TestableBmsFile bmsFile = CreateFile("C:\\Lib\\Src\\Pkg\\chart.bms");
 
-        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+        LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             CreateLibraryChartRefs([bmsFile], [bmsonSong]),
@@ -1051,10 +1051,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             [],
             unregister: true);
 
-        Assert.AreEqual(2, delta.ChartRemoveRequests.Count);
-        Assert.AreSame(bmsFile, delta.ChartRemoveRequests.Single(request => request.BmsOwner == bmsFile).BmsOwner);
-        Assert.AreSame(bmsonSong, delta.ChartRemoveRequests.Single(request => request.BmsonOwner == bmsonSong).BmsonOwner);
-        Assert.AreEqual(0, delta.ChartPathChanges.Count);
+        Assert.AreEqual(2, facts.CatalogFacts.ChartRemoveRequests.Count);
+        Assert.AreSame(bmsFile, facts.CatalogFacts.ChartRemoveRequests.Single(request => request.BmsOwner == bmsFile).BmsOwner);
+        Assert.AreSame(bmsonSong, facts.CatalogFacts.ChartRemoveRequests.Single(request => request.BmsonOwner == bmsonSong).BmsonOwner);
+        Assert.AreEqual(0, facts.CatalogFacts.ChartPathChanges.Count);
     }
 
     [TestMethod]
@@ -1082,7 +1082,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             };
             int callbackCount = 0;
 
-            LibraryMutationDelta delta = service.RenameLibraryFileExtensions(
+            LibraryFileExtensionRenameResult result = service.RenameLibraryFileExtensions(
                 [
                     ChartFileProjection.FromBmsFile(renameFile),
                     ChartFileProjection.FromBmsFile(duplicateFile),
@@ -1097,15 +1097,15 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 });
 
             Assert.AreEqual(2, callbackCount);
-            Assert.AreEqual(1, delta.RenamedCount);
-            Assert.AreEqual(1, delta.DuplicateDeletedCount);
-            Assert.AreEqual(0, delta.SkippedCount);
-            Assert.AreEqual(1, delta.ChartPathChanges.Count);
-            Assert.AreEqual(1, delta.ChartRemoveRequests.Count);
-            Assert.AreEqual(renameSourcePath, delta.ChartPathChanges[0].OldPath);
-            Assert.AreEqual(Path.Combine(tempDirectoryPath, "rename_me.bme"), delta.ChartPathChanges[0].NewPath);
-            Assert.AreSame(renameFile, delta.ChartPathChanges[0].GetBmsStorageOwner());
-            Assert.AreSame(duplicateFile, delta.ChartRemoveRequests[0].BmsOwner);
+            Assert.AreEqual(1, result.Report.RenamedCount);
+            Assert.AreEqual(1, result.Report.DuplicateDeletedCount);
+            Assert.AreEqual(0, result.Report.SkippedCount);
+            Assert.AreEqual(1, result.CatalogFacts.ChartPathChanges.Count);
+            Assert.AreEqual(1, result.CatalogFacts.ChartRemoveRequests.Count);
+            Assert.AreEqual(renameSourcePath, result.CatalogFacts.ChartPathChanges[0].OldPath);
+            Assert.AreEqual(Path.Combine(tempDirectoryPath, "rename_me.bme"), result.CatalogFacts.ChartPathChanges[0].NewPath);
+            Assert.AreSame(renameFile, result.CatalogFacts.ChartPathChanges[0].GetBmsStorageOwner());
+            Assert.AreSame(duplicateFile, result.CatalogFacts.ChartRemoveRequests[0].BmsOwner);
             Assert.IsTrue(File.Exists(Path.Combine(tempDirectoryPath, "rename_me.bme")));
             Assert.IsFalse(File.Exists(renameSourcePath));
             Assert.IsFalse(File.Exists(duplicateSourcePath));

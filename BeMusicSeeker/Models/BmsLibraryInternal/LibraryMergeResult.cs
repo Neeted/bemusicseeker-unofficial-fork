@@ -12,5 +12,6 @@ internal sealed class LibraryMergeResult
 
     public IPrimaryHashLookup ExistingHashes { get; set; } = EmptyPrimaryHashLookup.Instance;
 
-    public LibraryMutationDelta ReferenceMutationDelta { get; } = new LibraryMutationDelta();
+    /// <summary>mergeとともに移動するpackageとinstall stateの参照。</summary>
+    public LibraryPackageReferenceFacts ReferenceFacts { get; internal set; } = LibraryPackageReferenceFacts.Empty;
 }

@@ -20,21 +20,22 @@ internal static class InvalidExtensionRenameCoordinator
         {
             host.RunWithNormalInvalidExtensionRenameWriteLocks(mutationCapability =>
             {
-                LibraryMutationDelta delta = host.RenameLibraryFileExtensionsAfterAdmission(
+                LibraryFileExtensionRenameResult result = host.RenameLibraryFileExtensionsAfterAdmission(
                     targetCharts,
                     preflightTargets,
                     newExt,
                     unregister == true);
-                foreach (LibraryDeleteFailure failure in delta.Failures)
+                foreach (LibraryDeleteFailure failure in result.Report.Failures)
                 {
                     postLeaseNotifications.Add(() => host.ShowNormalRenameFailure(failure, newExt));
                 }
-                host.ApplyLibraryMutationDeltaUnderExistingReservation(
-                    delta,
+                host.ApplyLibraryMutationFactsUnderExistingReservation(
+                    result.CatalogFacts,
+                    LibraryPackageReferenceFacts.Empty,
                     "invalid_ext_rename",
                     mutationCapability,
                     postLeaseNotifications);
-                postLeaseNotifications.Add(() => host.LogInfo("invalid_ext_rename summary scope=normal total=" + targetCharts.Count + " renamed=" + delta.RenamedCount + " deleted=" + delta.DuplicateDeletedCount + " skipped=" + delta.SkippedCount));
+                postLeaseNotifications.Add(() => host.LogInfo("invalid_ext_rename summary scope=normal total=" + targetCharts.Count + " renamed=" + result.Report.RenamedCount + " deleted=" + result.Report.DuplicateDeletedCount + " skipped=" + result.Report.SkippedCount));
             });
         }
         finally

@@ -26,6 +26,8 @@ workflow側の責務は次のとおりである。
 
 ### 現行のモデル側の責務
 
+file操作の確定内容は `LibraryCatalogMutationFacts`（削除・譜面/フォルダ移動）と `LibraryPackageReferenceFacts`（導入先・package参照）へ分け、入力列を構築時にコピーする。failure・件数・timingは操作別reportへ分離し、索引の要否判断には使わない。folder移動の既存row-path公開方針は明示的なpolicyで保持する。汎用Deltaと任意追加のroot入口は退役し、追加行は実install targetまたはscan replacementからのみ流す。
+
 `Lr2SynchronizationOwner` が共有の変更leaseを発行し、`LibraryFileOperationSynchronization` とcatalog依存の受付が、操作ごとのscopeとpath収束条件を接続する。`LibraryFileOperationOwner` は削除・移動・マージ等の手順を、`CatalogMutationOwner` はcatalogの保存・正本更新を管理する。導入、chart-info、maintenance、走査結果はそれぞれの既存producerからwriterへ到達する。
 
 変更後のconsumer索引・通知の組立ては `BMSLibrary` にも残る。共通のwriter / dispatchがあることは、すべての操作で同じ変更事実が届き、同じ更新方針になることを意味しない。現状の操作対応と未実装の再編案は [変更要求統合計画](../plan/library-mutation-unification-plan.md) で区別して記録する。追加ZIP予約やbackground処理等の受付例外は [並行性仕様 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外) を維持し、UIの操作中表示だけで一律に拒否しない。
@@ -158,7 +160,7 @@ FS+DB folder terminal reporting (`FSDB-A-20260905`, A01–A07) は以下で検�
 
 `BmsLibraryStateApplierTests` の26 caseは、owner境界と `remaining-bms-library` の `ClassLevel` 実行単位を一致させるため、次の3 fixtureへ分けて維持する。
 
-- `BmsLibraryStateApplierTests`: library initialization progress と `ApplyLibraryMutationDelta(...)` の13 case。
+- `BmsLibraryStateApplierTests`: library initialization progress と `ApplyPackageReferenceFacts(...)` の13 case。
 - `BmsLibraryPackageLifecycleTests`: pending package collection publication と durable pending-package delta の7 case。
 - `BmsLibraryCatalogRelocationTests`: catalog relocation の storage-row、path、LR2 compatibility の6 case。
 

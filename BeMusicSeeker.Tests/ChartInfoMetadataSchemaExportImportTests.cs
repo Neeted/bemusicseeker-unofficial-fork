@@ -781,13 +781,15 @@ createTempDirectory);
                 OwnedChartCollectionState.FromStorageRows([file], []),
                 initialRows.BmsRowsVersion,
                 initialRows.BmsonRowsVersion));
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+            var catalogFacts = new LibraryCatalogMutationFacts(
+                [OwnedChartRemoveRequest.FromOwnerReference(file)],
+                [],
+                []);
             CatalogMutationReceipt receipt = new CatalogMutationOwner(
                 storageRowsOwner,
                 ownedCollectionOwner,
                 new BmsLibraryDbGateway(songDbPath))
-                .ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+                .ApplyCatalogMutation(catalogFacts);
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(file.hash, receipt.RemovedCharts.Single(fact => fact.Kind == ChartFileKind.Bms).Md5);
 

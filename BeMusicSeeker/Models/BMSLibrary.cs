@@ -2900,7 +2900,7 @@ public partial class BMSLibrary : ObservableObject
             (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message),
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions,
-            ApplyLibraryMutationDeltaForFileMutationUnderExistingLease);
+            ApplyLibraryMutationFactsForFileMutationUnderExistingLease);
         dbGateway.EnsureLibraryStartupSchema();
         listenerForRwlockBMSFilesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedMin);
@@ -8919,65 +8919,6 @@ public partial class BMSLibrary : ObservableObject
             + " duplicatePathBmson=" + filterSummary.DuplicatePathBmsonCount);
     }
 
-    internal void ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets, string lookupReason)
-    {
-        if (addedTargets == null)
-        {
-            return;
-        }
-
-        LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            "ApplyInstalledChartStorageTargets",
-            showMessage: false);
-        if (mutationReservation == null)
-        {
-            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
-        }
-        InstalledChartStorageTargetsApplyReceipt receipt = null;
-        Exception primaryFailure = null;
-        try
-        {
-            try
-            {
-                using LibraryFileMutationCapability mutationCapability = mutationReservation.CreateMutationCapability();
-                mutationCapability.Validate(lr2SynchronizationOwner);
-                receipt = ApplyInstalledChartStorageTargetsForDeferredDispatch(
-                    addedTargets,
-                    lookupReason ?? "install_package",
-                    mutationCapability);
-                CompleteInstalledChartStorageTargetsUnderExistingReservation(
-                    receipt,
-                    mutationCapability);
-            }
-            catch (Exception exception)
-            {
-                primaryFailure = exception;
-            }
-        }
-        finally
-        {
-            mutationReservation.Dispose();
-        }
-
-        try
-        {
-            PublishInstalledChartStorageTargetsAfterGuard(receipt);
-        }
-        catch (Exception exception)
-        {
-            // Public notification is best effort.  Keep this guard for an
-            // unexpected failure in the notification owner itself, but never
-            // let it replace the primary durable mutation result.
-            NLogWrapper.FileLogger?.Warn(
-                exception,
-                "installed_chart_storage_target_publication_guard_failed");
-        }
-        if (primaryFailure != null)
-        {
-            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
-        }
-    }
-
     private InstalledChartStorageTargetsApplyReceipt ApplyInstalledChartStorageTargetsForDeferredDispatch(
         ChartStorageTargetSet addedTargets,
         string lookupReason,
@@ -9341,68 +9282,74 @@ public partial class BMSLibrary : ObservableObject
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMutationResult(
-        LibraryMutationDelta delta,
+        LibraryCatalogMutationFacts catalogFacts,
+        LibraryPackageReferenceFacts packageReferenceFacts,
+        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy = LibraryStorageRowPathNotificationPolicy.Notify,
         int? deltaBaseResourceHealthInputVersion = null,
         int? deltaTargetResourceHealthInputVersion = null,
         bool? resourceHealthIndexCurrentAtBase = null)
     {
-        OwnedChartCollectionStorageMutation storageMutation = BuildOwnedChartCollectionStorageMutation(delta);
+        OwnedChartCollectionStorageMutation storageMutation = BuildOwnedChartCollectionStorageMutation(catalogFacts);
         var result = CreateOwnedChartCollectionMutationResult(
             storageMutation,
-            BuildInstalledChartLookupMutation(storageMutation, delta?.FolderPathChanges),
+            BuildInstalledChartLookupMutation(storageMutation, catalogFacts?.FolderPathChanges),
             deltaBaseResourceHealthInputVersion,
             deltaTargetResourceHealthInputVersion,
             resourceHealthIndexCurrentAtBase);
-        ApplyNormalMutationFacts(result, delta);
+        ApplyNormalMutationFacts(result, catalogFacts, packageReferenceFacts, storageRowPathNotificationPolicy);
         result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
-        result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(installDestinationStateOwner.CreateChangedChartSnapshots(delta, storageMutation.PathChanges));
+        result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(
+            installDestinationStateOwner.CreateChangedChartSnapshots(
+                packageReferenceFacts?.InstallDestinationChanges,
+                storageMutation.PathChanges));
         return result;
     }
 
     /// <summary>
-    /// 通常のdeltaにだけ含まれるfolder、install overlay、package pathの事実を、
+    /// 通常のcatalog factsにだけ含まれるfolder、install overlay、package pathの事実を、
     /// storage mutationから導出した共通結果へ補足します。
     /// </summary>
     private static void ApplyNormalMutationFacts(
         OwnedChartCollectionMutationResult result,
-        LibraryMutationDelta delta)
+        LibraryCatalogMutationFacts catalogFacts,
+        LibraryPackageReferenceFacts packageReferenceFacts,
+        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy)
     {
-        if (result == null || delta == null)
+        if (result == null)
         {
             return;
         }
 
-        bool hasInstallDestinationChanges = delta.UpdatedInstallDestinations.Count > 0;
-        bool hasFolderPathChanges = delta.FolderPathChanges.Count > 0;
-        bool hasInstalledPackagePathChanges = delta.UpdatedInstalledPackagePaths.Count > 0;
+        bool hasInstallDestinationChanges = packageReferenceFacts?.InstallDestinationChanges.Count > 0;
+        bool hasFolderPathChanges = catalogFacts?.FolderPathChanges.Count > 0;
+        bool hasInstalledPackagePathChanges = packageReferenceFacts?.InstalledPackagePathChanges.Count > 0;
         result.InstallEstimationMetadataProfileCacheInvalidated |= hasInstallDestinationChanges
             || hasInstalledPackagePathChanges;
-        result.InstallDestinationChangedCount = delta.UpdatedInstallDestinations.Count;
-        result.InstalledPackagePathChangedCount = delta.UpdatedInstalledPackagePaths.Count;
+        result.InstallDestinationChangedCount = packageReferenceFacts?.InstallDestinationChanges.Count ?? 0;
+        result.InstalledPackagePathChangedCount = packageReferenceFacts?.InstalledPackagePathChanges.Count ?? 0;
         result.ParentFolderInvalidated |= hasFolderPathChanges;
         result.DuplicateCacheInvalidated |= hasInstallDestinationChanges
             || hasInstalledPackagePathChanges;
         result.WarningPresentationChanged |= hasInstallDestinationChanges
             || hasInstalledPackagePathChanges;
-        if (delta.NotifyStorageRowPathChanges)
+        if (storageRowPathNotificationPolicy == LibraryStorageRowPathNotificationPolicy.Notify)
         {
             result.BmsFilesStorageRowsChanged |= HasBmsStorageRowPathChange(result.StorageMutation);
             result.BmsonSongsStorageRowsChanged |= HasBmsonStorageRowPathChange(result.StorageMutation);
         }
     }
 
-    private OwnedChartCollectionStorageMutation BuildOwnedChartCollectionStorageMutation(LibraryMutationDelta delta)
+    private OwnedChartCollectionStorageMutation BuildOwnedChartCollectionStorageMutation(LibraryCatalogMutationFacts catalogFacts)
     {
         var mutation = new OwnedChartCollectionStorageMutation();
-        if (delta == null)
+        if (catalogFacts == null)
         {
             return mutation;
         }
 
-        mutation.RemoveRequests.AddRange(delta.ChartRemoveRequests.Where(request => request != null));
+        mutation.RemoveRequests.AddRange(catalogFacts.ChartRemoveRequests);
         ResolveCurrentOwnedRemoveRequests(mutation.RemoveRequests);
-        mutation.AddAddedTargets(ChartStorageTargetSet.FromRows(delta.AddedBmsFiles, delta.AddedBmsonSongs));
-        mutation.PathChanges.AddRange(delta.ChartPathChanges.Where(change => change?.Chart != null));
+        mutation.PathChanges.AddRange(catalogFacts.ChartPathChanges.Where(change => change?.Chart != null));
         return mutation;
     }
 
@@ -13208,32 +13155,6 @@ public partial class BMSLibrary : ObservableObject
             deleteContainingPackageFoldersWhenNoBms);
     }
 
-    internal void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
-    {
-        LibraryFileMutationLease mutationLease = TryBeginLr2SongDbSyncBlockedMutation(
-            "ApplyLibraryMutationDelta",
-            showMessage: false);
-        if (mutationLease == null)
-        {
-            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
-        }
-        List<Action> postLeaseNotifications = [];
-        using (mutationLease)
-        using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
-        {
-            mutationCapability.Validate(lr2SynchronizationOwner);
-            ApplyLibraryMutationDeltaCore(
-                delta,
-                performanceLogContext: null,
-                onDurableCommit: null,
-                suppressNormalRefreshNotification: false,
-                suppressLr2NormalFolderSync: false,
-                mutationCapability: mutationCapability,
-                postLeaseNotificationObserver: action => postLeaseNotifications.Add(action));
-        }
-        InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
-    }
-
     private void InvokePostLeaseNotificationsBestEffort(IEnumerable<Action> notifications)
     {
         foreach (Action notification in notifications ?? [])
@@ -13259,17 +13180,18 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// Applies a catalog delta under an already-owned file mutation lease.
-    /// Callers must pass the capability issued by that lease. Standalone
-    /// catalog mutations enter through <see cref="ApplyLibraryMutationDelta"/>.
+    /// 取得済みのfile mutation lease内でcatalog/package factsを適用します。
+    /// 呼出元はそのleaseが発行したcapabilityを渡す必要があります。
     /// </summary>
-    private FileDbMutationCommitResult ApplyLibraryMutationDeltaForFileMutationUnderExistingLease(
-        LibraryMutationDelta delta,
+    private FileDbMutationCommitResult ApplyLibraryMutationFactsForFileMutationUnderExistingLease(
+        LibraryCatalogMutationFacts catalogFacts,
+        LibraryPackageReferenceFacts packageReferenceFacts,
         string reason,
         bool suppressNormalRefreshNotification,
         bool suppressLr2NormalFolderSync,
         LibraryFileMutationCapability mutationCapability,
-        Action<Action> postLeaseNotificationObserver)
+        Action<Action> postLeaseNotificationObserver,
+        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy = LibraryStorageRowPathNotificationPolicy.Notify)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotificationObserver);
@@ -13277,14 +13199,16 @@ public partial class BMSLibrary : ObservableObject
         bool durableCommit = false;
         try
         {
-            ApplyLibraryMutationDeltaCore(
-                delta,
+            ApplyLibraryMutationFactsCore(
+                catalogFacts,
+                packageReferenceFacts,
                 reason,
                 onDurableCommit: () => durableCommit = true,
                 suppressNormalRefreshNotification: suppressNormalRefreshNotification,
                 suppressLr2NormalFolderSync: suppressLr2NormalFolderSync,
                 mutationCapability: mutationCapability,
-                postLeaseNotificationObserver: postLeaseNotificationObserver);
+                postLeaseNotificationObserver: postLeaseNotificationObserver,
+                storageRowPathNotificationPolicy: storageRowPathNotificationPolicy);
             return FileDbMutationCommitResult.Durable();
         }
         catch (Exception exception)
@@ -13295,19 +13219,21 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void ApplyLibraryMutationDeltaCore(
-        LibraryMutationDelta delta,
+    private void ApplyLibraryMutationFactsCore(
+        LibraryCatalogMutationFacts catalogFacts,
+        LibraryPackageReferenceFacts packageReferenceFacts,
         string performanceLogContext,
         Action onDurableCommit,
         bool suppressNormalRefreshNotification,
         bool suppressLr2NormalFolderSync,
         LibraryFileMutationCapability mutationCapability,
-        Action<Action> postLeaseNotificationObserver)
+        Action<Action> postLeaseNotificationObserver,
+        LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy)
     {
         const string defaultReason = "library_delta";
         bool collectPerformanceLog = !string.IsNullOrWhiteSpace(performanceLogContext);
         Stopwatch totalStopwatch = collectPerformanceLog ? Stopwatch.StartNew() : null;
-        var timings = new LibraryMutationDeltaApplyTimings();
+        var timings = new LibraryMutationApplyTimings();
         ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = null;
         OwnedChartCollectionMutationResult mutationResult = null;
         CatalogMutationReceipt catalogReceipt = null;
@@ -13327,7 +13253,9 @@ public partial class BMSLibrary : ObservableObject
             {
                 Stopwatch buildMutationStopwatch = collectPerformanceLog ? Stopwatch.StartNew() : null;
                 mutationResult = BuildOwnedChartCollectionMutationResult(
-                    delta,
+                    catalogFacts,
+                    packageReferenceFacts,
+                    storageRowPathNotificationPolicy,
                     resourceHealthMutation.BaseInputVersion,
                     resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
                 timings.BuildMutationMs = StopPerformanceStepStopwatch(buildMutationStopwatch);
@@ -13337,16 +13265,10 @@ public partial class BMSLibrary : ObservableObject
                     : null)
                 {
                     Stopwatch stateApplyStopwatch = collectPerformanceLog ? Stopwatch.StartNew() : null;
-                    catalogMutationExpected = delta?.FolderPathChanges?.Count > 0
-                        || delta?.ChartPathChanges?.Count > 0
-                        || mutationResult?.StorageMutation?.RemoveRequests?.Count > 0
-                        || mutationResult?.StorageMutation?.AddedBmsFiles?.Count > 0
-                        || mutationResult?.StorageMutation?.AddedBmsonSongs?.Count > 0;
+                    catalogMutationExpected = catalogFacts?.HasChanges == true
+                        || mutationResult?.StorageMutation?.RemoveRequests?.Count > 0;
                     catalogReceipt = catalogMutationOwner.ApplyCatalogMutation(
-                        delta,
-                        mutationResult.StorageMutation.RemoveRequests,
-                        mutationResult.StorageMutation.AddedBmsFiles,
-                        mutationResult.StorageMutation.AddedBmsonSongs,
+                        catalogFacts,
                         () =>
                         {
                             catalogMutationCommitted = true;
@@ -13372,8 +13294,8 @@ public partial class BMSLibrary : ObservableObject
                 }
 
                 Stopwatch residualApplyStopwatch = collectPerformanceLog ? Stopwatch.StartNew() : null;
-                BmsLibraryStateApplyResult residualStateApplyResult = packageLifecycleOwner.ApplyLibraryMutationDelta(
-                    delta,
+                BmsLibraryStateApplyResult residualStateApplyResult = packageLifecycleOwner.ApplyPackageReferenceFacts(
+                    packageReferenceFacts,
                     catalogReceipt?.RemovedCharts,
                     catalogReceipt?.PathFacts);
                 timings.StateApplyMs += StopPerformanceStepStopwatch(residualApplyStopwatch);
@@ -13438,12 +13360,12 @@ public partial class BMSLibrary : ObservableObject
                 {
                     timings.ElapsedMs = StopPerformanceStepStopwatch(totalStopwatch);
                     TryInvokePostLeaseNotification(
-                        () => LogInstallPerformance("library_mutation_delta_apply context=" + performanceLogContext
-                            + " unregisterCharts=" + (delta?.ChartRemoveRequests?.Count ?? 0)
-                            + " pathChanges=" + (delta?.ChartPathChanges?.Count ?? 0)
-                            + " folderPathChanges=" + (delta?.FolderPathChanges?.Count ?? 0)
-                            + " installDestinations=" + (delta?.UpdatedInstallDestinations?.Count ?? 0)
-                            + " installedPackagePaths=" + (delta?.UpdatedInstalledPackagePaths?.Count ?? 0)
+                        () => LogInstallPerformance("library_mutation_facts_apply context=" + performanceLogContext
+                            + " unregisterCharts=" + (catalogFacts?.ChartRemoveRequests?.Count ?? 0)
+                            + " pathChanges=" + (catalogFacts?.ChartPathChanges?.Count ?? 0)
+                            + " folderPathChanges=" + (catalogFacts?.FolderPathChanges?.Count ?? 0)
+                            + " installDestinations=" + (packageReferenceFacts?.InstallDestinationChanges?.Count ?? 0)
+                            + " installedPackagePaths=" + (packageReferenceFacts?.InstalledPackagePathChanges?.Count ?? 0)
                             + " resourceHealthBeginMs=" + timings.ResourceHealthBeginMs
                             + " buildMutationMs=" + timings.BuildMutationMs
                             + " publishNotificationMs=" + timings.PublishNotificationMs

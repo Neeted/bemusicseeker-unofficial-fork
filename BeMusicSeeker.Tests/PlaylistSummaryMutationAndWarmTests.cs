@@ -50,44 +50,28 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     }
 
     [TestMethod]
-    public void GetOwnedChartHashIndexSnapshot_AppliesDeltaAfterLibraryMutation()
+    public void GetOwnedChartHashIndexSnapshot_AppliesRemovalAfterLibraryMutation()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            BMSFile removedFile = CreateLibraryFile(@"C:\Songs\removed.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            BMSFile keptFile = CreateLibraryFile(@"C:\Songs\kept.bms", "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+            string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Songs");
+            Directory.CreateDirectory(rootPath);
+            string removedPath = Path.Combine(rootPath, "removed.bms");
+            string keptPath = Path.Combine(rootPath, "kept.bms");
+            File.WriteAllText(removedPath, "#PLAYER 1");
+            File.WriteAllText(keptPath, "#PLAYER 1");
+            BMSFile removedFile = CreateLibraryFile(removedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            BMSFile keptFile = CreateLibraryFile(keptPath, "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
             {
                 BMSFiles = [removedFile, keptFile]
             };
             OwnedChartHashIndexVersionedSnapshot first = library.GetOwnedChartHashIndexSnapshot();
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedFile));
-
-            InvokeApplyLibraryMutationDelta(library, delta);
-            OwnedChartHashIndexVersionedSnapshot second = library.GetOwnedChartHashIndexSnapshot();
-
-            Assert.IsTrue(second.Version > first.Version);
-            CollectionAssert.DoesNotContain(new List<string>(second.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            CollectionAssert.Contains(new List<string>(second.Md5Hashes), "cccccccccccccccccccccccccccccccc");
-        });
-    }
-
-    [TestMethod]
-    public void GetOwnedChartHashIndexSnapshot_AppliesDeltaAfterInstalledChartUpsert()
-    {
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            const string chartPath = @"C:\Songs\replace.bms";
-            BMSFile replacedFile = CreateLibraryFile(chartPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            BMSFile newFile = CreateLibraryFile(chartPath, "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
-            {
-                BMSFiles = [replacedFile]
-            };
-            OwnedChartHashIndexVersionedSnapshot first = library.GetOwnedChartHashIndexSnapshot();
-
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newFile], []));
+            LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(removedFile)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+            Assert.IsFalse(removal.HasError);
             OwnedChartHashIndexVersionedSnapshot second = library.GetOwnedChartHashIndexSnapshot();
 
             Assert.IsTrue(second.Version > first.Version);
@@ -154,10 +138,16 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             new BmsLibraryDbGateway(songDbPath).EnsureBmsonSchema();
             const string sharedMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
             const string sharedSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            BMSFile bmsFile = CreateLibraryFile(@"C:\Songs\shared.bms", sharedMd5, sharedSha256);
+            string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Songs");
+            Directory.CreateDirectory(rootPath);
+            string bmsPath = Path.Combine(rootPath, "shared.bms");
+            string bmsonPath = Path.Combine(rootPath, "shared.bmson");
+            File.WriteAllText(bmsPath, "#PLAYER 1");
+            File.WriteAllText(bmsonPath, "{}");
+            BMSFile bmsFile = CreateLibraryFile(bmsPath, sharedMd5, sharedSha256);
             LR2SongDBExtended.bmson_song bmsonSong = new()
             {
-                path = @"C:\Songs\shared.bmson",
+                path = bmsonPath,
                 md5 = sharedMd5,
                 sha256 = sharedSha256
             };
@@ -173,9 +163,11 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             Assert.IsTrue(initial.ContainsMd5(sharedMd5));
             Assert.IsTrue(initial.ContainsSha256(sharedSha256));
 
-            var removeBms = new LibraryMutationDelta();
-            removeBms.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsFile));
-            InvokeApplyLibraryMutationDelta(library, removeBms);
+            LibraryChartRemovalOutcome removeBms = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(bmsFile)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+            Assert.IsFalse(removeBms.HasError);
             OwnedChartHashIndexVersionedSnapshot oneOwner = library.GetOwnedChartHashIndexSnapshot();
 
             Assert.AreEqual(initial.Version, oneOwner.Version);
@@ -184,9 +176,11 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             Assert.IsTrue(oneOwner.ContainsMd5(sharedMd5));
             Assert.IsTrue(oneOwner.ContainsSha256(sharedSha256));
 
-            var removeBmson = new LibraryMutationDelta();
-            removeBmson.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsonSong));
-            InvokeApplyLibraryMutationDelta(library, removeBmson);
+            LibraryChartRemovalOutcome removeBmson = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsonSong(bmsonSong)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+            Assert.IsFalse(removeBmson.HasError);
             OwnedChartHashIndexVersionedSnapshot empty = library.GetOwnedChartHashIndexSnapshot();
 
             Assert.IsTrue(empty.Version > oneOwner.Version);
@@ -208,12 +202,18 @@ public sealed class PlaylistSummaryMutationAndWarmTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
+            string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Songs");
+            Directory.CreateDirectory(rootPath);
+            string removedPath = Path.Combine(rootPath, "removed.bms");
+            string keptPath = Path.Combine(rootPath, "kept.bms");
+            File.WriteAllText(removedPath, "#PLAYER 1");
+            File.WriteAllText(keptPath, "#PLAYER 1");
             BMSFile removedFile = CreateLibraryFile(
-                @"C:\Songs\removed.bms",
+                removedPath,
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
             BMSFile keptFile = CreateLibraryFile(
-                @"C:\Songs\kept.bms",
+                keptPath,
                 "cccccccccccccccccccccccccccccccc",
                 "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
@@ -231,9 +231,11 @@ public sealed class PlaylistSummaryMutationAndWarmTests
                 + cold.GetMd5OwnerCount("cccccccccccccccccccccccccccccccc"));
 
             storeWork.Clear();
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedFile));
-            InvokeApplyLibraryMutationDelta(library, delta);
+            LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(removedFile)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+            Assert.IsFalse(removal.HasError);
             OwnedChartHashIndexVersionedSnapshot updated = library.GetOwnedChartHashIndexSnapshot();
 
             Assert.AreEqual(0, storeWork.Count(operation => operation == "owned_hash_source_enumeration"));

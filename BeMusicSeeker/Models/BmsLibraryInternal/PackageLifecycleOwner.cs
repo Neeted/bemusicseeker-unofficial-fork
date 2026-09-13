@@ -380,12 +380,17 @@ internal sealed partial class PackageLifecycleOwner
             installedStopwatch.ElapsedMilliseconds);
     }
 
-    internal BmsLibraryStateApplyResult ApplyLibraryMutationDelta(
-        LibraryMutationDelta delta,
+    /// <summary>package参照factsをstate applierへ渡して適用します。</summary>
+    /// <param name="facts">catalog commit後に適用するpackage参照facts。</param>
+    /// <param name="committedRemovalFacts">durableにcommitされたcatalog削除facts。</param>
+    /// <param name="protectedPathFacts">削除から保護する移動先path facts。</param>
+    /// <returns>package更新結果。</returns>
+    internal BmsLibraryStateApplyResult ApplyPackageReferenceFacts(
+        LibraryPackageReferenceFacts facts,
         IEnumerable<CatalogChartMutationFact> committedRemovalFacts = null,
         IEnumerable<CatalogRelocationPathFact> protectedPathFacts = null)
     {
-        return stateMutationApplier.ApplyLibraryMutationDelta(delta, committedRemovalFacts, protectedPathFacts);
+        return stateMutationApplier.ApplyPackageReferenceFacts(facts, committedRemovalFacts, protectedPathFacts);
     }
 
     internal void AddPendingPackages(IEnumerable<ChartPackage> packages)

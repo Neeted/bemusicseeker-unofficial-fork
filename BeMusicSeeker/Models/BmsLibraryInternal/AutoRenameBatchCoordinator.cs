@@ -117,24 +117,26 @@ internal sealed class AutoRenameBatchCoordinator
                     metrics.ActionablePlanCount++;
 
                     FileDbMutationPlan mutationPlan = null;
-                    LibraryMutationDelta mutationDelta = null;
+                    LibraryFolderMoveFacts mutationFacts = null;
                     host.RunWithFolderMoveSnapshotLocks(() =>
                     {
                         mutationPlan = host.BuildFolderMoveMutationPlan(srcDir, dstDir);
-                        mutationDelta = host.BuildFolderMoveDelta(srcDir, dstDir, false, false);
+                        mutationFacts = host.BuildFolderMoveFacts(srcDir, dstDir, false, false);
                     });
                     Stopwatch moveStopwatch = Stopwatch.StartNew();
                     FileDbMutationCommitResult databaseResult = null;
                     List<Action> mutationPostLeaseNotifications = [];
                     FileDbMutationReceipt mutationReceipt = host.CreateFileDbMutationExecutor(mutationPlan).Execute(() =>
                     {
-                        databaseResult = host.ApplyLibraryMutationDeltaForFileMutation(
-                            mutationDelta,
+                        databaseResult = host.ApplyLibraryMutationFactsForFileMutation(
+                            mutationFacts.CatalogFacts,
+                            mutationFacts.PackageReferenceFacts,
                             "auto_rename_folder",
                             mutationCapability,
                             mutationPostLeaseNotifications.Add,
                             suppressNormalRefreshNotification: true,
-                            suppressLr2NormalFolderSync: true);
+                            suppressLr2NormalFolderSync: true,
+                            storageRowPathNotificationPolicy: mutationFacts.StorageRowPathNotificationPolicy);
                         if (!databaseResult.DurableCommit)
                         {
                             return databaseResult;
@@ -187,7 +189,7 @@ internal sealed class AutoRenameBatchCoordinator
                     hasActionablePlan = true;
                     appliedPlanCount++;
                     movedSourceDirectories.Add(srcDir);
-                    lr2NormalFolderPathChanges.AddRange((mutationDelta?.ChartPathChanges ?? [])
+                    lr2NormalFolderPathChanges.AddRange((mutationFacts?.CatalogFacts?.ChartPathChanges ?? [])
                         .Where(change => change?.Chart?.GetBmsStorageOwner() != null
                             && !string.IsNullOrWhiteSpace(change.OldPath)
                             && !string.IsNullOrWhiteSpace(change.NewPath))

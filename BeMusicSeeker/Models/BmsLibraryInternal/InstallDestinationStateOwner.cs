@@ -133,12 +133,20 @@ internal sealed class InstallDestinationStateOwner
         }
     }
 
+    /// <summary>
+    /// package参照factsとcatalog path移動factsから、overlayへ反映するchart snapshotを生成します。
+    /// </summary>
+    /// <param name="installDestinationChanges">install destinationの確定変更。</param>
+    /// <param name="pathChanges">同じ操作で適用するpath移動。</param>
+    /// <returns>重複を除いた変更後chart snapshot。</returns>
     internal List<ChartFile> CreateChangedChartSnapshots(
-        LibraryMutationDelta delta,
+        IReadOnlyCollection<LibraryInstallDestinationChange> installDestinationChanges,
         IReadOnlyCollection<LibraryChartPathChange> pathChanges)
     {
         var chartsByKey = new Dictionary<string, ChartFile>(StringComparer.Ordinal);
-        foreach (ChartFile chart in delta?.CreateAppliedInstallDestinationChartSnapshots() ?? [])
+        foreach (ChartFile chart in (installDestinationChanges ?? [])
+            .Select(change => change?.CreateAppliedChartSnapshot(pathChanges))
+            .Where(chart => chart != null))
         {
             AddChangedChart(chartsByKey, chart);
         }

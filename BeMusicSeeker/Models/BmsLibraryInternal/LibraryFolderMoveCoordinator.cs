@@ -216,12 +216,12 @@ internal static class LibraryFolderMoveCoordinator
         try
         {
             FileDbMutationPlan plan = null;
-            LibraryMutationDelta delta = null;
+            LibraryFolderMoveFacts mutationFacts = null;
             host.RunWithFolderMoveSnapshotLocks(() =>
             {
                 plan = host.BuildFolderMoveMutationPlan(srcDir, dstDir);
-                delta = unregister.HasValue
-                    ? host.BuildFolderMoveDelta(
+                mutationFacts = unregister.HasValue
+                    ? host.BuildFolderMoveFacts(
                         srcDir,
                         dstDir,
                         unregister.Value,
@@ -234,13 +234,15 @@ internal static class LibraryFolderMoveCoordinator
             List<Action> mutationPostLeaseNotifications = [];
             FileDbMutationReceipt receipt = executor.Execute(() =>
             {
-                FileDbMutationCommitResult databaseResult = delta == null
+                FileDbMutationCommitResult databaseResult = mutationFacts == null
                     ? FileDbMutationCommitResult.Durable()
-                    : host.ApplyLibraryMutationDeltaForFileMutation(
-                        delta,
+                    : host.ApplyLibraryMutationFactsForFileMutation(
+                        mutationFacts.CatalogFacts,
+                        mutationFacts.PackageReferenceFacts,
                         "move_folder",
                         capability: mutationCapability,
-                        postLeaseNotificationObserver: mutationPostLeaseNotifications.Add);
+                        postLeaseNotificationObserver: mutationPostLeaseNotifications.Add,
+                        storageRowPathNotificationPolicy: mutationFacts.StorageRowPathNotificationPolicy);
                 if (!databaseResult.DurableCommit)
                 {
                     return databaseResult;

@@ -63,27 +63,6 @@ internal static class OwnedChartCollectionTestSupport
         return library.IsInstalledPrimaryHashLookupInitializedForDiagnostics();
     }
 
-    internal static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
-    {
-        library.ApplyLibraryMutationDelta(delta);
-    }
-
-    internal static void ApplyInstallDestinationChange(BMSLibrary library, BMSFile bmsFile, string installDestination)
-    {
-        var delta = new LibraryMutationDelta();
-        delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-        {
-            Chart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false),
-            NewInstallDestination = installDestination
-        });
-        InvokeApplyLibraryMutationDelta(library, delta);
-    }
-
-    internal static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)
-    {
-        library.ApplyInstalledChartStorageTargets(addedTargets, "install_package");
-    }
-
     internal static ChartInfoInlineBuildResult InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
         BMSLibrary library,
         string reason,

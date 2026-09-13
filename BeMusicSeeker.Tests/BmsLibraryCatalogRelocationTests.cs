@@ -91,28 +91,27 @@ public sealed class BmsLibraryCatalogRelocationTests
                 ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([installedPackage]);
                 var callbacks = new TrackingCallbacks();
                 PackageStateMutationApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
-                var delta = new LibraryMutationDelta
-                {
-                    RaiseInstalledPackagesChanged = true
-                };
-                delta.FolderPathChanges.Add(new LibraryFolderPathChange
+                var folderPathChanges = new List<LibraryFolderPathChange>();
+                folderPathChanges.Add(new LibraryFolderPathChange
                 {
                     OldFolderPath = oldDirectoryPath,
                     NewFolderPath = newDirectoryPath
                 });
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                var pathChanges = new List<LibraryChartPathChange>();
+                pathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsFile(movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
                 });
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                pathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsonSong(bmsonSongs[0]),
                     OldPath = oldBmsonPath,
                     NewPath = newBmsonPath
                 });
-                delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+                var installDestinationChanges = new List<LibraryInstallDestinationChange>();
+                installDestinationChanges.Add(new LibraryInstallDestinationChange
                 {
                     Chart = ChartFileProjection.WithPackageState(
                         ChartFileProjection.FromBmsFile(installLinkedFile, includeWarningSnapshot: false),
@@ -123,20 +122,23 @@ public sealed class BmsLibraryCatalogRelocationTests
                         []),
                     NewInstallDestination = newDirectoryPath
                 });
-                delta.UpdatedInstalledPackagePaths.Add(new LibraryInstalledPackagePathChange
+                var packagePathChanges = new List<LibraryInstalledPackagePathChange>();
+                packagePathChanges.Add(new LibraryInstalledPackagePathChange
                 {
                     Package = installedPackage,
                     NewPath = newDirectoryPath
                 });
 
-                CatalogMutationReceipt relocationReceipt = ApplyCatalogRelocation(songDbPath, delta, callbacks);
+                LibraryCatalogMutationFacts catalogFacts = new([], pathChanges, folderPathChanges);
+                LibraryPackageReferenceFacts packageFacts = new(installDestinationChanges, packagePathChanges);
+                CatalogMutationReceipt relocationReceipt = ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks);
                 Assert.IsTrue(relocationReceipt.Applied);
                 Assert.AreEqual(2, relocationReceipt.PathFacts.Count);
-                ApplyCommittedMutation(applier, delta);
+                ApplyCommittedMutation(applier, catalogFacts, packageFacts);
 
                 Assert.AreEqual(newChartPath, movedFile.path);
                 Assert.AreEqual(1, movedFile.txt);
-                ChartFile appliedInstallDestinationChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
+                ChartFile appliedInstallDestinationChart = packageFacts.CreateAppliedInstallDestinationChartSnapshots().Single();
                 Assert.AreSame(installLinkedFile, appliedInstallDestinationChart.GetBmsStorageOwner());
                 Assert.AreEqual(newDirectoryPath, appliedInstallDestinationChart.InstallDestination);
                 Assert.AreEqual("Old destination title", appliedInstallDestinationChart.InstallDestinationTitle);
@@ -259,32 +261,36 @@ public sealed class BmsLibraryCatalogRelocationTests
                 }
 
                 var callbacks = new TrackingCallbacks();
-                var delta = new LibraryMutationDelta();
-                delta.FolderPathChanges.Add(new LibraryFolderPathChange
+                var folderPathChanges = new List<LibraryFolderPathChange>();
+                folderPathChanges.Add(new LibraryFolderPathChange
                 {
                     OldFolderPath = oldDirectoryPath,
                     NewFolderPath = newDirectoryPath
                 });
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                var pathChanges = new List<LibraryChartPathChange>();
+                pathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsFile(firstFile),
                     OldPath = oldFirstPath,
                     NewPath = newFirstPath
                 });
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                pathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsFile(secondFile),
                     OldPath = oldSecondPath,
                     NewPath = newSecondPath
                 });
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                pathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsonSong(bmsonSong),
                     OldPath = oldBmsonPath,
                     NewPath = newBmsonPath
                 });
 
-                CatalogMutationReceipt result = ApplyCatalogRelocation(songDbPath, delta, callbacks);
+                CatalogMutationReceipt result = ApplyCatalogRelocation(
+                    songDbPath,
+                    new LibraryCatalogMutationFacts([], pathChanges, folderPathChanges),
+                    callbacks);
 
                 Assert.IsTrue(result.BmsPathDbMs >= 0);
                 Assert.IsTrue(result.BmsonPathDbMs >= 0);
@@ -360,15 +366,17 @@ public sealed class BmsLibraryCatalogRelocationTests
                 }
 
                 var callbacks = new TrackingCallbacks();
-                var delta = new LibraryMutationDelta();
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                LibraryCatalogMutationFacts catalogFacts = new(
+                    [],
+                    [new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsFile(movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
-                });
+                    }],
+                    []);
 
-                Assert.ThrowsException<SQLite.SQLiteException>(() => ApplyCatalogRelocation(songDbPath, delta, callbacks));
+                Assert.ThrowsException<SQLite.SQLiteException>(() => ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks));
 
                 Assert.AreEqual(oldChartPath, movedFile.path);
                 Assert.AreEqual(1, callbacks.SongDbWriteFailureCount);
@@ -425,15 +433,17 @@ public sealed class BmsLibraryCatalogRelocationTests
                 }
 
                 var callbacks = new TrackingCallbacks();
-                var delta = new LibraryMutationDelta();
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                LibraryCatalogMutationFacts catalogFacts = new(
+                    [],
+                    [new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsFile(movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
-                });
+                    }],
+                    []);
 
-                ApplyCatalogRelocation(songDbPath, delta, callbacks);
+                ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks);
 
                 Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.folder));
                 Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.parent));
@@ -490,15 +500,17 @@ public sealed class BmsLibraryCatalogRelocationTests
                 }
 
                 var callbacks = new TrackingCallbacks();
-                var delta = new LibraryMutationDelta();
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                LibraryCatalogMutationFacts catalogFacts = new(
+                    [],
+                    [new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsFile(movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
-                });
+                    }],
+                    []);
 
-                ApplyCatalogRelocation(songDbPath, delta, callbacks);
+                ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks);
 
                 int flags = movedFile.maintenanceInfo.lr2_warning_flags.GetValueOrDefault();
                 Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
@@ -553,15 +565,17 @@ public sealed class BmsLibraryCatalogRelocationTests
                 }
 
                 var callbacks = new TrackingCallbacks();
-                var delta = new LibraryMutationDelta();
-                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                LibraryCatalogMutationFacts catalogFacts = new(
+                    [],
+                    [new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsFile(movedFile),
                     OldPath = oldChartPath,
                     NewPath = newChartPath
-                });
+                    }],
+                    []);
 
-                ApplyCatalogRelocation(songDbPath, delta, callbacks);
+                ApplyCatalogRelocation(songDbPath, catalogFacts, callbacks);
 
                 int flags = movedFile.maintenanceInfo.lr2_warning_flags.GetValueOrDefault();
                 Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);

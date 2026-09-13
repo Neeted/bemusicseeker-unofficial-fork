@@ -602,9 +602,16 @@ public sealed class BmsLibraryDuplicateServiceTests
                 string.Equals(candidate.Path, firstPath, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(candidate.Path, secondPath, StringComparison.OrdinalIgnoreCase)));
 
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1);
 
             Assert.IsTrue(receipt.MergeApplied, receipt.MutationReceipt?.Failure?.ToString() ?? receipt.MutationReceipt?.FinalizationFailure?.ToString());
+            NormalLibraryRefreshNotificationBatch notificationBatch =
+                library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            bool sourceCleanupExpected = destinationExists || caseVariant;
+            Assert.AreEqual(sourceCleanupExpected, notificationBatch.NotifiesStorageRows);
+            Assert.AreEqual(!bmson && sourceCleanupExpected, notificationBatch.NotifiesBmsFiles);
+            Assert.AreEqual(bmson && sourceCleanupExpected, notificationBatch.NotifiesBmsonSongs);
             Assert.IsFalse(Directory.Exists(source));
             string[] currentPaths = Directory.GetFiles(destination, "*" + extension);
             Assert.IsTrue(currentPaths.Length > 0);
@@ -666,6 +673,87 @@ public sealed class BmsLibraryDuplicateServiceTests
             CollectionAssert.AreEqual(
                 beforeCandidates,
                 CapturePlaylistCandidateFacts(beforePlaylist.GetMd5Candidates(lookupHash)));
+        });
+    }
+
+    /// <summary>
+    /// BMSの重複源cleanupとBMSONのpath-only移動を同じ実mergeで処理し、
+    /// cleanupされた種類だけstorage row通知を発行します。
+    /// </summary>
+    [TestMethod]
+    public void MergeChartDirectory_MixedKindsNotifiesOnlyRemovedStorageRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+
+            string sourceBmsPath = Path.Combine(source, "duplicate.bms");
+            string destinationBmsPath = Path.Combine(destination, "duplicate.bms");
+            string sourceBmsonPath = Path.Combine(source, "moved.bmson");
+            string destinationBmsonPath = Path.Combine(destination, "moved.bmson");
+            string bmsContent = "#PLAYER 1\r\n#TITLE mixed duplicate\r\n#00111:01\r\n";
+            string bmsonContent =
+                "{\"version\":\"1.0.0\",\"info\":{\"title\":\"mixed moved\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}";
+            File.WriteAllText(sourceBmsPath, bmsContent);
+            File.WriteAllText(destinationBmsPath, bmsContent);
+            File.WriteAllText(sourceBmsonPath, bmsonContent);
+
+            BMSFile sourceBms = BMSFile.CreateBMSFileFromFile(sourceBmsPath);
+            BMSFile destinationBms = BMSFile.CreateBMSFileFromFile(destinationBmsPath);
+            LR2SongDBExtended.bmson_song sourceBmson = BmsonSongParser.Parse(sourceBmsonPath);
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(sourceBms, typeof(LR2SongDB.song));
+                setup.InsertOrReplace(destinationBms, typeof(LR2SongDB.song));
+                setup.InsertOrReplace(sourceBmson, typeof(LR2SongDBExtended.bmson_song));
+                setup.InsertOrReplace(new BMSFileMaintenanceInfo { path = sourceBmsPath }, typeof(LR2SongDBExtended.maintenance));
+                setup.InsertOrReplace(new BMSFileMaintenanceInfo { path = destinationBmsPath }, typeof(LR2SongDBExtended.maintenance));
+                setup.InsertOrReplace(new BMSFileMaintenanceInfo { path = sourceBmsonPath }, typeof(LR2SongDBExtended.maintenance));
+            }
+
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService())
+            {
+                BMSFiles = [sourceBms, destinationBms],
+                BmsonSongs = [sourceBmson]
+            };
+
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1);
+
+            Assert.IsTrue(receipt.MergeApplied, receipt.MutationReceipt?.Failure?.ToString() ?? receipt.MutationReceipt?.FinalizationFailure?.ToString());
+            NormalLibraryRefreshNotificationBatch notificationBatch =
+                library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(notificationBatch.NotifiesStorageRows);
+            Assert.IsTrue(notificationBatch.NotifiesBmsFiles);
+            Assert.IsFalse(notificationBatch.NotifiesBmsonSongs);
+            Assert.IsFalse(Directory.Exists(source));
+            Assert.IsTrue(File.Exists(destinationBmsPath));
+            Assert.IsTrue(File.Exists(destinationBmsonPath));
+            CollectionAssert.AreEquivalent(
+                new[] { destinationBmsPath },
+                library.BMSFiles.Select(file => file.path).ToArray());
+            CollectionAssert.AreEquivalent(
+                new[] { destinationBmsonPath },
+                library.BmsonSongs.Select(song => song.path).ToArray());
+            using var readback = new LR2SongDBExtended(songDbPath);
+            CollectionAssert.AreEquivalent(
+                new[] { destinationBmsPath },
+                readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
+            CollectionAssert.AreEquivalent(
+                new[] { destinationBmsonPath },
+                readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray());
+            Assert.IsNull(readback.Find<LR2SongDBExtended.maintenance>(sourceBmsPath));
+            Assert.IsNull(readback.Find<LR2SongDBExtended.maintenance>(sourceBmsonPath));
         });
     }
 

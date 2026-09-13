@@ -18,193 +18,6 @@ namespace BeMusicSeeker.Tests;
 public sealed class OwnedChartCollectionInstalledOverlayTests
 {
     [TestMethod]
-    public void ApplyInstalledChartStorageTargets_UpsertsOwnedCollectionWithoutRebuild()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string replacedBmsPath = Path.Combine("C:\\Installed", "Bms", "replace.bms");
-            string replacedBmsonPath = Path.Combine("C:\\Installed", "Bmson", "replace.bmson");
-            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
-            var replacedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", replacedBmsPath);
-            var newBms = CreateFile("cccccccccccccccccccccccccccccccc", replacedBmsPath);
-            var keptBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "aaa.bmson"), "dddddddddddddddddddddddddddddddd");
-            var replacedBmson = CreateBmsonSong(replacedBmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-            var newBmson = CreateBmsonSong(replacedBmsonPath, "ffffffffffffffffffffffffffffffff");
-            var library = new TestBmsLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [keptBms, replacedBms]);
-            SetLibraryBmsonSongsWithoutNotification(library, [replacedBmson, keptBmson]);
-            InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            EnsureCurrentResourceHealthIndex(library);
-            Assert.AreEqual(4, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
-            int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
-            int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
-            int ownedCollectionVersionChanged = 0;
-            int parentFolderVersionChanged = 0;
-            int bmsFilesChanged = 0;
-            int bmsonSongsChanged = 0;
-            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (args.PropertyName == "OwnedChartCollectionVersion")
-                {
-                    ownedCollectionVersionChanged++;
-                }
-                if (args.PropertyName == "BMSParentFolderListCacheVersion")
-                {
-                    parentFolderVersionChanged++;
-                }
-                if (args.PropertyName == nameof(BMSLibrary.BMSFiles))
-                {
-                    bmsFilesChanged++;
-                }
-                if (args.PropertyName == nameof(BMSLibrary.BmsonSongs))
-                {
-                    bmsonSongsChanged++;
-                }
-            };
-            SetDuplicateChartGroupsWithoutNotification(library, []);
-
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newBms], [newBmson]));
-            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            List<ChartFile> snapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
-
-            Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
-            Assert.AreEqual(1, ownedCollectionVersionChanged);
-            Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
-            Assert.AreEqual(1, parentFolderVersionChanged);
-            Assert.AreEqual(0, bmsFilesChanged);
-            Assert.AreEqual(0, bmsonSongsChanged);
-            Assert.IsTrue(batch.NotifiesStorageRows);
-            Assert.IsTrue(batch.NotifiesBmsFiles);
-            Assert.IsTrue(batch.NotifiesBmsonSongs);
-            Assert.IsNull(library.DuplicateChartGroups);
-            Assert.AreEqual(4, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
-            Assert.IsFalse(HasNoCurrentResourceHealthIndex(library));
-            Assert.AreEqual(1, initialLookup.GetPrimaryHashCount(replacedBms.hash));
-            Assert.AreEqual(1, initialLookup.GetPrimaryHashCount(replacedBmson.md5));
-            Assert.AreEqual(0, updatedLookup.GetPrimaryHashCount(replacedBms.hash));
-            Assert.AreEqual(0, updatedLookup.GetPrimaryHashCount(replacedBmson.md5));
-            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(newBms.hash));
-            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(newBmson.md5));
-            CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(replacedBmsPath)! }, initialLookup.Md5Directories[replacedBms.hash].ToArray());
-            CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(replacedBmsonPath)! }, initialLookup.Md5Directories[replacedBmson.md5].ToArray());
-            CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(replacedBmsPath)! }, updatedLookup.Md5Directories[newBms.hash].ToArray());
-            CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(replacedBmsonPath)! }, updatedLookup.Md5Directories[newBmson.md5].ToArray());
-            Assert.AreEqual(4, initialLookup.DirectoryReferenceCount);
-            Assert.AreEqual(4, updatedLookup.DirectoryReferenceCount);
-            Assert.AreEqual(4, snapshot.Count);
-            Assert.AreSame(keptBms, snapshot[0].GetBmsStorageOwner());
-            Assert.AreSame(newBms, snapshot[1].GetBmsStorageOwner());
-            Assert.AreSame(keptBmson, snapshot[2].GetBmsonStorageOwner());
-            Assert.AreSame(newBmson, snapshot[3].GetBmsonStorageOwner());
-        });
-    }
-
-    [TestMethod]
-    public void ApplyInstalledChartStorageTargets_CurrentResourceHealthIndexUsesDeltaWithoutFullRebuild()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
-            var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
-            var library = new TestBmsLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [keptBms]);
-            SetLibraryBmsonSongsWithoutNotification(library, []);
-            EnsureCurrentResourceHealthIndex(library);
-
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms], []));
-
-            Assert.AreEqual(2, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
-        });
-    }
-
-    /// <summary>完全一致する行だけを置換し、別表記のDB・owner・所持hashを両lookup分岐で保持します。</summary>
-    [DataTestMethod]
-    [DataRow("chart", true)]
-    [DataRow("chart", false)]
-    [DataRow("CHART", true)]
-    [DataRow("CHART", false)]
-    [DataRow(".\\chart", true)]
-    [DataRow(".\\chart", false)]
-    [DataRow("other", true)]
-    [DataRow("other", false)]
-    public void ApplyInstalledChartStorageTargets_BuiltLookupUpsertUsesOwnedPathExactView(string replacementStem, bool fullLookup)
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string bmsPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
-            string replacementBmsPath = Path.Combine("C:\\Installed", "Shared", replacementStem + ".bms");
-            string bmsonPath = Path.Combine("C:\\Installed", "Shared", "chart.bmson");
-            string replacementBmsonPath = Path.Combine("C:\\Installed", "Shared", replacementStem + ".bmson");
-            var oldBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsPath);
-            var newBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", replacementBmsPath);
-            var bmsonSong = CreateBmsonSong(bmsonPath, "cccccccccccccccccccccccccccccccc");
-            var newBmson = CreateBmsonSong(replacementBmsonPath, "dddddddddddddddddddddddddddddddd");
-            var keptBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", Path.Combine("C:\\Installed", "Shared", "keep.bms"));
-            bool replacesExisting = replacementStem == "chart";
-            oldBms.tag = "retained-user-tag";
-            oldBms.adddate = 12345;
-            using (var db = new LR2SongDBExtended(songDbPath))
-            {
-                db.InsertOrReplace(oldBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                db.InsertOrReplace(keptBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                db.InsertOrReplace(bmsonSong, typeof(LR2SongDBExtended.bmson_song));
-            }
-            var library = new TestBmsLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [oldBms, keptBms]);
-            SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
-            if (fullLookup)
-            {
-                InvokeCreateInstalledChartLookupSnapshot(library);
-            }
-            IPrimaryHashLookup initialLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
-
-            Assert.AreEqual(fullLookup, IsInstalledChartLookupIndexInitialized(library));
-            Assert.IsTrue(initialLookup.ContainsPrimaryHash(oldBms.hash));
-            Assert.IsTrue(initialLookup.ContainsPrimaryHash(bmsonSong.md5));
-
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newBms], [newBmson]));
-            IPrimaryHashLookup updatedPrimary = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
-            Assert.AreEqual(fullLookup, IsInstalledChartLookupIndexInitialized(library));
-            Assert.AreEqual(!replacesExisting, updatedPrimary.ContainsPrimaryHash(oldBms.hash));
-            Assert.AreEqual(!replacesExisting, updatedPrimary.ContainsPrimaryHash(bmsonSong.md5));
-            Assert.IsTrue(updatedPrimary.ContainsPrimaryHash(newBms.hash));
-            Assert.IsTrue(updatedPrimary.ContainsPrimaryHash(newBmson.md5));
-            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            List<ChartFile> snapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-
-            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
-            Assert.AreEqual(!replacesExisting, updatedLookup.ContainsPrimaryHash(oldBms.hash));
-            Assert.AreEqual(!replacesExisting, updatedLookup.ContainsPrimaryHash(bmsonSong.md5));
-            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(newBms.hash));
-            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(newBmson.md5));
-            Assert.AreEqual(1, updatedLookup.GetPrimaryHashCount(keptBms.hash));
-            string[] expectedBmsPaths = replacesExisting ? [replacementBmsPath, keptBms.path] : [bmsPath, replacementBmsPath, keptBms.path];
-            string[] expectedBmsonPaths = replacesExisting ? [replacementBmsonPath] : [bmsonPath, replacementBmsonPath];
-            CollectionAssert.AreEquivalent(expectedBmsPaths, library.BMSFiles.Select(row => row.path).ToArray());
-            CollectionAssert.AreEquivalent(expectedBmsonPaths, library.BmsonSongs.Select(row => row.path).ToArray());
-            CollectionAssert.AreEquivalent(expectedBmsPaths.Concat(expectedBmsonPaths).ToArray(), snapshot.Select(chart => chart.Path).ToArray());
-            Assert.AreSame(newBms, snapshot.Single(chart => chart.Path == replacementBmsPath).GetBmsStorageOwner());
-            Assert.AreSame(newBmson, snapshot.Single(chart => chart.Path == replacementBmsonPath).GetBmsonStorageOwner());
-            if (!replacesExisting)
-            {
-                Assert.AreSame(oldBms, snapshot.Single(chart => chart.Path == bmsPath).GetBmsStorageOwner());
-                Assert.AreSame(bmsonSong, snapshot.Single(chart => chart.Path == bmsonPath).GetBmsonStorageOwner());
-            }
-            using var readback = new LR2SongDBExtended(songDbPath);
-            CollectionAssert.AreEquivalent(expectedBmsPaths, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
-            CollectionAssert.AreEquivalent(expectedBmsonPaths, readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray());
-            Assert.AreEqual("retained-user-tag", readback.Find<LR2SongDB.song>(bmsPath).tag);
-            Assert.AreEqual(12345, readback.Find<LR2SongDB.song>(bmsPath).adddate);
-        });
-    }
-
-    [TestMethod]
     public void AutoRenameAllChartFolders_RootOnlyChartsAreNotActionableTargets()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -224,343 +37,6 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
 
             Assert.IsFalse(library.HasAutoRenameAllChartFolderTargets(rootPath));
             Assert.IsFalse(library.AutoRenameAllChartFolders(rootPath));
-        });
-    }
-
-    /// <summary>同じexact pathの重複入力を拒否したとき、既存の失敗通知と失効を維持します。</summary>
-    [TestMethod]
-    public void ApplyInstalledChartStorageTargets_InvalidatesOwnedCollectionOnFailure()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
-            var staleOverlayBms = CreateFile("ffffffffffffffffffffffffffffffff", Path.Combine("C:\\Installed", "Bms", "stale.bms"));
-            var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
-            var duplicateAddedBms = CreateFile("cccccccccccccccccccccccccccccccc", addedBms.path);
-            var addedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "added.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [keptBms],
-                BmsonSongs = []
-            };
-            InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-            SetDuplicateChartGroupsWithoutNotification(library, []);
-            int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
-            int parentFolderVersionChanged = 0;
-            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (args.PropertyName == "BMSParentFolderListCacheVersion")
-                {
-                    parentFolderVersionChanged++;
-                }
-            };
-            ApplyInstallDestinationChange(library, staleOverlayBms, Path.Combine("C:\\Install", "Stale"));
-            Assert.IsTrue(GetInstallDestinationRuntimeStateCount(library) > 0);
-
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
-                InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms, duplicateAddedBms], [addedBmson])));
-
-            Assert.IsNotNull(exception);
-            Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
-            Assert.AreEqual(1, parentFolderVersionChanged);
-            Assert.IsNull(library.DuplicateChartGroups);
-            Assert.AreEqual(0, GetInstallDestinationRuntimeStateCount(library));
-        });
-    }
-
-    /// <summary>抑制中でも同じexact pathの重複拒否後は古いresource-health索引を公開しません。</summary>
-    [TestMethod]
-    public void ApplyInstalledChartStorageTargets_ForceInvalidatesResourceHealthIndexOnFailureDuringSuppression()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
-            var addedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "added.bms"));
-            var duplicateAddedBms = CreateFile("cccccccccccccccccccccccccccccccc", addedBms.path);
-            var addedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "added.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [keptBms],
-                BmsonSongs = []
-            };
-            InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-            EnsureCurrentResourceHealthIndex(library);
-            Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
-
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
-                InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms, duplicateAddedBms], [addedBmson])));
-
-            Assert.IsNotNull(exception);
-            Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
-        });
-    }
-
-    [TestMethod]
-    public void CreateInstallDestinationOverlayChartRefSnapshotUnsafe_DeduplicatesRuntimeStateKeys()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
-            var library = new TestBmsLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [bmsFile]);
-            SetLibraryBmsonSongsWithoutNotification(library, []);
-            var delta = new LibraryMutationDelta();
-            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-            {
-                Chart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false),
-                NewInstallDestination = Path.Combine("C:\\Install", "Bms")
-            });
-            InvokeApplyLibraryMutationDelta(library, delta);
-
-            InstallDestinationOverlayChartRefSnapshot snapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
-            List<LibraryChartRef> refs = snapshot.GetChartRefsUnderInstallDestination(Path.Combine("C:\\Install", "Bms"));
-
-            Assert.AreEqual(1, refs.Count);
-            Assert.AreSame(bmsFile, refs[0].GetBmsStorageOwner());
-            Assert.AreEqual(Path.Combine("C:\\Install", "Bms"), refs[0].ToChartFile().InstallDestination);
-        });
-    }
-
-    [TestMethod]
-    public void CreateInstallDestinationOverlayChartRefSnapshotUnsafe_InvalidatesCachedSnapshotOnOverlayUpdate()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
-            var library = new TestBmsLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [bmsFile]);
-            SetLibraryBmsonSongsWithoutNotification(library, []);
-            string oldInstallDestination = Path.Combine("C:\\Install", "Old");
-            string newInstallDestination = Path.Combine("C:\\Install", "New");
-            ApplyInstallDestinationChange(library, bmsFile, oldInstallDestination);
-            InstallDestinationOverlayChartRefSnapshot oldSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
-            Assert.AreSame(oldSnapshot, InvokeCreateInstallDestinationOverlayChartRefSnapshot(library));
-
-            ApplyInstallDestinationChange(library, bmsFile, newInstallDestination);
-            InstallDestinationOverlayChartRefSnapshot newSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
-
-            Assert.AreNotSame(oldSnapshot, newSnapshot);
-            Assert.AreEqual(0, newSnapshot.GetChartRefsUnderInstallDestination(oldInstallDestination).Count);
-            List<LibraryChartRef> refs = newSnapshot.GetChartRefsUnderInstallDestination(newInstallDestination);
-            Assert.AreEqual(1, refs.Count);
-            Assert.AreSame(bmsFile, refs[0].GetBmsStorageOwner());
-        });
-    }
-
-    [TestMethod]
-    public void WarmInstallDestinationOverlaySnapshot_BuildsAndReusesOverlaySnapshot()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Library", "Bms", "chart.bms"), new string('b', 64));
-            var library = new TestBmsLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [bmsFile]);
-            string installDestination = Path.Combine("C:\\Install", "WarmOverlay");
-            ApplyInstallDestinationChange(library, bmsFile, installDestination);
-
-            BMSLibrary.OwnedAdjacentIndexWarmupResult first = library.WarmInstallDestinationOverlaySnapshot("test");
-            BMSLibrary.OwnedAdjacentIndexWarmupResult second = library.WarmInstallDestinationOverlaySnapshot("test");
-            InstallDestinationOverlayChartRefSnapshot snapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
-
-            Assert.AreEqual("install_destination_overlay", first.IndexName);
-            Assert.AreEqual("built", first.Status);
-            Assert.AreEqual(1, first.ChartRefCount);
-            Assert.AreEqual(1, first.DirectoryCount);
-            Assert.AreEqual("cached", second.Status);
-            Assert.AreEqual(first.ChartRefCount, second.ChartRefCount);
-            Assert.AreEqual(1, snapshot.GetChartRefsUnderInstallDestination(installDestination).Count);
-        });
-    }
-
-    [TestMethod]
-    public void ApplyLibraryMutationDelta_UnregisterDoesNotPruneSamePathDifferentOwner()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string sharedPath = Path.Combine("C:\\Library", "Bms", "chart.bms");
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath, new string('b', 64));
-            var duplicateOwner = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath, new string('c', 64));
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [bmsFile, duplicateOwner],
-                BmsonSongs = []
-            };
-            string installDestination = Path.Combine("C:\\Install", "Bms");
-            ApplyInstallDestinationChange(library, duplicateOwner, installDestination);
-            InstallDestinationOverlayChartRefSnapshot initialSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
-            Assert.AreEqual(1, initialSnapshot.GetChartRefsUnderInstallDestination(installDestination).Count);
-
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsFile));
-            InvokeApplyLibraryMutationDelta(library, delta);
-            InstallDestinationOverlayChartRefSnapshot afterSnapshot = InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
-
-            Assert.AreEqual(1, afterSnapshot.GetChartRefsUnderInstallDestination(installDestination).Count);
-            Assert.AreEqual(1, library.BMSFiles.Count);
-            Assert.AreSame(duplicateOwner, library.BMSFiles[0]);
-        });
-    }
-
-    [TestMethod]
-    public void ApplyLibraryMutationDelta_UnregisterBmsonDoesNotPruneSamePathDifferentOwner()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string sharedPath = Path.Combine("C:\\Library", "Bmson", "chart.bmson");
-            var bmsonSong = CreateBmsonSong(sharedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            var duplicateOwner = CreateBmsonSong(sharedPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(songDbPath)
-            {
-                BMSFiles = [],
-                BmsonSongs = [bmsonSong, duplicateOwner]
-            };
-
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsonSong));
-            InvokeApplyLibraryMutationDelta(library, delta);
-
-            Assert.AreEqual(1, library.BmsonSongs.Count);
-            Assert.AreSame(duplicateOwner, library.BmsonSongs[0]);
-        });
-    }
-
-    [TestMethod]
-    public void ApplyLibraryMutationDelta_OverlayOnlyClearsMetadataCacheAndPublishesOverlayRefreshWithoutLookupRebuild()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed");
-            Directory.CreateDirectory(chartDirectory);
-            string chartPath = Path.Combine(chartDirectory, "chart.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1");
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, new string('b', 64));
-            var library = new TestBmsLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [bmsFile]);
-            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            Assert.IsTrue(initialLookup.ContainsPrimaryHash(bmsFile.hash));
-            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
-            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            int bmsFilesChanged = 0;
-            int normalLibraryRefreshNotifications = 0;
-            int ownedCollectionVersionChanged = 0;
-            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (args.PropertyName == "BMSFiles")
-                {
-                    bmsFilesChanged++;
-                }
-                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
-                {
-                    normalLibraryRefreshNotifications++;
-                }
-                if (args.PropertyName == "OwnedChartCollectionVersion")
-                {
-                    ownedCollectionVersionChanged++;
-                }
-            };
-            var delta = new LibraryMutationDelta();
-            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-            {
-                Chart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false),
-                NewInstallDestination = Path.Combine(chartDirectory, "Overlay")
-            });
-
-            InvokeApplyLibraryMutationDelta(library, delta);
-            InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-
-            Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
-            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(bmsFile.hash));
-            Assert.AreSame(initialLookup, updatedLookup);
-            CollectionAssert.AreEqual(initialLookup.Md5Directories[bmsFile.hash].ToArray(), updatedLookup.Md5Directories[bmsFile.hash].ToArray());
-            Assert.AreEqual(0, bmsFilesChanged);
-            Assert.AreEqual(1, normalLibraryRefreshNotifications);
-            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
-            Assert.IsFalse(batch.NotifiesStorageRows);
-            Assert.IsFalse(batch.NotifiesBmsFiles);
-            Assert.IsFalse(batch.NotifiesBmsonSongs);
-            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
-            Assert.AreEqual(0, ownedCollectionVersionChanged);
-        });
-    }
-
-    [TestMethod]
-    public void SearchEstimatedInstallationDirectory_OverlayMutationRefreshesMetadataProfileThroughRealRoute()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            string tempRootPath = Path.GetDirectoryName(songDbPath)!;
-            string libraryRootPath = ResolveExistingDataFixtureDirectory();
-            string candidateDirectoryPath = libraryRootPath;
-            string candidatePath = Path.Combine(candidateDirectoryPath, "fixture.bms");
-            string pendingDirectoryPath = Path.Combine(tempRootPath, "MetadataProfilePending");
-            Directory.CreateDirectory(pendingDirectoryPath);
-            string pendingPath = Path.Combine(pendingDirectoryPath, "pending.bms");
-            File.WriteAllText(
-                pendingPath,
-                "#PLAYER 1\r\n#TITLE Pending Target\r\n#ARTIST Pending Artist\r\n#00111:01\r\n",
-                System.Text.Encoding.ASCII);
-
-            ChartFileSnapshot candidateSnapshot = ChartFileContentReader.ReadSnapshot(candidatePath);
-            TestableBmsFile candidate = CreateFile(candidateSnapshot.Md5, candidatePath, candidateSnapshot.Sha256);
-            candidate.SetTitle("E1 Fixture Song");
-            candidate.SetArtist("BeMusicSeeker");
-            candidate.date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(candidatePath));
-            var library = new TestBmsLibrary(
-                songDbPath,
-                getLR2Config: null,
-                _lr2ScoreDB: null,
-                startupRequiredFileScanReason: null,
-                optionsSnapshotProvider: () => new BmsLibraryOptionsSnapshot
-                {
-                    OperationModeLR2DB = false
-                })
-            {
-                SearchTargets = [libraryRootPath]
-            };
-            SetLibraryFilesWithoutNotification(library, [candidate]);
-
-            BMSFile pending = BMSFile.CreateBMSFileFromFile(pendingPath);
-            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([candidate, pending]);
-            pendingPackage.path = pendingDirectoryPath;
-            pendingPackage.delete_parent = false;
-            library.ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([pendingPackage]);
-
-            // The mixed-package route resolves the already-installed candidate through
-            // the public estimation entry point and warms the destination metadata profile.
-            library.SearchEstimatedInstallationDirectory(pendingPackage);
-            PackageChartEntry firstEntry = pendingPackage.ChartEntries.Single(entry => entry.Chart.Path == pendingPath);
-
-            Assert.AreEqual("E1 Fixture Song", firstEntry.Chart.InstallDestinationTitle);
-            Assert.AreEqual("BeMusicSeeker", firstEntry.Chart.InstallDestinationArtist);
-
-            candidate.SetTitle("Changed Candidate");
-            candidate.SetArtist("Changed Artist");
-            var overlayDelta = new LibraryMutationDelta();
-            overlayDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-            {
-                Chart = ChartFileProjection.FromBmsFile(
-                    candidate,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false),
-                NewInstallDestination = candidateDirectoryPath
-            });
-            InvokeApplyLibraryMutationDelta(library, overlayDelta);
-
-            library.SearchEstimatedInstallationDirectory(pendingPackage);
-            PackageChartEntry refreshedEntry = pendingPackage.ChartEntries.Single(entry => entry.Chart.Path == pendingPath);
-
-            Assert.AreEqual("Changed Candidate", refreshedEntry.Chart.InstallDestinationTitle);
-            Assert.AreEqual("Changed Artist", refreshedEntry.Chart.InstallDestinationArtist);
         });
     }
 
@@ -622,14 +98,23 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UpdatesPrimaryLookupWithoutFullDirectoryLookup()
+    public void RemoveLibraryCharts_UpdatesPrimaryLookupWithoutFullDirectoryLookup()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var removedBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Removed", "chart.bms"));
-            var keptBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Kept", "chart.bms"));
-            var library = new TestBmsLibrary(songDbPath)
+            string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed");
+            string removedDirectoryPath = Path.Combine(rootPath, "Removed");
+            string keptDirectoryPath = Path.Combine(rootPath, "Kept");
+            Directory.CreateDirectory(removedDirectoryPath);
+            Directory.CreateDirectory(keptDirectoryPath);
+            string removedPath = Path.Combine(removedDirectoryPath, "chart.bms");
+            string keptPath = Path.Combine(keptDirectoryPath, "chart.bms");
+            File.WriteAllText(removedPath, "#PLAYER 1");
+            File.WriteAllText(keptPath, "#PLAYER 1");
+            var removedBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", removedPath);
+            var keptBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", keptPath);
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null)
             {
                 BMSFiles = [removedBmsFile, keptBmsFile],
                 BmsonSongs = []
@@ -637,10 +122,11 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             IPrimaryHashLookup initialLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
             Assert.IsTrue(initialLookup.ContainsPrimaryHash(removedBmsFile.hash));
             Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
-            var delta = new LibraryMutationDelta();
-            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBmsFile));
-
-            InvokeApplyLibraryMutationDelta(library, delta);
+            LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(removedBmsFile)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+            Assert.IsFalse(removal.HasError);
             IPrimaryHashLookup updatedLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
 
             Assert.IsFalse(updatedLookup.ContainsPrimaryHash(removedBmsFile.hash));
@@ -651,29 +137,60 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     }
 
     [TestMethod]
-    public void ApplyInstalledChartStorageTargets_UpdatesPrimaryLookupWithoutBuildingOwnedRefIndex()
+    public void RemoveLibraryCharts_DoesNotPruneSamePathDifferentBmsOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var initialBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Initial", "chart.bms"));
-            var addedBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Added", "chart.bms"));
-            var library = new TestBmsLibrary(songDbPath)
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "Bms");
+            Directory.CreateDirectory(chartDirectory);
+            string sharedPath = Path.Combine(chartDirectory, "chart.bms");
+            File.WriteAllText(sharedPath, "#PLAYER 1");
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath, new string('b', 64));
+            var duplicateOwner = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath, new string('c', 64));
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null)
             {
-                BMSFiles = [initialBmsFile],
+                BMSFiles = [bmsFile, duplicateOwner],
                 BmsonSongs = []
             };
-            IPrimaryHashLookup initialLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
-            Assert.IsTrue(initialLookup.ContainsPrimaryHash(initialBmsFile.hash));
-            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
 
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBmsFile], []));
-            IPrimaryHashLookup updatedLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(bmsFile)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
 
-            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(initialBmsFile.hash));
-            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(addedBmsFile.hash));
-            Assert.IsTrue(IsInstalledPrimaryHashLookupInitialized(library));
-            Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
+            Assert.IsFalse(outcome.HasError);
+            Assert.AreEqual(1, library.BMSFiles.Count);
+            Assert.AreSame(duplicateOwner, library.BMSFiles[0]);
+        });
+    }
+
+    [TestMethod]
+    public void RemoveLibraryCharts_DoesNotPruneSamePathDifferentBmsonOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "Bmson");
+            Directory.CreateDirectory(chartDirectory);
+            string sharedPath = Path.Combine(chartDirectory, "chart.bmson");
+            File.WriteAllText(sharedPath, "{}");
+            var bmsonSong = CreateBmsonSong(sharedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            var duplicateOwner = CreateBmsonSong(sharedPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), null)
+            {
+                BMSFiles = [],
+                BmsonSongs = [bmsonSong, duplicateOwner]
+            };
+
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsonSong(bmsonSong)],
+                sendToRecycleBin: false,
+                approvedWholeFolderDeletePaths: []);
+
+            Assert.IsFalse(outcome.HasError);
+            Assert.AreEqual(1, library.BmsonSongs.Count);
+            Assert.AreSame(duplicateOwner, library.BmsonSongs[0]);
         });
     }
 

@@ -2498,6 +2498,306 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
+    /// 強制導入の本番入口を、primary hash lookupだけを先に温めた状態で実行し、
+    /// 確定した譜面がFS・SQLite・installed lookupへ反映されることを確認します。
+    /// </summary>
+    [TestMethod]
+    public void ForceInstallPendingPackages_UpdatesPrimaryLookupThroughLibraryInstall()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb((songDbPath, tempRootPath) =>
+        {
+            string installRootPath = Path.Combine(tempRootPath, "PrimaryOnlyInstalled");
+            string existingDirectoryPath = Path.Combine(installRootPath, "Existing");
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "PrimaryOnlySource");
+            string existingPath = CreateBmsFile(existingDirectoryPath, "existing.bms", "#TITLE Existing");
+            string sourcePath = CreateBmsFile(sourceDirectoryPath, "added.bms", "#TITLE Primary Only Added");
+            BMSFile existing = BMSFile.CreateBMSFileFromFile(existingPath);
+            BMSFile source = BMSFile.CreateBMSFileFromFile(sourcePath);
+            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            {
+                seedSongDb.InsertOrReplace(
+                    existing.CreateSongRowPersistenceCopy(),
+                    typeof(LR2SongDB.song));
+            }
+
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([source]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null!),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installRootPath,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [existing],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection([package]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            BMSLibrary.InstalledPrimaryHashWarmupResult primaryWarmup =
+                library.WarmInstalledPrimaryHashLookup("u5c1_primary_only_before_install");
+            Assert.AreEqual("installed_primary_hash", primaryWarmup.IndexName);
+            Assert.IsFalse(primaryWarmup.FullDirectoryLookupInitialized);
+            Assert.IsTrue(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
+
+            FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
+                [package],
+                approveNormalInstallOverride: true,
+                approvedNormalInstallOverridePackages: null);
+
+            Assert.IsTrue(receipt.HasDurableCommit);
+            Assert.IsFalse(receipt.HasDurableFinalizationFailure);
+            Assert.AreEqual(1, receipt.Receipts.Count);
+            Assert.IsTrue(receipt.Receipts[0].DurableCommit);
+            Assert.AreEqual(0, library.ChartPackagesPending.Count);
+            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+            BMSFile installed = library.BMSFiles.Single(file => file.hash == source.hash);
+            Assert.AreNotEqual(sourcePath, installed.path);
+            StringAssert.StartsWith(installed.path, installRootPath);
+            Assert.IsTrue(File.Exists(installed.path));
+            Assert.IsTrue(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
+
+            InstalledChartLookupIndexSnapshot installedLookup =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
+            Assert.IsTrue(installedLookup.ContainsPrimaryHash(existing.hash));
+            Assert.IsTrue(installedLookup.ContainsPrimaryHash(source.hash));
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM song WHERE path = ?;",
+                installed.path));
+            Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM song WHERE path = ?;",
+                sourcePath));
+        });
+    }
+
+    /// <summary>
+    /// 推定導入の本番入口で、実際に確定したexact pathへ譜面を追加し、
+    /// 既存行と新行のhashがinstalled lookupへ反映されることを確認します。
+    /// </summary>
+    [TestMethod]
+    public void InstallPendingPackagesToEstimatedDestinations_AddsExactTargetThroughLibraryInstall()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb((songDbPath, tempRootPath) =>
+        {
+            string installRootPath = Path.Combine(tempRootPath, "ExactInstalled");
+            string destinationDirectoryPath = Path.Combine(installRootPath, "Target");
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "ExactSource");
+            string oldDirectoryPath = Path.Combine(installRootPath, "Existing");
+            string oldPath = CreateBmsFile(oldDirectoryPath, "chart.bms", "#TITLE Original");
+            string addedPath = CreateBmsFile(sourceDirectoryPath, "added.bms", "#TITLE Replacement");
+            BMSFile oldChart = BMSFile.CreateBMSFileFromFile(oldPath);
+            BMSFile addedChart = BMSFile.CreateBMSFileFromFile(addedPath);
+            Assert.AreNotEqual(oldChart.hash, addedChart.hash);
+            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            {
+                seedSongDb.InsertOrReplace(
+                    oldChart.CreateSongRowPersistenceCopy(),
+                    typeof(LR2SongDB.song));
+            }
+
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    addedChart,
+                    destinationDirectoryPath));
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null!),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installRootPath,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [oldChart],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection([package]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            BMSLibrary.InstalledPrimaryHashWarmupResult primaryWarmup =
+                library.WarmInstalledPrimaryHashLookup("u5c1_exact_target_before_install");
+            Assert.IsFalse(primaryWarmup.FullDirectoryLookupInitialized);
+            Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
+
+            PendingInstallBatchResult result =
+                library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsFalse(result.HasDurableFinalizationFailure);
+            Assert.AreEqual(0, result.FailedPackages.Count);
+            Assert.AreEqual(1, result.MutationReceipt.Receipts.Count);
+            Assert.IsTrue(result.MutationReceipt.Receipts[0].DurableCommit);
+            Assert.AreEqual(
+                2,
+                library.BMSFiles.Count,
+                string.Join("|", library.BMSFiles.Select(file => file.path + ":" + file.hash)));
+            BMSFile installed = library.BMSFiles.Single(file => file.hash == addedChart.hash);
+            string expectedInstalledPath = Path.Combine(destinationDirectoryPath, "added.bms");
+            Assert.AreEqual(expectedInstalledPath, installed.path);
+            Assert.AreEqual(addedChart.hash, installed.hash);
+            Assert.IsTrue(File.Exists(expectedInstalledPath));
+            Assert.IsTrue(library.BMSFiles.Any(file => file.path == oldPath && file.hash == oldChart.hash));
+            InstalledChartLookupIndexSnapshot installedLookup =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
+            Assert.IsTrue(installedLookup.ContainsPrimaryHash(oldChart.hash));
+            Assert.IsTrue(installedLookup.ContainsPrimaryHash(addedChart.hash));
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM song WHERE path = ?;",
+                expectedInstalledPath));
+            Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
+                "SELECT COUNT(1) FROM song WHERE path = ?;",
+                oldPath));
+            Assert.AreEqual(2, verifySongDb.Table<LR2SongDB.song>().Count());
+            Assert.AreEqual(expectedInstalledPath, package.ChartEntries.Single().Chart.Path);
+        });
+    }
+
+    /// <summary>
+    /// 強制導入の本番入口で、別sourceから同一bytesを別destinationへ導入します。
+    /// distinct hash集合が変わらない場合のcontent versionとplaylist summary cacheを確認します。
+    /// </summary>
+    [TestMethod]
+    public void ForceInstallPendingPackages_SameDigestAdditionKeepsHashVersionAndPlaylistSummaryCache()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb((songDbPath, tempRootPath) =>
+        {
+            string installRootPath = Path.Combine(tempRootPath, "SameDigestInstalled");
+            string initialDirectoryPath = Path.Combine(installRootPath, "Initial");
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "SameDigestSource");
+            string initialPath = CreateBmsFile(initialDirectoryPath, "chart.bms", "#TITLE Same Digest");
+            string sourcePath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            File.Copy(initialPath, sourcePath, overwrite: true);
+            BMSFile initialChart = BMSFile.CreateBMSFileFromFile(initialPath);
+            BMSFile sourceChart = BMSFile.CreateBMSFileFromFile(sourcePath);
+            Assert.AreEqual(initialChart.hash, sourceChart.hash);
+            Assert.AreEqual(initialChart.sha256, sourceChart.sha256);
+            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            {
+                seedSongDb.InsertOrReplace(
+                    initialChart.CreateSongRowPersistenceCopy(),
+                    typeof(LR2SongDB.song));
+            }
+
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([sourceChart]);
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null!),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installRootPath,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = false,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                })
+            {
+                BMSFiles = [initialChart],
+                BmsonSongs = [],
+                ChartPackagesPending = CreatePackageCollection([package]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            OwnedChartHashIndexVersionedSnapshot initialHashes = library.GetOwnedChartHashIndexSnapshot();
+            Assert.AreEqual(1, initialHashes.GetMd5OwnerCount(initialChart.hash));
+            Assert.AreEqual(1, initialHashes.GetSha256OwnerCount(initialChart.sha256));
+            Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
+
+            var table = new BMSTable { playlist_id = 42 };
+            table.entries = [PlaylistSummaryAggregationTestSupport.CreateEntry(initialChart.hash, initialChart.sha256)];
+            var summaryOwner = new PlaylistCatalogSummaryOwner();
+            PlaylistSummaryCountResult initialSummary = summaryOwner.GetOrBuildTableCount(
+                table,
+                initialHashes,
+                CancellationToken.None,
+                out bool initialCacheHit);
+            PlaylistSummaryCountResult cachedSummary = summaryOwner.GetOrBuildTableCount(
+                table,
+                initialHashes,
+                CancellationToken.None,
+                out bool cachedCacheHit);
+            Assert.IsFalse(initialCacheHit);
+            Assert.IsTrue(cachedCacheHit);
+            Assert.AreEqual(1, initialSummary.OwnedCharts);
+            Assert.AreEqual(1, cachedSummary.OwnedCharts);
+
+            OwnedChartHashIndexVersionedSnapshot warmedHashes = library.GetOwnedChartHashIndexSnapshot();
+            Assert.AreEqual(initialHashes.Version, warmedHashes.Version);
+            Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
+            Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
+
+            FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
+                [package],
+                approveNormalInstallOverride: true,
+                approvedNormalInstallOverridePackages: null);
+
+            Assert.IsTrue(receipt.HasDurableCommit);
+            Assert.IsFalse(receipt.HasDurableFinalizationFailure);
+            Assert.AreEqual(
+                2,
+                library.BMSFiles.Count,
+                string.Join("|", library.BMSFiles.Select(file => file.path + ":" + file.hash)));
+            BMSFile installed = library.BMSFiles.Single(file =>
+                !string.Equals(initialPath, file.path, StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(initialChart.hash, installed.hash);
+            Assert.AreNotEqual(initialPath, installed.path);
+            StringAssert.StartsWith(installed.path, installRootPath);
+            Assert.IsTrue(File.Exists(installed.path));
+            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+
+            OwnedChartHashIndexVersionedSnapshot updatedHashes = library.GetOwnedChartHashIndexSnapshot();
+            PlaylistSummaryCountResult updatedSummary = summaryOwner.GetOrBuildTableCount(
+                table,
+                updatedHashes,
+                CancellationToken.None,
+                out bool updatedCacheHit);
+            Assert.AreEqual(initialHashes.Version, updatedHashes.Version);
+            Assert.AreEqual(2, updatedHashes.GetMd5OwnerCount(initialChart.hash));
+            Assert.AreEqual(2, updatedHashes.GetSha256OwnerCount(initialChart.sha256));
+            Assert.IsTrue(updatedCacheHit);
+            Assert.AreEqual(1, updatedSummary.TotalCharts);
+            Assert.AreEqual(1, updatedSummary.OwnedCharts);
+            Assert.AreEqual(installed.path, package.ChartEntries.Single().Chart.Path);
+        });
+    }
+
+    /// <summary>
     /// 自動導入も推定／強制導入と同じ本番catalog入口へ到達し、
     /// preflightで確定したdestinationをFS・SQLite・lookup・通知へ渡します。
     /// warmな背景件数を変えても、新規2譜面分の局所差分だけで反映します。

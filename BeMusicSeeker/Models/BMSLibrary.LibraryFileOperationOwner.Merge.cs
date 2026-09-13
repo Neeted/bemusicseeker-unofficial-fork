@@ -47,13 +47,14 @@ internal sealed partial class LibraryFileOperationOwner
                 List<ChartFile> preparedSourceCharts = [];
                 IPrimaryHashLookup existingHashes = EmptyPrimaryHashLookup.Instance;
                 IInstalledChartLookupIndex independentOwnershipLookup = null;
-                LibraryMutationDelta catalogDelta = null;
+                LibraryCatalogMutationFacts catalogFacts = null;
+                LibraryPackageReferenceFacts packageReferenceFacts = LibraryPackageReferenceFacts.Empty;
                 DetachedMergePackage detachedPackage = null;
                 RunWithMergeSnapshotLocks(() =>
                 {
                     List<ChartFile> sourceChartSnapshots = CreateOwnedRealPathChartSnapshotsUnsafe(sourceDirectory);
                     InstallDestinationOverlayChartRefSnapshot overlayChartRefs = CreateInstallDestinationOverlayChartRefSnapshot();
-                    catalogDelta = PrepareMergeDirectory(
+                    packageReferenceFacts = PrepareMergeDirectory(
                         sourceDirectory,
                         destinationDirectory,
                         sourceChartSnapshots,
@@ -93,16 +94,18 @@ internal sealed partial class LibraryFileOperationOwner
                     LogInstallPerformance,
                     installResult =>
                     {
-                        if (catalogDelta == null)
+                        if (catalogFacts == null)
                         {
                             return FileDbMutationCommitResult.Durable();
                         }
-                        FileDbMutationCommitResult databaseResult = ApplyLibraryMutationDeltaForFileMutation(
-                            catalogDelta,
+                        FileDbMutationCommitResult databaseResult = ApplyLibraryMutationFactsForFileMutation(
+                            catalogFacts,
+                            packageReferenceFacts,
                             "duplicate_merge_catalog_transition op=" + operationId,
                             suppressNormalRefreshNotification: false,
                             capability: mutationCapability,
-                            postLeaseNotificationObserver: mutationPostLeaseNotifications.Add);
+                            postLeaseNotificationObserver: mutationPostLeaseNotifications.Add,
+                            storageRowPathNotificationPolicy: LibraryStorageRowPathNotificationPolicy.Suppressed);
                         if (!databaseResult.DurableCommit)
                         {
                             return databaseResult;
@@ -179,8 +182,7 @@ internal sealed partial class LibraryFileOperationOwner
                             .Where(chart => chart != null && IsFilePathUnderDirectory(chart.Path, destinationDirectory))];
                         using IDisposable destinationOwnerPaths = TemporarilyApplyDestinationStorageOwnerPaths(destinationCharts);
                         movedTargets = ChartStorageTargetSet.FromCharts(destinationCharts);
-                        BuildMergeCatalogDelta(
-                            catalogDelta,
+                        catalogFacts = BuildMergeCatalogFacts(
                             preparedSourceCharts,
                             detachedPackage,
                             movedTargets);
@@ -407,16 +409,18 @@ internal sealed partial class LibraryFileOperationOwner
             mutationReceipt: mutationReceipt);
     }
 
-    private static void BuildMergeCatalogDelta(
-        LibraryMutationDelta catalogDelta,
+    private static LibraryCatalogMutationFacts BuildMergeCatalogFacts(
         IEnumerable<ChartFile> preparedSourceCharts,
         DetachedMergePackage detachedPackage,
         ChartStorageTargetSet movedTargets)
     {
-        if (catalogDelta == null || detachedPackage == null)
+        if (detachedPackage == null)
         {
-            return;
+            return LibraryCatalogMutationFacts.Empty;
         }
+
+        var pathChanges = new List<LibraryChartPathChange>();
+        var removalRequests = new List<OwnedChartRemoveRequest>();
 
         HashSet<string> sourceBmsPaths = new(
             (preparedSourceCharts ?? [])
@@ -440,7 +444,7 @@ internal sealed partial class LibraryFileOperationOwner
                 continue;
             }
             movedBmsSourcePaths.Add(canonicalBmsFile.path);
-            catalogDelta.ChartPathChanges.Add(new LibraryChartPathChange
+            pathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(canonicalBmsFile),
                 OldPath = canonicalBmsFile.path,
@@ -456,7 +460,7 @@ internal sealed partial class LibraryFileOperationOwner
                 continue;
             }
             movedBmsonSourcePaths.Add(canonicalBmsonSong.path);
-            catalogDelta.ChartPathChanges.Add(new LibraryChartPathChange
+            pathChanges.Add(new LibraryChartPathChange
             {
                 Chart = ChartFileProjection.FromBmsonStorageOwnerIdentity(canonicalBmsonSong),
                 OldPath = canonicalBmsonSong.path,
@@ -465,12 +469,13 @@ internal sealed partial class LibraryFileOperationOwner
         }
         foreach (string sourcePath in sourceBmsPaths.Where(path => !movedBmsSourcePaths.Contains(path)))
         {
-            catalogDelta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, sourcePath));
+            removalRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, sourcePath));
         }
         foreach (string sourcePath in sourceBmsonPaths.Where(path => !movedBmsonSourcePaths.Contains(path)))
         {
-            catalogDelta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, sourcePath));
+            removalRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, sourcePath));
         }
+        return new LibraryCatalogMutationFacts(removalRequests, pathChanges, []);
     }
 
     private void ShowFolderMergeFailed(string sourceDirectory, string destinationDirectory)

@@ -479,6 +479,46 @@ internal sealed partial class CatalogOwnedCollectionOwner
         StorageRowsVersionSnapshot storageRowsVersion,
         out bool bmsonCanonicalOrderNormalized)
     {
+        return ApplyMutationCore(
+            removeRequests,
+            pathChanges,
+            addedBmsFiles,
+            addedBmsonSongs,
+            storageRowsVersion,
+            out bmsonCanonicalOrderNormalized);
+    }
+
+    /// <summary>
+    /// durable catalogの削除・移動だけをowned collectionへ反映します。
+    /// </summary>
+    /// <param name="removeRequests">明示されたowner/path remove。</param>
+    /// <param name="pathChanges">durable commit後に確定したpath facts。</param>
+    /// <param name="storageRowsVersion">適用前後のstorage row version。</param>
+    /// <param name="bmsonCanonicalOrderNormalized">常にfalse。BMSON upsertを実行していないことを表します。</param>
+    /// <returns>owned collectionへmutationを適用できた場合は<see langword="true"/>。</returns>
+    internal bool ApplyMutation(
+        IReadOnlyList<OwnedChartRemoveRequest> removeRequests,
+        IReadOnlyList<LibraryChartPathChange> pathChanges,
+        StorageRowsVersionSnapshot storageRowsVersion,
+        out bool bmsonCanonicalOrderNormalized)
+    {
+        return ApplyMutationCore(
+            removeRequests,
+            pathChanges,
+            null,
+            null,
+            storageRowsVersion,
+            out bmsonCanonicalOrderNormalized);
+    }
+
+    private bool ApplyMutationCore(
+        IReadOnlyList<OwnedChartRemoveRequest> removeRequests,
+        IReadOnlyList<LibraryChartPathChange> pathChanges,
+        IReadOnlyList<BMSFile> addedBmsFiles,
+        IReadOnlyList<LR2SongDBExtended.bmson_song> addedBmsonSongs,
+        StorageRowsVersionSnapshot storageRowsVersion,
+        out bool bmsonCanonicalOrderNormalized)
+    {
         bmsonCanonicalOrderNormalized = false;
         lock (gate)
         {

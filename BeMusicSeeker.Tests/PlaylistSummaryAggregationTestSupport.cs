@@ -88,16 +88,6 @@ internal static class PlaylistSummaryAggregationTestSupport
         OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, songs);
     }
 
-    internal static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
-    {
-        library.ApplyLibraryMutationDelta(delta);
-    }
-
-    internal static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)
-    {
-        library.ApplyInstalledChartStorageTargets(addedTargets, "install_package");
-    }
-
     internal static void WithTemporarySongDb(System.Action<string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaylistSummaryAggregation_" + System.Guid.NewGuid().ToString("N"));
