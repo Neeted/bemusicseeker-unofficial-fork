@@ -110,7 +110,8 @@ internal static class OwnedChartCollectionTestSupport
         library.PropertyChanged += handler;
         try
         {
-            library.BMSFiles = [.. files ?? []];
+            BMSFile[] setupFiles = [.. files ?? []];
+            TestUiDispatcherHost.Invoke(() => library.BMSFiles = setupFiles);
             if (library.CatalogStorageRowsVersion.BmsRowsVersion != previousVersion)
             {
                 Assert.IsTrue(
@@ -138,7 +139,8 @@ internal static class OwnedChartCollectionTestSupport
         library.PropertyChanged += handler;
         try
         {
-            library.BmsonSongs = [.. songs ?? []];
+            LR2SongDBExtended.bmson_song[] setupSongs = [.. songs ?? []];
+            TestUiDispatcherHost.Invoke(() => library.BmsonSongs = setupSongs);
             if (library.CatalogStorageRowsVersion.BmsonRowsVersion != previousVersion)
             {
                 Assert.IsTrue(
