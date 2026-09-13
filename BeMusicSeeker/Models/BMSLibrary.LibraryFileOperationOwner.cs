@@ -59,13 +59,9 @@ internal sealed partial class LibraryFileOperationOwner
 
     private readonly Func<LibraryMutationDelta, string, bool, bool, LibraryFileMutationCapability, Action<Action>, FileDbMutationCommitResult> applyLibraryMutationDeltaWithCapability;
 
-    private readonly Func<LibraryMutationDelta, string, bool, Action<Action>, FileDbMutationCommitResult> applyLibraryMutationDeltaWithoutLr2NormalFolderSync;
-
     private readonly Func<IEnumerable<ChartFile>, bool, string, Action<Action>, MaintenanceWorkflowResult> applyCatalogMaintenanceUnderExistingReservation;
 
     private readonly Func<IEnumerable<ChartFile>, MaintenanceWorkflowResult> applyMergeFolderMaintenanceAfterRelease;
-
-    private readonly Action invalidateDuplicateChartGroupsCache;
 
     private readonly Action invalidateInstalledDirectoryIndex;
 
@@ -120,8 +116,8 @@ internal sealed partial class LibraryFileOperationOwner
 
     /// <summary>
     /// Creates the file-operation owner with the canonical catalog mutation
-    /// delegates.  Ordinary catalog apply stays capability-free; only callers
-    /// that own the final LR2 bridge provide a live mutation capability.
+    /// delegates. File mutations receive the live capability from their outer
+    /// lease so the final LR2 bridge and the catalog apply share ownership.
     /// Repair maintenance reuses that reservation and returns its notifications
     /// to the command for publication after the lease is released.
     /// Merge maintenance instead starts after release and acquires a fresh
@@ -145,7 +141,6 @@ internal sealed partial class LibraryFileOperationOwner
         Func<ChartFile, IEnumerable<string>> getDuplicateInstallRepairPaths,
         Func<IEnumerable<ChartFile>, bool, string, Action<Action>, MaintenanceWorkflowResult> applyCatalogMaintenanceUnderExistingReservation,
         Func<IEnumerable<ChartFile>, MaintenanceWorkflowResult> applyMergeFolderMaintenanceAfterRelease,
-        Action invalidateDuplicateChartGroupsCache,
         Action invalidateInstalledDirectoryIndex,
         Action<string, DirectoryResourceLookupCache.ReverseLookupMutationResult> logReverseLookupMutationAndQueueWarmupIfNeeded,
         Action<string> logInstallPerformance,
@@ -154,8 +149,7 @@ internal sealed partial class LibraryFileOperationOwner
         Action<Exception, string> logFileWarning,
         FileMutationOptions targetOnlyFileMutationOptions,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
-        Func<LibraryMutationDelta, string, bool, bool, LibraryFileMutationCapability, Action<Action>, FileDbMutationCommitResult> applyLibraryMutationDeltaWithCapability,
-        Func<LibraryMutationDelta, string, bool, Action<Action>, FileDbMutationCommitResult> applyLibraryMutationDeltaWithoutLr2NormalFolderSync)
+        Func<LibraryMutationDelta, string, bool, bool, LibraryFileMutationCapability, Action<Action>, FileDbMutationCommitResult> applyLibraryMutationDeltaWithCapability)
     {
         this.synchronization = synchronization ?? throw new ArgumentNullException(nameof(synchronization));
         this.libraryFileOperationsService = libraryFileOperationsService ?? throw new ArgumentNullException(nameof(libraryFileOperationsService));
@@ -174,12 +168,9 @@ internal sealed partial class LibraryFileOperationOwner
         this.getDuplicateInstallRepairPaths = getDuplicateInstallRepairPaths ?? throw new ArgumentNullException(nameof(getDuplicateInstallRepairPaths));
         this.applyLibraryMutationDeltaWithCapability = applyLibraryMutationDeltaWithCapability
             ?? throw new ArgumentNullException(nameof(applyLibraryMutationDeltaWithCapability));
-        this.applyLibraryMutationDeltaWithoutLr2NormalFolderSync = applyLibraryMutationDeltaWithoutLr2NormalFolderSync
-            ?? throw new ArgumentNullException(nameof(applyLibraryMutationDeltaWithoutLr2NormalFolderSync));
         this.applyCatalogMaintenanceUnderExistingReservation = applyCatalogMaintenanceUnderExistingReservation ?? throw new ArgumentNullException(nameof(applyCatalogMaintenanceUnderExistingReservation));
         this.applyMergeFolderMaintenanceAfterRelease = applyMergeFolderMaintenanceAfterRelease
             ?? throw new ArgumentNullException(nameof(applyMergeFolderMaintenanceAfterRelease));
-        this.invalidateDuplicateChartGroupsCache = invalidateDuplicateChartGroupsCache ?? throw new ArgumentNullException(nameof(invalidateDuplicateChartGroupsCache));
         this.invalidateInstalledDirectoryIndex = invalidateInstalledDirectoryIndex ?? throw new ArgumentNullException(nameof(invalidateInstalledDirectoryIndex));
         this.logReverseLookupMutationAndQueueWarmupIfNeeded = logReverseLookupMutationAndQueueWarmupIfNeeded ?? throw new ArgumentNullException(nameof(logReverseLookupMutationAndQueueWarmupIfNeeded));
         this.logInstallPerformance = logInstallPerformance ?? throw new ArgumentNullException(nameof(logInstallPerformance));
@@ -439,24 +430,6 @@ internal sealed partial class LibraryFileOperationOwner
             suppressNormalRefreshNotification,
             suppressLr2NormalFolderSync,
             capability,
-            postLeaseNotificationObserver);
-    }
-
-    /// <summary>
-    /// Applies the ordinary catalog/database portion of a file mutation while
-    /// leaving the final LR2 bridge to the outer lease owner.
-    /// </summary>
-    internal FileDbMutationCommitResult ApplyLibraryMutationDeltaForFileMutationWithoutLr2NormalFolderSync(
-        LibraryMutationDelta delta,
-        string reason,
-        Action<Action> postLeaseNotificationObserver,
-        bool suppressNormalRefreshNotification = false)
-    {
-        ArgumentNullException.ThrowIfNull(postLeaseNotificationObserver);
-        return applyLibraryMutationDeltaWithoutLr2NormalFolderSync(
-            delta,
-            reason,
-            suppressNormalRefreshNotification,
             postLeaseNotificationObserver);
     }
 
@@ -785,11 +758,6 @@ internal sealed partial class LibraryFileOperationOwner
         // No notification action is stored on the receipt.
     }
 
-    internal void InvalidateDuplicateChartGroupsCache()
-    {
-        invalidateDuplicateChartGroupsCache();
-    }
-
     internal void LogReverseLookupMutationAndQueueWarmupIfNeeded(
         string reason,
         DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult)
@@ -891,14 +859,18 @@ internal sealed partial class LibraryFileOperationOwner
     /// Applies the planned folder renames and returns the durable batch receipt.
     /// LR2 synchronization remains owned by the final catalog mutation bridge.
     /// </summary>
+    /// <param name="mutationCapability">外側のfolder mutation leaseが保持するlive capability。</param>
     internal AutoRenameBatchResult ApplyAutoRenamePlansWithReceipt(
         IEnumerable<FolderAutoRenamePlan> plans,
+        LibraryFileMutationCapability mutationCapability,
         Action<int, int, string> progressReporter,
         ICollection<Action> postLeaseNotifications)
     {
+        ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
         return autoRenameBatchCoordinator.ApplyWithReceipts(
             plans,
+            mutationCapability,
             postLeaseNotifications,
             progressReporter);
     }
@@ -1275,10 +1247,7 @@ internal sealed partial class LibraryFileOperationOwner
     {
         var delta = new LibraryMutationDelta
         {
-            NotifyStorageRowPathChanges = true,
-            InvalidateInstalledDirectoryIndex = true,
-            InvalidateParentFolderCache = true,
-            ClearDuplicatedCache = true
+            NotifyStorageRowPathChanges = true
         };
         delta.ChartPathChanges.Add(new LibraryChartPathChange
         {
@@ -1696,8 +1665,6 @@ internal sealed partial class LibraryFileOperationOwner
                     break;
             }
         }
-        delta.InvalidateInstalledDirectoryIndex = delta.ChartPathChanges.Count > 0 || delta.ChartRemoveRequests.Count > 0;
-        delta.InvalidateParentFolderCache = delta.ChartPathChanges.Count > 0 || delta.ChartRemoveRequests.Count > 0;
         return delta;
     }
 

@@ -69,6 +69,7 @@ public partial class BMSLibrary
                             : null;
                     result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
                         plans,
+                        mutationCapability,
                         (total, processed, currentPath) => progressWriter.TryWrite(
                             new FolderAutoRenameProgressUpdate(total, processed, currentPath)),
                         postLeaseNotifications);
@@ -127,6 +128,7 @@ public partial class BMSLibrary
                             TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans);
                         result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
                             plans,
+                            mutationCapability,
                             (total, processed, currentPath) => progressWriter.TryWrite(
                                 new FolderAutoRenameProgressUpdate(total, processed, currentPath)),
                             postLeaseNotifications);

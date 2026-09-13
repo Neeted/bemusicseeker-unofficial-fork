@@ -868,9 +868,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 .Select(ToChartFile)
                 .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
                 .Where(request => request != null));
-            delta.InvalidateInstalledDirectoryIndex = targetCharts.Count > 0;
-            delta.InvalidateParentFolderCache = targetCharts.Count > 0;
-            delta.ClearDuplicatedCache = targetCharts.Count > 0;
             return delta;
         }
         delta.UpdatedInstallDestinations.AddRange(EnumerateInstallDestinationChangesUnderFolder(pendingPackages, installDestinationOverlayCharts, srcDir, dstDir));
@@ -917,9 +914,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         delta.NotifyStorageRowPathChanges = notifyStorageRowPathChanges && delta.ChartPathChanges.Count > 0;
         delta.RaiseInstalledPackagesChanged = delta.UpdatedInstalledPackagePaths.Count > 0;
-        delta.InvalidateInstalledDirectoryIndex = delta.ChartPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
-        delta.InvalidateParentFolderCache = delta.ChartPathChanges.Count > 0;
-        delta.ClearDuplicatedCache = delta.ChartPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
         return delta;
     }
 
@@ -1200,8 +1194,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         result.ReferenceMutationDelta.RaiseInstalledPackagesChanged = result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
-        result.ReferenceMutationDelta.InvalidateInstalledDirectoryIndex = result.ReferenceMutationDelta.UpdatedInstallDestinations.Count > 0 || result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
-        result.ReferenceMutationDelta.ClearDuplicatedCache = result.ReferenceMutationDelta.UpdatedInstallDestinations.Count > 0 || result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
         result.Success = result.SourceCharts.Count > 0;
         return result;
     }
@@ -1423,8 +1415,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     break;
             }
         }
-        delta.InvalidateInstalledDirectoryIndex = delta.ChartPathChanges.Count > 0 || delta.ChartRemoveRequests.Count > 0;
-        delta.InvalidateParentFolderCache = delta.ChartPathChanges.Count > 0 || delta.ChartRemoveRequests.Count > 0;
         stopwatch.Stop();
         delta.TotalMs = stopwatch.ElapsedMilliseconds;
         return delta;

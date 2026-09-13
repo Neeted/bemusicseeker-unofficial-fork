@@ -1,6 +1,6 @@
 # ライブラリ変更要求の統合と操作全体の性能改善計画
 
-状態: 利用者がU1～U5の実装・単位ごとの必要なcommitを承認。U1実装・Quick・Functional・独立レビュー完了。U2の独立テスト設計承認済み（2026-09-13）。調査基準は `6d35c789`、計画記録commitは `007b3216`。
+状態: 利用者がU1～U5の実装・単位ごとの必要なcommitを承認。U1完了commit e6b58ffc。U2実装・検証・独立レビュー完了（修正必須指摘なし）。U3の独立テスト設計承認済み（2026-09-13）。調査基準は `6d35c789`、計画記録commitは `007b3216`。
 
 ## 1. 目的と結論
 
@@ -145,7 +145,7 @@ U5を口実に各単位で使わなくなった実装を温存しない。一方
 
 | 現在残る本番caller群 | 移行担当 | 旧経路を除く条件 |
 | --- | --- | --- |
-| `LibraryFileOperationOwner` の削除・merge | U1 | exact cleanupと索引用旧factsを同じ共通commitへ渡し、caller別失効指定が不要になる。 |
+| 削除・merge（移行済み） | U1 / e6b58ffc | exact cleanupと旧factsを共通commitへ統合。caller別失効指定を退役済み。 |
 | folder move / auto rename / invalid extension / repair | U2 | 配置変更を同じfacts契約で確定し、batch同期と既存予約内処理をowner内部から呼べる。 |
 | `BMSLibrary.PackageInstall` の自動・強制・推定先導入・resource上書き | U3 | packageごとの確定・反映・terminal結果を共通契約で扱える。pure pending/package操作のAPIは対象外。 |
 | `CatalogChartInfoOwner` / `CatalogMaintenanceOwner` | U4 metadata | narrow write後のfactsが共通反映に入り、digest等の二重組立てがなくなる。 |
@@ -213,7 +213,7 @@ U5を口実に各単位で使わなくなった実装を温存しない。一方
 
 - 共通の除去要求解決で、DBのexact cleanup指定と、現在の正本に実在する対象の変更前factsを捕捉する。マージだけでowner参照削除へ置き換えない。通常削除とマージから同じ処理を使用する。
 - DBだけに残る行のcleanupは維持する。存在しない正本を削除したという索引差分を作らず、package等の残留path整理に必要な情報は失わない。
-- U1で連続操作の全失効・再構築を防ぐ索引は、primary/full installed、所持hash、playlist解決とする。resource-healthは対象除去factsを利用するが、merge後再検査の既存defer・予約解放後の実行契約を変更しない。各索引のstate所有移動はU5。
+- U1で連続操作の全失効・再構築を防いだ索引は、primary/full installed、所持hash、playlist解決とする。resource-healthは対象除去factsを利用するが、merge後再検査の既存defer・予約解放後の実行契約を変更しない。各索引のstate所有移動はU5。
 - `BuildMergeCatalogDelta` と通常削除のcaller指定失効は、実際の共通factsに基づく反映判断へ移す。未移行の配置変更・導入のcaller用fieldは当該単位まで残し、U1の入口からは使用しない。
 - 対象がないmergeではprimary/full lookupを取得しない。coldで必要な所有判定の初回構築は許容し、同世代の再利用・2回目以降を確認する。
 - productionの書込み対象は `BMSLibrary.cs`、`BMSLibrary.LibraryFileOperationOwner.cs` / `.Merge.cs`、`BmsLibraryInternal/OwnedChartRemoveRequest.cs`、`OwnedChartCollectionState.cs`、`CatalogOwnedCollectionOwner.cs`、`CatalogMutationOwner.cs`、`CatalogRelocationRequest.cs` と同じ除去requestの定義・利用箇所に限定する。追加pathが必要なら到達経路と理由をrootへ返す。
@@ -232,3 +232,17 @@ U5を口実に各単位で使わなくなった実装を温存しない。一方
 - Functional: 4,808件成功・11件skip、テスト実行257.5秒。事前format/analyzer・build成功。180秒のreporting target超過、300秒の上限内。
 - 背景16/128件で固定差分の2操作、後続lookup、旧snapshot、実FS/DBを確認。21万譜面のwall-clockや実gatewayのSQL仕事量は未測定。
 - 独立レビューは修正必須の指摘なし。U1をcommitし、U2～U5を直列で継続する。
+
+### U3の実装範囲
+
+- [U3 Test Contract Packet](library-mutation-u3-test-contract.md) を独立設計後にroot承認。U2完了後、通常導入とresource-onlyの受入を区別して直列実装する。
+- auto/estimated/force/resource-onlyは既存の共通installed upsertに到達する。確定destinationを持つtargetからdetached DB projectionを作り、durable後にliveへ適用する。一時的なowner.path差替えscopeと復元処理を退役する。
+- 生産書込みはBMSLibrary.PackageInstall、BMSLibraryのinstalled upsert/common semantic/dispatch、CatalogMutationOwnerのinstalled request/receipt、ChartStorageTargetSet、必要な既存package result/serviceとする。各packageのFSDB/required completion/cleanupと先行receiptは維持し、索引state所有移動はU5で行う。
+- 新しい意味決定は不要。15filesまたは3subsystemを超える場合はpacketのU3a→U3b分割を適用する。
+
+### U2の検証記録
+
+- 配置変更の失効指定、auto renameの権限なし専用apply、手動moveの重複cache直接失効を共通facts反映へ統合した。FileScan producerの旧fieldはU4まで残る。
+- 六fixture Quickは163成功・3skip。通常拡張子の登録解除caseを補完し、package install fixtureは153成功。補完前Functionalは4,808成功・11skip、268.8秒。
+- 補完後Functionalは4,809成功・11skip、256.5秒。事前format/analyzer/build成功。いずれも300秒内、180秒target超過。
+- Functional後にcallerゼロのcallback field/ctor/forwardingを機械的に退役し六fixture Quick（163成功・3skip）で補完した。受付・実行経路・検証前提を変更しないため、この削除だけを理由にFunctionalを再実行しない。凍結レビューで確認する。

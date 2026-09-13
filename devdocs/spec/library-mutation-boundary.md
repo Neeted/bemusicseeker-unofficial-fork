@@ -204,6 +204,10 @@ folder move、auto-rename、merge の snapshot は initialized-min read、pendin
 
 ネストされた DB / catalog / file apply は、現在の outer lease から明示的に発行された `LibraryFileMutationCapability` を引数として渡す。capability は所有者、lease の生存、dispose 状態を検証し、ambient `AsyncLocal`、thread、monitor reentrancy を認可には使用しない。通常の外部 entry は同一 thread からの再入でも拒否する。
 
+配置変更の反映範囲は、共通applyが成功したstorage/path、folder、install destination、installed package pathのfactsから決める。move・手動/自動rename・通常拡張子修正・導入先修正のcallerは索引失効を個別指定しない。自動renameは各itemのcatalog applyにも外側のlive capabilityを渡し、LR2 normal-folder同期と通常refreshは既存のbatch終端で集約する。権限なしの専用apply callbackは持たない。
+
+この契約の実装は LibraryFileOperationOwner、AutoRenameBatchCoordinator、BMSLibraryの共通反映、LibraryFolderMoveCoordinatorに対応する。BmsLibraryFolderRenameRefreshTestsの実rename（背景16/128・2操作）、auto batch/部分失敗、repairと、BmsLibraryPackageInstallServiceTests.RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner、関連workflow testsで、FS/DB、索引、旧snapshot、通知と受付を確認する。
+
 `installable_maintenance` は自身の outer `LibraryFileMutationLease` を一度だけ取得し、mode detection と catalog maintenance をその lease 内の通常処理として capability-free に完了する。内側で lease を取り直さず、Unit A のこの route では `LibraryFileMutationCapability` を作成・伝播しない。capability を保持するのは、package の installed-target durable completion から LR2 normal-folder sync までを同じ outer lease でつなぐ実在の nested bridge だけであり、その bridge の under-existing-lease entry で owner / lease lifetime / dispose を一度だけ検証する。
 
 LR2 custom-folder 出力を伴うローカル playlist 編集は、entry hydration と active-table の初期確認を終えてから、モデル変更前に同じ非ブロッキング lease を取得する。busy の場合は待機や内部 retry を行わず、モデル、playlist DB、LR2 folder row、生成ファイル、BMT queue を変更せずに明示失敗する。lease 取得後は active membership を対象 table だけ再確認し、短い table mutation、playlist DB apply、対象 custom-folder projection と LR2 row sync を同じ capability で完了する。terminal publication と BMT queue は lease 解放後に行う。`commitFlag=false` と LR2 mode 無効時はこの file-mutation lease を取得しない。

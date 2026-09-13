@@ -25,11 +25,14 @@ internal sealed class AutoRenameBatchCoordinator
     /// public notifications; dialogs, logs, and authoritative publication
     /// remain deferred until the outer lease has been released.
     /// </summary>
+    /// <param name="mutationCapability">外側のfolder mutation leaseが保持するlive capability。</param>
     internal AutoRenameBatchResult ApplyWithReceipts(
         IEnumerable<FolderAutoRenamePlan> plans,
+        LibraryFileMutationCapability mutationCapability,
         ICollection<Action> postLeaseNotifications,
         Action<int, int, string> progressReporter = null)
     {
+        ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
         long operationId = Stopwatch.GetTimestamp();
         Stopwatch totalStopwatch = Stopwatch.StartNew();
@@ -125,11 +128,13 @@ internal sealed class AutoRenameBatchCoordinator
                     List<Action> mutationPostLeaseNotifications = [];
                     FileDbMutationReceipt mutationReceipt = host.CreateFileDbMutationExecutor(mutationPlan).Execute(() =>
                     {
-                        databaseResult = host.ApplyLibraryMutationDeltaForFileMutationWithoutLr2NormalFolderSync(
+                        databaseResult = host.ApplyLibraryMutationDeltaForFileMutation(
                             mutationDelta,
                             "auto_rename_folder",
+                            mutationCapability,
+                            mutationPostLeaseNotifications.Add,
                             suppressNormalRefreshNotification: true,
-                            postLeaseNotificationObserver: mutationPostLeaseNotifications.Add);
+                            suppressLr2NormalFolderSync: true);
                         if (!databaseResult.DurableCommit)
                         {
                             return databaseResult;

@@ -438,22 +438,34 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Path.GetTempPath(),
                 "BeMusicSeeker_LocalBmsScopeCapture_" + Guid.NewGuid().ToString("N"));
             string libraryRootPath = Path.Combine(tempRootPath, "LibraryRoot");
-            string sourceDirectoryPath = Path.Combine(libraryRootPath, "TargetSource");
+            string firstSourceDirectoryPath = Path.Combine(libraryRootPath, "TargetSource1");
+            string secondSourceDirectoryPath = Path.Combine(libraryRootPath, "TargetSource2");
             string backgroundDirectoryPath = Path.Combine(libraryRootPath, "Background");
-            string targetChartPath = Path.Combine(sourceDirectoryPath, "target.bms");
+            string firstTargetChartPath = Path.Combine(firstSourceDirectoryPath, "target-1.bms");
+            string secondTargetChartPath = Path.Combine(secondSourceDirectoryPath, "target-2.bms");
             string lr2RootPath = Path.Combine(tempRootPath, "LR2beta3");
-            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(firstSourceDirectoryPath);
+            Directory.CreateDirectory(secondSourceDirectoryPath);
             Directory.CreateDirectory(backgroundDirectoryPath);
             File.WriteAllText(
-                targetChartPath,
-                "#PLAYER 1\r\n#TITLE Target Title\r\n#ARTIST Target Artist\r\n");
+                firstTargetChartPath,
+                "#PLAYER 1\r\n#TITLE Target Title 1\r\n#ARTIST Target Artist 1\r\n");
+            File.WriteAllText(
+                secondTargetChartPath,
+                "#PLAYER 1\r\n#TITLE Target Title 2\r\n#ARTIST Target Artist 2\r\n");
             try
             {
-                var target = new TestableBmsFile { path = targetChartPath };
-                target.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-                target.SetTitle("Target Title");
-                target.SetArtist("Target Artist");
-                var files = new List<TestableBmsFile> { target };
+                var firstTarget = new TestableBmsFile { path = firstTargetChartPath };
+                firstTarget.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                firstTarget.SetTitle("Target Title 1");
+                firstTarget.SetArtist("Target Artist 1");
+                firstTarget.SetFavorite(1);
+                var secondTarget = new TestableBmsFile { path = secondTargetChartPath };
+                secondTarget.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+                secondTarget.SetTitle("Target Title 2");
+                secondTarget.SetArtist("Target Artist 2");
+                secondTarget.SetFavorite(0);
+                var files = new List<TestableBmsFile> { firstTarget, secondTarget };
                 for (int index = 0; index < backgroundChartCount; index++)
                 {
                     var background = new TestableBmsFile
@@ -489,42 +501,155 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 }
 
-                var before =
-                    library.WarmOwnedRealPathDirectoryView("R3局所BMS範囲捕捉前");
-                if (autoRename)
+                BMSLibrary.InstalledPrimaryHashWarmupResult initialPrimary =
+                    library.WarmInstalledPrimaryHashLookup("U2配置変更初期primary");
+                Assert.IsFalse(initialPrimary.FullDirectoryLookupInitialized);
+                OwnedChartHashIndexVersionedSnapshot initialHash = library.GetOwnedChartHashIndexSnapshot();
+                InstalledChartLookupIndexSnapshot initialInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
+                PlaylistLibraryResolveIndexSnapshot initialPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool initialPlaylistCacheHit,
+                    out int initialPlaylistStaleRetries);
+                Assert.IsFalse(initialPlaylistCacheHit);
+                Assert.AreEqual(0, initialPlaylistStaleRetries);
+                Assert.IsTrue(initialHash.ContainsMd5(firstTarget.hash));
+                Assert.IsTrue(initialHash.ContainsMd5(secondTarget.hash));
+                Assert.IsTrue(initialInstalled.ContainsPrimaryHash(firstTarget.hash));
+                Assert.IsTrue(initialInstalled.ContainsPrimaryHash(secondTarget.hash));
+                Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, firstTarget.path));
+                Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, secondTarget.path));
+
+                List<string> hashWork = [];
+                List<string> playlistWork = [];
+                List<string> installedWork = [];
+                library.OwnedChartHashIndexStoreWorkObserver = hashWork.Add;
+                library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
+                library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
+
+                (TestableBmsFile Target, string SourceDirectory, string DestinationName, int Favorite)[] operations =
                 {
-                    AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult(
-                        [ChartFileProjection.FromBmsFile(target)]);
-                    Assert.IsTrue(result.HasDurableCommit);
-                }
-                else
+                    (firstTarget, firstSourceDirectoryPath, autoRename
+                        ? "[Target Artist 1] Target Title 1"
+                        : "Renamed1", 1),
+                    (secondTarget, secondSourceDirectoryPath, autoRename
+                        ? "[Target Artist 2] Target Title 2"
+                        : "Renamed2", 0)
+                };
+                var before = library.WarmOwnedRealPathDirectoryView("U2配置変更warmup前");
+                foreach ((TestableBmsFile target, string sourceDirectoryPath, string destinationName, int favorite) in operations)
                 {
-                    FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
-                        sourceDirectoryPath,
-                        "Renamed");
-                    Assert.IsNotNull(receipt);
-                    Assert.IsTrue(receipt.DurableCommit);
+                    string oldChartPath = target.path;
+                    if (autoRename)
+                    {
+                        AutoRenameBatchResult result = library.AutoRenameChartFoldersWithResult(
+                            [ChartFileProjection.FromBmsFile(target)]);
+                        Assert.IsTrue(result.HasDurableCommit);
+                    }
+                    else
+                    {
+                        FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                            sourceDirectoryPath,
+                            destinationName);
+                        Assert.IsNotNull(receipt);
+                        Assert.IsTrue(receipt.DurableCommit);
+                    }
+
+                    var after = library.WarmOwnedRealPathDirectoryView("U2配置変更warmup後");
+                    int countQueryDelta = after.BmsCountQueryCount - before.BmsCountQueryCount;
+                    int rangeQueryDelta = after.BmsRangeQueryCount - before.BmsRangeQueryCount;
+                    int visitedReferenceDelta =
+                        after.BmsRangeVisitedReferenceCount - before.BmsRangeVisitedReferenceCount;
+                    int returnedPathDelta = after.BmsRangeReturnedPathCount - before.BmsRangeReturnedPathCount;
+                    Assert.IsTrue(countQueryDelta > 0, "配置変更ごとにBMS祖先件数queryを実行すること。");
+                    Assert.IsTrue(rangeQueryDelta > 0, "配置変更ごとにBMS範囲queryを実行すること。");
+                    Assert.IsTrue(returnedPathDelta > 0, "対象BMSのexact pathを配置変更receiptへ保持すること。");
+                    Assert.IsTrue(
+                        visitedReferenceDelta <= 1,
+                        $"対象1譜面の局所範囲queryが訪問したref数は1以下であること（実測{visitedReferenceDelta}、背景{backgroundChartCount}）。");
+                    before = after;
+
+                    string destinationDirectoryPath = Path.Combine(libraryRootPath, destinationName);
+                    string destinationChartPath = Path.Combine(destinationDirectoryPath, Path.GetFileName(oldChartPath));
+                    Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+                    Assert.IsTrue(File.Exists(destinationChartPath));
+                    Assert.AreEqual(destinationChartPath, target.path);
+
+                    using (var verifySongDb = new LR2SongDBExtended(songDbPath))
+                    {
+                        string[] dbPaths = verifySongDb.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
+                        Assert.IsFalse(dbPaths.Contains(oldChartPath, StringComparer.OrdinalIgnoreCase));
+                        Assert.IsTrue(dbPaths.Contains(destinationChartPath, StringComparer.OrdinalIgnoreCase));
+                        LR2SongDB.song row = verifySongDb.Table<LR2SongDB.song>().Single(
+                            candidate => string.Equals(candidate.path, destinationChartPath, StringComparison.OrdinalIgnoreCase));
+                        Assert.AreEqual((int?)favorite, row.favorite);
+                        foreach (TestableBmsFile file in files)
+                        {
+                            Assert.IsTrue(
+                                dbPaths.Contains(file.path, StringComparer.OrdinalIgnoreCase),
+                                "配置変更後も対象と未対象のsong rowを保持します。");
+                        }
+                    }
+
+                    OwnedChartHashIndexVersionedSnapshot updatedHash = library.GetOwnedChartHashIndexSnapshot();
+                    OwnedChartHashIndexVersionedSnapshot cachedHash = library.GetOwnedChartHashIndexSnapshot();
+                    InstalledChartLookupIndexSnapshot updatedInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
+                    InstalledChartLookupIndexSnapshot cachedInstalled = InvokeCreateInstalledChartLookupSnapshot(library);
+                    BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
+                        library.WarmInstalledPrimaryHashLookup("U2配置変更primary");
+                    BMSLibrary.InstalledPrimaryHashWarmupResult cachedPrimary =
+                        library.WarmInstalledPrimaryHashLookup("U2配置変更primary");
+                    PlaylistLibraryResolveIndexSnapshot updatedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                        CancellationToken.None,
+                        out bool updatedPlaylistCacheHit,
+                        out int updatedPlaylistStaleRetries);
+                    PlaylistLibraryResolveIndexSnapshot cachedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                        CancellationToken.None,
+                        out bool cachedPlaylistCacheHit,
+                        out int cachedPlaylistStaleRetries);
+
+                    Assert.AreSame(updatedHash, cachedHash);
+                    Assert.AreEqual(initialHash.Version, updatedHash.Version);
+                    Assert.AreEqual(initialHash.Md5Count, updatedHash.Md5Count);
+                    Assert.AreEqual(initialHash.Sha256Count, updatedHash.Sha256Count);
+                    Assert.IsTrue(updatedHash.ContainsMd5(firstTarget.hash));
+                    Assert.IsTrue(updatedHash.ContainsMd5(secondTarget.hash));
+                    Assert.AreSame(updatedInstalled, cachedInstalled);
+                    Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(target.hash));
+                    Assert.IsFalse(updatedInstalled.GetDistinctDirectoriesByPrimaryHash(target.hash)
+                        .Contains(sourceDirectoryPath, StringComparer.OrdinalIgnoreCase));
+                    Assert.IsTrue(updatedInstalled.GetDistinctDirectoriesByPrimaryHash(target.hash)
+                        .Contains(destinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
+                    Assert.AreEqual("cached", updatedPrimary.Status);
+                    Assert.AreEqual(0L, updatedPrimary.BuildMs);
+                    Assert.AreEqual("cached", cachedPrimary.Status);
+                    Assert.AreEqual(0L, cachedPrimary.BuildMs);
+                    Assert.IsTrue(updatedPrimary.FullDirectoryLookupInitialized);
+                    Assert.IsTrue(updatedPlaylistCacheHit);
+                    Assert.AreEqual(0, updatedPlaylistStaleRetries);
+                    Assert.IsTrue(cachedPlaylistCacheHit);
+                    Assert.AreEqual(0, cachedPlaylistStaleRetries);
+                    Assert.AreSame(updatedPlaylist, cachedPlaylist);
+                    Assert.IsFalse(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, oldChartPath));
+                    Assert.IsTrue(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, destinationChartPath));
+                    Assert.IsTrue(initialInstalled.ContainsPrimaryHash(target.hash));
+                    Assert.IsTrue(initialInstalled.GetDistinctDirectoriesByPrimaryHash(target.hash)
+                        .Contains(sourceDirectoryPath, StringComparer.OrdinalIgnoreCase));
+                    Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, oldChartPath));
+                    Assert.IsFalse(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, destinationChartPath));
                 }
 
-                var after =
-                    library.WarmOwnedRealPathDirectoryView("R3局所BMS範囲捕捉後");
-                int countQueryDelta = after.BmsCountQueryCount - before.BmsCountQueryCount;
-                int rangeQueryDelta = after.BmsRangeQueryCount - before.BmsRangeQueryCount;
-                int visitedReferenceDelta =
-                    after.BmsRangeVisitedReferenceCount - before.BmsRangeVisitedReferenceCount;
-                int returnedPathDelta = after.BmsRangeReturnedPathCount - before.BmsRangeReturnedPathCount;
-
-                Assert.IsTrue(countQueryDelta > 0, "receipt捕捉ではBMS祖先件数queryを実行すること。");
-                Assert.IsTrue(rangeQueryDelta > 0, "receipt捕捉ではBMS範囲queryを実行すること。");
-                Assert.IsTrue(returnedPathDelta > 0, "receipt捕捉では対象BMSのexact pathを保持すること。");
                 Assert.IsTrue(
-                    visitedReferenceDelta <= 1,
-                    $"対象1譜面の局所範囲queryが訪問したref数は1以下であること（実測{visitedReferenceDelta}、背景{backgroundChartCount}）。");
-
-                string destinationDirectoryPath = autoRename
-                    ? Path.Combine(libraryRootPath, "[Target Artist] Target Title")
-                    : Path.Combine(libraryRootPath, "Renamed");
-                Assert.AreEqual(Path.Combine(destinationDirectoryPath, "target.bms"), target.path);
+                    hashWork.Count(operation => operation == "owned_hash_source_enumeration") == 0,
+                    "配置変更後のowned hash getterがsource全体を再列挙しました。");
+                Assert.IsTrue(
+                    playlistWork.Count(operation => operation == "playlist_resolve_source_enumeration" || operation == "playlist_resolve_full_root_enumeration") == 0,
+                    "配置変更後のplaylist resolve getterがsource全体を再列挙しました。");
+                Assert.IsTrue(
+                    installedWork.Count(operation => operation == "installed_primary_hash_count_update") <= 8,
+                    "配置変更後にinstalled lookupを全件再構築しました。");
+                Assert.IsTrue(
+                    installedWork.Count(operation => operation == "installed_primary_hash_count_update") > 0,
+                    "実配置変更のinstalled lookup差分更新を観測できませんでした。");
             }
             finally
             {
@@ -2228,10 +2353,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
                 CollectionAssert.AreEqual(new[] { oldDirectoryPath }, initial.Md5Directories[hash].ToArray());
 
-                var delta = new LibraryMutationDelta
-                {
-                    InvalidateInstalledDirectoryIndex = true
-                };
+                var delta = new LibraryMutationDelta();
                 delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
                     Chart = ChartFileProjection.FromBmsFile(file),

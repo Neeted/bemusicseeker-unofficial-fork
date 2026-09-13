@@ -2917,10 +2917,6 @@ public partial class BMSLibrary : ObservableObject
                 forceUpdate: true,
                 resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
                 resourceHealthMutationReason: "merge_folder"),
-            () =>
-            {
-                InvalidateDuplicateChartGroupsCache();
-            },
             InvalidateInstalledDirectoryIndex,
             LogReverseLookupMutationAndQueueWarmupIfNeeded,
             LogInstallPerformance,
@@ -2929,8 +2925,7 @@ public partial class BMSLibrary : ObservableObject
             (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message),
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions,
-            ApplyLibraryMutationDeltaForFileMutationUnderExistingLease,
-            ApplyLibraryMutationDeltaForFileMutationWithoutLr2NormalFolderSync);
+            ApplyLibraryMutationDeltaForFileMutationUnderExistingLease);
         dbGateway.EnsureLibraryStartupSchema();
         listenerForRwlockBMSFilesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSFilesInitializedMin);
@@ -9932,26 +9927,27 @@ public partial class BMSLibrary : ObservableObject
         OwnedChartCollectionStorageMutation storageMutation = BuildOwnedChartCollectionStorageMutation(delta);
         bool hasStorageMutation = storageMutation.HasChanges;
         bool hasInstallDestinationChanges = delta?.UpdatedInstallDestinations?.Count > 0;
+        bool hasFolderPathChanges = delta?.FolderPathChanges?.Count > 0;
+        bool hasInstalledPackagePathChanges = delta?.UpdatedInstalledPackagePaths?.Count > 0;
         var result = new OwnedChartCollectionMutationResult
         {
             InstalledLookupMutation = BuildInstalledChartLookupMutation(storageMutation, delta?.FolderPathChanges),
-            InstallEstimationMetadataProfileCacheInvalidated = delta?.InvalidateInstalledDirectoryIndex == true
-                || hasStorageMutation
-                || hasInstallDestinationChanges,
+            InstallEstimationMetadataProfileCacheInvalidated = hasStorageMutation
+                || hasInstallDestinationChanges
+                || hasInstalledPackagePathChanges,
             AddedCount = storageMutation.AddedCount,
             RemovedCount = storageMutation.RemovedCount,
             MovedCount = storageMutation.MovedCount,
             InstallDestinationChangedCount = delta?.UpdatedInstallDestinations.Count ?? 0,
             InstalledPackagePathChangedCount = delta?.UpdatedInstalledPackagePaths.Count ?? 0,
-            ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true
-                || hasStorageMutation,
-            DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true
-                || hasStorageMutation
-                || hasInstallDestinationChanges,
+            ParentFolderInvalidated = hasStorageMutation || hasFolderPathChanges,
+            DuplicateCacheInvalidated = hasStorageMutation
+                || hasInstallDestinationChanges
+                || hasInstalledPackagePathChanges,
             OwnedCollectionChanged = hasStorageMutation,
-            WarningPresentationChanged = delta?.ClearDuplicatedCache == true
-                || hasStorageMutation
-                || hasInstallDestinationChanges,
+            WarningPresentationChanged = hasStorageMutation
+                || hasInstallDestinationChanges
+                || hasInstalledPackagePathChanges,
             BmsFilesStorageRowsChanged = HasBmsStorageRowCollectionChange(storageMutation)
                 || (delta?.NotifyStorageRowPathChanges == true && HasBmsStorageRowPathChange(storageMutation)),
             BmsonSongsStorageRowsChanged = HasBmsonStorageRowCollectionChange(storageMutation)
@@ -13496,6 +13492,7 @@ public partial class BMSLibrary : ObservableObject
                                 : null;
                         result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
                             plans,
+                            mutationCapability,
                             deferredProgressReporter,
                             postLeaseNotifications);
                         SyncAutoRenameLr2NormalFoldersUnderExistingLease(
@@ -13567,6 +13564,7 @@ public partial class BMSLibrary : ObservableObject
                             TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans);
                         result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
                             plans,
+                            mutationCapability,
                             deferredProgressReporter,
                             postLeaseNotifications);
                         SyncAutoRenameLr2NormalFoldersUnderExistingLease(
@@ -14107,33 +14105,6 @@ public partial class BMSLibrary : ObservableObject
                 suppressNormalRefreshNotification: suppressNormalRefreshNotification,
                 suppressLr2NormalFolderSync: suppressLr2NormalFolderSync,
                 mutationCapability: mutationCapability,
-                postLeaseNotificationObserver: postLeaseNotificationObserver);
-            return FileDbMutationCommitResult.Durable();
-        }
-        catch (Exception exception)
-        {
-            return durableCommit
-                ? FileDbMutationCommitResult.Durable(durableFailure: exception)
-                : FileDbMutationCommitResult.Failed(exception);
-        }
-    }
-
-    private FileDbMutationCommitResult ApplyLibraryMutationDeltaForFileMutationWithoutLr2NormalFolderSync(
-        LibraryMutationDelta delta,
-        string reason,
-        bool suppressNormalRefreshNotification,
-        Action<Action> postLeaseNotificationObserver)
-    {
-        bool durableCommit = false;
-        try
-        {
-            ApplyLibraryMutationDeltaCore(
-                delta,
-                reason,
-                onDurableCommit: () => durableCommit = true,
-                suppressNormalRefreshNotification: suppressNormalRefreshNotification,
-                suppressLr2NormalFolderSync: true,
-                mutationCapability: null,
                 postLeaseNotificationObserver: postLeaseNotificationObserver);
             return FileDbMutationCommitResult.Durable();
         }

@@ -252,10 +252,6 @@ internal static class LibraryFolderMoveCoordinator
                         {
                             databaseResult.DurableFinalizer?.Invoke();
                             reverseLookupMutation = host.MoveFolderReferencesAfterCommit(srcDir, dstDir);
-                            if (unregister == false)
-                            {
-                                host.InvalidateDuplicateChartGroupsCache();
-                            }
                             foreach (Action notification in mutationPostLeaseNotifications)
                             {
                                 postLeaseNotifications.Add(notification);

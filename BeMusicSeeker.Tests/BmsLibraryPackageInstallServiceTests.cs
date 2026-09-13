@@ -495,6 +495,178 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            string failedDirectoryPath = Path.Combine(tempRootPath, "normal-invalid-extension-failed");
+            string selectedSharedDirectoryPath = Path.Combine(tempRootPath, "normal-invalid-extension-selected-shared");
+            string survivingSharedDirectoryPath = Path.Combine(tempRootPath, "normal-invalid-extension-surviving-shared");
+            string lastOwnerDirectoryPath = Path.Combine(tempRootPath, "normal-invalid-extension-last-owner");
+            string failedSourcePath = CreateBmsFile(failedDirectoryPath, "failed.bms", "#TITLE Failed target");
+            string selectedSharedSourcePath = CreateBmsFile(
+                selectedSharedDirectoryPath,
+                "selected-shared.bms",
+                "#TITLE Shared owner");
+            string survivingSharedSourcePath = Path.Combine(survivingSharedDirectoryPath, "surviving-shared.bms");
+            Directory.CreateDirectory(survivingSharedDirectoryPath);
+            File.Copy(selectedSharedSourcePath, survivingSharedSourcePath);
+            string lastOwnerSourcePath = CreateBmsFile(
+                lastOwnerDirectoryPath,
+                "last-owner.bms",
+                "#TITLE Last owner");
+            string failedDestinationPath = Path.Combine(failedDirectoryPath, "failed.bme");
+            string selectedSharedDestinationPath = Path.Combine(selectedSharedDirectoryPath, "selected-shared.bme");
+            string lastOwnerDestinationPath = Path.Combine(lastOwnerDirectoryPath, "last-owner.bme");
+            BMSFile failed = BMSFile.CreateBMSFileFromFile(failedSourcePath);
+            BMSFile selectedShared = BMSFile.CreateBMSFileFromFile(selectedSharedSourcePath);
+            BMSFile survivingShared = BMSFile.CreateBMSFileFromFile(survivingSharedSourcePath);
+            BMSFile lastOwner = BMSFile.CreateBMSFileFromFile(lastOwnerSourcePath);
+            Assert.AreEqual(selectedShared.hash, survivingShared.hash);
+
+            using (var seedSongDb = new LR2SongDBExtended(songDbPath))
+            {
+                foreach (BMSFile file in new[] { failed, selectedShared, survivingShared, lastOwner })
+                {
+                    seedSongDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+            }
+
+            var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new FailFirstMoveFileMutationService(1),
+                dialogService);
+            OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(
+                library,
+                [failed, selectedShared, survivingShared, lastOwner]);
+
+            BMSLibrary.InstalledPrimaryHashWarmupResult initialPrimary =
+                library.WarmInstalledPrimaryHashLookup("normal_invalid_extension_unregister_warmup");
+            Assert.IsFalse(initialPrimary.FullDirectoryLookupInitialized);
+            OwnedChartHashIndexVersionedSnapshot initialHash = library.GetOwnedChartHashIndexSnapshot();
+            InstalledChartLookupIndexSnapshot initialInstalled =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
+            PlaylistLibraryResolveIndexSnapshot initialPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool initialPlaylistCacheHit,
+                out int initialPlaylistStaleRetries);
+            Assert.IsFalse(initialPlaylistCacheHit);
+            Assert.AreEqual(0, initialPlaylistStaleRetries);
+            Assert.IsTrue(initialHash.ContainsMd5(failed.hash));
+            Assert.IsTrue(initialHash.ContainsMd5(selectedShared.hash));
+            Assert.IsTrue(initialHash.ContainsMd5(lastOwner.hash));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(failed.hash));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(selectedShared.hash));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(lastOwner.hash));
+            CollectionAssert.AreEquivalent(
+                new[] { survivingSharedDirectoryPath, selectedSharedDirectoryPath },
+                initialInstalled.GetDistinctDirectoriesByPrimaryHash(selectedShared.hash).ToArray());
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, failedSourcePath));
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, selectedSharedSourcePath));
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, survivingSharedSourcePath));
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, lastOwnerSourcePath));
+
+            List<string> hashWork = [];
+            List<string> playlistWork = [];
+            List<string> installedWork = [];
+            library.OwnedChartHashIndexStoreWorkObserver = hashWork.Add;
+            library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
+            library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
+
+            library.RenameBMSFilesExtensions(
+                [
+                    ChartFileProjection.FromBmsFile(failed),
+                    ChartFileProjection.FromBmsFile(selectedShared),
+                    ChartFileProjection.FromBmsFile(lastOwner)
+                ],
+                ".bme",
+                unregister: true);
+
+            Assert.AreEqual(1, dialogService.Calls.Count);
+            Assert.IsTrue(File.Exists(failedSourcePath));
+            Assert.IsFalse(File.Exists(failedDestinationPath));
+            Assert.IsFalse(File.Exists(selectedSharedSourcePath));
+            Assert.IsTrue(File.Exists(selectedSharedDestinationPath));
+            Assert.IsFalse(File.Exists(lastOwnerSourcePath));
+            Assert.IsTrue(File.Exists(lastOwnerDestinationPath));
+            Assert.IsTrue(File.Exists(survivingSharedSourcePath));
+
+            Assert.IsTrue(library.BMSFiles.Any(file =>
+                string.Equals(file.path, failedSourcePath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(library.BMSFiles.Any(file =>
+                string.Equals(file.path, survivingSharedSourcePath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsFalse(library.BMSFiles.Any(file =>
+                string.Equals(file.path, selectedSharedSourcePath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsFalse(library.BMSFiles.Any(file =>
+                string.Equals(file.path, lastOwnerSourcePath, StringComparison.OrdinalIgnoreCase)));
+
+            using (var verifySongDb = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", failedSourcePath));
+                Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", survivingSharedSourcePath));
+                Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", selectedSharedSourcePath));
+                Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", lastOwnerSourcePath));
+            }
+
+            OwnedChartHashIndexVersionedSnapshot updatedHash = library.GetOwnedChartHashIndexSnapshot();
+            OwnedChartHashIndexVersionedSnapshot cachedHash = library.GetOwnedChartHashIndexSnapshot();
+            InstalledChartLookupIndexSnapshot updatedInstalled =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
+            InstalledChartLookupIndexSnapshot cachedInstalled =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
+            BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
+                library.WarmInstalledPrimaryHashLookup("normal_invalid_extension_unregister_warmup");
+            PlaylistLibraryResolveIndexSnapshot updatedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool updatedPlaylistCacheHit,
+                out int updatedPlaylistStaleRetries);
+            PlaylistLibraryResolveIndexSnapshot cachedPlaylist = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out bool cachedPlaylistCacheHit,
+                out int cachedPlaylistStaleRetries);
+
+            Assert.AreSame(updatedHash, cachedHash);
+            Assert.AreSame(updatedInstalled, cachedInstalled);
+            Assert.AreEqual("cached", updatedPrimary.Status);
+            Assert.AreEqual(0L, updatedPrimary.BuildMs);
+            Assert.IsTrue(updatedPlaylistCacheHit);
+            Assert.AreEqual(0, updatedPlaylistStaleRetries);
+            Assert.IsTrue(cachedPlaylistCacheHit);
+            Assert.AreEqual(0, cachedPlaylistStaleRetries);
+            Assert.AreSame(updatedPlaylist, cachedPlaylist);
+            Assert.IsTrue(updatedHash.ContainsMd5(failed.hash));
+            Assert.IsTrue(updatedHash.ContainsMd5(selectedShared.hash));
+            Assert.IsFalse(updatedHash.ContainsMd5(lastOwner.hash));
+            Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(failed.hash));
+            Assert.IsTrue(updatedInstalled.ContainsPrimaryHash(selectedShared.hash));
+            Assert.IsFalse(updatedInstalled.ContainsPrimaryHash(lastOwner.hash));
+            CollectionAssert.AreEquivalent(
+                new[] { survivingSharedDirectoryPath },
+                updatedInstalled.GetDistinctDirectoriesByPrimaryHash(selectedShared.hash).ToArray());
+            Assert.AreEqual(0, updatedInstalled.GetDistinctDirectoriesByPrimaryHash(lastOwner.hash).Count);
+            Assert.IsTrue(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, failedSourcePath));
+            Assert.IsFalse(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, selectedSharedSourcePath));
+            Assert.IsTrue(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, survivingSharedSourcePath));
+            Assert.IsFalse(updatedPlaylist.ContainsCandidate(LibraryChartKind.Bms, lastOwnerSourcePath));
+            Assert.IsTrue(initialHash.ContainsMd5(lastOwner.hash));
+            Assert.IsTrue(initialInstalled.ContainsPrimaryHash(lastOwner.hash));
+            Assert.IsTrue(initialPlaylist.ContainsCandidate(LibraryChartKind.Bms, lastOwnerSourcePath));
+            Assert.AreEqual(0, hashWork.Count(operation => operation == "owned_hash_source_enumeration"));
+            Assert.AreEqual(
+                0,
+                playlistWork.Count(operation => operation == "playlist_resolve_source_enumeration"
+                    || operation == "playlist_resolve_full_root_enumeration"));
+            Assert.IsTrue(
+                installedWork.Count(operation => operation == "installed_primary_hash_count_update") > 0,
+                "通常拡張子修正の登録解除でinstalled lookup差分更新を観測できませんでした。");
+        });
+    }
+
+    [TestMethod]
     public void GetPendingPackagesContainingOnlyInstalledCharts_UsesPackageChartEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -569,8 +569,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             new[] { "C:\\Lib\\Dst\\A\\a.bms", "C:\\Lib\\Dst\\B\\b.bms" },
             delta.ChartPathChanges.Select(change => change.NewPath).ToArray());
         Assert.IsFalse(delta.NotifyStorageRowPathChanges);
-        Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
-        Assert.IsTrue(delta.InvalidateParentFolderCache);
     }
 
     [TestMethod]
@@ -812,8 +810,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreSame(bmsonSong, delta.ChartPathChanges[0].GetBmsonStorageOwner());
         Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bmson", delta.ChartPathChanges[0].OldPath);
         Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", delta.ChartPathChanges[0].NewPath);
-        Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
-        Assert.IsTrue(delta.InvalidateParentFolderCache);
         Assert.IsFalse(delta.NotifyStorageRowPathChanges);
     }
 
@@ -1033,9 +1029,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bmson", bmsonPathChange.OldPath);
         Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", bmsonPathChange.NewPath);
         Assert.IsTrue(delta.NotifyStorageRowPathChanges);
-        Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
-        Assert.IsTrue(delta.InvalidateParentFolderCache);
-        Assert.IsTrue(delta.ClearDuplicatedCache);
     }
 
     [TestMethod]
@@ -1062,9 +1055,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreSame(bmsFile, delta.ChartRemoveRequests.Single(request => request.BmsOwner == bmsFile).BmsOwner);
         Assert.AreSame(bmsonSong, delta.ChartRemoveRequests.Single(request => request.BmsonOwner == bmsonSong).BmsonOwner);
         Assert.AreEqual(0, delta.ChartPathChanges.Count);
-        Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
-        Assert.IsTrue(delta.InvalidateParentFolderCache);
-        Assert.IsTrue(delta.ClearDuplicatedCache);
     }
 
     [TestMethod]
