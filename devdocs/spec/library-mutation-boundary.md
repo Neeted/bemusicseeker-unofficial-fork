@@ -4,23 +4,38 @@
 
 ## 基本方針
 
-- 譜面 / パッケージの変更系操作は `MainWindowViewModel.RunChartPackageMutation(...)` を入口にする。
-- 境界の内側では、`lockCopyFile`、再生停止、UI refresh suppression、操作中フラグ、operation dialog scope、操作後 refresh flush を一元管理する。
+- 譜面 / パッケージのUI変更操作は、選択譜面、重複、保留、導入等のfeature workflow ownerを入口にする。`MainWindowViewModel` はshellとcompositionを担当する。
+- 各workflowは既存の操作受付、再生停止、UI refresh suppression、操作中表示、operation dialog scope、操作後refreshを管理する。共有の `ChartMutationActivityOwner` はactivity表示を担い、モデルの変更許可は既存のmutation lease / capabilityで判断する。
 - mutation 中は譜面行 / 保留行 / package 行の context menu open と command 起動を拒否する。context menu の enable 判定で UI thread から file existence check を走らせない。
 - `BMSLibrary` の writer lock 中に `Dispatcher.Invoke`、message box、UI event callback、`Task.Wait` / `.Result` のような同期待ちは行わない。
 - 失敗を隠す fallback は追加しない。必要な確認が取れない場合は処理を進めず、境界違反は明示的な失敗にする。
 
 ## ViewModel 境界
 
-`RunChartPackageMutation(...)` は、次の責務だけを持つ。
+`SelectedChartMutationWorkflowOwner`、`DuplicateMaintenanceWorkflowOwner`、`PendingPackageWorkflowOwner`、`PackageInstallWorkflowOwner` 等が、対象操作の表示と実行手順を管理する。フォルダ名の直接編集は `RegularChartListOwner`、自動renameは `FolderAutoRenameWorkflowOwner` を入口にする。旧 `MainWindowViewModel.RunChartPackageMutation(...)` は現行コードには存在しない。
 
-- 同時実行中かどうかを `IsChartPackageMutationInProgress` で公開する。
+workflow側の責務は次のとおりである。
+
+- 共有activityから操作中かどうかを表示側へ公開する。
 - 操作中は LR2 song DB 同期や譜面 / package 操作の再入をブロックできる状態にする。
 - 必要なら対象譜面の再生を停止する。
-- `BeginUiUpdateSuppression(...)` / `EndUiUpdateSuppression(...)` で refresh をまとめ、操作後に pending install tree、library main view、folder tree、duplicate tree などの必要 channel を flush する。
+- refresh抑制の開始・終了を表示側へ伝え、操作後にpending install tree、library main view、folder tree、duplicate treeなどの必要channelを更新する。
 - `BMSLibrary.BeginOperationDialogScope()` を開始し、model lock を抜けた後で蓄積された warning / error dialog を一度だけ表示する。
 
 境界は、確認 dialog の意味を決めない。ユーザー確認が必要な操作は、mutation 実行前の preflight で ViewModel が dialog を表示し、結果を explicit decision として `BMSLibrary` へ渡す。
+
+### 現行のモデル側の責務
+
+`Lr2SynchronizationOwner` が共有の変更leaseを発行し、`LibraryFileOperationSynchronization` とcatalog依存の受付が、操作ごとのscopeとpath収束条件を接続する。`LibraryFileOperationOwner` は削除・移動・マージ等の手順を、`CatalogMutationOwner` はcatalogの保存・正本更新を管理する。導入、chart-info、maintenance、走査結果はそれぞれの既存producerからwriterへ到達する。
+
+変更後のconsumer索引・通知の組立ては `BMSLibrary` にも残る。共通のwriter / dispatchがあることは、すべての操作で同じ変更事実が届き、同じ更新方針になることを意味しない。現状の操作対応と未実装の再編案は [変更要求統合計画](../plan/library-mutation-unification-plan.md) で区別して記録する。追加ZIP予約やbackground処理等の受付例外は [並行性仕様 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外) を維持し、UIの操作中表示だけで一律に拒否しない。
+
+| 仕様項目 | 現行実装 | 既存の検証範囲 |
+| --- | --- | --- |
+| 選択譜面の確認・終了処理 | [SelectedChartMutationWorkflowOwner](../../BeMusicSeeker/ViewModels/MainWindow/SelectedChartMutationWorkflowOwner.cs) | [同workflow tests](../../BeMusicSeeker.Tests/SelectedChartMutationWorkflowOwnerTests.cs) |
+| 重複・マージの操作と表示 | [DuplicateMaintenanceWorkflowOwner](../../BeMusicSeeker/ViewModels/MainWindow/DuplicateMaintenanceWorkflowOwner.cs) | [同workflow tests](../../BeMusicSeeker.Tests/DuplicateMaintenanceWorkflowOwnerTests.cs)、[実mergeのmodel tests](../../BeMusicSeeker.Tests/BmsLibraryDuplicateServiceTests.cs) |
+| 共有activityとモデルの受付 | [ChartMutationActivityOwner](../../BeMusicSeeker/ViewModels/MainWindow/ChartMutationActivityOwner.cs)、[LibraryFileOperationSynchronization](../../BeMusicSeeker/Models/BmsLibraryInternal/LibraryFileOperationSynchronization.cs) | [activity tests](../../BeMusicSeeker.Tests/ChartMutationActivityOwnerTests.cs)、[mutation boundary tests](../../BeMusicSeeker.Tests/BmsLibraryMutationBoundaryTests.cs) |
+| catalog保存・正本更新 | [CatalogMutationOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogMutationOwner.cs) | [catalog owner tests](../../BeMusicSeeker.Tests/CatalogMutationOwnerTests.cs)。操作から後続索引構築までの性能受入の代用にはしない。 |
 
 ## Model 契約
 
@@ -38,7 +53,7 @@ scope 外から `BMSLibrary` を直接呼ぶ既存テストや内部ユーティ
 
 ## Chart-info Catalog Write
 
-background hydration/backfillやpackage inlineのchart-info writeは、UIの`RunChartPackageMutation(...)`とは別のcatalog mutationである。transaction ownerは`CatalogMutationOwner`のままとし、inline/fullは同じ`ApplyChartInfoStorageWrite(CatalogChartInfoStorageWriteRequest)`を使う。
+background hydration/backfillやpackage inlineのchart-info writeは、UI操作のworkflowとは別の入口を持つcatalog mutationである。transaction ownerは`CatalogMutationOwner`のままとし、inline/fullは同じ`ApplyChartInfoStorageWrite(CatalogChartInfoStorageWriteRequest)`を使う。
 
 - requestはinline用BMS/BMSON persistence copy、full-backfill用immutable narrow projection、`CatalogChartInfoWriteRequest`をsnapshotとして束ねる。
 - inline storage rowsまたはfull-backfill用song update、`chart_digest_map`、`chart_info`、parse-failure upsert/deleteは一つのcatalog transactionで保存する。

@@ -1,6 +1,12 @@
 # ライブラリ変更操作の性能課題と実装計画
 
-Status: R3〜R6 Completed / R7 Pending
+Status: R3/R4/R5a/R5c/R6 Implemented / R5b Reopened / R7 Pending
+
+### 2026-09-13 の提供ログによる再評価
+
+性能対策後のマージ2回で、primary/full installed lookupの全構築と、後続playlist解決索引の再構築が残っていた。モデル処理5,641ms / 5,443msのうち、前者2索引に4,916ms / 4,986msを要した。マージ入口が除去をpath-only `PathCleanup` へ縮退させ、旧hashが共通反映へ届かない経路を、R5bの操作全体の受入で確認できていなかった。
+
+以下の実装・検証記録は保持するが、R5bの「連続mergeで全失効・次操作での再構築を避ける」という完了判定を訂正する。残件はR7の本番チューニングではなく、コード上の変更契約と到達経路の問題として [ライブラリ変更要求の統合計画](library-mutation-unification-plan.md) へ引き継ぐ。条件と内訳は [提供ログの分析記録](../acceptance/duplicate-merge-performance-2026-09-13.md) を参照する。
 
 ### 2026-09-13 の実行範囲
 
@@ -9,11 +15,11 @@ Status: R3〜R6 Completed / R7 Pending
 - 順序は R3 → R4a → R4b → R4c → R5a-storage → R5a-canonical → R5b → R5c → R6。R4b は新しい長寿命索引を増やす必要がなければ、削除 root の祖先集合との照合による全 directory 一回走査を採用する。R6 は対象 MD5 query を採用し、新規 session cache は追加しない。
 - 各 unit は独立したテスト設計を承認してから実装する。既存 fixture を優先し、結果・旧 snapshot・部分成功・対象外列挙の不要性に不足する coverage だけを追加／更新する。反復は filtered Quick、最後の統合 snapshot は Functional を原則一回実行し、凍結して静的レビューする。
 - 受付、writer、durable finalization、package ごとの公開、exact row と filesystem scope の比較規則を維持する。snapshot 不成立、旧／新 facts の不足、順序・所有権の変更、新しい永続状態や回復処理が必要になった場合は root が再計画する。
-- 現在: 計画点検・R3〜R6の独立test設計とconsumer判断を完了。R3/R4/R5a/R5b-core/R5b-installed-full-snapshot/R5c/R6は関連Quickと全件処理を検出する識別力確認を完了。playlist-resolveも関連Quickと識別力確認を完了。親フォルダの照合仕様変更と重複graphの局所更新は採用せず、残る費用をR5bに明記する。全体Functional・凍結レビュー完了。
+- 実装時の記録: 計画点検・R3〜R6の独立test設計とconsumer判断を完了。R3/R4/R5a/R5b-core/R5b-installed-full-snapshot/R5c/R6は関連Quickと全件処理を検出する識別力確認を完了。playlist-resolveも関連Quickと識別力確認を完了。親フォルダの照合仕様変更と重複graphの局所更新は採用せず、残る費用をR5bに明記する。全体Functional・凍結レビュー完了。
 
 - 最終統合検証: 2026-09-13 の Functional は成功4,802件・skip11件・失敗0件。実test executionは241.8秒で180秒reporting targetを超え、300秒hard budget内の成功。retryなし。restore・format・analyzer・Release buildも成功し、analyzer指摘/コンパイラ警告/エラーは0件。本番計測、Full、R7は対象外。
 
-- 凍結レビュー: R3〜R6の本番入口、consumer、失敗・通知境界、旧snapshot、候補順、exact identityと独立test packetの対応を確認し、修正必須の指摘なし。R3〜R6を完了とする。R7と本番規模の速度評価は未着手であり、今回の完了条件には含めない。
+- 凍結レビューの記録: R3〜R6の本番入口、consumer、失敗・通知境界、旧snapshot、候補順、exact identityと独立test packetの対応を確認し、当時は修正必須の指摘なしとされた。R5bの操作全体の完了判定は上記の提供ログにより訂正する。R7と本番規模の速度評価は未着手。
 
 ## 1. 目的・対象・読み方
 
@@ -118,7 +124,7 @@ SelfOwnedのみの変更でも、既存のremove→appendで候補が`[A, B] →
 | R4b | 削除sourceごとに全directory keysを複製・走査 | delete、merge | 完了 |
 | R4c | entry rootをpackageごとに全コピー | install、変更全般 | 完了 |
 | R5a | storage rowリスト再作成、canonical list探索・順序map再構築 | install、delete、move、merge | 完了 |
-| R5b | 派生索引の全失効と次操作での再構築 | 変更全般、連続merge | 完了 |
+| R5b | 派生索引の全失効と次操作での再構築 | 変更全般、連続merge | 部分実装・再開（実mergeのfacts伝達と全体受入が未達） |
 | R5c | resource-health deltaでも全keyコピーと変更対象ごとの全key探索 | current索引へのdelta更新 | 完了 |
 | R6 | inlineの再read、全parse-failure map取得、不要な再通知の可能性 | install、merge後maintenance | 完了 |
 | R7 | 物理I/O条件・並列度・長期cacheの費用が未評価 | 変更全般 | 仕事量削減後に必要範囲を測定 |
@@ -278,7 +284,7 @@ storage Quick 40/40、canonical Quick 259/259成功。getter全materialize変異
 
 ### R5b — 派生索引の失効範囲を限定する
 
-Status: Implemented（2026-09-13）、Functional・凍結レビュー完了。
+Status: Partially implemented / Reopened（2026-09-13）。個別の実装・Functional・凍結レビュー記録は以下のとおり。実mergeから十分な除去factsが届かず全失効へ戻る残件を [変更要求統合計画](library-mutation-unification-plan.md) で扱う。
 
 - 所持ハッシュ: MD5/SHA別のowner数を差分更新する。両hash集合が同じならcontent Versionとsummary count cacheを維持し、source versionだけを適切な公開境界で更新する。HashSetとcountの二重stateを除き、digest・通知前の可視性、旧snapshot、full replacement・旧facts不足時の全失効を維持した。
 - primary/full installed lookup: countとdirectory候補の不変rootを共有し、snapshot時の全map複製・全bucket整列・参照数の全map Sumを除く。同MD5/SHA-onlyのnet差分を相殺し、影響bucketだけを更新する。last-owner・excluding・旧snapshotを保持する。

@@ -4,7 +4,8 @@
 
 ## 進行中・着手待ちの関連計画
 
-- [ライブラリ変更操作の性能課題と実装計画](BeMusicSeeker-library-mutation-performance.md): install / delete / move / rename / mergeの局所更新、exact path整合、R2とは別単位のRELINK-1。実装済みの入力取得制御と未実装課題を区別する。
+- [ライブラリ変更要求の統合と操作全体の性能改善計画](library-mutation-unification-plan.md): 操作入口から受付・FS/DB・確定事実・索引反映までの現状と再編案。旧APIの退役、連続操作の受入、R5bで残った実mergeの再構築を扱う。
+- [ライブラリ変更操作の性能課題と実装計画](BeMusicSeeker-library-mutation-performance.md): R3～R6の実装記録とR5bの再評価、exact path整合、RELINK-1、未着手R7。変更契約の整理は上記の統合計画へ引き継ぐ。
 - [v3 安全性改善計画](v3-safety-improvements-plan.md): 30件の修正・確認・説明改善。受付方針の適用範囲と未実施の検証を含む。
 - [LR2 startup 手続き化計画](lr2-startup-procedural-orchestration-plan.md): 起動・reloadの直接結果引渡しと操作受付。製品方針は採用済み、runtimeの再構成は未実装。
 
