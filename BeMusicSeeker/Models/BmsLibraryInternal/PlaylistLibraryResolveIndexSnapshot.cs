@@ -156,7 +156,7 @@ internal sealed class PlaylistLibraryResolveIndexSnapshot
     /// <summary>空のresolve indexです。</summary>
     internal static PlaylistLibraryResolveIndexSnapshot Empty => empty;
 
-    /// <summary>BMSLibrary cache内のsnapshot版数です。</summary>
+    /// <summary>catalog owner cache内のsnapshot版数です。</summary>
     internal int Version { get; }
 
     /// <summary>snapshot buildに要した時間です。</summary>

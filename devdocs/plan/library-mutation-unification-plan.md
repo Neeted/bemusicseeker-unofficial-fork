@@ -284,6 +284,10 @@ U5を口実に各単位で使わなくなった実装を温存しない。一方
 
 ### U5の具体的な直列分割
 
+U5b独立レビューは修正必須指摘なし。U5cは[承認済みテスト設計](library-mutation-u5c-test-contract.md)と末尾の境界判断に従い、旧型・入口・helperを退役する。
+
+U5bはplaylist resolveのstate/lock/version/observer/read/build/currentness/apply/invalidate/rebaseを同ownerのpartialへ移管。BMT/play history/lampも既存facade経由。testソース変更なし、Quick224件と実操作486件成功。Functional初回 `tests-functional-20260913-233425` はportable-settings単独hostのFile.Replaceで置換対象削除不可となり停止。関連Quick2件成功、runnerは他host開始前の単独実行であることとfile scopeを確認し、原因未特定の単発I/O failureとして記録。コード変更なしの再実行 `tests-functional-20260913-233856` は244.6秒成功。同期/timeout/retry実装は変更していない。
+
 U5a独立レビューは修正必須指摘なし。U5bへ進む。
 
 U5aはprimary/fullのstate/lock/initialized/generation/observer/read/build/apply/invalidateを既存CatalogOwnedCollectionOwnerのpartialへ移した。rootにcurrentness gateとmetadata cache、薄いfacadeを残す。Quick570件成功、Functional `tests-functional-20260913-224256` は239秒成功。後続の未使用bridge削除と元のgate外ログ出力への機械整理は同Quick570件で再確認し、runtime/runner前提を変えないためFunctionalは繰り返さない。独立レビューへ進む。

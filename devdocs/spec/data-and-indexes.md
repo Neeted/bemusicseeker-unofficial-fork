@@ -216,6 +216,8 @@ LR2 ranking 系は 2 table に分かれる。
 
 ### プレイリストから所持譜面を解決する索引
 
+索引のstate、専用lock、version、observer、read/build/currentness、apply/invalidate/rebaseは `CatalogOwnedCollectionOwner.Playlist.cs` が所有する。BMSLibraryのdetail/BMT/play history/lamp向けfacadeは同じ索引へ接続し、consumer別のcacheを追加しない。workspaceのschedulerと同世代prewarm Task共有は既存ownerに残す。
+
 detailの参照索引はkindとexact pathで全候補を保持し、MD5/SHA別の不変bucketから代表を解決する。代表は現在pathの大小文字無視の最小値、同値ならcanonical順の先頭とする。MD5指定のentryはMD5だけを使い、未解決でもSHAへ切り替えない。代表の削除では次候補へ進み、最後の候補が無くなると未解決になる。
 
 構築済み索引にはinstall、catalog mutation、inline digestの旧新factsを適用し、対象hashのbucketだけを更新する。新候補はcanonicalのexact path queryからrefと順序を捕捉し、optional ref indexを構築しない。旧snapshotのpath・hash・代表は後続操作で変わらず、通常の後続getterは全ref/mapを再構築しない。
@@ -226,7 +228,7 @@ full replacement、facts不足、full replacement直後の初回BMSON canonical�
 | --- | --- | --- |
 | 代表昇格、exact置換、move、旧snapshot | [PlaylistLibraryResolveIndexSnapshot](../../BeMusicSeeker/Models/BmsLibraryInternal/PlaylistLibraryResolveIndexSnapshot.cs) の `TryApplyDelta` / `ResolveChartForPlaylistHash` | [PlaylistSummaryResolveIndexTests](../../BeMusicSeeker.Tests/PlaylistSummaryResolveIndexTests.cs) の `AppliesCandidateDeltaAndKeepsPriorSnapshots` / `ReplacesExactCandidateAndRetainsOldSnapshot` / `MovesCandidateAndKeepsCanonicalCandidateOrder` 各case |
 | selected keyとSHA-only解決 | 同 `ResolveChartForPlaylistHash` | [PlaylistViewPipelineTests](../../BeMusicSeeker.Tests/PlaylistViewPipelineTests.cs) の既存代表選択・path無し除外・MD5/SHA解決case |
-| cold、対象hashだけの更新、BMSON初回境界 | [BMSLibrary](../../BeMusicSeeker/Models/BMSLibrary.cs) の `ApplyPlaylistLibraryResolveIndexMutation` / `TryCreateOwnedCanonicalPlaylistChartFactsUnsafe` | 上記resolve fixtureの `WarmDeltaDoesNotEnumerateUnchangedSource`（背景16/128、後続getterを含む）、`HandlesInitialBmsonNormalizationOnce` |
+| cold、対象hashだけの更新、BMSON初回境界 | [CatalogOwnedCollectionOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogOwnedCollectionOwner.Playlist.cs) の `ApplyPlaylistLibraryResolveIndexMutation` とcanonical facts捕捉 | 上記resolve fixtureの `WarmDeltaDoesNotEnumerateUnchangedSource`（背景16/128、後続getterを含む）、`HandlesInitialBmsonNormalizationOnce` |
 | digestの通知前反映・window終端・失敗時非公開 | 同mutation dispatchと既存prewarm owner | [OwnedChartCollectionInlineDigestTests](../../BeMusicSeeker.Tests/OwnedChartCollectionInlineDigestTests.cs) の `BuildInlineChartInfo_UpdatesWarmPlaylistResolveIndexBeforeNotification` / `BuildInlineChartInfo_StorageFailureDoesNotPublishDigestIndexSessionIndexOrWarning`、[PlaylistWorkspaceDetailRefreshTests](../../BeMusicSeeker.Tests/PlaylistWorkspaceDetailRefreshTests.cs) の既存通知・prewarm coverage |
 
 ### Verification map: IR 取得
