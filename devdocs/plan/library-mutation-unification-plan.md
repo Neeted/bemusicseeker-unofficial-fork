@@ -284,6 +284,10 @@ U5を口実に各単位で使わなくなった実装を温存しない。一方
 
 ### U5の具体的な直列分割
 
+U4bの独立レビューは修正必須指摘なし。U4までのproducer移行を完了し、U5a→U5b→U5cへ進む。
+
+U4bはresidualを確定済みchart factsへ変更し、generic adapterと失効3field、test-only root wrapperを削除した。再接続は既存kind別exact-path索引を使用する。実ReloadFileDiffの通知内索引/lease解放/後続getter/旧snapshotとtyped残余反映を確認し、関連Quick298件成功。Functional `tests-functional-20260913-221236` は249.4秒で成功。full replacementのresource世代・readiness・部分失敗は維持。非空current-owned導入先の生成経路は未確認という既存の制限を維持する。
+
 U4a実装はdigestの単一反映結果と解放後公開Action、通常/estimated maintenance共通反映へ統合した。旧prepare/dispatch/potentialイベントを退役。inline/maintenanceの背景16/128独立2操作・通知・後続取得・旧snapshotと通知時playlist解決を確認。関連Quick164件成功、Functionalは `tests-functional-20260913-210652`、4820件・実行239.5秒で成功。独立レビューは修正必須指摘なし。全規模wall-clockは未測定。
 
 - U5a: primary/full installedのstate・initialized・generation・専用lock・observerとread/build/apply/invalidateを既存CatalogOwnedCollectionOwnerへ一緒に移す。必要なら同じclassのpartial fileで分けるが新ownerを作らない。BMSLibraryには公開facadeとpending estimate currentnessの既存操作境界だけを残す。currentness判定はownerが返す既存generationを使い、mutable indexや専用lockを外へ公開しない。

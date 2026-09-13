@@ -27,12 +27,6 @@ internal sealed class LibraryMutationDelta
 
     public bool RaiseInstalledPackagesChanged { get; set; }
 
-    public bool InvalidateInstalledDirectoryIndex { get; set; }
-
-    public bool InvalidateParentFolderCache { get; set; }
-
-    public bool ClearDuplicatedCache { get; set; }
-
     public int RenamedCount { get; set; }
 
     public int DuplicateDeletedCount { get; set; }
@@ -60,9 +54,6 @@ internal sealed class LibraryMutationDelta
         Failures.Clear();
         NotifyStorageRowPathChanges = false;
         RaiseInstalledPackagesChanged = false;
-        InvalidateInstalledDirectoryIndex = false;
-        InvalidateParentFolderCache = false;
-        ClearDuplicatedCache = false;
         RenamedCount = 0;
         DuplicateDeletedCount = 0;
         SkippedCount = 0;

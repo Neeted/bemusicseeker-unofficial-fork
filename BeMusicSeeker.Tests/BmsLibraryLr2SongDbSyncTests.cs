@@ -1615,12 +1615,34 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             SearchTargets = [catalogChartRoot, rootDirectory],
             BMSFiles = []
         };
+        OwnedChartHashIndexVersionedSnapshot oldHashIndex = library.GetOwnedChartHashIndexSnapshot();
+        InstalledChartLookupIndexSnapshot oldInstalledLookup =
+            library.CreateInstalledChartLookupSnapshotForDiagnostics();
+        PlaylistLibraryResolveIndexSnapshot oldPlaylistResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+            CancellationToken.None,
+            out bool oldPlaylistCacheHit,
+            out int oldPlaylistStaleRetries);
+        LibraryResourceIndexOwner resourceIndexOwner = LibraryResourceIndexTestSupport.GetOwner(library);
+        LibraryResourceIndexSnapshot oldResourceIndex = resourceIndexOwner.CaptureSnapshot();
+        ResourceHealthIndexSnapshot oldResourceHealth =
+            library.TryGetCurrentResourceHealthIndexSnapshotForView();
+        int oldChartInfoIndexVersion = library.ChartInfoIndexVersion;
         BMSLibrary.Lr2SynchronizationOwner synchronizationOwner =
             GetLr2SynchronizationOwner(library);
         bool catalogNotificationObserved = false;
+        bool catalogNotificationReadbackObserved = false;
+        bool catalogNotificationResourceObserved = false;
+        bool catalogNotificationResourceHealthObserved = false;
+        bool chartInfoNotificationObserved = false;
+        bool chartInfoNotificationReadbackObserved = false;
         bool initializedWriterWasHeld = false;
         bool mutationLeaseWasAvailable = false;
         int subscriberFailureCount = 0;
+        OwnedChartHashIndexVersionedSnapshot notificationHashIndex = null!;
+        InstalledChartLookupIndexSnapshot notificationInstalledLookup = null!;
+        PlaylistLibraryResolveIndexSnapshot notificationPlaylistResolve = null!;
+        LibraryResourceIndexSnapshot notificationResourceIndex = default;
+        ResourceHealthIndexSnapshot notificationResourceHealth = null!;
         System.ComponentModel.PropertyChangedEventHandler catalogSubscriber = (_, args) =>
         {
             if (!string.Equals(
@@ -1632,10 +1654,50 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             }
             catalogNotificationObserved = true;
             initializedWriterWasHeld |= library.IsWriteLockHeldInitializeAll;
+            BMSFile? notificationFile = library.BMSFiles.FirstOrDefault(file =>
+                string.Equals(file?.path, catalogChartPath, StringComparison.OrdinalIgnoreCase));
+            if (notificationFile != null)
+            {
+                notificationHashIndex = library.GetOwnedChartHashIndexSnapshot();
+                notificationInstalledLookup = library.CreateInstalledChartLookupSnapshotForDiagnostics();
+                notificationPlaylistResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+                    CancellationToken.None,
+                    out bool _notificationPlaylistCacheHit,
+                    out int notificationPlaylistStaleRetries);
+                catalogNotificationReadbackObserved = notificationHashIndex.ContainsMd5(notificationFile.hash)
+                    && notificationInstalledLookup.ContainsPrimaryHash(notificationFile.hash)
+                    && notificationPlaylistResolve.ResolveChartForPlaylistHash(
+                        notificationFile.hash,
+                        notificationFile.sha256) is LibraryChartRef notificationChart
+                    && string.Equals(notificationChart.Path, catalogChartPath, StringComparison.OrdinalIgnoreCase)
+                    && notificationPlaylistStaleRetries == 0;
+                notificationResourceIndex = resourceIndexOwner.CaptureSnapshot();
+                catalogNotificationResourceObserved = notificationResourceIndex.Generation > oldResourceIndex.Generation
+                    && notificationResourceIndex.DirectoryLookupCache.GetEntryOrNull(catalogChartRoot) != null;
+                notificationResourceHealth = library.GetResourceHealthIndexSnapshotForView(
+                    "test_reload_file_diff_notification");
+                catalogNotificationResourceHealthObserved = notificationResourceHealth.TargetCount > 0;
+            }
             using LibraryFileMutationLease reentryLease = synchronizationOwner.TryBeginMutation(
                 "test_reload_file_diff_post_lease_reentry",
                 showMessage: false);
             mutationLeaseWasAvailable |= reentryLease != null;
+        };
+        System.ComponentModel.PropertyChangedEventHandler chartInfoSubscriber = (_, args) =>
+        {
+            if (!string.Equals(
+                    args.PropertyName,
+                    nameof(BMSLibrary.ChartInfoIndexVersion),
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+            chartInfoNotificationObserved = true;
+            BMSFile? notificationFile = library.BMSFiles.FirstOrDefault(file =>
+                string.Equals(file?.path, catalogChartPath, StringComparison.OrdinalIgnoreCase));
+            chartInfoNotificationReadbackObserved = notificationFile != null
+                && library.ChartInfoIndexVersion > oldChartInfoIndexVersion
+                && library.ResolveChartInfo(notificationFile.sha256, notificationFile.hash) != null;
         };
         System.ComponentModel.PropertyChangedEventHandler throwingSubscriber = (_, args) =>
         {
@@ -1649,6 +1711,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             }
         };
         library.PropertyChanged += catalogSubscriber;
+        library.PropertyChanged += chartInfoSubscriber;
         library.PropertyChanged += throwingSubscriber;
         try
         {
@@ -1657,9 +1720,15 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         finally
         {
             library.PropertyChanged -= throwingSubscriber;
+            library.PropertyChanged -= chartInfoSubscriber;
             library.PropertyChanged -= catalogSubscriber;
         }
         Assert.IsTrue(catalogNotificationObserved);
+        Assert.IsTrue(catalogNotificationReadbackObserved);
+        Assert.IsTrue(catalogNotificationResourceObserved);
+        Assert.IsTrue(catalogNotificationResourceHealthObserved);
+        Assert.IsTrue(chartInfoNotificationObserved);
+        Assert.IsTrue(chartInfoNotificationReadbackObserved);
         Assert.IsFalse(initializedWriterWasHeld);
         Assert.IsTrue(mutationLeaseWasAvailable);
         Assert.AreEqual(1, subscriberFailureCount);
@@ -1669,6 +1738,66 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Assert.IsNotNull(catalogFile);
         BMSFile loadedCatalogFile = catalogFile!;
         Assert.IsFalse(string.IsNullOrWhiteSpace(loadedCatalogFile.title));
+        OwnedChartHashIndexVersionedSnapshot afterHashIndex = library.GetOwnedChartHashIndexSnapshot();
+        OwnedChartHashIndexVersionedSnapshot afterHashIndexReadback = library.GetOwnedChartHashIndexSnapshot();
+        InstalledChartLookupIndexSnapshot afterInstalledLookup =
+            library.CreateInstalledChartLookupSnapshotForDiagnostics();
+        InstalledChartLookupIndexSnapshot afterInstalledLookupReadback =
+            library.CreateInstalledChartLookupSnapshotForDiagnostics();
+        PlaylistLibraryResolveIndexSnapshot afterPlaylistResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+            CancellationToken.None,
+            out bool afterPlaylistCacheHit,
+            out int afterPlaylistStaleRetries);
+        PlaylistLibraryResolveIndexSnapshot afterPlaylistResolveReadback = library.GetPlaylistLibraryResolveIndexSnapshot(
+            CancellationToken.None,
+            out bool afterPlaylistReadbackCacheHit,
+            out int afterPlaylistReadbackStaleRetries);
+        LibraryResourceIndexSnapshot afterResourceIndex = resourceIndexOwner.CaptureSnapshot();
+        LibraryResourceIndexSnapshot afterResourceIndexReadback = resourceIndexOwner.CaptureSnapshot();
+        ResourceHealthIndexSnapshot afterResourceHealth =
+            library.GetResourceHealthIndexSnapshotForView("test_reload_file_diff_after");
+        ResourceHealthIndexSnapshot afterResourceHealthReadback =
+            library.GetResourceHealthIndexSnapshotForView("test_reload_file_diff_after_readback");
+        Assert.IsTrue(afterHashIndex.ContainsMd5(loadedCatalogFile.hash));
+        Assert.IsTrue(afterHashIndex.ContainsSha256(loadedCatalogFile.sha256));
+        Assert.AreEqual(afterHashIndex.Version, afterHashIndexReadback.Version);
+        Assert.IsTrue(afterInstalledLookup.ContainsPrimaryHash(loadedCatalogFile.hash));
+        Assert.IsTrue(afterInstalledLookup.GetDistinctDirectoriesByPrimaryHash(loadedCatalogFile.hash)
+            .Contains(catalogChartRoot, StringComparer.OrdinalIgnoreCase));
+        Assert.AreEqual(afterInstalledLookup.HashCount, afterInstalledLookupReadback.HashCount);
+        Assert.IsTrue(afterPlaylistCacheHit);
+        Assert.IsTrue(afterPlaylistReadbackCacheHit);
+        Assert.AreEqual(0, afterPlaylistStaleRetries);
+        Assert.AreEqual(0, afterPlaylistReadbackStaleRetries);
+        Assert.AreSame(afterPlaylistResolve, afterPlaylistResolveReadback);
+        Assert.AreEqual(catalogChartPath, afterPlaylistResolve.ResolveChartForPlaylistHash(
+            loadedCatalogFile.hash,
+            loadedCatalogFile.sha256)!.Path);
+        Assert.IsTrue(afterResourceIndex.Generation > oldResourceIndex.Generation);
+        Assert.IsNotNull(afterResourceIndex.DirectoryLookupCache.GetEntryOrNull(catalogChartRoot));
+        Assert.AreEqual(afterResourceIndex.Generation, afterResourceIndexReadback.Generation);
+        Assert.AreSame(
+            afterResourceIndex.DirectoryLookupCache,
+            afterResourceIndexReadback.DirectoryLookupCache);
+        Assert.IsTrue(afterResourceHealth.TargetCount > 0);
+        Assert.AreSame(afterResourceHealth, afterResourceHealthReadback);
+        Assert.IsFalse(oldHashIndex.ContainsMd5(loadedCatalogFile.hash));
+        Assert.IsFalse(oldHashIndex.ContainsSha256(loadedCatalogFile.sha256));
+        Assert.IsFalse(oldInstalledLookup.ContainsPrimaryHash(loadedCatalogFile.hash));
+        Assert.IsNull(oldPlaylistResolve.ResolveChartForPlaylistHash(
+            loadedCatalogFile.hash,
+            loadedCatalogFile.sha256));
+        Assert.IsFalse(oldPlaylistCacheHit);
+        Assert.AreEqual(0, oldPlaylistStaleRetries);
+        Assert.IsNull(oldResourceIndex.DirectoryLookupCache.GetEntryOrNull(catalogChartRoot));
+        Assert.AreSame(ResourceHealthIndexSnapshot.Empty, oldResourceHealth);
+        Assert.IsTrue(notificationHashIndex.ContainsMd5(loadedCatalogFile.hash));
+        Assert.IsTrue(notificationInstalledLookup.ContainsPrimaryHash(loadedCatalogFile.hash));
+        Assert.IsTrue(notificationPlaylistResolve.ResolveChartForPlaylistHash(
+            loadedCatalogFile.hash,
+            loadedCatalogFile.sha256) is LibraryChartRef);
+        Assert.AreEqual(afterResourceIndex.Generation, notificationResourceIndex.Generation);
+        Assert.AreEqual(afterResourceHealth.Version, notificationResourceHealth.Version);
         using var verify = new LR2SongDBExtended(scope.SongDbPath);
         Assert.IsTrue(verify.Table<BMSFile>().Any(row =>
             string.Equals(row?.path, catalogChartPath, StringComparison.OrdinalIgnoreCase)));

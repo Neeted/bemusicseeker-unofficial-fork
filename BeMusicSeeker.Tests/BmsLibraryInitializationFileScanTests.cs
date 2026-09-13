@@ -348,10 +348,9 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(7L, result.ManagedMaterializeMs);
             Assert.AreEqual(4096UL, result.BridgeRawBufferBytes);
             Assert.AreEqual(1, catalogProjectionAppliedCount);
-            LibraryInstallDestinationChange installDestinationChange = result.MutationDelta.UpdatedInstallDestinations.Single();
-            Assert.AreSame(keepFile, installDestinationChange.Chart.GetBmsStorageOwner());
-            Assert.IsNull(installDestinationChange.NewInstallDestination);
-            Assert.IsTrue(installDestinationChange.ClearInstallDestinationState);
+            ChartFile installDestinationChange = result.ClearedInstallDestinationCharts.Single();
+            Assert.AreSame(keepFile, installDestinationChange.GetBmsStorageOwner());
+            Assert.IsTrue(string.IsNullOrWhiteSpace(installDestinationChange.InstallDestination));
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), keepDirectoryPath);
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), newDirectoryPath);
 
@@ -959,10 +958,9 @@ public sealed class BmsLibraryInitializationFileScanTests
                 });
             ProjectCatalogState(result, [], [keepSong], cleanupCharts);
 
-            LibraryInstallDestinationChange installDestinationChange = result.MutationDelta.UpdatedInstallDestinations.Single();
-            Assert.AreSame(keepSong, installDestinationChange.Chart.GetBmsonStorageOwner());
-            Assert.IsNull(installDestinationChange.NewInstallDestination);
-            Assert.IsTrue(installDestinationChange.ClearInstallDestinationState);
+            ChartFile installDestinationChange = result.ClearedInstallDestinationCharts.Single();
+            Assert.AreSame(keepSong, installDestinationChange.GetBmsonStorageOwner());
+            Assert.IsTrue(string.IsNullOrWhiteSpace(installDestinationChange.InstallDestination));
         });
     }
 
@@ -1560,9 +1558,8 @@ public sealed class BmsLibraryInitializationFileScanTests
         result.FileScanFailures.Add(new ChartFileScanFailure("failed.bms", "bms", "read", "IOException", "failed"));
         result.DeletedPaths.Add("deleted.bms");
         result.DeletedBmsonPaths.Add("deleted.bmson");
-        result.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange());
-        result.MutationDelta.NotifyStorageRowPathChanges = true;
-        result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
+        result.ClearedInstallDestinationCharts.Add(
+            ChartFileProjection.FromBmsFile(new BMSFile { path = "cleared.bms" }));
         result.NextFiles.Add(next);
         result.NextBmsonSongs.Add(nextBmson);
         result.NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache();
@@ -1579,9 +1576,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         Assert.AreEqual(0, result.FileScanFailures.Count);
         Assert.AreEqual(0, result.DeletedPaths.Count);
         Assert.AreEqual(0, result.DeletedBmsonPaths.Count);
-        Assert.AreEqual(0, result.MutationDelta.UpdatedInstallDestinations.Count);
-        Assert.IsFalse(result.MutationDelta.NotifyStorageRowPathChanges);
-        Assert.IsFalse(result.MutationDelta.InvalidateInstalledDirectoryIndex);
+        Assert.AreEqual(0, result.ClearedInstallDestinationCharts.Count);
         Assert.AreEqual(1, result.NextFiles.Count);
         Assert.AreSame(next, result.NextFiles[0]);
         Assert.AreEqual(1, result.NextBmsonSongs.Count);
@@ -3214,9 +3209,9 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(result.AddedBmsonSongs[0].HasFreshResourceReferences);
             Assert.AreEqual(1, result.NextBmsonSongs.Count);
             Assert.AreEqual("New", result.NextBmsonSongs[0].title);
-            LibraryInstallDestinationChange installDestinationChange = result.MutationDelta.UpdatedInstallDestinations.Single();
-            Assert.AreSame(existingSong, installDestinationChange.Chart.GetBmsonStorageOwner());
-            Assert.IsTrue(installDestinationChange.ClearInstallDestinationState);
+            ChartFile installDestinationChange = result.ClearedInstallDestinationCharts.Single();
+            Assert.AreSame(existingSong, installDestinationChange.GetBmsonStorageOwner());
+            Assert.IsTrue(string.IsNullOrWhiteSpace(installDestinationChange.InstallDestination));
 
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDBExtended.bmson_song row = verify.Table<LR2SongDBExtended.bmson_song>().Single();

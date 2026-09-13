@@ -35,7 +35,8 @@ internal sealed class SongTableFileCheckResult
 
     public List<string> DeletedBmsonPaths { get; } = [];
 
-    public LibraryMutationDelta MutationDelta { get; } = new();
+    /// <summary>走査で解除した install destination の chart facts。</summary>
+    public List<ChartFile> ClearedInstallDestinationCharts { get; } = [];
 
     public DirectoryResourceLookupCache NextDirectoryResourceLookupCache { get; set; }
 
@@ -377,7 +378,7 @@ internal sealed class SongTableFileCheckResult
         FileScanFailures.Clear();
         DeletedPaths.Clear();
         DeletedBmsonPaths.Clear();
-        MutationDelta.Clear();
+        ClearedInstallDestinationCharts.Clear();
         Pragmas.Clear();
         Lr2ScanSurfaceAvailable = false;
         Lr2ScanFolderInfoFilePaths = [];

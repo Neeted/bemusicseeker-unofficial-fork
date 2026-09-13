@@ -847,7 +847,10 @@ internal sealed class LibraryFileScanPipelineOwner
                 "chart_info_warning");
         }
         AddPostLeaseEffect(
-            publishCatalogResidual(FileScanCatalogResidualEvent.Create(fileCheckResult.MutationDelta, reason)),
+            publishCatalogResidual(
+                FileScanCatalogResidualEvent.Create(
+                    fileCheckResult.ClearedInstallDestinationCharts,
+                    reason)),
             "catalog_residual");
         lr2Synchronization.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
         lr2Synchronization.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
@@ -972,7 +975,6 @@ internal sealed class LibraryFileScanPipelineOwner
             fileCheckResult.NextDirectoryResourceLookupCache?.Keys ?? [],
             StringComparer.OrdinalIgnoreCase);
         var stopwatchInstlDstCleanup = Stopwatch.StartNew();
-        int clearedInstallDestinationCountBefore = fileCheckResult.MutationDelta.UpdatedInstallDestinations.Count;
         var nextFileOwners = new HashSet<BMSFile>(fileCheckResult.NextFiles.Where(file => file != null));
         var nextFilePaths = new HashSet<string>(
             fileCheckResult.NextFiles.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
@@ -987,18 +989,16 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             if (!directoryKeys.Contains(chart.InstallDestination))
             {
-                fileCheckResult.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-                {
-                    Chart = chart,
-                    NewInstallDestination = null,
-                    ClearInstallDestinationState = true
-                });
+                fileCheckResult.ClearedInstallDestinationCharts.Add(
+                    ChartFileProjection.WithPackageState(
+                        chart,
+                        null,
+                        string.Empty,
+                        string.Empty,
+                        [],
+                        [.. (chart.Warnings ?? [])
+                            .Where(warning => warning?.Category != ChartWarningCategory.InstallEstimation)]));
             }
-        }
-        if (fileCheckResult.MutationDelta.UpdatedInstallDestinations.Count > clearedInstallDestinationCountBefore)
-        {
-            fileCheckResult.MutationDelta.InvalidateInstalledDirectoryIndex = true;
-            fileCheckResult.MutationDelta.ClearDuplicatedCache = true;
         }
 
         stopwatchInstlDstCleanup.Stop();

@@ -466,10 +466,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
                     ownedCollectionVersionChanged++;
                 }
             };
-            var delta = new LibraryMutationDelta
-            {
-                InvalidateInstalledDirectoryIndex = true
-            };
+            var delta = new LibraryMutationDelta();
             delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
             {
                 Chart = ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false),
@@ -548,10 +545,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
 
             candidate.SetTitle("Changed Candidate");
             candidate.SetArtist("Changed Artist");
-            var overlayDelta = new LibraryMutationDelta
-            {
-                InvalidateInstalledDirectoryIndex = true
-            };
+            var overlayDelta = new LibraryMutationDelta();
             overlayDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
             {
                 Chart = ChartFileProjection.FromBmsFile(

@@ -66,6 +66,14 @@ digestの確定factsは `PrepareOwnedChartDigestPublication` で共通反映結�
 
 公開順序は `ChartInfoInlineHydrationTests.CatalogChartInfoOwner_InlinePublicationOrdersDigestEffectsAfterSessionIndex` の通知内hash/session/playlist読取りで、連続差分は `OwnedChartCollectionInlineDigestTests.BuildInlineChartInfo_WarmDigestDeltaStaysLocalAcrossTwoOperations` と `BmsLibraryMaintenanceServiceTests.RescanResourceHealthCharts_UpdatesCurrentResourceHealthIndexByDelta` で確認する。背景16/128件の仕事量確認は、本番規模のwall-clock測定を意味しない。
 
+## ファイル走査結果の反映
+
+全置換は `FileScanCatalogReplacementEvent` の確定request/receiptとresource世代を共通反映へ渡す。走査で解除した導入先は、別の `FileScanCatalogResidualEvent` にimmutableな譜面factsとして渡す。残余反映の効果は実factsから決め、汎用deltaの失効フラグを指定しない。空factsは追加反映・通知を行わないが、走査本来の全置換は省略しない。
+
+解除後projectionは `CatalogStorageRowsOwner` の既存kind別exact-path索引から現在ownerへ再接続する。各対象で全storage rowを列挙しない。current-owned非空導入先を新規生成する本番経路は未確認のため、既存exact cleanup内部契約を維持し、新しい生成・回復保証は設けない。
+
+`BmsLibraryLr2SongDbSyncTests.ReloadFileDiff_PublishesCatalogAfterLeaseReleaseAndIsolatesTerminalSubscriber` は実reloadから、通知時のhash/installed/playlist/resource、lease解放、後続取得と旧snapshotを確認する。pipeline・初期化・directory availabilityの既存testsでreadinessと失敗を、`OwnedChartCollectionRefreshTests` でtyped残余反映と空入力を確認する。
+
 ## 対象操作
 
 P0 として次の操作は共通境界を通す。

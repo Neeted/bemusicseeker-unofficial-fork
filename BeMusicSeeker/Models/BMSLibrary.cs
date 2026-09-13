@@ -9399,9 +9399,15 @@ public partial class BMSLibrary : ObservableObject
         };
     }
 
-    private Action ApplyFileScanCatalogResidualForScan(FileScanCatalogResidualEvent residualEvent)
+    /// <summary>
+    /// scan residual facts を common mutation effects へ反映し、lease 解放後の
+    /// duplicate・refresh 通知だけを返します。
+    /// </summary>
+    /// <param name="residualEvent">走査で確定した residual facts。</param>
+    /// <returns>lease 解放後に実行する通知、または変更がない場合は <see langword="null"/>。</returns>
+    internal Action ApplyFileScanCatalogResidualForScan(FileScanCatalogResidualEvent residualEvent)
     {
-        if (residualEvent == null)
+        if (residualEvent?.InstallDestinationChangedCharts?.Count > 0 != true)
         {
             return null;
         }
@@ -9409,42 +9415,37 @@ public partial class BMSLibrary : ObservableObject
         IReadOnlyList<ChartFile> installDestinationChangedCharts =
             installDestinationStateOwner.ReattachFileScanResidualInstallDestinationCharts(
                 residualEvent.InstallDestinationChangedCharts);
+        if (installDestinationChangedCharts.Count == 0)
+        {
+            return null;
+        }
+
         var mutationResult = new OwnedChartCollectionMutationResult
         {
             InstallDestinationChangedCount = installDestinationChangedCharts.Count,
-            InstallEstimationMetadataProfileCacheInvalidated = residualEvent.InvalidateInstalledDirectoryIndex,
-            DuplicateCacheInvalidated = residualEvent.ClearDuplicatedCache,
-            WarningPresentationChanged = residualEvent.ClearDuplicatedCache
+            InstallEstimationMetadataProfileCacheInvalidated = true,
+            DuplicateCacheInvalidated = true,
+            WarningPresentationChanged = true
         };
         mutationResult.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(
             installDestinationChangedCharts);
-        bool duplicateChartGroupsInvalidated = false;
+        string dispatchReason = string.IsNullOrWhiteSpace(residualEvent.Reason)
+            ? "file_scan_residual"
+            : "file_scan_residual_" + residualEvent.Reason;
+        Action duplicateChartGroupsPostLeaseNotification = null;
         try
         {
-            if (mutationResult.InstallDestinationRuntimeStateMutation.HasStateChanges)
-            {
-                installDestinationStateOwner.Apply(mutationResult.InstallDestinationRuntimeStateMutation);
-            }
-            if (mutationResult.DuplicateCacheInvalidated)
-            {
-                duplicateChartGroupsInvalidated = InvalidateDuplicateChartGroupsCache(
-                    publishNotification: false);
-            }
-            if (mutationResult.InstallEstimationMetadataProfileCacheInvalidated)
-            {
-                InvalidateInstallEstimationMetadataProfileCache();
-            }
+            duplicateChartGroupsPostLeaseNotification = DispatchOwnedChartCollectionMutation(
+                mutationResult,
+                dispatchReason,
+                publishNormalRefreshNotification: false,
+                publishOwnedCollectionNotifications: false,
+                deferDuplicateChartGroupsNotification: true);
         }
         catch
         {
-            if (mutationResult.DuplicateCacheInvalidated)
-            {
-                InvalidateDuplicateChartGroupsCache();
-            }
-            if (mutationResult.InstallEstimationMetadataProfileCacheInvalidated)
-            {
-                InvalidateInstallEstimationMetadataProfileCache();
-            }
+            InvalidateDuplicateChartGroupsCache();
+            InvalidateInstallEstimationMetadataProfileCache();
             if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges)
             {
                 installDestinationStateOwner.PruneToCurrentOwnedCharts();
@@ -9456,13 +9457,7 @@ public partial class BMSLibrary : ObservableObject
         return () =>
         {
             TryInvokePostLeaseNotification(
-                () =>
-                {
-                    if (duplicateChartGroupsInvalidated)
-                    {
-                        RaisePropertyChanged(() => DuplicateChartGroupsInvalidationVersion);
-                    }
-                },
+                duplicateChartGroupsPostLeaseNotification,
                 "file_scan_residual_duplicate_chart_groups_notification_failed");
             TryInvokePostLeaseNotification(
                 () => PublishNormalLibraryRefreshNotification(mutationResult),
@@ -9471,14 +9466,6 @@ public partial class BMSLibrary : ObservableObject
                 () => RaiseNormalLibraryRefreshNotificationVersionChanged(mutationResult),
                 "file_scan_residual_normal_refresh_notification_failed");
         };
-    }
-
-    internal void ApplyFileScanCatalogResidual(FileScanCatalogResidualEvent residualEvent)
-    {
-        Action postLeaseEffects = ApplyFileScanCatalogResidualForScan(residualEvent);
-        TryInvokePostLeaseNotification(
-            postLeaseEffects,
-            "file_scan_residual_publication_failed");
     }
 
     private void LogOwnedChartCollectionSkippedRows(string reason, OwnedChartStorageRowFilterSummary filterSummary)

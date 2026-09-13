@@ -822,12 +822,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                     bmsFilesChanged++;
                 }
             };
-            var delta = new LibraryMutationDelta
-            {
-                InvalidateInstalledDirectoryIndex = true,
-                InvalidateParentFolderCache = true,
-                ClearDuplicatedCache = true
-            };
+            var delta = new LibraryMutationDelta();
             delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReferenceChart(initialSnapshot[0]));
 
             InvokeApplyLibraryMutationDelta(library, delta);
@@ -1418,8 +1413,6 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 };
                 var delta = new LibraryMutationDelta
                 {
-                    InvalidateParentFolderCache = true,
-                    ClearDuplicatedCache = true,
                     NotifyStorageRowPathChanges = true
                 };
                 delta.ChartPathChanges.Add(new LibraryChartPathChange

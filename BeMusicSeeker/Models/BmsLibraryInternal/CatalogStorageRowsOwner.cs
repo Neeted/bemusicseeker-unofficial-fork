@@ -93,6 +93,56 @@ internal sealed class CatalogStorageRowsOwner
     /// <summary>現在の BMSON read-only view を返します。</summary>
     internal IReadOnlyList<LR2SongDBExtended.bmson_song> GetBmsonRowsReadOnly() => bmsonRows;
 
+    /// <summary>指定した exact path の BMS 行だけを lookup します。</summary>
+    /// <param name="path">照合する path。</param>
+    /// <returns>exact path に一致した現在行。</returns>
+    internal IReadOnlyList<BMSFile> FindBmsRowsByExactPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return [];
+        }
+
+        using IDisposable readGuard = writeGate.IsWriteLockHeld
+            || writeGate.IsReadLockHeld
+            || writeGate.IsUpgradeableReadLockHeld
+            ? null
+            : writeGate.GetReaderGuard();
+        lock (versionGate)
+        {
+            return bmsEntriesByExactPath.TryGetValue(
+                    path,
+                    out List<CatalogStorageSequenceEntry<BMSFile>> entries)
+                ? [.. entries.Select(entry => entry.Value).Where(file => file != null)]
+                : [];
+        }
+    }
+
+    /// <summary>指定した exact path の BMSON 行だけを lookup します。</summary>
+    /// <param name="path">照合する path。</param>
+    /// <returns>exact path に一致した現在行。</returns>
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> FindBmsonRowsByExactPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return [];
+        }
+
+        using IDisposable readGuard = writeGate.IsWriteLockHeld
+            || writeGate.IsReadLockHeld
+            || writeGate.IsUpgradeableReadLockHeld
+            ? null
+            : writeGate.GetReaderGuard();
+        lock (versionGate)
+        {
+            return bmsonEntriesByExactPath.TryGetValue(
+                    path,
+                    out List<CatalogStorageSequenceEntry<LR2SongDBExtended.bmson_song>> entries)
+                ? [.. entries.Select(entry => entry.Value).Where(song => song != null)]
+                : [];
+        }
+    }
+
     /// <summary>BMS storage view の公開 version を返します。</summary>
     internal int BmsRowsVersion => Volatile.Read(ref bmsRowsVersion);
 

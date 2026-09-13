@@ -32,9 +32,8 @@ internal sealed class InstallDestinationStateOwner
     internal IReadOnlyList<ChartFile> ReattachFileScanResidualInstallDestinationCharts(
         IEnumerable<ChartFile> charts)
     {
-        CatalogStorageRowsSnapshot storageRowsSnapshot = storageRowsOwner.CaptureSnapshot();
         return [.. (charts ?? [])
-            .Select(chart => ReattachFileScanResidualInstallDestinationChart(chart, storageRowsSnapshot))
+            .Select(ReattachFileScanResidualInstallDestinationChart)
             .Where(chart => chart != null)];
     }
 
@@ -152,9 +151,7 @@ internal sealed class InstallDestinationStateOwner
         return [.. chartsByKey.Values];
     }
 
-    private static ChartFile ReattachFileScanResidualInstallDestinationChart(
-        ChartFile chart,
-        CatalogStorageRowsSnapshot storageRowsSnapshot)
+    private ChartFile ReattachFileScanResidualInstallDestinationChart(ChartFile chart)
     {
         if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
         {
@@ -163,7 +160,9 @@ internal sealed class InstallDestinationStateOwner
 
         if (chart.Kind == ChartFileKind.Bms)
         {
-            BMSFile bmsOwner = FindCurrentBmsOwner(chart, storageRowsSnapshot.BmsRows);
+            BMSFile bmsOwner = FindCurrentBmsOwner(
+                chart,
+                storageRowsOwner.FindBmsRowsByExactPath(chart.Path));
             return bmsOwner == null
                 ? null
                 : CreatePackageStateChart(
@@ -174,7 +173,9 @@ internal sealed class InstallDestinationStateOwner
                         includeResourceReferences: false));
         }
 
-        LR2SongDBExtended.bmson_song bmsonOwner = FindCurrentBmsonOwner(chart, storageRowsSnapshot.BmsonRows);
+        LR2SongDBExtended.bmson_song bmsonOwner = FindCurrentBmsonOwner(
+            chart,
+            storageRowsOwner.FindBmsonRowsByExactPath(chart.Path));
         return bmsonOwner == null
             ? null
             : CreatePackageStateChart(
@@ -189,8 +190,7 @@ internal sealed class InstallDestinationStateOwner
         ChartFile chart,
         IEnumerable<BMSFile> rows)
     {
-        List<BMSFile> candidates = [.. (rows ?? [])
-            .Where(file => file != null && AreResidualPathsEqual(file.path, chart.Path))];
+        List<BMSFile> candidates = [.. (rows ?? []).Where(file => file != null)];
         return candidates.FirstOrDefault(file =>
                 !string.IsNullOrWhiteSpace(file.hash)
                 && !string.IsNullOrWhiteSpace(chart.Md5)
@@ -202,18 +202,12 @@ internal sealed class InstallDestinationStateOwner
         ChartFile chart,
         IEnumerable<LR2SongDBExtended.bmson_song> rows)
     {
-        List<LR2SongDBExtended.bmson_song> candidates = [.. (rows ?? [])
-            .Where(song => song != null && AreResidualPathsEqual(song.path, chart.Path))];
+        List<LR2SongDBExtended.bmson_song> candidates = [.. (rows ?? []).Where(song => song != null)];
         return candidates.FirstOrDefault(song =>
                 !string.IsNullOrWhiteSpace(song.md5)
                 && !string.IsNullOrWhiteSpace(chart.Md5)
                 && string.Equals(song.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
             ?? (candidates.Count == 1 ? candidates[0] : null);
-    }
-
-    private static bool AreResidualPathsEqual(string left, string right)
-    {
-        return string.Equals(left, right, StringComparison.Ordinal);
     }
 
     private static ChartFile CreatePackageStateChart(ChartFile source, ChartFile ownerProjection)

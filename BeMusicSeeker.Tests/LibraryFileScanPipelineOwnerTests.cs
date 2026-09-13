@@ -71,6 +71,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.AreEqual(CatalogChartInfoOwnerEventKind.WarningPresentationChanged, warning.Kind);
             Assert.AreEqual("file_diff_inline_chart_info_parse_failure", warning.Reason);
             Assert.IsNotNull(callbacks.LastCatalogResidual);
+            Assert.AreEqual(0, callbacks.LastCatalogResidual.InstallDestinationChangedCharts.Count);
         }
         finally
         {
@@ -563,12 +564,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         owner.ApplyCatalogProjection(result, [chart], callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
-        LibraryInstallDestinationChange change = result.MutationDelta.UpdatedInstallDestinations.Single();
-        Assert.AreSame(chart, change.Chart);
-        Assert.IsNull(change.NewInstallDestination);
-        Assert.IsTrue(change.ClearInstallDestinationState);
-        Assert.IsTrue(result.MutationDelta.InvalidateInstalledDirectoryIndex);
-        Assert.IsTrue(result.MutationDelta.ClearDuplicatedCache);
+        ChartFile change = result.ClearedInstallDestinationCharts.Single();
+        Assert.AreSame(keepFile, change.GetBmsStorageOwner());
+        Assert.IsTrue(string.IsNullOrWhiteSpace(change.InstallDestination));
     }
 
     [TestMethod]
@@ -578,76 +576,22 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
             path = "C:\\Library\\chart.bms"
         };
-        var delta = new LibraryMutationDelta
-        {
-            InvalidateInstalledDirectoryIndex = true,
-            ClearDuplicatedCache = true
-        };
-        delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-        {
-            NewInstallDestination = "C:\\Install\\chart",
-            Chart = ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false),
-                "C:\\Install\\chart",
-                string.Empty,
-                string.Empty,
-                [])
-        });
+        ChartFile changedChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false),
+            "C:\\Install\\chart",
+            string.Empty,
+            string.Empty,
+            []);
 
-        FileScanCatalogResidualEvent residual = FileScanCatalogResidualEvent.Create(delta, "residual_test");
+        FileScanCatalogResidualEvent residual = FileScanCatalogResidualEvent.Create(
+            [changedChart],
+            "residual_test");
         bmsFile.path = "C:\\Library\\renamed.bms";
 
         Assert.AreEqual("residual_test", residual.Reason);
-        Assert.IsTrue(residual.InvalidateInstalledDirectoryIndex);
-        Assert.IsTrue(residual.ClearDuplicatedCache);
         Assert.AreEqual("C:\\Library\\chart.bms", residual.InstallDestinationChangedCharts.Single().Path);
         Assert.AreEqual("C:\\Install\\chart", residual.InstallDestinationChangedCharts.Single().InstallDestination);
         Assert.IsNull(residual.InstallDestinationChangedCharts.Single().GetBmsStorageOwner());
-    }
-
-    [TestMethod]
-    public void FileScanCatalogResidualEvent_RejectsUnsupportedGenericMutation()
-    {
-        var delta = new LibraryMutationDelta();
-        delta.ChartPathChanges.Add(new LibraryChartPathChange
-        {
-            OldPath = "C:\\Library\\old.bms",
-            NewPath = "C:\\Library\\new.bms"
-        });
-
-        Assert.ThrowsException<InvalidOperationException>(
-            () => FileScanCatalogResidualEvent.Create(delta, "residual_test"));
-    }
-
-    [TestMethod]
-    public void FileScanCatalogResidualEvent_RejectsPackageEntryMutation()
-    {
-        var delta = new LibraryMutationDelta();
-        delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-        {
-            Entry = new PackageChartEntry(
-                ChartFileProjection.FromIdentitySnapshot(
-                    ChartFileKind.Bms,
-                    "C:\\Library\\chart.bms",
-                    string.Empty,
-                    string.Empty)),
-            NewInstallDestination = "C:\\Install\\chart"
-        });
-
-        Assert.ThrowsException<InvalidOperationException>(
-            () => FileScanCatalogResidualEvent.Create(delta, "residual_test"));
-    }
-
-    [TestMethod]
-    public void FileScanCatalogResidualEvent_RejectsUnsupportedParentInvalidation()
-    {
-        var delta = new LibraryMutationDelta
-        {
-            InvalidateParentFolderCache = true
-        };
-
-        Assert.ThrowsException<InvalidOperationException>(
-            () => FileScanCatalogResidualEvent.Create(delta, "residual_test"));
     }
 
     [TestMethod]
@@ -696,10 +640,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
-        LibraryInstallDestinationChange change = result.MutationDelta.UpdatedInstallDestinations.Single();
-        Assert.AreEqual("C:\\Library\\chart.bms", change.Chart.Path);
-        Assert.IsNull(change.NewInstallDestination);
-        Assert.IsTrue(change.ClearInstallDestinationState);
+        ChartFile change = result.ClearedInstallDestinationCharts.Single();
+        Assert.AreEqual("C:\\Library\\chart.bms", change.Path);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(change.InstallDestination));
     }
 
     [TestMethod]
@@ -729,10 +672,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
-        LibraryInstallDestinationChange change = result.MutationDelta.UpdatedInstallDestinations.Single();
-        Assert.AreEqual("C:\\Library\\chart.bmson", change.Chart.Path);
-        Assert.IsNull(change.NewInstallDestination);
-        Assert.IsTrue(change.ClearInstallDestinationState);
+        ChartFile change = result.ClearedInstallDestinationCharts.Single();
+        Assert.AreEqual("C:\\Library\\chart.bmson", change.Path);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(change.InstallDestination));
     }
 
     [TestMethod]
@@ -764,7 +706,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
-        Assert.AreEqual(0, result.MutationDelta.UpdatedInstallDestinations.Count);
+        Assert.AreEqual(0, result.ClearedInstallDestinationCharts.Count);
     }
 
     [TestMethod]
