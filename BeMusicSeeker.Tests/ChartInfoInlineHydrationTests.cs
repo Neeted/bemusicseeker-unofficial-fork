@@ -24,6 +24,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
 
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
+using OwnedChartCollectionTestSupport = BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
@@ -726,63 +727,73 @@ public sealed class ChartInfoInlineHydrationTests
     }
 
     [TestMethod]
-    public void CatalogChartInfoOwner_InlinePublicationOrdersDigestIndexesBeforeSessionIndexAndEvents()
+    public void CatalogChartInfoOwner_InlinePublicationOrdersDigestEffectsAfterSessionIndex()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "publication-order.bms");
             File.WriteAllText(
                 chartPath,
-                "#PLAYER 1\r\n#TITLE publication order\r\n#PLAYLEVEL 7\r\n#BPM 130\r\n#00111:01\r\n",
+                "#PLAYER 1\r\n#TITLE publication order before\r\n#PLAYLEVEL 7\r\n#BPM 130\r\n#00111:01\r\n",
                 Encoding.ASCII);
-            var file = new TestableBmsFile { path = chartPath };
-            file.SetHash(new string('a', 32));
-            var gateway = new BmsLibraryDbGateway(songDbPath);
-            gateway.EnsureChartInfoSchema();
-            var storageRowsOwner = new CatalogStorageRowsOwner();
-            storageRowsOwner.ReplaceBmsRows([file]);
-            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-            ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
-            var mutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, gateway);
-            var eventKinds = new List<CatalogChartInfoOwnerEventKind>();
-            CatalogChartInfoOwner? owner = null;
-            owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
-            owner.ConfigureWorkflow(
-                gateway,
-                mutationOwner,
-                storageRowsOwner,
-                ownedCollectionOwner,
-                _ => { },
-                ownerEvent =>
+            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            string oldMd5 = file.hash;
+            string oldSha256 = file.sha256;
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE publication order after\r\n#PLAYLEVEL 7\r\n#BPM 130\r\n#00111:01\r\n",
+                Encoding.ASCII);
+            var library = new TestBmsLibrary(songDbPath);
+            OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [file]);
+            OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, []);
+            OwnedChartCollectionTestSupport.SetDuplicateChartGroupsWithoutNotification(library, []);
+            PlaylistLibraryResolveIndexSnapshot initialResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+                CancellationToken.None,
+                out _,
+                out _);
+            Assert.AreEqual(chartPath, initialResolve.ResolveChartForPlaylistHash(oldMd5, null).Path);
+            List<string> publicationOrder = [];
+            bool playlistResolvedAtDigestNotification = false;
+            library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSLibrary.ChartInfoIndexVersion))
                 {
-                    CatalogChartInfoOwner currentOwner = owner!;
-                    eventKinds.Add(ownerEvent.Kind);
-                    if (ownerEvent.Kind == CatalogChartInfoOwnerEventKind.DigestIndexesPrepared)
-                    {
-                        Assert.AreEqual(0, currentOwner.ChartInfoIndexVersion);
-                        Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
-                    }
-                    if (ownerEvent.Kind is CatalogChartInfoOwnerEventKind.IndexChanged
-                        or CatalogChartInfoOwnerEventKind.DigestChanges)
-                    {
-                        Assert.IsTrue(currentOwner.ChartInfoIndexVersion > 0);
-                        Assert.IsNotNull(currentOwner.ResolveChartInfo(file.sha256, file.hash));
-                    }
-                });
+                    publicationOrder.Add("session_index");
+                    Assert.IsTrue(library.ChartInfoIndexVersion > 0);
+                    Assert.IsNotNull(library.ResolveChartInfo(file.sha256, file.hash));
+                }
+                else if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                {
+                    publicationOrder.Add("digest_effects");
+                    Assert.IsNotNull(library.ResolveChartInfo(file.sha256, file.hash));
+                    Assert.IsTrue(library.GetOwnedChartHashIndexSnapshot().ContainsMd5(file.hash));
+                    PlaylistLibraryResolveIndexSnapshot notificationResolve = library.GetPlaylistLibraryResolveIndexSnapshot(
+                        CancellationToken.None,
+                        out bool cacheHit,
+                        out int staleRetries);
+                    Assert.IsTrue(cacheHit);
+                    Assert.AreEqual(0, staleRetries);
+                    Assert.IsNull(notificationResolve.ResolveChartForPlaylistHash(oldMd5, null));
+                    Assert.AreEqual(
+                        chartPath,
+                        notificationResolve.ResolveChartForPlaylistHash(file.hash, null).Path);
+                    playlistResolvedAtDigestNotification = true;
+                }
+            };
 
-            ChartInfoInlineBuildResult result = owner.BuildInline(
+            ChartInfoInlineBuildResult result = OwnedChartCollectionTestSupport.InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
+                library,
                 "publication_order",
                 [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
 
-            CollectionAssert.AreEqual(
-                new[]
-                {
-                    CatalogChartInfoOwnerEventKind.DigestIndexesPrepared,
-                    CatalogChartInfoOwnerEventKind.IndexChanged,
-                    CatalogChartInfoOwnerEventKind.WarningPresentationChanged,
-                    CatalogChartInfoOwnerEventKind.DigestChanges
-                },
-                eventKinds);
+            Assert.IsTrue(publicationOrder.IndexOf("session_index") >= 0);
+            Assert.IsTrue(publicationOrder.IndexOf("digest_effects") >= 0);
+            Assert.IsTrue(
+                publicationOrder.IndexOf("session_index") < publicationOrder.IndexOf("digest_effects"),
+                "chart-info session index must be observable before digest-dependent collection notification.");
+            Assert.IsTrue(playlistResolvedAtDigestNotification);
+            Assert.AreNotEqual(oldMd5, file.hash);
+            Assert.AreNotEqual(oldSha256, file.sha256);
             Assert.IsTrue(result.DigestChanges.Count > 0);
         });
     }

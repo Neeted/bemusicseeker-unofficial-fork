@@ -281,3 +281,14 @@ U5を口実に各単位で使わなくなった実装を温存しない。一方
 - U3 review修正: Firstはsource不足→destination既存WAV+移動分でhealth100/警告解消、Secondは未充足0/警告維持。対象Quick2件・同fixture161件成功。production変更なし。既存FunctionalにこのQuickを補完しfresh reviewへ渡す。
 
 - U3 fresh reviewでP2解消・修正必須指摘なしを確認。U4a→U4b→U5を継続する。
+
+### U5の具体的な直列分割
+
+U4a実装はdigestの単一反映結果と解放後公開Action、通常/estimated maintenance共通反映へ統合した。旧prepare/dispatch/potentialイベントを退役。inline/maintenanceの背景16/128独立2操作・通知・後続取得・旧snapshotと通知時playlist解決を確認。関連Quick164件成功、Functionalは `tests-functional-20260913-210652`、4820件・実行239.5秒で成功。独立レビューは修正必須指摘なし。全規模wall-clockは未測定。
+
+- U5a: primary/full installedのstate・initialized・generation・専用lock・observerとread/build/apply/invalidateを既存CatalogOwnedCollectionOwnerへ一緒に移す。必要なら同じclassのpartial fileで分けるが新ownerを作らない。BMSLibraryには公開facadeとpending estimate currentnessの既存操作境界だけを残す。currentness判定はownerが返す既存generationを使い、mutable indexや専用lockを外へ公開しない。
+- U5b: playlist resolveのstate/read/write/専用lockを同ownerへ移す。prewarmのscheduler/同世代Task共有やdigest window、公開前整合を保持する。
+- U5c: 移行した共通変更処理・request/receipt・compositionを既存file ownerへ再編しLibraryMutationOwnerへ改名。外向きLibraryMutationDeltaと多数boolean、rootのtests-only内部apply、同義callbackを実callerとcoverageに従い退役する。typed request移行とowner再編が分割目安を超えれば、この中をさらに直列の受入単位へ分ける。単なる改名で全体完了にしない。
+- U5a/bは同じ実入口のU1～U4受入を再利用し、mechanicalなhelper/署名変更で済む場合はassertion semanticsを変えない。新しい境界coverageが必要な部分だけ独立packetに従って補完する。rootは実装割当前に各所有範囲と最終旧caller一覧を確定する。
+- U5aは[独立確認記録](library-mutation-u5a-test-contract.md)を承認。新規恒久テストは不要で、既存実操作・currentness検証を再利用する。
+- U5bも独立Phase A/Bで新規テスト不要と判断。U1～U4本番入口coverage、PlaylistSummaryResolveIndexTests、PlaylistViewPipelineTests、PlaylistWorkspaceDetailRefreshTestsのresolve/prewarmを再利用する。全read/write・observer・version/lockを同時に移す。playlistだけwarmの場合の旧facts捕捉、BMT/play history/lamp consumer、全置換・失敗失効・公開前rebaseを含む。scheduler/Task共有は変更しない。既存内部apply helperの退役はU5cで行う。U4aの通知時playlist readback完成を前提とし、既存case名だけを公開順序の根拠にしない。

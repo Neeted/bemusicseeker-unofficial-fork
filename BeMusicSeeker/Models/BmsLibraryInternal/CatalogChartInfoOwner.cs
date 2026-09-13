@@ -46,6 +46,8 @@ internal sealed class CatalogChartInfoOwner
 
     private Func<IDisposable> workflowBeginDigestMutationWindow = () => EmptyDisposable.Instance;
 
+    private Func<IReadOnlyList<LibraryChartDigestChange>, string, Action> workflowPrepareDigestPublication;
+
     private readonly object backfillGate = new();
 
     private readonly List<ChartInfoBackfillRequest> backfillRequests = [];
@@ -139,6 +141,17 @@ internal sealed class CatalogChartInfoOwner
             FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree());
     }
 
+    /// <summary>
+    /// chart-infoの永続化と、commit済みdigest factsの公開処理を接続します。
+    /// </summary>
+    /// <param name="dbGateway">chart-infoを書き込むDB gateway。</param>
+    /// <param name="mutationOwner">catalogの永続化を所有するmutation owner。</param>
+    /// <param name="storageRowsOwner">永続化済みstorage rowsのowner。</param>
+    /// <param name="ownedCollectionOwner">所持譜面の正本owner。</param>
+    /// <param name="logWarning">警告ログ出力。</param>
+    /// <param name="workflowEvent">chart-info表示状態の通知。</param>
+    /// <param name="beginDigestMutationWindow">digest操作の入力mutation window。</param>
+    /// <param name="prepareDigestPublication">commit済みdigest factsからcommon effects公開処理を準備するcallback。</param>
     internal void ConfigureWorkflow(
         BmsLibraryDbGateway dbGateway,
         CatalogMutationOwner mutationOwner,
@@ -146,7 +159,8 @@ internal sealed class CatalogChartInfoOwner
         CatalogOwnedCollectionOwner ownedCollectionOwner,
         Action<string> logWarning,
         Action<CatalogChartInfoOwnerEvent> workflowEvent,
-        Func<IDisposable> beginDigestMutationWindow = null)
+        Func<IDisposable> beginDigestMutationWindow = null,
+        Func<IReadOnlyList<LibraryChartDigestChange>, string, Action> prepareDigestPublication = null)
     {
         workflowDbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         workflowMutationOwner = mutationOwner ?? throw new ArgumentNullException(nameof(mutationOwner));
@@ -155,6 +169,7 @@ internal sealed class CatalogChartInfoOwner
         workflowLogWarning = logWarning;
         this.workflowEvent = workflowEvent;
         workflowBeginDigestMutationWindow = beginDigestMutationWindow ?? (() => EmptyDisposable.Instance);
+        workflowPrepareDigestPublication = prepareDigestPublication;
     }
 
     internal object BackfillGate => backfillGate;
@@ -617,6 +632,7 @@ internal sealed class CatalogChartInfoOwner
             bool completedLatestRequest = false;
             Dictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null;
             ChartInfoBackfillResult result = null;
+            List<Action> publicationEffects = [];
             using (workflowBeginDigestMutationWindow())
             {
                 try
@@ -642,7 +658,8 @@ internal sealed class CatalogChartInfoOwner
                             publication.DigestChanges,
                             publication.AppliedRows,
                             publication.ParseFailureChanged,
-                            "chart_info_backfill"),
+                            "chart_info_backfill",
+                            publicationEffects.Add),
                         existingRowsSnapshot,
                         request =>
                         {
@@ -672,21 +689,33 @@ internal sealed class CatalogChartInfoOwner
                 {
                     ChartInfoBackfillCurrentPath = string.Empty;
                     ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
-                    ChartInfoBackfillCompletedVersion = requestVersion;
-                    lock (backfillGate)
-                    {
-                        chartInfoBackfillCompletedVersion = requestVersion;
-                        if (requestVersion == chartInfoBackfillRequestedVersion)
-                        {
-                            ChartInfoBackfillRunning = false;
-                            completedLatestRequest = true;
-                        }
-                    }
                     chartSnapshot?.Clear();
                     existingRowsSnapshot?.Clear();
-                    PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "after_release"));
                 }
             }
+            for (int publicationIndex = 0; publicationIndex < publicationEffects.Count; publicationIndex++)
+            {
+                try
+                {
+                    publicationEffects[publicationIndex]?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    LogPerformance?.Invoke("chart_info_backfill publication failed version="
+                        + requestVersion + " index=" + publicationIndex + " message=" + ex.Message);
+                }
+            }
+            ChartInfoBackfillCompletedVersion = requestVersion;
+            lock (backfillGate)
+            {
+                chartInfoBackfillCompletedVersion = requestVersion;
+                if (requestVersion == chartInfoBackfillRequestedVersion)
+                {
+                    ChartInfoBackfillRunning = false;
+                    completedLatestRequest = true;
+                }
+            }
+            PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "after_release"));
             if (completedLatestRequest)
             {
                 return;
@@ -1604,6 +1633,15 @@ internal sealed class CatalogChartInfoOwner
             ?? new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// 所有済み譜面のchart-infoを構築し、確定したdigestとsession indexを反映します。
+    /// </summary>
+    /// <param name="reason">ログと通知の理由。</param>
+    /// <param name="charts">構築対象の譜面。</param>
+    /// <param name="deferPublication">DBとindex更新後の公開処理を呼び出し元の解放境界へ渡すcallback。</param>
+    /// <param name="logOverride">通常ログの任意override。</param>
+    /// <param name="warningLogOverride">警告ログの任意override。</param>
+    /// <returns>構築結果と確定したdigest facts。</returns>
     internal ChartInfoInlineBuildResult BuildInline(
         string reason,
         IEnumerable<ChartFile> charts,
@@ -1678,8 +1716,8 @@ internal sealed class CatalogChartInfoOwner
 
     /// <summary>
     /// Publishes facts from a successful chart-info storage receipt in catalog dependency order.
-    /// Digest-derived lookup state is applied before the chart-info session index, and presentation
-    /// or digest events are emitted only after both indexes have been updated.
+    /// Digest-derived lookup state is prepared before the chart-info session index, and the
+    /// prepared common effects are published only after the session index has been updated.
     /// </summary>
     private void PublishCommittedStorageApplication(
         IEnumerable<LibraryChartDigestChange> digestChanges,
@@ -1693,6 +1731,7 @@ internal sealed class CatalogChartInfoOwner
         LR2SongDBExtended.chart_info[] committedRows = [.. (appliedRows ?? [])
             .Where(row => row != null)];
 
+        Action digestPublication = null;
         if (committedDigestChanges.Length > 0)
         {
             CatalogDigestMutationRequest digestRequest =
@@ -1702,9 +1741,9 @@ internal sealed class CatalogChartInfoOwner
             {
                 throw new InvalidOperationException("Committed chart-info digest mutation returned no receipt.");
             }
-            PublishWorkflowEvent(CatalogChartInfoOwnerEvent.PrepareDigestIndexes(
+            digestPublication = workflowPrepareDigestPublication?.Invoke(
                 committedDigestChanges,
-                reason + "_digest_prepare"));
+                reason + "_digest");
         }
 
         if (committedRows.Length > 0)
@@ -1736,18 +1775,15 @@ internal sealed class CatalogChartInfoOwner
                 deferPublication(() => PublishWorkflowEvent(warningEvent));
             }
         }
-        if (committedDigestChanges.Length > 0)
+        if (digestPublication != null)
         {
-            CatalogChartInfoOwnerEvent digestEvent = CatalogChartInfoOwnerEvent.Digest(
-                committedDigestChanges,
-                reason + "_digest");
             if (deferPublication == null)
             {
-                PublishWorkflowEvent(digestEvent);
+                digestPublication();
             }
             else
             {
-                deferPublication(() => PublishWorkflowEvent(digestEvent));
+                deferPublication(digestPublication);
             }
         }
     }

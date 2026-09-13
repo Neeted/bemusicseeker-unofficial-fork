@@ -62,6 +62,10 @@ background hydration/backfillやpackage inlineのchart-info writeは、UI操作�
 - parse-failure明示削除などstorage rowを伴わない処理にはfacts-onlyの`ApplyChartInfoWrite(...)`を残す。
 - DB transactionやmodel/storage lockを保持したままUI/event subscriberを待たない。
 
+digestの確定factsは `PrepareOwnedChartDigestPublication` で共通反映結果を一度だけ組み立て、依存索引へ適用する。同じ結果の公開Actionをchart-info ownerへ返し、session index更新・digest mutation window解放後に実行する。prepareと公開でfactsを再組立てしない。通常・推定maintenanceのreceiptも `ApplyCatalogMaintenanceMutation` で共通反映へ接続する。
+
+公開順序は `ChartInfoInlineHydrationTests.CatalogChartInfoOwner_InlinePublicationOrdersDigestEffectsAfterSessionIndex` の通知内hash/session/playlist読取りで、連続差分は `OwnedChartCollectionInlineDigestTests.BuildInlineChartInfo_WarmDigestDeltaStaysLocalAcrossTwoOperations` と `BmsLibraryMaintenanceServiceTests.RescanResourceHealthCharts_UpdatesCurrentResourceHealthIndexByDelta` で確認する。背景16/128件の仕事量確認は、本番規模のwall-clock測定を意味しない。
+
 ## 対象操作
 
 P0 として次の操作は共通境界を通す。

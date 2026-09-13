@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -124,9 +123,6 @@ internal sealed class ChartInfoIndexUpdateResult
 
 internal enum CatalogChartInfoOwnerEventKind
 {
-    DigestIndexesPrepared,
-    DigestChanges,
-    PotentialDigestChanges,
     WarningPresentationChanged,
     StartupMemoryCheckpoint,
     IndexChanged
@@ -140,15 +136,11 @@ internal sealed class CatalogChartInfoOwnerEvent
 {
     private CatalogChartInfoOwnerEvent(
         CatalogChartInfoOwnerEventKind kind,
-        IEnumerable<LibraryChartDigestChange> digestChanges,
-        IEnumerable<ChartFile> potentialDigestCharts,
         string reason,
         string checkpointStage,
         string checkpointStatus)
     {
         Kind = kind;
-        DigestChanges = Array.AsReadOnly([.. (digestChanges ?? []).Where(change => change != null)]);
-        PotentialDigestCharts = Array.AsReadOnly([.. (potentialDigestCharts ?? []).Where(chart => chart != null)]);
         Reason = reason ?? string.Empty;
         CheckpointStage = checkpointStage ?? string.Empty;
         CheckpointStatus = checkpointStatus ?? string.Empty;
@@ -156,61 +148,16 @@ internal sealed class CatalogChartInfoOwnerEvent
 
     internal CatalogChartInfoOwnerEventKind Kind { get; }
 
-    internal IReadOnlyList<LibraryChartDigestChange> DigestChanges { get; }
-
-    internal IReadOnlyList<ChartFile> PotentialDigestCharts { get; }
-
     internal string Reason { get; }
 
     internal string CheckpointStage { get; }
 
     internal string CheckpointStatus { get; }
 
-    internal static CatalogChartInfoOwnerEvent Digest(
-        IEnumerable<LibraryChartDigestChange> changes,
-        string reason)
-    {
-        return new(
-            CatalogChartInfoOwnerEventKind.DigestChanges,
-            changes,
-            [],
-            reason,
-            null,
-            null);
-    }
-
-    internal static CatalogChartInfoOwnerEvent PrepareDigestIndexes(
-        IEnumerable<LibraryChartDigestChange> changes,
-        string reason)
-    {
-        return new(
-            CatalogChartInfoOwnerEventKind.DigestIndexesPrepared,
-            changes,
-            [],
-            reason,
-            null,
-            null);
-    }
-
-    internal static CatalogChartInfoOwnerEvent PotentialDigest(
-        IEnumerable<ChartFile> charts,
-        string reason)
-    {
-        return new(
-            CatalogChartInfoOwnerEventKind.PotentialDigestChanges,
-            [],
-            charts,
-            reason,
-            null,
-            null);
-    }
-
     internal static CatalogChartInfoOwnerEvent Warning(string reason)
     {
         return new(
             CatalogChartInfoOwnerEventKind.WarningPresentationChanged,
-            [],
-            [],
             reason,
             null,
             null);
@@ -220,8 +167,6 @@ internal sealed class CatalogChartInfoOwnerEvent
     {
         return new(
             CatalogChartInfoOwnerEventKind.StartupMemoryCheckpoint,
-            [],
-            [],
             null,
             stage,
             status);
@@ -231,8 +176,6 @@ internal sealed class CatalogChartInfoOwnerEvent
     {
         return new(
             CatalogChartInfoOwnerEventKind.IndexChanged,
-            [],
-            [],
             reason,
             null,
             null);

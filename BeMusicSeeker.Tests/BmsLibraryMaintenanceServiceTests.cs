@@ -12,6 +12,8 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
+using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
+
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
@@ -986,53 +988,109 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
-    [TestMethod]
-    public void RescanResourceHealthCharts_UpdatesCurrentResourceHealthIndexByDelta()
+    [DataTestMethod]
+    [DataRow(16)]
+    [DataRow(128)]
+    public void RescanResourceHealthCharts_UpdatesCurrentResourceHealthIndexByDelta(int backgroundCount)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string root = Path.GetDirectoryName(songDbPath)!;
-            string targetPath = Path.Combine(root, "target.bms");
-            string unrelatedPath = Path.Combine(root, "unrelated.bms");
-            File.WriteAllText(targetPath, "#PLAYER 1\r\n#TITLE target\r\n", Encoding.ASCII);
-            File.WriteAllText(unrelatedPath, "#PLAYER 1\r\n#TITLE unrelated\r\n", Encoding.ASCII);
-            TestableBmsFile target = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            target.path = targetPath;
-            target.SetMaintenanceInfo(new BMSFileMaintenanceInfo(target)
+            string firstPath = Path.Combine(root, "target-first.bms");
+            string secondPath = Path.Combine(root, "target-second.bms");
+            string firstResourcePath = Path.Combine(root, "first.wav");
+            string secondResourcePath = Path.Combine(root, "second.wav");
+            File.WriteAllText(
+                firstPath,
+                "#PLAYER 1\r\n#TITLE target first\r\n#WAV01 first.wav\r\n#00111:01\r\n",
+                Encoding.ASCII);
+            File.WriteAllText(
+                secondPath,
+                "#PLAYER 1\r\n#TITLE target second\r\n#WAV01 second.wav\r\n#00111:01\r\n",
+                Encoding.ASCII);
+            BMSFile first = BMSFile.CreateBMSFileFromFile(firstPath);
+            BMSFile second = BMSFile.CreateBMSFileFromFile(secondPath);
+            first.SetMaintenanceInfo(new BMSFileMaintenanceInfo(first)
             {
-                hash = target.hash,
+                hash = first.hash,
                 wav_files_defined = 1,
                 wav_files_existing = 0
             }, suppressPropertyChanged: true);
-            TestableBmsFile unrelated = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            unrelated.path = unrelatedPath;
-            unrelated.SetMaintenanceInfo(new BMSFileMaintenanceInfo(unrelated)
+            second.SetMaintenanceInfo(new BMSFileMaintenanceInfo(second)
             {
-                hash = unrelated.hash,
+                hash = second.hash,
                 wav_files_defined = 1,
                 wav_files_existing = 0
             }, suppressPropertyChanged: true);
-            ChartFile targetChart = ChartFileProjection.FromBmsFile(target, includeWarningSnapshot: false);
+            ChartFile firstChart = ChartFileProjection.FromBmsFile(first, includeWarningSnapshot: false);
+            ChartFile secondChart = ChartFileProjection.FromBmsFile(second, includeWarningSnapshot: false);
+            List<BMSFile> files = [first, second];
+            for (int index = 0; index < backgroundCount; index++)
+            {
+                TestableBmsFile background = CreateFile(
+                    index.ToString("x8") + new string('0', 24));
+                background.path = Path.Combine(root, "background-" + index + ".bms");
+                background.SetMaintenanceInfo(new BMSFileMaintenanceInfo(background)
+                {
+                    hash = background.hash,
+                    wav_files_defined = 1,
+                    wav_files_existing = 0
+                }, suppressPropertyChanged: true);
+                files.Add(background);
+            }
             var library = new TestBmsLibrary(songDbPath);
-            SetStorageRows(library, [target, unrelated], []);
+            SetStorageRows(library, files, []);
             EnsureCurrentResourceHealthIndex(library);
-            ResourceHealthIndexSnapshot beforeSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
-            Assert.AreEqual(2, beforeSnapshot.TargetCount);
-            Assert.IsTrue(beforeSnapshot.GetProjection(targetChart).HasIssues);
             List<string> storeWork = [];
-            beforeSnapshot.StoreWorkObserver = operation => storeWork.Add(operation);
+            ResourceHealthIndexSnapshot beforeFirst = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            beforeFirst.StoreWorkObserver = operation => storeWork.Add(operation);
+            int initialTargetCount = beforeFirst.TargetCount;
+            Assert.AreEqual(backgroundCount + 2, initialTargetCount);
+            Assert.IsTrue(beforeFirst.GetProjection(firstChart).HasIssues);
+            Assert.IsTrue(beforeFirst.GetProjection(secondChart).HasIssues);
 
-            MaintenanceWorkflowResult result = library.RescanResourceHealthCharts([targetChart]);
-            ResourceHealthIndexSnapshot updatedSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            File.WriteAllBytes(firstResourcePath, [1, 2, 3]);
+            int firstNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            MaintenanceWorkflowResult firstResult = library.RescanResourceHealthCharts([firstChart]);
+            ResourceHealthIndexSnapshot afterFirst = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            ResourceHealthIndexSnapshot firstGetter = library.GetResourceHealthIndexSnapshotForView("test_rescan_first_getter");
+            List<ChartFile> firstFixTargets = library.GetChartsNeedResourceFix([firstChart]);
+            NormalLibraryRefreshNotificationBatch firstBatch = library.GetNormalLibraryRefreshNotificationsAfter(firstNotificationVersion);
 
-            Assert.IsTrue(result.HasUpdates);
-            Assert.AreEqual(2, updatedSnapshot.TargetCount);
-            Assert.IsFalse(updatedSnapshot.GetProjection(targetChart).HasIssues);
-            Assert.AreEqual(1, updatedSnapshot.ActiveTargets.Count);
-            Assert.AreEqual(2, beforeSnapshot.TargetCount);
-            Assert.IsTrue(beforeSnapshot.GetProjection(targetChart).HasIssues);
+            Assert.IsTrue(firstResult.HasUpdates);
+            Assert.AreEqual(initialTargetCount, afterFirst.TargetCount);
+            Assert.IsFalse(afterFirst.GetProjection(firstChart).HasIssues);
+            Assert.IsTrue(afterFirst.GetProjection(secondChart).HasIssues);
+            Assert.AreEqual(afterFirst.Version, firstGetter.Version);
+            Assert.IsFalse(firstGetter.GetProjection(firstChart).HasIssues);
+            Assert.AreEqual(0, firstFixTargets.Count);
+            Assert.IsTrue(firstBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(firstBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
+            Assert.IsTrue(beforeFirst.GetProjection(firstChart).HasIssues);
+
+            beforeFirst.StoreWorkObserver = null;
+            afterFirst.StoreWorkObserver = operation => storeWork.Add(operation);
+            File.WriteAllBytes(secondResourcePath, [4, 5, 6]);
+            int secondNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            MaintenanceWorkflowResult secondResult = library.RescanResourceHealthCharts([secondChart]);
+            ResourceHealthIndexSnapshot afterSecond = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            ResourceHealthIndexSnapshot thirdGetter = library.GetResourceHealthIndexSnapshotForView("test_rescan_second_getter");
+            List<ChartFile> secondFixTargets = library.GetChartsNeedResourceFix([secondChart]);
+            NormalLibraryRefreshNotificationBatch secondBatch = library.GetNormalLibraryRefreshNotificationsAfter(secondNotificationVersion);
+
+            Assert.IsTrue(secondResult.HasUpdates);
+            Assert.AreEqual(initialTargetCount, afterSecond.TargetCount);
+            Assert.IsFalse(afterSecond.GetProjection(firstChart).HasIssues);
+            Assert.IsFalse(afterSecond.GetProjection(secondChart).HasIssues);
+            Assert.AreEqual(afterSecond.Version, thirdGetter.Version);
+            Assert.AreEqual(0, secondFixTargets.Count);
+            Assert.IsTrue(secondBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(secondBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
+            Assert.IsTrue(afterFirst.GetProjection(secondChart).HasIssues);
             Assert.IsTrue(storeWork.Contains("entry_lookup"));
+            Assert.IsFalse(storeWork.Contains("warning_sequence_enumeration"));
+            Assert.IsFalse(storeWork.Contains("warning_sequence_entry_visited"));
         });
     }
 
@@ -1346,15 +1404,18 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            file.path = @"C:\Library\warning.bms";
-            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
-            {
-                hash = file.hash,
-                wav_files_defined = 2,
-                wav_files_existing = 1,
-                is_files_warning_ignored = false
-            }, suppressPropertyChanged: true);
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string chartPath = Path.Combine(root, "warning.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE warning before\r\n#WAV01 missing.wav\r\n#00111:01\r\n",
+                Encoding.ASCII);
+            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            string oldMd5 = file.hash;
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n#TITLE warning after\r\n#WAV01 missing.wav\r\n#00111:01\r\n",
+                Encoding.ASCII);
             ChartFile chart = ChartFileProjection.FromBmsFile(file);
             var library = new TestBmsLibrary(songDbPath);
             SetStorageRows(library, [file], []);
@@ -1362,13 +1423,15 @@ public sealed class BmsLibraryMaintenanceServiceTests
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
             library.SetChartResourceWarningsIgnored([chart], unset: false);
-            file.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            InvokePreparedOwnedChartDigestChanges(
+            ChartInfoInlineBuildResult result = InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
                 library,
-                [new LibraryChartDigestChange(LibraryChartKind.Bms, file.path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, file.hash, null)],
-                "test_warning_property_covered_digest");
+                "test_warning_property_covered_digest",
+                [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
 
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.AreEqual(1, result.DigestChanges.Count);
+            Assert.AreEqual(oldMd5, result.DigestChanges.Single().OldMd5);
+            Assert.AreNotEqual(oldMd5, file.hash);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
         });
     }
@@ -3573,23 +3636,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
     {
         library.BMSFiles = bmsFiles;
         library.BmsonSongs = bmsonSongs;
-    }
-
-    private static void InvokePreparedOwnedChartDigestChanges(
-        BMSLibrary library,
-        IEnumerable<LibraryChartDigestChange> digestChanges,
-        string reason)
-    {
-        MethodInfo? prepareMethod = typeof(BMSLibrary).GetMethod(
-            "PrepareOwnedChartDigestIndexes",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        MethodInfo? dispatchMethod = typeof(BMSLibrary).GetMethod(
-            "DispatchPreparedOwnedChartDigestChanges",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(prepareMethod);
-        Assert.IsNotNull(dispatchMethod);
-        prepareMethod!.Invoke(library, [digestChanges, reason]);
-        dispatchMethod!.Invoke(library, [digestChanges, reason]);
     }
 
     private static void EnsureCurrentResourceHealthIndex(BMSLibrary library)

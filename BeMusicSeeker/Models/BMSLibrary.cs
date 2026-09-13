@@ -2822,7 +2822,8 @@ public partial class BMSLibrary : ObservableObject
             catalogOwnedCollectionOwner,
             LogInstallPerformanceWarn,
             HandleCatalogChartInfoOwnerEvent,
-            BeginOwnedDigestMutationWindow);
+            BeginOwnedDigestMutationWindow,
+            PrepareOwnedChartDigestPublication);
         resourceHealthOwner = new(
             maintenanceService,
             LogInstallPerformance,
@@ -6979,27 +6980,32 @@ public partial class BMSLibrary : ObservableObject
         IEnumerable<ChartFile> charts)
     {
         ChartInfoInlineBuildResult result = null;
-        using (BeginOwnedDigestMutationWindow())
+        List<Action> publicationEffects = [];
+        try
         {
-            try
+            using (BeginOwnedDigestMutationWindow())
             {
-                result = catalogChartInfoOwner.BuildInline(reason, charts);
-                return result;
+                result = catalogChartInfoOwner.BuildInline(reason, charts, publicationEffects.Add);
             }
-            catch (Exception exception)
+            foreach (Action publicationEffect in publicationEffects)
             {
-                string displayedMessage = GetDisplayedExceptionMessage(exception).Replace(Environment.NewLine, " | ");
-                lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
-                    CurrentOptionsSnapshot,
-                    stage: "lr2_song_db_chart_info_inline_upsert_failed",
-                    detail: "lr2_song_db_chart_info_inline_upsert_failed: " + displayedMessage,
-                    logReason: reason ?? "chart_info_inline_install");
-                LogInstallPerformanceWarn("lr2_song_db_chart_info_inline_upsert failed"
-                    + " reason=" + (reason ?? "chart_info_inline_install")
-                    + " exception=" + exception.GetType().Name
-                    + " message=" + displayedMessage);
-                throw;
+                publicationEffect?.Invoke();
             }
+            return result;
+        }
+        catch (Exception exception)
+        {
+            string displayedMessage = GetDisplayedExceptionMessage(exception).Replace(Environment.NewLine, " | ");
+            lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
+                CurrentOptionsSnapshot,
+                stage: "lr2_song_db_chart_info_inline_upsert_failed",
+                detail: "lr2_song_db_chart_info_inline_upsert_failed: " + displayedMessage,
+                logReason: reason ?? "chart_info_inline_install");
+            LogInstallPerformanceWarn("lr2_song_db_chart_info_inline_upsert failed"
+                + " reason=" + (reason ?? "chart_info_inline_install")
+                + " exception=" + exception.GetType().Name
+                + " message=" + displayedMessage);
+            throw;
         }
     }
 
@@ -10207,40 +10213,35 @@ public partial class BMSLibrary : ObservableObject
         return result;
     }
 
-    private static OwnedChartCollectionMutationResult CreateOwnedChartCollectionPotentialDigestMutationResult(
-        IEnumerable<ChartFile> charts,
-        bool resourceHealthIndexInvalidated = true)
-    {
-        List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart != null)];
-        if (targetCharts.Count == 0)
-        {
-            return new OwnedChartCollectionMutationResult();
-        }
-
-        return new OwnedChartCollectionMutationResult
-        {
-            InstalledLookupMutation = new InstalledChartLookupMutation { RequiresFullInvalidate = true },
-            InstallEstimationMetadataProfileCacheInvalidated = true,
-            DuplicateCacheInvalidated = true,
-            OwnedCollectionChanged = true,
-            ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated,
-            WarningPresentationChanged = resourceHealthIndexInvalidated,
-            BmsFilesStorageRowsChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bms),
-            BmsonSongsStorageRowsChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bmson)
-        };
-    }
-
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMaintenanceMutationResult(
-        ResourceHealthIndexMutationFacts resourceHealthMutation,
+        ResourceHealthIndexMutation resourceHealthMutation,
         bool workflowHasUpdates)
     {
         var result = new OwnedChartCollectionMutationResult();
-        ResourceHealthIndexMutation mutation = resourceHealthMutation?.ToMutation() ?? new ResourceHealthIndexMutation();
-        CopyResourceHealthIndexMutation(mutation, result.ResourceHealthMutation);
+        CopyResourceHealthIndexMutation(resourceHealthMutation, result.ResourceHealthMutation);
         bool resourceHealthChanged = result.ResourceHealthMutation.HasChanges;
         result.WarningPresentationChanged |= resourceHealthChanged;
         result.MaintenancePresentationChanged = workflowHasUpdates || resourceHealthChanged;
         return result;
+    }
+
+    private OwnedChartCollectionMutationResult ApplyCatalogMaintenanceMutation(
+        CatalogMaintenanceOperationReceipt receipt,
+        out MaintenanceWorkflowResult workflowResult,
+        out ResourceHealthIndexMutation resourceHealthMutation)
+    {
+        workflowResult = receipt?.WorkflowResult?.ToMutable() ?? new MaintenanceWorkflowResult();
+        resourceHealthMutation = receipt?.ResourceHealthMutation?.ToMutation()
+            ?? new ResourceHealthIndexMutation();
+        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
+            resourceHealthMutation,
+            workflowResult.HasUpdates);
+        DispatchOwnedChartCollectionMutation(
+            mutationResult,
+            receipt?.Reason ?? "maintenance",
+            publishNormalRefreshNotification: false,
+            publishOwnedCollectionNotifications: false);
+        return mutationResult;
     }
 
     private static void CopyResourceHealthIndexMutation(
@@ -10434,49 +10435,27 @@ public partial class BMSLibrary : ObservableObject
         return stopwatch.ElapsedMilliseconds;
     }
 
-    private void DispatchPreparedOwnedChartDigestChanges(
-        IEnumerable<LibraryChartDigestChange> digestChanges,
-        string reason)
-    {
-        OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
-            digestChanges,
-            resourceHealthIndexInvalidated: true);
-        mutationResult.DigestMutationApplied = true;
-        // CatalogMutationOwner.ApplyDigestMutation が既に owned hash root へ
-        // facts を適用しているため、後続の表示dispatchでは再適用しない。
-        mutationResult.OwnedHashIndexMutationApplied = true;
-        mutationResult.InstalledLookupMutationApplied = true;
-        // PrepareDigestIndexes で playlist resolve root も同じfactsへ適用済み。
-        // ここでは通知と他の表示projectionだけを実行し、二重適用しません。
-        mutationResult.PlaylistResolveIndexMutationApplied = true;
-        mutationResult.InstallMetadataCacheInvalidated = true;
-        DispatchOwnedChartCollectionMutationWithResourceHealthLease(mutationResult, reason);
-    }
-
-    private void PrepareOwnedChartDigestIndexes(
-        IEnumerable<LibraryChartDigestChange> digestChanges,
+    /// <summary>
+    /// chart-info ownerが確定したdigest factsから、common effectsの公開処理を準備します。
+    /// </summary>
+    /// <param name="digestChanges">DB commit済みの旧新digest facts。</param>
+    /// <param name="reason">ログと通知の理由。</param>
+    /// <returns>session index更新後に実行する公開処理。</returns>
+    private Action PrepareOwnedChartDigestPublication(
+        IReadOnlyList<LibraryChartDigestChange> digestChanges,
         string reason)
     {
         OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
             digestChanges);
         mutationResult.OwnedCollectionVersion = OwnedChartCollectionVersion;
-        // Digest event は CatalogMutationOwner.ApplyDigestMutation の後に発生する。
+        // CatalogMutationOwner.ApplyDigestMutation が先に正本へ適用している。
         mutationResult.DigestMutationApplied = true;
         mutationResult.OwnedHashIndexMutationApplied = true;
         ApplyOwnedChartCollectionSemanticLookupStateUnderGuard(
             mutationResult,
             reason,
             LogInstallPerformance);
-    }
-
-    private void DispatchOwnedPotentialDigestChanges(
-        IEnumerable<ChartFile> charts,
-        string reason,
-        bool resourceHealthIndexInvalidated = true)
-    {
-        DispatchOwnedChartCollectionMutationWithResourceHealthLease(
-            CreateOwnedChartCollectionPotentialDigestMutationResult(charts, resourceHealthIndexInvalidated),
-            reason);
+        return () => DispatchOwnedChartCollectionMutationWithResourceHealthLease(mutationResult, reason);
     }
 
     private void DispatchOwnedChartCollectionMutationWithResourceHealthLease(
@@ -10537,15 +10516,6 @@ public partial class BMSLibrary : ObservableObject
         }
         switch (ownerEvent.Kind)
         {
-            case CatalogChartInfoOwnerEventKind.DigestIndexesPrepared:
-                PrepareOwnedChartDigestIndexes(ownerEvent.DigestChanges, ownerEvent.Reason);
-                break;
-            case CatalogChartInfoOwnerEventKind.DigestChanges:
-                DispatchPreparedOwnedChartDigestChanges(ownerEvent.DigestChanges, ownerEvent.Reason);
-                break;
-            case CatalogChartInfoOwnerEventKind.PotentialDigestChanges:
-                DispatchOwnedPotentialDigestChanges(ownerEvent.PotentialDigestCharts, ownerEvent.Reason);
-                break;
             case CatalogChartInfoOwnerEventKind.WarningPresentationChanged:
                 DispatchWarningPresentationChanged(ownerEvent.Reason);
                 break;
@@ -11798,21 +11768,18 @@ public partial class BMSLibrary : ObservableObject
                 logPerformanceOverride: deferredFeedback.LogInstallPerformance,
                 captureFailureFact: fact => deferredFailureFact = fact,
                 postCommitEffectsObserver: action => catalogPostCommitEffects = action);
-            MaintenanceWorkflowResult workflowResult = ownerReceipt.WorkflowResult.ToMutable();
-            ResourceHealthIndexMutation resourceHealthMutation = ownerReceipt.ResourceHealthMutation.ToMutation();
-            OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
-                ownerReceipt.ResourceHealthMutation,
-                workflowResult.HasUpdates);
+            OwnedChartCollectionMutationResult mutationResult;
+            MaintenanceWorkflowResult workflowResult;
+            ResourceHealthIndexMutation resourceHealthMutation;
             try
             {
                 // Canonical cache/resource-health state is completed while the
                 // caller still owns the outer mutation lease.  Only the
                 // public events and ordinary status publication remain below.
-                DispatchOwnedChartCollectionMutation(
-                    mutationResult,
-                    ownerReceipt.Reason,
-                    publishNormalRefreshNotification: false,
-                    publishOwnedCollectionNotifications: false);
+                mutationResult = ApplyCatalogMaintenanceMutation(
+                    ownerReceipt,
+                    out workflowResult,
+                    out resourceHealthMutation);
             }
             catch
             {
@@ -12200,18 +12167,14 @@ public partial class BMSLibrary : ObservableObject
             resourceHealthMutationReason,
             captureFailureFact: fact => deferredFailureFact = fact,
             postCommitEffectsObserver: action => catalogPostCommitEffects = action);
-        MaintenanceWorkflowResult workflowResult = receipt.WorkflowResult.ToMutable();
+        MaintenanceWorkflowResult workflowResult;
         currentMaintenanceTargetCharts = [.. maintenanceTargets.Charts];
         resourceHealthMutationReason = receipt.Reason;
-        ResourceHealthIndexMutation resourceHealthMutation = receipt.ResourceHealthMutation.ToMutation();
-        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
-            receipt.ResourceHealthMutation,
-            workflowResult.HasUpdates);
-        DispatchOwnedChartCollectionMutation(
-            mutationResult,
-            resourceHealthMutationReason,
-            publishOwnedCollectionNotifications: false,
-            publishNormalRefreshNotification: false);
+        ResourceHealthIndexMutation resourceHealthMutation;
+        OwnedChartCollectionMutationResult mutationResult = ApplyCatalogMaintenanceMutation(
+            receipt,
+            out workflowResult,
+            out resourceHealthMutation);
         postCommitEffect = () =>
         {
             TryInvokePostLeaseNotification(
@@ -12413,7 +12376,7 @@ public partial class BMSLibrary : ObservableObject
         // owner performs the DB transaction under its own narrow guard.
         CatalogMaintenanceOperationReceipt receipt = catalogMaintenanceOwner.ApplyWarningIgnore(targets, unset, reason);
         mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
-            receipt.ResourceHealthMutation,
+            receipt.ResourceHealthMutation?.ToMutation(),
             receipt.WorkflowResult.HasUpdates);
         mutationResult.MaintenancePresentationChanged = false;
         mutationReservation.Dispose();
