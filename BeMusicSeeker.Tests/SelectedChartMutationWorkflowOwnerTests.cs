@@ -23,7 +23,15 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task DeleteAsync_ReportsCatalogFailureAfterReleaseAndRetainsFacts(bool reportThrows)
     {
         var failure = new IOException("catalog deletion failure");
-        var outcome = new LibraryChartRemovalOutcome([new("deleted.bms", LibraryChartRemovalState.Confirmed)], true, true, failure);
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget("deleted.bms", string.Empty)],
+            durableCommit: true,
+            catalogChartRemovalCount: 1,
+            applyFailure: failure);
+        var outcome = new LibraryChartRemovalOutcome(
+            [new("deleted.bms", LibraryChartRemovalState.Confirmed)],
+            sessionReceipt,
+            catalogApplyAttempted: true);
         var store = new RecordingStore { RemovalOutcome = outcome };
         var gate = new ChartFileOperationSynchronizer();
         var activity = new ChartMutationActivityOwner();
@@ -44,6 +52,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.IsTrue(releasedAtReport);
         Assert.IsFalse(result.Succeeded);
         Assert.AreSame(outcome, result.RemovalOutcome);
+        Assert.AreSame(sessionReceipt, result.MutationReceipt);
         Assert.AreSame(failure, result.Failure);
         Assert.AreEqual(1, store.LibraryDeleteCalls);
         Assert.AreEqual(1, dialogs.Messages.Count);
@@ -221,7 +230,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task RenameInvalidExtensionsAsync_PendingUsesPendingRouteAndRefreshScope()
     {
         var events = new List<string>();
-        var store = new RecordingStore(events);
+        var store = new TerminalRecordingStore(LibraryMutationSessionReceipt.Empty, events);
         var presentation = new RecordingPresentation(events);
         var owner = CreateOwner(presentation, AcceptedMessageDialogs(), store);
         ChartOperationTarget bChart = CreateTarget("pending.bme", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.RenameInvalidExtension);
@@ -231,10 +240,101 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             new SelectedInvalidExtensionRenameRequest([bChart, pChart], isPendingSelected: true));
 
         Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(0, store.RenameTerminalCalls);
         CollectionAssert.AreEqual(new[] { "pending:.bmx", "pending:.pmx" }, store.RenameOperations);
         CollectionAssert.AreEqual(
             new[] { "activity-start", "pending-playback", "pending-refresh-start", "store-pending-rename", "store-pending-rename", "pending-refresh-end", "activity-end" },
             events);
+    }
+
+    [TestMethod]
+    public async Task RenameInvalidExtensionsAsync_TerminalStoreBatchesFamiliesIntoOneSession()
+    {
+        var failure = new IOException("catalog rename finalization failed");
+        var receipt = new LibraryMutationSessionReceipt(
+            [
+                new LibraryMutationSessionTarget("alpha.bme", "alpha.bmx"),
+                new LibraryMutationSessionTarget("beta.pms", "beta.pmx")
+            ],
+            durableCommit: true,
+            catalogChartRemovalCount: 2,
+            applyFailure: failure);
+        var store = new TerminalRecordingStore(receipt);
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        var dialogs = AcceptedMessageDialogs();
+        bool reportAfterRelease = false;
+        dialogs.OnMessage = () =>
+        {
+            reportAfterRelease = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
+            lease?.Dispose();
+        };
+        var owner = CreateOwner(new RecordingPresentation(), dialogs, store, gate, activity);
+        ChartOperationTarget bChart = CreateTarget(
+            "alpha.bme",
+            ChartOperationSourceScope.Library,
+            false,
+            ChartOperationCapabilities.RenameInvalidExtension);
+        ChartOperationTarget pChart = CreateTarget(
+            "beta.pms",
+            ChartOperationSourceScope.Library,
+            false,
+            ChartOperationCapabilities.RenameInvalidExtension);
+
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest([bChart, pChart], isPendingSelected: false));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreSame(failure, result.Failure);
+        Assert.AreSame(receipt, result.MutationReceipt);
+        Assert.AreEqual(1, store.RenameTerminalCalls);
+        Assert.AreEqual(2, store.RenameBatches.Count);
+        Assert.AreEqual(".bmx", store.RenameBatches[0].NewExtension);
+        Assert.AreEqual(".pmx", store.RenameBatches[1].NewExtension);
+        Assert.AreEqual(1, store.RenameBatches[0].Charts.Count);
+        Assert.AreEqual(1, store.RenameBatches[1].Charts.Count);
+        Assert.IsTrue(reportAfterRelease);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+    }
+
+    [TestMethod]
+    public async Task RenameInvalidExtensionsAsync_ItemFailuresAreAggregatedOnceWithoutChangingSuccessSemantics()
+    {
+        var receipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget("alpha.bme", "alpha.bmx")],
+            durableCommit: true,
+            catalogChartRemovalCount: 1,
+            itemFailures:
+            [
+                new LibraryMutationSessionItemFailure(
+                    new LibraryMutationSessionTarget("beta.pms", string.Empty),
+                    new IOException("filesystem rename failed"))
+            ]);
+        var store = new TerminalRecordingStore(receipt);
+        var dialogs = AcceptedMessageDialogs();
+        var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
+        ChartOperationTarget bChart = CreateTarget(
+            "alpha.bme",
+            ChartOperationSourceScope.Library,
+            false,
+            ChartOperationCapabilities.RenameInvalidExtension);
+        ChartOperationTarget pChart = CreateTarget(
+            "beta.pms",
+            ChartOperationSourceScope.Library,
+            false,
+            ChartOperationCapabilities.RenameInvalidExtension);
+
+        SelectedChartMutationResult result = await owner.RenameInvalidExtensionsAsync(
+            new SelectedInvalidExtensionRenameRequest([bChart, pChart], isPendingSelected: false));
+
+        Assert.IsTrue(result.Succeeded,
+            "A per-item physical failure must not discard confirmed success-only refresh semantics.");
+        Assert.IsNull(result.Failure);
+        Assert.AreSame(receipt, result.MutationReceipt);
+        Assert.AreEqual(1, store.RenameTerminalCalls);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        Assert.AreEqual(MessageBoxImage.Error, dialogs.Messages[0].Icon);
+        StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "beta.pms");
     }
 
     [TestMethod]
@@ -846,10 +946,25 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         }
     }
 
-    private sealed class TerminalRecordingStore(LibraryMutationSessionReceipt receipt)
-        : RecordingStore, ISelectedChartMutationTerminalStore
+    private sealed class TerminalRecordingStore(
+        LibraryMutationSessionReceipt receipt,
+        List<string>? events = null)
+        : RecordingStore(events), ISelectedChartMutationTerminalStore
     {
         internal int Calls { get; private set; }
+
+        internal int RenameTerminalCalls { get; private set; }
+
+        internal IReadOnlyList<LibraryFileExtensionRenameBatch> RenameBatches { get; private set; } = [];
+
+        public LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
+            BMSLibrary library,
+            IReadOnlyList<LibraryFileExtensionRenameBatch> batches)
+        {
+            RenameTerminalCalls++;
+            RenameBatches = batches;
+            return receipt;
+        }
 
         public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
         {

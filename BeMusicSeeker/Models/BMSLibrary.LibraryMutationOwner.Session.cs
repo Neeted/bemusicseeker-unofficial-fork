@@ -65,7 +65,9 @@ internal sealed partial class LibraryMutationOwner
         private readonly List<LibraryCatalogMutationFacts> catalogFacts = [];
         private readonly List<LibraryPackageReferenceFacts> packageReferenceFacts = [];
         private readonly List<LibraryMutationSessionTarget> confirmedTargets = [];
+        private readonly List<LibraryMutationSessionItemFailure> itemFailures = [];
         private readonly List<LibraryFolderPathChange> movedFolders = [];
+        private readonly HashSet<string> resourceDirectoryRemovals = new(StringComparer.OrdinalIgnoreCase);
         private LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy =
             LibraryStorageRowPathNotificationPolicy.Suppressed;
         private Exception physicalFailure;
@@ -109,17 +111,70 @@ internal sealed partial class LibraryMutationOwner
         {
             EnsureOpen();
             ArgumentNullException.ThrowIfNull(facts);
-            catalogFacts.Add(facts.CatalogFacts ?? LibraryCatalogMutationFacts.Empty);
-            packageReferenceFacts.Add(facts.PackageReferenceFacts ?? LibraryPackageReferenceFacts.Empty);
-            confirmedTargets.Add(new LibraryMutationSessionTarget(sourceDirectory, destinationDirectory));
+            AppendCatalogChange(
+                facts.CatalogFacts,
+                facts.PackageReferenceFacts,
+                [new LibraryMutationSessionTarget(sourceDirectory, destinationDirectory)],
+                facts.StorageRowPathNotificationPolicy);
             movedFolders.Add(new LibraryFolderPathChange
             {
                 OldFolderPath = sourceDirectory,
                 NewFolderPath = destinationDirectory
             });
-            if (facts.StorageRowPathNotificationPolicy == LibraryStorageRowPathNotificationPolicy.Notify)
+        }
+
+        /// <summary>
+        /// Appends already-confirmed catalog/package facts without applying canonical state.
+        /// This is the shared path for non-folder filesystem batches such as chart deletion
+        /// and invalid-extension rename.
+        /// </summary>
+        /// <param name="catalogMutationFacts">Confirmed catalog changes for the batch.</param>
+        /// <param name="packageMutationFacts">Confirmed package-reference changes for the batch.</param>
+        /// <param name="targets">Filesystem changes confirmed before this append.</param>
+        /// <param name="notificationPolicy">Storage-row path publication policy for these facts.</param>
+        internal void AppendCatalogChange(
+            LibraryCatalogMutationFacts catalogMutationFacts,
+            LibraryPackageReferenceFacts packageMutationFacts,
+            IEnumerable<LibraryMutationSessionTarget> targets,
+            LibraryStorageRowPathNotificationPolicy notificationPolicy = LibraryStorageRowPathNotificationPolicy.Notify)
+        {
+            EnsureOpen();
+            catalogFacts.Add(catalogMutationFacts ?? LibraryCatalogMutationFacts.Empty);
+            packageReferenceFacts.Add(packageMutationFacts ?? LibraryPackageReferenceFacts.Empty);
+            confirmedTargets.AddRange((targets ?? []).Where(target => target != null));
+            if (notificationPolicy == LibraryStorageRowPathNotificationPolicy.Notify)
             {
                 storageRowPathNotificationPolicy = LibraryStorageRowPathNotificationPolicy.Notify;
+            }
+        }
+
+        /// <summary>
+        /// Retains attempted item failures for one operation-scoped terminal report. These failures
+        /// do not change the success facts already appended and do not force otherwise-safe suffix
+        /// targets to stop.
+        /// </summary>
+        /// <param name="failures">Failed source/destination candidates observed by the item executor.</param>
+        internal void AppendItemFailures(IEnumerable<LibraryMutationSessionItemFailure> failures)
+        {
+            EnsureOpen();
+            itemFailures.AddRange((failures ?? []).Where(failure => failure != null));
+        }
+
+        /// <summary>
+        /// Registers successfully deleted directory subtrees for resource-index removal after
+        /// the session's catalog and required internal apply succeed. Planned or failed directories
+        /// must not be added.
+        /// </summary>
+        /// <param name="sourceDirectories">Confirmed deleted directory roots.</param>
+        internal void AppendResourceDirectoryRemovals(IEnumerable<string> sourceDirectories)
+        {
+            EnsureOpen();
+            foreach (string path in sourceDirectories ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    resourceDirectoryRemovals.Add(path);
+                }
             }
         }
 
@@ -157,7 +212,11 @@ internal sealed partial class LibraryMutationOwner
         {
             EnsureOpen();
             committed = true;
-            if (confirmedTargets.Count == 0)
+            if (confirmedTargets.Count == 0
+                && !catalogFacts.Any(item => item?.HasChanges == true)
+                && !packageReferenceFacts.Any(item => item?.HasChanges == true)
+                && movedFolders.Count == 0
+                && resourceDirectoryRemovals.Count == 0)
             {
                 return CreateReceipt(durableCommit: false);
             }
@@ -186,14 +245,26 @@ internal sealed partial class LibraryMutationOwner
             try
             {
                 applyResult.DurableFinalizer?.Invoke();
-                MovedFolderReferenceUpdateResult reverseLookupResult = owner.UpdateMovedFolderReferences(movedFolders);
+                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
+                    DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+                if (movedFolders.Count > 0)
+                {
+                    reverseLookupMutation = owner.UpdateMovedFolderReferences(movedFolders).MutationResult;
+                }
+                if (resourceDirectoryRemovals.Count > 0)
+                {
+                    reverseLookupMutation = reverseLookupMutation.Combine(
+                        owner.resourceIndexOwner
+                            .RemoveUnderSourceDirectories(resourceDirectoryRemovals)
+                            .MutationResult);
+                }
                 foreach (Action notification in sessionNotifications)
                 {
                     postLeaseNotifications.Add(notification);
                 }
                 postLeaseNotifications.Add(() => owner.LogReverseLookupMutationAndQueueWarmupIfNeeded(
                     reason,
-                    reverseLookupResult.MutationResult));
+                    reverseLookupMutation));
                 return CreateReceipt(durableCommit: true);
             }
             catch (Exception exception)
@@ -222,7 +293,9 @@ internal sealed partial class LibraryMutationOwner
                 failedTarget: failedTarget,
                 unprocessedTargets: unprocessedTargets,
                 applyFailure: applyFailure,
-                finalizationFailure: finalizationFailure);
+                finalizationFailure: finalizationFailure,
+                resourceDirectoryRemovalCount: resourceDirectoryRemovals.Count,
+                itemFailures: itemFailures);
         }
 
         private void EnsureOpen()

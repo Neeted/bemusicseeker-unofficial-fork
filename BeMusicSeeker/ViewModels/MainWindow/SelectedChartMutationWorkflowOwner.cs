@@ -105,6 +105,11 @@ internal interface ISelectedChartMutationStore
 
 internal interface ISelectedChartMutationTerminalStore
 {
+    /// <summary>Renames all selected invalid-extension families in one operation-scoped session.</summary>
+    LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
+        BMSLibrary library,
+        IReadOnlyList<LibraryFileExtensionRenameBatch> batches);
+
     /// <summary>Moves selected library folders and returns operation-scoped terminal facts.</summary>
     LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(
         BMSLibrary library,
@@ -182,20 +187,24 @@ internal sealed class SelectedChartMutationResult
     {
         Exception primary = outcome?.CatalogFailure;
         Exception combined = primary == null ? failure : failure == null ? primary : new AggregateException(primary, failure);
-        return new SelectedChartMutationResult(combined == null, combined, removalOutcome: outcome);
+        return new SelectedChartMutationResult(
+            combined == null,
+            combined,
+            mutationReceipt: outcome?.SessionReceipt,
+            removalOutcome: outcome);
     }
 
     internal bool Succeeded { get; }
 
     internal Exception Failure { get; }
 
-    /// <summary>Gets operation-scoped terminal facts for the selected folder move, when applicable.</summary>
+    /// <summary>Gets operation-scoped terminal facts for the selected library mutation, when applicable.</summary>
     internal LibraryMutationSessionReceipt MutationReceipt { get; }
 
     /// <summary>Includes the catalog commit observed by library deletion.</summary>
     internal bool HasDurableCommit => RemovalOutcome?.CatalogDurable == true || MutationReceipt?.DurableCommit == true;
 
-    /// <summary>Session-based selected folder moves do not expose executor compensation recovery.</summary>
+    /// <summary>Session-based selected library mutations do not expose executor compensation recovery.</summary>
     internal bool ManualRecoveryRequired => false;
 
     /// <summary>
@@ -210,7 +219,7 @@ internal sealed class SelectedChartMutationResult
 
     internal static SelectedChartMutationResult Completed { get; } = new(true, null);
 
-    /// <summary>Preserves operation-scoped move facts without synthesizing per-folder receipts.</summary>
+    /// <summary>Preserves operation-scoped mutation facts without synthesizing per-item receipts.</summary>
     internal static SelectedChartMutationResult FromReceipt(LibraryMutationSessionReceipt mutationReceipt)
     {
         Exception requiredFailure = mutationReceipt?.PhysicalFailure
@@ -222,7 +231,7 @@ internal sealed class SelectedChartMutationResult
         if (!succeeded && requiredFailure == null)
         {
             requiredFailure = new InvalidOperationException(
-                "Confirmed folder mutation did not produce a durable session receipt.");
+                "Confirmed library mutation did not produce a durable session receipt.");
         }
         return new SelectedChartMutationResult(succeeded, requiredFailure, mutationReceipt);
     }
@@ -478,6 +487,15 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 IReadOnlyList<ChartFile> pCharts = [.. charts.Where(chart =>
                 (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".p", StringComparison.OrdinalIgnoreCase))];
                 IReadOnlyList<ChartFile> allCharts = [.. bCharts.Concat(pCharts)];
+                var libraryRenameBatches = new List<LibraryFileExtensionRenameBatch>(2);
+                if (bCharts.Count > 0)
+                {
+                    libraryRenameBatches.Add(new LibraryFileExtensionRenameBatch(bCharts, ".bmx"));
+                }
+                if (pCharts.Count > 0)
+                {
+                    libraryRenameBatches.Add(new LibraryFileExtensionRenameBatch(pCharts, ".pmx"));
+                }
                 Action stopPlayback;
                 if (request.IsPendingSelected)
                 {
@@ -488,37 +506,54 @@ internal sealed class SelectedChartMutationWorkflowOwner
                     stopPlayback = () => playback.StopPlaybackForLibraryCharts(
                         [.. allCharts.Select(LibraryChartRef.FromChartFile).Where(chart => chart != null)]);
                 }
-                Task<SelectedChartMutationResult> task = Task.Run(() => ExecuteMutation(
-                    request.IsPendingSelected
-                        ? SelectedChartMutationRefreshScope.Pending
-                        : SelectedChartMutationRefreshScope.Library,
-                    stopPlayback,
-                    library =>
-                    {
-                        if (request.IsPendingSelected)
+                Task<SelectedChartMutationResult> task;
+                if (!request.IsPendingSelected && store is ISelectedChartMutationTerminalStore terminalStore)
+                {
+                    task = Task.Run(() => ExecuteMutation(
+                        SelectedChartMutationRefreshScope.Library,
+                        stopPlayback,
+                        mutation: null,
+                        mutationWithReceipt: library => terminalStore.RenameLibraryChartsWithReceipt(
+                            library,
+                            libraryRenameBatches),
+                        acquiredOperationGate: operationGate));
+                }
+                else
+                {
+                    task = Task.Run(() => ExecuteMutation(
+                        request.IsPendingSelected
+                            ? SelectedChartMutationRefreshScope.Pending
+                            : SelectedChartMutationRefreshScope.Library,
+                        stopPlayback,
+                        library =>
                         {
+                            if (request.IsPendingSelected)
+                            {
+                                if (bCharts.Count > 0)
+                                {
+                                    store.RenamePendingCharts(library, bCharts, ".bmx");
+                                }
+                                if (pCharts.Count > 0)
+                                {
+                                    store.RenamePendingCharts(library, pCharts, ".pmx");
+                                }
+                                return;
+                            }
                             if (bCharts.Count > 0)
                             {
-                                store.RenamePendingCharts(library, bCharts, ".bmx");
+                                store.RenameLibraryCharts(library, bCharts, ".bmx");
                             }
                             if (pCharts.Count > 0)
                             {
-                                store.RenamePendingCharts(library, pCharts, ".pmx");
+                                store.RenameLibraryCharts(library, pCharts, ".pmx");
                             }
-                            return;
-                        }
-                        if (bCharts.Count > 0)
-                        {
-                            store.RenameLibraryCharts(library, bCharts, ".bmx");
-                        }
-                        if (pCharts.Count > 0)
-                        {
-                            store.RenameLibraryCharts(library, pCharts, ".pmx");
-                        }
-                    },
-                    acquiredOperationGate: operationGate));
+                        },
+                        acquiredOperationGate: operationGate));
+                }
                 operationGateTransferred = true;
-                return task;
+                return !request.IsPendingSelected && store is ISelectedChartMutationTerminalStore
+                    ? ReportInvalidExtensionRenameAsync(task)
+                    : task;
             }
             finally
             {
@@ -532,6 +567,18 @@ internal sealed class SelectedChartMutationWorkflowOwner
         {
             return Task.FromResult(SelectedChartMutationResult.Failed(ex));
         }
+    }
+
+    private async Task<SelectedChartMutationResult> ReportInvalidExtensionRenameAsync(
+        Task<SelectedChartMutationResult> mutationTask)
+    {
+        SelectedChartMutationResult result = await mutationTask.ConfigureAwait(false);
+        await FileDbMutationReport.ShowAsync(
+            dialogs,
+            BeMusicSeeker.Properties.Resources.Rename_invalid_ext,
+            result.MutationReceipt,
+            result.Failure).ConfigureAwait(false);
+        return result;
     }
 
     internal async Task<SelectedChartMutationResult> MoveAsync(SelectedChartMoveRequest request)
@@ -904,6 +951,14 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
         string newExtension)
     {
         library.RenamePendingBmsFormatChartFileExtensions(charts, newExtension);
+    }
+
+    /// <summary>The selected library rename terminal owns one receipt for all extension families.</summary>
+    public LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
+        BMSLibrary library,
+        IReadOnlyList<LibraryFileExtensionRenameBatch> batches)
+    {
+        return library.RenameBMSFilesExtensionsWithReceipt(batches, unregister: true);
     }
 
     public void MoveLibraryCharts(BMSLibrary library, ChartLibraryMoveRequest request)

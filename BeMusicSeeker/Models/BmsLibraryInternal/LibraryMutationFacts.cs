@@ -144,18 +144,50 @@ internal enum LibraryStorageRowPathNotificationPolicy
     Notify
 }
 
+/// <summary>
+/// One extension family handled inside a single invalid-extension rename user operation.
+/// Multiple batches may share one <see cref="LibraryMutationSessionReceipt"/> without
+/// introducing per-file durable receipts.
+/// </summary>
+internal sealed class LibraryFileExtensionRenameBatch
+{
+    /// <summary>Copies one extension-family target set for later session execution.</summary>
+    /// <param name="charts">Charts whose invalid extensions belong to this batch.</param>
+    /// <param name="newExtension">The normalized destination extension for the batch.</param>
+    internal LibraryFileExtensionRenameBatch(
+        IEnumerable<ChartFile> charts,
+        string newExtension)
+    {
+        Charts = Array.AsReadOnly((charts ?? [])
+            .Where(chart => chart != null)
+            .ToArray());
+        NewExtension = newExtension ?? string.Empty;
+    }
+
+    /// <summary>Gets the immutable chart target list for this extension family.</summary>
+    internal IReadOnlyList<ChartFile> Charts { get; }
+
+    /// <summary>Gets the destination extension used by the filesystem executor.</summary>
+    internal string NewExtension { get; }
+}
+
 /// <summary>不正な拡張子の変更処理が確定した不変の結果です。</summary>
 internal sealed class LibraryFileExtensionRenameResult
 {
     /// <summary>変更処理のカタログ事実と操作結果報告を保持します。</summary>
     /// <param name="catalogFacts">カタログへ適用するパス移動事実。</param>
     /// <param name="report">変更処理固有の件数・失敗・時間。</param>
+    /// <param name="confirmedTargets">filesystemで確定しsessionへappendできる変更対象。</param>
     internal LibraryFileExtensionRenameResult(
         LibraryCatalogMutationFacts catalogFacts,
-        LibraryFileExtensionRenameReport report)
+        LibraryFileExtensionRenameReport report,
+        IEnumerable<LibraryMutationSessionTarget> confirmedTargets = null)
     {
         CatalogFacts = catalogFacts ?? LibraryCatalogMutationFacts.Empty;
         Report = report ?? LibraryFileExtensionRenameReport.Empty;
+        ConfirmedTargets = Array.AsReadOnly((confirmedTargets ?? [])
+            .Where(target => target != null)
+            .ToArray());
     }
 
     /// <summary>カタログへ適用するパス移動事実。</summary>
@@ -163,6 +195,9 @@ internal sealed class LibraryFileExtensionRenameResult
 
     /// <summary>変更処理固有の件数・失敗・時間を含む報告。</summary>
     internal LibraryFileExtensionRenameReport Report { get; }
+
+    /// <summary>filesystemで成功し、同じoperation sessionへ登録できる対象。</summary>
+    internal IReadOnlyList<LibraryMutationSessionTarget> ConfirmedTargets { get; }
 }
 
 /// <summary>

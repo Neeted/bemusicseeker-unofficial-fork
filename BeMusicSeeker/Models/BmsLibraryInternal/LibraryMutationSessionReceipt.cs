@@ -26,6 +26,31 @@ internal sealed class LibraryMutationSessionTarget
 }
 
 /// <summary>
+/// Identifies a target that was attempted but did not produce a confirmed physical change.
+/// The failure is retained for one operation-scoped terminal report without turning it into
+/// a synthetic per-item durable receipt.
+/// </summary>
+internal sealed class LibraryMutationSessionItemFailure
+{
+    /// <summary>Creates immutable item-failure facts for the session terminal.</summary>
+    /// <param name="target">The source/destination candidate that failed.</param>
+    /// <param name="failure">The observed physical-operation failure.</param>
+    internal LibraryMutationSessionItemFailure(
+        LibraryMutationSessionTarget target,
+        Exception failure)
+    {
+        Target = target ?? throw new ArgumentNullException(nameof(target));
+        Failure = failure ?? throw new ArgumentNullException(nameof(failure));
+    }
+
+    /// <summary>Gets the failed source/destination candidate.</summary>
+    internal LibraryMutationSessionTarget Target { get; }
+
+    /// <summary>Gets the observed physical-operation failure.</summary>
+    internal Exception Failure { get; }
+}
+
+/// <summary>
 /// Immutable terminal facts for one operation-scoped library mutation session.
 /// Filesystem changes are represented as confirmed targets rather than synthetic
 /// per-item durable receipts.
@@ -47,6 +72,8 @@ internal sealed class LibraryMutationSessionReceipt
     /// <param name="applyFailure">Canonical DB or required in-memory apply failure.</param>
     /// <param name="finalizationFailure">Required post-commit finalization failure.</param>
     /// <param name="cleanupFailure">Post-commit cleanup failure that does not change durability.</param>
+    /// <param name="resourceDirectoryRemovalCount">Successfully deleted directory roots registered for post-commit resource-index removal.</param>
+    /// <param name="itemFailures">Attempted targets that did not produce confirmed physical changes.</param>
     internal LibraryMutationSessionReceipt(
         IEnumerable<LibraryMutationSessionTarget> confirmedTargets,
         bool durableCommit,
@@ -61,7 +88,9 @@ internal sealed class LibraryMutationSessionReceipt
         IEnumerable<LibraryMutationSessionTarget> unprocessedTargets = null,
         Exception applyFailure = null,
         Exception finalizationFailure = null,
-        Exception cleanupFailure = null)
+        Exception cleanupFailure = null,
+        int resourceDirectoryRemovalCount = 0,
+        IEnumerable<LibraryMutationSessionItemFailure> itemFailures = null)
     {
         ConfirmedTargets = FreezeTargets(confirmedTargets);
         DurableCommit = durableCommit;
@@ -71,6 +100,8 @@ internal sealed class LibraryMutationSessionReceipt
         PackageInstallDestinationChangeCount = Math.Max(packageInstallDestinationChangeCount, 0);
         PackageInstalledPathChangeCount = Math.Max(packageInstalledPathChangeCount, 0);
         FolderReferenceMoveCount = Math.Max(folderReferenceMoveCount, 0);
+        ResourceDirectoryRemovalCount = Math.Max(resourceDirectoryRemovalCount, 0);
+        ItemFailures = FreezeItemFailures(itemFailures);
         PhysicalFailure = physicalFailure;
         FailedTarget = failedTarget;
         UnprocessedTargets = FreezeTargets(unprocessedTargets);
@@ -105,6 +136,12 @@ internal sealed class LibraryMutationSessionReceipt
 
     /// <summary>Gets the number of confirmed folder reverse-lookup moves.</summary>
     internal int FolderReferenceMoveCount { get; }
+
+    /// <summary>Gets the number of successfully deleted directory roots registered for resource-index removal.</summary>
+    internal int ResourceDirectoryRemovalCount { get; }
+
+    /// <summary>Gets attempted item failures that were safe to aggregate without stopping the remaining targets.</summary>
+    internal IReadOnlyList<LibraryMutationSessionItemFailure> ItemFailures { get; }
 
     /// <summary>Gets the unexpected filesystem/pre-append failure that stopped the suffix, when any.</summary>
     internal Exception PhysicalFailure { get; }
@@ -146,6 +183,7 @@ internal sealed class LibraryMutationSessionReceipt
     /// </summary>
     internal IReadOnlyList<string> CandidatePaths => Array.AsReadOnly(
         (FailedTarget == null ? [] : new[] { FailedTarget.SourcePath, FailedTarget.DestinationPath })
+        .Concat(ItemFailures.SelectMany(item => new[] { item.Target.SourcePath, item.Target.DestinationPath }))
         .Concat(UnprocessedTargets.SelectMany(target => new[] { target.SourcePath, target.DestinationPath }))
         .Concat(ConfirmedTargets.SelectMany(target => new[] { target.SourcePath, target.DestinationPath }))
         .Where(path => !string.IsNullOrWhiteSpace(path))
@@ -175,7 +213,9 @@ internal sealed class LibraryMutationSessionReceipt
             UnprocessedTargets,
             ApplyFailure,
             failure,
-            CleanupFailure);
+            CleanupFailure,
+            ResourceDirectoryRemovalCount,
+            ItemFailures);
     }
 
     /// <summary>Gets an immutable empty session receipt.</summary>
@@ -186,6 +226,14 @@ internal sealed class LibraryMutationSessionReceipt
     {
         return Array.AsReadOnly((targets ?? [])
             .Where(target => target != null)
+            .ToArray());
+    }
+
+    private static IReadOnlyList<LibraryMutationSessionItemFailure> FreezeItemFailures(
+        IEnumerable<LibraryMutationSessionItemFailure> failures)
+    {
+        return Array.AsReadOnly((failures ?? [])
+            .Where(failure => failure != null)
             .ToArray());
     }
 }

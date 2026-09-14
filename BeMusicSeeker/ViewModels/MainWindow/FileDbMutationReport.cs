@@ -233,6 +233,7 @@ internal static class FileDbMutationReport
         bool hasError = session.PhysicalFailure != null
             || session.ApplyFailure != null
             || session.FinalizationFailure != null
+            || session.ItemFailures.Count > 0
             || failure != null;
         bool hasCleanupFailure = session.CleanupFailure != null;
         if (!hasError && !hasCleanupFailure)
@@ -242,7 +243,8 @@ internal static class FileDbMutationReport
 
         int durableChangeCount = session.DurableCommit ? session.ConfirmedChangeCount : 0;
         int notCommittedChangeCount = (session.DurableCommit ? 0 : session.ConfirmedChangeCount)
-            + (session.FailedTarget == null ? 0 : 1);
+            + (session.FailedTarget == null ? 0 : 1)
+            + session.ItemFailures.Count;
         int requiredApplyFailureCount = (session.ApplyFailure == null ? 0 : 1)
             + (session.FinalizationFailure == null ? 0 : 1);
         int cleanupFailureCount = session.CleanupFailure == null ? 0 : 1;
@@ -280,6 +282,7 @@ internal static class FileDbMutationReport
             session.FinalizationFailure,
             session.CleanupFailure
         }
+            .Concat(session.ItemFailures.Select(item => item.Failure))
             .Where(error => error != null)
             .Distinct()
             .Take(3);
@@ -368,7 +371,9 @@ internal static class FileDbMutationReport
 
             try
             {
-                NLogWrapper.FileLogger?.Warn(session.PrimaryFailure ?? failure,
+                NLogWrapper.FileLogger?.Warn(session.PrimaryFailure
+                    ?? session.ItemFailures.FirstOrDefault()?.Failure
+                    ?? failure,
                     "library_mutation_session_report operation=" + operation
                     + " durable=" + session.DurableCommit
                     + " confirmed=" + session.ConfirmedChangeCount
@@ -378,6 +383,8 @@ internal static class FileDbMutationReport
                     + " packageDestinationChanges=" + session.PackageInstallDestinationChangeCount
                     + " packagePathChanges=" + session.PackageInstalledPathChangeCount
                     + " reverseLookupMoves=" + session.FolderReferenceMoveCount
+                    + " reverseLookupRemovals=" + session.ResourceDirectoryRemovalCount
+                    + " itemFailures=" + session.ItemFailures.Count
                     + " failedSource=" + session.FailedTarget?.SourcePath
                     + " failedDestination=" + session.FailedTarget?.DestinationPath
                     + " unprocessed=" + session.UnprocessedTargets.Count
@@ -389,6 +396,21 @@ internal static class FileDbMutationReport
             catch
             {
                 // Diagnostic sinks must not affect terminal facts.
+            }
+
+            foreach (LibraryMutationSessionItemFailure itemFailure in session.ItemFailures)
+            {
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(
+                        itemFailure.Failure,
+                        "library_mutation_session_item_failure source=" + itemFailure.Target.SourcePath
+                        + " destination=" + itemFailure.Target.DestinationPath);
+                }
+                catch
+                {
+                    // Keep logging best-effort for every retained item failure.
+                }
             }
 
             if (failure != null && !ReferenceEquals(failure, session.PrimaryFailure))

@@ -1,6 +1,6 @@
 # Operation-scoped Library Mutation Session 実装計画
 
-状態: S1 auto rename、S2 manual / multi-folder move 実装済み（2026-09-15）。次の実装単位は S3 delete / extension rename。S3 以降も調査待ちではなく、本計画の確定スコープとして実装する。
+状態: S1 auto rename、S2 manual / multi-folder move、S3 delete / extension rename 実装済み（2026-09-15）。次の実装単位は S4 installation-directory repair。S4 以降も調査待ちではなく、本計画の確定スコープとして実装する。
 
 ## 目的
 
@@ -210,6 +210,22 @@ install の後続判断用に `LibraryMutationSession` または install 専門 
 - delete catalog failure 時に reverse lookupだけ先行して消えない。
 - parent/child folder delete、partial failure、BMS/BMSON、duplicate hash の既存結果を維持する。
 
+#### S3 Test Contract Packet — `LIBMUT-S3-20260915`
+
+本 unit は user が S3 実装を明示承認した本計画と `library-mutation-boundary.md` / `file-db-consistency.md` の
+`FSDB-SESSION` / `FSDB-REPORT` を authority とする。current implementation、既存 expected 値、private call order は oracle にしない。
+
+| Contract ID | production ingress -> observable impact | 必須結果 / 検出すべき誤実装 | 配置 |
+| --- | --- | --- | --- |
+| `S3-DELETE-DERIVED-ORDER` | `BMSLibrary.RemoveLibraryCharts` -> catalog + resource reverse lookup | confirmed folder delete は catalog 成功後だけ reverse lookup から一括除去する。catalog / required finalization failure で reverse lookup を先行消去する実装を検出する | `OwnedChartCollectionLibraryMutationTests` extend |
+| `S3-DELETE-TERMINAL` | `SelectedChartMutationWorkflowOwner.DeleteAsync` -> terminal result / success-only selection | delete outcome は同じ operation session receipt を保持し、catalog failure と filesystem partial result を分離したまま既存の success-only semantics を維持する | `SelectedChartMutationWorkflowOwnerTests` extend |
+| `S3-RENAME-SESSION` | selected library invalid-extension rename -> catalog / terminal report | `.b*` / `.p*` の複数 family を含む一操作は一つの session receipt で terminal へ到達し、per-family / per-file canonical receipt を作らない | `BmsLibraryFolderRenameRefreshTests` / `SelectedChartMutationWorkflowOwnerTests` extend |
+| `S3-PENDING-LIFECYCLE` | selected pending invalid-extension rename -> pending package/install rows | pending-only rename は owned catalog session を開始せず、既存 package lifecycle route と pending refresh scope を維持する | 既存 `SelectedChartMutationWorkflowOwnerTests` の pending route coverage を継続利用 |
+
+許容差分は内部 helper / request 型名、diagnostic reason、列挙順、localized copy。wrong implementation は delete の
+resource index pre-commit mutation、library rename の extension-family ごとの common apply、pending-only rename への owned
+catalog session 混入とする。共有資源は既存 temp DB / FS と local dialog ports を使い、完了は model return / workflow Task で待つ。
+
 ### S4 — 複数譜面の導入先修正を session 化する
 
 対象:
@@ -362,7 +378,7 @@ operationによって該当しないsurfaceは0でよい。S1～S7の各testで�
 | --- | --- | --- |
 | S1 auto rename | 完了 | `LibraryMutationSession`を導入し、auto renameのconfirmed physical moveをoperation単位で一括commitする経路へ移行。folder DBはexact pathのchunk queryへ変更し、session terminal / partial-failure suffix / operation-level publicationを既存auto-rename testsへ反映。恒久契約は `library-mutation-boundary.md` / `file-db-consistency.md` の既存 `FSDB-SESSION` / `FSDB-REPORT` を使用。 |
 | S2 manual / multi-folder move | 完了 | manual rename と複数 folder move を共通 `LibraryMutationSession` pathへ統合し、confirmed prefix / failed / unprocessed、storage-row policy合成、operation-level reverse lookup / LR2 / publication、ViewModel session terminalへ移行。旧 per-item folder `FileDbMutationExecutor` callback と manual-recovery前提を撤去。 |
-| S3 delete / extension rename | 未着手 | 既存batch構造をsession APIへ統一、delete reverse lookupのcommit前直接mutation撤去 |
+| S3 delete / extension rename | 完了 | deleteの既存FS batchを一つの`LibraryMutationSession`へ接続し、成功directory subtreeのresource reverse lookup除去をcatalog/required apply成功後のderived-state phaseへ移動。通常invalid-extension renameは `.b*` / `.p*` familyを一つのsessionへappendしてcanonical apply / terminal receiptを一回化し、pending-only renameは既存package/install lifecycle routeに分離したまま維持。 |
 | S4 installation-directory repair | 未着手 | N chart repair + approved removalが同session、per-chart DB callback撤去、maintenance terminal統合 |
 | S5 all install ingress | 未着手 | auto/estimated/force/manual/resource-only/cleanup-onlyがinstall session、success overlay、per-package canonical apply撤去 |
 | S6 merge | 未着手 | single-change session、post-commit maintenanceを同一logical operation terminalへ統合 |

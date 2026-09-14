@@ -547,7 +547,7 @@ internal sealed partial class LibraryMutationOwner
         out int removedChartCount,
         out int folderDeleteCount,
         out int fileDeleteCount,
-        out DirectoryResourceLookupCache.ReverseLookupMutationResult resourceIndexMutation)
+        out IReadOnlyList<string> deletedFolderPaths)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         var validCanonicalCharts = new List<LibraryChartRef>();
@@ -695,10 +695,12 @@ internal sealed partial class LibraryMutationOwner
                 });
             }
         }
-        // Filesystem results are already complete. Publish their successful subtrees together;
-        // failed or merely planned folders must remain in the index.
-        resourceIndexMutation = resourceIndexOwner
-            .RemoveUnderSourceDirectories(execution.DeletedFolderPaths).MutationResult;
+        // Only successful filesystem subtrees are forwarded to the operation session.
+        // The resource index itself must not change before the catalog durable point.
+        deletedFolderPaths = Array.AsReadOnly((execution.DeletedFolderPaths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray());
         failures = operationFailures;
         packageReferenceFacts = new LibraryPackageReferenceFacts(installDestinationChanges, []);
         removedChartCount = execution.RemovedTargetIndexes.Distinct().Count();
@@ -736,7 +738,7 @@ internal sealed partial class LibraryMutationOwner
             out int removedChartCount,
             out int folderDeleteCount,
             out int fileDeleteCount,
-            out DirectoryResourceLookupCache.ReverseLookupMutationResult resourceIndexMutation);
+            out IReadOnlyList<string> deletedFolderPaths);
         string resultLog = "delete_library_result input=" + inputChartCount
             + " canonical=" + canonicalChartCount
             + " unresolved=" + unresolvedChartCount
@@ -746,19 +748,25 @@ internal sealed partial class LibraryMutationOwner
             + " folderDeletes=" + folderDeleteCount
             + " fileDeletes=" + fileDeleteCount;
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
-        FileDbMutationCommitResult commit = ApplyLibraryMutationFactsForFileMutation(
+        LibraryMutationSession session = BeginLibraryMutationSession(
+            mutationCapability,
+            "delete_library",
+            postLeaseNotifications,
+            suppressNormalRefreshNotification: false,
+            suppressLr2NormalFolderSync: false);
+        session.AppendCatalogChange(
             catalogFacts,
             packageReferenceFacts,
-            "delete_library", mutationCapability,
-            action => postLeaseNotifications.Add(action));
+            filesystemOutcome.Targets
+                .Where(target => target.State == LibraryChartRemovalState.Confirmed)
+                .Select(target => new LibraryMutationSessionTarget(target.Path, string.Empty)));
+        session.AppendResourceDirectoryRemovals(deletedFolderPaths);
+        LibraryMutationSessionReceipt sessionReceipt = session.Commit();
         postLeaseNotifications.Add(() => LogInstallPerformance(resultLog));
-        // Preserve the existing success-only warmup boundary even though catalog
-        // failure now returns facts instead of throwing past these effects.
-        if (commit.DurableCommit && commit.Failure == null)
-            postLeaseNotifications.Add(() => LogReverseLookupMutationAndQueueWarmupIfNeeded("delete_library", resourceIndexMutation));
-        var outcome = new LibraryChartRemovalOutcome(filesystemOutcome.Targets, true,
-            commit.DurableCommit, commit.Failure ?? (!commit.DurableCommit
-                ? new InvalidOperationException("Catalog mutation did not produce a durable receipt.") : null));
+        var outcome = new LibraryChartRemovalOutcome(
+            filesystemOutcome.Targets,
+            sessionReceipt,
+            catalogApplyAttempted: true);
         return outcome;
     }
 
@@ -1692,6 +1700,7 @@ internal sealed partial class LibraryMutationOwner
         var removalRequests = new List<OwnedChartRemoveRequest>();
         var pathChanges = new List<LibraryChartPathChange>();
         var failures = new List<LibraryDeleteFailure>();
+        var confirmedTargets = new List<LibraryMutationSessionTarget>();
         int executionIndex = 0;
         foreach (LibraryFileOperationTargetSnapshot target in validTargets)
         {
@@ -1710,6 +1719,9 @@ internal sealed partial class LibraryMutationOwner
             switch (outcome.Action)
             {
                 case RenameInvalidExtensionAction.Renamed:
+                    confirmedTargets.Add(new LibraryMutationSessionTarget(
+                        target.SourcePath,
+                        outcome.FinalPath));
                     if (unregister)
                     {
                         AddOwnerRemovalRequest(removalRequests, target);
@@ -1729,6 +1741,7 @@ internal sealed partial class LibraryMutationOwner
                     }
                     break;
                 case RenameInvalidExtensionAction.DeletedAsDuplicate:
+                    confirmedTargets.Add(new LibraryMutationSessionTarget(target.SourcePath, string.Empty));
                     AddOwnerRemovalRequest(removalRequests, target);
                     break;
                 default:
@@ -1751,7 +1764,7 @@ internal sealed partial class LibraryMutationOwner
             execution.DuplicateDeletedCount,
             execution.SkippedCount + staleTargetCount,
             execution.TotalMs);
-        return new LibraryFileExtensionRenameResult(catalogFacts, report);
+        return new LibraryFileExtensionRenameResult(catalogFacts, report, confirmedTargets);
     }
 
     /// <summary>

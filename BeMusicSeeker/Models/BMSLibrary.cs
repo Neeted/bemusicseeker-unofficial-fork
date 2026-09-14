@@ -11113,6 +11113,27 @@ public partial class BMSLibrary : ObservableObject
             unregister);
     }
 
+    /// <summary>
+    /// Renames multiple invalid-extension families as one owned library mutation session and
+    /// returns its terminal facts without displaying the session report inside the model layer.
+    /// </summary>
+    /// <param name="batches">Extension-family batches that belong to one user operation.</param>
+    /// <param name="unregister">Whether successful renamed charts are removed from the catalog.</param>
+    /// <returns>The single operation-scoped mutation receipt, or an empty receipt when admission is blocked.</returns>
+    internal LibraryMutationSessionReceipt RenameBMSFilesExtensionsWithReceipt(
+        IEnumerable<LibraryFileExtensionRenameBatch> batches,
+        bool? unregister = false)
+    {
+        if (TryBlockCatalogFileMutation(nameof(RenameBMSFilesExtensionsWithReceipt)))
+        {
+            return LibraryMutationSessionReceipt.Empty;
+        }
+        return InvalidExtensionRenameCoordinator.RenameBMSFilesExtensionsWithReceipt(
+            libraryMutationOwner,
+            batches,
+            unregister);
+    }
+
     internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt)
     {
         InvalidExtensionRenameCoordinator.RenamePendingBmsFormatChartFileExtensions(

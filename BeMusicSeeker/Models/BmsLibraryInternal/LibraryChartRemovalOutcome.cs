@@ -18,7 +18,7 @@ internal enum LibraryChartRemovalState
 /// <summary>A chart target and its observed filesystem result; failures retain the original exception.</summary>
 internal sealed record LibraryChartRemovalTarget(string Path, LibraryChartRemovalState State, Exception Failure = null);
 
-/// <summary>Callback-free, immutable filesystem and catalog facts for one library deletion.</summary>
+/// <summary>Callback-free, immutable filesystem and session terminal facts for one library deletion.</summary>
 internal sealed class LibraryChartRemovalOutcome
 {
     /// <summary>Copies the observed targets and the existing catalog owner's commit facts.</summary>
@@ -31,8 +31,30 @@ internal sealed class LibraryChartRemovalOutcome
         CatalogFailure = catalogFailure;
     }
 
+    /// <summary>Copies deletion facts and derives catalog terminal state from the operation session.</summary>
+    /// <param name="targets">Observed filesystem deletion results.</param>
+    /// <param name="sessionReceipt">Operation-scoped catalog/derived-state terminal facts.</param>
+    /// <param name="catalogApplyAttempted">Whether the delete command reached its session commit boundary.</param>
+    internal LibraryChartRemovalOutcome(
+        IEnumerable<LibraryChartRemovalTarget> targets,
+        LibraryMutationSessionReceipt sessionReceipt,
+        bool catalogApplyAttempted)
+    {
+        Targets = Array.AsReadOnly((targets ?? []).ToArray());
+        SessionReceipt = sessionReceipt ?? LibraryMutationSessionReceipt.Empty;
+        CatalogApplyAttempted = catalogApplyAttempted;
+        CatalogDurable = SessionReceipt.DurableCommit;
+        CatalogFailure = SessionReceipt.ApplyFailure
+            ?? SessionReceipt.FinalizationFailure
+            ?? (SessionReceipt.ConfirmedChangeCount > 0 && !SessionReceipt.DurableCommit
+                ? new InvalidOperationException("Catalog mutation did not produce a durable session receipt.")
+                : null);
+    }
+
     /// <summary>All target facts, including successful deletions preceding a failure.</summary>
     internal IReadOnlyList<LibraryChartRemovalTarget> Targets { get; }
+    /// <summary>Operation-scoped terminal facts when deletion used the mutation-session path.</summary>
+    internal LibraryMutationSessionReceipt SessionReceipt { get; }
     /// <summary>Number of chart targets whose deletion API returned successfully.</summary>
     internal int ConfirmedChartCount => Targets.Count(target => target.State == LibraryChartRemovalState.Confirmed);
     /// <summary>Whether the existing catalog apply was called.</summary>

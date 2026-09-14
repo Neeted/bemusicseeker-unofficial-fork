@@ -79,6 +79,8 @@ public sealed class OwnedChartCollectionLibraryMutationTests
 
             Assert.AreEqual(2, result.ConfirmedChartCount);
             Assert.IsTrue(result.CatalogDurable);
+            Assert.IsNotNull(result.SessionReceipt);
+            Assert.AreEqual(2, result.SessionReceipt.ResourceDirectoryRemovalCount);
             Assert.AreSame(deletionFailure, result.Targets.Single(target => target.Path == files[1].path).Failure);
             Assert.IsFalse(Directory.Exists(folders[0]));
             Assert.IsTrue(Directory.Exists(folders[1]));
@@ -129,17 +131,41 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                     ? "CREATE TRIGGER fail_delete BEFORE DELETE ON folder BEGIN SELECT RAISE(ABORT, 'required-folder-prune-fault'); END;"
                     : "CREATE TRIGGER fail_delete BEFORE DELETE ON song BEGIN SELECT RAISE(ABORT, 'catalog-delete-fault'); END;");
             }
+            uint shared = ChartResourceKeyHash.GetLookupHash("shared");
+            LibraryResourceIndexOwner resourceOwner = LibraryResourceIndexTestSupport.GetOwner(library);
+            resourceOwner.Replace(LibraryResourceIndex.CreateFromNativeCanonicalArrays(
+                [folder],
+                [new[] { shared }],
+                [[]], [[]],
+                [new[] { shared }],
+                [[]], [[]],
+                new Dictionary<uint, string[]> { [shared] = [folder] },
+                new Dictionary<uint, string[]>(),
+                new Dictionary<uint, string[]>()));
+            LibraryResourceIndexSnapshot resourceBefore = resourceOwner.CaptureSnapshot();
 
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts([LibraryChartRef.FromBmsFile(file)], false, []);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
+                [LibraryChartRef.FromBmsFile(file)],
+                false,
+                [folder]);
 
             Assert.IsFalse(File.Exists(chartPath));
-            Assert.AreEqual(1, filesystem.FileDeleteCalls);
+            Assert.IsFalse(Directory.Exists(folder));
+            Assert.AreEqual(0, filesystem.FileDeleteCalls);
+            Assert.AreEqual(1, filesystem.DirectoryDeleteCalls);
             Assert.AreEqual(1, outcome.ConfirmedChartCount);
             Assert.AreEqual(chartPath, outcome.Targets.Single().Path);
             Assert.IsTrue(outcome.CatalogApplyAttempted);
             Assert.AreEqual(afterCommit, outcome.CatalogDurable);
             Assert.AreEqual(afterCommit, outcome.RequiredFinalizationFailed);
             Assert.IsNotNull(outcome.CatalogFailure);
+            Assert.IsNotNull(outcome.SessionReceipt);
+            Assert.AreEqual(1, outcome.SessionReceipt.ResourceDirectoryRemovalCount);
+            LibraryResourceIndexSnapshot resourceAfter = resourceOwner.CaptureSnapshot();
+            Assert.AreEqual(resourceBefore.Generation, resourceAfter.Generation);
+            CollectionAssert.AreEqual(
+                new[] { folder },
+                resourceAfter.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
             using var readback = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(afterCommit ? 0 : 1, readback.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(1, readback.Table<LR2SongDB.folder>().Count(row => row.path == folderRowPath));

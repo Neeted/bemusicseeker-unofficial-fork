@@ -109,6 +109,150 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void RenameBMSFilesExtensionsWithReceipt_MultipleExtensionFamiliesUseSingleSession()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.Combine(
+                Path.GetDirectoryName(songDbPath)!,
+                "extension-session-" + Guid.NewGuid().ToString("N"));
+            string bSource = Path.Combine(root, "alpha.bme");
+            string pSource = Path.Combine(root, "beta.pms");
+            string bDestination = Path.Combine(root, "alpha.bmx");
+            string pDestination = Path.Combine(root, "beta.pmx");
+            Directory.CreateDirectory(root);
+            File.WriteAllText(bSource, "#PLAYER 1\r\n#TITLE Alpha\r\n#BPM 120\r\n");
+            File.WriteAllText(pSource, "#PLAYER 1\r\n#TITLE Beta\r\n#BPM 120\r\n");
+            BMSFile bFile = BMSFile.CreateBMSFileFromFile(bSource);
+            BMSFile pFile = BMSFile.CreateBMSFileFromFile(pSource);
+            try
+            {
+                using (var db = new LR2SongDBExtended(songDbPath))
+                {
+                    db.InsertOrReplace(bFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    db.InsertOrReplace(pFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+                var library = new TestBmsLibrary(
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService());
+                OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [bFile, pFile]);
+                int ownedCollectionPublicationCount = 0;
+                int normalRefreshPublicationCount = 0;
+                library.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                    {
+                        ownedCollectionPublicationCount++;
+                    }
+                    if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                    {
+                        normalRefreshPublicationCount++;
+                    }
+                };
+
+                LibraryMutationSessionReceipt receipt = library.RenameBMSFilesExtensionsWithReceipt(
+                    [
+                        new LibraryFileExtensionRenameBatch(
+                            [ChartFileProjection.FromBmsFile(bFile)],
+                            ".bmx"),
+                        new LibraryFileExtensionRenameBatch(
+                            [ChartFileProjection.FromBmsFile(pFile)],
+                            ".pmx")
+                    ],
+                    unregister: false);
+
+                Assert.IsTrue(receipt.DurableCommit);
+                Assert.AreEqual(2, receipt.ConfirmedChangeCount);
+                Assert.AreEqual(2, receipt.CatalogChartPathChangeCount);
+                Assert.IsNull(receipt.ApplyFailure);
+                Assert.IsNull(receipt.FinalizationFailure);
+                Assert.AreEqual(1, ownedCollectionPublicationCount);
+                Assert.AreEqual(1, normalRefreshPublicationCount);
+                Assert.IsFalse(File.Exists(bSource));
+                Assert.IsFalse(File.Exists(pSource));
+                Assert.IsTrue(File.Exists(bDestination));
+                Assert.IsTrue(File.Exists(pDestination));
+                using var readback = new LR2SongDBExtended(songDbPath);
+                Assert.AreEqual(0, readback.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path IN (?, ?);",
+                    bSource,
+                    pSource));
+                Assert.AreEqual(2, readback.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path IN (?, ?);",
+                    bDestination,
+                    pDestination));
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void RenameBMSFilesExtensionsWithReceipt_FilesystemFailuresStayInSessionForTerminalAggregation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.Combine(
+                Path.GetDirectoryName(songDbPath)!,
+                "extension-session-failure-" + Guid.NewGuid().ToString("N"));
+            string bSource = Path.Combine(root, "alpha.bme");
+            string pSource = Path.Combine(root, "beta.pms");
+            Directory.CreateDirectory(root);
+            File.WriteAllText(bSource, "#PLAYER 1\r\n#TITLE Alpha\r\n#BPM 120\r\n");
+            File.WriteAllText(pSource, "#PLAYER 1\r\n#TITLE Beta\r\n#BPM 120\r\n");
+            BMSFile bFile = BMSFile.CreateBMSFileFromFile(bSource);
+            BMSFile pFile = BMSFile.CreateBMSFileFromFile(pSource);
+            var mutations = new TestFileMutationService();
+            mutations.MoveFileFailureSourcePaths.Add(bSource);
+            mutations.MoveFileFailureSourcePaths.Add(pSource);
+            var dialogs = new RecordingDialogService();
+            try
+            {
+                var library = new TestBmsLibrary(songDbPath, null, null, mutations, dialogs);
+                OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [bFile, pFile]);
+
+                LibraryMutationSessionReceipt receipt = library.RenameBMSFilesExtensionsWithReceipt(
+                    [
+                        new LibraryFileExtensionRenameBatch(
+                            [ChartFileProjection.FromBmsFile(bFile)],
+                            ".bmx"),
+                        new LibraryFileExtensionRenameBatch(
+                            [ChartFileProjection.FromBmsFile(pFile)],
+                            ".pmx")
+                    ],
+                    unregister: false);
+
+                Assert.IsFalse(receipt.DurableCommit);
+                Assert.AreEqual(0, receipt.ConfirmedChangeCount);
+                Assert.AreEqual(2, receipt.ItemFailures.Count);
+                Assert.AreEqual(bSource, receipt.ItemFailures[0].Target.SourcePath);
+                Assert.AreEqual(pSource, receipt.ItemFailures[1].Target.SourcePath);
+                Assert.AreEqual(0, dialogs.CallCount,
+                    "The receipt-returning route must defer item failures to the workflow terminal.");
+                Assert.IsTrue(File.Exists(bSource));
+                Assert.IsTrue(File.Exists(pSource));
+            }
+            finally
+            {
+                if (Directory.Exists(root))
+                {
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void AutoRenameChartFolders_ProgressRunsAfterFilesystemMutation()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -3234,6 +3378,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     {
         public string? MoveDirectoryFailureSourcePath { get; set; }
 
+        public HashSet<string> MoveFileFailureSourcePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         public Action<string>? OperationObserver { get; set; }
 
         public string? DeleteDirectoryFailurePath { get; set; }
@@ -3249,6 +3395,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             OperationObserver?.Invoke("filesystem");
+            if (MoveFileFailureSourcePaths.Contains(sourcePath))
+            {
+                throw new IOException("Synthetic file move failure for session terminal aggregation test.");
+            }
             string? destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
             {
