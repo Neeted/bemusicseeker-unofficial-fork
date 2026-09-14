@@ -1031,7 +1031,7 @@ internal sealed class RegularChartListOwner : IDisposable
         bool suppressionStarted = false;
         bool normalRefreshApplySuppressed = false;
         bool operationAdmitted = false;
-        FileDbMutationReceipt mutationReceipt = null;
+        LibraryMutationSessionReceipt mutationReceipt = null;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
@@ -1063,19 +1063,20 @@ internal sealed class RegularChartListOwner : IDisposable
                         normalLibraryRefreshApplySuppressed = false;
                         normalRefreshApplySuppressed = false;
                     }
-                    if (mutationReceipt?.Failure != null)
+                    Exception mutationFailure = mutationReceipt?.PhysicalFailure
+                        ?? mutationReceipt?.ApplyFailure
+                        ?? mutationReceipt?.FinalizationFailure;
+                    if (mutationFailure != null)
                     {
-                        failures.Add(ExceptionDispatchInfo.Capture(mutationReceipt.Failure));
+                        failures.Add(ExceptionDispatchInfo.Capture(mutationFailure));
                     }
-                    if (mutationReceipt?.DurableCommit != true
-                        || mutationReceipt?.Failure != null
-                        || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
+                    if (mutationReceipt?.DurableCommit != true || mutationFailure != null)
                     {
                         logWarning(
-                            "regular_chart_folder_rename_not_committed state="
-                            + mutationReceipt?.TerminalState
-                            + " recoveryPaths="
-                            + string.Join("|", mutationReceipt?.RecoveryPaths ?? []));
+                            "regular_chart_folder_rename_not_committed durable="
+                            + (mutationReceipt?.DurableCommit == true).ToString().ToLowerInvariant()
+                            + " candidatePaths="
+                            + string.Join("|", mutationReceipt?.CandidatePaths ?? []));
                     }
                     else
                     {
@@ -1137,7 +1138,7 @@ internal sealed class RegularChartListOwner : IDisposable
             if (mutationReceipt != null)
             {
                 await FileDbMutationReport.ShowAsync(mutationDialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename,
-                    new FileDbMutationBatchReceipt([mutationReceipt]),
+                    mutationReceipt,
                     failures.Count == 0 ? null : new AggregateException(failures.Select(failure => failure.SourceException)))
                     .ConfigureAwait(false);
             }

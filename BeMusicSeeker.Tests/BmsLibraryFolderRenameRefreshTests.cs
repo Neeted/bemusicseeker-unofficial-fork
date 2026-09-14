@@ -55,14 +55,16 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     dialogService);
                 int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
 
-                FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     sourceDirectoryPath,
                     "Renamed",
                     reportAtTerminal: reportAtTerminal);
 
                 Assert.IsNotNull(receipt);
                 Assert.IsFalse(receipt.DurableCommit);
-                Assert.AreEqual(FileDbMutationTerminalState.Failed, receipt.TerminalState);
+                Assert.IsNotNull(receipt.PhysicalFailure);
+                Assert.AreEqual(sourceDirectoryPath, receipt.FailedTarget.SourcePath);
+                Assert.AreEqual(Path.Combine(tempRootPath, "Renamed"), receipt.FailedTarget.DestinationPath);
                 Assert.AreEqual(baselineOwnedCollectionVersion, library.OwnedChartCollectionVersion);
                 Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogService.CallCount);
                 Assert.AreEqual(reportAtTerminal ? "filesystem" : "filesystem|dialog", string.Join("|", phases));
@@ -95,7 +97,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             {
                 var library = new TestBmsLibrary(songDbPath, null, null,
                     new TestFileMutationService { OperationObserver = mutations.Add }, dialogs);
-                FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(source, "destination", reportAtTerminal: reportAtTerminal);
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "destination", reportAtTerminal: reportAtTerminal);
                 Assert.IsNull(receipt);
                 Assert.AreEqual(1, dialogs.CallCount);
                 Assert.AreEqual(0, mutations.Count);
@@ -316,7 +318,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     publicationObservedReleasedLease = probe != null;
                 };
 
-                FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     sourceDirectoryPath,
                     "Renamed");
 
@@ -394,17 +396,18 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
 
-                FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     sourceDirectoryPath,
                     "PackFinalizationFailure");
 
                 Assert.IsNotNull(receipt);
                 Assert.IsTrue(receipt.DurableCommit);
-                Assert.AreEqual(FileDbMutationTerminalState.DurableFinalizationFailed, receipt.TerminalState);
-                Assert.IsNotNull(receipt.FinalizationFailure);
-                Assert.AreSame(receipt.FinalizationFailure, receipt.Failure);
-                Assert.IsFalse(receipt.HasCleanupFailure);
-                Assert.IsFalse(receipt.RecoveryPaths.Any());
+                Assert.IsTrue(receipt.HasDurableFinalizationFailure);
+                Assert.IsNotNull(receipt.ApplyFailure);
+                Assert.AreSame(receipt.ApplyFailure, receipt.PrimaryFailure);
+                Assert.IsNull(receipt.CleanupFailure);
+                CollectionAssert.Contains(receipt.CandidatePaths.ToArray(), sourceDirectoryPath);
+                CollectionAssert.Contains(receipt.CandidatePaths.ToArray(), destinationDirectoryPath);
                 Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
                 Assert.IsTrue(File.Exists(destinationChartPath));
                 Assert.AreEqual(destinationChartPath, file.path);
@@ -547,7 +550,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                     else
                     {
-                        FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                        LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                             sourceDirectoryPath,
                             destinationName);
                         Assert.IsNotNull(receipt);
@@ -1372,24 +1375,23 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
-    /// <summary>
-    /// folder move の DB precommit failure に対する compensation failure は、recovery tree を残して後続 folder を開始しないことを検証します。
-    /// </summary>
-    [TestMethod]
+    [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void MoveLibraryRootFolder_StopsAfterManualRecoveryRequired(bool reportAtTerminal)
+    public void MoveLibraryRootFolder_DatabaseApplyFailureKeepsConfirmedPhysicalMoves(bool reportAtTerminal)
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderManualRecovery_" + Guid.NewGuid().ToString("N"));
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderSessionDbFailure_" + Guid.NewGuid().ToString("N"));
             string sourceRootPath = Path.Combine(tempRootPath, "SourceRoot");
-            string firstSourceDirectoryPath = Path.Combine(sourceRootPath, "First");
-            string secondSourceDirectoryPath = Path.Combine(sourceRootPath, "Second");
+            string firstSourceDirectoryPath = Path.Combine(sourceRootPath, "A");
+            string secondSourceDirectoryPath = Path.Combine(sourceRootPath, "BB");
             string destinationRootPath = Path.Combine(tempRootPath, "DestinationRoot");
             string firstChartPath = Path.Combine(firstSourceDirectoryPath, "first.bms");
             string secondChartPath = Path.Combine(secondSourceDirectoryPath, "second.bms");
+            string firstDestinationChartPath = Path.Combine(destinationRootPath, "A", "first.bms");
+            string secondDestinationChartPath = Path.Combine(destinationRootPath, "BB", "second.bms");
             Directory.CreateDirectory(firstSourceDirectoryPath);
             Directory.CreateDirectory(secondSourceDirectoryPath);
             Directory.CreateDirectory(destinationRootPath);
@@ -1397,16 +1399,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             File.WriteAllText(secondChartPath, "#PLAYER 1\r\n#TITLE Second");
             try
             {
-                var fileMutationService = new TestFileMutationService
-                {
-                    DeleteDirectoryFailurePath = Path.Combine(destinationRootPath, "First")
-                };
                 var dialogs = new RecordingDialogService();
                 var library = new TestBmsLibrary(
                     songDbPath,
                     null,
                     null,
-                    fileMutationService,
+                    new TestFileMutationService(),
                     dialogs);
                 var firstFile = new TestableBmsFile { path = firstChartPath };
                 firstFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -1418,15 +1416,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     songDb.InsertOrReplace(firstFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
                     songDb.InsertOrReplace(secondFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                    string firstDestinationChartPath = Path.Combine(destinationRootPath, "First", "first.bms");
                     string escapedPath = firstDestinationChartPath.Replace("'", "''");
                     songDb.Execute(
-                        "CREATE TRIGGER fail_folder_move BEFORE INSERT ON song WHEN NEW.path = '"
+                        "CREATE TRIGGER fail_folder_session_move BEFORE INSERT ON song WHEN NEW.path = '"
                         + escapedPath
-                        + "' BEGIN SELECT RAISE(ABORT, 'forced folder move failure'); END;");
+                        + "' BEGIN SELECT RAISE(ABORT, 'forced folder session move failure'); END;");
                 }
 
-                FileDbMutationBatchReceipt receipt = library.MoveLibraryRootFolderWithReceipt(
+                LibraryMutationSessionReceipt receipt = library.MoveLibraryRootFolderWithReceipt(
                     [
                         LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(firstFile)),
                         LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(secondFile))
@@ -1434,21 +1431,127 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     destinationRootPath,
                     reportAtTerminal: reportAtTerminal);
 
-                Assert.IsTrue(receipt.ManualRecoveryRequired);
-                Assert.AreEqual(1, receipt.Receipts.Count, "The unprocessed second folder has no successful receipt.");
+                Assert.AreEqual(2, receipt.ConfirmedChangeCount);
+                Assert.IsFalse(receipt.DurableCommit);
+                Assert.IsNull(receipt.PhysicalFailure);
+                Assert.IsNotNull(receipt.ApplyFailure);
+                Assert.AreEqual(0, receipt.UnprocessedTargets.Count);
                 Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.CallCount);
-
-                string firstDestinationDirectoryPath = Path.Combine(destinationRootPath, "First");
-                Assert.IsTrue(Directory.Exists(firstSourceDirectoryPath));
-                Assert.IsTrue(Directory.Exists(firstDestinationDirectoryPath));
-                Assert.IsTrue(Directory.Exists(secondSourceDirectoryPath));
-                Assert.IsFalse(Directory.Exists(Path.Combine(destinationRootPath, "Second")));
+                Assert.AreEqual(baselineOwnedCollectionVersion, library.OwnedChartCollectionVersion);
+                Assert.IsFalse(Directory.Exists(firstSourceDirectoryPath));
+                Assert.IsFalse(Directory.Exists(secondSourceDirectoryPath));
+                Assert.IsTrue(File.Exists(firstDestinationChartPath));
+                Assert.IsTrue(File.Exists(secondDestinationChartPath));
                 Assert.AreEqual(firstChartPath, firstFile.path);
                 Assert.AreEqual(secondChartPath, secondFile.path);
-                Assert.AreEqual(baselineOwnedCollectionVersion, library.OwnedChartCollectionVersion);
                 using var verifySongDb = new LR2SongDBExtended(songDbPath);
-                Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == firstChartPath));
-                Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == secondChartPath));
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(firstChartPath));
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(secondChartPath));
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(firstDestinationChartPath));
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(secondDestinationChartPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MoveLibraryRootFolder_PhysicalFailureCommitsConfirmedPrefixAndStopsSuffix(bool reportAtTerminal)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderSessionPartial_" + Guid.NewGuid().ToString("N"));
+            string sourceRootPath = Path.Combine(tempRootPath, "SourceRoot");
+            string firstSourceDirectoryPath = Path.Combine(sourceRootPath, "A");
+            string secondSourceDirectoryPath = Path.Combine(sourceRootPath, "BB");
+            string thirdSourceDirectoryPath = Path.Combine(sourceRootPath, "CCC");
+            string destinationRootPath = Path.Combine(tempRootPath, "DestinationRoot");
+            string firstChartPath = Path.Combine(firstSourceDirectoryPath, "first.bms");
+            string secondChartPath = Path.Combine(secondSourceDirectoryPath, "second.bms");
+            string thirdChartPath = Path.Combine(thirdSourceDirectoryPath, "third.bms");
+            string firstDestinationDirectoryPath = Path.Combine(destinationRootPath, "A");
+            string secondDestinationDirectoryPath = Path.Combine(destinationRootPath, "BB");
+            string thirdDestinationDirectoryPath = Path.Combine(destinationRootPath, "CCC");
+            Directory.CreateDirectory(firstSourceDirectoryPath);
+            Directory.CreateDirectory(secondSourceDirectoryPath);
+            Directory.CreateDirectory(thirdSourceDirectoryPath);
+            Directory.CreateDirectory(destinationRootPath);
+            File.WriteAllText(firstChartPath, "#PLAYER 1");
+            File.WriteAllText(secondChartPath, "#PLAYER 1");
+            File.WriteAllText(thirdChartPath, "#PLAYER 1");
+            try
+            {
+                var fileMutationService = new TestFileMutationService
+                {
+                    MoveDirectoryFailureSourcePath = secondSourceDirectoryPath
+                };
+                var dialogs = new RecordingDialogService();
+                var library = new TestBmsLibrary(songDbPath, null, null, fileMutationService, dialogs);
+                var firstFile = new TestableBmsFile { path = firstChartPath };
+                firstFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                var secondFile = new TestableBmsFile { path = secondChartPath };
+                secondFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+                var thirdFile = new TestableBmsFile { path = thirdChartPath };
+                thirdFile.SetHash("cccccccccccccccccccccccccccccccc");
+                library.BMSFiles = [firstFile, secondFile, thirdFile];
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(firstFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(secondFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(thirdFile.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                }
+                int refreshCount = 0;
+                library.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                    {
+                        refreshCount++;
+                    }
+                };
+
+                LibraryMutationSessionReceipt receipt = library.MoveLibraryRootFolderWithReceipt(
+                    [
+                        LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(firstFile)),
+                        LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(secondFile)),
+                        LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(thirdFile))
+                    ],
+                    destinationRootPath,
+                    reportAtTerminal: reportAtTerminal);
+
+                Assert.IsTrue(receipt.DurableCommit);
+                Assert.AreEqual(1, receipt.ConfirmedChangeCount);
+                Assert.AreEqual(1, receipt.CatalogChartPathChangeCount);
+                Assert.AreEqual(1, receipt.FolderReferenceMoveCount);
+                Assert.IsNotNull(receipt.PhysicalFailure);
+                Assert.AreEqual(secondSourceDirectoryPath, receipt.FailedTarget.SourcePath);
+                Assert.AreEqual(secondDestinationDirectoryPath, receipt.FailedTarget.DestinationPath);
+                Assert.AreEqual(1, receipt.UnprocessedTargets.Count);
+                Assert.AreEqual(thirdSourceDirectoryPath, receipt.UnprocessedTargets[0].SourcePath);
+                Assert.AreEqual(thirdDestinationDirectoryPath, receipt.UnprocessedTargets[0].DestinationPath);
+                Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.CallCount);
+                Assert.AreEqual(1, refreshCount);
+                Assert.AreEqual(Path.Combine(firstDestinationDirectoryPath, "first.bms"), firstFile.path);
+                Assert.AreEqual(secondChartPath, secondFile.path);
+                Assert.AreEqual(thirdChartPath, thirdFile.path);
+                Assert.IsFalse(Directory.Exists(firstSourceDirectoryPath));
+                Assert.IsTrue(Directory.Exists(firstDestinationDirectoryPath));
+                Assert.IsTrue(Directory.Exists(secondSourceDirectoryPath));
+                Assert.IsFalse(Directory.Exists(secondDestinationDirectoryPath));
+                Assert.IsTrue(Directory.Exists(thirdSourceDirectoryPath));
+                Assert.IsFalse(Directory.Exists(thirdDestinationDirectoryPath));
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(firstChartPath));
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(Path.Combine(firstDestinationDirectoryPath, "first.bms")));
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(secondChartPath));
+                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(thirdChartPath));
             }
             finally
             {
@@ -1520,6 +1623,99 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsFalse(batch.NotifiesBmsFiles);
                 Assert.IsTrue(batch.NotifiesBmsonSongs);
                 Assert.IsTrue(song.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bmson")));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public async Task MoveLibraryRootFolder_MixedFoldersPublishesOneOperationNotification()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        await WithTemporarySongDbAsync(async delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MixedMoveRefresh_" + Guid.NewGuid().ToString("N"));
+            string sourceRootPath = Path.Combine(tempRootPath, "SourceRoot");
+            string bmsDirectoryPath = Path.Combine(sourceRootPath, "A");
+            string bmsonDirectoryPath = Path.Combine(sourceRootPath, "BB");
+            string destinationParentPath = Path.Combine(tempRootPath, "DestinationParent");
+            string bmsPath = Path.Combine(bmsDirectoryPath, "chart.bms");
+            string bmsonPath = Path.Combine(bmsonDirectoryPath, "chart.bmson");
+            Directory.CreateDirectory(bmsDirectoryPath);
+            Directory.CreateDirectory(bmsonDirectoryPath);
+            Directory.CreateDirectory(destinationParentPath);
+            File.WriteAllText(bmsPath, "#PLAYER 1");
+            File.WriteAllText(bmsonPath, "{}");
+            try
+            {
+                var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var file = new TestableBmsFile { path = bmsPath };
+                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                var song = new LR2SongDBExtended.bmson_song
+                {
+                    path = bmsonPath,
+                    folder = bmsonDirectoryPath,
+                    md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    title = "Chart"
+                };
+                int ownedCollectionPublicationCount = 0;
+                int normalLibraryRefreshCount = 0;
+                var bmsFilesPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var bmsonSongsPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                library.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(BMSLibrary.BMSFiles))
+                    {
+                        bmsFilesPublished.TrySetResult(true);
+                    }
+                    if (args.PropertyName == nameof(BMSLibrary.BmsonSongs))
+                    {
+                        bmsonSongsPublished.TrySetResult(true);
+                    }
+                    if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                    {
+                        Interlocked.Increment(ref ownedCollectionPublicationCount);
+                    }
+                    if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                    {
+                        Interlocked.Increment(ref normalLibraryRefreshCount);
+                    }
+                };
+                library.BMSFiles = [file];
+                await bmsFilesPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                library.BmsonSongs = [song];
+                await bmsonSongsPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Interlocked.Exchange(ref ownedCollectionPublicationCount, 0);
+                Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
+                int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
+                int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+
+                LibraryMutationSessionReceipt receipt = library.MoveLibraryRootFolderWithReceipt(
+                    [
+                        LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsFile(file)),
+                        LibraryChartRef.FromChartFile(ChartFileProjection.FromBmsonSong(song))
+                    ],
+                    destinationParentPath);
+                NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+
+                Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
+                Assert.AreEqual(2, receipt.ConfirmedChangeCount);
+                Assert.AreEqual(2, receipt.CatalogChartPathChangeCount);
+                Assert.AreEqual(2, receipt.FolderReferenceMoveCount);
+                Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);
+                Assert.AreEqual(1, Volatile.Read(ref ownedCollectionPublicationCount));
+                Assert.AreEqual(1, Volatile.Read(ref normalLibraryRefreshCount));
+                Assert.IsTrue(batch.NotifiesStorageRows);
+                Assert.IsTrue(batch.NotifiesBmsFiles);
+                Assert.IsTrue(batch.NotifiesBmsonSongs);
+                Assert.AreEqual(Path.Combine(destinationParentPath, "A", "chart.bms"), file.path);
+                Assert.AreEqual(Path.Combine(destinationParentPath, "BB", "chart.bmson"), song.path);
             }
             finally
             {
@@ -2151,12 +2347,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));
                 CollectionAssert.AreEqual(new[] { oldDirectoryPath }, initial.Md5Directories[hash].ToArray());
 
-                FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     oldDirectoryPath,
                     "New",
                     unregister: false,
                     renameRootFolder: false);
-                Assert.IsTrue(receipt.DurableCommit, receipt.Failure?.ToString());
+                Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
                 InstalledChartLookupIndexSnapshot updated = InvokeCreateInstalledChartLookupSnapshot(library);
 
                 Assert.IsTrue(IsInstalledChartLookupIndexInitialized(library));

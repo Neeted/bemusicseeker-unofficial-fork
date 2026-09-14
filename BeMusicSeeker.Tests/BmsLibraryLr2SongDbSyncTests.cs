@@ -538,12 +538,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 BMSFiles = []
             };
             library.BMSFiles = [file];
-            FileDbMutationReceipt moveReceipt = library.RenameChartFolderWithReceipt(
+            LibraryMutationSessionReceipt moveReceipt = library.RenameChartFolderWithReceipt(
                 oldDirectory,
                 "New",
                 unregister: false,
                 renameRootFolder: false);
-            Assert.IsTrue(moveReceipt.DurableCommit, moveReceipt.Failure?.ToString());
+            Assert.IsTrue(moveReceipt.DurableCommit, moveReceipt.PrimaryFailure?.ToString());
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             List<LR2SongDB.folder> folders = [.. verify.Table<LR2SongDB.folder>()];

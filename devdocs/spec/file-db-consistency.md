@@ -58,7 +58,7 @@ DML の既存限定 retry、SQLite の `BusyTimeout`、DB schema、process lock�
 
 | 範囲 | 現行契約と共通方針との関係 |
 | --- | --- |
-| 移行前の `FileDbMutationExecutor` を使う導入、folder move、merge、自動 rename 等 | 現行routeでは source を item の DB durable receipt まで保持し、一回限りの best-effort 補償を行う。この per-item receipt は移行中の既存挙動であり、multi-change 操作の恒久要件ではない。[mutation session 実装計画](../plan/library-mutation-session-batching-plan.md) の対象routeは、physical success factsの収集とoperation-scoped canonical applyへ置き換える。 |
+| `FileDbMutationExecutor` を使う未移行の導入・merge 等と、session移行済みのauto rename / manual・multi-folder move | executor routeでは source を item の DB durable receipt まで保持し、一回限りの best-effort 補償を行う。この per-item receipt は移行中の既存挙動であり、multi-change 操作の恒久要件ではない。session移行済みfolder routeは、physical success factsを収集し、operation-scoped canonical applyを一回だけ行う。[mutation session 実装計画](../plan/library-mutation-session-batching-plan.md) の残り対象も同じ境界へ移行する。 |
 | session-routed multi-change 操作 | deterministicな拒否・skipはchangeに含めず通常結果へ集約する。予期しないFS failureは不確定なitem以降のunsafeな処理を止め、確認済み成功changeを保持する。DB / required internal apply failureでは成功と推測せず、full filesystem rollbackを新設せずに対象・段階・確認済み変更をterminalへ返す。 |
 | 残存する executor の補償失敗 | primary failure と補償 failure、復旧に必要な path を残して手動対応へ移す。補償の補償、再帰的 rollback、無条件 cleanup は行わない。 |
 | session canonical apply 後、または既に確定した別操作 | rollback／compensation に戻らない。内部反映失敗と cleanup 失敗を区別して現在状態を保持する。残存物の cleanup に失敗しても、元の導入を fresh install としてやり直さない。 |

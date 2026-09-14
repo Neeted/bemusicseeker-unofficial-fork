@@ -359,12 +359,13 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task MoveAsync_FailedReceiptSurvivesOptionalObserverFailure(bool observerThrows)
     {
         var primary = new IOException("move failed before commit");
-        var receipt = new FileDbMutationBatchReceipt([
-            new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.Completed,
-                true, 0, 0, [@"C:\Songs\First"], [@"D:\Moved\First"], [], [], []),
-            new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.Failed,
-                false, 0, 0, [@"C:\Songs\Second"], [@"D:\Moved\Second"], [], [], [], primary)
-        ]);
+        var receipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\Songs\First", @"D:\Moved\First")],
+            durableCommit: true,
+            catalogChartPathChangeCount: 1,
+            folderReferenceMoveCount: 1,
+            physicalFailure: primary,
+            failedTarget: new LibraryMutationSessionTarget(@"C:\Songs\Second", @"D:\Moved\Second"));
         var store = new TerminalRecordingStore(receipt);
         var presentation = new RecordingPresentation();
         var dialogs = AcceptedMessageDialogs();
@@ -392,7 +393,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             @"D:\Moved"));
 
         Assert.AreSame(receipt, result.MutationReceipt, "Terminal facts must survive optional notification failure.");
-        Assert.IsFalse(result.Succeeded, "A batch with a non-durable operation is not all-success.");
+        Assert.IsFalse(result.Succeeded, "A session with an unexpected physical failure is not all-success.");
         Assert.AreSame(primary, result.Failure);
         Assert.IsTrue(result.HasDurableCommit);
         Assert.AreEqual(1, store.Calls);
@@ -406,8 +407,12 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     [DataRow(true)]
     public async Task MoveAsync_CleanupWarningAndReporterFailureKeepDurableSuccess(bool reporterThrows)
     {
-        var receipt = new FileDbMutationBatchReceipt([
-            FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.CompletedWithCleanupFailure)]);
+        var receipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\Songs\First", @"D:\Moved\First")],
+            durableCommit: true,
+            catalogChartPathChangeCount: 1,
+            folderReferenceMoveCount: 1,
+            cleanupFailure: new IOException("cleanup failed"));
         var store = new TerminalRecordingStore(receipt);
         var dialogs = AcceptedMessageDialogs();
         if (reporterThrows) dialogs.OnMessage = () => throw new IOException("report failed");
@@ -426,8 +431,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     public async Task MoveAsync_NormalTerminalReceiptIsSilent()
     {
         var dialogs = AcceptedMessageDialogs();
-        var store = new TerminalRecordingStore(new FileDbMutationBatchReceipt([
-            FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.Completed)]));
+        var store = new TerminalRecordingStore(new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\Songs\First", @"D:\Moved\First")],
+            durableCommit: true,
+            catalogChartPathChangeCount: 1,
+            folderReferenceMoveCount: 1));
         var owner = CreateOwner(new RecordingPresentation(), dialogs, store);
         SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
             [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
@@ -838,12 +846,12 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         }
     }
 
-    private sealed class TerminalRecordingStore(FileDbMutationBatchReceipt receipt)
+    private sealed class TerminalRecordingStore(LibraryMutationSessionReceipt receipt)
         : RecordingStore, ISelectedChartMutationTerminalStore
     {
         internal int Calls { get; private set; }
 
-        public FileDbMutationBatchReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
+        public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
         {
             Calls++;
             return receipt;

@@ -265,12 +265,12 @@ public sealed class PlaylistSummaryResolveIndexTests
                 new[] { firstFile.path, movedFile.path },
                 initial.GetMd5Candidates(sharedMd5).Select(chart => chart.Path).ToArray());
 
-            FileDbMutationReceipt moveReceipt = library.RenameChartFolderWithReceipt(
+            LibraryMutationSessionReceipt moveReceipt = library.RenameChartFolderWithReceipt(
                 oldDirectory,
                 "New",
                 unregister: false,
                 renameRootFolder: false);
-            Assert.IsTrue(moveReceipt.DurableCommit, moveReceipt.Failure?.ToString());
+            Assert.IsTrue(moveReceipt.DurableCommit, moveReceipt.PrimaryFailure?.ToString());
 
             PlaylistLibraryResolveIndexSnapshot updated = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,

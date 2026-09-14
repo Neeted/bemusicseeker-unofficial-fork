@@ -11009,7 +11009,7 @@ public partial class BMSLibrary : ObservableObject
     /// Returns folder mutation facts. An explicit terminal reporter owns receipt-backed
     /// failures only; preflight and compatibility callers retain model notifications.
     /// </summary>
-    internal FileDbMutationReceipt RenameChartFolderWithReceipt(
+    internal LibraryMutationSessionReceipt RenameChartFolderWithReceipt(
         string srcDir,
         string newName,
         bool? unregister = false,
@@ -11042,8 +11042,8 @@ public partial class BMSLibrary : ObservableObject
         MoveLibraryRootFolderWithReceipt(charts, dstDir, unregister);
     }
 
-    /// <summary>Returns all folder receipts, optionally transferring their notifications to the terminal caller.</summary>
-    internal FileDbMutationBatchReceipt MoveLibraryRootFolderWithReceipt(
+    /// <summary>Returns operation-scoped folder mutation facts, optionally transferring failure reporting to the terminal caller.</summary>
+    internal LibraryMutationSessionReceipt MoveLibraryRootFolderWithReceipt(
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
         bool? unregister = false,
@@ -11059,7 +11059,7 @@ public partial class BMSLibrary : ObservableObject
         }
         if (TryBlockCatalogFileMutation(nameof(MoveLibraryRootFolder)))
         {
-            return new FileDbMutationBatchReceipt([]);
+            return LibraryMutationSessionReceipt.Empty;
         }
         return LibraryFolderMoveCoordinator.MoveLibraryRootFolderWithReceipt(
             libraryMutationOwner,

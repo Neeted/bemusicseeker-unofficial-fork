@@ -1,6 +1,6 @@
 # Operation-scoped Library Mutation Session 実装計画
 
-状態: S1 auto rename 実装済み（2026-09-14）。次の実装単位は S2 manual / multi-folder move。S2 以降も調査待ちではなく、本計画の確定スコープとして実装する。
+状態: S1 auto rename、S2 manual / multi-folder move 実装済み（2026-09-15）。次の実装単位は S3 delete / extension rename。S3 以降も調査待ちではなく、本計画の確定スコープとして実装する。
 
 ## 目的
 
@@ -173,6 +173,19 @@ install の後続判断用に `LibraryMutationSession` または install 専門 
 - 複数選択 folder move で common catalog apply / derived dispatch が folder 数に比例しない。
 - single rename の observable behavior、destination-exists、root拒否、dialog解放後表示を維持する。
 - BMS-only / BMSON-only / mixed move の storage-row notification semantics を維持する。
+
+#### S2 Test Contract Packet — `LIBMUT-S2-20260915`
+
+本 unit は user が S2 実装を明示承認した本計画と `library-mutation-boundary.md` の mutation-session / folder-terminal 契約を authority とする。current implementation や既存 expected 値は oracle にしない。
+
+| Contract ID | production ingress -> observable impact | 必須結果 / 検出すべき誤実装 | 配置 |
+| --- | --- | --- | --- |
+| `S2-SESSION-AGGREGATE` | `BMSLibrary.MoveLibraryRootFolderWithReceipt` -> catalog/state/refresh publication | N folder の confirmed facts を一つのsessionでcommitし、owned/normal publicationは操作単位。per-folder common applyへ戻る実装を検出する | `BmsLibraryFolderRenameRefreshTests` extend |
+| `S2-FAILURE-PREFIX` | 同 ingress -> physical failure / DB apply failure terminal | physical failure はconfirmed prefixを一回commitしてfailed/unprocessedを区別する。DB apply failureはconfirmed physical moveを自動rollbackしない | 旧 manual-recovery test を replace |
+| `S2-STORAGE-NOTIFY` | 同 ingress -> normal refresh storage-row flags | BMS-only / BMSON-only / mixed のkind通知を保持し、mixedは一回のoperation publicationで両kindを通知する | 同 fixture extend |
+| `S2-TERMINAL-SESSION` | `SelectedChartMutationWorkflowOwner.MoveAsync` / regular rename -> terminal dialog | per-item batch receiptを合成せずsession factsを保持し、gate/activity/suppression解放後に一回reportする | `SelectedChartMutationWorkflowOwnerTests` / 既存 regular rename fixture update |
+
+許容差分は内部helper名、diagnostic reason、対象列挙順、localized copy。source textやprivate call orderは固定しない。共有資源は既存の固有temp DB/FSとlocal dialog portsを用い、完了はmodel return / workflow Taskで待つ。
 
 ### S3 — 既に batch の delete / extension rename を session API へ統一する
 
@@ -348,7 +361,7 @@ operationによって該当しないsurfaceは0でよい。S1～S7の各testで�
 | Unit | 状態 | 完了条件 |
 | --- | --- | --- |
 | S1 auto rename | 完了 | `LibraryMutationSession`を導入し、auto renameのconfirmed physical moveをoperation単位で一括commitする経路へ移行。folder DBはexact pathのchunk queryへ変更し、session terminal / partial-failure suffix / operation-level publicationを既存auto-rename testsへ反映。恒久契約は `library-mutation-boundary.md` / `file-db-consistency.md` の既存 `FSDB-SESSION` / `FSDB-REPORT` を使用。 |
-| S2 manual / multi-folder move | 未着手 | folder move全入口が同session path、N folderでoperation-level apply、terminal移行 |
+| S2 manual / multi-folder move | 完了 | manual rename と複数 folder move を共通 `LibraryMutationSession` pathへ統合し、confirmed prefix / failed / unprocessed、storage-row policy合成、operation-level reverse lookup / LR2 / publication、ViewModel session terminalへ移行。旧 per-item folder `FileDbMutationExecutor` callback と manual-recovery前提を撤去。 |
 | S3 delete / extension rename | 未着手 | 既存batch構造をsession APIへ統一、delete reverse lookupのcommit前直接mutation撤去 |
 | S4 installation-directory repair | 未着手 | N chart repair + approved removalが同session、per-chart DB callback撤去、maintenance terminal統合 |
 | S5 all install ingress | 未着手 | auto/estimated/force/manual/resource-only/cleanup-onlyがinstall session、success overlay、per-package canonical apply撤去 |

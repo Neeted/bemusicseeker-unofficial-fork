@@ -105,7 +105,8 @@ internal interface ISelectedChartMutationStore
 
 internal interface ISelectedChartMutationTerminalStore
 {
-    FileDbMutationBatchReceipt MoveLibraryChartsWithReceipt(
+    /// <summary>Moves selected library folders and returns operation-scoped terminal facts.</summary>
+    LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(
         BMSLibrary library,
         ChartLibraryMoveRequest request);
 }
@@ -164,7 +165,7 @@ internal sealed class SelectedChartMutationResult
     private SelectedChartMutationResult(
         bool succeeded,
         Exception failure,
-        FileDbMutationBatchReceipt mutationReceipt = null,
+        LibraryMutationSessionReceipt mutationReceipt = null,
         LibraryChartRemovalOutcome removalOutcome = null)
     {
         RemovalOutcome = removalOutcome;
@@ -188,12 +189,14 @@ internal sealed class SelectedChartMutationResult
 
     internal Exception Failure { get; }
 
-    internal FileDbMutationBatchReceipt MutationReceipt { get; }
+    /// <summary>Gets operation-scoped terminal facts for the selected folder move, when applicable.</summary>
+    internal LibraryMutationSessionReceipt MutationReceipt { get; }
 
     /// <summary>Includes the catalog commit observed by library deletion.</summary>
-    internal bool HasDurableCommit => RemovalOutcome?.CatalogDurable == true || MutationReceipt?.HasDurableCommit == true;
+    internal bool HasDurableCommit => RemovalOutcome?.CatalogDurable == true || MutationReceipt?.DurableCommit == true;
 
-    internal bool ManualRecoveryRequired => MutationReceipt?.ManualRecoveryRequired == true;
+    /// <summary>Session-based selected folder moves do not expose executor compensation recovery.</summary>
+    internal bool ManualRecoveryRequired => false;
 
     /// <summary>
     /// Gets whether selected-chart finalization failed after durable state.
@@ -202,25 +205,30 @@ internal sealed class SelectedChartMutationResult
 
     internal bool CompletedWithCleanupFailure => MutationReceipt?.CompletedWithCleanupFailure == true;
 
-    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.RecoveryPaths ?? [];
+    /// <summary>Gets bounded manual-inspection candidates retained by the session.</summary>
+    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt?.CandidatePaths ?? [];
 
     internal static SelectedChartMutationResult Completed { get; } = new(true, null);
 
-    /// <summary>Preserves every item outcome; a non-durable item prevents an all-success batch result.</summary>
-    internal static SelectedChartMutationResult FromReceipt(FileDbMutationBatchReceipt mutationReceipt)
+    /// <summary>Preserves operation-scoped move facts without synthesizing per-folder receipts.</summary>
+    internal static SelectedChartMutationResult FromReceipt(LibraryMutationSessionReceipt mutationReceipt)
     {
-        return new SelectedChartMutationResult(
-            mutationReceipt?.Receipts.All(receipt => receipt.DurableCommit) != false
-                && mutationReceipt?.ManualRecoveryRequired != true
-                && mutationReceipt?.HasDurableFinalizationFailure != true,
-            mutationReceipt?.Receipts.FirstOrDefault(receipt => !receipt.DurableCommit
-                || receipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)?.Failure
-                ?? mutationReceipt?.FinalizationFailure,
-            mutationReceipt);
+        Exception requiredFailure = mutationReceipt?.PhysicalFailure
+            ?? mutationReceipt?.ApplyFailure
+            ?? mutationReceipt?.FinalizationFailure;
+        bool durableStateRequired = mutationReceipt?.ConfirmedChangeCount > 0;
+        bool succeeded = requiredFailure == null
+            && (!durableStateRequired || mutationReceipt.DurableCommit);
+        if (!succeeded && requiredFailure == null)
+        {
+            requiredFailure = new InvalidOperationException(
+                "Confirmed folder mutation did not produce a durable session receipt.");
+        }
+        return new SelectedChartMutationResult(succeeded, requiredFailure, mutationReceipt);
     }
 
     /// <summary>Retains receipts when an additional workflow failure occurs after mutation.</summary>
-    internal static SelectedChartMutationResult Failed(Exception failure, FileDbMutationBatchReceipt mutationReceipt = null)
+    internal static SelectedChartMutationResult Failed(Exception failure, LibraryMutationSessionReceipt mutationReceipt = null)
     {
         return new SelectedChartMutationResult(
             false,
@@ -648,7 +656,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         SelectedChartMutationRefreshScope refreshScope,
         Action stopPlayback,
         Action<BMSLibrary> mutation,
-        Func<BMSLibrary, FileDbMutationBatchReceipt> mutationWithReceipt = null,
+        Func<BMSLibrary, LibraryMutationSessionReceipt> mutationWithReceipt = null,
         bool publishMutationApplied = false,
         IDisposable acquiredOperationGate = null)
     {
@@ -675,7 +683,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
-        FileDbMutationBatchReceipt mutationReceipt = null;
+        LibraryMutationSessionReceipt mutationReceipt = null;
         bool publishMutationAppliedAfterRelease = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
@@ -692,7 +700,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
             }
             if (publishMutationApplied
                 && (mutationReceipt == null
-                    || (mutationReceipt.HasDurableCommit
+                    || (mutationReceipt.DurableCommit
                         && !mutationReceipt.HasDurableFinalizationFailure)))
             {
                 publishMutationAppliedAfterRelease = true;
@@ -904,7 +912,7 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
     }
 
     /// <summary>The canonical selected move terminal owns aggregate receipt notification.</summary>
-    public FileDbMutationBatchReceipt MoveLibraryChartsWithReceipt(
+    public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(
         BMSLibrary library,
         ChartLibraryMoveRequest request)
     {

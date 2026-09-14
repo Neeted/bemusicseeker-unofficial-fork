@@ -1345,12 +1345,12 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 SetLibraryBmsonSongsWithoutNotification(library, []);
                 EnsureCurrentResourceHealthIndex(library);
                 Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
-                FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     oldDirectoryPath,
                     "New",
                     unregister: false,
                     renameRootFolder: false);
-                Assert.IsTrue(receipt.DurableCommit, receipt.Failure?.ToString());
+                Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
 
                 Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
                 Assert.IsTrue(HasNoCurrentResourceHealthIndex(library));
@@ -1421,12 +1421,12 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                         parentFolderVersionChanged++;
                     }
                 };
-                FileDbMutationReceipt receipt = library.RenameChartFolderWithReceipt(
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     oldDirectoryPath,
                     "New",
                     unregister: false,
                     renameRootFolder: false);
-                Assert.IsTrue(receipt.DurableCommit, receipt.Failure?.ToString());
+                Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(baselineOwnedCollectionVersion + 1, library.OwnedChartCollectionVersion);

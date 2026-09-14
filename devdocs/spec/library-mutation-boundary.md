@@ -200,8 +200,8 @@ FS+DB folder terminal reporting (`FSDB-A-20260905`, A01–A07) は以下で検�
 | Behavior | Fixture | Lane / completion |
 | --- | --- | --- |
 | R の実 LR2 finalizer failure、durable DB 保持、成功 refresh 抑止、解放後の集約表示 | `RegularChartFolderRenameTests` | remaining / rename Task と StopAsync、固有 DB・FS |
-| M の部分 receipt 保持、解放後表示、optional notification failure | `SelectedChartMutationWorkflowOwnerTests` | remaining / MoveAsync Task、local ports |
-| model の receipt-backed 表示抑止と互換・事前拒否、manual recovery の停止条件 | `BmsLibraryFolderRenameRefreshTests` | remaining-bms-library / 固有 DB・FS、model return |
+| M の session confirmed / failure facts 保持、解放後表示、optional notification failure | `SelectedChartMutationWorkflowOwnerTests` | remaining / MoveAsync Task、local ports |
+| model の session-backed 表示抑止と互換・事前拒否、multi-folder の operation-level publication、confirmed prefix / failed / unprocessed、DB apply failure時の非rollback、BMS/BMSON storage-row通知 | `BmsLibraryFolderRenameRefreshTests` | remaining-bms-library / 固有 DB・FS、model return |
 | severity、独立 failure 次元、操作件数、表示上限、通知 failure | `FileDbMutationReportTests` | remaining / local facts と presenter Task |
 | accessor・resx・全言語の key、nonempty、placeholder schema | `LocalizationResourceParityTests` | 既存 lane / read-only resource return |
 
@@ -235,7 +235,7 @@ The old `BmsLibraryInitializationServiceTests` selector is absent from the route
 
 アプリ全体の FS+DB の保証・非保証、前方回復、失敗の表示、レビューで受け入れる制限は [file-db-consistency.md](file-db-consistency.md) を正本とする。以下の `COMP-*` は `FileDbMutationExecutor` を使う既存・移行中経路の限定補償契約であり、削除等を含むすべての mutation に FS rollback を要求するものではない。
 
-package install、estimated install、smart overwrite、folder move、merge、自動リネームの現行経路には item ごとに `FileDbMutationExecutor` を完結するものがあるが、multi-change 操作の恒久契約は [Mutation session 契約](#mutation-session-契約) とする。immutable な preflight / destination type guard、source保全等の有用な局所安全策は維持してよい一方、DB durable receiptをitemごとに作ること自体は要件ではない。session移行後は、確認済みphysical successをchangeとして蓄積し、canonical durable applyをoperation境界へ集約する。source cleanupをdurable apply後へ遅延できる操作ではsession終端まで遅延する。
+package install、estimated install、smart overwrite、merge などの未移行経路には item ごとに `FileDbMutationExecutor` を完結するものが残る。一方、auto rename と手動 rename / 複数 folder move は operation-scoped session へ移行済みである。multi-change 操作の恒久契約は [Mutation session 契約](#mutation-session-契約) とし、immutable な preflight / destination type guard、source保全等の有用な局所安全策は維持してよい一方、DB durable receiptをitemごとに作ること自体は要件ではない。session移行後は、確認済みphysical successをchangeとして蓄積し、canonical durable applyをoperation境界へ集約する。source cleanupをdurable apply後へ遅延できる操作ではsession終端まで遅延する。
 
 executor の receipt は commit 前後を区別する terminal state を持つ。
 

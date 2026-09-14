@@ -404,34 +404,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     }
 
     /// <summary>
-    /// destination filesystem 内で完結する folder move の immutable preflight を作成します。
-    /// </summary>
-    public FileDbMutationPlan BuildFolderMoveMutationPlan(
-        string srcDir,
-        string dstDir)
-    {
-        if (string.IsNullOrWhiteSpace(srcDir))
-        {
-            throw new ArgumentException("A source directory is required.", nameof(srcDir));
-        }
-        if (string.IsNullOrWhiteSpace(dstDir))
-        {
-            throw new ArgumentException("A destination directory is required.", nameof(dstDir));
-        }
-        if (LongPathFileSystem.EntryExists(dstDir))
-        {
-            throw new IOException("Destination directory already exists.");
-        }
-        string stagingPath = LongPathFileSystem.CreateMutationSiblingPath(dstDir, "stage");
-        return new FileDbMutationPlan(
-            Guid.NewGuid(),
-            [new FileDbMutationPathPlan(srcDir, dstDir, stagingPath, string.Empty, isDirectory: true)],
-            [],
-            [new FileDbMutationCleanupPathPlan(srcDir, recursive: true)],
-            recursiveSourceCleanup: true);
-    }
-
-    /// <summary>
     /// Builds the path-only portion of a library removal.  Canonical
     /// owner binding is intentionally left to the command owner so this plan
     /// can be executed after every model snapshot guard has been released.

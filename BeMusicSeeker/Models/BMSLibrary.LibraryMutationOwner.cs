@@ -461,24 +461,6 @@ internal sealed partial class LibraryMutationOwner
         return resourceIndexOwner.MoveFolderReferences(sourceDirectory, destinationDirectory).MutationResult;
     }
 
-    internal FileDbMutationPlan BuildFolderMoveMutationPlan(
-        string sourceDirectory,
-        string destinationDirectory)
-    {
-        return libraryFileOperationsService.BuildFolderMoveMutationPlan(
-            sourceDirectory,
-            destinationDirectory);
-    }
-
-    internal FileDbMutationExecutor CreateFileDbMutationExecutor(FileDbMutationPlan plan)
-    {
-        return new FileDbMutationExecutor(
-            plan,
-            fileMutationService,
-            targetOnlyFileMutationOptions,
-            recursiveDirectoryTreeFileMutationOptions);
-    }
-
     internal FileDbMutationCommitResult ApplyLibraryMutationFactsForFileMutation(
         LibraryCatalogMutationFacts catalogFacts,
         LibraryPackageReferenceFacts packageReferenceFacts,
@@ -500,13 +482,6 @@ internal sealed partial class LibraryMutationOwner
             capability,
             postLeaseNotificationObserver,
             storageRowPathNotificationPolicy);
-    }
-
-    internal DirectoryResourceLookupCache.ReverseLookupMutationResult MoveFolderReferencesAfterCommit(
-        string sourceDirectory,
-        string destinationDirectory)
-    {
-        return resourceIndexOwner.MoveFolderReferences(sourceDirectory, destinationDirectory).MutationResult;
     }
 
     /// <summary>現在のownerとpackage参照からfolder移動factsを捕捉します。</summary>
