@@ -923,6 +923,7 @@
   "FileDbMutationReport_Title": "File and database operation result",
   "FileDbMutationReport_Operation": "Operation: {0}",
   "FileDbMutationReport_Counts": "Operations with recorded results: {0}\nFile and DB changes committed: {1} / Not committed: {2}\nRequired finalization failures: {3} / Cleanup failures: {4} / Manual checks required: {5}",
+  "LibraryMutationSessionReport_Counts": "Confirmed physical changes: {0}\nLibrary changes committed: {1} / Not committed: {2}\nRequired finalization failures: {3} / Cleanup failures: {4} / Unprocessed: {5}",
   "FileDbMutationReport_TerminalFailure": "Some operation-wide completion work did not finish.",
   "FileDbMutationReport_CandidatePaths": "Candidate paths to check (existence unverified, up to 3):",
   "FileDbMutationReport_Error": "Error: {0}",

@@ -197,6 +197,106 @@ internal static class FileDbMutationReport
     }
 
     /// <summary>
+    /// Creates a bounded terminal report for one operation-scoped library mutation session.
+    /// Confirmed, failed, and unprocessed targets remain session facts rather than synthetic
+    /// per-item durable receipts.
+    /// </summary>
+    /// <param name="operation">Localized operation label.</param>
+    /// <param name="session">The immutable session terminal facts.</param>
+    /// <param name="failure">An outer workflow failure not already retained by the session.</param>
+    /// <param name="culture">Optional report culture.</param>
+    internal static UiMessageRequest Create(
+        string operation,
+        LibraryMutationSessionReceipt session,
+        Exception failure = null,
+        CultureInfo culture = null)
+    {
+        if (session == null)
+        {
+            return null;
+        }
+
+        string Localized(string key) => Resources.ResourceManager.GetString(key, culture ?? Resources.Culture);
+        string Format(string key, params object[] values) => string.Format(
+            culture ?? CultureInfo.CurrentCulture,
+            Localized(key),
+            values);
+
+        if (failure != null && (ReferenceEquals(failure, session.PhysicalFailure)
+            || ReferenceEquals(failure, session.ApplyFailure)
+            || ReferenceEquals(failure, session.FinalizationFailure)
+            || ReferenceEquals(failure, session.CleanupFailure)))
+        {
+            failure = null;
+        }
+
+        bool hasError = session.PhysicalFailure != null
+            || session.ApplyFailure != null
+            || session.FinalizationFailure != null
+            || failure != null;
+        bool hasCleanupFailure = session.CleanupFailure != null;
+        if (!hasError && !hasCleanupFailure)
+        {
+            return null;
+        }
+
+        int durableChangeCount = session.DurableCommit ? session.ConfirmedChangeCount : 0;
+        int notCommittedChangeCount = (session.DurableCommit ? 0 : session.ConfirmedChangeCount)
+            + (session.FailedTarget == null ? 0 : 1);
+        int requiredApplyFailureCount = (session.ApplyFailure == null ? 0 : 1)
+            + (session.FinalizationFailure == null ? 0 : 1);
+        int cleanupFailureCount = session.CleanupFailure == null ? 0 : 1;
+        string body = Format(nameof(Resources.FileDbMutationReport_Operation), Limit(operation, 240))
+            + Environment.NewLine
+            + Format(
+                nameof(Resources.LibraryMutationSessionReport_Counts),
+                session.ConfirmedChangeCount,
+                durableChangeCount,
+                notCommittedChangeCount,
+                requiredApplyFailureCount,
+                cleanupFailureCount,
+                session.UnprocessedTargets.Count);
+        if (hasError)
+        {
+            body += Environment.NewLine + Localized(nameof(Resources.FileDbMutationReport_TerminalFailure));
+        }
+
+        string[] paths = session.CandidatePaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Take(3)
+            .Select(path => Limit(path, 240))
+            .ToArray();
+        if (paths.Length > 0)
+        {
+            body += Environment.NewLine + Localized(nameof(Resources.FileDbMutationReport_CandidatePaths))
+                + Environment.NewLine + string.Join(Environment.NewLine, paths);
+        }
+
+        var errors = new[]
+        {
+            failure,
+            session.PhysicalFailure,
+            session.ApplyFailure,
+            session.FinalizationFailure,
+            session.CleanupFailure
+        }
+            .Where(error => error != null)
+            .Distinct()
+            .Take(3);
+        foreach (Exception error in errors)
+        {
+            body += Environment.NewLine
+                + Format(nameof(Resources.FileDbMutationReport_Error), Limit(error.Message, 400));
+        }
+
+        string guidance = Limit(Localized(nameof(Resources.FileDbMutationReport_Guidance)), 1024);
+        body = Limit(body, MaximumMessageLength - Environment.NewLine.Length - guidance.Length)
+            + Environment.NewLine + guidance;
+        string title = Localized(nameof(Resources.FileDbMutationReport_Title));
+        return hasError ? UiMessageRequest.CreateError(body, title) : UiMessageRequest.CreateWarning(body, title);
+    }
+
+    /// <summary>
     /// Logs full abnormal facts and awaits at most one dialog. Notification failure
     /// never replaces the caller's receipt/failure or triggers another mutation.
     /// </summary>
@@ -238,6 +338,70 @@ internal static class FileDbMutationReport
                 or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
                 LogNotificationFailure(result?.Exception ?? new InvalidOperationException(
                     "Mutation report was not displayed: " + result?.Status));
+        }
+        catch (Exception exception)
+        {
+            LogNotificationFailure(exception);
+        }
+    }
+
+    /// <summary>
+    /// Logs an operation-scoped session once and awaits at most one terminal dialog.
+    /// </summary>
+    /// <param name="dialogs">UI dialog boundary used after all mutation leases are released.</param>
+    /// <param name="operation">Localized operation label.</param>
+    /// <param name="session">The immutable session terminal facts.</param>
+    /// <param name="failure">An outer workflow failure not already retained by the session.</param>
+    internal static async Task ShowAsync(
+        IUiDialogService dialogs,
+        string operation,
+        LibraryMutationSessionReceipt session,
+        Exception failure = null)
+    {
+        try
+        {
+            UiMessageRequest request = Create(operation, session, failure);
+            if (request == null)
+            {
+                return;
+            }
+
+            try
+            {
+                NLogWrapper.FileLogger?.Warn(session.PrimaryFailure ?? failure,
+                    "library_mutation_session_report operation=" + operation
+                    + " durable=" + session.DurableCommit
+                    + " confirmed=" + session.ConfirmedChangeCount
+                    + " catalogRemovals=" + session.CatalogChartRemovalCount
+                    + " catalogPathChanges=" + session.CatalogChartPathChangeCount
+                    + " catalogFolderChanges=" + session.CatalogFolderPathChangeCount
+                    + " packageDestinationChanges=" + session.PackageInstallDestinationChangeCount
+                    + " packagePathChanges=" + session.PackageInstalledPathChangeCount
+                    + " reverseLookupMoves=" + session.FolderReferenceMoveCount
+                    + " failedSource=" + session.FailedTarget?.SourcePath
+                    + " failedDestination=" + session.FailedTarget?.DestinationPath
+                    + " unprocessed=" + session.UnprocessedTargets.Count
+                    + " candidates=" + string.Join("|", session.CandidatePaths)
+                    + " applyFailure=" + session.ApplyFailure
+                    + " finalizationFailure=" + session.FinalizationFailure
+                    + " cleanupFailure=" + session.CleanupFailure);
+            }
+            catch
+            {
+                // Diagnostic sinks must not affect terminal facts.
+            }
+
+            if (failure != null && !ReferenceEquals(failure, session.PrimaryFailure))
+            {
+                LogNotificationFailure(failure);
+            }
+            UiDialogResult result = await dialogs.ShowMessageAsync(request).ConfigureAwait(false);
+            if (result == null || result.Status is not (UiDialogStatus.Accepted or UiDialogStatus.Rejected
+                or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
+            {
+                LogNotificationFailure(result?.Exception ?? new InvalidOperationException(
+                    "Mutation session report was not displayed: " + result?.Status));
+            }
         }
         catch (Exception exception)
         {

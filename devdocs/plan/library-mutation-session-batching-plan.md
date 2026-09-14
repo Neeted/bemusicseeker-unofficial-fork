@@ -1,6 +1,6 @@
 # Operation-scoped Library Mutation Session 実装計画
 
-状態: 契約採用・資料反映済み、実装未着手（2026-09-14）。最初の実装単位は S1 auto rename とする。S2 以降も調査待ちではなく、本計画の確定スコープとして実装する。
+状態: S1 auto rename 実装済み（2026-09-14）。次の実装単位は S2 manual / multi-folder move。S2 以降も調査待ちではなく、本計画の確定スコープとして実装する。
 
 ## 目的
 
@@ -347,7 +347,7 @@ operationによって該当しないsurfaceは0でよい。S1～S7の各testで�
 
 | Unit | 状態 | 完了条件 |
 | --- | --- | --- |
-| S1 auto rename | 未着手 | `LibraryMutationSession`導入、auto renameのper-folder common apply撤去、folder DB targeted query、session terminal / tests |
+| S1 auto rename | 完了 | `LibraryMutationSession`を導入し、auto renameのconfirmed physical moveをoperation単位で一括commitする経路へ移行。folder DBはexact pathのchunk queryへ変更し、session terminal / partial-failure suffix / operation-level publicationを既存auto-rename testsへ反映。恒久契約は `library-mutation-boundary.md` / `file-db-consistency.md` の既存 `FSDB-SESSION` / `FSDB-REPORT` を使用。 |
 | S2 manual / multi-folder move | 未着手 | folder move全入口が同session path、N folderでoperation-level apply、terminal移行 |
 | S3 delete / extension rename | 未着手 | 既存batch構造をsession APIへ統一、delete reverse lookupのcommit前直接mutation撤去 |
 | S4 installation-directory repair | 未着手 | N chart repair + approved removalが同session、per-chart DB callback撤去、maintenance terminal統合 |

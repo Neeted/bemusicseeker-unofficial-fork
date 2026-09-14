@@ -414,25 +414,17 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             var finalizationFailure = new IOException("auto finalization failed");
             var cleanupFailure = new IOException("auto cleanup failed");
             string cleanupPath = Path.Combine(root, "cleanup-source");
-            var mutationReceipt = new FileDbMutationBatchReceipt([
-                new FileDbMutationReceipt(
-                    Guid.NewGuid(),
-                    FileDbMutationTerminalState.DurableFinalizationFailed,
-                    durableCommit: true,
-                    compensationAttemptCount: 0,
-                    cleanupAttemptCount: 1,
-                    sourcePaths: [cleanupPath],
-                    destinationPaths: [Path.Combine(root, "destination")],
-                    stagingPaths: [],
-                    backupPaths: [],
-                    recoveryPaths: [cleanupPath],
-                    failure: finalizationFailure,
-                    finalizationFailure: finalizationFailure,
-                    cleanupFailure: cleanupFailure)]);
+            var sessionReceipt = new LibraryMutationSessionReceipt(
+                [new LibraryMutationSessionTarget(cleanupPath, Path.Combine(root, "destination"))],
+                durableCommit: true,
+                catalogFolderPathChangeCount: 1,
+                folderReferenceMoveCount: 1,
+                finalizationFailure: finalizationFailure,
+                cleanupFailure: cleanupFailure);
             var mutationResult = new AutoRenameBatchResult(
                 hasActionablePlan: true,
                 appliedPlanCount: 1,
-                mutationReceipt,
+                sessionReceipt,
                 primaryFailure: ExceptionDispatchInfo.Capture(finalizationFailure));
             var mutationPort = new TerminalFolderAutoRenameMutationPort(mutationResult);
             var gate = new ChartFileOperationSynchronizer();
@@ -477,7 +469,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsFalse(failure.CompletedWithCleanupFailure);
             CollectionAssert.Contains(failure.RecoveryPaths.ToArray(), cleanupPath);
             Assert.IsNotNull(failure.MutationResult);
-            Assert.IsTrue(failure.MutationResult.MutationReceipt.Receipts[0].HasCleanupFailure);
+            Assert.AreSame(cleanupFailure, failure.MutationResult.SessionReceipt.CleanupFailure);
             Assert.AreEqual(1, mutationPort.HasTargetsCallCount);
             Assert.AreEqual(1, mutationPort.RenameAllWithReceiptCallCount);
             Assert.AreEqual(0, completionCount);

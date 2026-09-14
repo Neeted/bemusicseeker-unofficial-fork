@@ -67,6 +67,8 @@ internal sealed class BmsLibraryDbGateway(
 
     private const int ChartInfoLookupChunkSize = 500;
 
+    private const int FolderRecordLookupChunkSize = 500;
+
     private const string ChartDigestMapUpsertSql =
         "INSERT OR REPLACE INTO chart_digest_map (md5, sha256) VALUES (?, ?);";
 
@@ -573,7 +575,7 @@ internal sealed class BmsLibraryDbGateway(
         List<CatalogFolderPathReplacement> folderRows = [.. (relocationRequest?.FolderPathChanges ?? [])
             .Where(change => !string.IsNullOrWhiteSpace(change?.OldFolderPath)
                 && !string.IsNullOrWhiteSpace(change.NewFolderPath))
-            .GroupBy(change => NormalizeFolderRecordPath(change.OldFolderPath), StringComparer.OrdinalIgnoreCase)
+            .GroupBy(change => NormalizeFolderRecordPath(change.OldFolderPath), StringComparer.Ordinal)
             .Select(group => group.Last())];
         List<BmsSongPathReplacement> bmsRows = [.. (relocationRequest?.BmsPathReplacements ?? [])
             .Where(replacement => replacement?.Song != null
@@ -1788,8 +1790,9 @@ internal sealed class BmsLibraryDbGateway(
         Dictionary<string, CatalogFolderPathReplacement> changesByOldPath = rows.ToDictionary(
             change => NormalizeFolderRecordPath(change.OldFolderPath),
             change => change,
-            StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDB.folder folder in songDb.Table<LR2SongDB.folder>().ToList())
+            StringComparer.Ordinal);
+        List<string> oldPaths = [.. changesByOldPath.Keys];
+        foreach (LR2SongDB.folder folder in QueryFolderRecordsByExactPaths(songDb, oldPaths))
         {
             if (folder == null || !changesByOldPath.TryGetValue(folder.path, out CatalogFolderPathReplacement change))
             {
@@ -1807,6 +1810,35 @@ internal sealed class BmsLibraryDbGateway(
             songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
         }
         return replaced;
+    }
+
+    private static IEnumerable<LR2SongDB.folder> QueryFolderRecordsByExactPaths(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<string> oldPaths)
+    {
+        if (songDb == null || oldPaths == null || oldPaths.Count == 0)
+        {
+            yield break;
+        }
+
+        string tableName = SQLiteTable<LR2SongDB.folder>.GetTableName();
+        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(folder => folder.path);
+        for (int offset = 0; offset < oldPaths.Count; offset += FolderRecordLookupChunkSize)
+        {
+            int count = Math.Min(FolderRecordLookupChunkSize, oldPaths.Count - offset);
+            string placeholders = string.Join(",", Enumerable.Repeat("?", count));
+            object[] parameters = oldPaths
+                .Skip(offset)
+                .Take(count)
+                .Cast<object>()
+                .ToArray();
+            string sql = "SELECT * FROM " + tableName
+                + " WHERE " + pathColumn + " IN (" + placeholders + ");";
+            foreach (LR2SongDB.folder folder in songDb.Query<LR2SongDB.folder>(sql, parameters))
+            {
+                yield return folder;
+            }
+        }
     }
 
     public List<LR2IRData> LoadIrData(int lr2Id)

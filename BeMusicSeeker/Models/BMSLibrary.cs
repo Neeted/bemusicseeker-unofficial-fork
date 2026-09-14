@@ -10568,7 +10568,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    /// <summary>Returns batch facts; terminal-owned callers suppress receipt-backed item dialogs.</summary>
+    /// <summary>Returns operation-scoped session facts; terminal-owned callers suppress the unexpected-move dialog.</summary>
     internal AutoRenameBatchResult AutoRenameChartFoldersWithResult(
         IEnumerable<ChartFile> chartFiles,
         bool renameRootFolder = false,
@@ -10581,7 +10581,7 @@ public partial class BMSLibrary : ObservableObject
         }
         if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFolders)))
         {
-            return new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+            return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
 
         Tuple<int, int, string> latestProgressReport = null;
@@ -10608,7 +10608,7 @@ public partial class BMSLibrary : ObservableObject
                             HasActionableAutoRenamePlan(plans)
                                 ? TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans)
                                 : null;
-                        result = libraryMutationOwner.ApplyAutoRenamePlansWithReceipt(
+                        result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
                             plans,
                             mutationCapability,
                             deferredProgressReporter,
@@ -10633,7 +10633,7 @@ public partial class BMSLibrary : ObservableObject
         {
             FlushAutoRenameProgressReport(progressReporter, latestProgressReport);
         }
-        return result ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+        return result ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
     }
 
     internal bool HasAutoRenameAllChartFolderTargets(string parentDir = null)
@@ -10650,7 +10650,7 @@ public partial class BMSLibrary : ObservableObject
         return result.HasActionablePlan && !result.HasDurableFinalizationFailure;
     }
 
-    /// <summary>Returns batch facts; terminal-owned callers suppress receipt-backed item dialogs.</summary>
+    /// <summary>Returns operation-scoped session facts; terminal-owned callers suppress the unexpected-move dialog.</summary>
     internal AutoRenameBatchResult AutoRenameAllChartFoldersWithResult(
         string parentDir = null,
         Action<int, int, string> progressReporter = null,
@@ -10658,7 +10658,7 @@ public partial class BMSLibrary : ObservableObject
     {
         if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFolders)))
         {
-            return new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+            return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
         Tuple<int, int, string> latestProgressReport = null;
         Action<int, int, string> deferredProgressReporter = progressReporter == null
@@ -10680,7 +10680,7 @@ public partial class BMSLibrary : ObservableObject
                     {
                         Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
                             TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans);
-                        result = libraryMutationOwner.ApplyAutoRenamePlansWithReceipt(
+                        result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
                             plans,
                             mutationCapability,
                             deferredProgressReporter,
@@ -10701,7 +10701,7 @@ public partial class BMSLibrary : ObservableObject
                 }
             }
             FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
-            return result ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+            return result ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
         finally
         {
@@ -10738,19 +10738,25 @@ public partial class BMSLibrary : ObservableObject
         bool reportAtTerminal = false)
     {
         ExceptionDispatchInfo firstFailure = primaryFailure ?? result?.PrimaryFailure;
-        if (firstFailure != null
+        if (result?.HasDurableFinalizationFailure == true
             && result?.Lr2NormalFolderPathChanges?.Count > 0
             && CurrentOptionsSnapshot?.OperationModeLR2DB == true)
         {
             try
             {
-                string failureDetail = GetDisplayedExceptionMessage(firstFailure.SourceException)
-                    .Replace(Environment.NewLine, " | ");
-                lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure(
-                    CurrentOptionsSnapshot,
-                    stage: "lr2_auto_rename_catalog_sync_incomplete",
-                    detail: "lr2_auto_rename_catalog_sync_incomplete: " + failureDetail,
-                    logReason: "auto_rename_folders");
+                Exception incompleteFailure = result.SessionReceipt.FinalizationFailure
+                    ?? result.SessionReceipt.ApplyFailure
+                    ?? firstFailure?.SourceException;
+                if (incompleteFailure != null)
+                {
+                    string failureDetail = GetDisplayedExceptionMessage(incompleteFailure)
+                        .Replace(Environment.NewLine, " | ");
+                    lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure(
+                        CurrentOptionsSnapshot,
+                        stage: "lr2_auto_rename_catalog_sync_incomplete",
+                        detail: "lr2_auto_rename_catalog_sync_incomplete: " + failureDetail,
+                        logReason: "auto_rename_folders");
+                }
             }
             catch (Exception exception)
             {
@@ -10759,23 +10765,23 @@ public partial class BMSLibrary : ObservableObject
                     "auto_rename_lr2_incomplete_publish_failed_after_primary_failure");
             }
         }
-        // A batch-level finalizer can fail after every individual mutation has
-        // become durable.  Its queued success publications describe a result
-        // that is no longer an ordinary success, so discard them while still
-        // retaining diagnostics and the typed durable receipt.
-        if (result?.MutationReceipt?.FinalizationFailure == null)
+        // Session-owned success publications are released only after every
+        // required internal apply/finalizer succeeds.  A partial physical
+        // failure may still publish the confirmed durable prefix once.
+        if (result?.HasDurableFinalizationFailure != true)
         {
             InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
         }
         FlushAutoRenameDiagnostics(result, reportAtTerminal);
-        if (firstFailure == null && result?.AppliedPlanCount > 0)
+        if (result?.HasDurableCommit == true
+            && result.HasDurableFinalizationFailure != true
+            && result.AppliedPlanCount > 0)
         {
             TryInvokePostLeaseNotification(
                 PublishAutoRenameBatchRefreshNotification,
                 "auto_rename_batch_refresh_notification_failed");
         }
-        if (firstFailure != null && result?.HasDurableFinalizationFailure != true
-            && !(reportAtTerminal && result?.MutationReceipt != null))
+        if (firstFailure != null && result == null)
         {
             firstFailure.Throw();
         }
@@ -10878,7 +10884,8 @@ public partial class BMSLibrary : ObservableObject
         Lr2NormalFolderCurrentBmsCapture currentBmsCapture,
         LibraryFileMutationCapability mutationCapability)
     {
-        if (result?.HasOperationFailure == true
+        if (result?.HasDurableCommit != true
+            || result?.HasDurableFinalizationFailure == true
             || result?.Lr2NormalFolderPathChanges?.Count <= 0
             || CurrentOptionsSnapshot?.OperationModeLR2DB != true)
         {

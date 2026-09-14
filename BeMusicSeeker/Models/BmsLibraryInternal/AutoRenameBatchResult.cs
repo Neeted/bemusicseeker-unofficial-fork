@@ -92,17 +92,23 @@ internal sealed class AutoRenameBatchResult
     /// <summary>
     /// Creates immutable terminal facts for a folder auto-rename command.
     /// </summary>
+    /// <param name="hasActionablePlan">Whether at least one plan produced a confirmed physical change.</param>
+    /// <param name="appliedPlanCount">Number of confirmed folder moves appended to the operation session.</param>
+    /// <param name="sessionReceipt">Operation-scoped durable and failure facts.</param>
+    /// <param name="lr2NormalFolderPathChanges">Confirmed BMS path changes for the one LR2 finalization pass.</param>
+    /// <param name="diagnostics">Immutable diagnostics safe to publish after lease release.</param>
+    /// <param name="primaryFailure">First unexpected operation failure, preserving its throw identity.</param>
     internal AutoRenameBatchResult(
         bool hasActionablePlan,
         int appliedPlanCount,
-        FileDbMutationBatchReceipt mutationReceipt,
+        LibraryMutationSessionReceipt sessionReceipt,
         IEnumerable<Lr2NormalFolderPathChange> lr2NormalFolderPathChanges = null,
         IEnumerable<AutoRenameBatchDiagnostic> diagnostics = null,
         ExceptionDispatchInfo primaryFailure = null)
     {
         HasActionablePlan = hasActionablePlan;
         AppliedPlanCount = appliedPlanCount;
-        MutationReceipt = mutationReceipt ?? new FileDbMutationBatchReceipt([]);
+        SessionReceipt = sessionReceipt ?? LibraryMutationSessionReceipt.Empty;
         Lr2NormalFolderPathChanges = Array.AsReadOnly([.. (lr2NormalFolderPathChanges ?? [])
             .Where(change => change != null)]);
         Diagnostics = Array.AsReadOnly([.. (diagnostics ?? [])
@@ -114,7 +120,8 @@ internal sealed class AutoRenameBatchResult
 
     internal int AppliedPlanCount { get; }
 
-    internal FileDbMutationBatchReceipt MutationReceipt { get; }
+    /// <summary>Gets the operation-scoped mutation session receipt.</summary>
+    internal LibraryMutationSessionReceipt SessionReceipt { get; }
 
     /// <summary>
     /// Gets immutable BMS path facts synchronized once while the batch's
@@ -143,19 +150,25 @@ internal sealed class AutoRenameBatchResult
     /// Gets whether at least one filesystem/catalog mutation reached the
     /// durable commit point.
     /// </summary>
-    internal bool HasDurableCommit => MutationReceipt.HasDurableCommit;
+    internal bool HasDurableCommit => SessionReceipt.DurableCommit;
 
     /// <summary>
-    /// Gets whether an individual mutation or the batch finalizer failed after
-    /// the filesystem and catalog had become durable.
+    /// Gets whether required session apply/finalization failed after the
+    /// confirmed filesystem prefix reached the catalog durable point.
     /// </summary>
-    internal bool HasDurableFinalizationFailure => MutationReceipt.HasDurableFinalizationFailure;
+    internal bool HasDurableFinalizationFailure => SessionReceipt.HasDurableFinalizationFailure;
 
-    internal bool ManualRecoveryRequired => MutationReceipt.ManualRecoveryRequired;
+    /// <summary>
+    /// Gets whether an executor-style manual recovery state was produced.
+    /// Session-routed auto rename never fabricates this legacy state.
+    /// </summary>
+    internal bool ManualRecoveryRequired => false;
 
-    internal bool CompletedWithCleanupFailure => MutationReceipt.CompletedWithCleanupFailure;
+    /// <summary>Gets whether optional post-commit cleanup failed without invalidating durability.</summary>
+    internal bool CompletedWithCleanupFailure => SessionReceipt.CompletedWithCleanupFailure;
 
-    internal IReadOnlyList<string> RecoveryPaths => MutationReceipt.RecoveryPaths;
+    /// <summary>Gets terminal paths that should be considered for manual confirmation.</summary>
+    internal IReadOnlyList<string> RecoveryPaths => SessionReceipt.CandidatePaths;
 
     /// <summary>
     /// Returns immutable facts for a batch-level post-commit finalizer
@@ -163,14 +176,14 @@ internal sealed class AutoRenameBatchResult
     /// </summary>
     internal AutoRenameBatchResult WithDurableFinalizationFailure(ExceptionDispatchInfo failure)
     {
-        if (failure == null || MutationReceipt.FinalizationFailure != null)
+        if (failure == null || SessionReceipt.FinalizationFailure != null)
         {
             return this;
         }
         return new AutoRenameBatchResult(
             HasActionablePlan,
             AppliedPlanCount,
-            MutationReceipt.WithFinalizationFailure(failure.SourceException),
+            SessionReceipt.WithFinalizationFailure(failure.SourceException),
             Lr2NormalFolderPathChanges,
             Diagnostics,
             PrimaryFailure ?? failure);

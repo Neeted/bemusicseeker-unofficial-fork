@@ -5479,14 +5479,14 @@ public partial class MainWindowViewModel : ViewModel,
             });
         }
         await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
-            BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename, receipt?.MutationReceipt);
+            BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename, receipt?.SessionReceipt);
     }
 
     private async void FolderAutoRenameWorkflowFailurePublished(FolderAutoRenameFailure failure)
     {
         await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
             BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename,
-            failure?.MutationResult?.MutationReceipt, failure?.Exception);
+            failure?.MutationResult?.SessionReceipt, failure?.Exception);
     }
 
     private static void ReportFolderAutoRenameWorkflowNotificationFailure(Exception exception)

@@ -1,0 +1,191 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace BeMusicSeeker.Models.BmsLibraryInternal;
+
+/// <summary>
+/// Identifies one source/destination pair owned by an operation-scoped library mutation session.
+/// </summary>
+internal sealed class LibraryMutationSessionTarget
+{
+    /// <summary>Creates an immutable operation target.</summary>
+    /// <param name="sourcePath">The path observed before the physical mutation.</param>
+    /// <param name="destinationPath">The requested destination path.</param>
+    internal LibraryMutationSessionTarget(string sourcePath, string destinationPath)
+    {
+        SourcePath = sourcePath ?? string.Empty;
+        DestinationPath = destinationPath ?? string.Empty;
+    }
+
+    /// <summary>Gets the source path.</summary>
+    internal string SourcePath { get; }
+
+    /// <summary>Gets the destination path.</summary>
+    internal string DestinationPath { get; }
+}
+
+/// <summary>
+/// Immutable terminal facts for one operation-scoped library mutation session.
+/// Filesystem changes are represented as confirmed targets rather than synthetic
+/// per-item durable receipts.
+/// </summary>
+internal sealed class LibraryMutationSessionReceipt
+{
+    /// <summary>Creates immutable terminal facts for one library mutation session.</summary>
+    /// <param name="confirmedTargets">Physical changes confirmed before the canonical apply.</param>
+    /// <param name="durableCommit">Whether the canonical catalog durable point was reached.</param>
+    /// <param name="catalogChartRemovalCount">Confirmed catalog chart removals.</param>
+    /// <param name="catalogChartPathChangeCount">Confirmed catalog chart path changes.</param>
+    /// <param name="catalogFolderPathChangeCount">Confirmed catalog folder path changes.</param>
+    /// <param name="packageInstallDestinationChangeCount">Confirmed package install-destination changes.</param>
+    /// <param name="packageInstalledPathChangeCount">Confirmed installed-package path changes.</param>
+    /// <param name="folderReferenceMoveCount">Confirmed reverse-lookup folder moves.</param>
+    /// <param name="physicalFailure">Unexpected physical failure that stopped the operation.</param>
+    /// <param name="failedTarget">Target associated with <paramref name="physicalFailure"/>.</param>
+    /// <param name="unprocessedTargets">Suffix left unprocessed after an unexpected failure.</param>
+    /// <param name="applyFailure">Canonical DB or required in-memory apply failure.</param>
+    /// <param name="finalizationFailure">Required post-commit finalization failure.</param>
+    /// <param name="cleanupFailure">Post-commit cleanup failure that does not change durability.</param>
+    internal LibraryMutationSessionReceipt(
+        IEnumerable<LibraryMutationSessionTarget> confirmedTargets,
+        bool durableCommit,
+        int catalogChartRemovalCount = 0,
+        int catalogChartPathChangeCount = 0,
+        int catalogFolderPathChangeCount = 0,
+        int packageInstallDestinationChangeCount = 0,
+        int packageInstalledPathChangeCount = 0,
+        int folderReferenceMoveCount = 0,
+        Exception physicalFailure = null,
+        LibraryMutationSessionTarget failedTarget = null,
+        IEnumerable<LibraryMutationSessionTarget> unprocessedTargets = null,
+        Exception applyFailure = null,
+        Exception finalizationFailure = null,
+        Exception cleanupFailure = null)
+    {
+        ConfirmedTargets = FreezeTargets(confirmedTargets);
+        DurableCommit = durableCommit;
+        CatalogChartRemovalCount = Math.Max(catalogChartRemovalCount, 0);
+        CatalogChartPathChangeCount = Math.Max(catalogChartPathChangeCount, 0);
+        CatalogFolderPathChangeCount = Math.Max(catalogFolderPathChangeCount, 0);
+        PackageInstallDestinationChangeCount = Math.Max(packageInstallDestinationChangeCount, 0);
+        PackageInstalledPathChangeCount = Math.Max(packageInstalledPathChangeCount, 0);
+        FolderReferenceMoveCount = Math.Max(folderReferenceMoveCount, 0);
+        PhysicalFailure = physicalFailure;
+        FailedTarget = failedTarget;
+        UnprocessedTargets = FreezeTargets(unprocessedTargets);
+        ApplyFailure = applyFailure;
+        FinalizationFailure = finalizationFailure;
+        CleanupFailure = cleanupFailure;
+    }
+
+    /// <summary>Gets filesystem changes whose success was confirmed and appended to the session.</summary>
+    internal IReadOnlyList<LibraryMutationSessionTarget> ConfirmedTargets { get; }
+
+    /// <summary>Gets the number of confirmed physical changes owned by this operation.</summary>
+    internal int ConfirmedChangeCount => ConfirmedTargets.Count;
+
+    /// <summary>Gets whether the session's canonical catalog transaction reached its durable point.</summary>
+    internal bool DurableCommit { get; }
+
+    /// <summary>Gets the number of confirmed catalog chart removals.</summary>
+    internal int CatalogChartRemovalCount { get; }
+
+    /// <summary>Gets the number of confirmed catalog chart path changes.</summary>
+    internal int CatalogChartPathChangeCount { get; }
+
+    /// <summary>Gets the number of confirmed catalog folder path changes.</summary>
+    internal int CatalogFolderPathChangeCount { get; }
+
+    /// <summary>Gets the number of confirmed package install-destination changes.</summary>
+    internal int PackageInstallDestinationChangeCount { get; }
+
+    /// <summary>Gets the number of confirmed installed-package path changes.</summary>
+    internal int PackageInstalledPathChangeCount { get; }
+
+    /// <summary>Gets the number of confirmed folder reverse-lookup moves.</summary>
+    internal int FolderReferenceMoveCount { get; }
+
+    /// <summary>Gets the unexpected filesystem/pre-append failure that stopped the suffix, when any.</summary>
+    internal Exception PhysicalFailure { get; }
+
+    /// <summary>Gets the target whose processing could not be completed, when any.</summary>
+    internal LibraryMutationSessionTarget FailedTarget { get; }
+
+    /// <summary>Gets targets left unprocessed because an unexpected failure stopped the operation.</summary>
+    internal IReadOnlyList<LibraryMutationSessionTarget> UnprocessedTargets { get; }
+
+    /// <summary>
+    /// Gets the canonical/internal apply failure. When <see cref="DurableCommit"/> is true,
+    /// durable DB state already exists and this failure must not trigger filesystem rollback.
+    /// </summary>
+    internal Exception ApplyFailure { get; }
+
+    /// <summary>Gets a later required operation finalizer failure, such as LR2 normal-folder synchronization.</summary>
+    internal Exception FinalizationFailure { get; }
+
+    /// <summary>Gets a post-commit cleanup failure that does not change durable state.</summary>
+    internal Exception CleanupFailure { get; }
+
+    /// <summary>Gets whether required operation finalization failed after the durable point.</summary>
+    internal bool HasDurableFinalizationFailure => DurableCommit
+        && (ApplyFailure != null || FinalizationFailure != null);
+
+    /// <summary>Gets whether optional cleanup failed after the durable point.</summary>
+    internal bool CompletedWithCleanupFailure => DurableCommit
+        && !HasDurableFinalizationFailure
+        && CleanupFailure != null;
+
+    /// <summary>Gets the first terminal failure retained by the session.</summary>
+    internal Exception PrimaryFailure => PhysicalFailure ?? ApplyFailure ?? FinalizationFailure ?? CleanupFailure;
+
+    /// <summary>
+    /// Gets terminal confirmation candidates without creating per-item mutation receipts.
+    /// Failed and unprocessed targets precede confirmed paths so bounded UI reports retain
+    /// the paths that most need manual inspection.
+    /// </summary>
+    internal IReadOnlyList<string> CandidatePaths => Array.AsReadOnly(
+        (FailedTarget == null ? [] : new[] { FailedTarget.SourcePath, FailedTarget.DestinationPath })
+        .Concat(UnprocessedTargets.SelectMany(target => new[] { target.SourcePath, target.DestinationPath }))
+        .Concat(ConfirmedTargets.SelectMany(target => new[] { target.SourcePath, target.DestinationPath }))
+        .Where(path => !string.IsNullOrWhiteSpace(path))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray());
+
+    /// <summary>Returns the same immutable session facts with a required finalization failure.</summary>
+    /// <param name="failure">The required post-commit finalization failure to retain.</param>
+    /// <returns>This receipt when a failure is already retained; otherwise a copy with the supplied failure.</returns>
+    internal LibraryMutationSessionReceipt WithFinalizationFailure(Exception failure)
+    {
+        if (failure == null || FinalizationFailure != null)
+        {
+            return this;
+        }
+        return new LibraryMutationSessionReceipt(
+            ConfirmedTargets,
+            DurableCommit,
+            CatalogChartRemovalCount,
+            CatalogChartPathChangeCount,
+            CatalogFolderPathChangeCount,
+            PackageInstallDestinationChangeCount,
+            PackageInstalledPathChangeCount,
+            FolderReferenceMoveCount,
+            PhysicalFailure,
+            FailedTarget,
+            UnprocessedTargets,
+            ApplyFailure,
+            failure,
+            CleanupFailure);
+    }
+
+    /// <summary>Gets an immutable empty session receipt.</summary>
+    internal static LibraryMutationSessionReceipt Empty { get; } = new([], durableCommit: false);
+
+    private static IReadOnlyList<LibraryMutationSessionTarget> FreezeTargets(
+        IEnumerable<LibraryMutationSessionTarget> targets)
+    {
+        return Array.AsReadOnly((targets ?? [])
+            .Where(target => target != null)
+            .ToArray());
+    }
+}

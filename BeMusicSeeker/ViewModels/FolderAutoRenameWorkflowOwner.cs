@@ -96,7 +96,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort :
         Action<int, int, string> progressReporter)
     {
         return library?.AutoRenameAllChartFoldersWithResult(parentDirectory, progressReporter, reportAtTerminal: true)
-            ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+            ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
     }
 
     public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
@@ -109,7 +109,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort :
             request?.Charts ?? [],
             renameRootFolder: false,
             progressWriter, reportAtTerminal: true)
-            ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+            ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         return FolderAutoRenameExecutionResult.From(result);
     }
 
@@ -133,7 +133,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort :
         return library?.AutoRenameAllChartFoldersWithProgress(
             parentDirectory,
             progressWriter, reportAtTerminal: true)
-            ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+            ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
     }
 }
 
@@ -209,13 +209,13 @@ internal sealed class FolderAutoRenameCompletionReceipt
         ManualRecoveryRequired = result?.ManualRecoveryRequired == true;
         CompletedWithCleanupFailure = result?.CompletedWithCleanupFailure == true;
         RecoveryPaths = result?.RecoveryPaths ?? [];
-        MutationReceipt = result?.MutationResult?.MutationReceipt;
+        SessionReceipt = result?.MutationResult?.SessionReceipt;
     }
 
     internal long Generation { get; }
 
     /// <summary>Retains all operation facts for the terminal report, independently of refresh.</summary>
-    internal FileDbMutationBatchReceipt MutationReceipt { get; }
+    internal LibraryMutationSessionReceipt SessionReceipt { get; }
 
     internal bool AllFolders { get; }
 

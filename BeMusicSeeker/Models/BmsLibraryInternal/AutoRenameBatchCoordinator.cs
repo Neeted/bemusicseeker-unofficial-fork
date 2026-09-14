@@ -20,13 +20,16 @@ internal sealed class AutoRenameBatchCoordinator
     }
 
     /// <summary>
-    /// Applies the supplied plans and returns durable, diagnostic, and primary
-    /// failure facts. The command-owned post-lease effect collection receives
-    /// public notifications; dialogs, logs, and authoritative publication
-    /// remain deferred until the outer lease has been released.
+    /// Applies the supplied plans through one operation-scoped mutation session and returns
+    /// durable, diagnostic, and primary failure facts. Physical moves remain item-local, while
+    /// canonical apply, reverse lookup, and publication are aggregated for the confirmed set.
     /// </summary>
+    /// <param name="plans">Precomputed rename plans owned by the current command.</param>
     /// <param name="mutationCapability">外側のfolder mutation leaseが保持するlive capability。</param>
-    internal AutoRenameBatchResult ApplyWithReceipts(
+    /// <param name="postLeaseNotifications">Publications released only after the outer lease exits.</param>
+    /// <param name="progressReporter">Optional item-level progress reporter.</param>
+    /// <returns>Operation-scoped session facts plus diagnostics and LR2 finalization inputs.</returns>
+    internal AutoRenameBatchResult ApplyWithSessionReceipt(
         IEnumerable<FolderAutoRenamePlan> plans,
         LibraryFileMutationCapability mutationCapability,
         ICollection<Action> postLeaseNotifications,
@@ -37,9 +40,7 @@ internal sealed class AutoRenameBatchCoordinator
         long operationId = Stopwatch.GetTimestamp();
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         List<FolderAutoRenamePlan> planList = [.. (plans ?? []).Where(plan => plan != null)];
-        bool hasActionablePlan = false;
         int appliedPlanCount = 0;
-        List<FileDbMutationReceipt> mutationReceipts = [];
         List<Lr2NormalFolderPathChange> lr2NormalFolderPathChanges = [];
         List<AutoRenameBatchDiagnostic> diagnostics = [];
         var metrics = new AutoRenameBatchMetrics(operationId, planList.Count);
@@ -60,217 +61,213 @@ internal sealed class AutoRenameBatchCoordinator
             diagnostics);
         Stopwatch moveLoopStopwatch = Stopwatch.StartNew();
         ExceptionDispatchInfo primaryFailure = null;
-        try
+        LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
+            mutationCapability,
+            "auto_rename_folders",
+            postLeaseNotifications,
+            suppressNormalRefreshNotification: true,
+            suppressLr2NormalFolderSync: true);
+
+        if (planList.Any(IsDriveRootSourcePlan))
         {
-            if (planList.Any(IsDriveRootSourcePlan))
+            diagnostics.Add(new AutoRenameBatchDiagnostic(
+                AutoRenameBatchDiagnosticKind.DriveRootSkipped));
+        }
+
+        for (int planIndex = 0; planIndex < planList.Count; planIndex++)
+        {
+            FolderAutoRenamePlan plan = planList[planIndex];
+            bool reportProgress = IsAutoRenameProgressPlan(plan);
+            string sourceDirectory = plan.SourceDirectory;
+            string destinationDirectory = plan.DestinationDirectory;
+            try
             {
-                diagnostics.Add(new AutoRenameBatchDiagnostic(
-                    AutoRenameBatchDiagnosticKind.DriveRootSkipped));
-            }
-            foreach (FolderAutoRenamePlan plan in planList)
-            {
-                bool reportProgress = IsAutoRenameProgressPlan(plan);
+                if (plan.FailureException != null)
+                {
+                    diagnostics.Add(new AutoRenameBatchDiagnostic(
+                        AutoRenameBatchDiagnosticKind.RenamePlanFailed,
+                        sourceDirectory: plan.SourceDirectory,
+                        failure: plan.FailureException));
+                    continue;
+                }
+                if (string.IsNullOrWhiteSpace(destinationDirectory) || string.IsNullOrWhiteSpace(sourceDirectory))
+                {
+                    continue;
+                }
+                string newName = host.NormalizeAutoRenameFolderName(Path.GetFileName(destinationDirectory));
+                if (string.IsNullOrWhiteSpace(newName)
+                    || Path.GetPathRoot(sourceDirectory).Equals(sourceDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (movedSourceDirectories.Contains(sourceDirectory))
+                {
+                    metrics.SkippedDuplicateSourceCount++;
+                    continue;
+                }
+                if (!host.DirectoryExists(sourceDirectory))
+                {
+                    metrics.SkippedMissingSourceCount++;
+                    diagnostics.Add(new AutoRenameBatchDiagnostic(
+                        AutoRenameBatchDiagnosticKind.SourceMissing,
+                        sourceDirectory: sourceDirectory));
+                    continue;
+                }
+                destinationDirectory = Path.Combine(Path.GetDirectoryName(sourceDirectory), newName);
+                if (host.EntryExists(destinationDirectory))
+                {
+                    diagnostics.Add(new AutoRenameBatchDiagnostic(
+                        AutoRenameBatchDiagnosticKind.DestinationAlreadyExists,
+                        sourceDirectory: sourceDirectory,
+                        destinationDirectory: destinationDirectory));
+                    metrics.MoveFailedCount++;
+                    continue;
+                }
+                metrics.ActionablePlanCount++;
+
+                Stopwatch buildDeltaStopwatch = Stopwatch.StartNew();
+                LibraryFolderMoveFacts mutationFacts = null;
+                host.RunWithFolderMoveSnapshotLocks(() =>
+                {
+                    mutationFacts = host.BuildFolderMoveFacts(
+                        sourceDirectory,
+                        destinationDirectory,
+                        unregister: false,
+                        notifyStorageRowPathChanges: false);
+                });
+                buildDeltaStopwatch.Stop();
+                metrics.BuildDeltaMs += buildDeltaStopwatch.ElapsedMilliseconds;
+
+                Stopwatch moveStopwatch = Stopwatch.StartNew();
                 try
                 {
-                    if (plan.FailureException != null)
-                    {
-                        diagnostics.Add(new AutoRenameBatchDiagnostic(
-                            AutoRenameBatchDiagnosticKind.RenamePlanFailed,
-                            sourceDirectory: plan.SourceDirectory,
-                            failure: plan.FailureException));
-                        continue;
-                    }
-                    if (string.IsNullOrWhiteSpace(plan.DestinationDirectory) || string.IsNullOrWhiteSpace(plan.SourceDirectory))
-                    {
-                        continue;
-                    }
-                    string srcDir = plan.SourceDirectory;
-                    string newName = host.NormalizeAutoRenameFolderName(Path.GetFileName(plan.DestinationDirectory));
-                    if (string.IsNullOrWhiteSpace(newName)
-                        || Path.GetPathRoot(srcDir).Equals(srcDir, StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-                    if (movedSourceDirectories.Contains(srcDir))
-                    {
-                        metrics.SkippedDuplicateSourceCount++;
-                        continue;
-                    }
-                    if (!host.DirectoryExists(srcDir))
-                    {
-                        metrics.SkippedMissingSourceCount++;
-                        diagnostics.Add(new AutoRenameBatchDiagnostic(
-                            AutoRenameBatchDiagnosticKind.SourceMissing,
-                            sourceDirectory: srcDir));
-                        continue;
-                    }
-                    string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
-                    if (host.EntryExists(dstDir))
-                    {
-                        diagnostics.Add(new AutoRenameBatchDiagnostic(
-                            AutoRenameBatchDiagnosticKind.DestinationAlreadyExists,
-                            sourceDirectory: srcDir,
-                            destinationDirectory: dstDir));
-                        metrics.MoveFailedCount++;
-                        continue;
-                    }
-                    metrics.ActionablePlanCount++;
-
-                    FileDbMutationPlan mutationPlan = null;
-                    LibraryFolderMoveFacts mutationFacts = null;
-                    host.RunWithFolderMoveSnapshotLocks(() =>
-                    {
-                        mutationPlan = host.BuildFolderMoveMutationPlan(srcDir, dstDir);
-                        mutationFacts = host.BuildFolderMoveFacts(srcDir, dstDir, false, false);
-                    });
-                    Stopwatch moveStopwatch = Stopwatch.StartNew();
-                    FileDbMutationCommitResult databaseResult = null;
-                    List<Action> mutationPostLeaseNotifications = [];
-                    FileDbMutationReceipt mutationReceipt = host.CreateFileDbMutationExecutor(mutationPlan).Execute(() =>
-                    {
-                        databaseResult = host.ApplyLibraryMutationFactsForFileMutation(
-                            mutationFacts.CatalogFacts,
-                            mutationFacts.PackageReferenceFacts,
-                            "auto_rename_folder",
-                            mutationCapability,
-                            mutationPostLeaseNotifications.Add,
-                            suppressNormalRefreshNotification: true,
-                            suppressLr2NormalFolderSync: true,
-                            storageRowPathNotificationPolicy: mutationFacts.StorageRowPathNotificationPolicy);
-                        if (!databaseResult.DurableCommit)
-                        {
-                            return databaseResult;
-                        }
-                        return FileDbMutationCommitResult.Durable(
-                            () =>
-                            {
-                                if (databaseResult.Failure == null)
-                                {
-                                    databaseResult.DurableFinalizer?.Invoke();
-                                    DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
-                                        host.MoveFolderReferencesAfterCommit(srcDir, dstDir);
-                                    foreach (Action notification in mutationPostLeaseNotifications)
-                                    {
-                                        postLeaseNotifications.Add(notification);
-                                    }
-                                    postLeaseNotifications.Add(() => host.LogReverseLookupMutationAndQueueWarmupIfNeeded(
-                                        "auto_rename_folders",
-                                        reverseLookupMutation));
-                                }
-                            },
-                            databaseResult.Failure);
-                    });
-                    mutationReceipts.Add(mutationReceipt);
-                    moveStopwatch.Stop();
-                    metrics.MoveFileMs += moveStopwatch.ElapsedMilliseconds;
-                    // The outer command owns lease release.  Receipt effects
-                    // are flushed by that command only after the lease exits.
-                    if (!mutationReceipt.DurableCommit
-                        || mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
-                    {
-                        metrics.MoveFailedCount++;
-                        diagnostics.Add(new AutoRenameBatchDiagnostic(
-                            AutoRenameBatchDiagnosticKind.MoveFailed,
-                            sourceDirectory: srcDir,
-                            destinationDirectory: dstDir,
-                            failure: mutationReceipt.Failure ?? new IOException("Folder move failed.")));
-                        if (mutationReceipt.TerminalState == FileDbMutationTerminalState.DurableFinalizationFailed)
-                        {
-                            primaryFailure ??= ExceptionDispatchInfo.Capture(
-                                mutationReceipt.Failure ?? new IOException("Folder move finalization failed."));
-                            break;
-                        }
-                        if (mutationReceipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired)
-                        {
-                            break;
-                        }
-                        continue;
-                    }
-                    hasActionablePlan = true;
-                    appliedPlanCount++;
-                    movedSourceDirectories.Add(srcDir);
-                    lr2NormalFolderPathChanges.AddRange((mutationFacts?.CatalogFacts?.ChartPathChanges ?? [])
-                        .Where(change => change?.Chart?.GetBmsStorageOwner() != null
-                            && !string.IsNullOrWhiteSpace(change.OldPath)
-                            && !string.IsNullOrWhiteSpace(change.NewPath))
-                        .Select(change => new Lr2NormalFolderPathChange(change.OldPath, change.NewPath)));
-                    if (databaseResult?.Failure != null)
-                    {
-                        primaryFailure ??= ExceptionDispatchInfo.Capture(databaseResult.Failure);
-                        diagnostics.Add(new AutoRenameBatchDiagnostic(
-                            AutoRenameBatchDiagnosticKind.MoveFailed,
-                            sourceDirectory: srcDir,
-                            destinationDirectory: dstDir,
-                            failure: databaseResult.Failure));
-                        break;
-                    }
-                    if (moveStopwatch.ElapsedMilliseconds >= AutoRenameBatchMetrics.SlowMoveLogThresholdMs)
-                    {
-                        metrics.SlowMoveCount++;
-                        diagnostics.Add(new AutoRenameBatchDiagnostic(
-                            AutoRenameBatchDiagnosticKind.PerformanceLog,
-                            message: "auto_rename_folder_move slow op=" + metrics.OperationId
-                            + " elapsedMs=" + moveStopwatch.ElapsedMilliseconds
-                            + " src=" + srcDir
-                            + " dst=" + dstDir));
-                    }
+                    host.MoveFolderPhysical(sourceDirectory, destinationDirectory);
                 }
                 finally
                 {
-                    if (reportProgress)
-                    {
-                        progressProcessed = Math.Min(progressProcessed + 1, progressTotal);
-                        int reportedProgressProcessed = progressProcessed;
-                        string reportedPath = plan.SourceDirectory;
-                        ReportAutoRenameProgress(
-                            progressReporter,
-                            progressTotal,
-                            reportedProgressProcessed,
-                            reportedPath,
-                            diagnostics);
-                    }
+                    moveStopwatch.Stop();
+                    metrics.MoveFileMs += moveStopwatch.ElapsedMilliseconds;
+                }
+
+                Stopwatch appendDeltaStopwatch = Stopwatch.StartNew();
+                session.AppendFolderMove(sourceDirectory, destinationDirectory, mutationFacts);
+                appendDeltaStopwatch.Stop();
+                metrics.AppendDeltaMs += appendDeltaStopwatch.ElapsedMilliseconds;
+
+                appliedPlanCount++;
+                movedSourceDirectories.Add(sourceDirectory);
+                lr2NormalFolderPathChanges.AddRange((mutationFacts?.CatalogFacts?.ChartPathChanges ?? [])
+                    .Where(change => change?.Chart?.GetBmsStorageOwner() != null
+                        && !string.IsNullOrWhiteSpace(change.OldPath)
+                        && !string.IsNullOrWhiteSpace(change.NewPath))
+                    .Select(change => new Lr2NormalFolderPathChange(change.OldPath, change.NewPath)));
+
+                if (moveStopwatch.ElapsedMilliseconds >= AutoRenameBatchMetrics.SlowMoveLogThresholdMs)
+                {
+                    metrics.SlowMoveCount++;
+                    diagnostics.Add(new AutoRenameBatchDiagnostic(
+                        AutoRenameBatchDiagnosticKind.PerformanceLog,
+                        message: "auto_rename_folder_move slow op=" + metrics.OperationId
+                        + " elapsedMs=" + moveStopwatch.ElapsedMilliseconds
+                        + " src=" + sourceDirectory
+                        + " dst=" + destinationDirectory));
+                }
+            }
+            catch (Exception exception)
+            {
+                metrics.MoveFailedCount++;
+                diagnostics.Add(new AutoRenameBatchDiagnostic(
+                    AutoRenameBatchDiagnosticKind.MoveFailed,
+                    sourceDirectory: sourceDirectory,
+                    destinationDirectory: destinationDirectory,
+                    failure: exception));
+                primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
+                session.RecordStoppedSuffix(
+                    sourceDirectory,
+                    destinationDirectory,
+                    exception,
+                    CreateRemainingTargets(planList, planIndex + 1));
+                break;
+            }
+            finally
+            {
+                if (reportProgress)
+                {
+                    progressProcessed = Math.Min(progressProcessed + 1, progressTotal);
+                    ReportAutoRenameProgress(
+                        progressReporter,
+                        progressTotal,
+                        progressProcessed,
+                        plan.SourceDirectory,
+                        diagnostics);
                 }
             }
         }
-        catch (Exception exception)
+
+        moveLoopStopwatch.Stop();
+        metrics.MoveLoopMs = moveLoopStopwatch.ElapsedMilliseconds;
+
+        Stopwatch sessionCommitStopwatch = Stopwatch.StartNew();
+        LibraryMutationSessionReceipt sessionReceipt = session.Commit();
+        sessionCommitStopwatch.Stop();
+        metrics.SessionCommitMs = sessionCommitStopwatch.ElapsedMilliseconds;
+        Exception sessionFailure = sessionReceipt.ApplyFailure ?? sessionReceipt.FinalizationFailure;
+        if (sessionFailure != null)
         {
-            primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
+            primaryFailure ??= ExceptionDispatchInfo.Capture(sessionFailure);
         }
-        finally
-        {
-            moveLoopStopwatch.Stop();
-            metrics.MoveLoopMs = moveLoopStopwatch.ElapsedMilliseconds;
-            diagnostics.Add(new AutoRenameBatchDiagnostic(
-                AutoRenameBatchDiagnosticKind.PerformanceLog,
-                message: "auto_rename_folders_batch move_loop_done op=" + operationId
-                + " planCount=" + metrics.PlanCount
-                + " progressTotal=" + metrics.ProgressTotal
-                + " actionable=" + metrics.ActionablePlanCount
-                + " movedFolders=" + appliedPlanCount
-                + " skippedDuplicateSource=" + metrics.SkippedDuplicateSourceCount
-                + " skippedMissingSource=" + metrics.SkippedMissingSourceCount
-                + " moveFailed=" + metrics.MoveFailedCount
-                + " slowMoves=" + metrics.SlowMoveCount
-                + " buildDeltaMs=" + metrics.BuildDeltaMs
-                + " moveFileMs=" + metrics.MoveFileMs
-                + " appendDeltaMs=" + metrics.AppendDeltaMs
-                + " elapsedMs=" + metrics.MoveLoopMs));
-            totalStopwatch.Stop();
-            diagnostics.Add(new AutoRenameBatchDiagnostic(
-                AutoRenameBatchDiagnosticKind.PerformanceLog,
-                message: "auto_rename_folders_batch done op=" + operationId
-                + " hasActionablePlan=" + hasActionablePlan
-                + " movedFolders=" + appliedPlanCount
-                + " mutationReceipts=" + mutationReceipts.Count
-                + " totalMs=" + totalStopwatch.ElapsedMilliseconds));
-        }
+
+        diagnostics.Add(new AutoRenameBatchDiagnostic(
+            AutoRenameBatchDiagnosticKind.PerformanceLog,
+            message: "auto_rename_folders_batch move_loop_done op=" + operationId
+            + " planCount=" + metrics.PlanCount
+            + " progressTotal=" + metrics.ProgressTotal
+            + " actionable=" + metrics.ActionablePlanCount
+            + " movedFolders=" + appliedPlanCount
+            + " skippedDuplicateSource=" + metrics.SkippedDuplicateSourceCount
+            + " skippedMissingSource=" + metrics.SkippedMissingSourceCount
+            + " moveFailed=" + metrics.MoveFailedCount
+            + " slowMoves=" + metrics.SlowMoveCount
+            + " buildDeltaMs=" + metrics.BuildDeltaMs
+            + " moveFileMs=" + metrics.MoveFileMs
+            + " appendDeltaMs=" + metrics.AppendDeltaMs
+            + " elapsedMs=" + metrics.MoveLoopMs));
+        totalStopwatch.Stop();
+        diagnostics.Add(new AutoRenameBatchDiagnostic(
+            AutoRenameBatchDiagnosticKind.PerformanceLog,
+            message: "auto_rename_folders_batch done op=" + operationId
+            + " hasActionablePlan=" + (appliedPlanCount > 0)
+            + " movedFolders=" + appliedPlanCount
+            + " confirmedChanges=" + sessionReceipt.ConfirmedChangeCount
+            + " sessionCommitMs=" + metrics.SessionCommitMs
+            + " totalMs=" + totalStopwatch.ElapsedMilliseconds));
+
         return new AutoRenameBatchResult(
-            hasActionablePlan,
+            appliedPlanCount > 0,
             appliedPlanCount,
-            new FileDbMutationBatchReceipt(mutationReceipts),
+            sessionReceipt,
             lr2NormalFolderPathChanges,
             diagnostics,
             primaryFailure);
+    }
+
+    private static IReadOnlyList<LibraryMutationSessionTarget> CreateRemainingTargets(
+        IReadOnlyList<FolderAutoRenamePlan> plans,
+        int startIndex)
+    {
+        var targets = new List<LibraryMutationSessionTarget>();
+        for (int index = Math.Max(startIndex, 0); index < (plans?.Count ?? 0); index++)
+        {
+            FolderAutoRenamePlan plan = plans[index];
+            if (plan == null)
+            {
+                continue;
+            }
+            targets.Add(new LibraryMutationSessionTarget(
+                plan.SourceDirectory,
+                plan.DestinationDirectory));
+        }
+        return targets;
     }
 
     private static bool IsDriveRootSourcePlan(FolderAutoRenamePlan plan)
@@ -343,5 +340,7 @@ internal sealed class AutoRenameBatchCoordinator
         public long AppendDeltaMs { get; set; }
 
         public long MoveLoopMs { get; set; }
+
+        public long SessionCommitMs { get; set; }
     }
 }

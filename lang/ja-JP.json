@@ -924,6 +924,7 @@
   "FileDbMutationReport_Title": "ファイルとデータベースの操作結果",
   "FileDbMutationReport_Operation": "操作: {0}",
   "FileDbMutationReport_Counts": "結果を確認した操作: {0} 件\nファイル・DB の確定済み: {1} 件／未確定: {2} 件\n必須反映の失敗: {3} 件／後片付けの失敗: {4} 件／手動確認が必要: {5} 件",
+  "LibraryMutationSessionReport_Counts": "確認済みの物理変更: {0} 件\nライブラリ確定済み: {1} 件／未確定: {2} 件\n必須反映の失敗: {3} 件／後片付けの失敗: {4} 件／未処理: {5} 件",
   "FileDbMutationReport_TerminalFailure": "操作全体の終了処理で未完了の処理があります。",
   "FileDbMutationReport_CandidatePaths": "確認対象の候補（存在は未確認、最大 3 件）:",
   "FileDbMutationReport_Error": "エラー: {0}",

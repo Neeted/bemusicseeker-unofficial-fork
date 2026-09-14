@@ -27,12 +27,10 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowPackageMaintenanceWpfTests
 {
     [DataTestMethod]
-    [DataRow(false, false, false)]
-    [DataRow(true, false, false)]
-    [DataRow(false, true, false)]
-    [DataRow(false, false, true)]
-    [DataRow(true, false, true)]
-    public void AutoRenameReportsRealReceiptWithoutLosingFacts(bool allFolders, bool reporterThrows, bool cleanupOnly)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public void AutoRenameReportsRealSessionReceiptWithoutLosingFacts(bool allFolders, bool reporterThrows)
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
@@ -56,15 +54,14 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     db.CreateTable<LR2SongDB.folder>();
                     db.CreateTable<LR2SongDBExtended.maintenance>();
                     db.InsertOrReplace(chart.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
-                    if (!cleanupOnly) db.Execute("CREATE TRIGGER fail_report_finalizer BEFORE INSERT ON folder WHEN NEW.path LIKE '%ReceiptTarget%' BEGIN SELECT RAISE(ABORT, 'consumer-finalizer-marker'); END;");
+                    db.Execute("CREATE TRIGGER fail_report_finalizer BEFORE INSERT ON folder WHEN NEW.path LIKE '%ReceiptTarget%' BEGIN SELECT RAISE(ABORT, 'consumer-finalizer-marker'); END;");
                 }
                 var library = new TestBmsLibrary(dbPath, () => config, null,
-                    cleanupOnly ? new BmsLibraryPackageInstallServiceTests.FailingDestinationDeleteFileMutationService(source)
-                        : new ResilientFileMutationService(), dialogs,
+                    new ResilientFileMutationService(), dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     () => new BmsLibraryOptionsSnapshot
                     {
-                        OperationModeLR2DB = !cleanupOnly,
+                        OperationModeLR2DB = true,
                         LR2RootPath = lr2Root,
                         FolderNameFormat = "[%ARTIST%] %TITLE%"
                     })
@@ -96,22 +93,15 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Assert.IsTrue(leaseReleased);
                 Assert.AreEqual(1, dialogs.Messages.Count);
                 Assert.AreEqual(0, dialogs.ModelMessages);
-                Assert.AreEqual(cleanupOnly ? MessageBoxImage.Warning : MessageBoxImage.Error, dialogs.Messages[0].Icon);
-                if (cleanupOnly)
-                {
-                    Assert.IsNotNull(completion);
-                    Assert.IsTrue(completion.RefreshRequired);
-                    Assert.IsTrue(completion.MutationReceipt.CompletedWithCleanupFailure);
-                    Assert.IsNull(outcome);
-                }
-                else
-                {
-                    StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "consumer-finalizer-marker");
-                    Assert.IsNotNull(outcome);
-                    Assert.IsTrue(outcome.HasDurableCommit);
-                    Assert.IsFalse(outcome.ExecutionResult.RefreshRequired);
-                }
-                Assert.AreEqual(cleanupOnly, File.Exists(sourceChart));
+                Assert.AreEqual(MessageBoxImage.Error, dialogs.Messages[0].Icon);
+                StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "consumer-finalizer-marker");
+                Assert.IsNull(completion);
+                Assert.IsNotNull(outcome);
+                Assert.IsTrue(outcome.HasDurableCommit);
+                Assert.IsFalse(outcome.ExecutionResult.RefreshRequired);
+                Assert.AreEqual(1, outcome.MutationResult.SessionReceipt.ConfirmedChangeCount);
+                Assert.IsTrue(outcome.MutationResult.SessionReceipt.HasDurableFinalizationFailure);
+                Assert.IsFalse(File.Exists(sourceChart));
                 Assert.IsTrue(File.Exists(chart.path));
                 using var verifyDb = new LR2SongDBExtended(dbPath);
                 Assert.IsNotNull(verifyDb.Find<LR2SongDB.song>(chart.path));

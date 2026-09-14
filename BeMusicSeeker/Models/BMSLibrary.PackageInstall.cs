@@ -31,8 +31,8 @@ public partial class BMSLibrary
     /// <param name="chartFiles">Charts whose containing folders may be renamed.</param>
     /// <param name="renameRootFolder">Whether the library root folder is eligible.</param>
     /// <param name="progressWriter">Best-effort immutable progress sink.</param>
-    /// <param name="reportAtTerminal">Suppresses only receipt-backed item dialogs when a terminal owns reporting.</param>
-    /// <returns>The durable batch result.</returns>
+    /// <param name="reportAtTerminal">Suppresses the session-backed unexpected-move dialog when a workflow terminal owns reporting.</param>
+    /// <returns>The operation-scoped mutation session result.</returns>
     internal AutoRenameBatchResult AutoRenameChartFoldersWithProgress(
         IEnumerable<ChartFile> chartFiles,
         bool renameRootFolder,
@@ -46,7 +46,7 @@ public partial class BMSLibrary
         ArgumentNullException.ThrowIfNull(progressWriter);
         if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFolders)))
         {
-            return new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+            return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
 
         AutoRenameBatchResult result = null;
@@ -67,7 +67,7 @@ public partial class BMSLibrary
                         HasActionableAutoRenamePlan(plans)
                             ? TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans)
                             : null;
-                    result = libraryMutationOwner.ApplyAutoRenamePlansWithReceipt(
+                    result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
                         plans,
                         mutationCapability,
                         (total, processed, currentPath) => progressWriter.TryWrite(
@@ -88,7 +88,7 @@ public partial class BMSLibrary
             }
         }
         FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
-        return result ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+        return result ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
     }
 
     /// <summary>
@@ -98,8 +98,8 @@ public partial class BMSLibrary
     /// </summary>
     /// <param name="parentDir">Optional source-folder scope.</param>
     /// <param name="progressWriter">Best-effort immutable progress sink.</param>
-    /// <param name="reportAtTerminal">Suppresses only receipt-backed item dialogs when a terminal owns reporting.</param>
-    /// <returns>The durable batch result.</returns>
+    /// <param name="reportAtTerminal">Suppresses the session-backed unexpected-move dialog when a workflow terminal owns reporting.</param>
+    /// <returns>The operation-scoped mutation session result.</returns>
     internal AutoRenameBatchResult AutoRenameAllChartFoldersWithProgress(
         string parentDir,
         IFolderAutoRenameProgressWriter progressWriter,
@@ -108,7 +108,7 @@ public partial class BMSLibrary
         ArgumentNullException.ThrowIfNull(progressWriter);
         if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFolders)))
         {
-            return new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+            return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
 
         AutoRenameBatchResult result = null;
@@ -126,7 +126,7 @@ public partial class BMSLibrary
                     {
                         Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
                             TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans);
-                        result = libraryMutationOwner.ApplyAutoRenamePlansWithReceipt(
+                        result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
                             plans,
                             mutationCapability,
                             (total, processed, currentPath) => progressWriter.TryWrite(
@@ -148,7 +148,7 @@ public partial class BMSLibrary
             }
         }
         FlushAutoRenamePostCommitEffects(result, primaryFailure, postLeaseNotifications, reportAtTerminal);
-        return result ?? new AutoRenameBatchResult(false, 0, new FileDbMutationBatchReceipt([]));
+        return result ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
     }
 
     /// <summary>
