@@ -73,25 +73,6 @@ public partial class BMSLibrary
         }
     }
 
-    private List<PlaylistReferenceChartSnapshot> SnapshotLibraryChartRefsForPlaylistReferenceApply(
-        IEnumerable<CatalogChartMutationFact> facts)
-    {
-        var md5Hashes = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-        var sha256Hashes = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-        foreach (CatalogChartMutationFact fact in facts ?? [])
-        {
-            if (!string.IsNullOrWhiteSpace(fact?.Md5))
-            {
-                md5Hashes.Add(fact.Md5);
-            }
-            if (!string.IsNullOrWhiteSpace(fact?.Sha256))
-            {
-                sha256Hashes.Add(fact.Sha256);
-            }
-        }
-        return SnapshotLibraryChartRefsForPlaylistReferenceApply(md5Hashes, sha256Hashes);
-    }
-
     private List<PlaylistReferenceChartSnapshot> SnapshotPendingChartEntriesForPlaylistReferenceApply(PlaylistReferenceLookupKeys lookupKeys)
     {
         if (ChartPackagesPending == null || ChartPackagesPending.Count == 0

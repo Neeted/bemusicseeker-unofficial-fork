@@ -28,9 +28,42 @@ workflow側の責務は次のとおりである。
 
 file操作の確定内容は `LibraryCatalogMutationFacts`（削除・譜面/フォルダ移動）と `LibraryPackageReferenceFacts`（導入先・package参照）へ分け、入力列を構築時にコピーする。failure・件数・timingは操作別reportへ分離し、索引の要否判断には使わない。folder移動の既存row-path公開方針は明示的なpolicyで保持する。汎用Deltaと任意追加のroot入口は退役し、追加行は実install targetまたはscan replacementからのみ流す。
 
-`Lr2SynchronizationOwner` が共有の変更leaseを発行し、`LibraryFileOperationSynchronization` とcatalog依存の受付が、操作ごとのscopeとpath収束条件を接続する。`LibraryFileOperationOwner` は削除・移動・マージ等の手順を、`CatalogMutationOwner` はcatalogの保存・正本更新を管理する。導入、chart-info、maintenance、走査結果はそれぞれの既存producerからwriterへ到達する。
+`Lr2SynchronizationOwner` が共有の変更leaseを発行し、`LibraryFileOperationSynchronization` とcatalog依存の受付が、操作ごとのscopeとpath収束条件を接続する。既存file ownerを再編した `LibraryMutationOwner` が、削除・移動・マージと、導入・chart-info・maintenance・走査producerの確定結果から、共通反映と公開順序を管理する。`CatalogMutationOwner` はcatalogの保存・正本更新を、`CatalogOwnedCollectionOwner` は所持collection・hash・primary/full installed・playlist解決索引の状態と読み書きを所有する。
 
-変更後のconsumer索引・通知の組立ては `BMSLibrary` にも残る。共通のwriter / dispatchがあることは、すべての操作で同じ変更事実が届き、同じ更新方針になることを意味しない。現状の操作対応と未実装の再編案は [変更要求統合計画](../plan/library-mutation-unification-plan.md) で区別して記録する。追加ZIP予約やbackground処理等の受付例外は [並行性仕様 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外) を維持し、UIの操作中表示だけで一律に拒否しない。
+`BMSLibrary` は公開facade、producerの外側の受付・既存currentness同期、専門cacheと表示通知の接続を保持する。mutationの旧新facts組立て、semantic index反映、必須完了、公開用の操作内状態は `LibraryMutationOwner` のprivate実装であり、rootへ反映callbackを渡して代行させない。新しいcommand bus、queue、global gate、変更履歴cacheは置かない。追加ZIP予約やbackground処理等の受付例外は [並行性仕様 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外) を維持し、UIの操作中表示だけで一律に拒否しない。
+
+### 操作から確定・公開までの対応
+
+表の「共通反映」は [LibraryMutationOwner.Common](../../BeMusicSeeker/Models/BMSLibrary.LibraryMutationOwner.Common.cs) がfactsを判定して各専門ownerへ適用する処理を指す。各索引へ同じ更新を一律に流す意味ではない。未利用のoptional索引は不要構築せず、構築済み索引は旧新factsから差分更新する。明示走査の全置換と局所操作を区別する。
+
+| 操作・入口 | 要求・確定事実とwriter | 共通反映・公開単位 | 実操作の検証 |
+| --- | --- | --- | --- |
+| 選択譜面削除、重複チェックのmerge | [LibraryMutationOwner](../../BeMusicSeeker/Models/BMSLibrary.LibraryMutationOwner.cs) / [Merge](../../BeMusicSeeker/Models/BMSLibrary.LibraryMutationOwner.Merge.cs)。確認済み対象を現在catalogへ解決し、旧kind/exact path/MD5/SHAを捕捉。FS executor→CatalogMutationOwner | DBだけのPathCleanupと実在正本の除去を区別し、残存hash ownerを保つ。mergeは既存のlease解放後maintenance再受付を維持。sourceなしはlookup取得前に終了 | [LibraryMutationTests](../../BeMusicSeeker.Tests/OwnedChartCollectionLibraryMutationTests.cs)、[DuplicateServiceTests](../../BeMusicSeeker.Tests/BmsLibraryDuplicateServiceTests.cs)：独立2操作、後続getter、旧snapshot、種類別通知、FS/DB |
+| 手動移動・rename、自動rename、拡張子修正、導入先修正 | 同ownerと既存coordinator。`LibraryFolderMoveFacts` / `LibraryCatalogMutationFacts` / `LibraryPackageReferenceFacts`→catalog path receipt | 確定した旧新pathと成功対象を反映。通常拡張子修正の登録解除を保持。auto renameは外側capabilityを引継ぎ、batch終端のLR2同期・公開を保持 | [FolderRenameRefreshTests](../../BeMusicSeeker.Tests/BmsLibraryFolderRenameRefreshTests.cs)、[CatalogRelocationTests](../../BeMusicSeeker.Tests/BmsLibraryCatalogRelocationTests.cs)、[LibraryFileOperationsServiceTests](../../BeMusicSeeker.Tests/BmsLibraryLibraryFileOperationsServiceTests.cs) |
+| 自動・推定先・強制導入、resource-only導入 | [PackageInstall](../../BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs) の実executor結果→`ApplyInstalledChartStorageTargetsForFileMutation`。確定destinationの `ChartStorageTargetSet`→catalog upsert | durable前はdetached DB projection、後にlive ownerへ適用。共通target反映と必須完了、packageごとの解放後公開・先行成功を保持。譜面追加0でもresource/packageの必要反映を行う | [PackageInstallServiceTests](../../BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs)：4入口各16/128、連続操作、実FS/DB、resource警告、prefix |
+| inline / background chart-info | [CatalogChartInfoOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogChartInfoOwner.cs)→typed storage write→DB/canonical digest→`PrepareOwnedChartDigestPublication` | 同じ反映結果を一度だけ組立てて索引へ適用。chart-info session更新とdigest window解放後に公開Actionを実行 | [InlineDigestTests](../../BeMusicSeeker.Tests/OwnedChartCollectionInlineDigestTests.cs)、[ChartInfoInlineHydrationTests](../../BeMusicSeeker.Tests/ChartInfoInlineHydrationTests.cs)：通知内のhash/session/playlist、failure |
+| 通常・推定maintenance、resource警告ignore | 既存maintenance受付→CatalogMaintenanceOwnerの限定保存receipt→共通反映 | metadata/resourceの実変更だけを反映。membership差分0を理由に省略せず、hash不変でinstalled全失効を起こさない。既存lease・解放後公開 | [MaintenanceServiceTests](../../BeMusicSeeker.Tests/BmsLibraryMaintenanceServiceTests.cs)：連続差分、通知時状態、警告、DB |
+| 起動走査・ReloadFileDiff・全再初期化 | [LibraryFileScanPipelineOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/LibraryFileScanPipelineOwner.cs)→`FileScanCatalogReplacementEvent` / residual facts | request/receiptとresource世代を共通反映へ渡す。全置換本来の失効を維持し、空residualで追加失効・通知なし。解放後公開 | [Lr2SongDbSyncTests](../../BeMusicSeeker.Tests/BmsLibraryLr2SongDbSyncTests.cs)、[RefreshTests](../../BeMusicSeeker.Tests/OwnedChartCollectionRefreshTests.cs)：readiness、通知内索引、旧snapshot、terminal |
+| pendingのみの追加・削除・推定先設定、導入済みpackage記録のみの削除 | 既存PackageLifecycleOwner等の要求・writerを維持 | 所持catalogのmembership変更とは別の契約。導入・移動の複合操作に含まれる場合だけ共通反映から参照更新順を接続 | [PackageLifecycleOwnerTests](../../BeMusicSeeker.Tests/BmsLibraryPackageLifecycleTests.cs)、既存pending/導入workflow tests |
+| encoding指定、playlist・score・IR関連更新 | `SetBMSFilesEncoding`→CatalogMaintenanceOwnerの限定write、playlist参照owner、BMS-only level writeback等の既存専門入口 | membership/path/hashの変更と区別する。encodingセル等の限定更新で所持collectionを全再公開しない。必要なwarning/maintenance表示の変更は共通effectへ接続 | [FolderRenameRefreshTests.SetBMSFilesEncoding_UpdatesEncodingCellWithoutLibraryCollectionChanged](../../BeMusicSeeker.Tests/BmsLibraryFolderRenameRefreshTests.cs)、[PlaylistReferenceServiceTests](../../BeMusicSeeker.Tests/BmsLibraryPlaylistReferenceServiceTests.cs)。score/IR等全機能の再検証を今回の受入としては扱わない |
+
+writer receiptが確定した内容を反映の正本とし、操作summaryの件数・failure・timingから対象を再推測しない。durable後の必須完了失敗と通知失敗を区別し、確定済みprefixを破棄しない。削除・導入・移動・metadataの各実入口と後続読取りで検証し、一つの内部applyテストを全操作の受入に代用しない。
+
+### compositionに残す接続
+
+共通反映の管理主体はBMSLibrary本体を保持しない。catalog/storage/owned collection/resource/package/playlist/LR2の既存ownerを明示依存として受け取る。rootに残る接続は次の既存責務のために使い、変更factsの再組立て・索引方針の選択は任せない。
+
+| 接続 | 残す理由 |
+| --- | --- |
+| parent folder / duplicate group / install-estimation metadata cacheの失効 | 各cacheの既存stateとconsumerはrootに残る。共通反映が失効要否を決め、狭い命令として呼ぶ。parentのraw prefix規則やduplicate graphの再設計は対象外 |
+| owned collection / normal refresh / storage rows / duplicate / parentの通知 | WPF側が購読する既存facadeのproperty eventへ接続するため。通知の順序・内容は管理主体で確定し、UI同期待ちを加えない |
+| LR2 normal-folder receiptの投影・現在BMSの捕捉 | LR2 mode、登録root、既存current captureを使う専門処理。catalogのcommitとLR2同期の順序は管理主体に置く |
+| 全所持resource maintenance targetの取得 | resourceの明示full operationが使う共通snapshot生成。局所targetごとの全件取得にしない |
+| folder命名とduplicate repair path取得 | 既存設定・専門cacheに基づく対象準備。catalog/indexの共通反映callbackではない |
+| merge後maintenanceの再受付 | mergeのlease解放後に別の既存maintenance予約を取得する操作契約を維持する。受理済みtarget反映で予約を取り直す用途には使わない |
+| 性能・失敗ログ、reverse lookup warmup通知 | 既存診断channelとresource warmupへ接続する。新しいper-item同期I/Oやschedulerを導入しない |
+
+公開後に必要な専門cacheの再計算、利用者による一覧全件列挙、cold索引の初回構築、明示全走査は残る。今回の受入は固定差分に対する不要な全構築・copy・sortの除去と整合性であり、21万譜面の実環境wall-clock短縮率は未測定である。
 
 | 仕様項目 | 現行実装 | 既存の検証範囲 |
 | --- | --- | --- |
@@ -220,7 +253,7 @@ folder move、auto-rename、merge の snapshot は initialized-min read、pendin
 
 配置変更の反映範囲は、共通applyが成功したstorage/path、folder、install destination、installed package pathのfactsから決める。move・手動/自動rename・通常拡張子修正・導入先修正のcallerは索引失効を個別指定しない。自動renameは各itemのcatalog applyにも外側のlive capabilityを渡し、LR2 normal-folder同期と通常refreshは既存のbatch終端で集約する。権限なしの専用apply callbackは持たない。
 
-この契約の実装は LibraryFileOperationOwner、AutoRenameBatchCoordinator、BMSLibraryの共通反映、LibraryFolderMoveCoordinatorに対応する。BmsLibraryFolderRenameRefreshTestsの実rename（背景16/128・2操作）、auto batch/部分失敗、repairと、BmsLibraryPackageInstallServiceTests.RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner、関連workflow testsで、FS/DB、索引、旧snapshot、通知と受付を確認する。
+この契約の実装は LibraryMutationOwner、AutoRenameBatchCoordinator、BMSLibraryの共通反映、LibraryFolderMoveCoordinatorに対応する。BmsLibraryFolderRenameRefreshTestsの実rename（背景16/128・2操作）、auto batch/部分失敗、repairと、BmsLibraryPackageInstallServiceTests.RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner、関連workflow testsで、FS/DB、索引、旧snapshot、通知と受付を確認する。
 
 `installable_maintenance` は自身の outer `LibraryFileMutationLease` を一度だけ取得し、mode detection と catalog maintenance をその lease 内の通常処理として capability-free に完了する。内側で lease を取り直さず、Unit A のこの route では `LibraryFileMutationCapability` を作成・伝播しない。capability を保持するのは、package の installed-target durable completion から LR2 normal-folder sync までを同じ outer lease でつなぐ実在の nested bridge だけであり、その bridge の under-existing-lease entry で owner / lease lifetime / dispose を一度だけ検証する。
 

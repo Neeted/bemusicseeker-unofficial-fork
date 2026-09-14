@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -893,6 +894,68 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             Assert.AreEqual(1, result.Count);
             Assert.AreEqual(activeChart.Path, result[0].Path);
+        });
+    }
+
+    [TestMethod]
+    public void ChartFilesNeedResourceFix_WaitsForCatalogStorageWriterBeforeColdResourceHealthRead()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "missing-resource.bms");
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = chartPath;
+            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                wav_files_defined = 1,
+                wav_files_existing = 0,
+                is_files_warning_ignored = false
+            }, suppressPropertyChanged: true);
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                BMSFiles = [file],
+                BmsonSongs = []
+            };
+
+            // 所持 collection だけを通常の hash 読取りで温め、resource health は cold のままにする。
+            _ = library.GetOwnedChartHashIndexSnapshot();
+
+            var storageWriteGate = RegularChartListOwnerTestSupport.GetCatalogStorageRowsWriteGate(library);
+            List<ChartFile>? result = null;
+            Task worker = null!;
+            try
+            {
+                using (storageWriteGate.GetWriterGuard())
+                {
+                    worker = RegularChartListOwnerTestSupport.StartLongRunning(
+                        () => result = [.. library.ChartFilesNeedResourceFix]);
+                    bool readerWaitOrEarlyCompletion = SpinWait.SpinUntil(
+                        () => storageWriteGate.WaitingReadCount > 0 || worker.IsCompleted,
+                        TimeSpan.FromSeconds(10));
+
+                    Assert.IsTrue(
+                        readerWaitOrEarlyCompletion,
+                        "resource health cold read did not reach the storage reader or complete within the watchdog.");
+                    Assert.IsFalse(
+                        worker.IsCompleted,
+                        "resource health cold read completed while the catalog storage writer was held.");
+                }
+
+                worker.GetAwaiter().GetResult();
+                Assert.IsNotNull(result);
+                Assert.AreEqual(1, result!.Count);
+                Assert.AreEqual(ChartFileKind.Bms, result[0].Kind);
+                Assert.AreEqual(chartPath, result[0].Path);
+            }
+            finally
+            {
+                if (worker != null)
+                {
+                    worker.GetAwaiter().GetResult();
+                }
+            }
         });
     }
 

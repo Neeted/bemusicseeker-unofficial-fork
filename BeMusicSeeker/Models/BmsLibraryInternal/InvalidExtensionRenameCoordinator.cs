@@ -8,7 +8,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal static class InvalidExtensionRenameCoordinator
 {
     internal static void RenameBMSFilesExtensions(
-        LibraryFileOperationOwner host,
+        LibraryMutationOwner host,
         IEnumerable<ChartFile> charts,
         string newExt,
         bool? unregister)
@@ -45,7 +45,7 @@ internal static class InvalidExtensionRenameCoordinator
     }
 
     internal static void RenamePendingBmsFormatChartFileExtensions(
-        LibraryFileOperationOwner host,
+        LibraryMutationOwner host,
         IEnumerable<ChartFile> charts,
         string newExt)
     {

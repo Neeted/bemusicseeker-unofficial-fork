@@ -2553,6 +2553,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(primaryWarmup.FullDirectoryLookupInitialized);
             Assert.IsTrue(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
             Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
+            IPrimaryHashLookup oldPrimary =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(existing.hash));
+            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(source.hash));
 
             FileDbMutationBatchReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [package],
@@ -2570,6 +2574,26 @@ public sealed class BmsLibraryPackageInstallServiceTests
             StringAssert.StartsWith(installed.path, installRootPath);
             Assert.IsTrue(File.Exists(installed.path));
             Assert.IsTrue(OwnedChartCollectionTestSupport.IsInstalledPrimaryHashLookupInitialized(library));
+
+            // 実導入後のprimary所有と、導入前に捕捉したsnapshotの不変性を確認します。
+            BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
+                library.WarmInstalledPrimaryHashLookup("u5c2_primary_only_after_install");
+            IPrimaryHashLookup currentPrimary =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+            Assert.AreEqual(2, updatedPrimary.PrimaryHashCount);
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(existing.hash));
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(source.hash));
+            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(existing.hash));
+            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(source.hash));
+            using (var verifySongDbBeforeFull = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    installed.path));
+                Assert.AreEqual(0, verifySongDbBeforeFull.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    sourcePath));
+            }
 
             InstalledChartLookupIndexSnapshot installedLookup =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
@@ -2644,6 +2668,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 library.WarmInstalledPrimaryHashLookup("u5c1_exact_target_before_install");
             Assert.IsFalse(primaryWarmup.FullDirectoryLookupInitialized);
             Assert.IsFalse(OwnedChartCollectionTestSupport.IsInstalledChartLookupIndexInitialized(library));
+            IPrimaryHashLookup oldPrimary =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(oldChart.hash));
+            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(addedChart.hash));
 
             PendingInstallBatchResult result =
                 library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
@@ -2663,6 +2691,25 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(addedChart.hash, installed.hash);
             Assert.IsTrue(File.Exists(expectedInstalledPath));
             Assert.IsTrue(library.BMSFiles.Any(file => file.path == oldPath && file.hash == oldChart.hash));
+            // 推定先導入の確定結果をprimary lookupとDBから確認します。
+            BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
+                library.WarmInstalledPrimaryHashLookup("u5c2_exact_target_after_install");
+            IPrimaryHashLookup currentPrimary =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+            Assert.AreEqual(2, updatedPrimary.PrimaryHashCount);
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(oldChart.hash));
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(addedChart.hash));
+            Assert.IsTrue(oldPrimary.ContainsPrimaryHash(oldChart.hash));
+            Assert.IsFalse(oldPrimary.ContainsPrimaryHash(addedChart.hash));
+            using (var verifySongDbBeforeFull = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    expectedInstalledPath));
+                Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    oldPath));
+            }
             InstalledChartLookupIndexSnapshot installedLookup =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
             Assert.IsTrue(installedLookup.ContainsPrimaryHash(oldChart.hash));
@@ -2780,6 +2827,24 @@ public sealed class BmsLibraryPackageInstallServiceTests
             StringAssert.StartsWith(installed.path, installRootPath);
             Assert.IsTrue(File.Exists(installed.path));
             Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+
+            // 同digestを別配置へ導入した後もprimary所有が維持されることを確認します。
+            BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
+                library.WarmInstalledPrimaryHashLookup("u5c2_hash_only_after_install");
+            Assert.AreEqual(1, updatedPrimary.PrimaryHashCount);
+            IPrimaryHashLookup currentPrimary =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+            Assert.IsTrue(currentPrimary.ContainsPrimaryHash(initialChart.hash));
+            using (var verifySongDbBeforeFull = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(2, verifySongDbBeforeFull.Table<LR2SongDB.song>().Count());
+                Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    initialPath));
+                Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
+                    "SELECT COUNT(1) FROM song WHERE path = ?;",
+                    installed.path));
+            }
 
             OwnedChartHashIndexVersionedSnapshot updatedHashes = library.GetOwnedChartHashIndexSnapshot();
             PlaylistSummaryCountResult updatedSummary = summaryOwner.GetOrBuildTableCount(
@@ -2961,6 +3026,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(oldPlaylistCacheHit);
             Assert.AreEqual(0, oldPlaylistStaleRetries);
             Assert.AreEqual(backgroundCount, library.BMSFiles.Count);
+            IPrimaryHashLookup oldPrimary =
+                OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
 
             List<string> hashWork = [];
             List<string> playlistWork = [];
@@ -3082,6 +3149,14 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
                 OwnedChartHashIndexVersionedSnapshot updatedHash = library.GetOwnedChartHashIndexSnapshot();
                 OwnedChartHashIndexVersionedSnapshot cachedHash = library.GetOwnedChartHashIndexSnapshot();
+                BMSLibrary.InstalledPrimaryHashWarmupResult updatedPrimary =
+                    library.WarmInstalledPrimaryHashLookup("u5c2_preflight_primary_after_install_" + stepIndex);
+                IPrimaryHashLookup currentPrimary =
+                    OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
+                Assert.AreEqual(backgroundCount + ((stepIndex + 1) * 2), updatedPrimary.PrimaryHashCount);
+                Assert.IsTrue(currentPrimary.ContainsPrimaryHash(backgroundFiles[0].hash));
+                Assert.IsTrue(currentPrimary.ContainsPrimaryHash(firstInstalled.hash));
+                Assert.IsTrue(currentPrimary.ContainsPrimaryHash(secondInstalled.hash));
                 InstalledChartLookupIndexSnapshot updatedInstalled =
                     OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
                 InstalledChartLookupIndexSnapshot cachedInstalled =
@@ -3103,6 +3178,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.AreEqual(0, cachedPlaylistStaleRetries);
                 Assert.IsTrue(oldHash.ContainsMd5(backgroundFiles[0].hash));
                 Assert.IsTrue(oldInstalled.ContainsPrimaryHash(backgroundFiles[0].hash));
+                Assert.IsTrue(oldPrimary.ContainsPrimaryHash(backgroundFiles[0].hash));
+                Assert.IsFalse(oldPrimary.ContainsPrimaryHash(firstStep.FirstSource.hash));
                 Assert.IsTrue(oldPlaylist.ContainsCandidate(LibraryChartKind.Bms, backgroundFiles[0].path));
                 Assert.IsTrue(updatedHash.ContainsMd5(backgroundFiles[0].hash));
                 Assert.IsTrue(updatedHash.ContainsMd5(firstInstalled.hash));

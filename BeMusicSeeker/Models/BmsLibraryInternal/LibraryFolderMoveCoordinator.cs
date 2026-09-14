@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal static class LibraryFolderMoveCoordinator
 {
     internal static void RenameChartFolder(
-        LibraryFileOperationOwner host,
+        LibraryMutationOwner host,
         string srcDir,
         string newName,
         bool? unregister,
@@ -20,7 +20,7 @@ internal static class LibraryFolderMoveCoordinator
 
     /// <summary>Runs the same mutation while allowing a receipt-aware terminal to own failure reporting.</summary>
     internal static FileDbMutationReceipt RenameChartFolderWithReceipt(
-        LibraryFileOperationOwner host,
+        LibraryMutationOwner host,
         string srcDir,
         string newName,
         bool? unregister,
@@ -82,7 +82,7 @@ internal static class LibraryFolderMoveCoordinator
 
     /// <summary>Executes a folder move under the existing capability; only receipt-backed notifications may be suppressed.</summary>
     internal static FileDbMutationReceipt MoveLibraryChartFolder(
-        LibraryFileOperationOwner host,
+        LibraryMutationOwner host,
         string srcDir,
         string dstDir,
         bool? unregister,
@@ -105,7 +105,7 @@ internal static class LibraryFolderMoveCoordinator
     }
 
     internal static void MoveLibraryRootFolder(
-        LibraryFileOperationOwner host,
+        LibraryMutationOwner host,
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
         bool? unregister)
@@ -115,7 +115,7 @@ internal static class LibraryFolderMoveCoordinator
 
     /// <summary>Preserves batch mutation and stopping rules while transferring receipt notification ownership when requested.</summary>
     internal static FileDbMutationBatchReceipt MoveLibraryRootFolderWithReceipt(
-        LibraryFileOperationOwner host,
+        LibraryMutationOwner host,
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
         bool? unregister,
@@ -193,7 +193,7 @@ internal static class LibraryFolderMoveCoordinator
     }
 
     private static FileDbMutationReceipt TryMoveLibraryChartFolder(
-        LibraryFileOperationOwner host,
+        LibraryMutationOwner host,
         string srcDir,
         string dstDir,
         bool? unregister,

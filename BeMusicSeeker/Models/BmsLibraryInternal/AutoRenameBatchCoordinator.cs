@@ -12,9 +12,9 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class AutoRenameBatchCoordinator
 {
-    private readonly LibraryFileOperationOwner host;
+    private readonly LibraryMutationOwner host;
 
-    internal AutoRenameBatchCoordinator(LibraryFileOperationOwner host)
+    internal AutoRenameBatchCoordinator(LibraryMutationOwner host)
     {
         this.host = host ?? throw new ArgumentNullException(nameof(host));
     }

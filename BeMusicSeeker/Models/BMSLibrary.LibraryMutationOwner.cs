@@ -17,16 +17,12 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
-internal sealed partial class LibraryFileOperationOwner
+/// <summary>
+/// file mutation、導入、走査、metadataの確定事実から、catalog・索引・参照の共通反映と公開順序を管理します。
+/// 各専門ownerを明示依存として使い、集約facadeや反映代行用のoperation portは保持しません。
+/// </summary>
+internal sealed partial class LibraryMutationOwner
 {
-    /// <summary>
-    /// Owns the file-operation corridors that change chart paths or extensions.
-    /// Catalog and package state are handed to their canonical owners after the
-    /// filesystem mutation succeeds.  The owner receives the canonical
-    /// synchronization, filesystem, catalog, package, maintenance, and
-    /// presentation capabilities directly; it does not retain the aggregate
-    /// facade or a forwarding operation port.
-    /// </summary>
     private readonly LibraryFileOperationSynchronization synchronization;
 
     private readonly BmsLibraryLibraryFileOperationsService libraryFileOperationsService;
@@ -49,21 +45,51 @@ internal sealed partial class LibraryFileOperationOwner
 
     private readonly CatalogStorageRowsOwner catalogStorageRowsOwner;
 
-    private readonly Func<IEnumerable<ChartFile>, string, long, IPrimaryHashLookup> createInstalledChartKeySnapshotExcludingChartsUnsafe;
+    private readonly CatalogMutationOwner catalogMutationOwner;
 
-    private readonly Func<InstalledChartLookupIndexSnapshot> createInstalledChartLookupSnapshotUnsafe;
+    private readonly CatalogMaintenanceOwner catalogMaintenanceOwner;
+
+    private readonly ResourceHealthIndexOwner resourceHealthOwner;
+
+    private readonly BmsLibraryPlaylistReferenceOwner playlistReferenceOwner;
+
+    private readonly object pendingInstallEstimateCurrentnessGate;
+
+    private readonly NormalLibraryRefreshPublisher normalLibraryRefreshPublisher;
+
+    private readonly Func<CatalogInstalledTargetUpsertReceipt, int, Lr2NormalFolderCatalogMutationReceipt> createInstalledTargetLr2NormalFolderMutationReceipt;
+
+    private readonly Func<CatalogMutationReceipt, int, Lr2NormalFolderCatalogMutationReceipt> createCatalogLr2NormalFolderMutationReceipt;
+
+    private readonly Func<bool, bool> invalidateDuplicateChartGroupsCache;
+
+    private readonly Action raiseDuplicateChartGroupsChanged;
+
+    private readonly Action markDuplicateWarningFullClearPending;
+
+    private readonly Action invalidateParentFolderListCache;
+
+    private readonly Action notifyParentFolderListCacheChanged;
+
+    private readonly Action raiseOwnedCollectionVersionChanged;
+
+    private readonly Action raiseNormalLibraryRefreshVersionChanged;
+
+    private readonly Action<bool, bool> notifyStorageRowsChanged;
+
+    private readonly Action invalidateInstallEstimationMetadataProfileCache;
+
+    private readonly Func<string, ResourceMaintenanceTargetSet> createFullOwnedResourceMaintenanceTargetSet;
+
+    private readonly Action<string, string> logStartupMemoryCheckpoint;
+
+    private long ownedDigestMutationGeneration;
 
     private readonly Func<IEnumerable<ChartFile>, string, string> createChartFolderPathFromCharts;
 
     private readonly Func<ChartFile, IEnumerable<string>> getDuplicateInstallRepairPaths;
 
-    private readonly Func<LibraryCatalogMutationFacts, LibraryPackageReferenceFacts, string, bool, bool, LibraryFileMutationCapability, Action<Action>, LibraryStorageRowPathNotificationPolicy, FileDbMutationCommitResult> applyLibraryMutationFactsWithCapability;
-
-    private readonly Func<IEnumerable<ChartFile>, bool, string, Action<Action>, MaintenanceWorkflowResult> applyCatalogMaintenanceUnderExistingReservation;
-
     private readonly Func<IEnumerable<ChartFile>, MaintenanceWorkflowResult> applyMergeFolderMaintenanceAfterRelease;
-
-    private readonly Action invalidateInstalledDirectoryIndex;
 
     private readonly Action<string, DirectoryResourceLookupCache.ReverseLookupMutationResult> logReverseLookupMutationAndQueueWarmupIfNeeded;
 
@@ -115,15 +141,20 @@ internal sealed partial class LibraryFileOperationOwner
     }
 
     /// <summary>
-    /// Creates the file-operation owner with the canonical catalog mutation
-    /// delegates. File mutations receive the live capability from their outer
-    /// lease so the final LR2 bridge and the catalog apply share ownership.
-    /// Repair maintenance reuses that reservation and returns its notifications
-    /// to the command for publication after the lease is released.
-    /// Merge maintenance instead starts after release and acquires a fresh
-    /// reservation through its separate normal-maintenance delegate.
+    /// canonical owner と file/package service を結び、library mutation owner を構築します。
+    /// file mutation は外側の lease から受けた capability を使って LR2 bridge と
+    /// catalog apply の所有範囲を共有します。repair maintenance は同じ予約を再利用し、
+    /// merge maintenance は lease 解放後に別の通常 maintenance 予約を取得します。
     /// </summary>
-    internal LibraryFileOperationOwner(
+    /// <remarks>
+    /// CatalogOwnedCollectionOwner、CatalogStorageRowsOwner、CatalogMutationOwner、
+    /// CatalogMaintenanceOwner、ResourceHealthIndexOwner、PlaylistReferenceOwner、
+    /// InstallDestinationStateOwner、PackageLifecycleOwner、ResourceIndexOwner、
+    /// LR2 synchronization owner への依存をここで明示します。lookup state の構築、
+    /// mutation facts の判定、適用順序、currentness gate の境界はこの owner が所有し、
+    /// 外部へは確定 receipt と lease 解放後の action だけを返します。
+    /// </remarks>
+    internal LibraryMutationOwner(
         LibraryFileOperationSynchronization synchronization,
         BmsLibraryLibraryFileOperationsService libraryFileOperationsService,
         BmsLibraryPackageInstallService packageInstallService,
@@ -135,21 +166,35 @@ internal sealed partial class LibraryFileOperationOwner
         BMSLibrary.Lr2SynchronizationOwner lr2SynchronizationOwner,
         CatalogOwnedCollectionOwner catalogOwnedCollectionOwner,
         CatalogStorageRowsOwner catalogStorageRowsOwner,
-        Func<IEnumerable<ChartFile>, string, long, IPrimaryHashLookup> createInstalledChartKeySnapshotExcludingChartsUnsafe,
-        Func<InstalledChartLookupIndexSnapshot> createInstalledChartLookupSnapshotUnsafe,
+        CatalogMutationOwner catalogMutationOwner,
+        CatalogMaintenanceOwner catalogMaintenanceOwner,
+        ResourceHealthIndexOwner resourceHealthOwner,
+        BmsLibraryPlaylistReferenceOwner playlistReferenceOwner,
+        object pendingInstallEstimateCurrentnessGate,
+        NormalLibraryRefreshPublisher normalLibraryRefreshPublisher,
+        Func<CatalogInstalledTargetUpsertReceipt, int, Lr2NormalFolderCatalogMutationReceipt> createInstalledTargetLr2NormalFolderMutationReceipt,
+        Func<CatalogMutationReceipt, int, Lr2NormalFolderCatalogMutationReceipt> createCatalogLr2NormalFolderMutationReceipt,
+        Func<bool, bool> invalidateDuplicateChartGroupsCache,
+        Action raiseDuplicateChartGroupsChanged,
+        Action markDuplicateWarningFullClearPending,
+        Action invalidateParentFolderListCache,
+        Action notifyParentFolderListCacheChanged,
+        Action raiseOwnedCollectionVersionChanged,
+        Action raiseNormalLibraryRefreshVersionChanged,
+        Action<bool, bool> notifyStorageRowsChanged,
+        Action invalidateInstallEstimationMetadataProfileCache,
+        Func<string, ResourceMaintenanceTargetSet> createFullOwnedResourceMaintenanceTargetSet,
+        Action<string, string> logStartupMemoryCheckpoint,
         Func<IEnumerable<ChartFile>, string, string> createChartFolderPathFromCharts,
         Func<ChartFile, IEnumerable<string>> getDuplicateInstallRepairPaths,
-        Func<IEnumerable<ChartFile>, bool, string, Action<Action>, MaintenanceWorkflowResult> applyCatalogMaintenanceUnderExistingReservation,
         Func<IEnumerable<ChartFile>, MaintenanceWorkflowResult> applyMergeFolderMaintenanceAfterRelease,
-        Action invalidateInstalledDirectoryIndex,
         Action<string, DirectoryResourceLookupCache.ReverseLookupMutationResult> logReverseLookupMutationAndQueueWarmupIfNeeded,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarning,
         Action<string> logFileInfo,
         Action<Exception, string> logFileWarning,
         FileMutationOptions targetOnlyFileMutationOptions,
-        FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
-        Func<LibraryCatalogMutationFacts, LibraryPackageReferenceFacts, string, bool, bool, LibraryFileMutationCapability, Action<Action>, LibraryStorageRowPathNotificationPolicy, FileDbMutationCommitResult> applyLibraryMutationFactsWithCapability)
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
     {
         this.synchronization = synchronization ?? throw new ArgumentNullException(nameof(synchronization));
         this.libraryFileOperationsService = libraryFileOperationsService ?? throw new ArgumentNullException(nameof(libraryFileOperationsService));
@@ -162,16 +207,29 @@ internal sealed partial class LibraryFileOperationOwner
         this.lr2SynchronizationOwner = lr2SynchronizationOwner ?? throw new ArgumentNullException(nameof(lr2SynchronizationOwner));
         this.catalogOwnedCollectionOwner = catalogOwnedCollectionOwner ?? throw new ArgumentNullException(nameof(catalogOwnedCollectionOwner));
         this.catalogStorageRowsOwner = catalogStorageRowsOwner ?? throw new ArgumentNullException(nameof(catalogStorageRowsOwner));
-        this.createInstalledChartKeySnapshotExcludingChartsUnsafe = createInstalledChartKeySnapshotExcludingChartsUnsafe ?? throw new ArgumentNullException(nameof(createInstalledChartKeySnapshotExcludingChartsUnsafe));
-        this.createInstalledChartLookupSnapshotUnsafe = createInstalledChartLookupSnapshotUnsafe ?? throw new ArgumentNullException(nameof(createInstalledChartLookupSnapshotUnsafe));
+        this.catalogMutationOwner = catalogMutationOwner ?? throw new ArgumentNullException(nameof(catalogMutationOwner));
+        this.catalogMaintenanceOwner = catalogMaintenanceOwner ?? throw new ArgumentNullException(nameof(catalogMaintenanceOwner));
+        this.resourceHealthOwner = resourceHealthOwner ?? throw new ArgumentNullException(nameof(resourceHealthOwner));
+        this.playlistReferenceOwner = playlistReferenceOwner ?? throw new ArgumentNullException(nameof(playlistReferenceOwner));
+        this.pendingInstallEstimateCurrentnessGate = pendingInstallEstimateCurrentnessGate ?? throw new ArgumentNullException(nameof(pendingInstallEstimateCurrentnessGate));
+        this.normalLibraryRefreshPublisher = normalLibraryRefreshPublisher ?? throw new ArgumentNullException(nameof(normalLibraryRefreshPublisher));
+        this.createInstalledTargetLr2NormalFolderMutationReceipt = createInstalledTargetLr2NormalFolderMutationReceipt ?? throw new ArgumentNullException(nameof(createInstalledTargetLr2NormalFolderMutationReceipt));
+        this.createCatalogLr2NormalFolderMutationReceipt = createCatalogLr2NormalFolderMutationReceipt ?? throw new ArgumentNullException(nameof(createCatalogLr2NormalFolderMutationReceipt));
+        this.invalidateDuplicateChartGroupsCache = invalidateDuplicateChartGroupsCache ?? throw new ArgumentNullException(nameof(invalidateDuplicateChartGroupsCache));
+        this.raiseDuplicateChartGroupsChanged = raiseDuplicateChartGroupsChanged ?? throw new ArgumentNullException(nameof(raiseDuplicateChartGroupsChanged));
+        this.markDuplicateWarningFullClearPending = markDuplicateWarningFullClearPending ?? throw new ArgumentNullException(nameof(markDuplicateWarningFullClearPending));
+        this.invalidateParentFolderListCache = invalidateParentFolderListCache ?? throw new ArgumentNullException(nameof(invalidateParentFolderListCache));
+        this.notifyParentFolderListCacheChanged = notifyParentFolderListCacheChanged ?? throw new ArgumentNullException(nameof(notifyParentFolderListCacheChanged));
+        this.raiseOwnedCollectionVersionChanged = raiseOwnedCollectionVersionChanged ?? throw new ArgumentNullException(nameof(raiseOwnedCollectionVersionChanged));
+        this.raiseNormalLibraryRefreshVersionChanged = raiseNormalLibraryRefreshVersionChanged ?? throw new ArgumentNullException(nameof(raiseNormalLibraryRefreshVersionChanged));
+        this.notifyStorageRowsChanged = notifyStorageRowsChanged ?? throw new ArgumentNullException(nameof(notifyStorageRowsChanged));
+        this.invalidateInstallEstimationMetadataProfileCache = invalidateInstallEstimationMetadataProfileCache ?? throw new ArgumentNullException(nameof(invalidateInstallEstimationMetadataProfileCache));
+        this.createFullOwnedResourceMaintenanceTargetSet = createFullOwnedResourceMaintenanceTargetSet ?? throw new ArgumentNullException(nameof(createFullOwnedResourceMaintenanceTargetSet));
+        this.logStartupMemoryCheckpoint = logStartupMemoryCheckpoint ?? throw new ArgumentNullException(nameof(logStartupMemoryCheckpoint));
         this.createChartFolderPathFromCharts = createChartFolderPathFromCharts ?? throw new ArgumentNullException(nameof(createChartFolderPathFromCharts));
         this.getDuplicateInstallRepairPaths = getDuplicateInstallRepairPaths ?? throw new ArgumentNullException(nameof(getDuplicateInstallRepairPaths));
-        this.applyLibraryMutationFactsWithCapability = applyLibraryMutationFactsWithCapability
-            ?? throw new ArgumentNullException(nameof(applyLibraryMutationFactsWithCapability));
-        this.applyCatalogMaintenanceUnderExistingReservation = applyCatalogMaintenanceUnderExistingReservation ?? throw new ArgumentNullException(nameof(applyCatalogMaintenanceUnderExistingReservation));
         this.applyMergeFolderMaintenanceAfterRelease = applyMergeFolderMaintenanceAfterRelease
             ?? throw new ArgumentNullException(nameof(applyMergeFolderMaintenanceAfterRelease));
-        this.invalidateInstalledDirectoryIndex = invalidateInstalledDirectoryIndex ?? throw new ArgumentNullException(nameof(invalidateInstalledDirectoryIndex));
         this.logReverseLookupMutationAndQueueWarmupIfNeeded = logReverseLookupMutationAndQueueWarmupIfNeeded ?? throw new ArgumentNullException(nameof(logReverseLookupMutationAndQueueWarmupIfNeeded));
         this.logInstallPerformance = logInstallPerformance ?? throw new ArgumentNullException(nameof(logInstallPerformance));
         this.logInstallPerformanceWarning = logInstallPerformanceWarning ?? throw new ArgumentNullException(nameof(logInstallPerformanceWarning));
@@ -274,9 +332,16 @@ internal sealed partial class LibraryFileOperationOwner
         return synchronization.TryBlockCatalogMutation(operation, showMessage);
     }
 
-    private void InvalidateInstalledDirectoryIndex()
+    /// <summary>
+    /// installed lookup と導入見積もり metadata を同じ currentness 境界で失効させます。
+    /// </summary>
+    internal void InvalidateInstalledDirectoryIndex()
     {
-        invalidateInstalledDirectoryIndex();
+        InvalidateInstallEstimationMetadataProfileCache();
+        lock (pendingInstallEstimateCurrentnessGate)
+        {
+            catalogOwnedCollectionOwner.InvalidateInstalledChartLookup();
+        }
     }
 
     /// <summary>
@@ -426,7 +491,7 @@ internal sealed partial class LibraryFileOperationOwner
     {
         ArgumentNullException.ThrowIfNull(capability);
         ArgumentNullException.ThrowIfNull(postLeaseNotificationObserver);
-        return applyLibraryMutationFactsWithCapability(
+        return ApplyLibraryMutationFactsForFileMutationUnderExistingLease(
             catalogFacts,
             packageReferenceFacts,
             reason,
@@ -867,8 +932,8 @@ internal sealed partial class LibraryFileOperationOwner
     }
 
     /// <summary>
-    /// Applies the planned folder renames and returns the durable batch receipt.
-    /// LR2 synchronization remains owned by the final catalog mutation bridge.
+    /// 計画済み folder rename を適用し、durable batch receipt を返します。
+    /// LR2 synchronization は最終 catalog mutation bridge が所有します。
     /// </summary>
     /// <param name="mutationCapability">外側のfolder mutation leaseが保持するlive capability。</param>
     internal AutoRenameBatchResult ApplyAutoRenamePlansWithReceipt(
@@ -983,7 +1048,24 @@ internal sealed partial class LibraryFileOperationOwner
         string reason = null,
         long operationId = 0L)
     {
-        return createInstalledChartKeySnapshotExcludingChartsUnsafe(excluded, reason, operationId);
+        return catalogOwnedCollectionOwner.CreateInstalledChartKeySnapshotExcludingCharts(
+            excluded,
+            catalogStorageRowsOwner,
+            reason,
+            operationId,
+            LogInstallPerformance);
+    }
+
+    private IInstalledChartLookupIndex CreateInstalledChartLookupSnapshotUnsafe()
+    {
+        lock (pendingInstallEstimateCurrentnessGate)
+        {
+            return catalogOwnedCollectionOwner
+                .CreateInstalledChartLookupVersionedSnapshot(
+                    catalogStorageRowsOwner,
+                    LogInstallPerformance)
+                .Snapshot;
+        }
     }
 
     private PendingFileDeletionResult DeletePendingCharts(
@@ -1310,6 +1392,14 @@ internal sealed partial class LibraryFileOperationOwner
     private List<ChartFile> NormalizeResourceMaintenanceTargetCharts(IEnumerable<ChartFile> charts)
     {
         return [.. (charts ?? []).Where(chart => chart != null)];
+    }
+
+    /// <summary>
+    /// 指定された chart だけを対象にする resource maintenance target を作成します。
+    /// </summary>
+    private ResourceMaintenanceTargetSet CreateResourceMaintenanceTargetSet(IEnumerable<ChartFile> charts)
+    {
+        return ResourceMaintenanceTargetSet.ForSubset(NormalizeResourceMaintenanceTargetCharts(charts));
     }
 
     private string CreateChartFolderPathFromCharts(IEnumerable<ChartFile> chartFiles, string parentDirectory)
@@ -1759,7 +1849,9 @@ internal sealed partial class LibraryFileOperationOwner
         return execution;
     }
 
-    /// <summary>Returns observed filesystem and catalog facts after releasing the deletion lease.</summary>
+    /// <summary>
+    /// deletion lease を解放した後に観測した filesystem と catalog の事実を返します。
+    /// </summary>
     internal LibraryChartRemovalOutcome RemoveLibraryCharts(
         IEnumerable<LibraryChartRef> charts,
         bool sendToRecycleBin,
@@ -1947,7 +2039,7 @@ internal sealed partial class LibraryFileOperationOwner
                             // our own lease after the file and path changes succeeded.
                             try
                             {
-                                MaintenanceWorkflowResult maintenanceResult = applyCatalogMaintenanceUnderExistingReservation(
+                                MaintenanceWorkflowResult maintenanceResult = ApplyCatalogMaintenanceUnderExistingReservation(
                                     maintenanceTargets,
                                     true,
                                     "fix_installation_directory",
@@ -1978,9 +2070,8 @@ internal sealed partial class LibraryFileOperationOwner
     }
 
     /// <summary>
-    /// Applies the pending-package/install-row removal under the active file
-    /// mutation lease and queues collection publication for the caller's
-    /// post-lease effect list.
+    /// active な file mutation lease 内で pending package と install row の削除を適用し、
+    /// collection 公開を caller の lease 解放後 effect list へ積みます。
     /// </summary>
     /// <param name="chartPaths">Chart source paths removed by the filesystem command.</param>
     /// <param name="mutationCapability">Capability issued by the active mutation lease.</param>

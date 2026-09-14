@@ -17,9 +17,11 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
-internal sealed partial class LibraryFileOperationOwner
+internal sealed partial class LibraryMutationOwner
 {
-    /// <summary>Returns merge facts and optionally leaves receipt-backed failure reporting to the operation terminal.</summary>
+    /// <summary>
+    /// merge の確定事実を返し、必要に応じて receipt に基づく失敗表示を操作終端へ委ねます。
+    /// </summary>
     internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string sourceDirectory, string destinationDirectory,
         long operationId, bool reportAtTerminal = false)
     {
@@ -66,7 +68,7 @@ internal sealed partial class LibraryFileOperationOwner
                         out existingHashes);
                     if (mergePrepared)
                     {
-                        independentOwnershipLookup = createInstalledChartLookupSnapshotUnsafe();
+                        independentOwnershipLookup = CreateInstalledChartLookupSnapshotUnsafe();
                         detachedPackage = CreateDetachedMergePackage(preparedSourceCharts, sourceDirectory);
                     }
                 });
@@ -192,7 +194,7 @@ internal sealed partial class LibraryFileOperationOwner
                 {
                     return () =>
                     {
-                        this.invalidateInstalledDirectoryIndex();
+                        InvalidateInstalledDirectoryIndex();
                         if (!reportAtTerminal)
                             postLeaseNotifications.Add(
                                 () => ShowFolderMergeFailed(sourceDirectory, destinationDirectory));
@@ -209,7 +211,7 @@ internal sealed partial class LibraryFileOperationOwner
         }
         catch (Exception ex)
         {
-            this.invalidateInstalledDirectoryIndex();
+            InvalidateInstalledDirectoryIndex();
             LogInstallPerformanceWarning("duplicate_merge_model failed op=" + operationId + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds + " exception=" + ex.GetType().Name);
             throw;
         }

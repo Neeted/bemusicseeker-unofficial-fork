@@ -36,3 +36,29 @@
 4. 上記はユーザーの複雑性最小化、workflowの到達性条件、計画の旧入口退役と非空生成未確認の既存制限に基づく。新setter/producer/recovery保証を追加せず、実装の出力から期待値を変更しない。
 
 U5c1は一人で全producer/consumer/helperを移行、U5c2は後で実owner移動・改名。専門ownerの全caseを新規test対象にしない。fields/signature mechanicsは自由だが、成功対象/exact/種類別snapshot/公開/失敗分類は維持する。
+
+## U5c2 target入口の到達性補足（2026-09-14、独立確認後root承認）
+
+U5c1で留保した「primary-only/hash-only/full-coldのままtarget反映へ入る」旧テストの置換義務を、この状態の組合せに限って退役する。自動・強制・推定先・resource-onlyの本番callerは、所有判定のfull lookupを実構築・取得してから `LibraryMutationOwner.ApplyInstalledChartStorageTargetsForFileMutation` へ到達する。空対象やskipはcold targetの証拠にならず、必須完了失敗後に索引をcoldへ戻してsuffix targetを続行する正規経路もない。任意状態のmanager直接構築は同じ本番条件の置換にならないため、新fixture/入口は設けない。
+
+Phase Aで既存packetの仕様・許容差分を確認後、Phase BでPackageInstallの4caller→BMSLibraryのversioned getter→CatalogOwnedCollectionOwner.Installedの実full構築と、failure後のsuffix停止を追跡した。実導入後primaryを読む追加assertionはreadback/旧snapshotの検証であり、cold targetやhash-only旧facts捕捉の検証とは呼ばない。将来の前処理改善を妨げる「必ずfullを構築する」というassertionも新設しない。
+
+exact key置換の一般契約、optional ref indexを不要構築しない専門owner契約、既存実操作のwarm16/128・独立2操作・全構築observer・cold正対照・DB/FS・旧snapshotは維持する。`CatalogMutationOwnerTests.ApplyInstalledTargetUpsert_PreservesEveryExactKey` 等の専門writer coverageと、実導入の別path追加coverageは区別し、同等のexact replacementテストへ移行できたとは報告しない。新たなruntime挙動や回復保証は追加しない。
+
+## U5c2 UI通知helperの移管（判定内容の変更なし）
+
+Functionalで `RegularChartNormalLibraryRefreshTests.AttachedNormalLibraryRefreshSource_DoesNotWaitForUiWhileCatalogWriterHeld` の旧private publisher reflectionが移管前のBMSLibraryを参照していたため失敗した。既存helperを実LibraryMutationOwnerの同じexternal replacement公開処理へ機械的に接続する。writer保持中にもproducerがUIを同期待機しないこと、UI側reader到達、解放後の適用という判定・待機条件は変更しない。
+
+この既存UI fixtureはconcrete BMSLibraryの通知sourceを購読し、意図的に別のwriterを保持して公開だけを起動する。全mutationを代用すると公開前のwriter待ちを試す別契約になるため、fixture内の限定reflectionを旧methodから実owner fieldへ移し、既存internal公開methodを型付きで呼ぶ例外をroot承認した。新root APIや通知payloadの写経は追加しない。型/field名の存在自体はassertせず、既存productionのtyped通知sourceを差し込めるようになった時点でhelperを退役する。これを理由に今その抽象化を新設しない。
+
+## U5c2 resource health cold読取り整合性（独立Phase A/B後root承認）
+
+分類はレビューP2のbugfix。比較対象はU5c2のreader欠落がある修正前worktreeであり、欠落前のHEAD単体ではない。根拠はrootの到達性判断、既存「索引と捕捉view」「公開と操作終端」、resource healthのvalid snapshot、並行性section 6。Phase Aの判定を固定後、Phase Bで既存warm/delta coverageの不足と配置を確認した。
+
+| 項目 | 入口・前提 | 必須結果・許容差分・誤実装 | 配置・確認 |
+| --- | --- | --- | --- |
+| 更新中のcold保守一覧 | Maintenance tree→一覧更新→ChartFilesNeedResourceFix→実getter。catalog初期化済み、未ignore不足resourceあり、所持collectionは通常の本番readで構築済み、resource indexだけcold。導入writerが先行snapshot取得後に入れる | writer保持中のcold readは早期完了せず、解放後に既知警告譜面のkind/exact pathを返す。空・欠落を成功扱いしない。内部配置・lock型・回数・時間値・文言・順序は自由。単なるスケジュール遅延や待つだけで対象を落とす実装を区別する | BmsLibraryMaintenanceServiceTestsへ1件extend。固有DB、既存警告builder、実property、既存writer/worker helper。reader到達または早期完了を観測し、writer解放後にtaskとmembershipを確認。修正前red→修正後Quick→保守fixture Quick |
+
+修正はcold branchを既存EnterFolderMoveReadScope相当（initialized-min/storage reader）で囲むだけ。warm read、新gate/retry、任意input mutation注入は対象外。collectionまでcoldにして別のstorage snapshot待ちで欠落を隠さない。実install全体の競合再現をこの小さい境界テストの結果として報告しない。
+
+writer guardは同じthreadで取得・finally解放し、その後worker完了/faultを回収してからDBを片付ける。既存WaitingReadCountを同期補助として使用可。watchdogは近傍の10秒以内、timeoutを正常待機の証拠にしない。既存RegularChartListOwnerTestSupport.GetCatalogStorageRowsWriteGateの限定reflectionは競合区間制御のため再利用を許可し、新reflection/private名assertionは追加しない。型付き同期取得へ置換できた時点で退役する。新fixture/lane/DNPやtargeted mutantは不要。

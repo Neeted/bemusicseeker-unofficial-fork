@@ -67,15 +67,28 @@ internal static class RegularChartListOwnerTestSupport
         return storageOwner.WriteGate;
     }
 
+    /// <summary>
+    /// catalog writer を保持したまま、外部 replacement 相当の refresh 通知だけを発行します。
+    /// </summary>
+    /// <remarks>
+    /// この fixture は別の mutation を実行すると通知前に catalog writer 待ちになるため、
+    /// UI subscriber の非同期スケジューリングを確認するために通知だけを発行します。
+    /// 現行の具象 <see cref="BMSLibrary" /> には typed attach source の注入経路がないため、
+    /// owner フィールドだけを反射で取得し、既存の typed internal publication method を呼び出します。
+    /// production 側の typed attach source が注入をサポートした時点で、この helper は退役させます。
+    /// </remarks>
     internal static void PublishNormalLibraryRefreshResetNotification(
         BMSLibrary library,
         bool notifiesBmsFiles,
         bool notifiesBmsonSongs)
     {
-        MethodInfo publishMethod = typeof(BMSLibrary).GetMethod(
-            "PublishNormalLibraryRefreshResetNotification",
+        FieldInfo mutationOwnerField = typeof(BMSLibrary).GetField(
+            "libraryMutationOwner",
             BindingFlags.Instance | BindingFlags.NonPublic)!;
-        publishMethod.Invoke(library, [notifiesBmsFiles, notifiesBmsonSongs]);
+        var mutationOwner = (LibraryMutationOwner)mutationOwnerField.GetValue(library)!;
+        mutationOwner.PublishExternalReplacementNormalLibraryRefreshNotification(
+            notifiesBmsFiles,
+            notifiesBmsonSongs);
     }
 
     internal static PendingPackageWorkflowOwner CreatePendingPackageWorkflowOwner()

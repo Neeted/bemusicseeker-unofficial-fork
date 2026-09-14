@@ -54,12 +54,12 @@ public partial class BMSLibrary
         List<Action> postLeaseNotifications = [];
         try
         {
-            libraryFileOperationOwner.RunWithFolderMoveWriteLocks(
+            libraryMutationOwner.RunWithFolderMoveWriteLocks(
                 mutationCapability =>
                 {
                     List<FolderAutoRenamePlan> plans = null;
-                    libraryFileOperationOwner.RunWithFolderMoveSnapshotLocks(
-                        () => plans = libraryFileOperationOwner.BuildAutoRenamePlans(
+                    libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
+                        () => plans = libraryMutationOwner.BuildAutoRenamePlans(
                             chartFiles.Where(chart => chart != null),
                             getBMSDirectories(),
                             renameRootFolder));
@@ -67,7 +67,7 @@ public partial class BMSLibrary
                         HasActionableAutoRenamePlan(plans)
                             ? TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans)
                             : null;
-                    result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
+                    result = libraryMutationOwner.ApplyAutoRenamePlansWithReceipt(
                         plans,
                         mutationCapability,
                         (total, processed, currentPath) => progressWriter.TryWrite(
@@ -116,17 +116,17 @@ public partial class BMSLibrary
         List<Action> postLeaseNotifications = [];
         try
         {
-            libraryFileOperationOwner.RunWithFolderMoveWriteLocks(
+            libraryMutationOwner.RunWithFolderMoveWriteLocks(
                 mutationCapability =>
                 {
                     List<FolderAutoRenamePlan> plans = null;
-                    libraryFileOperationOwner.RunWithFolderMoveSnapshotLocks(
-                        () => plans = libraryFileOperationOwner.BuildAutoRenamePlansForSourceFolders(parentDir));
+                    libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
+                        () => plans = libraryMutationOwner.BuildAutoRenamePlansForSourceFolders(parentDir));
                     if (HasActionableAutoRenamePlan(plans))
                     {
                         Lr2NormalFolderCurrentBmsCapture currentBmsCapture =
                             TryCaptureAutoRenameLr2NormalFolderCurrentBmsFacts(plans);
-                        result = libraryFileOperationOwner.ApplyAutoRenamePlansWithReceipt(
+                        result = libraryMutationOwner.ApplyAutoRenamePlansWithReceipt(
                             plans,
                             mutationCapability,
                             (total, processed, currentPath) => progressWriter.TryWrite(
@@ -307,7 +307,7 @@ public partial class BMSLibrary
                         List<ChartPackage> packageList = [.. (packagesToInstall ?? []).Where(package => package != null)];
                         PackageInstallExecutionResult installExecutionResult = installChartPackages(
                             packageList,
-                            installResult => ApplyInstalledChartStorageTargetsForFileMutation(
+                            installResult => libraryMutationOwner.ApplyInstalledChartStorageTargetsForFileMutation(
                                 installResult,
                                 "install_package",
                                 mutationCapability,
@@ -620,7 +620,7 @@ public partial class BMSLibrary
 
         void UpdateInstalledChartMaintenance(PackageInstallExecutionResult installResult)
         {
-            IReadOnlyList<ChartFile> addedCharts = CreateAddedStorageTargets(installResult).Charts;
+            IReadOnlyList<ChartFile> addedCharts = LibraryMutationOwner.CreateAddedStorageTargets(installResult).Charts;
             if (deferredMaintenanceCharts != null)
             {
                 deferredMaintenanceCharts.AddRange(addedCharts);
@@ -638,7 +638,7 @@ public partial class BMSLibrary
 
         void ApplyInstalledChartScores(PackageInstallExecutionResult installResult)
         {
-            ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
+            ChartStorageTargetSet addedTargets = LibraryMutationOwner.CreateAddedStorageTargets(installResult);
             SetBMSScore(addedTargets.BmsFiles);
         }
 
@@ -664,7 +664,7 @@ public partial class BMSLibrary
 
         void ApplyInstalledChartState(PackageInstallExecutionResult installResult)
         {
-            ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
+            ChartStorageTargetSet addedTargets = LibraryMutationOwner.CreateAddedStorageTargets(installResult);
             IReadOnlyList<ChartFile> addedCharts = addedTargets.Charts;
             addedChartsForChartInfo.AddRange(addedCharts);
             AddReverseLookupDirectoriesForInstall(addedTargets.GetDistinctChartDirectories());
@@ -734,81 +734,6 @@ public partial class BMSLibrary
                 addedChartsForChartInfo);
         }
         return result;
-    }
-
-    /// <summary>
-    /// package filesystem finalize と組み合わせる DB durable receipt 境界です。
-    /// 通知と LR2 同期は finalize 後の post-commit action に遅延します。
-    /// </summary>
-    private FileDbMutationCommitResult ApplyInstalledChartStorageTargetsForFileMutation(
-        PackageInstallExecutionResult installResult,
-        string lookupReason,
-        LibraryFileMutationCapability mutationCapability,
-        Action<Action> postLeaseNotificationObserver)
-    {
-        ArgumentNullException.ThrowIfNull(mutationCapability);
-        mutationCapability.Validate(lr2SynchronizationOwner);
-        ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
-        if (addedTargets == null)
-        {
-            return FileDbMutationCommitResult.Durable();
-        }
-
-        InstalledChartStorageTargetsApplyReceipt storageReceipt;
-        storageReceipt = ApplyInstalledChartStorageTargetsForDeferredDispatch(
-            addedTargets,
-            lookupReason,
-            installPathToDelete: installResult?.InstallPathToDelete,
-            mutationCapability: mutationCapability);
-        if (storageReceipt.Failure != null)
-        {
-            postLeaseNotificationObserver?.Invoke(
-                () => PublishInstalledChartStorageTargetsAfterGuard(storageReceipt));
-            return FileDbMutationCommitResult.Failed(storageReceipt.Failure.SourceException);
-        }
-        Exception completionFailure = null;
-        try
-        {
-            CompleteInstalledChartStorageTargetsUnderExistingReservation(
-                storageReceipt,
-                mutationCapability);
-        }
-        catch (Exception exception)
-        {
-            // Storage rows are already durable at this point.  Preserve
-            // that terminal fact and carry completion failure separately.
-            completionFailure = exception;
-        }
-        postLeaseNotificationObserver?.Invoke(
-            () =>
-            {
-                if (completionFailure == null)
-                {
-                    PublishInstalledChartStorageTargetsAfterGuard(storageReceipt);
-                }
-            });
-        return FileDbMutationCommitResult.Durable(durableFailure: completionFailure);
-    }
-
-    private static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)
-    {
-        List<ChartFile> charts = [.. (installResult?.AddedCharts ?? [])
-            .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
-        if (installResult?.InstalledTargetSet is ChartStorageTargetSet existingTargets
-            && existingTargets.Charts.Count == charts.Count
-            && existingTargets.Charts
-                .Select((chart, index) => ReferenceEquals(chart, charts[index]))
-                .All(isSameChart => isSameChart))
-        {
-            return existingTargets;
-        }
-
-        ChartStorageTargetSet targets = ChartStorageTargetSet.FromInstalledCharts(charts);
-        if (installResult != null)
-        {
-            installResult.InstalledTargetSet = targets;
-        }
-        return targets;
     }
 
     private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallReverseLookupPreparationUnderGuard(
@@ -1596,7 +1521,7 @@ public partial class BMSLibrary
                         FileDbMutationBatchReceipt mutationBatchReceipt = null;
                         PackageInstallExecutionResult installExecutionResult = installChartPackages(
                             packagesToInstall,
-                            installResult => ApplyInstalledChartStorageTargetsForFileMutation(
+                            installResult => libraryMutationOwner.ApplyInstalledChartStorageTargetsForFileMutation(
                                 installResult,
                                 "install_package",
                                 mutationCapability,
@@ -2320,7 +2245,7 @@ public partial class BMSLibrary
                 using LibraryFileMutationCapability mutationCapability =
                     mutationReservation.CreateMutationCapability();
                 Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows =
-                    installResult => ApplyInstalledChartStorageTargetsForFileMutation(
+                    installResult => libraryMutationOwner.ApplyInstalledChartStorageTargetsForFileMutation(
                         installResult,
                         "install_package",
                         mutationCapability,
@@ -2937,7 +2862,7 @@ public partial class BMSLibrary
                 logInfo("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.HashCount);
                 bool manualRecoveryObserved = false;
                 Func<PackageInstallExecutionResult, FileDbMutationCommitResult> applyDurableStorageRows =
-                    installResult => ApplyInstalledChartStorageTargetsForFileMutation(
+                    installResult => libraryMutationOwner.ApplyInstalledChartStorageTargetsForFileMutation(
                         installResult,
                         "install_package",
                         mutationCapability,
@@ -3055,7 +2980,7 @@ public partial class BMSLibrary
                 }
                 using LibraryFileMutationCapability mutationCapability =
                     mutationScope.CreateMutationCapability();
-                PendingZeroNoteRenameResult result = libraryFileOperationOwner.RenamePendingZeroNoteBmsFormatChartsAfterAdmission(
+                PendingZeroNoteRenameResult result = libraryMutationOwner.RenamePendingZeroNoteBmsFormatChartsAfterAdmission(
                     chartSnapshot,
                     (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false),
                     token,
@@ -3076,7 +3001,7 @@ public partial class BMSLibrary
                         diagnosticEffects.Add(() => ShowOperationDialog(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
                     }
                 }
-                libraryFileOperationOwner.RemovePendingChartsFromPendingPackagesAndInstallRows(
+                libraryMutationOwner.RemovePendingChartsFromPendingPackagesAndInstallRows(
                     result.ChartPathsToRemove,
                     mutationCapability,
                     postLeaseNotifications: postLeaseEffects);
