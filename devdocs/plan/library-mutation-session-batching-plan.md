@@ -1,6 +1,6 @@
 # Operation-scoped Library Mutation Session 実装計画
 
-状態: S1 auto rename、S2 manual / multi-folder move、S3 delete / extension rename 実装済み（2026-09-15）。次の実装単位は S4 installation-directory repair。S4 以降も調査待ちではなく、本計画の確定スコープとして実装する。
+状態: S1 auto rename、S2 manual / multi-folder move、S3 delete / extension rename、S4 installation-directory repair 実装済み（2026-09-15）。次の実装単位は S5 package install。S5 以降も調査待ちではなく、本計画の確定スコープとして実装する。
 
 ## 目的
 
@@ -24,7 +24,7 @@
 
 `0ae8e615` は file/DB 補償境界の導入時に、auto rename の「全 rename の変更 facts を蓄積して最後に一括反映する」構造を、folder ごとの `FileDbMutationExecutor` + durable DB apply へ変更した。限定補償自体を全廃するのではなく、通常発生しない FS / DB / in-memory 例外の完全補償を正常系の per-item commit 粒度の根拠にしない。
 
-## HEAD の構造監査と対象操作
+## 着手時 HEAD の構造監査と対象操作
 
 ログの値ではなく、production code の loop と common apply 呼出しを基準に分類する。
 
@@ -249,6 +249,22 @@ catalog session 混入とする。共有資源は既存 temp DB / FS と local d
 - duplicate-before-move の既存意味、承認済み削除、stale target、BMS/BMSON を維持する。
 - repair成功後maintenance失敗で先行path moveをrollbackしないが、通常成功にもしない。
 
+#### S4 Test Contract Packet — `LMS-S4-20260915`
+
+変更分類は operation-scoped mutation への内部移行と、既に確定している session failure contract への terminal 統合である。
+恒久テストは既存 repair / pending workflow coverage の assertion semantics を S4 契約へ更新し、同じ ingress で継続保証する。
+判定基準は本節と `library-mutation-boundary.md` の mutation-session 契約だけから固定し、current implementation / existing expected は oracle に使わない。
+
+| Contract ID | production ingress -> observable / durable impact | 必須結果 | 許容差分 / 検出すべき誤実装 | 配置 |
+| --- | --- | --- | --- | --- |
+| `S4-SESSION-AGGREGATE` | `BMSLibrary.FixInstallationDirectoryCharts` -> physical repair -> catalog/package refs | 複数の成功 repair は一つの `LibraryMutationSessionReceipt` に path/package-reference facts を集約し、canonical apply を operation 終端で一回行う | helper 名、内部 collection 順は可。item ごとの common apply / per-item user receipt を検出する | `BmsLibraryFolderRenameRefreshTests` extend |
+| `S4-DUPLICATE-OVERLAY` | 同 ingress の入力順 repair -> duplicate 判定 | baseline は一回で、先行の physical success だけを operation-local overlay に追加し、同一 hash の後続 target を move 前 duplicate として扱う | lookup 実装型は可。未成功 target の予約、canonical commit を後続判定の通信手段にする実装を検出する | `BmsLibraryFolderRenameRefreshTests` extend |
+| `S4-APPROVED-REMOVAL` | repair duplicate confirmation -> physical delete -> catalog removal | 承認済み duplicate delete は repair move と同じ session receipt に confirmed removal として入り、別 `RemoveLibraryChartsCore` / `LibraryChartRemovalReport` terminal を作らない | recycle-bin adapter 詳細は可。削除を別 user operation に分割する実装を検出する | `BmsLibraryFolderRenameRefreshTests` / `PendingPackageWorkflowOwnerTests` replace |
+| `S4-FAILURE-TERMINAL` | repair physical success -> session catalog apply / required maintenance -> pending terminal | catalog / maintenance failure は成功済み physical move を rollback せず、同じ session receipt の apply / finalization failure として解放後一回報告する | error text は可。catalog failure で source へ自動補償する、maintenance failure を正常扱いする、二重 terminal を検出する | `BmsLibraryFolderRenameRefreshTests` / `PendingPackageWorkflowOwnerTests` replace |
+
+共有資源は既存の test-local FS / SQLite / dialog ports を使い、完了は同期 model return または awaited workflow Task で待つ。
+今回の変更は確立済み S4 semantics への移行であり、旧 per-item commit behavior を否定するための targeted mutant / negative control は要求しない。
+
 ### S5 — 全 package install 入口を operation-scoped install session へ統合する
 
 対象:
@@ -368,7 +384,7 @@ operationによって該当しないsurfaceは0でよい。S1～S7の各testで�
 - **sequential dependency:** installは先行実成功だけが後続判定へ入ることを確認する。
 - **failure terminal:** deterministic skipとunexpected failureを分け、confirmed success / failed / unprocessedを確認する。
 - **notification timing:** model lease / dialog scope解放後のpublic notificationを確認する。
-- **negative control:** S1は旧per-folder apply、S4は旧per-package storage applyを再現できる観測点を一つ持ち、修正前にN回となること、修正後にoperation-level回数になることを示す。
+- **negative control:** 必要性は各 unit の Test Contract Packet に従う。S1 は旧 per-folder apply の観測点を保持し、S4 は `LMS-S4-20260915` の判断どおり targeted mutant / negative control を追加要件にしない。
 
 各unitの関連Quick成功後、通常の最終snapshotでFunctionalを一回実行する。performanceのwall-clock比較を行う場合は [performance-and-scale.md](../spec/performance-and-scale.md) の同条件・同完了範囲を使う。
 
@@ -379,7 +395,7 @@ operationによって該当しないsurfaceは0でよい。S1～S7の各testで�
 | S1 auto rename | 完了 | `LibraryMutationSession`を導入し、auto renameのconfirmed physical moveをoperation単位で一括commitする経路へ移行。folder DBはexact pathのchunk queryへ変更し、session terminal / partial-failure suffix / operation-level publicationを既存auto-rename testsへ反映。恒久契約は `library-mutation-boundary.md` / `file-db-consistency.md` の既存 `FSDB-SESSION` / `FSDB-REPORT` を使用。 |
 | S2 manual / multi-folder move | 完了 | manual rename と複数 folder move を共通 `LibraryMutationSession` pathへ統合し、confirmed prefix / failed / unprocessed、storage-row policy合成、operation-level reverse lookup / LR2 / publication、ViewModel session terminalへ移行。旧 per-item folder `FileDbMutationExecutor` callback と manual-recovery前提を撤去。 |
 | S3 delete / extension rename | 完了 | deleteの既存FS batchを一つの`LibraryMutationSession`へ接続し、成功directory subtreeのresource reverse lookup除去をcatalog/required apply成功後のderived-state phaseへ移動。通常invalid-extension renameは `.b*` / `.p*` familyを一つのsessionへappendしてcanonical apply / terminal receiptを一回化し、pending-only renameは既存package/install lifecycle routeに分離したまま維持。 |
-| S4 installation-directory repair | 未着手 | N chart repair + approved removalが同session、per-chart DB callback撤去、maintenance terminal統合 |
+| S4 installation-directory repair | 完了 | N chart repair と approved removal を同一 `LibraryMutationSession` へ接続し、repair loop の canonical DB callback と別 `RemoveLibraryChartsCore` terminal を撤去。successful-repair hash overlay、operation-scoped session receipt、post-commit maintenance failure terminal を統合。 |
 | S5 all install ingress | 未着手 | auto/estimated/force/manual/resource-only/cleanup-onlyがinstall session、success overlay、per-package canonical apply撤去 |
 | S6 merge | 未着手 | single-change session、post-commit maintenanceを同一logical operation terminalへ統合 |
 | S7 old API cleanup | 未着手 | item-loopから旧apply API参照0、per-item batch receipt前提をproduction terminalから除去、operation-level marker整備 |

@@ -28,6 +28,32 @@ internal enum PackageSourceCleanupPolicy
     MergeOwnedSourceContents
 }
 
+/// <summary>
+/// Carries the detached package projection and executor-local physical receipt for a package move.
+/// The receipt is an implementation detail of the physical phase; callers aggregate canonical
+/// mutation facts into their operation-scoped session instead of exposing this receipt as the
+/// user-operation terminal.
+/// </summary>
+internal sealed class PackagePhysicalMoveResult
+{
+    /// <summary>Creates immutable physical-phase output.</summary>
+    /// <param name="executionResult">Detached destination projection prepared for the move.</param>
+    /// <param name="physicalReceipt">Executor-local receipt describing the physical phase.</param>
+    internal PackagePhysicalMoveResult(
+        PackageInstallExecutionResult executionResult,
+        FileDbMutationReceipt physicalReceipt)
+    {
+        ExecutionResult = executionResult;
+        PhysicalReceipt = physicalReceipt ?? throw new ArgumentNullException(nameof(physicalReceipt));
+    }
+
+    /// <summary>Gets the detached destination projection produced by package preflight.</summary>
+    internal PackageInstallExecutionResult ExecutionResult { get; }
+
+    /// <summary>Gets the executor-local physical receipt. It is not an operation-scoped catalog receipt.</summary>
+    internal FileDbMutationReceipt PhysicalReceipt { get; }
+}
+
 internal sealed class PackageInstallExecutionResult
 {
     public List<PackageChartEntry> AddedEntries { get; } = [];

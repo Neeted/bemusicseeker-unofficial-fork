@@ -1030,6 +1030,90 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     /// <summary>
+    /// Executes only the package physical phase and returns its detached destination projection.
+    /// The executor-local durable marker releases source cleanup after physical validation; it does
+    /// not represent canonical library durability. The caller must append confirmed facts to one
+    /// operation-scoped library mutation session.
+    /// </summary>
+    /// <param name="package">Detached package source to move.</param>
+    /// <param name="installationDirectory">Explicit destination directory.</param>
+    /// <param name="options">Library options captured for the owning operation.</param>
+    /// <param name="createFolderPath">Auto-naming callback used by the package mover.</param>
+    /// <param name="getDisplayedExceptionMessage">Failure text formatter for optional diagnostics.</param>
+    /// <param name="fileMutationService">Physical file mutation service.</param>
+    /// <param name="dialogService">Dialog service used only when failure dialogs are requested.</param>
+    /// <param name="targetOnlyFileMutationOptions">Single-target mutation options.</param>
+    /// <param name="recursiveDirectoryTreeFileMutationOptions">Recursive source cleanup options.</param>
+    /// <param name="logInstallPerformance">Performance diagnostic sink.</param>
+    /// <param name="sourceCleanupPolicy">Source cleanup policy after a validated physical move.</param>
+    /// <param name="showMessageBoxOnInstallFail">Whether the package mover queues its failure dialog.</param>
+    /// <param name="existingHashes">Operation snapshot plus any caller-owned overlay used for duplicate guarding.</param>
+    /// <param name="independentOwnershipLookup">Independent ownership evidence for residual cleanup.</param>
+    /// <param name="excludedComponentPaths">Source components excluded from the physical move.</param>
+    /// <param name="validatePhysicalResult">Optional validation performed before source cleanup is released.</param>
+    /// <param name="enqueueDiagnosticEffect">Post-lease diagnostic-effect sink.</param>
+    /// <returns>Detached physical result plus an executor-local receipt.</returns>
+    internal PackagePhysicalMoveResult MovePackageFilesPhysicalWithReceipt(
+        ChartPackage package,
+        string installationDirectory,
+        BmsLibraryOptionsSnapshot options,
+        Func<IEnumerable<ChartFile>, string, string> createFolderPath,
+        Func<Exception, string> getDisplayedExceptionMessage,
+        IFileMutationService fileMutationService,
+        IBmsLibraryDialogService dialogService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
+        Action<string> logInstallPerformance,
+        PackageSourceCleanupPolicy sourceCleanupPolicy,
+        bool showMessageBoxOnInstallFail = true,
+        IPrimaryHashLookup existingHashes = null,
+        IInstalledChartLookupIndex independentOwnershipLookup = null,
+        ISet<string> excludedComponentPaths = null,
+        Func<PackageInstallExecutionResult, Exception> validatePhysicalResult = null,
+        Action<Action> enqueueDiagnosticEffect = null)
+    {
+        PackageInstallExecutionResult physicalResult = null;
+        FileDbMutationReceipt receipt = MovePackageFilesWithReceipt(
+            package,
+            installationDirectory,
+            options,
+            createFolderPath,
+            getDisplayedExceptionMessage,
+            fileMutationService,
+            dialogService,
+            targetOnlyFileMutationOptions,
+            recursiveDirectoryTreeFileMutationOptions,
+            logInstallPerformance,
+            installResult =>
+            {
+                physicalResult = installResult;
+                Exception validationFailure = null;
+                try
+                {
+                    validationFailure = validatePhysicalResult?.Invoke(installResult);
+                }
+                catch (Exception exception)
+                {
+                    validationFailure = exception;
+                }
+                // FileDbMutationExecutor needs a durable boundary before it releases source cleanup.
+                // For this S4 physical-only route the marker authorizes that physical transition only;
+                // canonical library durability is established later by the owning mutation session.
+                return validationFailure == null
+                    ? FileDbMutationCommitResult.Durable()
+                    : FileDbMutationCommitResult.Failed(validationFailure);
+            },
+            sourceCleanupPolicy,
+            showMessageBoxOnInstallFail,
+            existingHashes,
+            independentOwnershipLookup,
+            excludedComponentPaths,
+            onPreflightPrepared: installResult => physicalResult ??= installResult,
+            enqueueDiagnosticEffect: enqueueDiagnosticEffect);
+        return new PackagePhysicalMoveResult(physicalResult, receipt);
+    }
+
+    /// <summary>
     /// package install の filesystem 操作を destination-local staging と durable DB receipt の境界で実行します。
     /// source は DB owner が durable receipt を返すまで保持し、cleanup はその後だけ行います。
     /// </summary>

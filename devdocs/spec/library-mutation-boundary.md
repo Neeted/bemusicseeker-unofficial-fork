@@ -237,7 +237,7 @@ The old `BmsLibraryInitializationServiceTests` selector is absent from the route
 
 アプリ全体の FS+DB の保証・非保証、前方回復、失敗の表示、レビューで受け入れる制限は [file-db-consistency.md](file-db-consistency.md) を正本とする。以下の `COMP-*` は `FileDbMutationExecutor` を使う既存・移行中経路の限定補償契約であり、削除等を含むすべての mutation に FS rollback を要求するものではない。
 
-package install、estimated install、smart overwrite、merge などの未移行経路には item ごとに `FileDbMutationExecutor` を完結するものが残る。一方、auto rename、手動 rename / 複数 folder move、library chart delete、通常 invalid-extension rename は operation-scoped session へ移行済みである。pending-only invalid-extension rename は owned catalog を変更しないため package/install lifecycle route のまま維持する。multi-change 操作の恒久契約は [Mutation session 契約](#mutation-session-契約) とし、immutable な preflight / destination type guard、source保全等の有用な局所安全策は維持してよい一方、DB durable receiptをitemごとに作ること自体は要件ではない。session移行後は、確認済みphysical successをchangeとして蓄積し、canonical durable applyをoperation境界へ集約する。source cleanupをdurable apply後へ遅延できる操作ではsession終端まで遅延する。
+package install、estimated install、smart overwrite、merge などの未移行経路には item ごとに `FileDbMutationExecutor` を完結するものが残る。一方、auto rename、手動 rename / 複数 folder move、library chart delete、通常 invalid-extension rename、導入先修正は operation-scoped session へ移行済みである。pending-only invalid-extension rename は owned catalog を変更しないため package/install lifecycle route のまま維持する。multi-change 操作の恒久契約は [Mutation session 契約](#mutation-session-契約) とし、immutable な preflight / destination type guard、source保全等の有用な局所安全策は維持してよい一方、DB durable receiptをitemごとに作ること自体は要件ではない。session移行後は、確認済みphysical successをchangeとして蓄積し、canonical durable applyをoperation境界へ集約する。source cleanupをdurable apply後へ遅延できる操作ではsession終端まで遅延する。
 
 executor の receipt は commit 前後を区別する terminal state を持つ。
 
@@ -253,7 +253,7 @@ executor の receipt は commit 前後を区別する terminal state を持つ�
 
 ### Mutation terminal reporting
 
-手動 folder rename、選択 folder move、auto rename、選択 library chart delete、通常 invalid-extension rename、duplicate folder merge の canonical terminal は operation-scoped session result とし、異常結果を操作終了後に一度だけ集約表示する。model lease、外側 gate、activity、dialog scope の終了処理を済ませてから既存 `IUiDialogService` を await する。全正常は無通知、cleanup-only は durable success を保持した Warning、未 commit・required internal apply failure・未確認 physical result は Error とし、混在時も confirmed success と failure / unprocessed を保持する。任意 subscriber／reporter の failure は診断だけに記録し、primary failure と session result を変更せず再通知・再実行しない。
+手動 folder rename、選択 folder move、auto rename、選択 library chart delete、通常 invalid-extension rename、導入先修正、duplicate folder merge の canonical terminal は operation-scoped session result とし、異常結果を操作終了後に一度だけ集約表示する。model lease、外側 gate、activity、dialog scope の終了処理を済ませてから既存 `IUiDialogService` を await する。全正常は無通知、cleanup-only は durable success を保持した Warning、未 commit・required internal apply failure・未確認 physical result は Error とし、混在時も confirmed success と failure / unprocessed を保持する。任意 subscriber／reporter の failure は診断だけに記録し、primary failure と session result を変更せず再通知・再実行しない。
 
 表示は操作名、session result により確認した change 件数・確定済み／未確定・cleanup／required apply failure の各件数、確認候補、手動確認とログ参照の案内を含む。件数はファイル数ではない。候補は実在確認を行わず最大 3 件・各 240 文字、代表 error は最大 3 件・各 400 文字、本文は 4096 文字以内とし、全対象・例外は既存 logger へ best effort で記録する。自動 retry・復旧保証は案内しない。
 
@@ -267,7 +267,7 @@ folder move、auto-rename、merge の snapshot は initialized-min read、pendin
 
 ネストされた DB / catalog / file apply は、現在の outer lease から明示的に発行された `LibraryFileMutationCapability` を引数として渡す。capability は所有者、lease の生存、dispose 状態を検証し、ambient `AsyncLocal`、thread、monitor reentrancy を認可には使用しない。通常の外部 entry は同一 thread からの再入でも拒否する。
 
-配置変更の反映範囲は、session に追加されたstorage/path、folder、install destination、installed package pathのconfirmed factsから決める。move・手動/自動rename・通常拡張子修正・導入先修正のcallerは索引失効を個別指定しない。自動rename、複数folder move、通常拡張子修正は外側のlive capabilityから一つのsessionを開始し、通常拡張子修正ではextension familyを跨いでもcanonical applyを一回にする。library chart delete は成功したfolder subtreeのresource reverse lookup除去をsession derived-stateへ登録し、catalog/required apply成功前に直接変更しない。権限なしの専用apply callbackは持たない。
+配置変更の反映範囲は、session に追加されたstorage/path、folder、install destination、installed package pathのconfirmed factsから決める。move・手動/自動rename・通常拡張子修正・導入先修正のcallerは索引失効を個別指定しない。自動rename、複数folder move、通常拡張子修正、導入先修正は外側のlive capabilityから一つのsessionを開始し、通常拡張子修正ではextension familyを跨いでもcanonical applyを一回にする。library chart delete は成功したfolder subtreeのresource reverse lookup除去をsession derived-stateへ登録し、catalog/required apply成功前に直接変更しない。権限なしの専用apply callbackは持たない。
 
 この契約の実装移行は LibraryMutationOwner、AutoRenameBatchCoordinator、BMSLibraryの共通反映、LibraryFolderMoveCoordinatorを対象とし、詳細は [mutation session 実装計画](../plan/library-mutation-session-batching-plan.md) に従う。BmsLibraryFolderRenameRefreshTestsの実rename（背景16/128・2操作）、auto batch/部分失敗、repairと、BmsLibraryPackageInstallServiceTests.RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner、関連workflow testsで、FS/DB、索引、旧snapshot、通知と受付を確認する。
 
@@ -335,13 +335,13 @@ LR2 preparation の中間 stage / table / batch progress は `BMSLibrary` の既
 
 ### 導入先修正後の保守再検査
 
-`FixInstallationDirectoryCharts` は通常導入・統合と共通の `MovePackageFilesWithReceipt` を使い、選択された一譜面だけを移動する。兄弟譜面・resource・親 directory は cleanup 対象にしない。衝突採番後の実 destination を receipt、catalog、owner、参照へ反映し、catalog callback は executor 内で一度だけ実行する。重複は移動前に分類し、未承認なら保持、承認済みなら既存のごみ箱削除へ渡す。
+`FixInstallationDirectoryCharts` は outer file-mutation lease の中で一つの `LibraryMutationSession` を開始し、選択された譜面の package physical move だけを逐次実行する。兄弟譜面・resource・親 directory は cleanup 対象にしない。`CreateInstalledChartKeySnapshotExcludingChartsUnsafe` は操作開始時の baseline を一回作り、先行した physical repair success の primary hash だけを session-local overlay へ追加する。後続 duplicate 判定に canonical DB commit を使わない。
 
-成功した移動と catalog path 更新に続いて、移動後の BMS / BMSON を `forceUpdate: true` で保守再検査する。新しい場所にリソースが存在するかを DB と表示へ反映し、移動前の不足情報をそのまま成功結果にしない。
+各 package move は `MovePackageFilesPhysicalWithReceipt` の detached physical result として扱い、executor-local receipt を user-operation terminal に昇格させない。衝突採番後の実 destination から `CreateFixMutationFacts` を作り、成功した path / install-destination facts を session へ append する。item loop 内で `ApplyLibraryMutationFactsForFileMutation` を呼ばず、全 confirmed repair facts を操作終端で一回 apply する。重複は move 前に分類し、未承認なら source を保持する。承認済みなら filesystem delete phase を同じ outer lease 内で実行し、その confirmed removal / package-reference / resource-directory facts を repair session へ追加する。別の `RemoveLibraryChartsCore` や別 session へ再入しない。
 
-この後処理は、導入先修正が取得済みの file-mutation lease を使う `ApplyCatalogMaintenanceUnderExistingReservation` へ接続する。通常の外部受付を再呼出しして自分自身の予約と競合させない。外部操作からの再入拒否は維持し、lane や再入許可は追加しない。保守の DB 反映が終わるまで外側の lease を保持し、通知は command-owned の post-lease list へ渡す。
+成功した repair の owner を session commit 後に取り直し、移動後の BMS / BMSON を `forceUpdate: true` で一回の保守再検査へ集合化する。新しい場所にリソースが存在するかを DB と表示へ反映し、移動前の不足情報をそのまま成功結果にしない。この後処理は取得済み file-mutation lease を使う `ApplyCatalogMaintenanceUnderExistingReservation` へ接続し、通常の外部受付を再呼出しして自分自身の予約と競合させない。外部操作からの再入拒否は維持し、lane や再入許可は追加しない。保守の DB 反映が終わるまで外側の lease を保持し、通知は command-owned の post-lease list へ渡す。
 
-保守 DB の失敗は呼出し側へ伝え、取消し結果を捨てて正常終了しない。先に成功したファイル移動・パス保存を失敗隠しのために取り消す処理や、自動再試行は追加しない。解放済みの lease と、既に確定した変更の通知を維持する。
+physical success 後の session catalog apply または保守 DB の失敗は同じ `LibraryMutationSessionReceipt` の apply / finalization failure として呼出し側へ伝え、成功済み filesystem change を source へ rollback しない。予期しない physical failure では現在 item と unsafe suffix を止める一方、既に confirmed な prefix facts は同じ session commit へ残す。cleanup failure は durable meaning を変えず同 receipt に保持する。
 
 `BmsLibraryFolderRenameRefreshTests.FixInstallationDirectoryCharts_RechecksResourcesUnderExistingReservation` が BMS / BMSON の移動前不足→移動後充足、DB の保守値、警告、解放後通知を検証する。後半の保守 write だけを SQLite trigger で失敗させる対照も含む。既存の overlay のみを見る BMS 修正テストを置換し、固有 FS / DB と同期 model return を使用する。Functional の `remaining-bms-library` route は変更しない。
 
@@ -355,9 +355,9 @@ LR2 preparation の中間 stage / table / batch progress は `BMSLibrary` の既
 
 `LibraryChartRemovalOutcome` は削除 executor が既存 API 呼出し時に観測した chart target と、既存 catalog owner の apply attempted／durable／failure を保持する callback-free immutable result とする。削除 API が正常 return した対象だけを確認済み件数に含める。exists=false は削除未実行・実在未確認、directory 削除例外は配下の削除結果未確認として保持し、新しい probe／rescan／DB purge は行わない。catalog 失敗で確認済み FS 結果を捨てず、durable 後の必須反映失敗を未 commit や cleanup warning に読み替えない。
 
-選択削除・重複 hash 削除・導入先修正は、outer gate／activity／dialog scope／model lease の解放後に `LibraryChartRemovalReport` へ一回だけ結果を渡す。正常は silent、未実行・未確認・stale・unresolved・FS failure・catalog failure は Error。確認済み件数、未確認対象、catalog 段階、手動確認・詳細ログ案内を表示する。path は最大3件・各240字、代表 error は最大3件・各400字、本文4096字まで。任意 report failure は既存診断のみとし、結果変更や再通知をしない。削除固有 facts を folder receipt に偽装しない。
+選択削除・重複 hash 削除は、outer gate／activity／dialog scope／model lease の解放後に `LibraryChartRemovalReport` へ一回だけ結果を渡す。正常は silent、未実行・未確認・stale・unresolved・FS failure・catalog failure は Error。確認済み件数、未確認対象、catalog 段階、手動確認・詳細ログ案内を表示する。path は最大3件・各240字、代表 error は最大3件・各400字、本文4096字まで。任意 report failure は既存診断のみとし、結果変更や再通知をしない。削除固有 facts を folder receipt に偽装しない。
 
-catalog／必須反映失敗後は success-only selection／maintenance を進めない。導入先修正の `LibraryFixInstallationResult` は、先行移動の batch receipt、承認済み削除の outcome、後段 failure を別々に保持する。削除 catalog または保守失敗で先行移動を取り消さず、依存 maintenance を停止する。pending owner は outer finally 解放後に移動 facts を `FileDbMutationReport`、削除 facts を `LibraryChartRemovalReport` へ渡し、同じ削除 catalog failure を二重報告しない。削除なしの修復では removal outcome はなく、移動 receipt は保持する。
+導入先修正内の承認済み duplicate delete は独立した delete command ではなく repair session の removal change である。`LibraryFixInstallationResult` は moved / duplicate-skipped / approved-removed の count と一つの `LibraryMutationSessionReceipt` を保持し、physical failure、catalog apply failure、required maintenance failure、cleanup failure を同じ operation terminal に残す。pending owner は outer finally 解放後にこの receipt を `FileDbMutationReport` へ一回だけ渡し、repair 内の approved deletion を別 `LibraryChartRemovalReport` で二重報告しない。catalog／必須反映失敗後は success-only の追加処理へ進まず、成功済み physical move / confirmed delete を取り消さない。
 
 R5 の検証は `BmsLibraryPackageInstallServiceTests`（設定 ON/OFF、範囲外所持証拠、親保護、resource-only、確定 prefix）、`BmsLibraryFolderRenameRefreshTests`（実 FS/SQLite の BMS・bmson 修復、衝突、重複承認、LR2 列、保守 failure）、`BmsLibraryDuplicateServiceTests`（統合と解放後保守）、`PendingPackageWorkflowOwnerTests`（解放後の移動・削除結果報告）を使う。旧 bool 移動・修復 forwarding のテストは共通 receipt と実 model の保証へ置換し、独立した互換経路として残さない。
 
@@ -369,8 +369,8 @@ R5 の検証は `BmsLibraryPackageInstallServiceTests`（設定 ON/OFF、範囲�
 | C1/C4: BMSON pending row の確認済み削除 | `BmsLibraryDuplicateServiceTests` | real library outcome／DB readback |
 | C4: keeper維持、計画2件中確認済み1件、解放後一回報告 | `DuplicateMaintenanceWorkflowOwnerTests` | awaited owner Task、local gate/activity/dialog |
 | C4/C6: catalog failure／任意 reporter failure後もfacts保持 | `SelectedChartMutationWorkflowOwnerTests` | awaited owner Task、gate再取得／activity inactive |
-| C5: 先行repair DB path更新保持と後段削除failure | `BmsLibraryFolderRenameRefreshTests` | real repair return／typed exception、固有FS／SQLite trigger |
-| C5/C6: typed failureのみ処理、無関係exception伝播、FS-only outcome報告 | `PendingPackageWorkflowOwnerTests` | awaited owner Task、local ports／post-release dialog |
+| S4-APPROVED-REMOVAL / S4-FAILURE-TERMINAL: repair move + approved duplicate removal の同一session、catalog / maintenance failure の非rollback | `BmsLibraryFolderRenameRefreshTests` | real repair return／session receipt、固有FS／SQLite trigger |
+| S4-FAILURE-TERMINAL / C6: repair session terminal の解放後一回報告、無関係exception伝播 | `PendingPackageWorkflowOwnerTests` | awaited owner Task、local ports／post-release dialog |
 | C6: unknownはError、正常silent、bounds／任意reportfailure | `LibraryChartRemovalReportTests`、`LocalizationResourceParityTests` | renderer return／dialog Task、read-only resources |
 
 既存 Functional lane を使う。新 DNP、固定待ち、共有 logger 設定、アプリ lifetime fixture は追加しない。削除個別 failure dialog、結果を失う catalog throw、計画件数を実績とする旧 route は上記 terminal と confirmed outcome へ置換する。

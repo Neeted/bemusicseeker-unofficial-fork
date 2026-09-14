@@ -74,6 +74,7 @@ internal sealed class LibraryMutationSessionReceipt
     /// <param name="cleanupFailure">Post-commit cleanup failure that does not change durability.</param>
     /// <param name="resourceDirectoryRemovalCount">Successfully deleted directory roots registered for post-commit resource-index removal.</param>
     /// <param name="itemFailures">Attempted targets that did not produce confirmed physical changes.</param>
+    /// <param name="recoveryCandidatePaths">Executor-local paths retained for manual confirmation or recovery.</param>
     internal LibraryMutationSessionReceipt(
         IEnumerable<LibraryMutationSessionTarget> confirmedTargets,
         bool durableCommit,
@@ -90,7 +91,8 @@ internal sealed class LibraryMutationSessionReceipt
         Exception finalizationFailure = null,
         Exception cleanupFailure = null,
         int resourceDirectoryRemovalCount = 0,
-        IEnumerable<LibraryMutationSessionItemFailure> itemFailures = null)
+        IEnumerable<LibraryMutationSessionItemFailure> itemFailures = null,
+        IEnumerable<string> recoveryCandidatePaths = null)
     {
         ConfirmedTargets = FreezeTargets(confirmedTargets);
         DurableCommit = durableCommit;
@@ -108,6 +110,7 @@ internal sealed class LibraryMutationSessionReceipt
         ApplyFailure = applyFailure;
         FinalizationFailure = finalizationFailure;
         CleanupFailure = cleanupFailure;
+        RecoveryCandidatePaths = FreezePaths(recoveryCandidatePaths);
     }
 
     /// <summary>Gets filesystem changes whose success was confirmed and appended to the session.</summary>
@@ -164,6 +167,9 @@ internal sealed class LibraryMutationSessionReceipt
     /// <summary>Gets a post-commit cleanup failure that does not change durable state.</summary>
     internal Exception CleanupFailure { get; }
 
+    /// <summary>Gets executor-local paths retained for manual confirmation or recovery.</summary>
+    internal IReadOnlyList<string> RecoveryCandidatePaths { get; }
+
     /// <summary>Gets whether required operation finalization failed after the durable point.</summary>
     internal bool HasDurableFinalizationFailure => DurableCommit
         && (ApplyFailure != null || FinalizationFailure != null);
@@ -183,6 +189,7 @@ internal sealed class LibraryMutationSessionReceipt
     /// </summary>
     internal IReadOnlyList<string> CandidatePaths => Array.AsReadOnly(
         (FailedTarget == null ? [] : new[] { FailedTarget.SourcePath, FailedTarget.DestinationPath })
+        .Concat(RecoveryCandidatePaths)
         .Concat(ItemFailures.SelectMany(item => new[] { item.Target.SourcePath, item.Target.DestinationPath }))
         .Concat(UnprocessedTargets.SelectMany(target => new[] { target.SourcePath, target.DestinationPath }))
         .Concat(ConfirmedTargets.SelectMany(target => new[] { target.SourcePath, target.DestinationPath }))
@@ -215,11 +222,20 @@ internal sealed class LibraryMutationSessionReceipt
             failure,
             CleanupFailure,
             ResourceDirectoryRemovalCount,
-            ItemFailures);
+            ItemFailures,
+            RecoveryCandidatePaths);
     }
 
     /// <summary>Gets an immutable empty session receipt.</summary>
     internal static LibraryMutationSessionReceipt Empty { get; } = new([], durableCommit: false);
+
+    private static IReadOnlyList<string> FreezePaths(IEnumerable<string> paths)
+    {
+        return Array.AsReadOnly((paths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray());
+    }
 
     private static IReadOnlyList<LibraryMutationSessionTarget> FreezeTargets(
         IEnumerable<LibraryMutationSessionTarget> targets)

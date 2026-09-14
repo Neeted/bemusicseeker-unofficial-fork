@@ -66,11 +66,14 @@ internal sealed partial class LibraryMutationOwner
         private readonly List<LibraryPackageReferenceFacts> packageReferenceFacts = [];
         private readonly List<LibraryMutationSessionTarget> confirmedTargets = [];
         private readonly List<LibraryMutationSessionItemFailure> itemFailures = [];
+        private readonly List<string> recoveryCandidatePaths = [];
+        private readonly HashSet<string> recoveryCandidatePathSet = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<LibraryFolderPathChange> movedFolders = [];
         private readonly HashSet<string> resourceDirectoryRemovals = new(StringComparer.OrdinalIgnoreCase);
         private LibraryStorageRowPathNotificationPolicy storageRowPathNotificationPolicy =
             LibraryStorageRowPathNotificationPolicy.Suppressed;
         private Exception physicalFailure;
+        private Exception cleanupFailure;
         private LibraryMutationSessionTarget failedTarget;
         private IReadOnlyList<LibraryMutationSessionTarget> unprocessedTargets = [];
         private bool committed;
@@ -176,6 +179,41 @@ internal sealed partial class LibraryMutationOwner
                     resourceDirectoryRemovals.Add(path);
                 }
             }
+        }
+
+        /// <summary>
+        /// Retains executor-local recovery candidates that must survive aggregation into the
+        /// operation-scoped terminal receipt. These paths are diagnostics only and do not add
+        /// confirmed mutation facts.
+        /// </summary>
+        /// <param name="paths">Physical paths that may require manual confirmation or recovery.</param>
+        internal void AppendRecoveryCandidatePaths(IEnumerable<string> paths)
+        {
+            EnsureOpen();
+            foreach (string path in paths ?? [])
+            {
+                if (!string.IsNullOrWhiteSpace(path) && recoveryCandidatePathSet.Add(path))
+                {
+                    recoveryCandidatePaths.Add(path);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Retains a best-effort physical cleanup failure without changing the confirmed
+        /// mutation facts or stopping otherwise-safe suffix processing.
+        /// </summary>
+        /// <param name="failure">The cleanup failure observed after a physical move became durable.</param>
+        internal void RecordCleanupFailure(Exception failure)
+        {
+            EnsureOpen();
+            if (failure == null)
+            {
+                return;
+            }
+            cleanupFailure = cleanupFailure == null
+                ? failure
+                : new AggregateException(cleanupFailure, failure);
         }
 
         /// <summary>
@@ -294,7 +332,9 @@ internal sealed partial class LibraryMutationOwner
                 unprocessedTargets: unprocessedTargets,
                 applyFailure: applyFailure,
                 finalizationFailure: finalizationFailure,
+                cleanupFailure: cleanupFailure,
                 resourceDirectoryRemovalCount: resourceDirectoryRemovals.Count,
+                recoveryCandidatePaths: recoveryCandidatePaths,
                 itemFailures: itemFailures);
         }
 

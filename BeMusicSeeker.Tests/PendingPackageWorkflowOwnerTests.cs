@@ -21,24 +21,36 @@ namespace BeMusicSeeker.Tests;
 public sealed class PendingPackageWorkflowOwnerTests
 {
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task FixInstalledLocationsAsync_HandlesOnlyDeletionFailureAfterRelease(bool requiredFinalization)
+    public async Task FixInstalledLocationsAsync_ReportsSingleRepairSessionAfterRelease()
     {
         var events = new List<string>();
-        var catalogFailure = new IOException("repair deletion catalog failure");
-        var outcome = new LibraryChartRemovalOutcome([new("removed.bms", LibraryChartRemovalState.Confirmed)],
-            true, requiredFinalization, catalogFailure);
-        var store = new RecordingStore(events) { RepairFailure = new LibraryChartRemovalException(outcome) };
+        var catalogFailure = new IOException("repair catalog failure");
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            [
+                new LibraryMutationSessionTarget("moved.bms", "installed\\moved.bms"),
+                new LibraryMutationSessionTarget("removed.bms", string.Empty)
+            ],
+            durableCommit: false,
+            catalogChartRemovalCount: 1,
+            catalogChartPathChangeCount: 1,
+            applyFailure: catalogFailure);
+        var repairResult = new LibraryFixInstallationResult
+        {
+            SessionReceipt = sessionReceipt,
+            Failure = catalogFailure,
+            MovedCount = 1,
+            ApprovedRemovedCount = 1
+        };
+        var store = new RecordingStore(events) { RepairResult = repairResult };
         var gate = new ChartFileOperationSynchronizer();
         bool releasedAtReport = false;
         var dialogs = new FileDbReportRecordingDialogs
         {
             OnMessage = () =>
-        {
-            releasedAtReport = gate.TryEnter(out IDisposable lease) && events.Contains("activity-end");
-            lease?.Dispose();
-        }
+            {
+                releasedAtReport = gate.TryEnter(out IDisposable lease) && events.Contains("activity-end");
+                lease?.Dispose();
+            }
         };
         var owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate);
         var chart = CreateChart(installDestination: @"C:\Installed");
@@ -51,7 +63,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(1, dialogs.Messages.Count);
         Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages.Single().Icon);
         Assert.AreEqual(1, events.Count(value => value == "store-fix-installed-locations"));
-        Assert.AreSame(catalogFailure, outcome.CatalogFailure);
+        Assert.AreSame(sessionReceipt, store.RepairResult!.SessionReceipt);
         store.RepairFailure = new IOException("unrelated failure");
         Exception unrelated = await Assert.ThrowsExceptionAsync<IOException>(() => owner.FixInstalledLocationsAsync(request));
         Assert.AreSame(store.RepairFailure, unrelated);
@@ -59,11 +71,26 @@ public sealed class PendingPackageWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task FixInstalledLocationsAsync_ReportsFilesystemOnlyOutcomeWithoutStoppingContinuation()
+    public async Task FixInstalledLocationsAsync_ReportsRepairItemFailureWithoutStoppingContinuation()
     {
         var events = new List<string>();
-        var outcome = new LibraryChartRemovalOutcome([new("unverified.bms", LibraryChartRemovalState.NotExecuted)], true, true);
-        var store = new RecordingStore(events) { RemovalOutcome = outcome };
+        var itemFailure = new IOException("repair target not confirmed");
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            [],
+            durableCommit: false,
+            itemFailures:
+            [
+                new LibraryMutationSessionItemFailure(
+                    new LibraryMutationSessionTarget("unverified.bms", string.Empty),
+                    itemFailure)
+            ]);
+        var store = new RecordingStore(events)
+        {
+            RepairResult = new LibraryFixInstallationResult
+            {
+                SessionReceipt = sessionReceipt
+            }
+        };
         var dialogs = new FileDbReportRecordingDialogs { MessageFailure = new IOException("optional report failure") };
         var owner = CreateOwner(CreateLibrary, events, store, dialogs);
         Assert.IsTrue(RepairInstalledLocationRequest.TryCreate(
@@ -79,10 +106,14 @@ public sealed class PendingPackageWorkflowOwnerTests
     {
         var events = new List<string>();
         var laterFailure = new IOException("repair maintenance failure");
+        var sessionReceipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget("source.bms", "installed\\source.bms")],
+            durableCommit: true,
+            catalogChartPathChangeCount: 1,
+            finalizationFailure: laterFailure);
         var repairResult = new LibraryFixInstallationResult
         {
-            MutationReceipt = new FileDbMutationBatchReceipt([
-                FileDbMutationReportTests.Receipt(FileDbMutationTerminalState.Completed)]),
+            SessionReceipt = sessionReceipt,
             Failure = laterFailure
         };
         var store = new RecordingStore(events) { RepairResult = repairResult };
@@ -106,7 +137,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(1, dialogs.Messages.Count);
         Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages.Single().Icon);
         StringAssert.Contains(dialogs.Messages.Single().MessageBoxText, laterFailure.Message);
-        Assert.AreSame(repairResult.MutationReceipt, store.RepairResult!.MutationReceipt);
+        Assert.AreSame(sessionReceipt, store.RepairResult!.SessionReceipt);
         Assert.AreSame(laterFailure, store.RepairResult.Failure);
     }
 
@@ -189,8 +220,8 @@ public sealed class PendingPackageWorkflowOwnerTests
             Assert.AreEqual(1, dialogs.Messages.Count);
             Assert.AreEqual(0, dialogs.ModelMessages);
             Assert.AreEqual(1, events.Count(value => value == "store-fix-installed-locations"));
-            Assert.IsTrue(File.Exists(sourceChartPath));
-            Assert.IsFalse(File.Exists(destinationChartPath));
+            Assert.IsFalse(File.Exists(sourceChartPath));
+            Assert.IsTrue(File.Exists(destinationChartPath));
         }
         finally
         {
@@ -2078,7 +2109,6 @@ public sealed class PendingPackageWorkflowOwnerTests
             return DuplicateConfirmations;
         }
 
-        internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
         internal Exception? RepairFailure { get; set; }
         internal LibraryFixInstallationResult? RepairResult { get; set; }
 
@@ -2098,10 +2128,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             {
                 return FixInstalledLocationsAction(library, repairCharts, approvedDuplicateRemovalChartPaths);
             }
-            return RepairResult ?? new LibraryFixInstallationResult
-            {
-                RemovalOutcome = RemovalOutcome
-            };
+            return RepairResult ?? new LibraryFixInstallationResult();
         }
 
         public IReadOnlyList<ChartPackage> GetInstalledOnlyPendingPackages(BMSLibrary library)
