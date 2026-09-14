@@ -12,6 +12,7 @@
 - 性能上の最優先は、同じ仕事を正しく完了するまでの処理速度（wall-clock time / throughput）とする。省メモリ性や、UI 応答のための CPU 使用量抑制を優先しない。速度向上に有効な cache 保持・一括処理・操作内の独立計算の並列化を許容するが、データ整合性、ownership、取消、shutdown、WPF thread affinity は維持する。
 - 通常の設計前提は約21万譜面、約3万譜面フォルダ、800万規模の resource reverse lookup key、複数譜面・数百 resource を含み得る package とする。これは入力上限ではない。実ファイル数、directory 別 resource entry、reverse key、DB row を同じ件数として扱わない。
 - DB query、cache / snapshot / receipt、index、package loop、publication、scheduler / 並列度を変更する場合は、[データ規模と性能要件](devdocs/spec/performance-and-scale.md) を先に読み、全体件数と操作差分、全件処理の呼出回数、再利用・失効範囲、必要な逐次境界を計画とレビューに含める。exact 規模と参照記録は同 spec を正本にする。
+- 利用者が一回のライブラリ変更操作で複数の譜面・フォルダ・パッケージを変更する場合は、原則 `1 user operation = 1 mutation session / N changes` とする。対象ごとの判定や filesystem I/O が逐次でも、canonical DB apply、索引・cache反映、required publication を item ごとに完結させない。後続対象の判断が先行成功に依存する場合は operation-local な成功 facts / overlay で依存を満たし、例外が定義されていることだけを理由に per-item durable commit、rollback、全件再構築を正常系の既定にしない。詳細は [ライブラリ変更境界](devdocs/spec/library-mutation-boundary.md#mutation-session-契約) と [FS/DB整合](devdocs/spec/file-db-consistency.md) を正本にする。
 - 少数 install / delete の内側で全 catalog / 巨大 dictionary を反復走査・コピー・sort する設計や、no-op 判定前の全 root コピーを既定にしない。immutable な契約は全件複製を要求しない。全件処理が必要な例外は理由と実測を示す。
 - 性能は同条件・同じ完了範囲で操作別に比較する。別操作の短縮、低メモリ、低 CPU、first-visible だけの短縮で処理完了の退行を相殺しない。Functional 成功や小規模 corpus だけで大規模性能を検証済みとしない。未測定は明示する。
 

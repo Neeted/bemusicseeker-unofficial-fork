@@ -74,7 +74,7 @@ DB ファイルの bytes、index の bytes、平均 row / string / blob 長、�
 | cold lookup の初回構築 | 初回コストを明示し、同一世代で再利用・single-flight する。各パッケージで初回構築を繰り返さない。 |
 | 少数譜面の install / move / delete | パッケージ・譜面・フォルダの内側ループで全 catalog、全 reverse root、全 playlist entry を毎回列挙・コピー・sort する経路を既定にしない。 |
 | 候補フォルダの確認・LR2 同期 | 対象 path、関連 folder、必要な ancestor の情報を既存索引から得る。少数の有無判定のためだけに全BMS一覧と全 ancestor lookup を毎回作らない。 |
-| 多パッケージ・大量削除 | 同じ前処理・索引更新・通知を安全な操作境界で集約する。1操作全体を単一巨大 DB transaction にすることは要求しない。 |
+| 多パッケージ・複数移動・自動 rename・大量削除 | `1 user operation = 1 mutation session / N changes` とし、同じ前処理、canonical apply、索引更新、LR2同期、required publicationを操作境界で集約する。複数 durable surface を一つの物理 transaction に偽装することは要求しないが、item ごとに同じ owner apply を完結する構造も既定にしない。 |
 | 全一覧の新規 filter / sort | 全件処理が必要な query と、可視行の表示・更新を分ける。無関係な変更で全 order / projection を捨て、直後に再構築しない。 |
 
 特に `O(P * C)`、`O(P * K)`、`O(ΔD * K)` のように、小さな入力の反復回数と巨大な collection サイズが掛かる追加処理は退行リスクとしてレビューする。処理を別 owner、callback、constructor、property、`ToArray` / `ToDictionary` へ移しても仕事量は消えない。
@@ -103,9 +103,22 @@ DB ファイルの bytes、index の bytes、平均 row / string / blob 長、�
 
 ### 3.4 並列度と逐次性
 
-競合する利用者操作の同時受付、受理済み1操作内の計算並列度、Codex worker 数は別物である。既存の mutation admission、writer owner、DB / FS commit と回復境界は維持し、その内側の独立した読込・hash・parse・評価は速度向上のために並列化してよい。
+競合する利用者操作の同時受付、受理済み1操作内の計算並列度、同じ操作内の item 順序は別物である。既存の mutation admission と writer ownership は維持し、その内側の独立した読込・hash・parse・評価は速度向上のために並列化してよい。
+
+複数 item の判定や filesystem I/O を逐次にすることは、canonical DB / state / index / publication まで item ごとに commit する理由にならない。先行 package の実成功が後続 package の分類に必要な場合は、session-local な成功集合、ownership overlay、確定 destination を直ちに更新して後続判定へ渡し、canonical owner への反映は session 終端へ集約する。単一 item の失敗から後続を止める必要がある場合も、停止条件と既成功 change の扱いを session result に保持し、通常成功経路へ per-item durable receipt を追加しない。
 
 新しい並列化では依存・共有先・停止・結果順序を示し、逐次のままにする場合は必要な整合性境界または実測の競合コストを示す。feature spec にある現在の worker / lane 数は現行設定であり、CPU を低使用率に保つための恒久的な性能上限ではない。変更時には当該仕様と安全性検証を揃える。
+
+### 3.5 操作単位の mutation session
+
+複数選択、複数 package、一括 rename / move / delete の変更管理では、利用者が確定した一回の command を一つの mutation session とする。session は複数の成功 change を保持し、変更対象ごとの summary や timing から facts を再推測しない。
+
+- filesystem の rename / move / delete / copy は対象ごとに実行してよい。各成功から immutable な change を session へ追加する。
+- canonical DB、storage row、package reference、owned collection、reverse lookup、playlist / duplicate / parent cache、LR2 同期、required publication は、変更 facts を集約して各 surface へ原則一回適用する。surface 固有の SQL chunking や別 DB transaction は許容するが、item 数だけ同じ全体処理を繰り返さない。
+- deterministic な skip / collision / stale target は通常結果として集約する。予期しない FS / DB / canonical apply の例外は unsafe な後続を止め、確認済み成功と未確認対象を terminal result へ残す。全 item を元へ戻す擬似 transaction は性能契約に含めない。
+- session 内で次 item の判断に必要な状態は operation-local overlay へ反映する。overlay は後続判断のための作業状態であり、canonical publication や durable DB receipt と呼ばない。
+
+この契約の詳細と failure semantics は [library-mutation-boundary.md](library-mutation-boundary.md#mutation-session-契約) と [file-db-consistency.md](file-db-consistency.md) に従う。
 
 ## 4. 性能として何を計測するか
 
@@ -129,6 +142,7 @@ DB ファイルの bytes、index の bytes、平均 row / string / blob 長、�
 計測の出力方式は [logging-policy.md](logging-policy.md) に従う。新設・変更する診断では次を満たす。
 
 - operation / batch と package / phase を対応付け、開始・終了、入力・成功・失敗・skip 件数を追跡する。既存の operation identity を優先し、計測だけのために domain generation を増やさない。
+- 複数 change の mutation では `sessionCount`、`changeCount` と、catalog / storage / package reference / reverse lookup / LR2 / required publication の apply 回数を operation 単位で追跡できるようにする。正常な一括操作で `changeCount=N` に対して同じ canonical apply が `N` 回発生する状態は、wall-clock を測る前に構造上の性能退行として扱う。
 - 全体 wall time、内包する phase time、並列 worker の累積処理時間、queue / lock 待ちを区別する。入れ子や並列 stage の時間を独立区間として合算しない。
 - `moveMs` 等の名前と実際の計測範囲を揃える。範囲を変える場合は marker / 計測仕様の版を識別し、旧値と直接比較できないことを記録する。未計測値を0msの仕事として解釈させない。
 - 局所操作で重い可能性のある箇所は、total / affected row・key・directory 数、全件走査 / root clone / rebuild の回数・対象件数・時間、DB query / materialized row 数、物理 I/O 件数・bytes を必要な範囲で集約する。
@@ -187,6 +201,7 @@ baseline と候補は、変更前に決めた同じ条件で比較する。基�
 - **同じ結果であること:** 対象・成功・失敗・skip件数、必要なDB / FS / warning / projectionと安全性が同等。必要処理や警告を落とした速度向上は不合格。
 - **操作別に退行させないこと:** 再現する完了時間の増加を他操作の短縮や合計値で相殺しない。反復測定のばらつきで説明できない悪化は退行として報告し、未承認のまま「性能問題なし」としない。
 - **局所変更で全体仕事を増やさないこと:** section 3 の全件反復、no-opコピー、不要な再構築が増えていないことを仕事量と代表規模で確認する。小規模で速いことだけを受入根拠にしない。
+- **操作単位の反映回数を守ること:** 複数選択・複数 package の正常完了では、item 数に比例して canonical apply / invalidation / required publication が増えないことを構造と計測 marker の両方で確認する。逐次判定が必要でも session-local overlay と canonical apply を混同しない。
 - **遅延の付替えでないこと:** deferred / lazy / UI非同期化では、操作terminal、必要な後処理と後続操作の完了時間も比較する。
 - **未測定を明示すること:** 誤差・環境差で判定できない場合は「未判定」。機能testのみの成功は性能passではない。正しさ修正等のために遅延を受け入れる場合は、差・理由・代替案を明示して判断する。
 

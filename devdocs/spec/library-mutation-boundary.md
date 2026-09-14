@@ -9,6 +9,7 @@
 - mutation 中は譜面行 / 保留行 / package 行の context menu open と command 起動を拒否する。context menu の enable 判定で UI thread から file existence check を走らせない。
 - `BMSLibrary` の writer lock 中に `Dispatcher.Invoke`、message box、UI event callback、`Task.Wait` / `.Result` のような同期待ちは行わない。
 - 失敗を隠す fallback は追加しない。必要な確認が取れない場合は処理を進めず、境界違反は明示的な失敗にする。
+- 複数譜面・複数フォルダ・複数パッケージを一回の利用者操作で変更する場合は、`1 user operation = 1 mutation session / N changes` を変更管理の中心契約とする。item 単位の判定や filesystem 操作が逐次でも、canonical DB / state / index / required publication を item ごとに完結させない。
 
 ## ViewModel 境界
 
@@ -28,7 +29,7 @@ workflow側の責務は次のとおりである。
 
 file操作の確定内容は `LibraryCatalogMutationFacts`（削除・譜面/フォルダ移動）と `LibraryPackageReferenceFacts`（導入先・package参照）へ分け、入力列を構築時にコピーする。failure・件数・timingは操作別reportへ分離し、索引の要否判断には使わない。folder移動の既存row-path公開方針は明示的なpolicyで保持する。汎用Deltaと任意追加のroot入口は退役し、追加行は実install targetまたはscan replacementからのみ流す。
 
-`Lr2SynchronizationOwner` が共有の変更leaseを発行し、`LibraryFileOperationSynchronization` とcatalog依存の受付が、操作ごとのscopeとpath収束条件を接続する。既存file ownerを再編した `LibraryMutationOwner` が、削除・移動・マージと、導入・chart-info・maintenance・走査producerの確定結果から、共通反映と公開順序を管理する。`CatalogMutationOwner` はcatalogの保存・正本更新を、`CatalogOwnedCollectionOwner` は所持collection・hash・primary/full installed・playlist解決索引の状態と読み書きを所有する。
+`Lr2SynchronizationOwner` が共有の変更leaseを発行し、`LibraryFileOperationSynchronization` とcatalog依存の受付が、操作ごとのscopeとpath収束条件を接続する。既存file ownerを再編した `LibraryMutationOwner` が、削除・移動・マージと、導入・chart-info・maintenance・走査producerの確定結果から、共通反映と公開順序を管理する。利用者起点の multi-change 操作では `LibraryMutationOwner` が operation-scoped mutation session を所有し、各 physical success から得た typed facts を session change として集約してから canonical surface へ反映する。`CatalogMutationOwner` はcatalogの保存・正本更新を、`CatalogOwnedCollectionOwner` は所持collection・hash・primary/full installed・playlist解決索引の状態と読み書きを所有する。
 
 `BMSLibrary` は公開facade、producerの外側の受付・既存currentness同期、専門cacheと表示通知の接続を保持する。mutationの旧新facts組立て、semantic index反映、必須完了、公開用の操作内状態は `LibraryMutationOwner` のprivate実装であり、rootへ反映callbackを渡して代行させない。新しいcommand bus、queue、global gate、変更履歴cacheは置かない。追加ZIP予約やbackground処理等の受付例外は [並行性仕様 section 6](workflow-concurrency-and-complexity.md#6-操作種別ごとの共通既定と維持する例外) を維持し、UIの操作中表示だけで一律に拒否しない。
 
@@ -38,16 +39,29 @@ file操作の確定内容は `LibraryCatalogMutationFacts`（削除・譜面/フ
 
 | 操作・入口 | 要求・確定事実とwriter | 共通反映・公開単位 | 実操作の検証 |
 | --- | --- | --- | --- |
-| 選択譜面削除、重複チェックのmerge | [LibraryMutationOwner](../../BeMusicSeeker/Models/BMSLibrary.LibraryMutationOwner.cs) / [Merge](../../BeMusicSeeker/Models/BMSLibrary.LibraryMutationOwner.Merge.cs)。確認済み対象を現在catalogへ解決し、旧kind/exact path/MD5/SHAを捕捉。FS executor→CatalogMutationOwner | DBだけのPathCleanupと実在正本の除去を区別し、残存hash ownerを保つ。mergeは既存のlease解放後maintenance再受付を維持。sourceなしはlookup取得前に終了 | [LibraryMutationTests](../../BeMusicSeeker.Tests/OwnedChartCollectionLibraryMutationTests.cs)、[DuplicateServiceTests](../../BeMusicSeeker.Tests/BmsLibraryDuplicateServiceTests.cs)：独立2操作、後続getter、旧snapshot、種類別通知、FS/DB |
-| 手動移動・rename、自動rename、拡張子修正、導入先修正 | 同ownerと既存coordinator。`LibraryFolderMoveFacts` / `LibraryCatalogMutationFacts` / `LibraryPackageReferenceFacts`→catalog path receipt | 確定した旧新pathと成功対象を反映。通常拡張子修正の登録解除を保持。auto renameは外側capabilityを引継ぎ、batch終端のLR2同期・公開を保持 | [FolderRenameRefreshTests](../../BeMusicSeeker.Tests/BmsLibraryFolderRenameRefreshTests.cs)、[CatalogRelocationTests](../../BeMusicSeeker.Tests/BmsLibraryCatalogRelocationTests.cs)、[LibraryFileOperationsServiceTests](../../BeMusicSeeker.Tests/BmsLibraryLibraryFileOperationsServiceTests.cs) |
-| 自動・推定先・強制導入、resource-only導入 | [PackageInstall](../../BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs) の実executor結果→`ApplyInstalledChartStorageTargetsForFileMutation`。確定destinationの `ChartStorageTargetSet`→catalog upsert | durable前はdetached DB projection、後にlive ownerへ適用。共通target反映と必須完了、packageごとの解放後公開・先行成功を保持。譜面追加0でもresource/packageの必要反映を行う | [PackageInstallServiceTests](../../BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs)：4入口各16/128、連続操作、実FS/DB、resource警告、prefix |
+| 選択譜面削除、重複チェックのmerge | [LibraryMutationOwner](../../BeMusicSeeker/Models/BMSLibrary.LibraryMutationOwner.cs) / [Merge](../../BeMusicSeeker/Models/BMSLibrary.LibraryMutationOwner.Merge.cs)。確認済み対象を現在catalogへ解決し、旧kind/exact path/MD5/SHAを捕捉。削除は成功対象を一つのsessionへ集約し、mergeは単一changeでも同じsession APIを使う | 選択削除は全成功FS factsからcatalog/package/reverse lookupを一回反映。merge後maintenanceは同じuser operationのpost-commit phaseとしてterminalへ保持し、別のlibrary mutation sessionを作らない。sourceなしはlookup取得前に終了 | [LibraryMutationTests](../../BeMusicSeeker.Tests/OwnedChartCollectionLibraryMutationTests.cs)、[DuplicateServiceTests](../../BeMusicSeeker.Tests/BmsLibraryDuplicateServiceTests.cs)：独立2操作、後続getter、旧snapshot、種類別通知、FS/DB |
+| 手動移動・rename、自動rename、拡張子修正、導入先修正 | 同ownerと既存coordinator。複数対象は `LibraryFolderMoveFacts` / `LibraryCatalogMutationFacts` / `LibraryPackageReferenceFacts` を一つのsessionへ追加する | 複数folder move、auto rename、複数導入先修正はphysical changeを逐次実行してもcanonical applyは操作終端で一回。通常拡張子修正の既存batch構造を維持し、auto renameのLR2同期・reverse lookup・公開もsession終端へ集約する | [FolderRenameRefreshTests](../../BeMusicSeeker.Tests/BmsLibraryFolderRenameRefreshTests.cs)、[CatalogRelocationTests](../../BeMusicSeeker.Tests/BmsLibraryCatalogRelocationTests.cs)、[LibraryFileOperationsServiceTests](../../BeMusicSeeker.Tests/BmsLibraryLibraryFileOperationsServiceTests.cs) |
+| 自動・推定先・強制導入、resource-only導入 | [PackageInstall](../../BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs) と `BmsLibraryPackageInstallService`。各packageの実FS結果を同じinstall sessionへ追加し、確定destinationの `ChartStorageTargetSet` / package factsを集約する | 先行packageの実成功だけをsession-local ownership overlayへ直ちに追加して後続分類へ使う。canonical storage/catalog/package state、resource index、maintenance target、required publicationは全package終端で集約反映する。譜面追加0でもresource/packageの必要changeをsessionへ残す | [PackageInstallServiceTests](../../BeMusicSeeker.Tests/BmsLibraryPackageInstallServiceTests.cs)：4入口各16/128、連続操作、実FS/DB、resource警告、prefix |
 | inline / background chart-info | [CatalogChartInfoOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/CatalogChartInfoOwner.cs)→typed storage write→DB/canonical digest→`PrepareOwnedChartDigestPublication` | 同じ反映結果を一度だけ組立てて索引へ適用。chart-info session更新とdigest window解放後に公開Actionを実行 | [InlineDigestTests](../../BeMusicSeeker.Tests/OwnedChartCollectionInlineDigestTests.cs)、[ChartInfoInlineHydrationTests](../../BeMusicSeeker.Tests/ChartInfoInlineHydrationTests.cs)：通知内のhash/session/playlist、failure |
 | 通常・推定maintenance、resource警告ignore | 既存maintenance受付→CatalogMaintenanceOwnerの限定保存receipt→共通反映 | metadata/resourceの実変更だけを反映。membership差分0を理由に省略せず、hash不変でinstalled全失効を起こさない。既存lease・解放後公開 | [MaintenanceServiceTests](../../BeMusicSeeker.Tests/BmsLibraryMaintenanceServiceTests.cs)：連続差分、通知時状態、警告、DB |
 | 起動走査・ReloadFileDiff・全再初期化 | [LibraryFileScanPipelineOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/LibraryFileScanPipelineOwner.cs)→`FileScanCatalogReplacementEvent` / residual facts | request/receiptとresource世代を共通反映へ渡す。全置換本来の失効を維持し、空residualで追加失効・通知なし。解放後公開 | [Lr2SongDbSyncTests](../../BeMusicSeeker.Tests/BmsLibraryLr2SongDbSyncTests.cs)、[RefreshTests](../../BeMusicSeeker.Tests/OwnedChartCollectionRefreshTests.cs)：readiness、通知内索引、旧snapshot、terminal |
 | pendingのみの追加・削除・推定先設定、導入済みpackage記録のみの削除 | 既存PackageLifecycleOwner等の要求・writerを維持 | 所持catalogのmembership変更とは別の契約。導入・移動の複合操作に含まれる場合だけ共通反映から参照更新順を接続 | [PackageLifecycleOwnerTests](../../BeMusicSeeker.Tests/BmsLibraryPackageLifecycleTests.cs)、既存pending/導入workflow tests |
 | encoding指定、playlist・score・IR関連更新 | `SetBMSFilesEncoding`→CatalogMaintenanceOwnerの限定write、playlist参照owner、BMS-only level writeback等の既存専門入口 | membership/path/hashの変更と区別する。encodingセル等の限定更新で所持collectionを全再公開しない。必要なwarning/maintenance表示の変更は共通effectへ接続 | [FolderRenameRefreshTests.SetBMSFilesEncoding_UpdatesEncodingCellWithoutLibraryCollectionChanged](../../BeMusicSeeker.Tests/BmsLibraryFolderRenameRefreshTests.cs)、[PlaylistReferenceServiceTests](../../BeMusicSeeker.Tests/BmsLibraryPlaylistReferenceServiceTests.cs)。score/IR等全機能の再検証を今回の受入としては扱わない |
 
-writer receiptが確定した内容を反映の正本とし、操作summaryの件数・failure・timingから対象を再推測しない。durable後の必須完了失敗と通知失敗を区別し、確定済みprefixを破棄しない。削除・導入・移動・metadataの各実入口と後続読取りで検証し、一つの内部applyテストを全操作の受入に代用しない。
+writer / filesystem result が確定した内容を反映の正本とし、操作summaryの件数・failure・timingから対象を再推測しない。durable後の必須完了失敗と通知失敗を区別し、確定済みprefixを破棄しない。削除・導入・移動・metadataの各実入口と後続読取りで検証し、一つの内部applyテストを全操作の受入に代用しない。
+
+### Mutation session 契約
+
+利用者が確認・実行した一回のライブラリ変更 command は一つの logical mutation session が所有する。session は複数 change を持てるが、change 自体を durable session や public publication の単位にしない。単一対象の操作も同じ API を使ってよい。
+
+1. **開始:** outer mutation lease / capability を取得した command owner が session を一回だけ開始する。item loop の内側で別 session を作らない。
+2. **変更収集:** filesystem / package executor が確認した成功から immutable な `LibraryCatalogMutationFacts`、`LibraryPackageReferenceFacts`、storage target、resource / LR2 change を追加する。skip、collision、stale、failure は terminal facts として別に保持し、成功 change に偽装しない。
+3. **逐次依存:** 後続 package の分類やdestination解決が先行成功に依存する場合は、session-local ownership / destination overlay を更新して参照する。この overlay は canonical DB、installed lookup、publication を更新した証拠ではない。
+4. **commit / apply:** session 終端で facts を正規化・集約し、catalog、storage rows、package references、owned/index state、reverse lookup、LR2 sync、required publication を各 surface の契約に従って operation 単位で適用する。複数 DB を一つの物理 transaction に統合することは要求しないが、item 数だけ同じ canonical apply を繰り返さない。
+5. **失敗:** deterministic な item-level no-op / rejection は操作結果へ集約して継続可否を機能契約で決める。予期しない FS / DB / required internal apply の例外では unsafe な後続を止め、確認済み成功、失敗対象、未処理対象をsession resultへ保持する。全成功 item の rollback、transaction replay、crash recoveryを通常契約にしない。
+6. **公開:** required internal apply が完了してから、一つのsession resultに基づくpublic notification / terminal reportをlease解放後に行う。cache warmup等のbest-effort処理をitemごとに開始しない。
+
+この契約への production route 移行は [operation-scoped mutation session 実装計画](../plan/library-mutation-session-batching-plan.md) を正本とする。移行中の既存 `FileDbMutationExecutor` / per-item receipt は互換性の恒久要件ではない。
 
 ### compositionに残す接続
 
@@ -219,9 +233,9 @@ The old `BmsLibraryInitializationServiceTests` selector is absent from the route
 
 ## File / DB durable boundary
 
-アプリ全体の FS+DB の保証・非保証、前方回復、失敗の表示、レビューで受け入れる制限は [file-db-consistency.md](file-db-consistency.md) を正本とする。以下の `COMP-*` は `FileDbMutationExecutor` を使う既存経路の限定補償契約であり、削除等を含むすべての mutation に FS rollback を要求するものではない。この仕様整理だけでは、既存の補償や caller の挙動を変更しない。
+アプリ全体の FS+DB の保証・非保証、前方回復、失敗の表示、レビューで受け入れる制限は [file-db-consistency.md](file-db-consistency.md) を正本とする。以下の `COMP-*` は `FileDbMutationExecutor` を使う既存・移行中経路の限定補償契約であり、削除等を含むすべての mutation に FS rollback を要求するものではない。
 
-package install、estimated install、smart overwrite、folder move、merge、自動リネームは、共通の file/DB mutation boundary を使う。各 command は immutable な preflight plan を完成させてから executor を呼び、executor は destination filesystem 内の sibling staging / backup を使う。source は DB の durable success まで削除しない。
+package install、estimated install、smart overwrite、folder move、merge、自動リネームの現行経路には item ごとに `FileDbMutationExecutor` を完結するものがあるが、multi-change 操作の恒久契約は [Mutation session 契約](#mutation-session-契約) とする。immutable な preflight / destination type guard、source保全等の有用な局所安全策は維持してよい一方、DB durable receiptをitemごとに作ること自体は要件ではない。session移行後は、確認済みphysical successをchangeとして蓄積し、canonical durable applyをoperation境界へ集約する。source cleanupをdurable apply後へ遅延できる操作ではsession終端まで遅延する。
 
 executor の receipt は commit 前後を区別する terminal state を持つ。
 
@@ -233,27 +247,27 @@ executor の receipt は commit 前後を区別する terminal state を持つ�
 - `COMP-CLEANUP`: durable success 後の cleanup failure は `CompletedWithCleanupFailure` とし、leftover と recovery paths を保持する。fresh install / pending retry には戻さない。
 - `COMP-SUCCESS`: destination と DB が authoritative で、必要な内部 apply と post-commit cleanup が完了する。post-lease notification は下記の best-effort 契約に従い、通知失敗で durable result を変更しない。
 
-receipt と recovery paths は package / folder command の public result と UI workflow completion まで保持する。legacy の void / failure-list だけで terminal outcome を表現してはならない。
+移行前 executor の receipt / recovery paths と、移行後 session の confirmed / failed / unprocessed facts は、package / folder command の public result と UI workflow completion まで保持する。legacy の void / failure-list だけで terminal outcome を表現してはならない。
 
 ### Folder terminal reporting
 
-手動 folder rename、選択 folder move、duplicate folder merge の canonical terminal は、receipt の異常結果を操作終了後に一度だけ `FileDbMutationReport` で集約表示する。model lease、外側 gate、activity、dialog scope の終了処理を済ませてから既存 `IUiDialogService` を await する。全正常は無通知、cleanup-only は durable success を保持した Warning、未 commit・manual recovery・必須反映失敗は Error とし、混在時も全 failure 次元と先行 durable item を保持する。任意 subscriber／reporter の failure は診断だけに記録し、primary failure と receipt を変更せず再通知・再実行しない。
+手動 folder rename、選択 folder move、auto rename、duplicate folder merge の canonical terminal は operation-scoped session result とし、異常結果を操作終了後に一度だけ集約表示する。model lease、外側 gate、activity、dialog scope の終了処理を済ませてから既存 `IUiDialogService` を await する。全正常は無通知、cleanup-only は durable success を保持した Warning、未 commit・required internal apply failure・未確認 physical result は Error とし、混在時も confirmed success と failure / unprocessed を保持する。任意 subscriber／reporter の failure は診断だけに記録し、primary failure と session result を変更せず再通知・再実行しない。
 
-表示は操作名、receipt により確認した操作件数・確定済み／未確定・finalization／cleanup／manual の各件数、確認候補、手動確認とログ参照の案内を含む。件数はファイル数ではない。候補は実在確認を行わず最大 3 件・各 240 文字、代表 error は最大 3 件・各 400 文字、本文は 4096 文字以内とし、全対象・例外は既存 logger へ best effort で記録する。自動 retry・復旧保証は案内しない。
+表示は操作名、session result により確認した change 件数・確定済み／未確定・cleanup／required apply failure の各件数、確認候補、手動確認とログ参照の案内を含む。件数はファイル数ではない。候補は実在確認を行わず最大 3 件・各 240 文字、代表 error は最大 3 件・各 400 文字、本文は 4096 文字以内とし、全対象・例外は既存 logger へ best effort で記録する。自動 retry・復旧保証は案内しない。
 
-canonical caller は `reportAtTerminal: true` を明示して receipt-backed 個別表示だけを抑止する。互換 caller と receipt のない preflight／destination-exists 拒否は従来の通知を保持する。これに伴う executor、補償、batch 停止・継続条件の変更はない。
+移行中の `FileDbMutationReport` / `reportAtTerminal` は既存 executor receipt をこの terminal へ接続するためだけに維持できる。session 移行済み route に per-item report suppression のための新しい互換 flag を追加しない。receipt のない preflight／destination-exists 拒否は従来の通知を保持する。
 
 ### Exclusive lease and deferred effects
 
-ファイルを変更する command は、preflight confirmation の後に短い sequence admission を行い、その sequence monitor を解放してから `LibraryFileMutationLease` を取得する。拒否時も sequence monitor と既に取得した scope を直ちに解放し、拒否 dialog を monitor 内で待たない。lease は LR2 同期と他の file mutation に対して排他的であり、filesystem executor、durable DB apply、compensation / cleanup、内部 finalization が終わるまで保持する。
+ファイルを変更する command は、preflight confirmation の後に短い sequence admission を行い、その sequence monitor を解放してから `LibraryFileMutationLease` を取得する。拒否時も sequence monitor と既に取得した scope を直ちに解放し、拒否 dialog を monitor 内で待たない。lease は LR2 同期と他の file mutation に対して排他的であり、session 内の filesystem changes、operation-scoped durable apply、required internal finalization と必要なcleanupが終端するまで保持する。移行前 executor route では既存 compensation / cleanup まで保持する。
 
 folder move、auto-rename、merge の snapshot は initialized-min read、pending-install write、BMS-files write の順で取得し、逆順で解放する。その他の route は必要な短い route-specific snapshot lock だけを取得する。いずれの場合も snapshot / model / package / collection lock は filesystem I/O、DB apply、compensation / cleanup、内部 finalization の前にゼロに戻す。
 
 ネストされた DB / catalog / file apply は、現在の outer lease から明示的に発行された `LibraryFileMutationCapability` を引数として渡す。capability は所有者、lease の生存、dispose 状態を検証し、ambient `AsyncLocal`、thread、monitor reentrancy を認可には使用しない。通常の外部 entry は同一 thread からの再入でも拒否する。
 
-配置変更の反映範囲は、共通applyが成功したstorage/path、folder、install destination、installed package pathのfactsから決める。move・手動/自動rename・通常拡張子修正・導入先修正のcallerは索引失効を個別指定しない。自動renameは各itemのcatalog applyにも外側のlive capabilityを渡し、LR2 normal-folder同期と通常refreshは既存のbatch終端で集約する。権限なしの専用apply callbackは持たない。
+配置変更の反映範囲は、session に追加されたstorage/path、folder、install destination、installed package pathのconfirmed factsから決める。move・手動/自動rename・通常拡張子修正・導入先修正のcallerは索引失効を個別指定しない。自動renameと複数folder moveは外側のlive capabilityから一つのsessionを開始し、LR2 normal-folder同期と通常refreshを含むcanonical applyをsession終端で集約する。権限なしの専用apply callbackは持たない。
 
-この契約の実装は LibraryMutationOwner、AutoRenameBatchCoordinator、BMSLibraryの共通反映、LibraryFolderMoveCoordinatorに対応する。BmsLibraryFolderRenameRefreshTestsの実rename（背景16/128・2操作）、auto batch/部分失敗、repairと、BmsLibraryPackageInstallServiceTests.RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner、関連workflow testsで、FS/DB、索引、旧snapshot、通知と受付を確認する。
+この契約の実装移行は LibraryMutationOwner、AutoRenameBatchCoordinator、BMSLibraryの共通反映、LibraryFolderMoveCoordinatorを対象とし、詳細は [mutation session 実装計画](../plan/library-mutation-session-batching-plan.md) に従う。BmsLibraryFolderRenameRefreshTestsの実rename（背景16/128・2操作）、auto batch/部分失敗、repairと、BmsLibraryPackageInstallServiceTests.RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner、関連workflow testsで、FS/DB、索引、旧snapshot、通知と受付を確認する。
 
 `installable_maintenance` は自身の outer `LibraryFileMutationLease` を一度だけ取得し、mode detection と catalog maintenance をその lease 内の通常処理として capability-free に完了する。内側で lease を取り直さず、Unit A のこの route では `LibraryFileMutationCapability` を作成・伝播しない。capability を保持するのは、package の installed-target durable completion から LR2 normal-folder sync までを同じ outer lease でつなぐ実在の nested bridge だけであり、その bridge の under-existing-lease entry で owner / lease lifetime / dispose を一度だけ検証する。
 
@@ -267,11 +281,13 @@ LR2 custom-folder 出力を伴うローカル playlist 編集は、entry hydrati
 
 `TryRunLr2SongDbSyncDataPreparation(...)` も admission を一回だけ試み、busy の場合は同じ呼び出し内で待機、lease 解放後の再開、内部 retry を行わず、false を terminal に返す。lease 解放後に再実行できるのは新しい明示 request だけである。LR2 preparation の playlist / builtin generated-data bridge は concrete runtime の nested entry に閉じ、request / DTO / coordinator / ordinary helper は capability-free semantic operation とする。
 
-`FileDbMutationExecutor` は live outer session 内で durable DB apply を終えた後、session-local な one-shot `DurableFinalizer` をちょうど一度だけ実行する。receipt は callback-free の immutable な terminal fact であり、receipt 自身の callback、replay、retry を持たない。内部 finalizer が throw した場合は `DurableFinalizationFailed` として `Failed` / `ManualRecoveryRequired` と同じく成功 publication を付けず、command owner は canonical finalization 後に plain な one-shot publication action を command-owned の post-lease list へ記録する。lease と全 model lock を解放した後、その list を best-effort で実行し、subscriber / dialog / UI scheduler の失敗は durable / cleanup terminal state、compensation、retry、既存の primary failure を変更せず、後続 publication を中断しない。dialog、UI scheduler / Dispatcher、PropertyChanged / public subscriber、terminal progress / terminal publication、通常 refresh / index warmup、task start、別 owner callback はこの post-lease phase に遅延する。失敗・manual・durable-finalization-failure receipt の対象 item は成功 publication されない。中間 progress だけは feature-local の narrow writer へ immutable fact を nonblocking に送れるが、owner 側 consumer は latest-wins の pending / draining を各1以下に制限し、model / package / collection lock を保持せずに配信する。writer は terminalization 開始時に seal し、同一 generation の late progress を捨てる。中間 progress や診断通知の失敗は durable / cleanup terminal state、compensation、retry、既存の primary failure を変更しない。
+移行前の `FileDbMutationExecutor` は live outer lease 内で durable DB apply を終えた後、one-shot `DurableFinalizer` を実行する。receipt は callback-free の immutable terminal fact とし、receipt 自身の callback、replay、retry を持たない。この契約は残存 executor route に限定し、multi-change session の item ごとに durable finalizer を作る根拠にしない。
+
+session 移行済み route は、全 confirmed changes の required internal apply を session commit で完了してから plain な one-shot publication action を command-owned の post-lease list へ記録する。lease と全 model lock を解放した後、その list を best-effort で実行し、subscriber / dialog / UI scheduler の失敗は durable / cleanup terminal state、retry、既存の primary failure を変更せず、後続 publication を中断しない。dialog、UI scheduler / Dispatcher、PropertyChanged / public subscriber、terminal progress / terminal publication、通常 refresh / index warmup、task start、別 owner callback はこの post-lease phase に遅延する。中間 progress だけは feature-local の narrow writer へ immutable fact を nonblocking に送れるが、owner 側 consumer は latest-wins の pending / draining を各1以下に制限し、model / package / collection lock を保持せずに配信する。writer は terminalization 開始時に seal し、同一 generation の late progress を捨てる。中間 progress や診断通知の失敗は session terminal state、retry、既存の primary failure を変更しない。
 
 ### 導入targetの確定と共通反映
 
-自動・推定先・強制・resource-only導入は、確定destinationとstorage ownerを同じtargetとしてcatalogへ渡す。DB用rowはdetached projectionで作り、DB durable後にlive ownerのpath/folderとstorage/canonicalを更新する。入力を作るための一時的なlive path差替え・復元は行わない。通常変更とupsertの反映結果はstorage factsを起点とする共通組立を使い、upsert固有のexact replacementとpackageごとの確定境界を保つ。
+自動・推定先・強制・resource-only導入は、確定destinationとstorage ownerを同じtargetとしてsessionへ渡す。DB用rowはdetached projectionで作り、session durable apply後にlive ownerのpath/folderとstorage/canonicalを更新する。入力を作るための一時的なlive path差替え・復元は行わない。通常変更とupsertの反映結果はstorage factsを起点とする共通組立を使い、upsert固有のexact replacementを保つ。packageごとのphysical successは後続判定用overlayへ反映するが、canonical確定境界はuser operationのsession終端とする。
 
 resource-onlyで譜面targetが空ならowned collection versionを進めない。必要なinstall row削除、resource移動、package表示のdestination health/warningは反映する。移動後にも未充足の参照が残れば警告は保持する。操作内target再利用は同じchart集合のときだけ行い、追加対象を古いtargetで隠さない。
 
@@ -287,18 +303,18 @@ resource-onlyで譜面targetが空ならowned collection versionを進めない�
 
 `MovePackageFilesWithReceipt` は source cleanup の同意を `PackageSourceCleanupPolicy` として明示的に受け取る。`PreserveUnconsumedContents` は preflight で移動・消費した source だけを durable receipt 後に削除し、除外された譜面や同梱物を残す。`DeleteVerifiedResidualContents` は追加削除を許可するが、preflight で記録した source / `delete_parent` 範囲の全残存候補を評価する。候補がすべて対応する BMS / BMSON で読取・確定 hash 化でき、既存 catalog の独立した primary-hash 所持証拠に一致する場合だけ、その file 群をまとめて追加削除する。一つでも非譜面、読取不能、hash 不一致、未所持があれば追加分を全件保持する。source 自身や未実行の予約・計画だけは所持証拠に数えない。
 
-`delete_parent` は候補範囲を記録するだけで、destination またはその祖先を cleanup 対象にしない。parent とその descendant directory は移動後に空であることを確認できる場合だけ深い順に削除し、残存 file がある場合は残す。追加 cleanup は durable receipt の後にだけ実行し、receipt を maintenance、score、state projection より先に batch へ保持してから後段処理へ進む。後段の必須 projection callback が失敗した場合も、先行 durable receipt を `WithFinalizationFailure` で保持して後続 package を開始しない。通常、推定、auto、force、resource-only、merge の caller は同じ操作の設定 snapshot と独立した所持 hash snapshot を一度取得し、policy とともに receipt batch へ渡す。
+`delete_parent` は候補範囲を記録するだけで、destination またはその祖先を cleanup 対象にしない。parent とその descendant directory は移動後に空であることを確認できる場合だけ深い順に削除し、残存 file がある場合は残す。追加 cleanup は destination の physical success と session durable apply が確定した後にだけ実行する。cleanup failure は該当packageのterminal factsとしてsession resultへ残し、canonical applyを再実行しない。後段のrequired projection / internal applyが失敗した場合は後続packageを開始せず、confirmed physical successとfailure phaseを同じsession resultへ保持する。通常、推定、auto、force、resource-only、merge の caller は同じ操作の設定 snapshot と独立した所持 hash snapshot を一度取得し、policy とともに同じsessionへ渡す。
 
 LR2 preparation の中間 stage / table / batch progress は `BMSLibrary` の既存 facade dispatcher queue が latest-state として coalesce して配信し、lease 保持中に public `PropertyChanged` subscriber を同期実行しない。dispatcher drain 内の subscriber 例外はログ後に次の property を継続し、generated output、LR2 folder row、DB status の durable 結果や terminal failure を変更しない。
 
 
-batch で compensation を所有するのは一つの owner だけであり、per-item owner や rollback-of-rollback は追加しない。crash replay、persistent journal、cross-volume atomicity、TOCTOU の解消はこの境界の主張に含めない。destination-exists の folder move は従来どおり reject とし、merge / overwrite は新設しない。
+残存 executor route で compensation を所有するのは一つの owner だけであり、per-item owner や rollback-of-rollback は追加しない。session route では full-batch rollback を新設しない。crash replay、persistent journal、cross-volume atomicity、TOCTOU の解消はこの境界の主張に含めない。destination-exists の folder move は従来どおり reject とし、merge / overwrite は新設しない。
 
-### Remaining receipt consumers
+### Mutation session result consumers
 
-自動 folder rename（選択／全件）、drop install、保留の強制／手動導入四経路は、既存 `FileDbMutationReport` に操作終了後の receipt を一度だけ渡す。自動 rename の refresh 判定、drop の登録 package 件数、保留 view 更新／navigation は既存条件を維持し、異常報告の条件には使わない。自動 rename は completion と failure の両方を consumer が購読する。正常は silent、cleanup-only は durable success を保持した Warning、未 commit／manual recovery／必須反映失敗は Error とする。
+自動 folder rename（選択／全件）、drop install、保留の強制／手動導入を含む multi-change route は、操作終了後に operation-scoped session result を一度だけ workflow terminal へ渡す。auto rename の refresh 判定、drop の登録 package 件数、保留 view 更新／navigation は既存条件を維持し、異常報告の条件には使わない。正常は silent、cleanup-only は durable success を保持した Warning、未 commit／required internal apply failure／未確認physical resultは Error とする。
 
-外側 gate、activity、dialog scope cleanup の failure が receipt 取得後に起きても、receipt、durable prefix、primary、cleanup、recovery paths を terminal まで保持する。任意 report failure は診断のみとし、mutation／通知の再試行をしない。receipt のない事前拒否と legacy caller の通知、および無関係な lifecycle failure の伝播を維持する。`reportAtTerminal: true` による個別通知抑止は接続済み canonical route に限る。
+外側 gate、activity、dialog scope cleanup の failure が session result 取得後に起きても、confirmed success、primary、cleanup、recovery / confirmation paths を terminal まで保持する。任意 report failure は診断のみとし、mutation／通知の再試行をしない。sessionを開始する前の事前拒否と無関係な lifecycle failure の伝播を維持する。移行前routeの `FileDbMutationReport` / `reportAtTerminal` は session result への置換が完了するまでの接続に限定する。
 
 #### Verification map — FSDB-B-20260905
 

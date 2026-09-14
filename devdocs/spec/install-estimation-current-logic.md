@@ -2,6 +2,8 @@
 
 この資料は、BeMusicSeeker の導入先推定処理の正本です。実装履歴ではなく、現行コードが前提にしている入力、候補生成、評価、tie-break、confidence の意味をまとめます。
 
+> 2026-09-14: 本資料の「推定先への移動」「Estimated install mutation boundary」にある package ごとの durable receipt / finalizer は、現行コードの移行前挙動を記録する。恒久的な変更管理契約は [Library Mutation Boundary](library-mutation-boundary.md#mutation-session-契約) の `1 user operation = 1 mutation session / N changes` とし、estimated / auto / force / manual / resource-only / cleanup-only install の具体的な移行は [Operation-scoped Library Mutation Session 実装計画](../plan/library-mutation-session-batching-plan.md#s5--全-package-install-入口を-operation-scoped-install-session-へ統合する) S5 を正本とする。先行 package の**実成功だけ**を後続判定へ反映する correctness は維持し、canonical DB / index / publication の package ごとの確定とは分離する。
+
 関連する主な実装は `BMSLibrary` と `BmsLibraryInstallEstimationService` です。package 側の入力 snapshot は `PackageInstallEstimationSnapshot`、resource index は `LibraryResourceIndex` / `DirectoryResourceLookupCache` を正本にします。
 
 ## 目的
@@ -404,7 +406,7 @@ metadata frontier が発生した場合は `estimate_install metadata_frontier` 
 
 ## Estimated install mutation boundary
 
-推定処理が選んだ destination へ実際に pending package を導入する処理は、推定結果の計算とは別に、`FileDbMutationBoundary` の receipt-aware route を使う。estimated install、cleanup-only、smart overwrite、auto-install の user-visible route は同じ durable boundary を通り、旧来の source-first delete / copy-default route へ意味を変えた fallback をしない。
+以下は S5 移行前の現行実装を説明する。推定処理が選んだ destination へ実際に pending package を導入する処理は、推定結果の計算とは別に、`FileDbMutationBoundary` の receipt-aware route を使う。estimated install、cleanup-only、smart overwrite、auto-install の user-visible route は同じ durable boundary を通り、旧来の source-first delete / copy-default route へ意味を変えた fallback をしない。S5 完了後は package ごとの durable boundary ではなく operation-scoped install session が正本となり、本節も実装に合わせて更新する。
 
 - preflight では対象と destination を immutable に snapshot し、filesystem / DB を変更しない。
 - staging、overwrite backup、promote は destination filesystem 内の sibling に限定する。

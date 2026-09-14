@@ -1,12 +1,12 @@
 # ファイル操作と DB 操作の整合性・補償契約
 
-最終更新: 2026-09-11
+最終更新: 2026-09-14
 
 ## 1. 目的と適用範囲
 
 本資料は、アプリ内で filesystem（FS）と DB を変更する操作について、不整合を減らす設計、補償の範囲、利用者へ伝える結果、受け入れる制限の正本とする。ライブラリ削除だけでなく、導入、移動、rename、merge、生成ファイルと関連 DB の更新にも適用する。`FileDbMutationBoundary.cs` を使うこと自体を全操作の要件にはしない。
 
-これは共通の設計・レビュー契約であり、全既存経路が対応済みであるという宣言ではない。現行の限定的な補償契約は section 4、確認済みの未達と後続作業は [整合性契約の適用計画](../plan/file-db-consistency-follow-up.md) に分ける。この文書の追加だけで production behavior、DB schema、既存テストの期待値は変更しない。
+これは共通の設計・レビュー契約であり、全既存経路が対応済みであるという宣言ではない。現行の限定的な補償契約は section 4、operation-scoped batching への移行は [mutation session 実装計画](../plan/library-mutation-session-batching-plan.md)、その他の整合性未達は [整合性契約の適用計画](../plan/file-db-consistency-follow-up.md) に分ける。`FSDB-SESSION` は採用済みの正常系設計契約であり、移行単位ごとに production behavior とテストを更新する。
 
 並行性と ownership は [workflow-concurrency-and-complexity.md](workflow-concurrency-and-complexity.md)、ライブラリ操作の lease、finalization、notification の詳細は [library-mutation-boundary.md](library-mutation-boundary.md) に従う。DB 内だけの transaction、updater の backup／journal／rollback、取り込み前の一時ファイルの cleanup は、それぞれの既存契約を維持する。本資料を、それらの保証を取り除く根拠にはしない。
 
@@ -15,8 +15,9 @@
 | ID | 契約 |
 | --- | --- |
 | `FSDB-ORDER` | 確認済みの対象と計画を一つの command owner が扱い、既存の競合操作の排他境界内で FS、DB、canonical state、通知の順序を明示する。事前に判定できる不正入力や未承認の対象は、破壊的な I/O より前に拒否する。 |
+| `FSDB-SESSION` | 複数対象を含む一回の利用者ライブラリ変更は、一つの logical mutation session に複数 change を蓄積する。item ごとの FS I/O や後続判断が逐次でも、例外・補償の存在だけを理由に canonical DB apply、index/cache反映、required publication を item ごとに完結しない。複数 durable surface は別 transaction のままでよい。 |
 | `FSDB-FACTS` | 成功、失敗、部分完了の判断を、対象操作で確認できた FS の結果、DB commit、必要な内部反映の事実に基づける。未確認の結果を成功または変更なしと推測しない。 |
-| `FSDB-FORWARD` | 既に成功した FS 操作や別 item の durable commit を、操作全体を原子的に見せる目的で一律に巻き戻す必要はない。保持されたデータと現在の状態から安全に整合を取り直すことを既定とする。既存の限定補償は section 4 に従う。 |
+| `FSDB-FORWARD` | 既に確認できた FS 操作や session 内の成功 change を、操作全体を原子的に見せる目的で一律に巻き戻す必要はない。保持されたデータと現在の状態から安全に整合を取り直すことを既定とする。移行中の限定補償は section 4 に従う。 |
 | `FSDB-REPORT` | 捕捉した不整合・部分失敗を通常の完了として黙って扱わない。対象、完了が確認できた段階、未完了または未確認の範囲、次に取れる対応を、利用可能な terminal result／UI と診断へ伝える。 |
 | `FSDB-LIMITS` | FS と DB を跨ぐ原子性、全失敗地点からの自動復旧、復旧完了までの時間、再起動を跨ぐ自動収束は保証しない。走査結果が 0 件の場合の保護により DB が収束しないことも許容する。 |
 
@@ -30,9 +31,10 @@ FS と DB は同じ transaction に参加しない。DB の commit 成功は FS 
 
 1. **破壊的処理前に対象と意味を決める。** stable identity、実際に使う path、上書き・削除の承認範囲を既存 owner の入口で確定する。既に検証された invariant の下流で、同じ確認や version token を増やさない。DB の試し書き等で「後の commit は失敗しない」と保証しようとしない。
 2. **同じ計画の事実を各段階へ渡す。** 実際の destination、削除・保持した対象を FS と DB の両方で使う。途中で別の path を再計算したり、失敗後に対象を拡大したりしない。DB 行の削除には旧行の exact key、追加・更新には現在の exact path を使い分ける。同じ実体へ解決されることを理由に別の DB 行まで対象へ加えない。上流が複数行を対象と確認した場合は各 exact key を明示し、DB・storage rows・owned collection へ同じ対象集合を渡す。比較と relink は [path-identity.md](path-identity.md) に従う。
-3. **単一 DB 内では transaction を使う。** 一体で保存すべき関連行は既存 gateway／owner の transaction にまとめる。DB 内の rollback と FS に対する補償は別の契約とし、DB を rollback しただけで FS も元に戻ったと扱わない。複数 DB や外部出力も一つの commit と見なさない。
-4. **必要な順序を owner 内で閉じる。** durable result、canonical memory／関連参照の必須反映、任意の UI notification を区別する。必要な内部反映の失敗を、通知失敗や単なる cleanup 残りへ格下げしない。model lock／DB transaction を長時間の FS I/O や UI 待機のために保持しない。
-5. **失敗後に被害を増やさない。** 状態を確定できない対象の後続破壊的処理と、それに依存する成功処理を止める。独立 item の継続可否は各 batch の既存契約に従い、成功済み item の一括 rollback は追加しない。新しい global fault latch や全アプリ停止を一律に要求しない。
+3. **単一 DB 内では集合と transaction を使う。** 一体で保存すべき関連行は既存 gateway／owner の transaction にまとめる。複数 change の exact key / path を一括 request として渡し、item loop 内で同じ table 全走査や transaction 開始を繰り返さない。DB 内の rollback と FS に対する補償は別の契約とし、DB を rollback しただけで FS も元に戻ったと扱わない。複数 DB や外部出力も一つの commit と見なさない。
+4. **正常系の粒度を例外中心に決めない。** FS、SQLite、canonical memory の例外は捕捉・報告するが、通常は発生しない障害を完全に補償するためだけに multi-change 操作を per-item durable commit へ分解しない。後続判断に必要な先行成功は session-local facts / overlay で表現する。
+5. **必要な順序を owner 内で閉じる。** session durable result、canonical memory／関連参照の必須反映、任意の UI notification を区別する。必要な内部反映の失敗を、通知失敗や単なる cleanup 残りへ格下げしない。model lock／DB transaction を長時間の FS I/O や UI 待機のために保持しない。
+6. **失敗後に被害を増やさない。** 状態を確定できない対象の後続破壊的処理と、それに依存する成功処理を止める。既に確認済みの成功 change は session result に保持し、必要ならその集合を一回だけ canonical apply してから terminal failure を返す。全 item の一括 rollback、補償の補償、automatic replay、新しい global fault latch を共通要件にしない。
 
 生成ファイルを一つの destination へ保存する場合は、destination と同じディレクトリに所有する一意の staging file を作成し、serializer の close 後に既存 destination を `File.Replace`、初回 destination を `File.Move` で公開する。公開前に destination を削除せず、公開失敗時は既存 bytes を保全する。staging の cleanup 失敗は主原因を置き換えず、主原因・cleanup 原因・残存 staging path を診断へ残す。保存成功の通知は公開完了後にだけ行い、この規則へ DB と FS の複数ファイル transaction、永続 retry、crash recovery を追加しない。
 
@@ -56,9 +58,10 @@ DML の既存限定 retry、SQLite の `BusyTimeout`、DB schema、process lock�
 
 | 範囲 | 現行契約と共通方針との関係 |
 | --- | --- |
-| `FileDbMutationExecutor` を使う導入、folder move、merge、自動 rename 等 | source を DB durable receipt まで保持する。receipt 前の失敗に対し、同じ plan の promoted destination の取り消しと backup 復元を含む、一つの owner による一回限りの best-effort 補償を行う。これは既存経路の限定された契約として維持し、アプリ全体の rollback 義務へ拡張しない。詳細は [File / DB durable boundary](library-mutation-boundary.md#file--db-durable-boundary)。 |
-| 同じ executor の補償失敗 | primary failure と補償 failure、復旧に必要な path を残して手動対応へ移す。補償の補償、再帰的 rollback、無条件 cleanup は行わない。 |
-| DB durable receipt 後、または先行 item の durable success | rollback／compensation に戻らない。内部反映失敗と cleanup 失敗を区別して現在状態を保持する。残存物の cleanup に失敗しても、元の導入を fresh install としてやり直さない。 |
+| 移行前の `FileDbMutationExecutor` を使う導入、folder move、merge、自動 rename 等 | 現行routeでは source を item の DB durable receipt まで保持し、一回限りの best-effort 補償を行う。この per-item receipt は移行中の既存挙動であり、multi-change 操作の恒久要件ではない。[mutation session 実装計画](../plan/library-mutation-session-batching-plan.md) の対象routeは、physical success factsの収集とoperation-scoped canonical applyへ置き換える。 |
+| session-routed multi-change 操作 | deterministicな拒否・skipはchangeに含めず通常結果へ集約する。予期しないFS failureは不確定なitem以降のunsafeな処理を止め、確認済み成功changeを保持する。DB / required internal apply failureでは成功と推測せず、full filesystem rollbackを新設せずに対象・段階・確認済み変更をterminalへ返す。 |
+| 残存する executor の補償失敗 | primary failure と補償 failure、復旧に必要な path を残して手動対応へ移す。補償の補償、再帰的 rollback、無条件 cleanup は行わない。 |
+| session canonical apply 後、または既に確定した別操作 | rollback／compensation に戻らない。内部反映失敗と cleanup 失敗を区別して現在状態を保持する。残存物の cleanup に失敗しても、元の導入を fresh install としてやり直さない。 |
 | ライブラリ削除など、FS の削除が先に確定する操作 | 消したファイルの復元や trash の自動取り出しを要求しない。DB 反映失敗を明示し、後の対応は現在の対象・実在状態から判断する。既存 executor へ形式的に統合するためだけに staging／backup を追加しない。 |
 | 生成ファイルと DB／外部 DB の反映 | 必須出力と再生成可能な派生物を区別する。前段の commit を後段失敗で取り消すことを一律に要求せず、未完了の出力・同期を明示する。機能固有の stronger contract がある場合は維持する。 |
 

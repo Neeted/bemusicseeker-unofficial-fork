@@ -207,6 +207,7 @@ shutdown後のapplyを防ぐためoperationToken追加
 - 未承認の競合する新規変更は既存の論理受付で Busy 拒否する。同じDB/tableかどうかだけで並行許可を決めず、section 6 の例外を守る。writerの責務分割は、操作の同時受理を必要としない。
 - lock は短く保つが、logical admission は必要な変更・補償・cleanupが終端するまで保持してよい。取消要求の受領だけで解放しない。
 - operation gate 保持中に UI thread、dialog、event subscriber、別 owner の同期完了を待ってはならない。論理受付を持ってasyncに待つ場合も、相手が同じ受付を再取得する循環を作らない。既存leaseの引渡し境界を使い、ambientな再入回避を追加しない。
+- 複数対象を含む一回の利用者 command は一つの logical mutation session が所有する。対象ごとの filesystem step や依存判定が逐次でも、item ごとに session を終了・再開始したり、同じ canonical writer の commit / publication を完結させたりしない。session-local overlay は後続判断のためだけに使い、別の authoritative generation として公開しない。
 
 ### 5.3 Input and snapshot
 
@@ -225,6 +226,8 @@ FS と DB を跨ぐ場合の成功・部分失敗、限定補償、前方回復�
 - required publication failure を通常の `Completed` に埋め込まない。
 - best-effort notification は durable success と分離し、失敗しても正本の意味を変えないものに限定する。
 - callback list に必須処理と optional 処理を混在させない。
+- multi-change session は成功 change の facts を集約してから各 canonical surface へ反映する。必要な逐次判断は session-local state で解決し、例外時の補償可能性だけを理由に change ごとの DB commit、index invalidation、required publication を正常系へ持ち込まない。
+- 複数 DB や外部出力は別 durable surface のままでよい。`1 mutation session` は「一つの物理 transaction」を意味せず、「一回の利用者操作の owner、成功 change 集合、commit / publication の因果関係を分割しない」ことを意味する。
 
 ### 5.5 Concurrency default
 
@@ -356,20 +359,20 @@ UI request generation発行
 ```text
 command受付判定
   -> 非待機のlogical admission取得（競合はBusy、受理済みqueueは別契約）
+  -> 1 logical mutation session開始
   -> current authoritative stateから対象再解決
-  -> immutable snapshot取得
-  -> I/O／解析
-  -> immutable mutation plan作成
-  -> commit前invariant検証
-  -> DB／filesystem commit
-  -> authoritative model apply
+  -> immutable snapshot / plan取得
+  -> target #1 の I/O / 判定 -> 成功 change を session へ追加
+  -> target #2..N の I/O / 判定 -> 必要なら session-local overlay を参照・更新
+  -> session commit: durable surface ごとに集約 apply
+  -> authoritative model / derived index apply
   -> required publication
-  -> typed terminal result
+  -> typed session terminal result
   -> best-effort notification
   -> lane解放
 ```
 
-version mismatch による silent discard を terminal success にしない。
+単一対象でも同じ session API を使ってよい。複数対象の正常系で target ごとに session commit を挟まない。version mismatch による silent discard を terminal success にしない。
 
 ### 8.3 Cache rebuild workflow
 
@@ -469,6 +472,8 @@ required source count == accounted source count
 user-owned update count == 0
 required publication count == expected publication count
 mutation plan destination count == durable destination count
+accepted library mutation command count == logical mutation session count
+canonical apply count per durable surface <= documented operation-level count
 pending required callback count == 0
 ```
 

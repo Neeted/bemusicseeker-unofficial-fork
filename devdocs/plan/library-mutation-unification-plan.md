@@ -2,6 +2,8 @@
 
 状態: U1～U5c1完了。最終単位U5c2のレビューP2修正・Functional再検証完了、fresh review中（2026-09-14）。利用者はU1～U5の実装と単位ごとのcommitを承認済み。
 
+> 2026-09-14追記: 本計画で維持した「packageごとの公開」および一部のper-item durable receiptは、その後採用した `1 user operation = 1 mutation session / N changes` 契約で置き換える。実装移行の正本は [operation-scoped mutation session 実装計画](library-mutation-session-batching-plan.md) とする。本計画はU1～U5の履歴記録として残す。
+
 ## 目的と結果
 
 実際の変更操作からFS・DB・正本・索引・公開まで、確定した同じ変更事実を使う。既存file ownerを `LibraryMutationOwner` へ再編し、rootの変更結果組立て・共通反映・公開順序を移管した。索引stateと読み書きは既存 `CatalogOwnedCollectionOwner` に揃えた。新しいbus、queue、global gate、永続変更台帳は追加していない。
